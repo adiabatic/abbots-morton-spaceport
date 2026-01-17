@@ -10,9 +10,14 @@
       src: url('../output/AbbotsMortonSpaceportMono.otf') format('opentype');
     }
 
+    @font-face {
+      font-family: 'Departure Mono';
+      src: url('../inspo/DepartureMono-Regular.otf') format('opentype');
+    }
+
     :root {
       color-scheme: light dark;
-      --font-size: 18px;
+      --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
     }
 
     * {
@@ -34,7 +39,7 @@
     }
 
     .sample {
-      font-family: 'Abbots Morton Spaceport Mono', monospace;
+      font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
       font-size: var(--font-size);
       line-height: 1.5;
       /* Disable font smoothing for crisp pixels */
@@ -81,7 +86,7 @@
     }
 
     pre {
-      font-family: 'Abbots Morton Spaceport Mono', monospace;
+      font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
       -webkit-font-smoothing: none;
       white-space: pre-wrap;
     }
@@ -93,8 +98,8 @@
 
   <div class="controls">
     <label>
-      Font size: <span id="size-value">18</span>px
-      <input type="range" id="size-slider" min="8" max="72" value="18">
+      Font size: <span id="size-value">22</span>px
+      <input type="range" id="size-slider" min="11" max="77" value="22">
     </label>
   </div>
 
@@ -127,16 +132,19 @@
     </div>
   </div>
 
-  <h2>Size Comparison</h2>
+  <h2>Size Comparison (multiples of 11px)</h2>
   <div class="sample-box">
-    <div class="size-label">18px (target size)</div>
-    <div class="sample size-test" style="font-size: 18px;">ABC abc 123</div>
+    <div class="size-label">11px (1x)</div>
+    <div class="sample size-test" style="font-size: 11px;">ABC abc 123</div>
 
-    <div class="size-label">36px (2x)</div>
-    <div class="sample size-test" style="font-size: 36px;">ABC abc 123</div>
+    <div class="size-label">22px (2x)</div>
+    <div class="sample size-test" style="font-size: 22px;">ABC abc 123</div>
 
-    <div class="size-label">54px (3x)</div>
-    <div class="sample size-test" style="font-size: 54px;">ABC abc 123</div>
+    <div class="size-label">33px (3x)</div>
+    <div class="sample size-test" style="font-size: 33px;">ABC abc 123</div>
+
+    <div class="size-label">44px (4x)</div>
+    <div class="sample size-test" style="font-size: 44px;">ABC abc 123</div>
   </div>
 
   <script>
