@@ -20,12 +20,19 @@
       --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
     }
 
+    html {
+      font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+      font-size: 11px;
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: grayscale;
+      font-smooth: never;
+    }
+
     * {
       box-sizing: border-box;
     }
 
     body {
-      font-family: system-ui, sans-serif;
       background: light-dark(#f5f5f5, #1a1a1a);
       color: light-dark(#222, #e0e0e0);
       padding: 2rem;
@@ -36,6 +43,14 @@
     h1, h2 {
       color: light-dark(#0066cc, #4a9eff);
       font-weight: normal;
+    }
+
+    h1 {
+      font-size: 33px;
+    }
+
+    h2 {
+      font-size: 22px;
     }
 
     .sample {
