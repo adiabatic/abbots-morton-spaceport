@@ -52,7 +52,7 @@ glyphs:
     bitmap: []
 
   # Quikscript letters (CSUR PUA U+E650–U+E67F)
-  uniE663:  # QUIKSCRIPT LETTER WHY
+  uniE663:  # ·Why
     advance_width: 7
     y_offset: -2
     bitmap:
