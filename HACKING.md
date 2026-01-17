@@ -1,35 +1,12 @@
 # Abbots Morton Spaceport Mono developer guide
 
-This document explains how to extend and modify the Abbots Morton Spaceport Mono pixel font.
-
-## Build system
-
-The font is built from YAML glyph definitions using fonttools:
+## Making it go
 
 ```bash
 make all
 ```
 
 Dependencies are managed with `uv` and defined in `pyproject.toml`.
-
-## Glyph definitions
-
-Glyphs are defined in `glyph_data.yaml` using bitmap patterns:
-
-```yaml
-glyphs:
-  A:
-    advance_width: 12      # width in pixels
-    y_offset: -1           # vertical shift (negative = below baseline)
-    bitmap:
-      - "     ##    "
-      - "    ####   "
-      # ... each row is a string, # = pixel on
-```
-
-- `advance_width`: horizontal space the glyph occupies (in pixels)
-- `y_offset`: shifts the glyph vertically; use negative values for descenders
-- `bitmap`: array of strings where `#` represents an "on" pixel
 
 ## Coordinate system
 
