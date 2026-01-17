@@ -96,6 +96,18 @@ glyphs:
       - "#   #"
       - " ### "
 
+  uniE65A:  # ·See
+    bitmap:
+      - "   ##"
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "  #  "
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "###  "
+
   uniE65B:  # ·Zoo
     y_offset: -3
     bitmap:
