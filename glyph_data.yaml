@@ -209,6 +209,19 @@ glyphs:
       - "#  # "
       - " ##  "
 
+  uniE661:  # ·Way
+    y_offset: -3
+    bitmap:
+      - "    #"
+      - "   # "
+      - "   # "
+      - "  #  "
+      - "  #  "
+      - " #   " #
+      - " #   "
+      - "#    "
+      - "#    "
+
   uniE663:  # ·Why
     y_offset: -3
     bitmap:
