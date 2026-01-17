@@ -70,6 +70,19 @@ glyphs:
       - "  #  "
       - "  #  "
 
+  uniE657:  # ·They
+    y_offset: -3
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - " #   "
+      - " #   "
+      - " #   "
+      - "#    " #
+      - "#    "
+      - "#   #"
+      - " ### "
+
   uniE65B:  # ·Zoo
     y_offset: -3
     bitmap:
