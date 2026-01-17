@@ -51,6 +51,20 @@ glyphs:
     advance_width: 4
     bitmap: []
 
+  # Quikscript letters (CSUR PUA U+E650–U+E67F)
+  uniE663:  # QUIKSCRIPT LETTER WHY
+    advance_width: 7
+    y_offset: -2
+    bitmap:
+      - "    #"
+      - "   # "
+      - "  #  "
+      - " #   "
+      - "#    "
+      - " #   "
+      - "  #  "
+      - "   # "
+
   A:
     advance_width: 12
     y_offset: -1
