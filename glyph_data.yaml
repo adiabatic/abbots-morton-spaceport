@@ -96,6 +96,18 @@ glyphs:
       - "  #  "
       - "  #  "
 
+  uniE656:  # ·Thaw
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "    #"
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "   # "
+      - "  #  "
+
   uniE657:  # ·They
     y_offset: -3
     bitmap:
