@@ -55,6 +55,7 @@ glyphs:
   # width is 5 pixels
   # x-height is 6 pixels
   # Talls are 9 pixels
+  # Deeps are 9 pixels
 
   # Quikscript letters (CSUR PUA U+E650–U+E67F)
   uniE652:  # ·Tea
@@ -74,7 +75,9 @@ glyphs:
     bitmap:
       - "###  "
       - "   # "
+      - "   # "
       - "  #  "
+      - " #   "
       - " #   "
       - "#   #" #
       - "#  # "
@@ -83,6 +86,7 @@ glyphs:
   uniE663:  # ·Why
     y_offset: -3
     bitmap:
+      - "    #"
       - "    #"
       - "    #"
       - "    #"
