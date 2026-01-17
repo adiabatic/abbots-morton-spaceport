@@ -116,6 +116,13 @@ def build_font(glyph_data: dict, output_path: Path):
     for glyph_name, glyph_def in glyphs_def.items():
         if len(glyph_name) == 1:
             cmap[ord(glyph_name)] = glyph_name
+        elif glyph_name.startswith("uni") and len(glyph_name) == 7:
+            # Handle uniXXXX naming convention (4 hex digits)
+            try:
+                codepoint = int(glyph_name[3:], 16)
+                cmap[codepoint] = glyph_name
+            except ValueError:
+                pass  # Not a valid hex code, skip
 
     # Initialize FontBuilder for CFF-based OTF
     fb = FontBuilder(units_per_em, isTTF=False)
