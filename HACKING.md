@@ -11,7 +11,7 @@ Dependencies are managed with `uv` and defined in `pyproject.toml`.
 ## Coordinate system
 
 - All coordinates in YAML are in **pixels**
-- The build script converts to font units using `pixel_size` (default: 56 units/pixel)
+- The build script converts to font units using `pixel_size` from the metadata
 - `y_offset` shifts the entire glyph vertically:
   - `0` = bottom of bitmap sits on baseline
   - `-2` = bottom of bitmap is 2 pixels below baseline (for descenders)
