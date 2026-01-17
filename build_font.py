@@ -163,6 +163,15 @@ def build_font(glyph_data: dict, output_path: Path):
         glyph_def = glyphs_def.get(glyph_name, {})
         bitmap = glyph_def.get("bitmap", [])
 
+        # Validate bitmap width: all rows must be exactly 5 characters wide
+        if bitmap:
+            for row_idx, row in enumerate(bitmap):
+                row_len = len(row)
+                if row_len != 5:
+                    raise ValueError(
+                        f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
+                    )
+
         if not bitmap:
             # Empty glyph
             pen = T2CharStringPen(width=pixel_size * 4, glyphSet=glyph_set)
