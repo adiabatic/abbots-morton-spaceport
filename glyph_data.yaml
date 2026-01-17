@@ -56,8 +56,21 @@ glyphs:
   # x-height is 6 pixels
   # Talls are 9 pixels
   # Deeps are 9 pixels
+  # Add a nothing comment on the bottom inside of the X-height or right on top of the baseline
 
   # Quikscript letters (CSUR PUA U+E650–U+E67F)
+  uniE650:  # ·Pea
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#   #" 
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #"
+
   uniE652:  # ·Tea
     bitmap:
       - "  #  "
