@@ -3,6 +3,7 @@
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
+- This project uses `uv` for Python things.
 
 ## Inspiration
 
