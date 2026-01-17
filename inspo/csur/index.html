@@ -1,0 +1,369 @@
+<!DOCTYPE HTML>
+<html lang='en-US'>
+<head>
+    <meta charset='UTF-8'>
+    <title>Quikscript: U+E650 – U+E67F</title>
+	<meta name='viewport' content='width=600'>
+    <style>
+        @font-face {
+            font-family: Kingsley;
+            src: url("kingsley.eot?#iefix") format('embedded-opentype'),
+                 url("kingsley.woff");
+        }
+        
+        html {
+            font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+            font-weight: 400;
+        }
+        
+        code, pre {
+            font-family: Menlo, Consolas, monospace;
+        }
+        
+        table, tr, th, td {
+            border: thin solid gray;
+            border-collapse: collapse;
+        }
+
+        td {
+            font-family: Kingsley;
+            font-size: 3rem;
+            text-align: center;
+            padding: .75rem;
+        }
+        
+        .unused {
+            background: lightgray;
+        }
+    </style>
+    <link rel='icon' href='data:;base64,='>
+</head>
+<body>
+<h1>Quikscript: U+E650 – U+E67F</h1>
+
+<p>[to be proposed]</p>
+
+<ol>
+    <li><a href='#introduction'>Introduction</a>
+    <li><a href='#punctuation'>Punctuation</a>
+    <li>Speed Aids
+        <ol>
+            <li><a href='#ligation'>Ligation</a>
+            <li><a href='#half-letters'>Half-Letters</a>
+            <li><a href='#alternate-letterforms'>Alternate Letterforms</a>
+        </ol>
+    </li>
+    <li><a href='#code-points'>Code Points</a>
+    <li><a href='#character-properties'>Character Properties</a>
+    <li><a href='#chart'>Chart</a>
+    <li><a href='#collation'>Collation</a>
+    <li><a href='#identifiers'>Identifiers</a>
+    <li><a href='#historical-notes'>Historical Notes</a>
+</ol>
+
+
+
+<h2 id='introduction'>Introduction</h2>
+
+<p>Ronald Kingsley Read designed Shavian, a phonetic script for English. After using Shavian with different speakers from around the world, Read designed Quikscript, another phonetic script for English designed to be faster to write. Read released Quikscript in 1966.</p>
+
+
+<h2 id='punctuation'>Punctuation</h2>
+
+<p>Punctuation is largely the same as in normal written English (often called Orthodox in the Quikscript community). However, parentheses in running text are angled, not curved (see U+E66E and U+E66F). Parentheses used elsewhere — such as in numbered lists where the numbers are set off from the rest of the text — can be rounded (U+0028 and U+0029). Finally, apostrophes are usually unnecessary.</p>
+
+<p>Quikscript does not have a separate upper and lower case. A namer dot (U+00B7 MIDDLE DOT) is used to mark proper names.</p>
+
+
+<h2>Glyph Variation</h2>
+
+<p>Quikscript can be written in a manner where all letters are separate from each other. This way of writing is called Junior Quikscript. More advanced Quikscript users use features of Senior Quikscript such as ligation, half-letters, and alternate letterforms.</p>
+
+<h3 id='ligation'>Ligation</h3>
+
+<p>Junior Quikscript, much like Latin and Shavian, is unligated. This style is suitable for beginners. More advanced Junior Quikscript writers will avoid lifting their pen between letters when possible.</p>
+
+<p>Some Quikscript fonts that automatically ligate may do so across syllable boundaries. If this behavior is undesirable, add a U+200C ZERO WIDTH NON-JOINER between the two letters in question.</p>
+
+
+<h3 id='half-letters'>Half Letters</h3>
+
+<p>Both QUIKSCRIPT LETTER DAY and QUIKSCRIPT LETTER ZOO can be written so they both start and end at the baseline, as opposed to starting at the Short (x-height) height and ending at the baseline.</p>
+
+<p>Similarly, QUIKSCRIPT LETTER PEA can both start and end at the Short height when connected to a subsequent Tall letter such as QUIKSCRIPT LETTER KEY or another QUIKSCRIPT LETTER PEA.</p>
+
+<p>This proposal deliberately omits encoding half-letters as its author believes that glyph selection should be handled at the font layer using OpenType features such as standard ligatures (<code>liga</code>) or stylistic sets.</p>
+
+
+<h3 id='alternate-letterforms'>Alternate Letterforms</h3>
+
+<p id='alternate-utter'>To reduce the number of intraword pen lifts, Read created two alternate letterforms. ALTERNATE UTTER is for when an [ə] sound precedes a letter that only connects to the previous letter at the baseline — like THAW, VIE, SEE, (maybe) ZHIVAGO, HE, OOLONG, MAY, and LOW.</p>
+
+<p id='alternate-no'>Similarly, ALTERNATE NO is for when an <span data-ipa>n</span> sound precedes a letter that only connects leftward at the baseline.</p>
+
+<p>In some cases, ALTERNATE NO is best <em>following</em> a particular letter, often SHE for words ending in -tion.</p>
+
+<p>As with half letters, this proposal deliberately omits encoding alternate letterforms for QUIKSCRIPT LETTER UTTER and QUIKSCRIPT LETTER NO as its author believes that glyph selection should be handled at the font layer using OpenType features such as standard ligatures (<code>liga</code>) or stylistic sets.</p>
+
+<h2 id='code-points'>Code Points</h2>
+
+<code><pre>
+U+E650 QUIKSCRIPT LETTER PEA
+U+E651 QUIKSCRIPT LETTER BAY
+U+E652 QUIKSCRIPT LETTER TEA
+U+E653 QUIKSCRIPT LETTER DAY
+U+E654 QUIKSCRIPT LETTER KEY
+U+E655 QUIKSCRIPT LETTER GAY
+U+E656 QUIKSCRIPT LETTER THAW
+U+E657 QUIKSCRIPT LETTER THEY
+U+E658 QUIKSCRIPT LETTER FEE
+U+E659 QUIKSCRIPT LETTER VIE
+U+E65A QUIKSCRIPT LETTER SEE
+U+E65B QUIKSCRIPT LETTER ZOO
+U+E65C QUIKSCRIPT LETTER SHE
+U+E65D QUIKSCRIPT LETTER ZHIVAGO
+U+E65E QUIKSCRIPT LETTER CHEER
+U+E65F QUIKSCRIPT LETTER JAY
+U+E660 QUIKSCRIPT LETTER YE
+U+E661 QUIKSCRIPT LETTER WAY
+U+E662 QUIKSCRIPT LETTER HE
+U+E663 QUIKSCRIPT LETTER WHY
+U+E664 QUIKSCRIPT LETTER OOLONG
+U+E665 QUIKSCRIPT LETTER MAY
+U+E666 QUIKSCRIPT LETTER NO
+U+E667 QUIKSCRIPT LETTER LOW
+U+E668 QUIKSCRIPT LETTER ROE
+U+E669 QUIKSCRIPT LETTER LOCH
+U+E66A QUIKSCRIPT LETTER LLAN
+U+E66B QUIKSCRIPT LETTER EXCITE
+U+E66C QUIKSCRIPT LETTER EXAM
+U+E66D (unused)
+U+E66E QUIKSCRIPT LEFT ANGLED PARENTHESIS
+U+E66F QUIKSCRIPT RIGHT ANGLED PARENTHESIS
+U+E670 QUIKSCRIPT LETTER IT
+U+E671 QUIKSCRIPT LETTER EAT
+U+E672 QUIKSCRIPT LETTER ET
+U+E673 QUIKSCRIPT LETTER EIGHT
+U+E674 QUIKSCRIPT LETTER AT
+U+E675 QUIKSCRIPT LETTER I
+U+E676 QUIKSCRIPT LETTER AH
+U+E677 QUIKSCRIPT LETTER AWE
+U+E678 QUIKSCRIPT LETTER OX
+U+E679 QUIKSCRIPT LETTER OY
+U+E67A QUIKSCRIPT LETTER UTTER
+U+E67B QUIKSCRIPT LETTER OUT
+U+E67C QUIKSCRIPT LETTER OWE
+U+E67D QUIKSCRIPT LETTER FOOT
+U+E67E QUIKSCRIPT LETTER OOZE
+U+E67F (unused)
+</pre></code>
+
+<h2 id='character-properties'>Character Properties</h2>
+
+
+<!--
+0028;LEFT PARENTHESIS;Ps;0;ON;;;;;Y;OPENING PARENTHESIS;;;;
+0029;RIGHT PARENTHESIS;Pe;0;ON;;;;;Y;CLOSING PARENTHESIS;;;;
+
+So, we want:
+____ ; # codepoint
+____ ; # Name
+Lo   ; # General_Category (Lo, Ps, Pe)
+0    ; # Canonical_Combining_Class (0; none of these are diacritical marks)
+L    ; # Bidi_Class (L for LTR; ON for angle parentheses)
+     ; # Decomposition_Type, Decomposition_Mapping (default OK)
+     ; # numeric stuff
+     ; # numeric stuff
+     ; # numeric stuff
+N    ; # Bidi_Mirrored (N for not mirrored in bidi text)
+     ; # Unicode_1_Name
+     ; # ISO_Comment
+     ; # Simple_Uppercase_Mapping
+     ; # Simple_Lowercase_Mapping
+       # Simple_Titlecase_Mapping
+
+so for normal letters, we append:
+;Lo;0;L;;;;;N;;;;;
+
+and for parentheses:
+;Ps;0;On;;;;;N;;;;;
+;Pe;0;On;;;;;N;;;;;
+
+-->
+
+<code><pre>
+E650;QUIKSCRIPT LETTER PEA;Lo;0;L;;;;;N;;;;;
+E651;QUIKSCRIPT LETTER BAY;Lo;0;L;;;;;N;;;;;
+E652;QUIKSCRIPT LETTER TEA;Lo;0;L;;;;;N;;;;;
+E653;QUIKSCRIPT LETTER DAY;Lo;0;L;;;;;N;;;;;
+E654;QUIKSCRIPT LETTER KEY;Lo;0;L;;;;;N;;;;;
+E655;QUIKSCRIPT LETTER GAY;Lo;0;L;;;;;N;;;;;
+E656;QUIKSCRIPT LETTER THAW;Lo;0;L;;;;;N;;;;;
+E657;QUIKSCRIPT LETTER THEY;Lo;0;L;;;;;N;;;;;
+E658;QUIKSCRIPT LETTER FEE;Lo;0;L;;;;;N;;;;;
+E659;QUIKSCRIPT LETTER VIE;Lo;0;L;;;;;N;;;;;
+E65A;QUIKSCRIPT LETTER SEE;Lo;0;L;;;;;N;;;;;
+E65B;QUIKSCRIPT LETTER ZOO;Lo;0;L;;;;;N;;;;;
+E65C;QUIKSCRIPT LETTER SHE;Lo;0;L;;;;;N;;;;;
+E65D;QUIKSCRIPT LETTER ZHIVAGO;Lo;0;L;;;;;N;;;;;
+E65E;QUIKSCRIPT LETTER CHEER;Lo;0;L;;;;;N;;;;;
+E65F;QUIKSCRIPT LETTER JAY;Lo;0;L;;;;;N;;;;;
+E660;QUIKSCRIPT LETTER YE;Lo;0;L;;;;;N;;;;;
+E661;QUIKSCRIPT LETTER WAY;Lo;0;L;;;;;N;;;;;
+E662;QUIKSCRIPT LETTER HE;Lo;0;L;;;;;N;;;;;
+E663;QUIKSCRIPT LETTER WHY;Lo;0;L;;;;;N;;;;;
+E664;QUIKSCRIPT LETTER OOLONG;Lo;0;L;;;;;N;;;;;
+E665;QUIKSCRIPT LETTER MAY;Lo;0;L;;;;;N;;;;;
+E666;QUIKSCRIPT LETTER NO;Lo;0;L;;;;;N;;;;;
+E667;QUIKSCRIPT LETTER LOW;Lo;0;L;;;;;N;;;;;
+E668;QUIKSCRIPT LETTER ROE;Lo;0;L;;;;;N;;;;;
+E669;QUIKSCRIPT LETTER LOCH;Lo;0;L;;;;;N;;;;;
+E66A;QUIKSCRIPT LETTER LLAN;Lo;0;L;;;;;N;;;;;
+E66B;QUIKSCRIPT LETTER EXCITE;Lo;0;L;;;;;N;;;;;
+E66C;QUIKSCRIPT LETTER EXAM;Lo;0;L;;;;;N;;;;;
+
+E66E;QUIKSCRIPT LEFT ANGLED PARENTHESIS;Ps;0;On;;;;;N;;;;;
+E66F;QUIKSCRIPT RIGHT ANGLED PARENTHESIS;Pe;0;On;;;;;N;;;;;
+E670;QUIKSCRIPT LETTER IT;Lo;0;L;;;;;N;;;;;
+E671;QUIKSCRIPT LETTER EAT;Lo;0;L;;;;;N;;;;;
+E672;QUIKSCRIPT LETTER ET;Lo;0;L;;;;;N;;;;;
+E673;QUIKSCRIPT LETTER EIGHT;Lo;0;L;;;;;N;;;;;
+E674;QUIKSCRIPT LETTER AT;Lo;0;L;;;;;N;;;;;
+E675;QUIKSCRIPT LETTER I;Lo;0;L;;;;;N;;;;;
+E676;QUIKSCRIPT LETTER AH;Lo;0;L;;;;;N;;;;;
+E677;QUIKSCRIPT LETTER AWE;Lo;0;L;;;;;N;;;;;
+E678;QUIKSCRIPT LETTER OX;Lo;0;L;;;;;N;;;;;
+E679;QUIKSCRIPT LETTER OY;Lo;0;L;;;;;N;;;;;
+E67A;QUIKSCRIPT LETTER UTTER;Lo;0;L;;;;;N;;;;;
+E67B;QUIKSCRIPT LETTER OUT;Lo;0;L;;;;;N;;;;;
+E67C;QUIKSCRIPT LETTER OWE;Lo;0;L;;;;;N;;;;;
+E67D;QUIKSCRIPT LETTER FOOT;Lo;0;L;;;;;N;;;;;
+E67E;QUIKSCRIPT LETTER OOZE;Lo;0;L;;;;;N;;;;;
+</pre></code>
+
+<h2 id='chart'>Chart</h2>
+
+<table>
+    <tr>
+        <th> </th>
+        <th>E65
+        <th>E66
+        <th>E67
+        
+    <tr>
+        <th>0
+        <td>&#xE650;
+        <td>&#xE660;
+        <td>&#xE670;
+    <tr>
+        <th>1
+        <td>&#xE651;
+        <td>&#xE661;
+        <td>&#xE671;
+    <tr>
+        <th>2
+        <td>&#xE652;
+        <td>&#xE662;
+        <td>&#xE672;
+    <tr>
+        <th>3
+        <td>&#xE653;
+        <td>&#xE663;
+        <td>&#xE673;
+    <tr>
+        <th>4
+        <td>&#xE654;
+        <td>&#xE664;
+        <td>&#xE674;
+    <tr>
+        <th>5
+        <td>&#xE655;
+        <td>&#xE665;
+        <td>&#xE675;
+    <tr>
+        <th>6
+        <td>&#xE656;
+        <td>&#xE666;
+        <td>&#xE676;
+    <tr>
+        <th>7
+        <td>&#xE657;
+        <td>&#xE667;
+        <td>&#xE677;
+    <tr>
+        <th>8
+        <td>&#xE658;
+        <td>&#xE668;
+        <td>&#xE678;
+    <tr>
+        <th>9
+        <td>&#xE659;
+        <td>&#xE669;
+        <td>&#xE679;
+    <tr>
+        <th>A
+        <td>&#xE65A;
+        <td>&#xE66A;
+        <td>&#xE67A;
+    <tr>
+        <th>B
+        <td>&#xE65B;
+        <td>&#xE66B;
+        <td>&#xE67B;
+    <tr>
+        <th>C
+        <td>&#xE65C;
+        <td>&#xE66C;
+        <td>&#xE67C;
+    <tr>
+        <th>D
+        <td>&#xE65D;
+        <td class='unused'>
+        <td>&#xE67D;
+    <tr>
+        <th>E
+        <td>&#xE65E;
+        <td>(
+        <td>&#xE67E;
+    <tr>
+        <th>F
+        <td>&#xE65F;
+        <td>)
+        <td class='unused'>
+        
+</table>
+
+
+<h2 id='collation'>Collation</h2>
+
+<p>While Read’s own manual establishes an order for most letters, AX, EXAM, LOCH, and LLAN are absent from the main list of 40.</p>
+
+
+<h2 id='identifiers'>Identifiers</h2>
+
+<p>None of these characters ought to be permitted in identifiers.</p>
+
+
+<h2 id='historical-notes'>Historical Notes</h2>
+
+<p>Some fonts use U+E67F for the namer dot.</p>
+
+<p>Some (all?) fonts have left and right angled parentheses for U+0028 LEFT PARENTHESIS and U+0029 RIGHT PARENTHESIS.</p>
+
+<p>The letter name of “J’ai” was replaced with “Zhivago” for the [ʒ] sound.</p>
+
+<p>The letter name of “-ing” was replaced with “oolong” for the [ŋ] sound.</p>
+
+<section hidden>
+    <h2 id='changelog'>Changelog</h2>
+
+    <h3>2019-03-31</h3>
+    <ul>
+        <li>Clarified rationale for omission of code points for half letters and alternate letterforms.</li>
+        <li>Grammar improvements.</li>
+
+    </ul>
+</section>
+
+</body>
+</html>
