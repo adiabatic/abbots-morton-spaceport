@@ -190,6 +190,15 @@ glyphs:
       - " #   "
       - "#    "
 
+  uniE674:  # ·At
+    bitmap:
+      - "    #"
+      - "    #"
+      - "    #"
+      - "   # "
+      - "  #  "
+      - "##   "
+
   uniE67A:  # ·Utter
     bitmap:
       - "   ##"
