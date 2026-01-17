@@ -182,6 +182,20 @@ def build_font(glyph_data: dict, output_path: Path):
         # Parse and convert bitmap
         bitmap = parse_bitmap(bitmap)
         y_offset = glyph_def.get("y_offset", 0)  # negative for descenders
+
+        # Validate bitmap height
+        row_count = len(bitmap)
+        if y_offset == -3:
+            if row_count != 9:
+                raise ValueError(
+                    f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9"
+                )
+        else:
+            if row_count not in (6, 9):
+                raise ValueError(
+                    f"Glyph '{glyph_name}' has {row_count} rows, expected 6 or 9"
+                )
+
         rectangles = bitmap_to_rectangles(bitmap, pixel_size, y_offset)
 
         # Calculate advance width
