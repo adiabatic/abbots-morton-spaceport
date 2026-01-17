@@ -9,6 +9,7 @@
 
 - This is a font that’s supposed to match Departure Mono’s metrics.
 - When in doubt, look at @inspo/DepartureMono-Regular.otf to check metrics.
+- When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
 - If you want to know what Quikscript letters go with what code points, look at @inspo/csur/index.html .
 
 ## Markdown-document style
