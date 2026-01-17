@@ -15,6 +15,9 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - When looking at @inspo/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
+- Tall letters have a height of 9 pixels (9 entries in `bitmap`).
+- Short letters have a height of 6 pixels (6 entries in `bitmap`).
+- Deep letters have a height of 6 pixels (6 entries in `bitmap`) and a `y_offset` of -3.
 
 ## Inspiration
 
