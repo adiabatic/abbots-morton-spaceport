@@ -3,7 +3,13 @@
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
-- This project uses `uv` for Python things.
+
+## Python
+
+IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For example:
+
+- `uv run build_font.py` not `python build_font.py`
+- `uv run pytest` not `pytest`
 
 ## Inspiration
 
