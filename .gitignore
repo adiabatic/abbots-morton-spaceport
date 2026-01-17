@@ -10,4 +10,4 @@ wheels/
 .venv
 
 # Build stuff
-output/
+/test/AbbotsMortonSpaceportMono.otf
