@@ -1,0 +1,502 @@
+metadata:
+  font_name: Abbots Morton Spaceport Mono
+  source: …
+
+  # units_per_em: The number of font units per em square.
+  #
+  # 1000 is the standard value for CFF-based OpenType fonts. It provides
+  # good precision for defining glyph outlines while keeping coordinate
+  # values manageable. TrueType fonts often use 2048, but 1000 is the
+  # convention for PostScript/CFF and works well with our pixel-based
+  # approach since it divides evenly into nice pixel sizes.
+  units_per_em: 1000
+
+  # pixel_size: The size of one pixel in font units.
+  #
+  # Since the source font is 18pt and we want roughly 18 pixels to fit
+  # within the em square vertically, we calculate: 1000 / 18 ≈ 55.6,
+  # rounded to 56. This means each "pixel" in our bitmap definitions
+  # becomes a 56x56 unit square in the font. The slight rounding means
+  # we get approximately 17.9 pixels per em (1000/56), which is close
+  # enough to 18 for our purposes and gives us a clean integer to work
+  # with throughout the build process.
+  pixel_size: 56
+
+  # ascender: The distance from the baseline to the top of the tallest
+  # glyphs, in font units.
+  #
+  # 784 = 14 × 56, meaning 14 pixels above the baseline. This covers
+  # the tallest characters in the font. Most uppercase letters like 'A'
+  # have bitmaps around 13-14 rows tall. Setting the ascender to 14
+  # pixels provides enough headroom for the tallest glyphs plus any
+  # combining marks that sit above them (like accents, which use
+  # y_offset to position themselves even higher).
+  ascender: 784
+
+  # descender: The distance from the baseline to the bottom of glyphs
+  # with descenders, in font units (negative because it's below baseline).
+  #
+  # -224 = -4 × 56, meaning 4 pixels below the baseline. Characters
+  # with descenders like 'g', 'y', 'p', 'q', and 'Q' extend below the
+  # baseline. Looking at 'g' (y_offset: -2, 6 rows) and 'Q' (y_offset:
+  # -2, 11 rows), the lowest point reaches about 2 pixels below baseline.
+  # Setting descender to -4 pixels provides comfortable margin and room
+  # for any bottom-attaching marks like cedillas or ogoneks.
+  descender: -224
+
+  # cap_height: The height of uppercase letters, in font units.
+  #
+  # 672 = 12 × 56, meaning uppercase letters are 12 pixels tall. This
+  # is measured from the baseline to the top of flat uppercase letters
+  # like 'H' or 'E'. Looking at the 'A' glyph: it has 14 bitmap rows
+  # with y_offset: -1, so its top pixel sits at y = 12 (calculated as
+  # -1 + 14 - 1 = 12 pixels). The cap_height informs text layout
+  # engines where the tops of capital letters sit, useful for optical
+  # alignment and vertical centering.
+  cap_height: 672
+
+  # x_height: The height of lowercase letters without ascenders or
+  # descenders, in font units.
+  #
+  # 448 = 8 × 56, meaning the main body of lowercase letters is 8
+  # pixels tall. This is measured from the baseline to the top of
+  # flat lowercase letters like 'x', 'e', or 'a' (excluding any parts
+  # that rise above, like the ascender on 'b' or 'd'). The x_height
+  # is important for readability metrics and helps applications make
+  # decisions about font scaling and line spacing. At 8 pixels, it's
+  # roughly 2/3 of the cap_height, which is typical for Latin fonts.
+  x_height: 448
+
+glyphs:
+  space:
+    advance_width: 4
+    bitmap: []
+
+  A:
+    advance_width: 12
+    y_offset: -1
+    bitmap:
+      - "  #  "
+      - " # # "
+      - " ### "
+      - "#   #"
+
+  B:
+    advance_width: 10
+    bitmap:
+      - " #### "
+      - "#    #"
+      - "#    #"
+      - "##### "
+      - "#    #"
+      - "#    #"
+      - " #### "
+
+
+  C:
+    advance_width: 10
+    bitmap:
+      - "   #####  "
+      - "  #     # "
+      - " #        "
+      - "#         "
+      - "#         "
+      - "#         "
+      - " #        "
+      - "  #     # "
+      - "   #####  "
+
+  D:
+    advance_width: 10
+    bitmap:
+      - "######    "
+      - "#     #   "
+      - "#      #  "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#      #  "
+      - "#     #   "
+      - "######    "
+
+  E:
+    advance_width: 9
+    bitmap:
+      - "######## "
+      - "#        "
+      - "#        "
+      - "#        "
+      - "#######  "
+      - "#        "
+      - "#        "
+      - "#        "
+      - "######## "
+
+  F:
+    advance_width: 9
+    bitmap:
+      - "######## "
+      - "#        "
+      - "#        "
+      - "#        "
+      - "#######  "
+      - "#        "
+      - "#        "
+      - "#        "
+      - "#        "
+
+  G:
+    advance_width: 11
+    bitmap:
+      - "   #####   "
+      - "  #     #  "
+      - " #         "
+      - "#          "
+      - "#          "
+      - "#    ####  "
+      - " #      #  "
+      - "  #     #  "
+      - "   #####   "
+
+  H:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "######### "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+
+  I:
+    advance_width: 4
+    bitmap:
+      - "###"
+      - " # "
+      - " # "
+      - " # "
+      - " # "
+      - " # "
+      - " # "
+      - " # "
+      - "###"
+
+  J:
+    advance_width: 8
+    bitmap:
+      - "   #### "
+      - "     #  "
+      - "     #  "
+      - "     #  "
+      - "     #  "
+      - "     #  "
+      - "#    #  "
+      - "#   #   "
+      - " ###    "
+
+  K:
+    advance_width: 10
+    bitmap:
+      - "#      #  "
+      - "#     #   "
+      - "#    #    "
+      - "#   #     "
+      - "####      "
+      - "#   #     "
+      - "#    #    "
+      - "#     #   "
+      - "#      #  "
+
+  L:
+    advance_width: 8
+    bitmap:
+      - "#       "
+      - "#       "
+      - "#       "
+      - "#       "
+      - "#       "
+      - "#       "
+      - "#       "
+      - "#       "
+      - "####### "
+
+  M:
+    advance_width: 12
+    bitmap:
+      - "#        # "
+      - "##      ## "
+      - "# #    # # "
+      - "#  #  #  # "
+      - "#   ##   # "
+      - "#        # "
+      - "#        # "
+      - "#        # "
+      - "#        # "
+
+  N:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - "##      # "
+      - "# #     # "
+      - "#  #    # "
+      - "#   #   # "
+      - "#    #  # "
+      - "#     # # "
+      - "#      ## "
+      - "#       # "
+
+  O:
+    advance_width: 11
+    bitmap:
+      - "   ####    "
+      - "  #    #   "
+      - " #      #  "
+      - "#        # "
+      - "#        # "
+      - "#        # "
+      - " #      #  "
+      - "  #    #   "
+      - "   ####    "
+
+  P:
+    advance_width: 9
+    bitmap:
+      - "#######  "
+      - "#      # "
+      - "#      # "
+      - "#      # "
+      - "#######  "
+      - "#        "
+      - "#        "
+      - "#        "
+      - "#        "
+
+  Q:
+    advance_width: 11
+    y_offset: -2
+    bitmap:
+      - "   ####    "
+      - "  #    #   "
+      - " #      #  "
+      - "#        # "
+      - "#        # "
+      - "#        # "
+      - " #      #  "
+      - "  #    #   "
+      - "   ####    "
+      - "       #   "
+      - "        #  "
+
+  R:
+    advance_width: 10
+    bitmap:
+      - "#######   "
+      - "#      #  "
+      - "#      #  "
+      - "#      #  "
+      - "#######   "
+      - "#    #    "
+      - "#     #   "
+      - "#      #  "
+      - "#       # "
+
+  S:
+    advance_width: 9
+    bitmap:
+      - "  #####  "
+      - " #     # "
+      - "#        "
+      - " ##      "
+      - "   ###   "
+      - "      ## "
+      - "        #"
+      - " #     # "
+      - "  #####  "
+
+  T:
+    advance_width: 10
+    bitmap:
+      - "######### "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+
+  U:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - "#       # "
+      - " #     #  "
+      - "  #####   "
+
+  V:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - "#       # "
+      - " #     #  "
+      - " #     #  "
+      - "  #   #   "
+      - "  #   #   "
+      - "   # #    "
+      - "   # #    "
+      - "    #     "
+
+  W:
+    advance_width: 14
+    bitmap:
+      - "#           # "
+      - "#           # "
+      - " #         #  "
+      - " #    #    #  "
+      - "  #   #   #   "
+      - "  #  # #  #   "
+      - "   # # # #    "
+      - "   ##   ##    "
+      - "    #   #     "
+
+  X:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - " #     #  "
+      - "  #   #   "
+      - "   # #    "
+      - "    #     "
+      - "   # #    "
+      - "  #   #   "
+      - " #     #  "
+      - "#       # "
+
+  Y:
+    advance_width: 10
+    bitmap:
+      - "#       # "
+      - " #     #  "
+      - "  #   #   "
+      - "   # #    "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+      - "    #     "
+
+  Z:
+    advance_width: 9
+    bitmap:
+      - "######## "
+      - "       # "
+      - "      #  "
+      - "     #   "
+      - "    #    "
+      - "   #     "
+      - "  #      "
+      - " #       "
+      - "######## "
+
+  # Lowercase
+  a:
+    advance_width: 11
+    bitmap:
+      - " #### "
+      - "#    #"
+      - "#    #"
+      - "##### "
+      - "#    #"
+      - "#    #"
+      - " #### "
+
+  b:
+    advance_width: 8
+    bitmap:
+      - "#     "
+      - "#     "
+      - "##### "
+      - "#    #"
+      - "#    #"
+      - "##### "
+
+  c:
+    advance_width: 7
+    bitmap:
+      - " #### "
+      - "#     "
+      - "#     "
+      - " #### "
+
+  e:
+    advance_width: 7
+    bitmap:
+      - " #### "
+      - "#    #"
+      - "######"
+      - "#     "
+      - " #### "
+
+  g:
+    advance_width: 8
+    y_offset: -2
+    bitmap:
+      - " #### "
+      - "#    #"
+      - "#    #"
+      - " #####"
+      - "     #"
+      - " #### "
+
+  # Numbers (placeholders)
+  "0":
+    advance_width: 8
+    bitmap:
+      - " #### "
+      - "#    #"
+      - "#    #"
+      - "#    #"
+      - "#    #"
+      - " #### "
+
+  "1":
+    advance_width: 6
+    bitmap:
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # "
+      - "  # "
+      - " ###"
+
+  # Punctuation (placeholders)
+  ".":
+    advance_width: 3
+    bitmap:
+      - "#"
+
+  ",":
+    advance_width: 3
+    bitmap:
+      - " #"
+      - "# "
+
+  "!":
+    advance_width: 3
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - " "
+      - "#"

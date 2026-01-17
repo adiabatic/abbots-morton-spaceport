@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abbots Morton Spaceport Mono Font Test</title>
+  <style>
+    @font-face {
+      font-family: 'Abbots Morton Spaceport Mono';
+      src: url('../output/AbbotsMortonSpaceportMono.otf') format('opentype');
+    }
+
+    :root {
+      color-scheme: light dark;
+      --font-size: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: light-dark(#f5f5f5, #1a1a1a);
+      color: light-dark(#222, #e0e0e0);
+      padding: 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    h1, h2 {
+      color: light-dark(#0066cc, #4a9eff);
+      font-weight: normal;
+    }
+
+    .sample {
+      font-family: 'Abbots Morton Spaceport Mono', monospace;
+      font-size: var(--font-size);
+      line-height: 1.5;
+      /* Disable font smoothing for crisp pixels */
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: grayscale;
+      font-smooth: never;
+      /* Fallback for other browsers */
+      text-rendering: optimizeSpeed;
+    }
+
+    .sample-box {
+      background: light-dark(#fff, #2a2a2a);
+      border: 1px solid light-dark(#ccc, #444);
+      padding: 1.5rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+    }
+
+    .size-test {
+      margin: 0.5rem 0;
+    }
+
+    .controls {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: light-dark(#fff, #2a2a2a);
+      border: 1px solid light-dark(#ccc, #444);
+      border-radius: 4px;
+    }
+
+    .controls label {
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+
+    .controls input[type="range"] {
+      width: 200px;
+    }
+
+    .size-label {
+      font-size: 0.8rem;
+      color: light-dark(#666, #888);
+      margin-bottom: 0.25rem;
+    }
+
+    pre {
+      font-family: 'Abbots Morton Spaceport Mono', monospace;
+      -webkit-font-smoothing: none;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h1>Abbots Morton Spaceport Mono</h1>
+  <p>Pixel font test page. Rendering should show crisp pixels without antialiasing.</p>
+
+  <div class="controls">
+    <label>
+      Font size: <span id="size-value">18</span>px
+      <input type="range" id="size-slider" min="8" max="72" value="18">
+    </label>
+  </div>
+
+  <h2>Uppercase</h2>
+  <div class="sample-box">
+    <div class="sample" id="sample-upper">ABCDEFGHIJKLMNOPQRSTUVWXYZ</div>
+  </div>
+
+  <h2>Lowercase</h2>
+  <div class="sample-box">
+    <div class="sample" id="sample-lower">abcdefghijklmnopqrstuvwxyz</div>
+  </div>
+
+  <h2>Numbers</h2>
+  <div class="sample-box">
+    <div class="sample" id="sample-numbers">0123456789</div>
+  </div>
+
+  <h2>Punctuation</h2>
+  <div class="sample-box">
+    <div class="sample" id="sample-punct">.,;:!?'"()-</div>
+  </div>
+
+  <h2>Sample Text</h2>
+  <div class="sample-box">
+    <div class="sample" id="sample-text">
+      ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      <br><br>
+      THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG.
+    </div>
+  </div>
+
+  <h2>Size Comparison</h2>
+  <div class="sample-box">
+    <div class="size-label">18px (target size)</div>
+    <div class="sample size-test" style="font-size: 18px;">ABC abc 123</div>
+
+    <div class="size-label">36px (2x)</div>
+    <div class="sample size-test" style="font-size: 36px;">ABC abc 123</div>
+
+    <div class="size-label">54px (3x)</div>
+    <div class="sample size-test" style="font-size: 54px;">ABC abc 123</div>
+  </div>
+
+  <script>
+    const slider = document.getElementById('size-slider');
+    const sizeValue = document.getElementById('size-value');
+    const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
+
+    slider.addEventListener('input', (e) => {
+      const size = e.target.value;
+      sizeValue.textContent = size;
+      samples.forEach(el => {
+        el.style.fontSize = size + 'px';
+      });
+    });
+  </script>
+</body>
+</html>
