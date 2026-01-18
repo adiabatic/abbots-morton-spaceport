@@ -48,7 +48,7 @@ metadata:
 
 glyphs:
   space:
-    advance_width: 4
+    advance_width: 6
     bitmap: []
 
   # NB:
