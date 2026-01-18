@@ -221,6 +221,19 @@ glyphs:
       - "#   #"
       - " ### "
 
+  uniE65D:  # ·J’ai
+    y_offset: -3
+    bitmap:
+      - "#### "
+      - "    #"
+      - "    #"
+      - "   # "
+      - "   # "
+      - " ####" #
+      - "# #  "
+      - "# #  "
+      - " #   "
+
   uniE65F:  # ·Jay
     y_offset: -3
     bitmap:
