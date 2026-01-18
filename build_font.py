@@ -100,6 +100,7 @@ def build_font(glyph_data: dict, output_path: Path):
     glyphs_def = glyph_data["glyphs"]
 
     font_name = metadata["font_name"]
+    version = metadata["version"]
     units_per_em = metadata["units_per_em"]
     pixel_size = metadata["pixel_size"]
     ascender = metadata["ascender"]
@@ -252,7 +253,7 @@ def build_font(glyph_data: dict, output_path: Path):
         "uniqueFontIdentifier": f"FontBuilder:{font_name}.Regular",
         "fullName": {"en": f"{font_name} Regular"},
         "psName": ps_name,
-        "version": "Version 1.0",
+        "version": f"Version {version}",
     }
     fb.setupNameTable(name_strings)
 
@@ -276,7 +277,7 @@ def build_font(glyph_data: dict, output_path: Path):
     fb.font["gasp"] = gasp
 
     # Add head table (required)
-    fb.setupHead(unitsPerEm=units_per_em)
+    fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
 
     # Save font
     fb.save(str(output_path))
