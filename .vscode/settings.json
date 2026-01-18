@@ -1,8 +1,11 @@
 {
   // You can get Px437 IBM BIOS at <https://int10h.org/oldschool-pc-fonts/fontlist/>. I’m using it because its glyphs are square, which makes it easier to preview pixel fonts generated from ASCII art
-  "editor.fontFamily": "'Px437 IBM BIOS', 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
-  
   // Px437 IBM BIOS wants multiples of 8; Departure Mono wants multiples of 11
-  "editor.fontSize": 8,
-  "terminal.integrated.fontSize": 8,
+  // "editor.fontFamily": "'Px437 IBM BIOS', 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
+  // "editor.fontSize": 8,
+  // "terminal.integrated.fontSize": 8,
+
+  "editor.fontFamily": "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
+  "editor.fontSize": 11,
+  "terminal.integrated.fontSize": 11,
 }
