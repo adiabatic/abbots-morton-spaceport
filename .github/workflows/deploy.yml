@@ -38,6 +38,7 @@ jobs:
 
       - name: Build font
         run: |
+          mkdir -p build
           uv run python build_font.py glyph_data.yaml build/AbbotsMortonSpaceportMono.otf
 
       - name: Convert to woff2
