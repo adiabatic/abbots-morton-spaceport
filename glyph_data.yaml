@@ -498,7 +498,7 @@ glyphs:
 
   uniE66B:  # ·Excite
     bitmap:
-      - "     "
+      - "#    "
       - "#    "
       - "#    "
       - " #  #" #
