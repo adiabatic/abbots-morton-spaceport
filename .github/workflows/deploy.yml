@@ -1,0 +1,103 @@
+name: Build and Deploy
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+  # On version tags
+  push:
+    tags:
+      - 'release/*'
+
+# Sets permissions for GitHub Pages deployment
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: |
+          uv sync
+          uv pip install brotli  # for woff2 conversion
+
+      - name: Build font
+        run: |
+          uv run python build_font.py glyph_data.yaml build/AbbotsMortonSpaceportMono.otf
+
+      - name: Convert to woff2
+        run: |
+          uv run python -c "
+          from fontTools.ttLib import TTFont
+          font = TTFont('build/AbbotsMortonSpaceportMono.otf')
+          font.flavor = 'woff2'
+          font.save('build/AbbotsMortonSpaceportMono.woff2')
+          "
+
+      - name: Prepare site
+        run: |
+          mkdir -p site
+          cp build/AbbotsMortonSpaceportMono.otf site/
+          cp build/AbbotsMortonSpaceportMono.woff2 site/
+          cp inspo/DepartureMono-Regular.otf site/
+          # Copy test page as index.html, adjusting font paths
+          sed 's|../inspo/DepartureMono-Regular.otf|DepartureMono-Regular.otf|g' test/test.html > site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Upload font files for release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: font-files
+          path: |
+            build/AbbotsMortonSpaceportMono.otf
+            build/AbbotsMortonSpaceportMono.woff2
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download font files
+        uses: actions/download-artifact@v4
+        with:
+          name: font-files
+          path: fonts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            fonts/AbbotsMortonSpaceportMono.otf
+            fonts/AbbotsMortonSpaceportMono.woff2
+          generate_release_notes: true
