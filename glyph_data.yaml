@@ -424,6 +424,22 @@ glyphs:
       - "#    "
       - "#####"
 
+  uniE66F:  # Quikscript right angled parenthesis
+    y_offset: -3
+    bitmap:
+      - "#####"
+      - "    #"
+      - "    #"
+      - "   ##" #
+      - "   # "
+      - "  ## "
+      - "  #  "
+      - " ##  "
+      - " #   " #
+      - "##   "
+      - "#    "
+      - "#    "
+
   uniE670:  # ·It
     bitmap:
       - "  #  "
