@@ -255,6 +255,14 @@ def build_font(glyph_data: dict, output_path: Path):
         "psName": ps_name,
         "version": f"Version {version}",
     }
+
+    if "copyright" in metadata:
+        name_strings["copyright"] = {"en": metadata["copyright"]}
+    if "license" in metadata:
+        name_strings["licenseDescription"] = {"en": metadata["license"]}
+    if "license_url" in metadata:
+        name_strings["licenseInfoURL"] = {"en": metadata["license_url"]}
+
     fb.setupNameTable(name_strings)
 
     # Setup OS/2 table
