@@ -496,6 +496,15 @@ glyphs:
       - "#   #"
       - "#   #"
 
+  uniE66A:  # ·Llan
+    bitmap:
+      - "#    "
+      - " ##  "
+      - "   # "
+      - "  ## "
+      - " #   "
+      - "  ###"
+
   uniE66B:  # ·Excite
     bitmap:
       - "#    "
