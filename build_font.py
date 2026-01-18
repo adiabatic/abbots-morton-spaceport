@@ -185,7 +185,13 @@ def build_font(glyph_data: dict, output_path: Path):
 
         # Validate bitmap height
         row_count = len(bitmap)
-        if y_offset == -3:
+        # Angled parentheses (uniE66E, uniE66F) are 12 rows tall
+        if glyph_name in ("uniE66E", "uniE66F"):
+            if row_count != 12:
+                raise ValueError(
+                    f"Glyph '{glyph_name}' has {row_count} rows, expected 12 (angled parenthesis)"
+                )
+        elif y_offset == -3:
             if row_count != 9:
                 raise ValueError(
                     f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9"
