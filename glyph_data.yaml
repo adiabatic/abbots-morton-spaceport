@@ -49,6 +49,10 @@ metadata:
   # baseline to the top of flat lowercase letters like 'x' or 'e'.
   x_height: 300
 
+  # sample_text: Text displayed in font previews (Name ID 19 in the
+  # OpenType name table). Used by font managers and OS font previews.
+  sample_text: "      " # this is the way to do it
+
 glyphs:
   space:
     advance_width: 7

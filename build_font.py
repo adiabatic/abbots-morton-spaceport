@@ -262,6 +262,8 @@ def build_font(glyph_data: dict, output_path: Path):
         name_strings["licenseDescription"] = {"en": metadata["license"]}
     if "license_url" in metadata:
         name_strings["licenseInfoURL"] = {"en": metadata["license_url"]}
+    if "sample_text" in metadata:
+        name_strings["sampleText"] = {"en": metadata["sample_text"]}
 
     fb.setupNameTable(name_strings)
 
