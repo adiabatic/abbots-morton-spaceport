@@ -5,9 +5,45 @@
 [dm]: https://departuremono.com/
 [qs]: https://www.quikscript.net/
 
-## Humanity
+## Usage
 
-I kind of know what I’m doing in this space, but much of the nitty-gritty Python code is written, and mostly understood by, Claude Code.
+This font only has Quikscript letters, angled parentheses, and the space character. You’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want.
+
+Also, for pixel-perfect rendering, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
+
+### CSS
+
+```css
+font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+
+/* <https://caniuse.com/?search=font-smooth> isn’t universally supported yet */
+-webkit-font-smoothing: none;
+-moz-osx-font-smoothing: unset;
+font-smooth: never; 
+```
+
+### [Typst][tf]
+
+```typst
+#set text(
+    font: "Abbots Morton Spaceport Mono", "Departure Mono",
+    // ⋮
+)
+```
+
+[tf]: https://typst.app/docs/reference/text/text/#parameters-font
+
+I don’t think the order of these two fonts matters (yet).
+
+### Microsoft Word
+
+If you want to set a fallback font in Microsoft Word you’ll likely need to do something involved and nerdy, like opening up a saved Theme (it’s a .zip file with XML files in it) and editing its long list of language-dependent fallback fonts. Ask an LLM to help you out here. Also ask it to help you convert sizes in pixels to sizes in points.
+
+### Others
+
+You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing with this font and Departure Mono.
+
+[nerd fonts]: https://www.nerdfonts.com/
 
 ## Licensing
 
@@ -15,4 +51,4 @@ SIL OFL 1.1 for the font files themselves, and MIT for everything else.
 
 ## Related work
 
-- [TakWolf](https://takwolf.com/), especially his [`pixel-font-builder`](https://pypi.org/project/pixel-font-builder/).
+- [TakWolf](https://takwolf.com/), especially his [`pixel-font-builder`](https://pypi.org/project/pixel-font-builder/). I’m pretty sure Claude was cribbing off his setup when it set up this project.
