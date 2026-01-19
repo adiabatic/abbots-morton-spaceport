@@ -22,8 +22,6 @@
   size: sizeInPoints,
 )
 
-#set heading(numbering: "1.1.1")
-
 #show heading: it => [
   #set text(
     font: fontStack,
