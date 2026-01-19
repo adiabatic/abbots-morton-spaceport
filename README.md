@@ -49,7 +49,3 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
-
-## Related work
-
-- [TakWolf](https://takwolf.com/), especially his [`pixel-font-builder`](https://pypi.org/project/pixel-font-builder/). I’m pretty sure Claude was cribbing off his setup when it set up this project.
