@@ -8,5 +8,6 @@
   // "editor.fontFamily": "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
   // "editor.fontSize": 11,
   // "terminal.integrated.fontSize": 11,
-  "tinymist.fontPaths": ["${workspaceFolder}/test"]
+  "tinymist.fontPaths": ["${workspaceFolder}/test"],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
 }
