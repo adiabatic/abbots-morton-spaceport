@@ -11,6 +11,8 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 
 Also, for pixel-perfect rendering, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
 
+Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
+
 ### CSS
 
 ```css
@@ -26,8 +28,7 @@ font-smooth: never;
 
 ```typst
 #set text(
-    font: "Abbots Morton Spaceport Mono", "Departure Mono",
-    // ⋮
+    font: ("Abbots Morton Spaceport Mono", "Departure Mono"),
 )
 ```
 
