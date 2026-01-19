@@ -51,6 +51,7 @@ metadata:
 
   # sample_text: Text displayed in font previews (Name ID 19 in the
   # OpenType name table). Used by font managers and OS font previews.
+  # …not that any operating-system font preview I use actually uses an all-PUA sample text…
   sample_text: "      " # this is the way to do it
 
 glyphs:
