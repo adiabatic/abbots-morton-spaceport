@@ -47,12 +47,12 @@
 
 #outline()
 
-== Quikscript
+== Quikscript —       .
 
 What is the price of a foot-bath kit? A goose in a dress near North Square thought it would cure jelly ankle. The goat nurse suggested palm oil in the mouth or wrapped around the ankle with a cloth. (Shiny yellow cheese helps with night vision on the ax exams in both Llanberis and Loch Affric.)
 
       - ?       ·       .                 .              ·   ·.
 
-== Lorem ipsum
+== Lorem ipsum.
 
 #lorem(100)
