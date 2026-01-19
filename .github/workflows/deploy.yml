@@ -55,9 +55,8 @@ jobs:
           mkdir -p site
           cp build/AbbotsMortonSpaceportMono.otf site/
           cp build/AbbotsMortonSpaceportMono.woff2 site/
-          cp inspo/DepartureMono-Regular.otf site/
-          # Copy test page as index.html, adjusting font paths
-          sed 's|../inspo/DepartureMono-Regular.otf|DepartureMono-Regular.otf|g' test/test.html > site/index.html
+          cp test/DepartureMono-Regular.otf site/
+          cp test/test.html site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

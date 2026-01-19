@@ -22,7 +22,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 ## Inspiration
 
 - This is a font that’s supposed to match Departure Mono’s metrics.
-- When in doubt, look at @inspo/DepartureMono-Regular.otf to check metrics.
+- When in doubt, look at @test/DepartureMono-Regular.otf to check metrics.
 - When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
 - Use @inspo/csur/index.html to find out what Quikscript letters go with what code points.
 - To understand a Quikscript letter shape, zoom/crop @inspo/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @inspo/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
