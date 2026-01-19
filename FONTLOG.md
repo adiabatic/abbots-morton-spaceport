@@ -4,6 +4,12 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 1.003
+
+- Fix sample text
+- Improve ·Key
+- Improve ·Ah and ·Awe
+
 ### 1.002
 
 - Add sample text
