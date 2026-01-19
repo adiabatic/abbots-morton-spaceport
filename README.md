@@ -46,6 +46,12 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 [nerd fonts]: https://www.nerdfonts.com/
 
+## Wishlist
+
+- Abbots Morton Spaceport Not-Mono (“it” looks horrible as-is)
+  - I suppose I should put “sans” in the name to make the two trivially distinguishable
+- Quikscript Senior with a gazillion ligatures
+
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
