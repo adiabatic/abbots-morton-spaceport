@@ -267,6 +267,7 @@ glyphs:
 
   uniE661:  # ·Way
     y_offset: -3
+    # idea: extend the bitmap up by one column so there's no final curve at the top
     bitmap:
       - "    #"
       - "   # "
