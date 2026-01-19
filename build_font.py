@@ -52,7 +52,7 @@ def bitmap_to_rectangles(
         pixel_size: size of each pixel in font units
         y_offset: vertical offset in pixels (negative for descenders)
                   0 = bottom of bitmap on baseline
-                  -2 = bottom of bitmap is 2 pixels below baseline
+                  -3 = bottom of bitmap is 3 pixels below baseline
 
     Returns list of (x, y, width, height) tuples for each "on" pixel.
     Coordinates are in font units, with y=0 at baseline.
