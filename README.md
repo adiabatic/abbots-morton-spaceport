@@ -1,4 +1,4 @@
-# Abbots Morton Spaceport Mono
+# Abbots Morton Spaceport
 
 [Departure Mono][dm], but [Quikscript][qs].
 
@@ -7,7 +7,7 @@
 
 You can get a copy of the latest .otf and .woff2 files from [the Releases page][r].
 
-[r]: https://github.com/adiabatic/abbots-morton-spaceport-mono/releases
+[r]: https://github.com/adiabatic/abbots-morton-spaceport/releases
 
 ## Usage
 

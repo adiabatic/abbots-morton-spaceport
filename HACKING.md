@@ -1,4 +1,4 @@
-# Abbots Morton Spaceport Mono developer guide
+# Abbots Morton Spaceport developer guide
 
 ## Making it go
 
