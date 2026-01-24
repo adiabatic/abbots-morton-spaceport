@@ -35,6 +35,8 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
   src: url(…/fonts/AbbotsMortonSpaceportMono.woff2) format('woff2');
 }
 
+/* optional: turn on proportional glyphs */
+/* (putting proportional glyphs in a stylistic set of a monospace font may be a bad idea) */
 /* or use the significantly structurally different and supported in somewhat older browsers <https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/font-feature-settings> to turn on `ss01` */
 @font-feature-values 'Abbots Morton Spaceport Mono' {
   @styleset {
