@@ -44,6 +44,8 @@ I don’t think the order of these two fonts matters (yet).
 
 If you want to set a fallback font in Microsoft Word you’ll likely need to do something involved and nerdy, like opening up a saved Theme (it’s a .zip file with XML files in it) and editing its long list of language-dependent fallback fonts. Ask an LLM to help you out here. Also ask it to help you convert sizes in pixels to sizes in points.
 
+Or keep reading…
+
 ### Others
 
 You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing with this font and Departure Mono.
@@ -52,10 +54,14 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Wishlist
 
-- Abbots Morton Spaceport Not-Mono (“it” looks horrible as-is)
+- Abbots Morton Spaceport Not-Mono (the word “it” looks horrible as-is)
   - I suppose I should put “sans” in the name to make the two trivially distinguishable
 - Quikscript Senior with a gazillion ligatures
 
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
+
+## Acknowledgements
+
+- [Brad Neil](https://friedorange.xyz/) — Design critique
