@@ -180,19 +180,22 @@ def build_font(glyph_data: dict, output_path: Path):
         pass
     glyph_set = GlyphSet()
 
-    # Create .notdef glyph (simple rectangle outline)
-    pen = T2CharStringPen(width=500, glyphSet=glyph_set)
+    # Standard monospace width: 6 pixels (bitmap 5 + 1 spacing)
+    mono_width = 6 * pixel_size  # 300 units
+
+    # Create .notdef glyph (simple rectangle, sized to fit mono_width)
+    pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
     pen.moveTo((50, 0))
-    pen.lineTo((50, 700))
-    pen.lineTo((450, 700))
-    pen.lineTo((450, 0))
+    pen.lineTo((50, 250))
+    pen.lineTo((250, 250))
+    pen.lineTo((250, 0))
     pen.closePath()
     charstrings[".notdef"] = pen.getCharString()
-    metrics[".notdef"] = (500, 50)
+    metrics[".notdef"] = (mono_width, 50)
 
     # Create space glyph (empty)
     space_def = glyphs_def.get("space", {})
-    space_width = space_def.get("advance_width", 4) * pixel_size
+    space_width = space_def["advance_width"] * pixel_size
     pen = T2CharStringPen(width=space_width, glyphSet=glyph_set)
     charstrings["space"] = pen.getCharString()
     metrics["space"] = (space_width, 0)
@@ -336,7 +339,7 @@ def build_font(glyph_data: dict, output_path: Path):
         sCapHeight=cap_height,
     )
 
-    # Setup post table (isFixedPitch=1 for macOS Font Book's Monospaced Smart Collection)
+    # Setup post table
     fb.setupPost(isFixedPitch=1)
 
     # Setup gasp table for pixel-crisp rendering
