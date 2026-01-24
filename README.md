@@ -59,8 +59,6 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Wishlist
 
-- Abbots Morton Spaceport Not-Mono (the word “it” looks horrible as-is)
-  - I suppose I should put “sans” in the name to make the two trivially distinguishable
 - Quikscript Senior with a gazillion ligatures
 
 ## Licensing
