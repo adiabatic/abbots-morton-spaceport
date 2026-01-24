@@ -100,6 +100,17 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/release/}" >> $GITHUB_OUTPUT
 
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          # Extract text from "### $VERSION" until next "### " or EOF
+          CHANGELOG=$(awk "/^### ${VERSION//./\\.}/{found=1; next} /^### /{found=0} found" release-contents/FONTLOG.md)
+          # Handle multi-line output for GitHub Actions
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create release zip
         run: |
           cd release-contents
@@ -109,4 +120,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
