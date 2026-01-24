@@ -32,6 +32,12 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - Use @inspo/csur/index.html to find out what Quikscript letters go with what code points.
 - To understand a Quikscript letter shape, zoom/crop @inspo/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @inspo/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
 
+## Bumping the version number
+
+1. Update `version` in `glyph_data.yaml` (e.g., `3.000`)
+2. Update `version` in `pyproject.toml` (e.g., `3.0.0`)
+3. Run `uv sync` to update `uv.lock`
+
 ## Markdown-document style
 
 - Use sentence case for titles, not title case.
