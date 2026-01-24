@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 1.004
+
+- Make the counter of ·Bay 2×2 inside
+
 ### 1.003
 
 - Fix sample text
