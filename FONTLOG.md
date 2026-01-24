@@ -6,6 +6,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 1.004
 
+- Take ·Vie, rotate it 180°, and replace ·Fee…and tweak it further
 - Take ·I, flip it, and replace the old ·Eight
 - Make the counter of ·Bay 2×2 inside
 
