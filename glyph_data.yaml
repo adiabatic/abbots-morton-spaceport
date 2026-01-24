@@ -457,6 +457,15 @@ glyphs:
       - "  #  "
       - "  #  "
 
+  uniE670.prop:  # ·It (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+
   uniE671:  # ·Eat
     bitmap:
       - "   # "
