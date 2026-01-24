@@ -336,8 +336,8 @@ def build_font(glyph_data: dict, output_path: Path):
         sCapHeight=cap_height,
     )
 
-    # Setup post table
-    fb.setupPost()
+    # Setup post table (isFixedPitch=1 for macOS Font Book's Monospaced Smart Collection)
+    fb.setupPost(isFixedPitch=1)
 
     # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
