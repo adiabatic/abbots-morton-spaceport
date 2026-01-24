@@ -77,7 +77,7 @@ I’m not sure if the order of these two fonts matters in Typst since (at the ti
 
 If you want to set a fallback font in Microsoft Word you’ll likely need to do something involved and nerdy, like opening up a saved Theme (it’s a .zip file with XML files in it) and editing its long list of language-dependent fallback fonts. Ask an LLM to help you out here. Also ask it to help you convert sizes in pixels to sizes in points.
 
-Or keep reading…
+Or…
 
 ### Others
 
@@ -87,6 +87,7 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Wishlist
 
+- Proportional copies of Departure Mono’s punctuation (might as well add its `0` glyph too)
 - Quikscript Senior with a gazillion ligatures
 
 ## Licensing
