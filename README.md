@@ -25,12 +25,32 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
 [ch]: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length#ch
 
 ```css
-font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+@font-face {
+  font-family: 'Departure Mono';
+  src: url(…/fonts/DepartureMono-Regular.woff2) format('woff2');
+}
 
-/* <https://caniuse.com/?search=font-smooth> isn’t universally supported yet */
--webkit-font-smoothing: none;
--moz-osx-font-smoothing: unset;
-font-smooth: never; 
+@font-face {
+  font-family: 'Abbots Morton Spaceport Mono';  
+  src: url(…/fonts/AbbotsMortonSpaceportMono.woff2) format('woff2');
+}
+
+/* or use the significantly structurally different and supported in somewhat older browsers <https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/font-feature-settings> */
+@font-feature-values 'Abbots Morton Spaceport Mono' {
+  @styleset {
+    proportional: 1;
+  }
+}
+
+/* you probably know what selector you want already, but… */
+:root {
+  font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+
+  /* <https://caniuse.com/?search=font-smooth> isn’t universally supported yet */
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  font-smooth: never;
+}
 ```
 
 ### [Typst][tf]
