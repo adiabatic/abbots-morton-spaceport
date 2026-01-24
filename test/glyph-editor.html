@@ -409,6 +409,7 @@
     }
 
     // Render preview canvas
+    const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
     function renderPreview(canvas, bitmapData, scale) {
       const ctx = canvas.getContext('2d');
       const width = COLS * scale;
@@ -416,8 +417,8 @@
 
       canvas.width = width;
       canvas.height = height;
-      canvas.style.width = width + 'px';
-      canvas.style.height = height + 'px';
+      canvas.style.width = (width * DISPLAY_SCALE) + 'px';
+      canvas.style.height = (height * DISPLAY_SCALE) + 'px';
 
       // Clear canvas
       ctx.fillStyle = '#f0f0f0';
@@ -442,8 +443,8 @@
           const canvas = document.getElementById(`preview-${scale}x`);
           canvas.width = COLS * scale;
           canvas.height = scale;
-          canvas.style.width = (COLS * scale) + 'px';
-          canvas.style.height = scale + 'px';
+          canvas.style.width = (COLS * scale * DISPLAY_SCALE) + 'px';
+          canvas.style.height = (scale * DISPLAY_SCALE) + 'px';
         });
         return;
       }
