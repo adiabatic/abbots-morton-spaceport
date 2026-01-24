@@ -8,6 +8,7 @@ Usage:
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -257,7 +258,11 @@ def build_font(glyph_data: dict, output_path: Path):
     }
 
     if "copyright" in metadata:
-        name_strings["copyright"] = {"en": metadata["copyright"]}
+        copyright_str = metadata["copyright"]
+        if "© " in copyright_str:
+            year = datetime.now().year
+            copyright_str = copyright_str.replace("© ", f"© {year} ", 1)
+        name_strings["copyright"] = {"en": copyright_str}
     if "license" in metadata:
         name_strings["licenseDescription"] = {"en": metadata["license"]}
     if "license_url" in metadata:
