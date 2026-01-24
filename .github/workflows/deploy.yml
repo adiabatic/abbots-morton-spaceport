@@ -71,6 +71,8 @@ jobs:
           path: |
             build/AbbotsMortonSpaceportMono.otf
             build/AbbotsMortonSpaceportMono.woff2
+            README.md
+            FONTLOG.md
 
   deploy:
     needs: build
@@ -92,12 +94,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: font-files
-          path: fonts
+          path: release-contents
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/release/}" >> $GITHUB_OUTPUT
+
+      - name: Create release zip
+        run: |
+          cd release-contents
+          zip -r "../abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip" .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            fonts/AbbotsMortonSpaceportMono.otf
-            fonts/AbbotsMortonSpaceportMono.woff2
+          files: abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip
           generate_release_notes: true
