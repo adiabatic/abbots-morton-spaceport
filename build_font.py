@@ -180,8 +180,8 @@ def build_font(glyph_data: dict, output_path: Path):
         pass
     glyph_set = GlyphSet()
 
-    # Standard monospace width: 6 pixels (bitmap 5 + 1 spacing)
-    mono_width = 6 * pixel_size  # 300 units
+    # Standard monospace width: 7 pixels (bitmap 5 + 2 spacing)
+    mono_width = 7 * pixel_size  # 350 units
 
     # Create .notdef glyph (simple rectangle, sized to fit mono_width)
     pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
@@ -228,9 +228,9 @@ def build_font(glyph_data: dict, output_path: Path):
 
         if not bitmap:
             # Empty glyph
-            pen = T2CharStringPen(width=pixel_size * 4, glyphSet=glyph_set)
+            pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
             charstrings[glyph_name] = pen.getCharString()
-            metrics[glyph_name] = (pixel_size * 4, 0)
+            metrics[glyph_name] = (mono_width, 0)
             continue
 
         # Parse and convert bitmap
@@ -261,9 +261,9 @@ def build_font(glyph_data: dict, output_path: Path):
         # Calculate advance width
         advance_width = glyph_def.get("advance_width")
         if advance_width is None:
-            # Default to bitmap width + 1 pixel spacing
+            # Default to bitmap width + 2 pixel spacing
             max_col = max((len(row) for row in bitmap), default=0)
-            advance_width = max_col + 1
+            advance_width = max_col + 2
         advance_width *= pixel_size
 
         # Calculate left side bearing (LSB)
