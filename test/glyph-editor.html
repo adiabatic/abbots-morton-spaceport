@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Glyph Editor - Abbots Morton Spaceport</title>
+  <style>
+    @font-face {
+      font-family: 'Abbots Morton Spaceport Mono';
+      src: url('AbbotsMortonSpaceportMono.otf') format('opentype');
+    }
+
+    @font-face {
+      font-family: 'Departure Mono';
+      src: url('DepartureMono-Regular.otf') format('opentype');
+    }
+
+    :root {
+      color-scheme: light dark;
+    }
+
+    html {
+      font-family: 'Departure Mono', monospace;
+      font-size: 11px;
+      -webkit-font-smoothing: none;
+      -moz-osx-font-smoothing: grayscale;
+      font-smooth: never;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: light-dark(#f5f5f5, #1a1a1a);
+      color: light-dark(#222, #e0e0e0);
+      padding: 2rem;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    h1, h2 {
+      color: light-dark(#0066cc, #4a9eff);
+      font-weight: normal;
+    }
+
+    h1 {
+      font-size: 33px;
+    }
+
+    h2 {
+      font-size: 22px;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .editor-container {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    .input-section, .output-section {
+      background: light-dark(#fff, #2a2a2a);
+      border: 1px solid light-dark(#ccc, #444);
+      padding: 1rem;
+      border-radius: 4px;
+    }
+
+    textarea {
+      font-family: 'Departure Mono', monospace;
+      font-size: 11px;
+      width: 100%;
+      resize: vertical;
+      background: light-dark(#fafafa, #1e1e1e);
+      color: light-dark(#222, #e0e0e0);
+      border: 1px solid light-dark(#ccc, #444);
+      border-radius: 4px;
+      padding: 0.5rem;
+      -webkit-font-smoothing: none;
+    }
+
+    #input-yaml {
+      height: 280px;
+    }
+
+    #output-yaml {
+      height: 280px;
+    }
+
+    .lightboard-section {
+      background: light-dark(#fff, #2a2a2a);
+      border: 1px solid light-dark(#ccc, #444);
+      padding: 1rem;
+      border-radius: 4px;
+    }
+
+    .lightboard {
+      display: grid;
+      grid-template-columns: repeat(5, 36px);
+      gap: 2px;
+      background: #888;
+      padding: 2px;
+      border-radius: 4px;
+    }
+
+    .lightboard-cell {
+      width: 36px;
+      height: 36px;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.1s;
+
+      &.off {
+        background: #f0f0f0;
+      }
+
+      &.on {
+        background: #222;
+      }
+
+      &.disabled {
+        background: #aaa;
+        cursor: not-allowed;
+      }
+
+      &:hover:not(.disabled) {
+        opacity: 0.8;
+      }
+    }
+
+    .y-offset-control {
+      margin-top: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+
+      input {
+        width: 60px;
+        padding: 0.25rem;
+        font-family: 'Departure Mono', monospace;
+        font-size: 11px;
+        background: light-dark(#fafafa, #1e1e1e);
+        color: light-dark(#222, #e0e0e0);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+      }
+    }
+
+    .preview-section {
+      background: light-dark(#fff, #2a2a2a);
+      border: 1px solid light-dark(#ccc, #444);
+      padding: 1rem;
+      border-radius: 4px;
+    }
+
+    .preview-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+
+      &:last-child {
+        margin-bottom: 0;
+      }
+    }
+
+    .preview-label {
+      width: 30px;
+      color: light-dark(#666, #888);
+    }
+
+    .preview-canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      background: light-dark(#f0f0f0, #333);
+      border: 1px solid light-dark(#ccc, #555);
+    }
+
+    .output-section {
+      margin-top: 1.5rem;
+    }
+
+    .output-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+
+      .section-label {
+        margin-bottom: 0;
+      }
+    }
+
+    button {
+      font-family: 'Departure Mono', monospace;
+      font-size: 11px;
+      padding: 0.25rem 0.5rem;
+      background: light-dark(#e0e0e0, #444);
+      color: light-dark(#222, #e0e0e0);
+      border: 1px solid light-dark(#ccc, #555);
+      border-radius: 4px;
+      cursor: pointer;
+
+      &:hover {
+        background: light-dark(#d0d0d0, #555);
+      }
+    }
+
+    .section-label {
+      color: light-dark(#666, #888);
+      margin-bottom: 0.5rem;
+      font-size: 11px;
+    }
+
+    .glyph-info {
+      margin-bottom: 0.5rem;
+      font-size: 11px;
+      color: light-dark(#0066cc, #4a9eff);
+    }
+
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid light-dark(#ccc, #444);
+
+      a {
+        color: light-dark(#0066cc, #4a9eff);
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Glyph Editor</h1>
+  <p>Paste a glyph's YAML block, edit it visually, then copy the output back.</p>
+
+  <div class="editor-container">
+    <div class="input-section">
+      <div class="section-label">Input (paste YAML here)</div>
+      <textarea id="input-yaml" placeholder="uniE650:  # ·Pea
+  bitmap:
+    - &quot; ### &quot;
+    - &quot;#   #&quot;
+    - &quot;#   #&quot;
+    - &quot;    #&quot; #
+    - &quot;    #&quot;
+    - &quot;    #&quot;
+    - &quot;    #&quot;
+    - &quot;    #&quot;
+    - &quot;    #&quot;"></textarea>
+    </div>
+
+    <div class="lightboard-section">
+      <div class="section-label">Lightboard (12 rows x 5 cols)</div>
+      <div class="glyph-info" id="glyph-info"></div>
+      <div class="lightboard" id="lightboard"></div>
+      <div class="y-offset-control">
+        <label for="y-offset">y_offset:</label>
+        <input type="number" id="y-offset" value="0" min="-12" max="12">
+      </div>
+    </div>
+
+    <div class="preview-section">
+      <div class="section-label">Preview</div>
+      <div class="preview-row">
+        <span class="preview-label">1x</span>
+        <canvas id="preview-1x" class="preview-canvas"></canvas>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">2x</span>
+        <canvas id="preview-2x" class="preview-canvas"></canvas>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">3x</span>
+        <canvas id="preview-3x" class="preview-canvas"></canvas>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">4x</span>
+        <canvas id="preview-4x" class="preview-canvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="output-section">
+    <div class="output-header">
+      <div class="section-label">Output (copy this back to glyph_data.yaml)</div>
+      <button id="copy-btn" type="button">Copy to clipboard</button>
+    </div>
+    <textarea id="output-yaml" readonly></textarea>
+  </div>
+
+  <footer>
+    <a href="test.html">Back to Font Test</a> |
+    <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+  </footer>
+
+  <script>
+    const MAX_ROWS = 12;
+    const COLS = 5;
+
+    // State
+    let glyphName = '';
+    let glyphComment = '';
+    let bitmap = [];
+    let yOffset = 0;
+    let rowComments = []; // Store per-row comments
+    let leadingIndent = ''; // Preserve leading whitespace from input
+
+    // DOM elements
+    const inputYaml = document.getElementById('input-yaml');
+    const outputYaml = document.getElementById('output-yaml');
+    const lightboard = document.getElementById('lightboard');
+    const glyphInfo = document.getElementById('glyph-info');
+    const yOffsetInput = document.getElementById('y-offset');
+    const copyBtn = document.getElementById('copy-btn');
+
+    // Initialize lightboard grid
+    function initLightboard() {
+      lightboard.innerHTML = '';
+      for (let row = 0; row < MAX_ROWS; row++) {
+        for (let col = 0; col < COLS; col++) {
+          const cell = document.createElement('button');
+          cell.className = 'lightboard-cell disabled';
+          cell.dataset.row = row;
+          cell.dataset.col = col;
+          cell.addEventListener('click', () => toggleCell(row, col));
+          lightboard.appendChild(cell);
+        }
+      }
+    }
+
+    // Parse YAML input
+    function parseYaml(text) {
+      const lines = text.split('\n');
+
+      // Extract glyph name and comment from first line (allow leading whitespace)
+      const nameMatch = lines[0]?.match(/^(\s*)(\w+):\s*(#.*)?$/);
+      if (!nameMatch) {
+        return null;
+      }
+
+      leadingIndent = nameMatch[1];
+      glyphName = nameMatch[2];
+      glyphComment = nameMatch[3] || '';
+
+      // Extract y_offset if present
+      yOffset = 0;
+      const yOffsetMatch = text.match(/y_offset:\s*(-?\d+)/);
+      if (yOffsetMatch) {
+        yOffset = parseInt(yOffsetMatch[1], 10);
+      }
+
+      // Extract bitmap lines
+      bitmap = [];
+      rowComments = [];
+      const bitmapLines = text.match(/^\s*-\s*["'](.{5})["']\s*(#.*)?$/gm);
+      if (bitmapLines) {
+        bitmapLines.forEach(line => {
+          const match = line.match(/^\s*-\s*["'](.{5})["']\s*(#.*)?$/);
+          if (match) {
+            bitmap.push(match[1]);
+            rowComments.push(match[2] || '');
+          }
+        });
+      }
+
+      return { name: glyphName, comment: glyphComment, bitmap, yOffset, rowComments };
+    }
+
+    // Update lightboard display
+    function updateLightboard() {
+      const cells = lightboard.querySelectorAll('.lightboard-cell');
+      cells.forEach(cell => {
+        const row = parseInt(cell.dataset.row);
+        const col = parseInt(cell.dataset.col);
+
+        if (row < bitmap.length) {
+          cell.classList.remove('disabled');
+          if (bitmap[row][col] === '#') {
+            cell.classList.add('on');
+            cell.classList.remove('off');
+          } else {
+            cell.classList.add('off');
+            cell.classList.remove('on');
+          }
+        } else {
+          cell.classList.add('disabled');
+          cell.classList.remove('on', 'off');
+        }
+      });
+
+      glyphInfo.textContent = glyphName ? `${glyphName} ${glyphComment}` : '';
+      yOffsetInput.value = yOffset;
+    }
+
+    // Toggle cell state
+    function toggleCell(row, col) {
+      if (row >= bitmap.length) return;
+
+      const chars = bitmap[row].split('');
+      chars[col] = chars[col] === '#' ? ' ' : '#';
+      bitmap[row] = chars.join('');
+
+      updateLightboard();
+      updatePreviews();
+      updateOutput();
+    }
+
+    // Render preview canvas
+    function renderPreview(canvas, bitmapData, scale) {
+      const ctx = canvas.getContext('2d');
+      const width = COLS * scale;
+      const height = bitmapData.length * scale;
+
+      canvas.width = width;
+      canvas.height = height;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+
+      // Clear canvas
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, width, height);
+
+      // Draw pixels
+      ctx.fillStyle = '#222';
+      for (let y = 0; y < bitmapData.length; y++) {
+        for (let x = 0; x < COLS; x++) {
+          if (bitmapData[y][x] === '#') {
+            ctx.fillRect(x * scale, y * scale, scale, scale);
+          }
+        }
+      }
+    }
+
+    // Update all preview canvases
+    function updatePreviews() {
+      if (bitmap.length === 0) {
+        // Clear canvases if no bitmap
+        [1, 2, 3, 4].forEach(scale => {
+          const canvas = document.getElementById(`preview-${scale}x`);
+          canvas.width = COLS * scale;
+          canvas.height = scale;
+          canvas.style.width = (COLS * scale) + 'px';
+          canvas.style.height = scale + 'px';
+        });
+        return;
+      }
+
+      [1, 2, 3, 4].forEach(scale => {
+        const canvas = document.getElementById(`preview-${scale}x`);
+        renderPreview(canvas, bitmap, scale);
+      });
+    }
+
+    // Generate YAML output
+    function generateYaml() {
+      if (!glyphName || bitmap.length === 0) {
+        return '';
+      }
+
+      let output = `${leadingIndent}${glyphName}:`;
+      if (glyphComment) {
+        output += `  ${glyphComment}`;
+      }
+      output += '\n';
+
+      if (yOffset !== 0) {
+        output += `${leadingIndent}  y_offset: ${yOffset}\n`;
+      }
+
+      output += `${leadingIndent}  bitmap:\n`;
+      bitmap.forEach((row, i) => {
+        output += `${leadingIndent}    - "${row}"`;
+        if (rowComments[i]) {
+          output += ` ${rowComments[i]}`;
+        }
+        output += '\n';
+      });
+
+      return output;
+    }
+
+    // Update output textarea
+    function updateOutput() {
+      outputYaml.value = generateYaml();
+    }
+
+    // Event listeners
+    inputYaml.addEventListener('input', () => {
+      const parsed = parseYaml(inputYaml.value);
+      if (parsed) {
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+    });
+
+    yOffsetInput.addEventListener('input', () => {
+      yOffset = parseInt(yOffsetInput.value, 10) || 0;
+      updateOutput();
+    });
+
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(outputYaml.value).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = original, 1500);
+      });
+    });
+
+    // Initialize
+    initLightboard();
+    updatePreviews();
+  </script>
+</body>
+</html>
