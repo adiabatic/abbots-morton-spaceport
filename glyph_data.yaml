@@ -117,6 +117,19 @@ glyphs:
       - "##   "
       - "#    "
 
+  uniE653.prop:  # ·Day (proportional)
+    y_offset: -3
+    bitmap:
+      - "#   "
+      - "#   "
+      - "#   "
+      - "#   "
+      - "#   "
+      - "#  #" #
+      - "# # "
+      - "##  "
+      - "#   "
+
   uniE654:  # ·Key
     bitmap:
       - "#    "
