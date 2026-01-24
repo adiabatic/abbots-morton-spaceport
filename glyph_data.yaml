@@ -92,6 +92,18 @@ glyphs:
       - "  #  "
       - "  #  "
 
+  uniE652.prop:  # ·Tea (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+
   uniE653:  # ·Day
     y_offset: -3
     bitmap:
