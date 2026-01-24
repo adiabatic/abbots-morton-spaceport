@@ -4,7 +4,11 @@ Build a pixel font from bitmap glyph definitions.
 Uses fonttools FontBuilder to create OTF output.
 
 Usage:
-    uv run python build_font.py glyph_data.yaml [output.otf]
+    uv run python build_font.py glyph_data.yaml [output_dir]
+
+Outputs:
+    output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font with ss01 feature
+    output_dir/AbbotsMortonSpaceport.otf      - Proportional font (no ss01)
 """
 
 import sys
@@ -35,6 +39,38 @@ def get_base_glyph_name(prop_glyph_name: str) -> str:
     if prop_glyph_name.endswith(".prop"):
         return prop_glyph_name[:-5]
     return prop_glyph_name
+
+
+def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
+    """
+    Prepare glyph definitions for the proportional font variant.
+
+    For the proportional font:
+    - .prop glyphs are renamed to their base names (e.g., uniE650.prop → uniE650)
+    - Base glyphs that have .prop variants are excluded
+    - Glyphs without .prop variants remain unchanged
+    """
+    # Find all base glyph names that have .prop variants
+    prop_base_names = set()
+    for glyph_name in glyphs_def.keys():
+        if is_proportional_glyph(glyph_name):
+            prop_base_names.add(get_base_glyph_name(glyph_name))
+
+    # Build new glyph dict
+    new_glyphs = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if is_proportional_glyph(glyph_name):
+            # Rename .prop glyph to its base name
+            base_name = get_base_glyph_name(glyph_name)
+            new_glyphs[base_name] = glyph_def
+        elif glyph_name in prop_base_names:
+            # Skip base glyphs that have .prop variants
+            continue
+        else:
+            # Keep glyphs without .prop variants unchanged
+            new_glyphs[glyph_name] = glyph_def
+
+    return new_glyphs
 
 
 def build_gsub_feature_code(glyphs_def: dict) -> str:
@@ -129,15 +165,31 @@ def draw_rectangles_to_glyph(rectangles: list[tuple], glyph_set):
     return pen.getCharString()
 
 
-def build_font(glyph_data: dict, output_path: Path):
+def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = False):
     """
     Build font from glyph data dictionary.
     Creates a CFF-based OpenType font (.otf).
+
+    Args:
+        glyph_data: Dictionary containing metadata and glyph definitions
+        output_path: Path to write the font file
+        is_proportional: If True, build proportional font variant
+                        (uses .prop glyphs as defaults, no ss01 feature)
     """
     metadata = glyph_data.get("metadata", {})
     glyphs_def = glyph_data["glyphs"]
 
-    font_name = metadata["font_name"]
+    # For proportional font, transform glyphs: .prop becomes default
+    if is_proportional:
+        glyphs_def = prepare_proportional_glyphs(glyphs_def)
+
+    # Font name differs for proportional variant
+    base_font_name = metadata["font_name"]
+    if is_proportional:
+        # Remove " Mono" suffix for proportional variant
+        font_name = base_font_name.replace(" Mono", "")
+    else:
+        font_name = base_font_name
     version = metadata["version"]
     units_per_em = metadata["units_per_em"]
     pixel_size = metadata["pixel_size"]
@@ -209,8 +261,11 @@ def build_font(glyph_data: dict, output_path: Path):
         bitmap = glyph_def.get("bitmap", [])
 
         # Validate bitmap width
+        # In proportional font, all glyphs use proportional validation
+        # In monospace font, only .prop suffixed glyphs use proportional validation
+        is_prop_glyph = is_proportional or is_proportional_glyph(glyph_name)
         if bitmap:
-            if is_proportional_glyph(glyph_name):
+            if is_prop_glyph:
                 # Proportional glyphs: all rows must have consistent width
                 row_widths = [len(row) for row in bitmap]
                 if len(set(row_widths)) > 1:
@@ -341,7 +396,8 @@ def build_font(glyph_data: dict, output_path: Path):
     )
 
     # Setup post table
-    fb.setupPost(isFixedPitch=1)
+    # Monospace font: isFixedPitch=1, Proportional font: isFixedPitch=0
+    fb.setupPost(isFixedPitch=0 if is_proportional else 1)
 
     # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
@@ -354,44 +410,59 @@ def build_font(glyph_data: dict, output_path: Path):
     # Save font initially
     fb.save(str(output_path))
 
-    # Add GSUB ss01 feature for proportional variants
-    feature_code = build_gsub_feature_code(glyphs_def)
-    if feature_code:
-        font = TTFont(str(output_path))
-        addOpenTypeFeaturesFromString(font, feature_code)
-        font.save(str(output_path))
-        print(f"Font saved to: {output_path}")
-        print(f"  Glyphs: {len(glyph_order)}")
-        print(f"  Units per em: {units_per_em}")
-        print(f"  Pixel size: {pixel_size} units")
+    # Add GSUB ss01 feature for proportional variants (monospace font only)
+    # Proportional font doesn't need ss01 since proportional glyphs are the default
+    if not is_proportional:
+        feature_code = build_gsub_feature_code(glyph_data["glyphs"])  # Use original glyphs
+        if feature_code:
+            font = TTFont(str(output_path))
+            addOpenTypeFeaturesFromString(font, feature_code)
+            font.save(str(output_path))
+
+    # Print summary
+    variant = "proportional" if is_proportional else "monospace"
+    print(f"Font saved to: {output_path}")
+    print(f"  Variant: {variant}")
+    print(f"  Glyphs: {len(glyph_order)}")
+    print(f"  Units per em: {units_per_em}")
+    print(f"  Pixel size: {pixel_size} units")
+    if not is_proportional:
         print(f"  ss01 feature: enabled (proportional variants)")
-    else:
-        print(f"Font saved to: {output_path}")
-        print(f"  Glyphs: {len(glyph_order)}")
-        print(f"  Units per em: {units_per_em}")
-        print(f"  Pixel size: {pixel_size} units")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python build_font.py <glyph_data.yaml> [output.otf]")
+        print("Usage: uv run python build_font.py <glyph_data.yaml> [output_dir]")
+        print("\nOutputs:")
+        print("  output_dir/AbbotsMortonSpaceportMono.otf")
+        print("  output_dir/AbbotsMortonSpaceport.otf")
         print("\nExample:")
-        print("  uv run python build_font.py glyph_data.yaml output/FontName.otf")
+        print("  uv run python build_font.py glyph_data.yaml build/")
         sys.exit(1)
 
     input_path = Path(sys.argv[1])
 
     if len(sys.argv) > 2:
-        output_path = Path(sys.argv[2])
+        output_dir = Path(sys.argv[2])
     else:
-        output_path = input_path.with_suffix(".otf")
+        output_dir = Path(".")
 
     if not input_path.exists():
         print(f"Error: Input file not found: {input_path}")
         sys.exit(1)
 
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     glyph_data = load_glyph_data(input_path)
-    build_font(glyph_data, output_path)
+
+    # Build monospace font
+    mono_path = output_dir / "AbbotsMortonSpaceportMono.otf"
+    build_font(glyph_data, mono_path, is_proportional=False)
+
+    # Build proportional font
+    prop_path = output_dir / "AbbotsMortonSpaceport.otf"
+    build_font(glyph_data, prop_path, is_proportional=True)
 
 
 if __name__ == "__main__":

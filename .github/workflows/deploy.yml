@@ -36,18 +36,19 @@ jobs:
           uv sync
           uv pip install brotli  # for woff2 conversion
 
-      - name: Build font
+      - name: Build fonts
         run: |
           mkdir -p build
-          uv run python build_font.py glyph_data.yaml build/AbbotsMortonSpaceportMono.otf
+          uv run python build_font.py glyph_data.yaml build/
 
       - name: Convert to woff2
         run: |
           uv run python -c "
           from fontTools.ttLib import TTFont
-          font = TTFont('build/AbbotsMortonSpaceportMono.otf')
-          font.flavor = 'woff2'
-          font.save('build/AbbotsMortonSpaceportMono.woff2')
+          for name in ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceport']:
+              font = TTFont(f'build/{name}.otf')
+              font.flavor = 'woff2'
+              font.save(f'build/{name}.woff2')
           "
 
       - name: Prepare site
@@ -55,6 +56,8 @@ jobs:
           mkdir -p site
           cp build/AbbotsMortonSpaceportMono.otf site/
           cp build/AbbotsMortonSpaceportMono.woff2 site/
+          cp build/AbbotsMortonSpaceport.otf site/
+          cp build/AbbotsMortonSpaceport.woff2 site/
           cp test/DepartureMono-Regular.otf site/
           cp test/test.html site/index.html
 
@@ -71,6 +74,8 @@ jobs:
           path: |
             build/AbbotsMortonSpaceportMono.otf
             build/AbbotsMortonSpaceportMono.woff2
+            build/AbbotsMortonSpaceport.otf
+            build/AbbotsMortonSpaceport.woff2
             README.md
             FONTLOG.md
 
