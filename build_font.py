@@ -337,6 +337,7 @@ def build_font(glyph_data: dict, output_path: Path):
         usWinDescent=abs(descender),
         sxHeight=x_height,
         sCapHeight=cap_height,
+        fsType=0,  # Installable embedding - no restrictions
     )
 
     # Setup post table
