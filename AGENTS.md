@@ -4,6 +4,11 @@
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
 
+## HTML/CSS/JS
+
+- Prefer nested CSS over flat CSS.
+- Prefer for-of loops to `.forEach()`.
+
 ## Python
 
 IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For example:
