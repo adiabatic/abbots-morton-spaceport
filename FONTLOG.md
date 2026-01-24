@@ -4,8 +4,9 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
-### 1.005
+### 2.000
 
+- Fix spacing metrics (it’s actually a monospace font now)
 - Improve ·Why
 
 ### 1.004
