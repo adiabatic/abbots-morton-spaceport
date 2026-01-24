@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Abbots Morton Spaceport Mono Font Test</title>
+  <title>Abbots Morton Spaceport Mono</title>
   <style>
     @font-face {
       font-family: 'Abbots Morton Spaceport Mono';
@@ -252,10 +252,17 @@
       }
     });
 
+    const title = document.querySelector('h1');
+    const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
+    pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
+
     ss01Toggle.addEventListener('click', () => {
       const isActive = ss01Toggle.classList.toggle('active');
       const featureSetting = isActive ? '"ss01" 1' : '"ss01" 0';
+      const fontName = isActive ? 'Abbots Morton Spaceport' : 'Abbots Morton Spaceport Mono';
       ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
+      title.textContent = fontName;
+      document.title = fontName;
       for (const el of allSamples) {
         el.style.fontFeatureSettings = featureSetting;
       }
