@@ -138,6 +138,10 @@
       Font size: <span id="size-value">22</span>px
       <input type="range" id="size-slider" min="11" max="77" value="22">
     </label>
+    <label>
+      <input type="checkbox" id="ss01-toggle">
+      Proportional (ss01)
+    </label>
   </div>
 
   <h2>Pangram</h2>
@@ -218,13 +222,22 @@
   <script>
     const slider = document.getElementById('size-slider');
     const sizeValue = document.getElementById('size-value');
+    const ss01Toggle = document.getElementById('ss01-toggle');
     const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
+    const allSamples = document.querySelectorAll('.sample');
 
     slider.addEventListener('input', (e) => {
       const size = e.target.value;
       sizeValue.textContent = size;
       samples.forEach(el => {
         el.style.fontSize = size + 'px';
+      });
+    });
+
+    ss01Toggle.addEventListener('change', (e) => {
+      const featureSetting = e.target.checked ? '"ss01" 1' : '"ss01" 0';
+      allSamples.forEach(el => {
+        el.style.fontFeatureSettings = featureSetting;
       });
     });
   </script>

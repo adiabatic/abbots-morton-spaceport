@@ -13,15 +13,52 @@ from pathlib import Path
 
 import yaml
 
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
-from fontTools.ttLib import newTable
+from fontTools.ttLib import TTFont, newTable
 
 
 def load_glyph_data(yaml_path: Path) -> dict:
     """Load glyph definitions from YAML file."""
     with open(yaml_path) as f:
         return yaml.safe_load(f)
+
+
+def is_proportional_glyph(glyph_name: str) -> bool:
+    """Check if a glyph is a proportional variant."""
+    return glyph_name.endswith(".prop")
+
+
+def get_base_glyph_name(prop_glyph_name: str) -> str:
+    """Get the base glyph name from a proportional glyph name."""
+    if prop_glyph_name.endswith(".prop"):
+        return prop_glyph_name[:-5]
+    return prop_glyph_name
+
+
+def build_gsub_feature_code(glyphs_def: dict) -> str:
+    """Generate OpenType feature code for ss01 (proportional variants)."""
+    substitutions = []
+    for glyph_name in glyphs_def.keys():
+        if is_proportional_glyph(glyph_name):
+            base_name = get_base_glyph_name(glyph_name)
+            if base_name in glyphs_def:
+                substitutions.append((base_name, glyph_name))
+
+    if not substitutions:
+        return ""
+
+    lines = [
+        "feature ss01 {",
+        "    featureNames {",
+        '        name "Proportional";',
+        "    };",
+    ]
+    for base, prop in sorted(substitutions):
+        lines.append(f"    sub {base} by {prop};")
+    lines.append("} ss01;")
+    return "\n".join(lines)
 
 
 def parse_bitmap(bitmap: list) -> list[list[int]]:
@@ -114,8 +151,11 @@ def build_font(glyph_data: dict, output_path: Path):
     glyph_order = [".notdef", "space"] + sorted(glyph_names)
 
     # Build character map (Unicode codepoint -> glyph name)
+    # Exclude .prop glyphs - they have no direct Unicode mapping
     cmap = {32: "space"}  # Always include space
     for glyph_name, glyph_def in glyphs_def.items():
+        if is_proportional_glyph(glyph_name):
+            continue  # Proportional variants are accessed via ss01, not cmap
         if len(glyph_name) == 1:
             cmap[ord(glyph_name)] = glyph_name
         elif glyph_name.startswith("uni") and len(glyph_name) == 7:
@@ -165,14 +205,23 @@ def build_font(glyph_data: dict, output_path: Path):
         glyph_def = glyphs_def.get(glyph_name, {})
         bitmap = glyph_def.get("bitmap", [])
 
-        # Validate bitmap width: all rows must be exactly 5 characters wide
+        # Validate bitmap width
         if bitmap:
-            for row_idx, row in enumerate(bitmap):
-                row_len = len(row)
-                if row_len != 5:
+            if is_proportional_glyph(glyph_name):
+                # Proportional glyphs: all rows must have consistent width
+                row_widths = [len(row) for row in bitmap]
+                if len(set(row_widths)) > 1:
                     raise ValueError(
-                        f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
+                        f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}"
                     )
+            else:
+                # Monospace glyphs: all rows must be exactly 5 characters wide
+                for row_idx, row in enumerate(bitmap):
+                    row_len = len(row)
+                    if row_len != 5:
+                        raise ValueError(
+                            f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
+                        )
 
         if not bitmap:
             # Empty glyph
@@ -298,12 +347,25 @@ def build_font(glyph_data: dict, output_path: Path):
     # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
 
-    # Save font
+    # Save font initially
     fb.save(str(output_path))
-    print(f"Font saved to: {output_path}")
-    print(f"  Glyphs: {len(glyph_order)}")
-    print(f"  Units per em: {units_per_em}")
-    print(f"  Pixel size: {pixel_size} units")
+
+    # Add GSUB ss01 feature for proportional variants
+    feature_code = build_gsub_feature_code(glyphs_def)
+    if feature_code:
+        font = TTFont(str(output_path))
+        addOpenTypeFeaturesFromString(font, feature_code)
+        font.save(str(output_path))
+        print(f"Font saved to: {output_path}")
+        print(f"  Glyphs: {len(glyph_order)}")
+        print(f"  Units per em: {units_per_em}")
+        print(f"  Pixel size: {pixel_size} units")
+        print(f"  ss01 feature: enabled (proportional variants)")
+    else:
+        print(f"Font saved to: {output_path}")
+        print(f"  Glyphs: {len(glyph_order)}")
+        print(f"  Units per em: {units_per_em}")
+        print(f"  Pixel size: {pixel_size} units")
 
 
 def main():
