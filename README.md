@@ -1,4 +1,4 @@
-# Abbots Morton Spaceport
+# Abbots Morton Spaceport (Mono)
 
 [Departure Mono][dm], but [Quikscript][qs].
 
@@ -11,16 +11,30 @@ You can get a copy of the latest .otf and .woff2 files from [the Releases page][
 
 ## Usage
 
+This font comes in two variants:
+
+- proportional variant (Abbots Morton Spaceport)
+- monospace variant (Abbots Morton Spaceport Mono)
+
+Either way, you’ll need to:
+
+1. set your fonts to multiples of 11 pixels, probably
+1. get [Departure Mono][dm] working, too
+
+### Font sizing
+
+For pixel-perfect rendering on a screen, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
+
+On the other hand, if you’re aiming for print (in Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
+
+### Using with Departure Mono
+
 This font only has Quikscript letters, angled parentheses, and the space character. You’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want.
 
-Also, for pixel-perfect rendering, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
-
-Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
-
-### CSS
+#### CSS
 
 > [!IMPORTANT]
-> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the [`ch`][ch] CSS unit doesn’t work if Abbots Morton Spaceport is first in the font stack.
+> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the [`ch`][ch] CSS unit only works if Departure Mono comes before Abbots Morton Spaceport in the font stack.
 
 [ch]: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length#ch
 
@@ -31,20 +45,12 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
 }
 
 @font-face {
+  /* And/Or maybe the not-mono version */
   font-family: 'Abbots Morton Spaceport Mono';  
   src: url(…/fonts/AbbotsMortonSpaceportMono.woff2) format('woff2');
 }
 
-/* optional: turn on proportional glyphs */
-/* (putting proportional glyphs in a stylistic set of a monospace font may be a bad idea) */
-/* or use the significantly structurally different and supported in somewhat older browsers <https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Properties/font-feature-settings> to turn on `ss01` */
-@font-feature-values 'Abbots Morton Spaceport Mono' {
-  @styleset {
-    proportional: 1;
-  }
-}
-
-/* you probably know what selector you want already, but… */
+/* you probably know what selector you want already, but we’ll go with :root */
 :root {
   font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
 
@@ -65,7 +71,7 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
 
 [tf]: https://typst.app/docs/reference/text/text/#parameters-font
 
-I’m not sure if the order of these two fonts matters in Typst.
+I’m not sure if the order of these two fonts matters in Typst since (at the time of this writing) it doesn’t have a length measurement that depends on the width of a character like `0`.
 
 ### Microsoft Word
 
@@ -75,7 +81,7 @@ Or keep reading…
 
 ### Others
 
-You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing with this font and Departure Mono.
+You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing and smash this font into Departure Mono.
 
 [nerd fonts]: https://www.nerdfonts.com/
 
