@@ -247,18 +247,18 @@
     slider.addEventListener('input', (e) => {
       const size = e.target.value;
       sizeValue.textContent = size;
-      samples.forEach(el => {
+      for (const el of samples) {
         el.style.fontSize = size + 'px';
-      });
+      }
     });
 
     ss01Toggle.addEventListener('click', () => {
       const isActive = ss01Toggle.classList.toggle('active');
       const featureSetting = isActive ? '"ss01" 1' : '"ss01" 0';
       ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
-      allSamples.forEach(el => {
+      for (const el of allSamples) {
         el.style.fontFeatureSettings = featureSetting;
-      });
+      }
     });
   </script>
 
