@@ -19,8 +19,11 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
 
 ### CSS
 
+> [!IMPORTANT]
+> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the `ch` CSS unit doesn’t work if Abbots Morton Spaceport is first in the font stack.
+
 ```css
-font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
 
 /* <https://caniuse.com/?search=font-smooth> isn’t universally supported yet */
 -webkit-font-smoothing: none;
@@ -38,7 +41,7 @@ font-smooth: never;
 
 [tf]: https://typst.app/docs/reference/text/text/#parameters-font
 
-I don’t think the order of these two fonts matters (yet).
+I’m not sure if the order of these two fonts matters in Typst.
 
 ### Microsoft Word
 
