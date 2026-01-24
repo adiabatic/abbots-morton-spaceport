@@ -1,4 +1,4 @@
-# Fontlog for Abbots Morton Spaceport Mono
+# Fontlog for Abbots Morton Spaceport (Mono)
 
 Much of what goes in a FONTLOG file — other than the changelog — is in the README.
 
@@ -6,7 +6,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 2.000
 
-- Add proportional glyphs to stylistic set #1
+- Add a proportional version
 - Fix spacing metrics (it’s actually a monospace font now)
 - Improve ·Why
 
