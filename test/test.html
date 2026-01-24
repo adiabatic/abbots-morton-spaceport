@@ -160,6 +160,49 @@
       }
     }
   </style>
+  <script type="module">
+    const slider = document.getElementById('size-slider');
+    const sizeValue = document.getElementById('size-value');
+    const ss01Toggle = document.getElementById('ss01-toggle');
+    const fontOrderToggle = document.getElementById('font-order-toggle');
+    const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
+    const allSamples = document.querySelectorAll('.sample');
+
+    slider.addEventListener('input', (e) => {
+      const size = e.target.value;
+      sizeValue.textContent = size;
+      for (const el of samples) {
+        el.style.fontSize = size + 'px';
+      }
+    });
+
+    fontOrderToggle.addEventListener('click', () => {
+      const isActive = fontOrderToggle.classList.toggle('active');
+      const fontStack = isActive
+        ? "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace"
+        : "'Departure Mono', 'Abbots Morton Spaceport Mono', monospace";
+      fontOrderToggle.textContent = isActive ? 'AMS first' : 'DM first';
+      for (const el of allSamples) {
+        el.style.fontFamily = fontStack;
+      }
+    });
+
+    const title = document.querySelector('h1');
+    const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
+    pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
+
+    ss01Toggle.addEventListener('click', () => {
+      const isActive = ss01Toggle.classList.toggle('active');
+      const featureSetting = isActive ? 'styleset(proportional)' : 'normal';
+      const fontName = isActive ? 'Abbots Morton Spaceport' : 'Abbots Morton Spaceport Mono';
+      ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
+      title.textContent = fontName;
+      document.title = fontName;
+      for (const el of allSamples) {
+        el.style.fontVariantAlternates = featureSetting;
+      }
+    });
+  </script>
 </head>
 <body>
   <h1>Abbots Morton Spaceport Mono</h1>
@@ -251,50 +294,6 @@
     <div class="size-label">44px (4x)</div>
     <div class="sample size-test" style="font-size: 44px;">123 &ldquo;Handgloves&rdquo;?       .</div>
   </div>
-
-  <script>
-    const slider = document.getElementById('size-slider');
-    const sizeValue = document.getElementById('size-value');
-    const ss01Toggle = document.getElementById('ss01-toggle');
-    const fontOrderToggle = document.getElementById('font-order-toggle');
-    const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
-    const allSamples = document.querySelectorAll('.sample');
-
-    slider.addEventListener('input', (e) => {
-      const size = e.target.value;
-      sizeValue.textContent = size;
-      for (const el of samples) {
-        el.style.fontSize = size + 'px';
-      }
-    });
-
-    fontOrderToggle.addEventListener('click', () => {
-      const isActive = fontOrderToggle.classList.toggle('active');
-      const fontStack = isActive
-        ? "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace"
-        : "'Departure Mono', 'Abbots Morton Spaceport Mono', monospace";
-      fontOrderToggle.textContent = isActive ? 'AMS first' : 'DM first';
-      for (const el of allSamples) {
-        el.style.fontFamily = fontStack;
-      }
-    });
-
-    const title = document.querySelector('h1');
-    const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
-    pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
-
-    ss01Toggle.addEventListener('click', () => {
-      const isActive = ss01Toggle.classList.toggle('active');
-      const featureSetting = isActive ? 'styleset(proportional)' : 'normal';
-      const fontName = isActive ? 'Abbots Morton Spaceport' : 'Abbots Morton Spaceport Mono';
-      ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
-      title.textContent = fontName;
-      document.title = fontName;
-      for (const el of allSamples) {
-        el.style.fontVariantAlternates = featureSetting;
-      }
-    });
-  </script>
 
   <footer>
     <a href="https://github.com/adiabatic/abbots-morton-spaceport">Download the font on GitHub</a>
