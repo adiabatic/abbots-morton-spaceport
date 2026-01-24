@@ -330,6 +330,19 @@ glyphs:
       - "#    "
       - "#    "
 
+  uniE661.prop:  # ·Way (proportional)
+    y_offset: -3
+    bitmap:
+      - "   #"
+      - "   #"
+      - "  # "
+      - "  # "
+      - " #  " #
+      - " #  "
+      - "#   "
+      - "#   "
+      - "    "
+
   uniE662:  # ·He
     bitmap:
       - "  ## "
@@ -341,6 +354,18 @@ glyphs:
       - " #   "
       - " #   "
       - " #   "
+
+  uniE662.prop:  # ·He (proportional)
+    bitmap:
+      - " ##"
+      - "#  "
+      - "#  "
+      - "#  " #
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
 
   uniE663:  # ·Why
     y_offset: -3
