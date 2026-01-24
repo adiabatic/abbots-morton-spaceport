@@ -6,6 +6,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 1.004
 
+- Take ·I, flip it, and replace the old ·Eight
 - Make the counter of ·Bay 2×2 inside
 
 ### 1.003
