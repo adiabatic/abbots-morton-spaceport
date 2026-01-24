@@ -114,6 +114,8 @@ jobs:
       - name: Create release zip
         run: |
           cd release-contents
+          mv build/* .
+          rmdir build
           zip -r "../abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip" .
 
       - name: Create Release
