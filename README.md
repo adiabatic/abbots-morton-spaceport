@@ -35,7 +35,7 @@ font-smooth: never;
 
 ```typst
 #set text(
-    font: ("Abbots Morton Spaceport Mono", "Departure Mono"),
+    font: ("Departure Mono", "Abbots Morton Spaceport Mono"),
 )
 ```
 
