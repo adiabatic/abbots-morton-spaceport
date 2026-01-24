@@ -20,7 +20,9 @@ Contrariwise, if you’re aiming for print (in Word or Typst), you don’t need 
 ### CSS
 
 > [!IMPORTANT]
-> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the `ch` CSS unit doesn’t work if Abbots Morton Spaceport is first in the font stack.
+> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the [`ch`][ch] CSS unit doesn’t work if Abbots Morton Spaceport is first in the font stack.
+
+[ch]: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length#ch
 
 ```css
 font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
