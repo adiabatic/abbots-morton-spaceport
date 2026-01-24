@@ -8,7 +8,7 @@ Usage:
 
 Outputs:
     output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font
-    output_dir/AbbotsMortonSpaceport.otf      - Proportional font
+    output_dir/AbbotsMortonSpaceportSans.otf  - Proportional font
 """
 
 import sys
@@ -161,10 +161,9 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     # Font name differs for proportional variant
     base_font_name = metadata["font_name"]
     if is_proportional:
-        # Remove " Mono" suffix for proportional variant
-        font_name = base_font_name.replace(" Mono", "")
+        font_name = base_font_name + " Sans"
     else:
-        font_name = base_font_name
+        font_name = base_font_name + " Mono"
     version = metadata["version"]
     units_per_em = metadata["units_per_em"]
     pixel_size = metadata["pixel_size"]
@@ -408,7 +407,7 @@ def main():
         print("Usage: uv run python build_font.py <glyph_data.yaml> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
-        print("  output_dir/AbbotsMortonSpaceport.otf")
+        print("  output_dir/AbbotsMortonSpaceportSans.otf")
         print("\nExample:")
         print("  uv run python build_font.py glyph_data.yaml build/")
         sys.exit(1)
@@ -434,7 +433,7 @@ def main():
     build_font(glyph_data, mono_path, is_proportional=False)
 
     # Build proportional font
-    prop_path = output_dir / "AbbotsMortonSpaceport.otf"
+    prop_path = output_dir / "AbbotsMortonSpaceportSans.otf"
     build_font(glyph_data, prop_path, is_proportional=True)
 
 

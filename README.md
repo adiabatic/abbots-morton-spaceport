@@ -1,4 +1,4 @@
-# Abbots Morton Spaceport (Mono)
+# Abbots Morton Spaceport
 
 [Departure Mono][dm], but [Quikscript][qs].
 
@@ -13,8 +13,8 @@ You can get a copy of the latest .otf and .woff2 files from [the Releases page][
 
 This font comes in two variants:
 
-- proportional variant (Abbots Morton Spaceport)
-- monospace variant (Abbots Morton Spaceport Mono)
+- monospace (Abbots Morton Spaceport Mono)
+- proportional (Abbots Morton Spaceport Sans)
 
 Either way, you’ll need to:
 
@@ -25,7 +25,7 @@ Either way, you’ll need to:
 
 For pixel-perfect rendering on a screen, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
 
-On the other hand, if you’re aiming for print (in Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
+On the other hand, if you’re aiming for print (in, say, Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
 
 ### Using with Departure Mono
 
@@ -34,7 +34,7 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 #### CSS
 
 > [!IMPORTANT]
-> Since Abbots Morton Spaceport doesn’t have a `0` glyph, the [`ch`][ch] CSS unit only works if Departure Mono comes before Abbots Morton Spaceport in the font stack.
+> Since Abbots Morton Spaceport Sans doesn’t have a `0` glyph, the [`ch`][ch] CSS unit only works if Departure Mono comes before Abbots Morton Spaceport anything in the font stack.
 
 [ch]: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length#ch
 
@@ -44,17 +44,23 @@ This font only has Quikscript letters, angled parentheses, and the space charact
   src: url(…/fonts/DepartureMono-Regular.woff2) format('woff2');
 }
 
+/* Pick one (or both) */
 @font-face {
-  /* And/Or maybe the not-mono version */
-  font-family: 'Abbots Morton Spaceport Mono';  
+  font-family: 'Abbots Morton Spaceport Sans';
+  src: url(…/fonts/AbbotsMortonSpaceportSans.woff2) format('woff2');
+}
+
+@font-face {
+  font-family: 'Abbots Morton Spaceport Mono';
   src: url(…/fonts/AbbotsMortonSpaceportMono.woff2) format('woff2');
 }
 
 /* you probably know what selector you want already, but we’ll go with :root */
 :root {
+  /* Or 'Abbots Morton Spaceport Sans' */
   font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
 
-  /* <https://caniuse.com/?search=font-smooth> isn’t universally supported yet */
+  /* <https://caniuse.com/?search=font-smooth> isn’t universally supported as of early 2026, but it might be as you read this, so go check */
   -webkit-font-smoothing: none;
   -moz-osx-font-smoothing: unset;
   font-smooth: never;
@@ -81,7 +87,7 @@ Or…
 
 ### Others
 
-You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing and smash this font into Departure Mono.
+You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing and smash either Abbots Morton Spaceport font into Departure Mono.
 
 [nerd fonts]: https://www.nerdfonts.com/
 

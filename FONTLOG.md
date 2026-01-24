@@ -1,8 +1,12 @@
-# Fontlog for Abbots Morton Spaceport (Mono)
+# Fontlog for Abbots Morton Spaceport
 
 Much of what goes in a FONTLOG file — other than the changelog — is in the README.
 
 ## Changelog
+
+### 3.000
+
+- Have “Abbots Morton Spaceport” refer to the family, “Abbots Morton Spaceport Sans” refer to the proportional variant, and leave “Abbots Morton Spaceport Mono” unchanged
 
 ### 2.000
 
