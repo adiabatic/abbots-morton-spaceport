@@ -15,6 +15,12 @@
       src: url('DepartureMono-Regular.otf') format('opentype');
     }
 
+    @font-feature-values 'Abbots Morton Spaceport Mono' {
+      @styleset {
+        proportional: 1;
+      }
+    }
+
     :root {
       color-scheme: light dark;
       --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
@@ -279,13 +285,13 @@
 
     ss01Toggle.addEventListener('click', () => {
       const isActive = ss01Toggle.classList.toggle('active');
-      const featureSetting = isActive ? '"ss01" 1' : '"ss01" 0';
+      const featureSetting = isActive ? 'styleset(proportional)' : 'normal';
       const fontName = isActive ? 'Abbots Morton Spaceport' : 'Abbots Morton Spaceport Mono';
       ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
       title.textContent = fontName;
       document.title = fontName;
       for (const el of allSamples) {
-        el.style.fontFeatureSettings = featureSetting;
+        el.style.fontVariantAlternates = featureSetting;
       }
     });
   </script>
