@@ -225,12 +225,16 @@
     ];
 
     const fontStatus = document.getElementById('font-status');
+    const fontOrderToggle = document.getElementById('font-order-toggle');
 
     let currentState = 0;
+    let dmFirst = true;
 
     function applyState() {
       const mode = fontModes[currentState];
-      const fontStack = `${mode.font}, 'Departure Mono', monospace`;
+      const fontStack = dmFirst
+        ? `'Departure Mono', ${mode.font}, monospace`
+        : `${mode.font}, 'Departure Mono', monospace`;
 
       for (const el of allSamples) {
         el.style.fontFamily = fontStack;
@@ -263,6 +267,12 @@
     edgeSs01Prop.addEventListener('click', () => toggleEdge(1));
     edgePropMono.addEventListener('click', () => toggleEdge(2));
 
+    fontOrderToggle.addEventListener('click', () => {
+      dmFirst = !dmFirst;
+      fontOrderToggle.textContent = dmFirst ? 'DM first' : 'AMS first';
+      applyState();
+    });
+
     // Initialize
     applyState();
   </script>
@@ -272,7 +282,8 @@
   <p>Want it? Get it <a href="https://github.com/adiabatic/abbots-morton-spaceport">on GitHub</a>.</p>
 
   <div class="toggle-buttons">
-    <button id="font-order-toggle" hidden>DM first</button>
+    <button id="font-order-toggle">DM first</button>
+    <hr>
     <div class="font-triangle">
       <button id="edge-mono-ss01">Mono ↔ ss01</button>
       <button id="edge-ss01-prop">ss01 ↔ Prop</button>
