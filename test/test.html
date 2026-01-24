@@ -128,10 +128,17 @@
       }
     }
 
-    #ss01-toggle {
+    .toggle-buttons {
       position: fixed;
       top: 1rem;
       right: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 1000;
+    }
+
+    .toggle-buttons button {
       padding: 0.75rem 1.5rem;
       font-size: var(--font-size);
       font-family: inherit;
@@ -140,7 +147,6 @@
       border: none;
       border-radius: 4px;
       cursor: pointer;
-      z-index: 1000;
       -webkit-font-smoothing: none;
 
       &:hover {
@@ -153,7 +159,10 @@
   <h1>Abbots Morton Spaceport Mono</h1>
   <p>Want it? Get it <a href="https://github.com/adiabatic/abbots-morton-spaceport">on GitHub</a>.</p>
 
-  <button id="ss01-toggle">Fixed-width</button>
+  <div class="toggle-buttons">
+    <button id="font-order-toggle">AMS first</button>
+    <button id="ss01-toggle">Fixed-width</button>
+  </div>
 
   <div class="controls">
     <label>
@@ -241,6 +250,7 @@
     const slider = document.getElementById('size-slider');
     const sizeValue = document.getElementById('size-value');
     const ss01Toggle = document.getElementById('ss01-toggle');
+    const fontOrderToggle = document.getElementById('font-order-toggle');
     const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
     const allSamples = document.querySelectorAll('.sample');
 
@@ -249,6 +259,17 @@
       sizeValue.textContent = size;
       for (const el of samples) {
         el.style.fontSize = size + 'px';
+      }
+    });
+
+    fontOrderToggle.addEventListener('click', () => {
+      const isActive = fontOrderToggle.classList.toggle('active');
+      const fontStack = isActive
+        ? "'Departure Mono', 'Abbots Morton Spaceport Mono', monospace"
+        : "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace";
+      fontOrderToggle.textContent = isActive ? 'DM first' : 'AMS first';
+      for (const el of allSamples) {
+        el.style.fontFamily = fontStack;
       }
     });
 
