@@ -67,6 +67,18 @@ glyphs:
       - "    #"
       - "    #"
 
+  uniE650.prop:  # ·Pea (proportional)
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "   #" #
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+
   uniE651:  # ·Bay
     y_offset: -3
     bitmap:
@@ -141,6 +153,18 @@ glyphs:
       - "#    "
       - "#    "
       - " ### "
+
+  uniE654.prop:  # ·Key (proportional)
+    bitmap:
+      - "#   "
+      - " #  "
+      - "  # "
+      - "  # " #
+      - "  # "
+      - " #  "
+      - "#   "
+      - "#   "
+      - " ###"
 
   uniE655:  # ·Gay
     y_offset: -3
