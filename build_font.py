@@ -7,8 +7,8 @@ Usage:
     uv run python build_font.py glyph_data.yaml [output_dir]
 
 Outputs:
-    output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font with ss01 feature
-    output_dir/AbbotsMortonSpaceport.otf      - Proportional font (no ss01)
+    output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font
+    output_dir/AbbotsMortonSpaceport.otf      - Proportional font
 """
 
 import sys
@@ -17,10 +17,9 @@ from pathlib import Path
 
 import yaml
 
-from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
-from fontTools.ttLib import TTFont, newTable
+from fontTools.ttLib import newTable
 
 
 def load_glyph_data(yaml_path: Path) -> dict:
@@ -71,30 +70,6 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             new_glyphs[glyph_name] = glyph_def
 
     return new_glyphs
-
-
-def build_gsub_feature_code(glyphs_def: dict) -> str:
-    """Generate OpenType feature code for ss01 (proportional variants)."""
-    substitutions = []
-    for glyph_name in glyphs_def.keys():
-        if is_proportional_glyph(glyph_name):
-            base_name = get_base_glyph_name(glyph_name)
-            if base_name in glyphs_def:
-                substitutions.append((base_name, glyph_name))
-
-    if not substitutions:
-        return ""
-
-    lines = [
-        "feature ss01 {",
-        "    featureNames {",
-        '        name "Proportional";',
-        "    };",
-    ]
-    for base, prop in sorted(substitutions):
-        lines.append(f"    sub {base} by {prop};")
-    lines.append("} ss01;")
-    return "\n".join(lines)
 
 
 def parse_bitmap(bitmap: list) -> list[list[int]]:
@@ -199,7 +174,12 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     x_height = metadata["x_height"]
 
     # Build glyph order (must include .notdef first)
-    glyph_names = [name for name in glyphs_def.keys() if name not in (".notdef", "space")]
+    # For mono font, exclude .prop glyphs entirely
+    glyph_names = [
+        name for name in glyphs_def.keys()
+        if name not in (".notdef", "space")
+        and (is_proportional or not is_proportional_glyph(name))
+    ]
     glyph_order = [".notdef", "space"] + sorted(glyph_names)
 
     # Build character map (Unicode codepoint -> glyph name)
@@ -410,14 +390,9 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     # Save font initially
     fb.save(str(output_path))
 
-    # Add GSUB ss01 feature for proportional variants (monospace font only)
-    # Proportional font doesn't need ss01 since proportional glyphs are the default
-    if not is_proportional:
-        feature_code = build_gsub_feature_code(glyph_data["glyphs"])  # Use original glyphs
-        if feature_code:
-            font = TTFont(str(output_path))
-            addOpenTypeFeaturesFromString(font, feature_code)
-            font.save(str(output_path))
+    # Note: ss01 feature is no longer generated for mono font
+    # since .prop glyphs are not included. The proportional font
+    # uses .prop glyphs as defaults, so no ss01 needed there either.
 
     # Print summary
     variant = "proportional" if is_proportional else "monospace"
@@ -426,8 +401,6 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     print(f"  Glyphs: {len(glyph_order)}")
     print(f"  Units per em: {units_per_em}")
     print(f"  Pixel size: {pixel_size} units")
-    if not is_proportional:
-        print(f"  ss01 feature: enabled (proportional variants)")
 
 
 def main():

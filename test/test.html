@@ -20,12 +20,6 @@
       src: url('DepartureMono-Regular.otf') format('opentype');
     }
 
-    @font-feature-values 'Abbots Morton Spaceport Mono' {
-      @styleset {
-        proportional: 1;
-      }
-    }
-
     :root {
       color-scheme: light dark;
       --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
@@ -163,27 +157,10 @@
           background: light-dark(#0055aa, #6ab0ff);
         }
       }
-    }
 
-    .font-triangle {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: auto auto;
-      gap: 0.5rem;
-      width: 200px;
-
-      button:first-child {
-        grid-column: 1 / -1;
-      }
-
-      button.inactive {
-        opacity: 0.4;
-      }
-
-      .font-status {
-        grid-column: 1 / -1;
-        text-align: center;
-        color: light-dark(#666, #888);
+      #font-toggle {
+        /* Since Abbots Morton Spaceport doesn't have a `0` glyph, the `ch` unit doesn't work properly */
+        min-width: 9.5em;
       }
     }
   </style>
@@ -205,67 +182,35 @@
     const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
 
-    // Triangle edge toggle system
-    const edgeMonoSs01 = document.getElementById('edge-mono-ss01');
-    const edgeSs01Prop = document.getElementById('edge-ss01-prop');
-    const edgePropMono = document.getElementById('edge-prop-mono');
-    const edges = [edgeMonoSs01, edgeSs01Prop, edgePropMono];
-
-    // Each edge connects two states [stateA, stateB]
-    const edgeConnections = [
-      [0, 1],  // edge-mono-ss01
-      [1, 2],  // edge-ss01-prop
-      [2, 0],  // edge-prop-mono
-    ];
-
     const fontModes = [
-      { font: "'Abbots Morton Spaceport Mono'", alternates: 'normal', title: 'Abbots Morton Spaceport Mono', status: 'Monospace' },
-      { font: "'Abbots Morton Spaceport Mono'", alternates: 'styleset(proportional)', title: 'Abbots Morton Spaceport', status: 'Stylistic Set 01' },
-      { font: "'Abbots Morton Spaceport'", alternates: 'normal', title: 'Abbots Morton Spaceport', status: 'Proportional' },
+      { font: "'Abbots Morton Spaceport Mono'", title: 'Abbots Morton Spaceport Mono' },
+      { font: "'Abbots Morton Spaceport'", title: 'Abbots Morton Spaceport' },
     ];
 
-    const fontStatus = document.getElementById('font-status');
     const fontOrderToggle = document.getElementById('font-order-toggle');
+    const fontToggle = document.getElementById('font-toggle');
 
-    let currentState = 0;
+    let isProportional = false;
     let dmFirst = true;
 
     function applyState() {
-      const mode = fontModes[currentState];
+      const mode = fontModes[isProportional ? 1 : 0];
       const fontStack = dmFirst
         ? `'Departure Mono', ${mode.font}, monospace`
         : `${mode.font}, 'Departure Mono', monospace`;
 
       for (const el of allSamples) {
         el.style.fontFamily = fontStack;
-        el.style.fontVariantAlternates = mode.alternates;
       }
       title.textContent = mode.title;
       document.title = mode.title;
-      fontStatus.textContent = mode.status;
-
-      // Update edge button states - dim edges that don't connect to current state
-      for (const [i, btn] of edges.entries()) {
-        const [a, b] = edgeConnections[i];
-        const isActive = (a === currentState || b === currentState);
-        btn.classList.toggle('inactive', !isActive);
-      }
+      fontToggle.textContent = isProportional ? 'Proportional' : 'Monospace';
     }
 
-    function toggleEdge(edgeIndex) {
-      const [a, b] = edgeConnections[edgeIndex];
-      if (currentState === a) {
-        currentState = b;
-      } else if (currentState === b) {
-        currentState = a;
-      }
-      // If current state isn't connected to this edge, do nothing
+    fontToggle.addEventListener('click', () => {
+      isProportional = !isProportional;
       applyState();
-    }
-
-    edgeMonoSs01.addEventListener('click', () => toggleEdge(0));
-    edgeSs01Prop.addEventListener('click', () => toggleEdge(1));
-    edgePropMono.addEventListener('click', () => toggleEdge(2));
+    });
 
     fontOrderToggle.addEventListener('click', () => {
       dmFirst = !dmFirst;
@@ -282,14 +227,8 @@
   <p>Want it? Get it <a href="https://github.com/adiabatic/abbots-morton-spaceport">on GitHub</a>.</p>
 
   <div class="toggle-buttons">
-    <button id="font-order-toggle">DM first</button>
-    <hr>
-    <div class="font-triangle">
-      <button id="edge-mono-ss01">Mono ↔ ss01</button>
-      <button id="edge-ss01-prop">ss01 ↔ Prop</button>
-      <button id="edge-prop-mono">Prop ↔ Mono</button>
-      <div id="font-status" class="font-status">Monospace</div>
-    </div>
+    <button id="font-order-toggle" title="Nothing should change when this button is clicked other than a bit of spacing changes in the every-character list.">DM first</button>
+    <button id="font-toggle">Monospace</button>
   </div>
 
   <div class="controls">
