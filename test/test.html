@@ -127,20 +127,38 @@
         color: light-dark(#0066cc, #4a9eff);
       }
     }
+
+    #ss01-toggle {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      padding: 0.75rem 1.5rem;
+      font-size: var(--font-size);
+      font-family: inherit;
+      background: light-dark(#0066cc, #4a9eff);
+      color: light-dark(#fff, #1a1a1a);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 1000;
+      -webkit-font-smoothing: none;
+
+      &:hover {
+        background: light-dark(#0055aa, #6ab0ff);
+      }
+    }
   </style>
 </head>
 <body>
   <h1>Abbots Morton Spaceport Mono</h1>
   <p>Want it? Get it <a href="https://github.com/adiabatic/abbots-morton-spaceport">on GitHub</a>.</p>
 
+  <button id="ss01-toggle">Fixed-width</button>
+
   <div class="controls">
     <label>
       Font size: <span id="size-value">22</span>px
       <input type="range" id="size-slider" min="11" max="77" value="22">
-    </label>
-    <label>
-      <input type="checkbox" id="ss01-toggle">
-      Proportional (ss01)
     </label>
   </div>
 
@@ -234,8 +252,10 @@
       });
     });
 
-    ss01Toggle.addEventListener('change', (e) => {
-      const featureSetting = e.target.checked ? '"ss01" 1' : '"ss01" 0';
+    ss01Toggle.addEventListener('click', () => {
+      const isActive = ss01Toggle.classList.toggle('active');
+      const featureSetting = isActive ? '"ss01" 1' : '"ss01" 0';
+      ss01Toggle.textContent = isActive ? 'Proportional' : 'Fixed-width';
       allSamples.forEach(el => {
         el.style.fontFeatureSettings = featureSetting;
       });
