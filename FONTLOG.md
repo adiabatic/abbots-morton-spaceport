@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 1.005
+
+- Improve ·Why
+
 ### 1.004
 
 - Improve ·Jay
