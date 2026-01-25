@@ -465,7 +465,7 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  uniE66C:  # ·Examine
+  uniE66C:  # ·Exam
     y_offset: -3
     bitmap:
       - "#   #"
@@ -609,14 +609,14 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE679:  # ·Out
+  uniE679:  # ·Oy
     bitmap:
-      - "   ##"
+      - "##   "
       - "  #  "
       - " # # "
-      - "# #  "
-      - "#    "
-      - "#    "
+      - "  # #"
+      - "    #"
+      - "    #"
 
   uniE67A:  # ·Utter
     bitmap:
@@ -627,14 +627,14 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE67B:  # ·Oy
+  uniE67B:  # ·Out
     bitmap:
-      - "##   "
+      - "   ##"
       - "  #  "
       - " # # "
-      - "  # #"
-      - "    #"
-      - "    #"
+      - "# #  "
+      - "#    "
+      - "#    "
 
   uniE67C:  # ·Owe
     bitmap:
