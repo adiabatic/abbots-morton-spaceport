@@ -25,11 +25,12 @@
 
     :root {
       color-scheme: light dark;
+      --font-stack: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
       --font-size: 22px; /* Departure Mono is pixel-perfect at multiples of 11px */
     }
 
     html {
-      font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+      font-family: var(--font-stack);
       font-size: 11px;
       -webkit-font-smoothing: none;
       -moz-osx-font-smoothing: grayscale;
@@ -62,7 +63,7 @@
     }
 
     .sample {
-      font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+      font-family: var(--font-stack);
       font-size: var(--font-size);
       line-height: 1.5;
       /* Disable font smoothing for crisp pixels */
@@ -108,7 +109,7 @@
     }
 
     pre {
-      font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+      font-family: var(--font-stack);
       -webkit-font-smoothing: none;
       white-space: pre-wrap;
     }
@@ -167,7 +168,6 @@
     const slider = document.getElementById('size-slider');
     const sizeValue = document.getElementById('size-value');
     const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
-    const allSamples = document.querySelectorAll('.sample');
 
     slider.addEventListener('input', (e) => {
       const size = e.target.value;
@@ -190,7 +190,7 @@
     const fontToggle = document.getElementById('font-toggle');
 
     let isProportional = false;
-    let dmFirst = true;
+    let dmFirst = false;
 
     function applyState() {
       const mode = fontModes[isProportional ? 1 : 0];
@@ -198,9 +198,7 @@
         ? `'Departure Mono', ${mode.font}, monospace`
         : `${mode.font}, 'Departure Mono', monospace`;
 
-      for (const el of allSamples) {
-        el.style.fontFamily = fontStack;
-      }
+      document.documentElement.style.setProperty('--font-stack', fontStack);
       title.textContent = mode.title;
       document.title = mode.title;
       fontToggle.textContent = isProportional ? 'Proportional' : 'Monospace';
@@ -226,7 +224,7 @@
   <p>Want it? Get it <a href="https://github.com/adiabatic/abbots-morton-spaceport">on GitHub</a>.</p>
 
   <div class="toggle-buttons">
-    <button id="font-order-toggle" title="Nothing should change when this button is clicked other than a bit of spacing changes in the every-character list.">DM first</button>
+    <button id="font-order-toggle" title="Nothing should change when this button is clicked.">DM first</button>
     <button id="font-toggle">Monospace</button>
   </div>
 
