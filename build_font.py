@@ -273,22 +273,28 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
 
         # Validate bitmap height
         row_count = len(bitmap)
-        # Angled parentheses (uniE66E, uniE66F) are 12 rows tall
-        if glyph_name in ("uniE66E", "uniE66F"):
-            if row_count != 12:
-                raise ValueError(
-                    f"Glyph '{glyph_name}' has {row_count} rows, expected 12 (angled parenthesis)"
-                )
-        elif y_offset == -3:
-            if row_count != 9:
-                raise ValueError(
-                    f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9"
-                )
-        else:
-            if row_count not in (6, 9):
+
+        # Check if this is a Quikscript glyph (uniE6xx or uniE6xx.prop)
+        base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
+        is_quikscript = base_name.startswith("uniE6")
+
+        if is_quikscript:
+            # Strict height validation for Quikscript glyphs
+            if glyph_name in ("uniE66E", "uniE66F"):
+                if row_count != 12:
+                    raise ValueError(
+                        f"Glyph '{glyph_name}' has {row_count} rows, expected 12 (angled parenthesis)"
+                    )
+            elif y_offset == -3:
+                if row_count != 9:
+                    raise ValueError(
+                        f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9"
+                    )
+            elif row_count not in (6, 9):
                 raise ValueError(
                     f"Glyph '{glyph_name}' has {row_count} rows, expected 6 or 9"
                 )
+        # Non-Quikscript glyphs: no height restrictions
 
         rectangles = bitmap_to_rectangles(bitmap, pixel_size, y_offset)
 
@@ -300,19 +306,24 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
             advance_width = max_col + 2
         advance_width *= pixel_size
 
-        # Calculate left side bearing (LSB)
-        if rectangles:
-            lsb = min(r[0] for r in rectangles)
-        else:
-            lsb = 0
+        # Calculate x_offset to center glyph within advance width
+        # This matches Departure Mono's layout (1-pixel margin on each side)
+        bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
+        x_offset = (advance_width - bitmap_width) // 2
 
-        # Draw glyph
+        # Calculate left side bearing (LSB) with offset applied
+        if rectangles:
+            lsb = min(r[0] for r in rectangles) + x_offset
+        else:
+            lsb = x_offset
+
+        # Draw glyph with x_offset applied
         pen = T2CharStringPen(width=advance_width, glyphSet=glyph_set)
         for x, y, w, h in rectangles:
-            pen.moveTo((x, y))
-            pen.lineTo((x, y + h))
-            pen.lineTo((x + w, y + h))
-            pen.lineTo((x + w, y))
+            pen.moveTo((x + x_offset, y))
+            pen.lineTo((x + x_offset, y + h))
+            pen.lineTo((x + x_offset + w, y + h))
+            pen.lineTo((x + x_offset + w, y))
             pen.closePath()
 
         charstrings[glyph_name] = pen.getCharString()

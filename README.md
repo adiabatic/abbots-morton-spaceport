@@ -33,11 +33,6 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 
 #### CSS
 
-> [!IMPORTANT]
-> Since Abbots Morton Spaceport Sans doesn’t have a `0` glyph, the [`ch`][ch] CSS unit only works if Departure Mono comes before Abbots Morton Spaceport anything in the font stack.
-
-[ch]: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Values/length#ch
-
 ```css
 @font-face {
   font-family: 'Departure Mono';
@@ -77,7 +72,7 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 
 [tf]: https://typst.app/docs/reference/text/text/#parameters-font
 
-I’m not sure if the order of these two fonts matters in Typst since (at the time of this writing) it doesn’t have a length measurement that depends on the width of a character like `0`.
+I’m not sure if the order of these two fonts matters in Typst.
 
 ### Microsoft Word
 
@@ -93,7 +88,7 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Wishlist
 
-- Proportional copies of Departure Mono’s punctuation (might as well add its `0` glyph too)
+- Proportional copies of Departure Mono’s punctuation
 - Quikscript Senior with a gazillion ligatures
 
 ## Licensing
