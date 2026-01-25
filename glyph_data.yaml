@@ -663,7 +663,9 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  zero:  # 0
+  # Non-Quikscript glyphs
+
+  zero:  # 0 U+0030
     bitmap:
       - " ### "
       - "#   #"
@@ -673,3 +675,9 @@ glyphs:
       - "#   #"
       - "#   #"
       - " ### "
+
+  periodcentered:  # · U+00B7
+    y_offset: 3
+    bitmap:
+      - "  #  "
+      - "  #  "
