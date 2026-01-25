@@ -57,9 +57,14 @@ def point_in_polygon(x, y, polygon):
     return inside
 
 
-def glyph_to_bitmap(font_path, glyph_name):
+def glyph_to_bitmap(font_path, glyph_name, include_padding=True):
     """
     Extract a glyph as a bitmap from an OTF font.
+
+    Args:
+        font_path: Path to the font file
+        glyph_name: Name of the glyph to extract
+        include_padding: If True, include left_side_bearing padding in bitmap
 
     Returns:
         tuple: (bitmap_rows, y_offset) where bitmap_rows is a list of strings
@@ -87,7 +92,21 @@ def glyph_to_bitmap(font_path, glyph_name):
     x_min, x_max = min(all_x), max(all_x)
     y_min, y_max = min(all_y), max(all_y)
 
-    grid_width = int((x_max - x_min) / PIXEL_SIZE)
+    # Get left_side_bearing for padding
+    hmtx = font["hmtx"]
+    advance_width, lsb = hmtx[glyph_name]
+
+    # Calculate grid dimensions
+    if include_padding:
+        # Include left padding based on left_side_bearing
+        left_padding = int(lsb / PIXEL_SIZE)
+        grid_x_start = 0
+        grid_width = int(x_max / PIXEL_SIZE)
+    else:
+        left_padding = 0
+        grid_x_start = int(x_min / PIXEL_SIZE)
+        grid_width = int((x_max - x_min) / PIXEL_SIZE)
+
     grid_height = int((y_max - y_min) / PIXEL_SIZE)
 
     bitmap = []
@@ -95,7 +114,7 @@ def glyph_to_bitmap(font_path, glyph_name):
         y = y_max - (row * PIXEL_SIZE) - (PIXEL_SIZE // 2)
         row_str = ""
         for col in range(grid_width):
-            x = x_min + (col * PIXEL_SIZE) + (PIXEL_SIZE // 2)
+            x = (grid_x_start + col) * PIXEL_SIZE + (PIXEL_SIZE // 2)
             count = sum(1 for c in contours if point_in_polygon(x, y, c))
             row_str += "#" if count % 2 == 1 else " "
         bitmap.append(row_str)

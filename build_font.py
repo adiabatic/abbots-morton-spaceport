@@ -262,12 +262,23 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
                         f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}"
                     )
             else:
-                # Monospace glyphs: all rows must be exactly 5 characters wide
-                for row_idx, row in enumerate(bitmap):
-                    row_len = len(row)
-                    if row_len != 5:
+                # Monospace glyphs: check width requirements
+                base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
+                is_quikscript_glyph = base_name.startswith("uniE6")
+                if is_quikscript_glyph:
+                    # Quikscript glyphs: all rows must be exactly 5 characters wide
+                    for row_idx, row in enumerate(bitmap):
+                        row_len = len(row)
+                        if row_len != 5:
+                            raise ValueError(
+                                f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
+                            )
+                else:
+                    # Non-Quikscript glyphs: all rows must have consistent width
+                    row_widths = [len(row) for row in bitmap]
+                    if len(set(row_widths)) > 1:
                         raise ValueError(
-                            f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
+                            f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}"
                         )
 
         if not bitmap:
@@ -311,15 +322,26 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         # Calculate advance width
         advance_width = glyph_def.get("advance_width")
         if advance_width is None:
-            # Default to bitmap width + 2 pixel spacing
-            max_col = max((len(row) for row in bitmap), default=0)
-            advance_width = max_col + 2
-        advance_width *= pixel_size
+            if is_prop_glyph:
+                # Proportional glyphs: bitmap width + 2 pixel spacing
+                max_col = max((len(row) for row in bitmap), default=0)
+                advance_width = (max_col + 2) * pixel_size
+            else:
+                # Monospace glyphs: use fixed mono_width
+                advance_width = mono_width
+        else:
+            advance_width *= pixel_size
 
-        # Calculate x_offset to center glyph within advance width
-        # This matches Departure Mono's layout (1-pixel margin on each side)
+        # Calculate x_offset
         bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
-        x_offset = (advance_width - bitmap_width) // 2
+        if is_quikscript:
+            # Center Quikscript glyphs within advance width
+            # This matches Departure Mono's layout (1-pixel margin on each side)
+            x_offset = (advance_width - bitmap_width) // 2
+        else:
+            # Non-Quikscript glyphs: don't center, position at x=0
+            # so bitmap leading spaces directly determine left_side_bearing
+            x_offset = 0
 
         # Calculate left side bearing (LSB) with offset applied
         if rectangles:
