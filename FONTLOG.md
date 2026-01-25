@@ -6,6 +6,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 4.000
 
+- Add proportional versions of punctuation from Departure Mono
 - Center glyphs within their advance width to match Departure Mono’s metrics
 - Add the `0` glyph from Departure Mono
 
