@@ -17,10 +17,11 @@
 
     :root {
       color-scheme: light dark;
+      --font-stack: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
     }
 
     html {
-      font-family: 'Departure Mono', monospace;
+      font-family: var(--font-stack);
       font-size: 11px;
       -webkit-font-smoothing: none;
       -moz-osx-font-smoothing: grayscale;
@@ -69,7 +70,7 @@
     }
 
     textarea {
-      font-family: 'Departure Mono', monospace;
+      font-family: var(--font-stack);
       font-size: 11px;
       width: 100%;
       resize: vertical;
@@ -139,7 +140,7 @@
       input {
         width: 60px;
         padding: 0.25rem;
-        font-family: 'Departure Mono', monospace;
+        font-family: var(--font-stack);
         font-size: 11px;
         background: light-dark(#fafafa, #1e1e1e);
         color: light-dark(#222, #e0e0e0);
@@ -194,7 +195,7 @@
     }
 
     button {
-      font-family: 'Departure Mono', monospace;
+      font-family: var(--font-stack);
       font-size: 11px;
       padding: 0.25rem 0.5rem;
       background: light-dark(#e0e0e0, #444);
