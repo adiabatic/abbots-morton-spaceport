@@ -334,12 +334,11 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
 
         # Calculate x_offset
         bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
-        if is_quikscript:
-            # Center Quikscript glyphs within advance width
-            # This matches Departure Mono's layout (1-pixel margin on each side)
+        if is_quikscript or is_prop_glyph:
+            # Center glyph within advance width
             x_offset = (advance_width - bitmap_width) // 2
         else:
-            # Non-Quikscript glyphs: don't center, position at x=0
+            # Monospace non-Quikscript glyphs: position at x=0
             # so bitmap leading spaces directly determine left_side_bearing
             x_offset = 0
 
