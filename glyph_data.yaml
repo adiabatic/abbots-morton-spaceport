@@ -665,6 +665,146 @@ glyphs:
 
   # Non-Quikscript glyphs
 
+  exclam:  # ! U+0021
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "     "
+      - "  #  "
+
+  exclam.prop:  # ! U+0021 (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - " "
+      - "#"
+
+  quotedbl:  # " U+0022
+    y_offset: 5
+    bitmap:
+      - " # # "
+      - " # # "
+      - " # # "
+
+  quotedbl.prop:  # " U+0022 (proportional)
+    y_offset: 5
+    bitmap:
+      - "# #"
+      - "# #"
+      - "# #"
+
+  quotesingle:  # ' U+0027
+    y_offset: 5
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "  #  "
+
+  quotesingle.prop:  # ' U+0027 (proportional)
+    y_offset: 5
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+
+  parenleft:  # ( U+0028
+    y_offset: -1
+    bitmap:
+      - "   # "
+      - "  #  "
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
+      - "  #  "
+      - "   # "
+
+  parenleft.prop:  # ( U+0028 (proportional)
+    y_offset: -1
+    bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - " # "
+      - "  #"
+
+  parenright:  # ) U+0029
+    y_offset: -1
+    bitmap:
+      - " #   "
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # "
+      - "  #  "
+      - " #   "
+
+  parenright.prop:  # ) U+0029 (proportional)
+    y_offset: -1
+    bitmap:
+      - "#  "
+      - " # "
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - " # "
+      - "#  "
+
+  comma:  # , U+002C
+    y_offset: -1
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - " #   "
+
+  comma.prop:  # , U+002C (proportional)
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  hyphen:  # - U+002D
+    y_offset: 3
+    bitmap:
+      - " ### "
+
+  hyphen.prop:  # - U+002D (proportional)
+    y_offset: 3
+    bitmap:
+      - "###"
+
+  period:  # . U+002E
+    bitmap:
+      - "  #  "
+      - "  #  "
+
+  period.prop:  # . U+002E (proportional)
+    bitmap:
+      - "#"
+      - "#"
+
   zero:  # 0 U+0030
     bitmap:
       - " ### "
@@ -675,6 +815,46 @@ glyphs:
       - "#   #"
       - "#   #"
       - " ### "
+
+  colon:  # : U+003A
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "     "
+      - "     "
+      - "  #  "
+      - "  #  "
+
+  colon.prop:  # : U+003A (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - " "
+      - " "
+      - "#"
+      - "#"
+
+  semicolon:  # ; U+003B
+    y_offset: -1
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "     "
+      - "     "
+      - "  #  "
+      - "  #  "
+      - " #   "
+
+  semicolon.prop:  # ; U+003B (proportional)
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "  "
+      - "  "
+      - " #"
+      - " #"
+      - "# "
 
   periodcentered:  # · U+00B7
     y_offset: 3
