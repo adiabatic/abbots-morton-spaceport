@@ -22,6 +22,13 @@ from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 
 
+def load_postscript_glyph_names() -> dict:
+    """Load PostScript glyph name to Unicode codepoint mapping from YAML."""
+    path = Path(__file__).parent / "inspo" / "postscript_glyph_names.yaml"
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
 def load_glyph_data(yaml_path: Path) -> dict:
     """Load glyph definitions from YAML file."""
     with open(yaml_path) as f:
@@ -183,6 +190,7 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
 
     # Build character map (Unicode codepoint -> glyph name)
     # Exclude .prop glyphs - they have no direct Unicode mapping
+    postscript_glyph_names = load_postscript_glyph_names()
     cmap = {32: "space"}  # Always include space
     for glyph_name, glyph_def in glyphs_def.items():
         if is_proportional_glyph(glyph_name):
@@ -196,6 +204,8 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
                 cmap[codepoint] = glyph_name
             except ValueError:
                 pass  # Not a valid hex code, skip
+        elif glyph_name in postscript_glyph_names:
+            cmap[postscript_glyph_names[glyph_name]] = glyph_name
 
     # Initialize FontBuilder for CFF-based OTF
     fb = FontBuilder(units_per_em, isTTF=False)
