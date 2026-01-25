@@ -332,15 +332,9 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         else:
             advance_width *= pixel_size
 
-        # Calculate x_offset
+        # Calculate x_offset: center glyph within advance width
         bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
-        if is_quikscript or is_prop_glyph:
-            # Center glyph within advance width
-            x_offset = (advance_width - bitmap_width) // 2
-        else:
-            # Monospace non-Quikscript glyphs: position at x=0
-            # so bitmap leading spaces directly determine left_side_bearing
-            x_offset = 0
+        x_offset = (advance_width - bitmap_width) // 2
 
         # Calculate left side bearing (LSB) with offset applied
         if rectangles:
