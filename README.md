@@ -31,6 +31,10 @@ On the other hand, if you’re aiming for print (in, say, Word or Typst), you do
 
 This font only has Quikscript letters, angled parentheses, and the space character. You’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want.
 
+If you’re using Abbots Morton Spaceport **Sans**, you’ll want to put it first in your font stack. That way, its proportional punctuation like `·` will get used instead of Departure Mono’s `·` that will have extra space on the sides that you don’t want.
+
+If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can tell, the order in which you specify fonts doesn’t matter.
+
 #### CSS
 
 ```css
@@ -52,8 +56,11 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 
 /* you probably know what selector you want already, but we’ll go with :root */
 :root {
-  /* Or 'Abbots Morton Spaceport Sans' */
-  font-family: 'Departure Mono', 'Abbots Morton Spaceport Mono', monospace;
+  /* For Abbots Morton Spaceport Sans, you want it in front so its proportional punctuation gets used */
+  font-family: 'Abbots Morton Spaceport Sans', 'Departure Mono', monospace;
+
+  /* For Abbots Morton Spaceport Mono, the same order should be fine */
+  font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
 
   /* <https://caniuse.com/?search=font-smooth> isn’t universally supported as of early 2026, but it might be as you read this, so go check */
   -webkit-font-smoothing: none;
@@ -66,13 +73,21 @@ This font only has Quikscript letters, angled parentheses, and the space charact
 
 ```typst
 #set text(
-    font: ("Departure Mono", "Abbots Morton Spaceport Mono"),
+    // For Abbots Morton Spaceport Sans, you want it in front so its proportional punctuation gets used
+    font: ("Abbots Morton Spaceport Sans", "Departure Mono"),
+)
+```
+
+or:
+
+```typst
+#set text(
+    // For Abbots Morton Spaceport Mono, the same order should be fine
+    font: ("Abbots Morton Spaceport Mono", "Departure Mono"),
 )
 ```
 
 [tf]: https://typst.app/docs/reference/text/text/#parameters-font
-
-I’m not sure if the order of these two fonts matters in Typst.
 
 ### Microsoft Word
 

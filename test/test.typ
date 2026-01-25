@@ -8,7 +8,7 @@
   numbering: "1 of 1",
 )
 
-#let fontStack = ("Departure Mono", "Abbots Morton Spaceport Mono")
+#let fontStack = ("Abbots Morton Spaceport Mono", "Departure Mono")
 
 // #let ppi = 96
 // #let sizeInPixels = 11
