@@ -29,7 +29,7 @@ On the other hand, if you’re aiming for print (in, say, Word or Typst), you do
 
 ### Using with Departure Mono
 
-This font only has Quikscript letters, angled parentheses, and the space character. You’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want.
+No matter whether you’re using Abbots Morton Spaceport Mono or Sans, you’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want. The Abbots Morton Spaceport family doesn’t have many glyphs beyond Quikscript ones.
 
 If you’re using Abbots Morton Spaceport **Sans**, you’ll want to put it first in your font stack. That way, its proportional punctuation like `·` will get used instead of Departure Mono’s `·` that will have extra space on the sides that you don’t want.
 
