@@ -681,3 +681,9 @@ glyphs:
     bitmap:
       - "  #  "
       - "  #  "
+
+  periodcentered.prop:  # · U+00B7 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#"
+      - "#"

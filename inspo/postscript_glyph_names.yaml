@@ -47,6 +47,9 @@ bar: 0x007C
 braceright: 0x007D
 asciitilde: 0x007E
 
+# Latin-1 Supplement
+periodcentered: 0x00B7
+
 # Quotes
 quoteleft: 0x2018
 quoteright: 0x2019
