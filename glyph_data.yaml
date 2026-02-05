@@ -279,6 +279,19 @@ glyphs:
       - "# #  "
       - " #   "
 
+  uniE65D.prop:  # ·J'ai (proportional)
+    y_offset: -3
+    bitmap:
+      - " #### "
+      - "     #"
+      - "     #"
+      - "    # "
+      - "    # "
+      - "  ####" #
+      - " # #  "
+      - "# #   "
+      - " #    "
+
   uniE65E:  # ·Cheer
     bitmap:
       - "     "
