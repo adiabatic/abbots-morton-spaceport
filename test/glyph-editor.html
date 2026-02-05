@@ -339,7 +339,7 @@
       const lines = text.split('\n');
 
       // Extract glyph name and comment from first line (allow leading whitespace)
-      const nameMatch = lines[0]?.match(/^(\s*)(\w+):\s*(#.*)?$/);
+      const nameMatch = lines[0]?.match(/^(\s*)([\w.]+):\s*(#.*)?$/);
       if (!nameMatch) {
         return null;
       }
