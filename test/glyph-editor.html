@@ -418,9 +418,10 @@
 
     // Render preview canvas
     const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
+    const PADDING = 1; // 1 column padding on each side
     function renderPreview(canvas, bitmapData, scale) {
       const ctx = canvas.getContext('2d');
-      const width = cols * scale;
+      const width = (cols + PADDING * 2) * scale;
       const height = bitmapData.length * scale;
 
       canvas.width = width;
@@ -428,16 +429,21 @@
       canvas.style.width = (width * DISPLAY_SCALE) + 'px';
       canvas.style.height = (height * DISPLAY_SCALE) + 'px';
 
-      // Clear canvas
+      // Clear canvas with background color
       ctx.fillStyle = '#f0f0f0';
       ctx.fillRect(0, 0, width, height);
 
-      // Draw pixels
+      // Draw gray padding columns
+      ctx.fillStyle = '#ccc';
+      ctx.fillRect(0, 0, PADDING * scale, height); // left
+      ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height); // right
+
+      // Draw pixels (offset by padding)
       ctx.fillStyle = '#222';
       for (let y = 0; y < bitmapData.length; y++) {
         for (let x = 0; x < cols; x++) {
           if (bitmapData[y][x] === '#') {
-            ctx.fillRect(x * scale, y * scale, scale, scale);
+            ctx.fillRect((x + PADDING) * scale, y * scale, scale, scale);
           }
         }
       }
@@ -449,9 +455,9 @@
         // Clear canvases if no bitmap
         [1, 2, 3, 4].forEach(scale => {
           const canvas = document.getElementById(`preview-${scale}x`);
-          canvas.width = cols * scale;
+          canvas.width = (cols + PADDING * 2) * scale;
           canvas.height = scale;
-          canvas.style.width = (cols * scale * DISPLAY_SCALE) + 'px';
+          canvas.style.width = ((cols + PADDING * 2) * scale * DISPLAY_SCALE) + 'px';
           canvas.style.height = (scale * DISPLAY_SCALE) + 'px';
         });
         return;
