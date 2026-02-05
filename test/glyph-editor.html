@@ -99,7 +99,6 @@
 
     .lightboard {
       display: grid;
-      grid-template-columns: repeat(5, 36px);
       gap: 2px;
       background: #888;
       padding: 2px;
@@ -254,7 +253,7 @@
     </div>
 
     <div class="lightboard-section">
-      <div class="section-label">Lightboard (12 rows × 5 cols)</div>
+      <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
       <div class="glyph-info" id="glyph-info"></div>
       <div class="lightboard" id="lightboard"></div>
       <div class="y-offset-control">
@@ -299,7 +298,7 @@
 
   <script type="module">
     const MAX_ROWS = 12;
-    const COLS = 5;
+    let cols = 5;
 
     // State
     let glyphName = '';
@@ -316,12 +315,15 @@
     const glyphInfo = document.getElementById('glyph-info');
     const yOffsetInput = document.getElementById('y-offset');
     const copyBtn = document.getElementById('copy-btn');
+    const lightboardLabel = document.getElementById('lightboard-label');
 
     // Initialize lightboard grid
     function initLightboard() {
       lightboard.innerHTML = '';
+      lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
+      lightboardLabel.textContent = `Lightboard (${MAX_ROWS} rows × ${cols} cols)`;
       for (let row = 0; row < MAX_ROWS; row++) {
-        for (let col = 0; col < COLS; col++) {
+        for (let col = 0; col < cols; col++) {
           const cell = document.createElement('button');
           cell.className = 'lightboard-cell disabled';
           cell.dataset.row = row;
@@ -356,10 +358,10 @@
       // Extract bitmap lines
       bitmap = [];
       rowComments = [];
-      const bitmapLines = text.match(/^\s*-\s*["'](.{5})["']\s*(#.*)?$/gm);
+      const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
       if (bitmapLines) {
         bitmapLines.forEach(line => {
-          const match = line.match(/^\s*-\s*["'](.{5})["']\s*(#.*)?$/);
+          const match = line.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/);
           if (match) {
             bitmap.push(match[1]);
             rowComments.push(match[2] || '');
@@ -367,7 +369,12 @@
         });
       }
 
-      return { name: glyphName, comment: glyphComment, bitmap, yOffset, rowComments };
+      // Detect column count from first bitmap row
+      if (bitmap.length > 0) {
+        cols = bitmap[0].length;
+      }
+
+      return { name: glyphName, comment: glyphComment, bitmap, yOffset, rowComments, cols };
     }
 
     // Update lightboard display
@@ -413,7 +420,7 @@
     const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
     function renderPreview(canvas, bitmapData, scale) {
       const ctx = canvas.getContext('2d');
-      const width = COLS * scale;
+      const width = cols * scale;
       const height = bitmapData.length * scale;
 
       canvas.width = width;
@@ -428,7 +435,7 @@
       // Draw pixels
       ctx.fillStyle = '#222';
       for (let y = 0; y < bitmapData.length; y++) {
-        for (let x = 0; x < COLS; x++) {
+        for (let x = 0; x < cols; x++) {
           if (bitmapData[y][x] === '#') {
             ctx.fillRect(x * scale, y * scale, scale, scale);
           }
@@ -442,9 +449,9 @@
         // Clear canvases if no bitmap
         [1, 2, 3, 4].forEach(scale => {
           const canvas = document.getElementById(`preview-${scale}x`);
-          canvas.width = COLS * scale;
+          canvas.width = cols * scale;
           canvas.height = scale;
-          canvas.style.width = (COLS * scale * DISPLAY_SCALE) + 'px';
+          canvas.style.width = (cols * scale * DISPLAY_SCALE) + 'px';
           canvas.style.height = (scale * DISPLAY_SCALE) + 'px';
         });
         return;
@@ -491,8 +498,12 @@
 
     // Event listeners
     inputYaml.addEventListener('input', () => {
+      const oldCols = cols;
       const parsed = parseYaml(inputYaml.value);
       if (parsed) {
+        if (cols !== oldCols) {
+          initLightboard();
+        }
         updateLightboard();
         updatePreviews();
         updateOutput();
