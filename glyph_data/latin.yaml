@@ -1,423 +1,19 @@
 glyphs:
-  # Non-Quikscript glyphs
-
-  exclam.prop:  # ! U+0021 (proportional)
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - " "
-      - "#"
-
-  quotedbl.prop:  # " U+0022 (proportional)
-    y_offset: 5
-    bitmap:
-      - "# #"
-      - "# #"
-      - "# #"
-
-  quotesingle.prop:  # ' U+0027 (proportional)
-    y_offset: 5
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-
-  parenleft.prop:  # ( U+0028 (proportional)
-    y_offset: -1
-    bitmap:
-      - "  #"
-      - " # "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - " # "
-      - "  #"
-
-  parenright.prop:  # ) U+0029 (proportional)
-    y_offset: -1
-    bitmap:
-      - "#  "
-      - " # "
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - " # "
-      - "#  "
-
-  comma.prop:  # , U+002C (proportional)
-    y_offset: -1
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  hyphen.prop:  # - U+002D (proportional)
-    y_offset: 3
-    bitmap:
-      - "###"
-
-  period.prop:  # . U+002E (proportional)
-    bitmap:
-      - "#"
-      - "#"
-
-  zero:  # 0 U+0030
-    bitmap:
-      - " ### "
-      - "#   #"
-      - "#  ##"
-      - "# # #"
-      - "##  #"
-      - "#   #"
-      - "#   #"
-      - " ### "
-
-  colon.prop:  # : U+003A (proportional)
-    bitmap:
-      - "#"
-      - "#"
-      - " "
-      - " "
-      - "#"
-      - "#"
-
-  semicolon.prop:  # ; U+003B (proportional)
-    y_offset: -1
-    bitmap:
-      - " #"
-      - " #"
-      - "  "
-      - "  "
-      - " #"
-      - " #"
-      - "# "
-
-  less.prop:  # < U+003C (proportional)
-    bitmap:
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #"
-
-  greater.prop:  # > U+003E (proportional)
-    bitmap:
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   "
-
-  bracketleft.prop:  # [ U+005B (proportional)
-    y_offset: -1
-    bitmap:
-      - "###"
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "###"
-
-  bracketright.prop:  # ] U+005D (proportional)
-    y_offset: -1
-    bitmap:
-      - "###"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "  #"
-      - "###"
-
-  asciicircum.prop:  # ^ U+005E (proportional)
-    y_offset: 6
-    bitmap:
-      - "  # "
-      - " # #"
-
-  grave.prop:  # ` U+0060 (proportional)
-    y_offset: 7
-    bitmap:
-      - "# "
-      - " #"
-
-  bar.prop:  # | U+007C (proportional)
-    y_offset: -1
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-
-  exclamdown.prop:  # ¡ U+00A1 (proportional)
-    y_offset: -2
-    bitmap:
-      - "#"
-      - " "
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-
-  brokenbar.prop:  # ¦ U+00A6 (proportional)
-    y_offset: -1
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - " "
-      - " "
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-
-  dieresis.prop:  # ¨ U+00A8 (proportional)
-    y_offset: 7
-    bitmap:
-      - "# #"
-
-  macron.prop:  # ¯ U+00AF (proportional)
-    y_offset: 7
-    bitmap:
-      - "###"
-
-  degree.prop:  # ° U+00B0 (proportional)
-    y_offset: 5
-    bitmap:
-      - " # "
-      - "# #"
-      - " # "
-
-  acute.prop:  # ´ U+00B4 (proportional)
-    y_offset: 7
-    bitmap:
-      - " #"
-      - "# "
-
-  cedilla.prop:  # ¸ U+00B8 (proportional)
-    y_offset: -3
-    bitmap:
-      - " # "
-      - "  #"
-      - " # "
-
-  periodcentered.prop:  # · U+00B7 (proportional)
-    y_offset: 3
-    bitmap:
-      - "#"
-      - "#"
-
-  # ── Latin-1 stubs (not yet compiled — .unused suffix) ──────────
+  # ── Letters ──────────────────────────────────────────────────────────
 
   # Cap-height: 8 rows, # on row 3, width 5
-  numbersign.prop.unused:  # # U+0023 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  dollar.prop.unused:  # $ U+0024 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  percent.prop.unused:  # % U+0025 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  ampersand.prop.unused:  # & U+0026 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  slash.prop.unused:  # / U+002F (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  one.prop.unused:  # 1 U+0031 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  two.prop.unused:  # 2 U+0032 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  three.prop.unused:  # 3 U+0033 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  four.prop.unused:  # 4 U+0034 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  five.prop.unused:  # 5 U+0035 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  six.prop.unused:  # 6 U+0036 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  seven.prop.unused:  # 7 U+0037 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  eight.prop.unused:  # 8 U+0038 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  nine.prop.unused:  # 9 U+0039 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  question.prop.unused:  # ? U+003F (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  at.prop.unused:  # @ U+0040 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
   A.prop.unused:  # A U+0041 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  AE.prop.unused:  # Æ U+00C6 (proportional)
     bitmap:
       - "     "
       - "     "
@@ -462,6 +58,17 @@ glyphs:
       - "     "
 
   E.prop.unused:  # E U+0045 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Eth.prop.unused:  # Ð U+00D0 (proportional)
     bitmap:
       - "     "
       - "     "
@@ -582,6 +189,17 @@ glyphs:
       - "     "
       - "     "
 
+  Oslash.prop.unused:  # Ø U+00D8 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
   P.prop.unused:  # P U+0050 (proportional)
     bitmap:
       - "     "
@@ -627,6 +245,17 @@ glyphs:
       - "     "
 
   T.prop.unused:  # T U+0054 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Thorn.prop.unused:  # Þ U+00DE (proportional)
     bitmap:
       - "     "
       - "     "
@@ -703,149 +332,6 @@ glyphs:
       - "     "
       - "     "
 
-  backslash.prop.unused:  # \ U+005C (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  cent.prop.unused:  # ¢ U+00A2 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  sterling.prop.unused:  # £ U+00A3 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  yen.prop.unused:  # ¥ U+00A5 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  copyright.prop.unused:  # © U+00A9 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  registered.prop.unused:  # ® U+00AE (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  onequarter.prop.unused:  # ¼ U+00BC (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  onehalf.prop.unused:  # ½ U+00BD (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  threequarters.prop.unused:  # ¾ U+00BE (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  AE.prop.unused:  # Æ U+00C6 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  Eth.prop.unused:  # Ð U+00D0 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  Oslash.prop.unused:  # Ø U+00D8 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  Thorn.prop.unused:  # Þ U+00DE (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
   germandbls.prop.unused:  # ß U+00DF (proportional)
     bitmap:
       - "     "
@@ -870,6 +356,17 @@ glyphs:
       - "     "
 
   d.prop.unused:  # d U+0064 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  eth.prop.unused:  # ð U+00F0 (proportional)
     bitmap:
       - "     "
       - "     "
@@ -935,19 +432,17 @@ glyphs:
       - "     "
       - "     "
 
-  eth.prop.unused:  # ð U+00F0 (proportional)
+  # X-height: 6 rows, # on row 6, width 5
+  a.prop.unused:  # a U+0061 (proportional)
     bitmap:
       - "     "
       - "     "
+      - "     "
+      - "     "
+      - "     "
       - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
 
-  # X-height: 6 rows, # on row 6, width 5
-  a.prop.unused:  # a U+0061 (proportional)
+  ae.prop.unused:  # æ U+00E6 (proportional)
     bitmap:
       - "     "
       - "     "
@@ -1002,6 +497,15 @@ glyphs:
       - "     " #
 
   o.prop.unused:  # o U+006F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  oslash.prop.unused:  # ø U+00F8 (proportional)
     bitmap:
       - "     "
       - "     "
@@ -1073,44 +577,21 @@ glyphs:
       - "     "
       - "     " #
 
-  multiply.prop.unused:  # × U+00D7 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-
-  ae.prop.unused:  # æ U+00E6 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-
-  divide.prop.unused:  # ÷ U+00F7 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-
-  oslash.prop.unused:  # ø U+00F8 (proportional)
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-
   # Descender: 9 rows, y_offset -3, # on row 6, width 5
   g.prop.unused:  # g U+0067 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  mu.prop.unused:  # µ U+00B5 (proportional)
     y_offset: -3
     bitmap:
       - "     "
@@ -1162,19 +643,6 @@ glyphs:
       - "     "
       - "     "
 
-  mu.prop.unused:  # µ U+00B5 (proportional)
-    y_offset: -3
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-
   # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
   j.prop.unused:  # j U+006A (proportional)
     y_offset: -3
@@ -1206,7 +674,198 @@ glyphs:
       - "     "
       - "     "
 
-  # Bracket-height: 10 rows, y_offset -1, # on row 9, width 5
+  # ── Numbers ──────────────────────────────────────────────────────────
+
+  # Cap-height: 8 rows
+  zero:  # 0 U+0030
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#  ##"
+      - "# # #"
+      - "##  #"
+      - "#   #"
+      - "#   #"
+      - " ### "
+
+  one.prop.unused:  # 1 U+0031 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  two.prop.unused:  # 2 U+0032 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  three.prop.unused:  # 3 U+0033 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  four.prop.unused:  # 4 U+0034 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  five.prop.unused:  # 5 U+0035 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  six.prop.unused:  # 6 U+0036 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  seven.prop.unused:  # 7 U+0037 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  eight.prop.unused:  # 8 U+0038 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  nine.prop.unused:  # 9 U+0039 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Cap-height fractions: 8 rows
+  onehalf.prop.unused:  # ½ U+00BD (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  onequarter.prop.unused:  # ¼ U+00BC (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  threequarters.prop.unused:  # ¾ U+00BE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Superscript: 5 rows, y_offset 3, width 3
+  onesuperior.prop.unused:  # ¹ U+00B9 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
+  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
+  twosuperior.prop.unused:  # ² U+00B2 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
+  # ── Other ────────────────────────────────────────────────────────────
+
+  # Bracket-height: 10 rows, y_offset -1
+  bar.prop:  # | U+007C (proportional)
+    y_offset: -1
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+
   braceleft.prop.unused:  # { U+007B (proportional)
     y_offset: -1
     bitmap:
@@ -1235,19 +894,47 @@ glyphs:
       - "     " #
       - "     "
 
-  section.prop.unused:  # § U+00A7 (proportional)
+  bracketleft.prop:  # [ U+005B (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
+      - "###"
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "###"
+
+  bracketright.prop:  # ] U+005D (proportional)
+    y_offset: -1
+    bitmap:
+      - "###"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "###"
+
+  brokenbar.prop:  # ¦ U+00A6 (proportional)
+    y_offset: -1
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - " "
+      - " "
+      - "#"
+      - "#"
+      - "#"
+      - "#"
 
   paragraph.prop.unused:  # ¶ U+00B6 (proportional)
     y_offset: -1
@@ -1263,10 +950,40 @@ glyphs:
       - "     " #
       - "     "
 
-  # Questiondown: 8 rows, y_offset -2, # on row 6, width 5
-  questiondown.prop.unused:  # ¿ U+00BF (proportional)
-    y_offset: -2
+  parenleft.prop:  # ( U+0028 (proportional)
+    y_offset: -1
     bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - " # "
+      - "  #"
+
+  parenright.prop:  # ) U+0029 (proportional)
+    y_offset: -1
+    bitmap:
+      - "#  "
+      - " # "
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - " # "
+      - "#  "
+
+  section.prop.unused:  # § U+00A7 (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
       - "     "
       - "     "
       - "     "
@@ -1274,317 +991,6 @@ glyphs:
       - "     "
       - "     " #
       - "     "
-      - "     "
-
-  # Plusminus: 7 rows, # on row 2, width 5
-  plusminus.prop.unused:  # ± U+00B1 (proportional)
-    bitmap:
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  # Small high: 5 rows, y_offset 3, width 5
-  asterisk.prop.unused:  # * U+002A (proportional)
-    y_offset: 3
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  # Small mid: 5 rows, y_offset 1, width 5
-  plus.prop.unused:  # + U+002B (proportional)
-    y_offset: 1
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  guillemotleft.prop.unused:  # « U+00AB (proportional)
-    y_offset: 1
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  guillemotright.prop.unused:  # » U+00BB (proportional)
-    y_offset: 1
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-
-  # Small mid (narrow): 5 rows, y_offset 1, width 4
-  currency.prop.unused:  # ¤ U+00A4 (proportional)
-    y_offset: 1
-    bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-
-  # Superscript: 5 rows, y_offset 3, width 3
-  onesuperior.prop.unused:  # ¹ U+00B9 (proportional)
-    y_offset: 3
-    bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-
-  twosuperior.prop.unused:  # ² U+00B2 (proportional)
-    y_offset: 3
-    bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-
-  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
-    y_offset: 3
-    bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-
-  # Ordinal: 5 rows, y_offset 3, width 4
-  ordfeminine.prop.unused:  # ª U+00AA (proportional)
-    y_offset: 3
-    bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-
-  ordmasculine.prop.unused:  # º U+00BA (proportional)
-    y_offset: 3
-    bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-
-  # Logicalnot: 3 rows, y_offset 3, width 4
-  logicalnot.prop.unused:  # ¬ U+00AC (proportional)
-    y_offset: 3
-    bitmap:
-      - "    "
-      - "    "
-      - "    "
-
-  # Equal: 3 rows, y_offset 2, width 5
-  equal.prop.unused:  # = U+003D (proportional)
-    y_offset: 2
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-
-  # Tilde-height: 2 rows, y_offset 4, width 5
-  asciitilde.prop.unused:  # ~ U+007E (proportional)
-    y_offset: 4
-    bitmap:
-      - "     "
-      - "     "
-
-  # Underscore: 2 rows, y_offset -1, width 5
-  underscore.prop.unused:  # _ U+005F (proportional)
-    y_offset: -1
-    bitmap:
-      - "     "
-      - "     "
-
-
-  dotaccent.prop:  # ˙ U+02D9 (proportional)
-    y_offset: 7
-    bitmap:
-      - "#"
-
-  ring.prop:  # ˚ U+02DA (proportional)
-    y_offset: 7
-    bitmap:
-      - " # "
-      - "# #"
-      - " # "
-
-  ogonek.prop:  # ˛ U+02DB (proportional)
-    y_offset: -3
-    bitmap:
-      - " #"
-      - "# "
-      - " #"
-
-  tilde.prop:  # ˜ U+02DC (proportional)
-    y_offset: 7
-    bitmap:
-      - " # #"
-      - "# # "
-
-  hungarumlaut.prop:  # ˝ U+02DD (proportional)
-    y_offset: 7
-    bitmap:
-      - "# #"
-      - "# #"
-
-  tonos.prop:  # ΄ U+0384 (proportional)
-    y_offset: 7
-    bitmap:
-      - " #"
-      - "# "
-
-  uni2010.prop:  # ‐ U+2010 (proportional)
-    y_offset: 3
-    bitmap:
-      - "###"
-
-  quoteleft.prop:  # ' U+2018 (proportional)
-    y_offset: 5
-    bitmap:
-      - " #"
-      - "# "
-      - "# "
-
-  quoteright.prop:  # ' U+2019 (proportional)
-    y_offset: 5
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  quotesinglbase.prop:  # ‚ U+201A (proportional)
-    y_offset: -1
-    bitmap:
-      - " #"
-      - " #"
-      - "# "
-
-  quotedblleft.prop:  # " U+201C (proportional)
-    y_offset: 5
-    bitmap:
-      - " # #"
-      - "# # "
-      - "# # "
-
-  quotedblright.prop:  # " U+201D (proportional)
-    y_offset: 5
-    bitmap:
-      - " # #"
-      - " # #"
-      - "# # "
-
-  quotedblbase.prop:  # „ U+201E (proportional)
-    y_offset: -1
-    bitmap:
-      - " # #"
-      - " # #"
-      - "# # "
-
-  bullet.prop:  # • U+2022 (proportional)
-    y_offset: 3
-    bitmap:
-      - "##"
-      - "##"
-
-  uni2027.prop:  # ‧ U+2027 (proportional)
-    y_offset: 4
-    bitmap:
-      - "#"
-      - "#"
-
-  minute.prop:  # ′ U+2032 (proportional)
-    y_offset: 5
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-
-  second.prop:  # ″ U+2033 (proportional)
-    y_offset: 5
-    bitmap:
-      - "# #"
-      - "# #"
-      - "# #"
-
-  guilsinglleft.prop:  # ‹ U+2039 (proportional)
-    y_offset: 1
-    bitmap:
-      - "  #"
-      - " # "
-      - "#  "
-      - " # "
-      - "  #"
-
-  guilsinglright.prop:  # › U+203A (proportional)
-    y_offset: 1
-    bitmap:
-      - "#  "
-      - " # "
-      - "  #"
-      - " # "
-      - "#  "
-
-  uni2219.prop:  # ∙ U+2219 (proportional)
-    y_offset: 3
-    bitmap:
-      - "#"
-      - "#"
-
-  lessequal.prop:  # ≤ U+2264 (proportional)
-    y_offset: -1
-    bitmap:
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #"
-      - "    "
-      - "####"
-
-  greaterequal.prop:  # ≥ U+2265 (proportional)
-    y_offset: -1
-    bitmap:
-      - "#   "
-      - " #  "
-      - "  # "
-      - "   #"
-      - "  # "
-      - " #  "
-      - "#   "
-      - "    "
-      - "####"
-
-  uni2669.prop:  # ♩ U+2669 (proportional)
-    y_offset: -1
-    bitmap:
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - " ###"
-      - "####"
-      - "####"
-      - " ## "
 
   uni276C.prop:  # ❬ U+276C (proportional)
     y_offset: -1
@@ -1641,3 +1047,609 @@ glyphs:
       - " ## "
       - "##  "
       - "##  "
+
+  # Tall descending: 9 rows, y_offset -1
+  greaterequal.prop:  # ≥ U+2265 (proportional)
+    y_offset: -1
+    bitmap:
+      - "#   "
+      - " #  "
+      - "  # "
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+      - "    "
+      - "####"
+
+  lessequal.prop:  # ≤ U+2264 (proportional)
+    y_offset: -1
+    bitmap:
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+      - " #  "
+      - "  # "
+      - "   #"
+      - "    "
+      - "####"
+
+  uni2669.prop:  # ♩ U+2669 (proportional)
+    y_offset: -1
+    bitmap:
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - " ###"
+      - "####"
+      - "####"
+      - " ## "
+
+  # Cap-height: 8 rows
+  ampersand.prop.unused:  # & U+0026 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  at.prop.unused:  # @ U+0040 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  backslash.prop.unused:  # \ U+005C (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  cent.prop.unused:  # ¢ U+00A2 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  copyright.prop.unused:  # © U+00A9 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  dollar.prop.unused:  # $ U+0024 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  exclam.prop:  # ! U+0021 (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - " "
+      - "#"
+
+  numbersign.prop.unused:  # # U+0023 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  percent.prop.unused:  # % U+0025 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  question.prop.unused:  # ? U+003F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  registered.prop.unused:  # ® U+00AE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  slash.prop.unused:  # / U+002F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  sterling.prop.unused:  # £ U+00A3 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  yen.prop.unused:  # ¥ U+00A5 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Inverted cap: 8 rows, y_offset -2
+  exclamdown.prop:  # ¡ U+00A1 (proportional)
+    y_offset: -2
+    bitmap:
+      - "#"
+      - " "
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+
+  questiondown.prop.unused:  # ¿ U+00BF (proportional)
+    y_offset: -2
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+
+  # Medium: 7 rows
+  greater.prop:  # > U+003E (proportional)
+    bitmap:
+      - "#   "
+      - " #  "
+      - "  # "
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+
+  less.prop:  # < U+003C (proportional)
+    bitmap:
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+      - " #  "
+      - "  # "
+      - "   #"
+
+  plusminus.prop.unused:  # ± U+00B1 (proportional)
+    bitmap:
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Semicolon: 7 rows, y_offset -1
+  semicolon.prop:  # ; U+003B (proportional)
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "  "
+      - "  "
+      - " #"
+      - " #"
+      - "# "
+
+  # X-height: 6 rows
+  colon.prop:  # : U+003A (proportional)
+    bitmap:
+      - "#"
+      - "#"
+      - " "
+      - " "
+      - "#"
+      - "#"
+
+  divide.prop.unused:  # ÷ U+00F7 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  multiply.prop.unused:  # × U+00D7 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  # Small mid: 5 rows, y_offset 1
+  currency.prop.unused:  # ¤ U+00A4 (proportional)
+    y_offset: 1
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  guillemotleft.prop.unused:  # « U+00AB (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  guillemotright.prop.unused:  # » U+00BB (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  guilsinglleft.prop:  # ‹ U+2039 (proportional)
+    y_offset: 1
+    bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+      - " # "
+      - "  #"
+
+  guilsinglright.prop:  # › U+203A (proportional)
+    y_offset: 1
+    bitmap:
+      - "#  "
+      - " # "
+      - "  #"
+      - " # "
+      - "#  "
+
+  plus.prop.unused:  # + U+002B (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Small high: 5 rows, y_offset 3
+  asterisk.prop.unused:  # * U+002A (proportional)
+    y_offset: 3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  # Ordinal: 5 rows, y_offset 3, width 4
+  ordfeminine.prop.unused:  # ª U+00AA (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  ordmasculine.prop.unused:  # º U+00BA (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  # Quote-height: 3 rows, y_offset 5
+  degree.prop:  # ° U+00B0 (proportional)
+    y_offset: 5
+    bitmap:
+      - " # "
+      - "# #"
+      - " # "
+
+  minute.prop:  # ′ U+2032 (proportional)
+    y_offset: 5
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+
+  quotedbl.prop:  # " U+0022 (proportional)
+    y_offset: 5
+    bitmap:
+      - "# #"
+      - "# #"
+      - "# #"
+
+  quotedblleft.prop:  # " U+201C (proportional)
+    y_offset: 5
+    bitmap:
+      - " # #"
+      - "# # "
+      - "# # "
+
+  quotedblright.prop:  # " U+201D (proportional)
+    y_offset: 5
+    bitmap:
+      - " # #"
+      - " # #"
+      - "# # "
+
+  quoteleft.prop:  # ' U+2018 (proportional)
+    y_offset: 5
+    bitmap:
+      - " #"
+      - "# "
+      - "# "
+
+  quoteright.prop:  # ' U+2019 (proportional)
+    y_offset: 5
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  quotesingle.prop:  # ' U+0027 (proportional)
+    y_offset: 5
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+
+  second.prop:  # ″ U+2033 (proportional)
+    y_offset: 5
+    bitmap:
+      - "# #"
+      - "# #"
+      - "# #"
+
+  # Logicalnot: 3 rows, y_offset 3
+  logicalnot.prop.unused:  # ¬ U+00AC (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+
+  # Equal: 3 rows, y_offset 2
+  equal.prop.unused:  # = U+003D (proportional)
+    y_offset: 2
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+
+  # Low-hook: 3 rows, y_offset -1
+  comma.prop:  # , U+002C (proportional)
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  quotedblbase.prop:  # „ U+201E (proportional)
+    y_offset: -1
+    bitmap:
+      - " # #"
+      - " # #"
+      - "# # "
+
+  quotesinglbase.prop:  # ‚ U+201A (proportional)
+    y_offset: -1
+    bitmap:
+      - " #"
+      - " #"
+      - "# "
+
+  # Diacritics below: 3 rows, y_offset -3
+  cedilla.prop:  # ¸ U+00B8 (proportional)
+    y_offset: -3
+    bitmap:
+      - " # "
+      - "  #"
+      - " # "
+
+  ogonek.prop:  # ˛ U+02DB (proportional)
+    y_offset: -3
+    bitmap:
+      - " #"
+      - "# "
+      - " #"
+
+  # Diacritics above: 1–3 rows, y_offset 6–7
+  acute.prop:  # ´ U+00B4 (proportional)
+    y_offset: 7
+    bitmap:
+      - " #"
+      - "# "
+
+  asciicircum.prop:  # ^ U+005E (proportional)
+    y_offset: 6
+    bitmap:
+      - "  # "
+      - " # #"
+
+  dieresis.prop:  # ¨ U+00A8 (proportional)
+    y_offset: 7
+    bitmap:
+      - "# #"
+
+  dotaccent.prop:  # ˙ U+02D9 (proportional)
+    y_offset: 7
+    bitmap:
+      - "#"
+
+  grave.prop:  # ` U+0060 (proportional)
+    y_offset: 7
+    bitmap:
+      - "# "
+      - " #"
+
+  hungarumlaut.prop:  # ˝ U+02DD (proportional)
+    y_offset: 7
+    bitmap:
+      - "# #"
+      - "# #"
+
+  macron.prop:  # ¯ U+00AF (proportional)
+    y_offset: 7
+    bitmap:
+      - "###"
+
+  ring.prop:  # ˚ U+02DA (proportional)
+    y_offset: 7
+    bitmap:
+      - " # "
+      - "# #"
+      - " # "
+
+  tilde.prop:  # ˜ U+02DC (proportional)
+    y_offset: 7
+    bitmap:
+      - " # #"
+      - "# # "
+
+  tonos.prop:  # ΄ U+0384 (proportional)
+    y_offset: 7
+    bitmap:
+      - " #"
+      - "# "
+
+  # Tilde-height: 2 rows, y_offset 4
+  asciitilde.prop.unused:  # ~ U+007E (proportional)
+    y_offset: 4
+    bitmap:
+      - "     "
+      - "     "
+
+  # Mid mark: 1–2 rows, y_offset 3–4
+  bullet.prop:  # • U+2022 (proportional)
+    y_offset: 3
+    bitmap:
+      - "##"
+      - "##"
+
+  hyphen.prop:  # - U+002D (proportional)
+    y_offset: 3
+    bitmap:
+      - "###"
+
+  periodcentered.prop:  # · U+00B7 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#"
+      - "#"
+
+  uni2010.prop:  # ‐ U+2010 (proportional)
+    y_offset: 3
+    bitmap:
+      - "###"
+
+  uni2027.prop:  # ‧ U+2027 (proportional)
+    y_offset: 4
+    bitmap:
+      - "#"
+      - "#"
+
+  uni2219.prop:  # ∙ U+2219 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#"
+      - "#"
+
+  # Baseline: 2 rows
+  period.prop:  # . U+002E (proportional)
+    bitmap:
+      - "#"
+      - "#"
+
+  # Underscore: 2 rows, y_offset -1
+  underscore.prop.unused:  # _ U+005F (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
