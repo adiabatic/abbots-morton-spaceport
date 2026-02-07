@@ -1299,6 +1299,17 @@ glyphs:
       - "#### " #
       - "  #  "
 
+  numbersign.prop:  # # U+0023 (proportional)
+    bitmap:
+      - " #  # "
+      - " #  # "
+      - "######" #
+      - " #  # "
+      - " #  # "
+      - "######"
+      - " #  # "
+      - " #  # "
+
   exclam.prop:  # ! U+0021 (proportional)
     bitmap:
       - "#"
@@ -1321,17 +1332,6 @@ glyphs:
       - "#"
       - "#"
       - "#"
-
-  numbersign.prop:  # # U+0023 (proportional)
-    bitmap:
-      - " #  # "
-      - " #  # "
-      - "######" #
-      - " #  # "
-      - " #  # "
-      - "######"
-      - " #  # "
-      - " #  # "
 
   percent.prop:  # % U+0025 (proportional)
     bitmap:
