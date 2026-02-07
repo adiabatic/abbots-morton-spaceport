@@ -803,32 +803,44 @@ glyphs:
       - "####"
       - "    "
       - " ## "
-      - "#  #"
+      - "#  #" #
       - "  # "
       - " #  "
       - "####"
 
-  onequarter.prop.unused:  # ¼ U+00BC (proportional)
+  onequarter.prop:  # ¼ U+00BC (proportional)
+    y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - "#  #"
+      - "#  #" #
+      - "####"
+      - "   #"
+      - "   #"
 
-  threequarters.prop.unused:  # ¾ U+00BE (proportional)
+  threequarters.prop:  # ¾ U+00BE (proportional)
+    y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "### "
+      - "   #"
+      - "### "
+      - "   #" #
+      - "### "
+      - "    "
+      - "####"
+      - "    "
+      - "#  #"
+      - "#  #" #
+      - "####"
+      - "   #"
+      - "   #"
 
   # Superscript: 5 rows, y_offset 3, width 3
   onesuperior.prop:  # ¹ U+00B9 (proportional)
@@ -857,6 +869,15 @@ glyphs:
       - "### "
       - "   #"
       - "### "
+
+  foursuperior.prop:  # ⁴ U+2074 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#  #"
+      - "#  #"
+      - "####"
+      - "   #"
+      - "   #"
 
   # ── Other ────────────────────────────────────────────────────────────
 
