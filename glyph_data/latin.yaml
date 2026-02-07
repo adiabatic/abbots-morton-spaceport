@@ -1260,27 +1260,33 @@ glyphs:
       - " ###"
       - "  # " #
 
-  copyright.prop.unused:  # © U+00A9 (proportional)
+  copyright.prop:  # © U+00A9 (proportional)
+    y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  ###  "
+      - " #   # "
+      - "#     #"
+      - "#  ## #" #
+      - "# #   #"
+      - "# #   #"
+      - "#  ## #"
+      - "#     #"
+      - " #   # " #
+      - "  ###  "
 
-  dollar.prop.unused:  # $ U+0024 (proportional)
+  dollar.prop:  # $ U+0024 (proportional)
+    y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
+      - " ####"
+      - "# #  "
+      - "# #  " #
+      - " ##  "
+      - "  ## "
+      - "  # #"
+      - "  # #"
+      - "#### " #
+      - "  #  "
 
   exclam.prop:  # ! U+0021 (proportional)
     bitmap:
