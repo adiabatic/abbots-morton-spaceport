@@ -1247,17 +1247,6 @@ glyphs:
       - " #  # #"
       - "  ## # "
 
-  backslash.prop.unused:  # \ U+005C
-    bitmap:
-      - "#   "
-      - "#   "
-      - " #  " #
-      - " #  "
-      - "  # "
-      - "  # "
-      - "   #"
-      - "   #"
-
   cent.prop:  # ¢ U+00A2
     bitmap:
       - "  # "
@@ -1283,16 +1272,19 @@ glyphs:
       - " #   # " #
       - "  ###  "
 
-  registered.prop.unused:  # ® U+00AE
+  registered.prop:  # ® U+00AE
+    y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  ###  "
+      - " #   # "
+      - "#     #"
+      - "# ##  #" #
+      - "# # # #"
+      - "# ##  #"
+      - "# # # #"
+      - "#     #"
+      - " #   # " #
+      - "  ###  "
 
   dollar.prop:  # $ U+0024
     y_offset: -1
@@ -1383,7 +1375,7 @@ glyphs:
       - "#   #" #
       - " ### "
 
-  slash.prop.unused:  # / U+002F
+  slash.prop:  # / U+002F
     bitmap:
       - "   #"
       - "   #"
@@ -1393,6 +1385,17 @@ glyphs:
       - " #  "
       - "#   "
       - "#   "
+
+  backslash.prop:  # \ U+005C
+    bitmap:
+      - "#   "
+      - "#   "
+      - " #  " #
+      - " #  "
+      - "  # "
+      - "  # "
+      - "   #"
+      - "   #"
 
   sterling.prop.unused:  # £ U+00A3
     bitmap:
