@@ -1299,38 +1299,41 @@ glyphs:
       - " "
       - "#"
 
-  numbersign.prop.unused:  # # U+0023 (proportional)
+  numbersign.prop:  # # U+0023 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " #  # "
+      - " #  # "
+      - "######" #
+      - " #  # "
+      - " #  # "
+      - "######"
+      - " #  # "
+      - " #  # "
 
-  percent.prop.unused:  # % U+0025 (proportional)
+  percent.prop:  # % U+0025 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " #   "
+      - "# #  "
+      - " #  #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#  # "
+      - "  # #"
+      - "   # "
 
-  question.prop.unused:  # ? U+003F (proportional)
+  question.prop:  # ? U+003F (proportional)
+    y_offset: -1
     bitmap:
+      - " ### "
+      - "#   #"
+      - "    #" #
+      - "   # "
+      - "  #  "
+      - "  #  "
+      - "  #  "
       - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
 
   registered.prop.unused:  # ® U+00AE (proportional)
     bitmap:
