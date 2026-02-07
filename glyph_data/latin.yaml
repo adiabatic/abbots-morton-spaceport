@@ -1249,16 +1249,16 @@ glyphs:
       - "   #"
       - "   #"
 
-  cent.prop.unused:  # ¢ U+00A2 (proportional)
+  cent.prop:  # ¢ U+00A2 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  # "
+      - " ###" 
+      - "#   " #
+      - "#   "
+      - "#   "
+      - "#   "
+      - " ###"
+      - "  # " #
 
   copyright.prop.unused:  # © U+00A9 (proportional)
     bitmap:
