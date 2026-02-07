@@ -18,6 +18,8 @@
     :root {
       color-scheme: light dark;
       --font-stack: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+      --card-bg: light-dark(#fff, #2a2a2a);
+      --card-border: 1px solid light-dark(#ccc, #444);
     }
 
     html {
@@ -63,8 +65,8 @@
     }
 
     .input-section, .output-section {
-      background: light-dark(#fff, #2a2a2a);
-      border: 1px solid light-dark(#ccc, #444);
+      background: var(--card-bg);
+      border: var(--card-border);
       padding: 1rem;
       border-radius: 4px;
     }
@@ -91,8 +93,8 @@
     }
 
     .lightboard-section {
-      background: light-dark(#fff, #2a2a2a);
-      border: 1px solid light-dark(#ccc, #444);
+      background: var(--card-bg);
+      border: var(--card-border);
       padding: 1rem;
       border-radius: 4px;
     }
@@ -191,8 +193,8 @@
     }
 
     .preview-section {
-      background: light-dark(#fff, #2a2a2a);
-      border: 1px solid light-dark(#ccc, #444);
+      background: var(--card-bg);
+      border: var(--card-border);
       padding: 1rem;
       border-radius: 4px;
     }
@@ -225,8 +227,8 @@
     }
 
     .specimen-section {
-      background: light-dark(#fff, #2a2a2a);
-      border: 1px solid light-dark(#ccc, #444);
+      background: var(--card-bg);
+      border: var(--card-border);
       padding: 1rem;
       border-radius: 4px;
       margin-top: 1.5rem;
