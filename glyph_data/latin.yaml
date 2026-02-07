@@ -436,6 +436,15 @@ glyphs:
   # X-height: 6 rows, # on row 6, width 5
   a.prop:  # a U+0061 (proportional)
     bitmap:
+      - " #### "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - " ### #" #
+
+  a.prop.doublestory:  # a U+0061 (proportional)
+    bitmap:
       - " ###  "
       - "    # "
       - " #### "
