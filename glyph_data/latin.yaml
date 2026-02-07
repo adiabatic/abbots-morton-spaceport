@@ -643,38 +643,38 @@ glyphs:
       - " # # "
       - "  #  " #
       - "  #  "
-      - "###  "
+      - " ##  "
       - "     "
 
   # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
-  j.prop.unused:  # j U+006A (proportional)
+  j.prop:  # j U+006A (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
+      - "  #"
+      - "   "
+      - "  #" #
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #" #
+      - " # "
+      - "#  "
+      - "   "
 
-  thorn.prop.unused:  # þ U+00FE (proportional)
+  thorn.prop:  # þ U+00FE (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - "#    "
+      - "#    "
+      - "#### " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#### " #
+      - "#    "
+      - "#    "
       - "     "
 
   # ── Numbers ──────────────────────────────────────────────────────────
