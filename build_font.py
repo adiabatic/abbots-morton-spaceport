@@ -4,7 +4,10 @@ Build a pixel font from bitmap glyph definitions.
 Uses fonttools FontBuilder to create OTF output.
 
 Usage:
-    uv run python build_font.py glyph_data.yaml [output_dir]
+    uv run python build_font.py <glyph_data.yaml|glyph_data/> [output_dir]
+
+    The first argument can be a single YAML file or a directory of YAML files.
+    When a directory is given, all *.yaml files are loaded and merged.
 
 Outputs:
     output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font
@@ -29,10 +32,22 @@ def load_postscript_glyph_names() -> dict:
         return yaml.safe_load(f)
 
 
-def load_glyph_data(yaml_path: Path) -> dict:
-    """Load glyph definitions from YAML file."""
-    with open(yaml_path) as f:
-        return yaml.safe_load(f)
+def load_glyph_data(path: Path) -> dict:
+    """Load glyph definitions from a YAML file or directory of YAML files."""
+    if path.is_dir():
+        metadata = {}
+        glyphs = {}
+        for yaml_file in sorted(path.glob("*.yaml")):
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+            if data and "metadata" in data:
+                metadata = data["metadata"]
+            if data and "glyphs" in data:
+                glyphs.update(data["glyphs"])
+        return {"metadata": metadata, "glyphs": glyphs}
+    else:
+        with open(path) as f:
+            return yaml.safe_load(f)
 
 
 def is_proportional_glyph(glyph_name: str) -> bool:
@@ -443,12 +458,12 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python build_font.py <glyph_data.yaml> [output_dir]")
+        print("Usage: uv run python build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
         print("  output_dir/AbbotsMortonSpaceportSans.otf")
         print("\nExample:")
-        print("  uv run python build_font.py glyph_data.yaml build/")
+        print("  uv run python build_font.py glyph_data/ build/")
         sys.exit(1)
 
     input_path = Path(sys.argv[1])
@@ -459,7 +474,7 @@ def main():
         output_dir = Path(".")
 
     if not input_path.exists():
-        print(f"Error: Input file not found: {input_path}")
+        print(f"Error: Input path not found: {input_path}")
         sys.exit(1)
 
     # Ensure output directory exists

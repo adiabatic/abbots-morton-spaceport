@@ -5,7 +5,7 @@ Copy a glyph from Departure Mono to this font. Steps:
    uv run python extract_glyph.py test/DepartureMono-Regular.otf $ARGUMENTS
    ```
 
-2. Add the extracted bitmap to @glyph_data.yaml in the "Non-Quikscript glyphs" section at the end. Keep that section sorted by Unicode code point (not alphabetically by glyph name), with proportional variants (.prop) immediately after their base glyph.
+2. Add the extracted bitmap to @glyph_data/latin.yaml in the "Non-Quikscript glyphs" section at the end. Keep that section sorted by Unicode code point (not alphabetically by glyph name), with proportional variants (.prop) immediately after their base glyph.
 
 3. If the bitmap has leading or trailing spaces on any row that are consistent across all rows (i.e., columns that are all spaces), create a `.prop` variant with those empty columns removed. Place it immediately after the base glyph.
 

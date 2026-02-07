@@ -1,0 +1,42 @@
+metadata:
+  font_name: Abbots Morton Spaceport
+  version: 5.000
+  copyright: © Nathan Galt, with glyphs from Departure Mono © 2022–2024 Helena Zhang
+  license: SIL Open Font License, Version 1.1
+  license_url: https://openfontlicense.org/
+  vendor_url: https://github.com/adiabatic/abbots-morton-spaceport
+  description: "An extension of Helena Zhang\u2019s Departure Mono for Quikscript. Available at <https://github.com/adiabatic/abbots-morton-spaceport>."
+
+  # units_per_em: The number of font units per em square.
+  #
+  # 550 matches Departure Mono's UPM. This value is chosen so that the font renders pixel-perfect at multiples of 11px (11, 22, 33, etc.). With 550 UPM and 11 pixels per em, each pixel is exactly 50 units.
+  units_per_em: 550
+
+  # pixel_size: The size of one pixel in font units.
+  #
+  # 50 = 550 / 11, meaning each "pixel" in our bitmap definitions becomes a 50×50 unit square in the font. This ensures pixel-perfect rendering at 11px, 22px, 33px, etc.
+  pixel_size: 50
+
+  # ascender: The distance from the baseline to the top of the tallest glyphs, in font units.
+  #
+  # 550 = 11 × 50, meaning 11 pixels above the baseline. This matches Departure Mono and covers the full em height for the tallest glyphs.
+  ascender: 550
+
+  # descender: The distance from the baseline to the bottom of glyphs with descenders, in font units (negative because it's below baseline).
+  #
+  # -150 = -3 × 50, meaning 3 pixels below the baseline. This matches Departure Mono and provides room for descenders on letters like 'g', 'y', 'p', 'q', and 'Q'.
+  descender: -150
+
+  # cap_height: The height of uppercase letters, in font units.
+  #
+  # 400 = 8 × 50, meaning uppercase letters are 8 pixels tall. This matches Departure Mono and is measured from the baseline to the top of flat uppercase letters like 'H' or 'E'.
+  cap_height: 400
+
+  # x_height: The height of lowercase letters without ascenders or descenders, in font units.
+  #
+  # 300 = 6 × 50, meaning the main body of lowercase letters is 6 pixels tall. This matches Departure Mono and is measured from the baseline to the top of flat lowercase letters like 'x' or 'e'.
+  x_height: 300
+
+  # sample_text: Text displayed in font previews (Name ID 19 in the OpenType name table). Used by font managers and OS font previews.
+  # …not that any operating-system font preview I use actually uses an all-PUA sample text…
+  sample_text: "\uE657\uE65A \uE65B \uE657 \uE661\uE673 \uE652 \uE653 \uE670" # this is the way to do it

@@ -1,7 +1,7 @@
-Bump the major version number in both @glyph_data.yaml and @pyproject.toml, then run `uv sync`.
+Bump the major version number in both @glyph_data/metadata.yaml and @pyproject.toml, then run `uv sync`.
 
 Version formats differ between files:
-- glyph_data.yaml uses `X.000` format (e.g., `4.000`)
+- glyph_data/metadata.yaml uses `X.000` format (e.g., `4.000`)
 - pyproject.toml uses `X.0.0` format (e.g., `4.0.0`)
 - FONTLOG.md uses `X.000` format (e.g., `4.000`)
 
