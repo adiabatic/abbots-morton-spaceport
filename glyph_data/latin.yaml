@@ -2,7 +2,7 @@ glyphs:
   # ── Letters ──────────────────────────────────────────────────────────
 
   # Cap-height: 8 rows, # on row 3, width 5
-  A.prop:  # A U+0041 (proportional)
+  A.prop:  # A U+0041
     bitmap:
       - "  #  "
       - " # # "
@@ -13,7 +13,7 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  AE.prop:  # Æ U+00C6 (proportional)
+  AE.prop:  # Æ U+00C6
     bitmap:
       - "  #######"
       - " #  #    "
@@ -24,7 +24,7 @@ glyphs:
       - "#   #    "
       - "#   #####"
 
-  B.prop:  # B U+0042 (proportional)
+  B.prop:  # B U+0042
     bitmap:
       - "#### "
       - "#   #"
@@ -35,7 +35,7 @@ glyphs:
       - "#   #"
       - "#### "
 
-  C.prop:  # C U+0043 (proportional)
+  C.prop:  # C U+0043
     bitmap:
       - "  ###"
       - " #   "
@@ -46,7 +46,7 @@ glyphs:
       - " #   "
       - "  ###"
 
-  D.prop:  # D U+0044 (proportional)
+  D.prop:  # D U+0044
     bitmap:
       - "###  "
       - "#  # "
@@ -57,7 +57,7 @@ glyphs:
       - "#  # "
       - "###  "
 
-  E.prop:  # E U+0045 (proportional)
+  E.prop:  # E U+0045
     bitmap:
       - "#####"
       - "#    "
@@ -68,7 +68,7 @@ glyphs:
       - "#    "
       - "#####"
 
-  Eth.prop:  # Ð U+00D0 (proportional)
+  Eth.prop:  # Ð U+00D0
     bitmap:
       - " ###  "
       - " #  # "
@@ -79,7 +79,7 @@ glyphs:
       - " #  # "
       - " ###  "
 
-  F.prop:  # F U+0046 (proportional)
+  F.prop:  # F U+0046
     bitmap:
       - "#####"
       - "#    "
@@ -90,7 +90,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  G.prop:  # G U+0047 (proportional)
+  G.prop:  # G U+0047
     bitmap:
       - " #### "
       - "#    #"
@@ -101,7 +101,7 @@ glyphs:
       - "#    #"
       - " #### "
 
-  H.prop:  # H U+0048 (proportional)
+  H.prop:  # H U+0048
     bitmap:
       - "#    #"
       - "#    #"
@@ -112,7 +112,7 @@ glyphs:
       - "#    #"
       - "#    #"
 
-  I.prop:  # I U+0049 (proportional)
+  I.prop:  # I U+0049
     bitmap:
       - "#####"
       - "  #  "
@@ -123,7 +123,7 @@ glyphs:
       - "  #  "
       - "#####"
 
-  J.prop:  # J U+004A (proportional)
+  J.prop:  # J U+004A
     bitmap:
       - "#####"
       - "    #"
@@ -134,7 +134,7 @@ glyphs:
       - "   # "
       - "###  "
 
-  K.prop:  # K U+004B (proportional)
+  K.prop:  # K U+004B
     bitmap:
       - "#   #"
       - "#  # "
@@ -145,7 +145,7 @@ glyphs:
       - "#  # "
       - "#   #"
 
-  L.prop:  # L U+004C (proportional)
+  L.prop:  # L U+004C
     bitmap:
       - "#     "
       - "#     "
@@ -156,7 +156,7 @@ glyphs:
       - "#     "
       - "######"
 
-  M.prop:  # M U+004D (proportional)
+  M.prop:  # M U+004D
     bitmap:
       - "#     #"
       - "##   ##"
@@ -167,7 +167,7 @@ glyphs:
       - "#     #"
       - "#     #"
 
-  N.prop:  # N U+004E (proportional)
+  N.prop:  # N U+004E
     bitmap:
       - "#     #"
       - "##    #"
@@ -178,7 +178,7 @@ glyphs:
       - "#     #"
       - "#     #"
 
-  O.prop:  # O U+004F (proportional)
+  O.prop:  # O U+004F
     bitmap:
       - "  ###  "
       - " #   # "
@@ -189,7 +189,7 @@ glyphs:
       - " #   # "
       - "  ###  "
 
-  Oslash.prop:  # Ø U+00D8 (proportional)
+  Oslash.prop:  # Ø U+00D8
     bitmap:
       - "  ### #"
       - " #   # "
@@ -200,7 +200,7 @@ glyphs:
       - " #   # "
       - "# ###  "
 
-  P.prop:  # P U+0050 (proportional)
+  P.prop:  # P U+0050
     bitmap:
       - "#### "
       - "#   #"
@@ -211,7 +211,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  Q.prop:  # Q U+0051 (proportional)
+  Q.prop:  # Q U+0051
     bitmap:
       - "  ###  "
       - " #   # "
@@ -222,7 +222,7 @@ glyphs:
       - " #   # "
       - "  ### #"
 
-  R.prop:  # R U+0052 (proportional)
+  R.prop:  # R U+0052
     bitmap:
       - "##### "
       - "#    #"
@@ -233,7 +233,7 @@ glyphs:
       - "#   # "
       - "#    #"
 
-  S.prop:  # S U+0053 (proportional)
+  S.prop:  # S U+0053
     bitmap:
       - " ####"
       - "#    "
@@ -244,7 +244,7 @@ glyphs:
       - "    #"
       - "#### "
 
-  T.prop:  # T U+0054 (proportional)
+  T.prop:  # T U+0054
     bitmap:
       - "#####"
       - "  #  "
@@ -255,7 +255,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  Thorn.prop:  # Þ U+00DE (proportional)
+  Thorn.prop:  # Þ U+00DE
     bitmap:
       - "#     "
       - "##### "
@@ -266,7 +266,7 @@ glyphs:
       - "#     "
       - "#     "
 
-  U.prop:  # U U+0055 (proportional)
+  U.prop:  # U U+0055
     bitmap:
       - "#     #"
       - "#     #"
@@ -277,7 +277,7 @@ glyphs:
       - "#     #"
       - " ##### "
 
-  V.prop:  # V U+0056 (proportional)
+  V.prop:  # V U+0056
     bitmap:
       - "#     #"
       - "#     #"
@@ -288,7 +288,7 @@ glyphs:
       - "  # #  "
       - "   #   "
 
-  W.prop:  # W U+0057 (proportional)
+  W.prop:  # W U+0057
     bitmap:
       - "#     #"
       - "#     #"
@@ -299,7 +299,7 @@ glyphs:
       - "##   ##"
       - "#     #"
 
-  X.prop:  # X U+0058 (proportional)
+  X.prop:  # X U+0058
     bitmap:
       - "#    #"
       - " #  # "
@@ -310,7 +310,7 @@ glyphs:
       - "#    #"
       - "#    #"
 
-  Y.prop:  # Y U+0059 (proportional)
+  Y.prop:  # Y U+0059
     bitmap:
       - "#     #"
       - " #   # "
@@ -321,7 +321,7 @@ glyphs:
       - "   #   "
       - "   #   "
 
-  Z.prop:  # Z U+005A (proportional)
+  Z.prop:  # Z U+005A
     bitmap:
       - "######"
       - "     #"
@@ -332,7 +332,7 @@ glyphs:
       - "#     "
       - "######"
 
-  germandbls.prop:  # ß U+00DF (proportional)
+  germandbls.prop:  # ß U+00DF
     bitmap: # yes, I know it is ugly, but gosh darnit, it is mine
       - " ####  "
       - "#    # "
@@ -344,7 +344,7 @@ glyphs:
       - "#  ### "
 
   # Ascender: 8 rows, # on row 3, width 5
-  b.prop:  # b U+0062 (proportional)
+  b.prop:  # b U+0062
     bitmap:
       - "#    "
       - "#    "
@@ -355,7 +355,7 @@ glyphs:
       - "#   #"
       - "#### "
 
-  d.prop:  # d U+0064 (proportional)
+  d.prop:  # d U+0064
     bitmap:
       - "    #"
       - "    #"
@@ -366,7 +366,7 @@ glyphs:
       - "#   #"
       - " ####"
 
-  eth.prop:  # ð U+00F0 (proportional)
+  eth.prop:  # ð U+00F0
     bitmap:
       - "  # #"
       - "   # "
@@ -378,7 +378,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  f.prop:  # f U+0066 (proportional)
+  f.prop:  # f U+0066
     bitmap:
       - "  ###"
       - " #   "
@@ -389,7 +389,7 @@ glyphs:
       - " #   "
       - " #   "
 
-  h.prop:  # h U+0068 (proportional)
+  h.prop:  # h U+0068
     bitmap:
       - "#    "
       - "#    "
@@ -400,7 +400,7 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  k.prop:  # k U+006B (proportional)
+  k.prop:  # k U+006B
     bitmap:
       - "#    "
       - "#    "
@@ -411,7 +411,7 @@ glyphs:
       - "#  # "
       - "#   #"
 
-  l.prop:  # l U+006C (proportional)
+  l.prop:  # l U+006C
     bitmap:
       - "#"
       - "#"
@@ -422,7 +422,7 @@ glyphs:
       - "#"
       - "#"
 
-  t.prop:  # t U+0074 (proportional)
+  t.prop:  # t U+0074
     bitmap:
       - " # "
       - " # "
@@ -434,7 +434,7 @@ glyphs:
       - " ##"
 
   # X-height: 6 rows, # on row 6, width 5
-  a.prop:  # a U+0061 (proportional)
+  a.prop:  # a U+0061
     bitmap:
       - " #### "
       - "#   # "
@@ -443,7 +443,7 @@ glyphs:
       - "#   # "
       - " ### #" #
 
-  a.prop.doublestory:  # a U+0061 (proportional)
+  a.prop.doublestory:  # a U+0061
     bitmap:
       - " ###  "
       - "    # "
@@ -452,7 +452,7 @@ glyphs:
       - "#   # "
       - " ### #" #
 
-  ae.prop:  # æ U+00E6 (proportional)
+  ae.prop:  # æ U+00E6
     bitmap:
       - " ### ### "
       - "    #   #"
@@ -461,7 +461,7 @@ glyphs:
       - "#   #    "
       - " ### ####" #
 
-  c.prop:  # c U+0063 (proportional)
+  c.prop:  # c U+0063
     bitmap:
       - " ####"
       - "#    "
@@ -470,7 +470,7 @@ glyphs:
       - "#    "
       - " ####" #
 
-  e.prop:  # e U+0065 (proportional)
+  e.prop:  # e U+0065
     bitmap:
       - " ### "
       - "#   #"
@@ -479,7 +479,7 @@ glyphs:
       - "#    "
       - " ####" #
 
-  i.prop:  # i U+0069 (proportional)
+  i.prop:  # i U+0069
     bitmap:
       - "#"
       - " "
@@ -490,7 +490,7 @@ glyphs:
       - "#"
       - "#" #
 
-  m.prop:  # m U+006D (proportional)
+  m.prop:  # m U+006D
     bitmap:
       - " ## ## "
       - "#  #  #"
@@ -499,7 +499,7 @@ glyphs:
       - "#  #  #"
       - "#  #  #" #
 
-  n.prop:  # n U+006E (proportional)
+  n.prop:  # n U+006E
     bitmap:
       - "#### "
       - "#   #"
@@ -508,7 +508,7 @@ glyphs:
       - "#   #"
       - "#   #" #
 
-  o.prop:  # o U+006F (proportional)
+  o.prop:  # o U+006F
     bitmap:
       - " ### "
       - "#   #"
@@ -517,7 +517,7 @@ glyphs:
       - "#   #"
       - " ### " #
 
-  oslash.prop:  # ø U+00F8 (proportional)
+  oslash.prop:  # ø U+00F8
     bitmap:
       - "  ###  "
       - " #   ##"
@@ -526,7 +526,7 @@ glyphs:
       - "##   # "
       - "  ###  " #
 
-  r.prop:  # r U+0072 (proportional)
+  r.prop:  # r U+0072
     bitmap:
       - " ###" 
       - "#   " 
@@ -535,7 +535,7 @@ glyphs:
       - "#   " 
       - "#   " # 
 
-  s.prop:  # s U+0073 (proportional)
+  s.prop:  # s U+0073
     bitmap:
       - " ####"
       - "#    "
@@ -544,7 +544,7 @@ glyphs:
       - "    #"
       - "#### " #
 
-  u.prop:  # u U+0075 (proportional)
+  u.prop:  # u U+0075
     bitmap:
       - "#   #"
       - "#   #"
@@ -553,7 +553,7 @@ glyphs:
       - "#   #"
       - " ### " #
 
-  v.prop:  # v U+0076 (proportional)
+  v.prop:  # v U+0076
     bitmap:
       - "#   #"
       - "#   #"
@@ -562,7 +562,7 @@ glyphs:
       - " # # "
       - "  #  " #
 
-  w.prop:  # w U+0077 (proportional)
+  w.prop:  # w U+0077
     bitmap:
       - "#     #"
       - "#     #"
@@ -571,7 +571,7 @@ glyphs:
       - "# # # #"
       - " #   # " #
 
-  x.prop:  # x U+0078 (proportional)
+  x.prop:  # x U+0078
     bitmap:
       - "#   #"
       - " # # "
@@ -580,7 +580,7 @@ glyphs:
       - " # # "
       - "#   #" #
 
-  z.prop:  # z U+007A (proportional)
+  z.prop:  # z U+007A
     bitmap:
       - "#####"
       - "   # "
@@ -590,7 +590,7 @@ glyphs:
       - "#####" #
 
   # Descender: 9 rows, y_offset -3, # on row 6, width 5
-  g.prop:  # g U+0067 (proportional)
+  g.prop:  # g U+0067
     y_offset: -3
     bitmap:
       - " ### "
@@ -603,7 +603,7 @@ glyphs:
       - " ### "
       - "     "
 
-  mu.prop:  # µ U+00B5 (proportional)
+  mu.prop:  # µ U+00B5
     y_offset: -3
     bitmap:
       - "#   # "
@@ -616,7 +616,7 @@ glyphs:
       - "#     "
       - "      "
 
-  p.prop:  # p U+0070 (proportional)
+  p.prop:  # p U+0070
     y_offset: -3
     bitmap:
       - "#### "
@@ -629,7 +629,7 @@ glyphs:
       - "#    "
       - "     "
 
-  q.prop:  # q U+0071 (proportional)
+  q.prop:  # q U+0071
     y_offset: -3
     bitmap:
       - " ####"
@@ -642,7 +642,7 @@ glyphs:
       - "    #"
       - "     "
 
-  y.prop:  # y U+0079 (proportional)
+  y.prop:  # y U+0079
     y_offset: -3
     bitmap:
       - "#   #"
@@ -656,7 +656,7 @@ glyphs:
       - "     "
 
   # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
-  j.prop:  # j U+006A (proportional)
+  j.prop:  # j U+006A
     y_offset: -3
     bitmap:
       - "  #"
@@ -671,7 +671,7 @@ glyphs:
       - "#  "
       - "   "
 
-  thorn.prop:  # þ U+00FE (proportional)
+  thorn.prop:  # þ U+00FE
     y_offset: -3
     bitmap:
       - "#    "
@@ -700,7 +700,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  one.prop:  # 1 U+0031 (proportional)
+  one.prop:  # 1 U+0031
     bitmap:
       - " ##  "
       - "# #  "
@@ -711,7 +711,7 @@ glyphs:
       - "  #  "
       - "#####"
 
-  two.prop:  # 2 U+0032 (proportional)
+  two.prop:  # 2 U+0032
     bitmap:
       - " ### "
       - "#   #"
@@ -722,7 +722,7 @@ glyphs:
       - "#    "
       - "#####"
 
-  three.prop:  # 3 U+0033 (proportional)
+  three.prop:  # 3 U+0033
     bitmap:
       - "#### "
       - "    #"
@@ -733,7 +733,7 @@ glyphs:
       - "    #"
       - "#### "
 
-  four.prop:  # 4 U+0034 (proportional)
+  four.prop:  # 4 U+0034
     bitmap:
       - "#  # "
       - "#  # "
@@ -744,7 +744,7 @@ glyphs:
       - "   # "
       - "   # "
 
-  five.prop:  # 5 U+0035 (proportional)
+  five.prop:  # 5 U+0035
     bitmap:
       - "#####"
       - "#    "
@@ -755,7 +755,7 @@ glyphs:
       - "    #"
       - "#### "
 
-  six.prop:  # 6 U+0036 (proportional)
+  six.prop:  # 6 U+0036
     bitmap:
       - " ##  "
       - "#    "
@@ -766,7 +766,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  seven.prop:  # 7 U+0037 (proportional)
+  seven.prop:  # 7 U+0037
     bitmap:
       - "#####"
       - "    #"
@@ -777,7 +777,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  eight.prop:  # 8 U+0038 (proportional)
+  eight.prop:  # 8 U+0038
     bitmap:
       - " ### "
       - "#   #"
@@ -788,7 +788,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  nine.prop:  # 9 U+0039 (proportional)
+  nine.prop:  # 9 U+0039
     bitmap:
       - " ### "
       - "#   #"
@@ -800,7 +800,7 @@ glyphs:
       - " ### "
 
   # Cap-height fractions: 8 rows
-  onehalf.prop:  # ½ U+00BD (proportional)
+  onehalf.prop:  # ½ U+00BD
     y_offset: -3
     bitmap:
       - "  # "
@@ -817,7 +817,7 @@ glyphs:
       - " #  "
       - "####"
 
-  onequarter.prop:  # ¼ U+00BC (proportional)
+  onequarter.prop:  # ¼ U+00BC
     y_offset: -3
     bitmap:
       - "  # "
@@ -834,7 +834,7 @@ glyphs:
       - "   #"
       - "   #"
 
-  threequarters.prop:  # ¾ U+00BE (proportional)
+  threequarters.prop:  # ¾ U+00BE
     y_offset: -3
     bitmap:
       - "### "
@@ -852,7 +852,7 @@ glyphs:
       - "   #"
 
   # Superscript: 5 rows, y_offset 3, width 3
-  onesuperior.prop:  # ¹ U+00B9 (proportional)
+  onesuperior.prop:  # ¹ U+00B9
     y_offset: 3
     bitmap: &ONESUPERIOR
       - " # "
@@ -861,7 +861,7 @@ glyphs:
       - " # "
       - "###"
 
-  twosuperior.prop:  # ² U+00B2 (proportional)
+  twosuperior.prop:  # ² U+00B2
     y_offset: 3
     bitmap: &TWOSUPERIOR
       - " ## "
@@ -870,7 +870,7 @@ glyphs:
       - " #  "
       - "####"
 
-  threesuperior.prop:  # ³ U+00B3 (proportional)
+  threesuperior.prop:  # ³ U+00B3
     y_offset: 3
     bitmap: &THREESUPERIOR
       - "### "
@@ -879,7 +879,7 @@ glyphs:
       - "   #"
       - "### "
 
-  foursuperior.prop:  # ⁴ U+2074 (proportional)
+  foursuperior.prop:  # ⁴ U+2074
     y_offset: 3
     bitmap: &FOURSUPERIOR
       - "#  #"
@@ -888,7 +888,7 @@ glyphs:
       - "   #"
       - "   #"
 
-  fivesuperior.prop:  # ⁵ U+2075 (proportional)
+  fivesuperior.prop:  # ⁵ U+2075
     y_offset: 3
     bitmap: &FIVESUPERIOR
       - "####"
@@ -897,7 +897,7 @@ glyphs:
       - "   #"
       - "### "
 
-  sixsuperior.prop:  # ⁶ U+2076 (proportional)
+  sixsuperior.prop:  # ⁶ U+2076
     y_offset: 3
     bitmap: &SIXSUPERIOR
       - " ## "
@@ -906,7 +906,7 @@ glyphs:
       - "#  #"
       - " ## "
 
-  sevensuperior.prop:  # ⁷ U+2077 (proportional)
+  sevensuperior.prop:  # ⁷ U+2077
     y_offset: 3
     bitmap: &SEVENSUPERIOR
       - "####"
@@ -915,7 +915,7 @@ glyphs:
       - " #  "
       - "#   "
 
-  eightsuperior.prop:  # ⁸ U+2078 (proportional)
+  eightsuperior.prop:  # ⁸ U+2078
     y_offset: 3
     bitmap: &EIGHTSUPERIOR
       - " ## "
@@ -924,7 +924,7 @@ glyphs:
       - "#  #"
       - " ## "
 
-  ninesuperior.prop:  # ⁹ U+2079 (proportional)
+  ninesuperior.prop:  # ⁹ U+2079
     y_offset: 3
     bitmap: &NINESUPERIOR
       - " ## "
@@ -933,7 +933,7 @@ glyphs:
       - "   #"
       - " ## "
 
-  zerosuperior.prop:  # ⁰ U+2070 (proportional)
+  zerosuperior.prop:  # ⁰ U+2070
     y_offset: 3
     bitmap: &ZEROSUPERIOR
       - " ## "
@@ -943,50 +943,50 @@ glyphs:
       - " ## "
 
   # Inferior (subscript): 5 rows, y_offset -3, width 3–4
-  zeroinferior.prop:  # ₀ U+2080 (proportional)
+  zeroinferior.prop:  # ₀ U+2080
     y_offset: -3
     bitmap: *ZEROSUPERIOR
 
-  oneinferior.prop:  # ₁ U+2081 (proportional)
+  oneinferior.prop:  # ₁ U+2081
     y_offset: -3
     bitmap: *ONESUPERIOR
 
-  twoinferior.prop:  # ₂ U+2082 (proportional)
+  twoinferior.prop:  # ₂ U+2082
     y_offset: -3
     bitmap: *TWOSUPERIOR
 
-  threeinferior.prop:  # ₃ U+2083 (proportional)
+  threeinferior.prop:  # ₃ U+2083
     y_offset: -3
     bitmap: *THREESUPERIOR
 
-  fourinferior.prop:  # ₄ U+2084 (proportional)
+  fourinferior.prop:  # ₄ U+2084
     y_offset: -3
     bitmap: *FOURSUPERIOR
 
-  fiveinferior.prop:  # ₅ U+2085 (proportional)
+  fiveinferior.prop:  # ₅ U+2085
     y_offset: -3
     bitmap: *FIVESUPERIOR
 
-  sixinferior.prop:  # ₆ U+2086 (proportional)
+  sixinferior.prop:  # ₆ U+2086
     y_offset: -3
     bitmap: *SIXSUPERIOR
 
-  seveninferior.prop:  # ₇ U+2087 (proportional)
+  seveninferior.prop:  # ₇ U+2087
     y_offset: -3
     bitmap: *SEVENSUPERIOR
 
-  eightinferior.prop:  # ₈ U+2088 (proportional)
+  eightinferior.prop:  # ₈ U+2088
     y_offset: -3
     bitmap: *EIGHTSUPERIOR
 
-  nineinferior.prop:  # ₉ U+2089 (proportional)
+  nineinferior.prop:  # ₉ U+2089
     y_offset: -3
     bitmap: *NINESUPERIOR
 
   # ── Other ────────────────────────────────────────────────────────────
 
   # Bracket-height: 10 rows, y_offset -1
-  bar.prop:  # | U+007C (proportional)
+  bar.prop:  # | U+007C
     y_offset: -1
     bitmap:
       - "#"
@@ -1000,7 +1000,7 @@ glyphs:
       - "#"
       - "#"
 
-  braceleft.prop:  # { U+007B (proportional)
+  braceleft.prop:  # { U+007B
     y_offset: -1
     bitmap:
       - "   ##"
@@ -1014,7 +1014,7 @@ glyphs:
       - "  #  " #
       - "   ##"
 
-  braceright.prop:  # } U+007D (proportional)
+  braceright.prop:  # } U+007D
     y_offset: -1
     bitmap:
       - "##   "
@@ -1028,7 +1028,7 @@ glyphs:
       - "  #  " #
       - "##   "
 
-  bracketleft.prop:  # [ U+005B (proportional)
+  bracketleft.prop:  # [ U+005B
     y_offset: -1
     bitmap:
       - "###"
@@ -1042,7 +1042,7 @@ glyphs:
       - "#  "
       - "###"
 
-  bracketright.prop:  # ] U+005D (proportional)
+  bracketright.prop:  # ] U+005D
     y_offset: -1
     bitmap:
       - "###"
@@ -1056,7 +1056,7 @@ glyphs:
       - "  #"
       - "###"
 
-  brokenbar.prop:  # ¦ U+00A6 (proportional)
+  brokenbar.prop:  # ¦ U+00A6
     y_offset: -1
     bitmap:
       - "#"
@@ -1070,7 +1070,7 @@ glyphs:
       - "#"
       - "#"
 
-  paragraph.prop:  # ¶ U+00B6 (proportional)
+  paragraph.prop:  # ¶ U+00B6
     y_offset: -1
     bitmap:
       - " #### #"
@@ -1084,7 +1084,7 @@ glyphs:
       - "    # #" #
       - "    # #"
 
-  parenleft.prop:  # ( U+0028 (proportional)
+  parenleft.prop:  # ( U+0028
     y_offset: -1
     bitmap:
       - "  #"
@@ -1098,7 +1098,7 @@ glyphs:
       - " # "
       - "  #"
 
-  parenright.prop:  # ) U+0029 (proportional)
+  parenright.prop:  # ) U+0029
     y_offset: -1
     bitmap:
       - "#  "
@@ -1112,7 +1112,7 @@ glyphs:
       - " # "
       - "#  "
 
-  section.prop:  # § U+00A7 (proportional)
+  section.prop:  # § U+00A7
     y_offset: -1
     bitmap:
       - " ####"
@@ -1126,7 +1126,7 @@ glyphs:
       - "    #" #
       - "#### "
 
-  uni276C.prop:  # ❬ U+276C (proportional)
+  uni276C.prop:  # ❬ U+276C
     y_offset: -1
     bitmap:
       - "  #"
@@ -1140,7 +1140,7 @@ glyphs:
       - "  #"
       - "  #"
 
-  uni276D.prop:  # ❭ U+276D (proportional)
+  uni276D.prop:  # ❭ U+276D
     y_offset: -1
     bitmap:
       - "#  "
@@ -1154,7 +1154,7 @@ glyphs:
       - "#  "
       - "#  "
 
-  uni276E.prop:  # ❮ U+276E (proportional)
+  uni276E.prop:  # ❮ U+276E
     y_offset: -1
     bitmap:
       - "  ##"
@@ -1168,7 +1168,7 @@ glyphs:
       - "  ##"
       - "  ##"
 
-  uni276F.prop:  # ❯ U+276F (proportional)
+  uni276F.prop:  # ❯ U+276F
     y_offset: -1
     bitmap:
       - "##  "
@@ -1183,7 +1183,7 @@ glyphs:
       - "##  "
 
   # Tall descending: 9 rows, y_offset -1
-  greaterequal.prop:  # ≥ U+2265 (proportional)
+  greaterequal.prop:  # ≥ U+2265
     y_offset: -1
     bitmap:
       - "#   "
@@ -1196,7 +1196,7 @@ glyphs:
       - "    "
       - "####"
 
-  lessequal.prop:  # ≤ U+2264 (proportional)
+  lessequal.prop:  # ≤ U+2264
     y_offset: -1
     bitmap:
       - "   #"
@@ -1209,7 +1209,7 @@ glyphs:
       - "    "
       - "####"
 
-  uni2669.prop:  # ♩ U+2669 (proportional)
+  uni2669.prop:  # ♩ U+2669
     y_offset: -1
     bitmap:
       - "   #"
@@ -1223,7 +1223,7 @@ glyphs:
       - " ## "
 
   # Cap-height: 8 rows
-  ampersand.prop:  # & U+0026 (proportional)
+  ampersand.prop:  # & U+0026
     y_offset: -1
     bitmap:
       - "   #  "
@@ -1236,7 +1236,7 @@ glyphs:
       - " #####"
       - "   #  "
 
-  at.prop:  # @ U+0040 (proportional)
+  at.prop:  # @ U+0040
     bitmap:
       - "       "
       - " ##### "
@@ -1247,7 +1247,7 @@ glyphs:
       - " #  # #"
       - "  ## # "
 
-  backslash.prop.unused:  # \ U+005C (proportional)
+  backslash.prop.unused:  # \ U+005C
     bitmap:
       - "#   "
       - "#   "
@@ -1258,7 +1258,7 @@ glyphs:
       - "   #"
       - "   #"
 
-  cent.prop:  # ¢ U+00A2 (proportional)
+  cent.prop:  # ¢ U+00A2
     bitmap:
       - "  # "
       - " ###" 
@@ -1269,7 +1269,7 @@ glyphs:
       - " ###"
       - "  # " #
 
-  copyright.prop:  # © U+00A9 (proportional)
+  copyright.prop:  # © U+00A9
     y_offset: -1
     bitmap:
       - "  ###  "
@@ -1283,7 +1283,7 @@ glyphs:
       - " #   # " #
       - "  ###  "
 
-  registered.prop.unused:  # ® U+00AE (proportional)
+  registered.prop.unused:  # ® U+00AE
     bitmap:
       - "     "
       - "     "
@@ -1294,7 +1294,7 @@ glyphs:
       - "     "
       - "     "
 
-  dollar.prop:  # $ U+0024 (proportional)
+  dollar.prop:  # $ U+0024
     y_offset: -1
     bitmap:
       - "  #  "
@@ -1308,7 +1308,7 @@ glyphs:
       - "#### " #
       - "  #  "
 
-  numbersign.prop:  # # U+0023 (proportional)
+  numbersign.prop:  # # U+0023
     bitmap:
       - " #  # "
       - " #  # "
@@ -1319,7 +1319,7 @@ glyphs:
       - " #  # "
       - " #  # "
 
-  percent.prop:  # % U+0025 (proportional)
+  percent.prop:  # % U+0025
     bitmap:
       - " #   "
       - "# #  "
@@ -1331,7 +1331,7 @@ glyphs:
       - "  # #"
       - "   # "
 
-  exclam.prop:  # ! U+0021 (proportional)
+  exclam.prop:  # ! U+0021
     y_offset: -1
     bitmap:
       - "#"
@@ -1344,7 +1344,7 @@ glyphs:
       - " " #
       - "#"
 
-  exclamdown.prop:  # ¡ U+00A1 (proportional)
+  exclamdown.prop:  # ¡ U+00A1
     y_offset: -1
     bitmap:
       - "#"
@@ -1357,7 +1357,7 @@ glyphs:
       - "#" #
       - "#"
 
-  question.prop:  # ? U+003F (proportional)
+  question.prop:  # ? U+003F
     y_offset: -1
     bitmap:
       - " ### "
@@ -1370,7 +1370,7 @@ glyphs:
       - "     " #
       - "  #  "
 
-  questiondown.prop:  # ¿ U+00BF (proportional)
+  questiondown.prop:  # ¿ U+00BF
     y_offset: -1
     bitmap:
       - "  #  "
@@ -1383,7 +1383,7 @@ glyphs:
       - "#   #" #
       - " ### "
 
-  slash.prop.unused:  # / U+002F (proportional)
+  slash.prop.unused:  # / U+002F
     bitmap:
       - "   #"
       - "   #"
@@ -1394,7 +1394,7 @@ glyphs:
       - "#   "
       - "#   "
 
-  sterling.prop.unused:  # £ U+00A3 (proportional)
+  sterling.prop.unused:  # £ U+00A3
     bitmap:
       - "     "
       - "     "
@@ -1405,7 +1405,7 @@ glyphs:
       - "     "
       - "     "
 
-  yen.prop:  # ¥ U+00A5 (proportional)
+  yen.prop:  # ¥ U+00A5
     bitmap:
       - "#     #"
       - " #   # "
@@ -1417,7 +1417,7 @@ glyphs:
       - "   #   "
 
   # Medium: 7 rows
-  greater.prop:  # > U+003E (proportional)
+  greater.prop:  # > U+003E
     bitmap:
       - "#   "
       - " #  "
@@ -1427,7 +1427,7 @@ glyphs:
       - " #  "
       - "#   "
 
-  less.prop:  # < U+003C (proportional)
+  less.prop:  # < U+003C
     bitmap:
       - "   #"
       - "  # "
@@ -1437,7 +1437,7 @@ glyphs:
       - "  # "
       - "   #"
 
-  plusminus.prop:  # ± U+00B1 (proportional)
+  plusminus.prop:  # ± U+00B1
     bitmap:
       - "  #  "
       - "  #  "
@@ -1448,28 +1448,28 @@ glyphs:
       - "#####"
       - "     "
 
-  minus.prop:  # − U+2212 (proportional)
+  minus.prop:  # − U+2212
     y_offset: 3
     bitmap:
       - "#####"
 
-  hyphen.prop:  # - U+002D (proportional)
+  hyphen.prop:  # - U+002D
     y_offset: 3
     bitmap:
       - "###"
 
-  endash.prop:  # – U+2013 (proportional)
+  endash.prop:  # – U+2013
     y_offset: 3
     bitmap:
       - "#####"
 
-  emdash.prop:  # — U+2014 (proportional)
+  emdash.prop:  # — U+2014
     y_offset: 3
     bitmap:
       - "#######"
 
   # Semicolon: 7 rows, y_offset -1
-  semicolon.prop:  # ; U+003B (proportional)
+  semicolon.prop:  # ; U+003B
     y_offset: -1
     bitmap:
       - " #"
@@ -1481,7 +1481,7 @@ glyphs:
       - "# "
 
   # X-height: 6 rows
-  colon.prop:  # : U+003A (proportional)
+  colon.prop:  # : U+003A
     bitmap:
       - "#"
       - "#"
@@ -1490,7 +1490,7 @@ glyphs:
       - "#"
       - "#"
 
-  divide.prop:  # ÷ U+00F7 (proportional)
+  divide.prop:  # ÷ U+00F7
     bitmap:
       - "  #  "
       - "     "
@@ -1499,7 +1499,7 @@ glyphs:
       - "  #  "
       - "     " #
 
-  multiply.prop:  # × U+00D7 (proportional)
+  multiply.prop:  # × U+00D7
     bitmap:
       - "#   #"
       - " # # "
@@ -1509,7 +1509,7 @@ glyphs:
       - "     " #
 
   # Small mid: 5 rows
-  currency.prop:  # ¤ U+00A4 (proportional)
+  currency.prop:  # ¤ U+00A4
     y_offset: 2
     bitmap:
       - "#   #"
@@ -1518,7 +1518,7 @@ glyphs:
       - " ### "
       - "#   #"
 
-  guillemotleft.prop:  # « U+00AB (proportional)
+  guillemotleft.prop:  # « U+00AB
     y_offset: 1
     bitmap:
       - "  #  #"
@@ -1527,7 +1527,7 @@ glyphs:
       - " #  # "
       - "  #  #"
 
-  guillemotright.prop:  # » U+00BB (proportional)
+  guillemotright.prop:  # » U+00BB
     y_offset: 1
     bitmap:
       - "#  #  "
@@ -1536,7 +1536,7 @@ glyphs:
       - " #  # "
       - "#  #  "
 
-  guilsinglleft.prop:  # ‹ U+2039 (proportional)
+  guilsinglleft.prop:  # ‹ U+2039
     y_offset: 1
     bitmap:
       - "  #"
@@ -1545,7 +1545,7 @@ glyphs:
       - " # "
       - "  #"
 
-  guilsinglright.prop:  # › U+203A (proportional)
+  guilsinglright.prop:  # › U+203A
     y_offset: 1
     bitmap:
       - "#  "
@@ -1554,7 +1554,7 @@ glyphs:
       - " # "
       - "#  "
 
-  plus.prop:  # + U+002B (proportional)
+  plus.prop:  # + U+002B
     y_offset: 1
     bitmap:
       - "  #  "
@@ -1564,7 +1564,7 @@ glyphs:
       - "  #  "
 
   # Small high: 5 rows, y_offset 3
-  asterisk.prop:  # * U+002A (proportional)
+  asterisk.prop:  # * U+002A
     y_offset: 2
     bitmap:
       - "  #  "
@@ -1574,7 +1574,7 @@ glyphs:
       - "  #  "
 
   # Ordinal: 5 rows, y_offset 3, width 4
-  ordfeminine.prop:  # ª U+00AA (proportional)
+  ordfeminine.prop:  # ª U+00AA
     y_offset: 3
     bitmap:
       - " ###"
@@ -1583,7 +1583,7 @@ glyphs:
       - "## #"
       - "    "
 
-  ordmasculine.prop:  # º U+00BA (proportional)
+  ordmasculine.prop:  # º U+00BA
     y_offset: 3
     bitmap:
       - " ## "
@@ -1593,70 +1593,70 @@ glyphs:
       - "    "
 
   # Quote-height: 3 rows, y_offset 5
-  degree.prop:  # ° U+00B0 (proportional)
+  degree.prop:  # ° U+00B0
     y_offset: 5
     bitmap:
       - " # "
       - "# #"
       - " # "
 
-  quotedbl.prop:  # " U+0022 (proportional)
+  quotedbl.prop:  # " U+0022
     y_offset: 5
     bitmap:
       - "# #"
       - "# #"
       - "# #"
 
-  quotedblleft.prop:  # " U+201C (proportional)
+  quotedblleft.prop:  # " U+201C
     y_offset: 5
     bitmap:
       - " # #"
       - "# # "
       - "# # "
 
-  quotedblright.prop:  # " U+201D (proportional)
+  quotedblright.prop:  # " U+201D
     y_offset: 5
     bitmap:
       - " # #"
       - " # #"
       - "# # "
 
-  quoteleft.prop:  # ' U+2018 (proportional)
+  quoteleft.prop:  # ' U+2018
     y_offset: 5
     bitmap:
       - " #"
       - "# "
       - "# "
 
-  quoteright.prop:  # ' U+2019 (proportional)
+  quoteright.prop:  # ' U+2019
     y_offset: 5
     bitmap:
       - " #"
       - " #"
       - "# "
 
-  quotesingle.prop:  # ' U+0027 (proportional)
+  quotesingle.prop:  # ' U+0027
     y_offset: 5
     bitmap:
       - "#"
       - "#"
       - "#"
 
-  uni2032.prop:  # ′ (minute) U+2032 (proportional)
+  uni2032.prop:  # ′ (minute) U+2032
     y_offset: 5
     bitmap:
       - "  #"
       - " # "
       - "#  "
 
-  uni2033.prop:  # ″ (second) U+2033 (proportional)
+  uni2033.prop:  # ″ (second) U+2033
     y_offset: 5
     bitmap:
       - "  #  #"
       - " #  # "
       - "#  #  "
 
-  uni2034.prop:  # ‴ (triple prime) U+2034 (proportional)
+  uni2034.prop:  # ‴ (triple prime) U+2034
     y_offset: 5
     bitmap:
       - "  #  #  #"
@@ -1664,7 +1664,7 @@ glyphs:
       - "#  #  #  "
 
   # Logicalnot: 3 rows, y_offset 3
-  logicalnot.prop:  # ¬ U+00AC (proportional)
+  logicalnot.prop:  # ¬ U+00AC
     y_offset: 3
     bitmap:
       - "    "
@@ -1672,7 +1672,7 @@ glyphs:
       - "   #"
 
   # Equal: 3 rows, y_offset 2
-  equal.prop:  # = U+003D (proportional)
+  equal.prop:  # = U+003D
     y_offset: 2
     bitmap:
       - "#####"
@@ -1680,21 +1680,21 @@ glyphs:
       - "#####"
 
   # Low-hook: 3 rows, y_offset -1
-  comma.prop:  # , U+002C (proportional)
+  comma.prop:  # , U+002C
     y_offset: -1
     bitmap:
       - " #"
       - " #"
       - "# "
 
-  quotedblbase.prop:  # „ U+201E (proportional)
+  quotedblbase.prop:  # „ U+201E
     y_offset: -1
     bitmap:
       - " # #"
       - " # #"
       - "# # "
 
-  quotesinglbase.prop:  # ‚ U+201A (proportional)
+  quotesinglbase.prop:  # ‚ U+201A
     y_offset: -1
     bitmap:
       - " #"
@@ -1702,14 +1702,14 @@ glyphs:
       - "# "
 
   # Diacritics below: 3 rows, y_offset -3
-  cedilla.prop:  # ¸ U+00B8 (proportional)
+  cedilla.prop:  # ¸ U+00B8
     y_offset: -3
     bitmap:
       - " # "
       - "  #"
       - " # "
 
-  ogonek.prop:  # ˛ U+02DB (proportional)
+  ogonek.prop:  # ˛ U+02DB
     y_offset: -3
     bitmap:
       - " #"
@@ -1717,109 +1717,109 @@ glyphs:
       - " #"
 
   # Diacritics above: 1–3 rows, y_offset 6–7
-  acute.prop:  # ´ U+00B4 (proportional)
+  acute.prop:  # ´ U+00B4
     y_offset: 7
     bitmap:
       - " #"
       - "# "
 
-  asciicircum.prop:  # ^ U+005E (proportional)
+  asciicircum.prop:  # ^ U+005E
     y_offset: 6
     bitmap:
       - "  # "
       - " # #"
 
-  dieresis.prop:  # ¨ U+00A8 (proportional)
+  dieresis.prop:  # ¨ U+00A8
     y_offset: 7
     bitmap:
       - "# #"
 
-  dotaccent.prop:  # ˙ U+02D9 (proportional)
+  dotaccent.prop:  # ˙ U+02D9
     y_offset: 7
     bitmap:
       - "#"
 
-  grave.prop:  # ` U+0060 (proportional)
+  grave.prop:  # ` U+0060
     y_offset: 7
     bitmap:
       - "# "
       - " #"
 
-  hungarumlaut.prop:  # ˝ U+02DD (proportional)
+  hungarumlaut.prop:  # ˝ U+02DD
     y_offset: 7
     bitmap:
       - "# #"
       - "# #"
 
-  macron.prop:  # ¯ U+00AF (proportional)
+  macron.prop:  # ¯ U+00AF
     y_offset: 7
     bitmap:
       - "###"
 
-  ring.prop:  # ˚ U+02DA (proportional)
+  ring.prop:  # ˚ U+02DA
     y_offset: 7
     bitmap:
       - " # "
       - "# #"
       - " # "
 
-  tilde.prop:  # ˜ U+02DC (proportional)
+  tilde.prop:  # ˜ U+02DC
     y_offset: 7
     bitmap:
       - " # #"
       - "# # "
 
-  tonos.prop:  # ΄ U+0384 (proportional)
+  tonos.prop:  # ΄ U+0384
     y_offset: 7
     bitmap:
       - " #"
       - "# "
 
   # Tilde-height: 2 rows, y_offset 4
-  asciitilde.prop:  # ~ U+007E (proportional)
+  asciitilde.prop:  # ~ U+007E
     y_offset: 4
     bitmap:
       - " #  #"
       - "# ## "
 
   # Mid mark: 1–2 rows, y_offset 3–4
-  bullet.prop:  # • U+2022 (proportional)
+  bullet.prop:  # • U+2022
     y_offset: 3
     bitmap:
       - "##"
       - "##"
 
-  periodcentered.prop:  # · U+00B7 (proportional)
+  periodcentered.prop:  # · U+00B7
     y_offset: 3
     bitmap:
       - "#"
       - "#"
 
-  uni2010.prop:  # ‐ U+2010 (proportional)
+  uni2010.prop:  # ‐ U+2010
     y_offset: 3
     bitmap:
       - "###"
 
-  uni2027.prop:  # ‧ U+2027 (proportional)
+  uni2027.prop:  # ‧ U+2027
     y_offset: 4
     bitmap:
       - "#"
       - "#"
 
-  uni2219.prop:  # ∙ U+2219 (proportional)
+  uni2219.prop:  # ∙ U+2219
     y_offset: 3
     bitmap:
       - "#"
       - "#"
 
   # Baseline: 2 rows
-  period.prop:  # . U+002E (proportional)
+  period.prop:  # . U+002E
     bitmap:
       - "#"
       - "#"
 
   # Underscore: 2 rows, y_offset -1
-  underscore.prop:  # _ U+005F (proportional)
+  underscore.prop:  # _ U+005F
     y_offset: -1
     bitmap:
       - "#####"
