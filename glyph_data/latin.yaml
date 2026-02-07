@@ -1555,14 +1555,14 @@ glyphs:
       - "  #  "
 
   # Small high: 5 rows, y_offset 3
-  asterisk.prop.unused:  # * U+002A (proportional)
-    y_offset: 3
+  asterisk.prop:  # * U+002A (proportional)
+    y_offset: 2
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
+      - "# # #"
+      - " ### "
+      - "# # #"
+      - "  #  "
 
   # Ordinal: 5 rows, y_offset 3, width 4
   ordfeminine.prop.unused:  # ª U+00AA (proportional)
