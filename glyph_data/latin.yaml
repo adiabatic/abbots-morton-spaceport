@@ -845,7 +845,7 @@ glyphs:
   # Superscript: 5 rows, y_offset 3, width 3
   onesuperior.prop:  # ¹ U+00B9 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &ONESUPERIOR
       - " # "
       - "## "
       - " # "
@@ -854,7 +854,7 @@ glyphs:
 
   twosuperior.prop:  # ² U+00B2 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &TWOSUPERIOR
       - " ## "
       - "#  #"
       - "  # "
@@ -863,7 +863,7 @@ glyphs:
 
   threesuperior.prop:  # ³ U+00B3 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &THREESUPERIOR
       - "### "
       - "   #"
       - "### "
@@ -872,7 +872,7 @@ glyphs:
 
   foursuperior.prop:  # ⁴ U+2074 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &FOURSUPERIOR
       - "#  #"
       - "#  #"
       - "####"
@@ -881,7 +881,7 @@ glyphs:
 
   fivesuperior.prop:  # ⁵ U+2075 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &FIVESUPERIOR
       - "####"
       - "#   "
       - "### "
@@ -890,7 +890,7 @@ glyphs:
 
   sixsuperior.prop:  # ⁶ U+2076 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &SIXSUPERIOR
       - " ## "
       - "#   "
       - "### "
@@ -899,7 +899,7 @@ glyphs:
 
   sevensuperior.prop:  # ⁷ U+2077 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &SEVENSUPERIOR
       - "####"
       - "   #"
       - "  # "
@@ -908,7 +908,7 @@ glyphs:
 
   eightsuperior.prop:  # ⁸ U+2078 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &EIGHTSUPERIOR
       - " ## "
       - "#  #"
       - " ## "
@@ -917,7 +917,7 @@ glyphs:
 
   ninesuperior.prop:  # ⁹ U+2079 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &NINESUPERIOR
       - " ## "
       - "#  #"
       - " ###"
@@ -926,12 +926,53 @@ glyphs:
 
   zerosuperior.prop:  # ⁰ U+2070 (proportional)
     y_offset: 3
-    bitmap:
+    bitmap: &ZEROSUPERIOR
       - " ## "
       - "#  #"
       - "#  #"
       - "#  #"
       - " ## "
+
+  # Inferior (subscript): 5 rows, y_offset -3, width 3–4
+  zeroinferior.prop:  # ₀ U+2080 (proportional)
+    y_offset: -3
+    bitmap: *ZEROSUPERIOR
+
+  oneinferior.prop:  # ₁ U+2081 (proportional)
+    y_offset: -3
+    bitmap: *ONESUPERIOR
+
+  twoinferior.prop:  # ₂ U+2082 (proportional)
+    y_offset: -3
+    bitmap: *TWOSUPERIOR
+
+  threeinferior.prop:  # ₃ U+2083 (proportional)
+    y_offset: -3
+    bitmap: *THREESUPERIOR
+
+  fourinferior.prop:  # ₄ U+2084 (proportional)
+    y_offset: -3
+    bitmap: *FOURSUPERIOR
+
+  fiveinferior.prop:  # ₅ U+2085 (proportional)
+    y_offset: -3
+    bitmap: *FIVESUPERIOR
+
+  sixinferior.prop:  # ₆ U+2086 (proportional)
+    y_offset: -3
+    bitmap: *SIXSUPERIOR
+
+  seveninferior.prop:  # ₇ U+2087 (proportional)
+    y_offset: -3
+    bitmap: *SEVENSUPERIOR
+
+  eightinferior.prop:  # ₈ U+2088 (proportional)
+    y_offset: -3
+    bitmap: *EIGHTSUPERIOR
+
+  nineinferior.prop:  # ₉ U+2089 (proportional)
+    y_offset: -3
+    bitmap: *NINESUPERIOR
 
   # ── Other ────────────────────────────────────────────────────────────
 
