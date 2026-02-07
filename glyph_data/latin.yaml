@@ -546,12 +546,12 @@ glyphs:
 
   v.prop:  # v U+0076 (proportional)
     bitmap:
-      - "#     #"
-      - "#     #"
-      - " #   # "
-      - " #   # "
-      - "  # #  "
-      - "   #   " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " # # "
+      - "  #  " #
 
   w.prop:  # w U+0077 (proportional)
     bitmap:
@@ -559,17 +559,17 @@ glyphs:
       - "#     #"
       - "#  #  #"
       - "#  #  #"
-      - " # # # "
-      - "  # #  " #
+      - "# # # #"
+      - " #   # " #
 
-  x.prop.unused:  # x U+0078 (proportional)
+  x.prop:  # x U+0078 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#   #"
+      - " # # "
+      - "  #  "
+      - "  #  "
+      - " # # "
+      - "#   #" #
 
   z.prop.unused:  # z U+007A (proportional)
     bitmap:
