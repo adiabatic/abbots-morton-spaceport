@@ -696,6 +696,50 @@ glyphs:
       - "# #"
       - "# #"
 
+  numbersign.prop.unused:  # # U+0023 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  dollar.prop.unused:  # $ U+0024 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  percent.prop.unused:  # % U+0025 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  ampersand.prop.unused:  # & U+0026 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
   quotesingle.prop:  # ' U+0027 (proportional)
     y_offset: 5
     bitmap:
@@ -731,6 +775,24 @@ glyphs:
       - " # "
       - "#  "
 
+  asterisk.prop.unused:  # * U+002A (proportional)
+    y_offset: 3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  plus.prop.unused:  # + U+002B (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
   comma.prop:  # , U+002C (proportional)
     y_offset: -1
     bitmap:
@@ -748,6 +810,17 @@ glyphs:
       - "#"
       - "#"
 
+  slash.prop.unused:  # / U+002F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
   zero:  # 0 U+0030
     bitmap:
       - " ### "
@@ -758,6 +831,105 @@ glyphs:
       - "#   #"
       - "#   #"
       - " ### "
+
+  one.prop.unused:  # 1 U+0031 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  two.prop.unused:  # 2 U+0032 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  three.prop.unused:  # 3 U+0033 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  four.prop.unused:  # 4 U+0034 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  five.prop.unused:  # 5 U+0035 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  six.prop.unused:  # 6 U+0036 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  seven.prop.unused:  # 7 U+0037 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  eight.prop.unused:  # 8 U+0038 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  nine.prop.unused:  # 9 U+0039 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
 
   colon.prop:  # : U+003A (proportional)
     bitmap:
@@ -789,6 +961,13 @@ glyphs:
       - "  # "
       - "   #"
 
+  equal.prop.unused:  # = U+003D (proportional)
+    y_offset: 2
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+
   greater.prop:  # > U+003E (proportional)
     bitmap:
       - "#   "
@@ -798,6 +977,314 @@ glyphs:
       - "  # "
       - " #  "
       - "#   "
+
+  question.prop.unused:  # ? U+003F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  at.prop.unused:  # @ U+0040 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  A.prop.unused:  # A U+0041 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  B.prop.unused:  # B U+0042 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  C.prop.unused:  # C U+0043 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  D.prop.unused:  # D U+0044 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  E.prop.unused:  # E U+0045 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  F.prop.unused:  # F U+0046 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  G.prop.unused:  # G U+0047 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  H.prop.unused:  # H U+0048 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  I.prop.unused:  # I U+0049 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  J.prop.unused:  # J U+004A (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  K.prop.unused:  # K U+004B (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  L.prop.unused:  # L U+004C (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  M.prop.unused:  # M U+004D (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  N.prop.unused:  # N U+004E (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  O.prop.unused:  # O U+004F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  P.prop.unused:  # P U+0050 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Q.prop.unused:  # Q U+0051 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  R.prop.unused:  # R U+0052 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  S.prop.unused:  # S U+0053 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  T.prop.unused:  # T U+0054 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  U.prop.unused:  # U U+0055 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  V.prop.unused:  # V U+0056 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  W.prop.unused:  # W U+0057 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  X.prop.unused:  # X U+0058 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Y.prop.unused:  # Y U+0059 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Z.prop.unused:  # Z U+005A (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
 
   bracketleft.prop:  # [ U+005B (proportional)
     y_offset: -1
@@ -812,6 +1299,17 @@ glyphs:
       - "#  "
       - "#  "
       - "###"
+
+  backslash.prop.unused:  # \ U+005C (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
 
   bracketright.prop:  # ] U+005D (proportional)
     y_offset: -1
@@ -833,11 +1331,301 @@ glyphs:
       - "  # "
       - " # #"
 
+  underscore.prop.unused:  # _ U+005F (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+
   grave.prop:  # ` U+0060 (proportional)
     y_offset: 7
     bitmap:
       - "# "
       - " #"
+
+  a.prop.unused:  # a U+0061 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  b.prop.unused:  # b U+0062 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  c.prop.unused:  # c U+0063 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  d.prop.unused:  # d U+0064 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  e.prop.unused:  # e U+0065 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  f.prop.unused:  # f U+0066 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  g.prop.unused:  # g U+0067 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  h.prop.unused:  # h U+0068 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  i.prop.unused:  # i U+0069 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  j.prop.unused:  # j U+006A (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  k.prop.unused:  # k U+006B (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  l.prop.unused:  # l U+006C (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  m.prop.unused:  # m U+006D (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  n.prop.unused:  # n U+006E (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  o.prop.unused:  # o U+006F (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  p.prop.unused:  # p U+0070 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  q.prop.unused:  # q U+0071 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  r.prop.unused:  # r U+0072 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  s.prop.unused:  # s U+0073 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  t.prop.unused:  # t U+0074 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u.prop.unused:  # u U+0075 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  v.prop.unused:  # v U+0076 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  w.prop.unused:  # w U+0077 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  x.prop.unused:  # x U+0078 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  y.prop.unused:  # y U+0079 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  z.prop.unused:  # z U+007A (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  braceleft.prop.unused:  # { U+007B (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
 
   bar.prop:  # | U+007C (proportional)
     y_offset: -1
@@ -853,6 +1641,26 @@ glyphs:
       - "#"
       - "#"
 
+  braceright.prop.unused:  # } U+007D (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+
+  asciitilde.prop.unused:  # ~ U+007E (proportional)
+    y_offset: 4
+    bitmap:
+      - "     "
+      - "     "
+
   exclamdown.prop:  # ¡ U+00A1 (proportional)
     y_offset: -2
     bitmap:
@@ -864,6 +1672,48 @@ glyphs:
       - "#"
       - "#"
       - "#"
+
+  cent.prop.unused:  # ¢ U+00A2 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  sterling.prop.unused:  # £ U+00A3 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  currency.prop.unused:  # ¤ U+00A4 (proportional)
+    y_offset: 1
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  yen.prop.unused:  # ¥ U+00A5 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
 
   brokenbar.prop:  # ¦ U+00A6 (proportional)
     y_offset: -1
@@ -879,10 +1729,71 @@ glyphs:
       - "#"
       - "#"
 
+  section.prop.unused:  # § U+00A7 (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+
   dieresis.prop:  # ¨ U+00A8 (proportional)
     y_offset: 7
     bitmap:
       - "# #"
+
+  copyright.prop.unused:  # © U+00A9 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  ordfeminine.prop.unused:  # ª U+00AA (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  guillemotleft.prop.unused:  # « U+00AB (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  logicalnot.prop.unused:  # ¬ U+00AC (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+
+  registered.prop.unused:  # ® U+00AE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
 
   macron.prop:  # ¯ U+00AF (proportional)
     y_offset: 7
@@ -896,11 +1807,66 @@ glyphs:
       - "# #"
       - " # "
 
+  plusminus.prop.unused:  # ± U+00B1 (proportional)
+    bitmap:
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  twosuperior.prop.unused:  # ² U+00B2 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
+  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
   acute.prop:  # ´ U+00B4 (proportional)
     y_offset: 7
     bitmap:
       - " #"
       - "# "
+
+  mu.prop.unused:  # µ U+00B5 (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  paragraph.prop.unused:  # ¶ U+00B6 (proportional)
+    y_offset: -1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
 
   cedilla.prop:  # ¸ U+00B8 (proportional)
     y_offset: -3
@@ -914,6 +1880,195 @@ glyphs:
     bitmap:
       - "#"
       - "#"
+
+  onesuperior.prop.unused:  # ¹ U+00B9 (proportional)
+    y_offset: 3
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
+  ordmasculine.prop.unused:  # º U+00BA (proportional)
+    y_offset: 3
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+
+  guillemotright.prop.unused:  # » U+00BB (proportional)
+    y_offset: 1
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  onequarter.prop.unused:  # ¼ U+00BC (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  onehalf.prop.unused:  # ½ U+00BD (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  threequarters.prop.unused:  # ¾ U+00BE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  questiondown.prop.unused:  # ¿ U+00BF (proportional)
+    y_offset: -2
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+
+  AE.prop.unused:  # Æ U+00C6 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Eth.prop.unused:  # Ð U+00D0 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  multiply.prop.unused:  # × U+00D7 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  Oslash.prop.unused:  # Ø U+00D8 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  Thorn.prop.unused:  # Þ U+00DE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  germandbls.prop.unused:  # ß U+00DF (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  ae.prop.unused:  # æ U+00E6 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  eth.prop.unused:  # ð U+00F0 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  divide.prop.unused:  # ÷ U+00F7 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  oslash.prop.unused:  # ø U+00F8 (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  thorn.prop.unused:  # þ U+00FE (proportional)
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
 
   dotaccent.prop:  # ˙ U+02D9 (proportional)
     y_offset: 7
