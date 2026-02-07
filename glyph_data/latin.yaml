@@ -191,14 +191,14 @@ glyphs:
 
   Oslash.prop:  # Ø U+00D8 (proportional)
     bitmap:
-      - "  ##  "
-      - " #  # "
-      - "#   ##" #
-      - "#  # #"
-      - "# #  #"
-      - "##   #"
-      - " #  # "
-      - "  ##  "
+      - "  ### #"
+      - " #   # "
+      - "#   # #" #
+      - "#  #  #"
+      - "#  #  #"
+      - "# #   #"
+      - " #   # "
+      - "# ###  "
 
   P.prop:  # P U+0050 (proportional)
     bitmap:
@@ -213,33 +213,33 @@ glyphs:
 
   Q.prop:  # Q U+0051 (proportional)
     bitmap:
-      - "  ##  "
-      - " #  # "
-      - "#    #" #
-      - "#    #"
-      - "#    #"
-      - "#  # #"
-      - " #  # "
-      - "  ## #"
+      - "  ###  "
+      - " #   # "
+      - "#     #" #
+      - "#     #"
+      - "#     #"
+      - "#   # #"
+      - " #   # "
+      - "  ### #"
 
   R.prop:  # R U+0052 (proportional)
     bitmap:
-      - "#### "
-      - "#   #"
-      - "#   #" #
-      - "#   #"
-      - "#### "
-      - "#  # "
-      - "#   #"
-      - "#   #"
+      - "##### "
+      - "#    #"
+      - "#    #" #
+      - "#    #"
+      - "##### "
+      - "#  #  "
+      - "#   # "
+      - "#    #"
 
   S.prop:  # S U+0053 (proportional)
     bitmap:
-      - "  ###"
-      - " #   "
+      - " ####"
+      - "#    "
       - "#    " #
-      - " #   "
-      - "  ## "
+      - " ##  "
+      - "   # "
       - "    #"
       - "    #"
       - "#### "
@@ -255,16 +255,16 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  Thorn.prop.unused:  # Þ U+00DE (proportional)
+  Thorn.prop:  # Þ U+00DE (proportional)
     bitmap:
-      - "#    "
-      - "#    "
-      - "#### " #
-      - "#   #"
-      - "#  # "
-      - "###  "
-      - "#    "
-      - "#    "
+      - "#     "
+      - "##### "
+      - "#    #" #
+      - "#    #"
+      - "#    #"
+      - "##### "
+      - "#     "
+      - "#     "
 
   U.prop:  # U U+0055 (proportional)
     bitmap:
@@ -332,16 +332,16 @@ glyphs:
       - "#     "
       - "######"
 
-  germandbls.prop.unused:  # ß U+00DF (proportional)
+  germandbls.prop:  # ß U+00DF (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ####  "
+      - "#    # "
+      - "#    # " #
+      - "#  ##  "
+      - "# #    "
+      - "#  ### "
+      - "#     #"
+      - "#  ### "
 
   # Ascender: 8 rows, # on row 3, width 5
   b.prop.unused:  # b U+0062 (proportional)
