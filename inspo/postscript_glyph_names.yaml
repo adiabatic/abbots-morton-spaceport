@@ -95,3 +95,24 @@ quoteleft: 0x2018
 quoteright: 0x2019
 quotedblleft: 0x201C
 quotedblright: 0x201D
+
+# Superscripts (beyond Latin-1)
+zerosuperior: 0x2070
+foursuperior: 0x2074
+fivesuperior: 0x2075
+sixsuperior: 0x2076
+sevensuperior: 0x2077
+eightsuperior: 0x2078
+ninesuperior: 0x2079
+
+# Subscripts
+zeroinferior: 0x2080
+oneinferior: 0x2081
+twoinferior: 0x2082
+threeinferior: 0x2083
+fourinferior: 0x2084
+fiveinferior: 0x2085
+sixinferior: 0x2086
+seveninferior: 0x2087
+eightinferior: 0x2088
+nineinferior: 0x2089
