@@ -794,18 +794,18 @@ glyphs:
   onehalf.prop.unused:  # ½ U+00BD (proportional)
     y_offset: -3
     bitmap:
-      - "    #"
-      - "    #"
-      - "   ##"
-      - "   # " #
-      - "  ## "
-      - "  #  "
-      - " ##  "
-      - " #   "
-      - "##   " #
-      - "#    "
-      - "#    "
-      - "#####"
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
 
   onequarter.prop.unused:  # ¼ U+00BC (proportional)
     bitmap:
