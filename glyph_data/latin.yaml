@@ -1508,15 +1508,15 @@ glyphs:
       - "#   #"
       - "     " #
 
-  # Small mid: 5 rows, y_offset 1
-  currency.prop.unused:  # ¤ U+00A4 (proportional)
-    y_offset: 1
+  # Small mid: 5 rows
+  currency.prop:  # ¤ U+00A4 (proportional)
+    y_offset: 2
     bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    "
+      - "#   #"
+      - " ### "
+      - " # # "
+      - " ### "
+      - "#   #"
 
   guillemotleft.prop:  # « U+00AB (proportional)
     y_offset: 1
@@ -1574,22 +1574,22 @@ glyphs:
       - "  #  "
 
   # Ordinal: 5 rows, y_offset 3, width 4
-  ordfeminine.prop.unused:  # ª U+00AA (proportional)
+  ordfeminine.prop:  # ª U+00AA (proportional)
     y_offset: 3
     bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
+      - " ###"
+      - "#  #"
+      - "# ##"
+      - "## #"
       - "    "
 
-  ordmasculine.prop.unused:  # º U+00BA (proportional)
+  ordmasculine.prop:  # º U+00BA (proportional)
     y_offset: 3
     bitmap:
-      - "    "
-      - "    "
-      - "    "
-      - "    "
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - " ## "
       - "    "
 
   # Quote-height: 3 rows, y_offset 5
