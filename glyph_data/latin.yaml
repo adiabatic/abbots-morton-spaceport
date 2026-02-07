@@ -1642,21 +1642,21 @@ glyphs:
       - "#"
       - "#"
 
-  uni2032.prop:  # ′ (minute) U+2032
+  uni2032.prop:  # ′ U+2032 (PRIME)
     y_offset: 5
     bitmap:
       - "  #"
       - " # "
       - "#  "
 
-  uni2033.prop:  # ″ (second) U+2033
+  uni2033.prop:  # ″ U+2033 (DOUBLE PRIME)
     y_offset: 5
     bitmap:
       - "  #  #"
       - " #  # "
       - "#  #  "
 
-  uni2034.prop:  # ‴ (triple prime) U+2034
+  uni2034.prop:  # ‴ U+2034 (TRIPLE PRIME)
     y_offset: 5
     bitmap:
       - "  #  #  #"
