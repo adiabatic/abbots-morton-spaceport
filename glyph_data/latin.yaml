@@ -1600,13 +1600,6 @@ glyphs:
       - "# #"
       - " # "
 
-  minute.prop:  # ′ U+2032 (proportional)
-    y_offset: 5
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-
   quotedbl.prop:  # " U+0022 (proportional)
     y_offset: 5
     bitmap:
@@ -1655,6 +1648,13 @@ glyphs:
       - "# #"
       - "# #"
       - "# #"
+
+  minute.prop:  # ′ U+2032 (proportional)
+    y_offset: 5
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
 
   # Logicalnot: 3 rows, y_offset 3
   logicalnot.prop.unused:  # ¬ U+00AC (proportional)
