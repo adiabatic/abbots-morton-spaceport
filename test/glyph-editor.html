@@ -103,6 +103,7 @@
       background: #888;
       padding: 2px;
       border-radius: 4px;
+      user-select: none;
     }
 
     .lightboard-cell {
@@ -128,6 +129,47 @@
       &:hover:not(.disabled) {
         opacity: 0.8;
       }
+    }
+
+    .lightboard-wrapper {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .row-marker {
+      position: absolute;
+      height: 36px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      font-size: 12px;
+      font-family: system-ui, sans-serif;
+      color: light-dark(#888, #666);
+      pointer-events: none;
+    }
+
+    #column-buttons-left .row-marker {
+      justify-content: flex-end;
+    }
+
+    #column-buttons-right .row-marker {
+      justify-content: flex-start;
+    }
+
+    .column-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      position: relative;
+    }
+
+    .column-buttons button {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      font-size: 24px;
+      line-height: 1;
     }
 
     .y-offset-control {
@@ -255,7 +297,17 @@
     <div class="lightboard-section">
       <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
       <div class="glyph-info" id="glyph-info"></div>
-      <div class="lightboard" id="lightboard"></div>
+      <div class="lightboard-wrapper">
+        <div class="column-buttons" id="column-buttons-left">
+          <button type="button" id="add-col-left" title="Add column on left">+</button>
+          <button type="button" id="remove-col-left" title="Remove column from left">−</button>
+        </div>
+        <div class="lightboard" id="lightboard"></div>
+        <div class="column-buttons" id="column-buttons-right">
+          <button type="button" id="add-col-right" title="Add column on right">+</button>
+          <button type="button" id="remove-col-right" title="Remove column from right">−</button>
+        </div>
+      </div>
       <div class="y-offset-control">
         <label for="y-offset">y_offset:</label>
         <input type="number" id="y-offset" value="0" min="-12" max="12">
@@ -307,6 +359,8 @@
     let yOffset = 0;
     let rowComments = []; // Store per-row comments
     let leadingIndent = ''; // Preserve leading whitespace from input
+    let isDragging = false;
+    let paintState = '#'; // '#' for on, ' ' for off
 
     // DOM elements
     const inputYaml = document.getElementById('input-yaml');
@@ -316,6 +370,42 @@
     const yOffsetInput = document.getElementById('y-offset');
     const copyBtn = document.getElementById('copy-btn');
     const lightboardLabel = document.getElementById('lightboard-label');
+    const columnButtonsLeft = document.getElementById('column-buttons-left');
+    const columnButtonsRight = document.getElementById('column-buttons-right');
+
+    // Row marker positions (0-indexed grid rows)
+    const CAP_HEIGHT_ROW = 0;
+    const X_HEIGHT_ROW = 2;
+    const BASELINE_ROW = 8;
+
+    // Initialize row markers
+    function initRowMarkers() {
+      document.querySelectorAll('.row-marker').forEach(el => el.remove());
+
+      const markerRows = [
+        { row: CAP_HEIGHT_ROW, label: 'ch', title: 'cap height' },
+        { row: X_HEIGHT_ROW, label: 'xh', title: 'x-height' },
+        { row: BASELINE_ROW, label: 'bl', title: 'baseline' }
+      ];
+
+      for (const container of [columnButtonsLeft, columnButtonsRight]) {
+        for (const { row, label, title } of markerRows) {
+          const marker = document.createElement('div');
+          marker.className = 'row-marker';
+          marker.textContent = label;
+          marker.title = title;
+          // Position: row * (cell height + gap) + padding offset
+          marker.style.top = `${row * (36 + 2) + 2}px`;
+          container.appendChild(marker);
+        }
+      }
+    }
+
+    // Calculate the starting row for the bitmap in the lightboard
+    // so that the baseline aligns with BASELINE_ROW
+    function getBitmapStartRow() {
+      return BASELINE_ROW - yOffset - (bitmap.length - 1);
+    }
 
     // Initialize lightboard grid
     function initLightboard() {
@@ -328,7 +418,26 @@
           cell.className = 'lightboard-cell disabled';
           cell.dataset.row = row;
           cell.dataset.col = col;
-          cell.addEventListener('click', () => toggleCell(row, col));
+          cell.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            const startRow = getBitmapStartRow();
+            const bitmapRow = row - startRow;
+            if (bitmapRow < 0 || bitmapRow >= bitmap.length) return;
+            isDragging = true;
+            const chars = bitmap[bitmapRow].split('');
+            chars[col] = chars[col] === '#' ? ' ' : '#';
+            paintState = chars[col];
+            bitmap[bitmapRow] = chars.join('');
+            updateLightboard();
+            updatePreviews();
+            updateOutput();
+          });
+          cell.addEventListener('mouseenter', () => {
+            const startRow = getBitmapStartRow();
+            const bitmapRow = row - startRow;
+            if (!isDragging || bitmapRow < 0 || bitmapRow >= bitmap.length) return;
+            setCellState(bitmapRow, col, paintState);
+          });
           lightboard.appendChild(cell);
         }
       }
@@ -380,13 +489,16 @@
     // Update lightboard display
     function updateLightboard() {
       const cells = lightboard.querySelectorAll('.lightboard-cell');
+      const startRow = getBitmapStartRow();
+
       cells.forEach(cell => {
         const row = parseInt(cell.dataset.row);
         const col = parseInt(cell.dataset.col);
+        const bitmapRow = row - startRow;
 
-        if (row < bitmap.length) {
+        if (bitmapRow >= 0 && bitmapRow < bitmap.length) {
           cell.classList.remove('disabled');
-          if (bitmap[row][col] === '#') {
+          if (bitmap[bitmapRow][col] === '#') {
             cell.classList.add('on');
             cell.classList.remove('off');
           } else {
@@ -403,17 +515,16 @@
       yOffsetInput.value = yOffset;
     }
 
-    // Toggle cell state
-    function toggleCell(row, col) {
+    // Set a cell to a specific state (used during drag painting)
+    function setCellState(row, col, state) {
       if (row >= bitmap.length) return;
+      if (bitmap[row][col] === state) return;
 
       const chars = bitmap[row].split('');
-      chars[col] = chars[col] === '#' ? ' ' : '#';
+      chars[col] = state;
       bitmap[row] = chars.join('');
 
       updateLightboard();
-      updatePreviews();
-      updateOutput();
     }
 
     // Render preview canvas
@@ -502,6 +613,56 @@
       outputYaml.value = generateYaml();
     }
 
+    // Column manipulation functions
+    function addColumnLeft() {
+      if (bitmap.length === 0) return;
+      bitmap = bitmap.map(row => ' ' + row);
+      cols++;
+      initLightboard();
+      updateLightboard();
+      updatePreviews();
+      updateOutput();
+    }
+
+    function removeColumnLeft() {
+      if (cols <= 1 || bitmap.length === 0) return;
+      bitmap = bitmap.map(row => row.slice(1));
+      cols--;
+      initLightboard();
+      updateLightboard();
+      updatePreviews();
+      updateOutput();
+    }
+
+    function addColumnRight() {
+      if (bitmap.length === 0) return;
+      bitmap = bitmap.map(row => row + ' ');
+      cols++;
+      initLightboard();
+      updateLightboard();
+      updatePreviews();
+      updateOutput();
+    }
+
+    function removeColumnRight() {
+      if (cols <= 1 || bitmap.length === 0) return;
+      bitmap = bitmap.map(row => row.slice(0, -1));
+      cols--;
+      initLightboard();
+      updateLightboard();
+      updatePreviews();
+      updateOutput();
+    }
+
+    // End drag painting on mouseup anywhere
+    document.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        updatePreviews();
+        updateOutput();
+      }
+    });
+
     // Event listeners
     inputYaml.addEventListener('input', () => {
       const oldCols = cols;
@@ -518,6 +679,7 @@
 
     yOffsetInput.addEventListener('input', () => {
       yOffset = parseInt(yOffsetInput.value, 10) || 0;
+      updateLightboard();
       updateOutput();
     });
 
@@ -529,7 +691,13 @@
       });
     });
 
+    document.getElementById('add-col-left').addEventListener('click', addColumnLeft);
+    document.getElementById('remove-col-left').addEventListener('click', removeColumnLeft);
+    document.getElementById('add-col-right').addEventListener('click', addColumnRight);
+    document.getElementById('remove-col-right').addEventListener('click', removeColumnRight);
+
     // Initialize
+    initRowMarkers();
     initLightboard();
     updatePreviews();
   </script>
