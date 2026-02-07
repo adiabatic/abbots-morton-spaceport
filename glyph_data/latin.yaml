@@ -1642,6 +1642,13 @@ glyphs:
       - "#"
       - "#"
 
+  uni2032.prop:  # ′ (minute) U+2032 (proportional)
+    y_offset: 5
+    bitmap:
+      - "  #"
+      - " # "
+      - "#  "
+
   uni2033.prop:  # ″ (second) U+2033 (proportional)
     y_offset: 5
     bitmap:
@@ -1649,12 +1656,12 @@ glyphs:
       - " #  # "
       - "#  #  "
 
-  uni2032.prop:  # ′ (minute) U+2032 (proportional)
+  uni2034.prop:  # ‴ (triple prime) U+2034 (proportional)
     y_offset: 5
     bitmap:
-      - "  #"
-      - " # "
-      - "#  "
+      - "  #  #  #"
+      - " #  #  # "
+      - "#  #  #  "
 
   # Logicalnot: 3 rows, y_offset 3
   logicalnot.prop.unused:  # ¬ U+00AC (proportional)
