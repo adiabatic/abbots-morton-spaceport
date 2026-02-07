@@ -607,43 +607,43 @@ glyphs:
       - "#     "
       - "      "
 
-  p.prop.unused:  # p U+0070 (proportional)
+  p.prop:  # p U+0070 (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - "#### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#### " #
+      - "#    "
+      - "#    "
       - "     "
 
-  q.prop.unused:  # q U+0071 (proportional)
+  q.prop:  # q U+0071 (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - " ####"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ####" #
+      - "    #"
+      - "    #"
       - "     "
 
-  y.prop.unused:  # y U+0079 (proportional)
+  y.prop:  # y U+0079 (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " # # "
+      - " # # "
+      - "  #  " #
+      - "  #  "
+      - "###  "
       - "     "
 
   # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
