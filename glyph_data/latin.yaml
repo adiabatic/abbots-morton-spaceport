@@ -735,60 +735,60 @@ glyphs:
       - "   # "
       - "   # "
 
-  five.prop.unused:  # 5 U+0035 (proportional)
+  five.prop:  # 5 U+0035 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#####"
+      - "#    "
+      - "#    " #
+      - "#### "
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### "
 
-  six.prop.unused:  # 6 U+0036 (proportional)
+  six.prop:  # 6 U+0036 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ##  "
+      - "#    "
+      - "#    " #
+      - "#### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
 
-  seven.prop.unused:  # 7 U+0037 (proportional)
+  seven.prop:  # 7 U+0037 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#####"
+      - "    #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#    "
 
-  eight.prop.unused:  # 8 U+0038 (proportional)
+  eight.prop:  # 8 U+0038 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ### "
+      - "#   #"
+      - "#   #" #
+      - " ### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
 
-  nine.prop.unused:  # 9 U+0039 (proportional)
+  nine.prop:  # 9 U+0039 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ### "
+      - "#   #"
+      - "#   #" #
+      - " ####"
+      - "    #"
+      - "    #"
+      - "    #"
+      - " ### "
 
   # Cap-height fractions: 8 rows
   onehalf.prop.unused:  # ½ U+00BD (proportional)
@@ -825,32 +825,32 @@ glyphs:
       - "     "
 
   # Superscript: 5 rows, y_offset 3, width 3
-  onesuperior.prop.unused:  # ¹ U+00B9 (proportional)
+  onesuperior.prop:  # ¹ U+00B9 (proportional)
     y_offset: 3
     bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
+      - " # "
+      - "## "
+      - " # "
+      - " # "
+      - "###"
 
-  twosuperior.prop.unused:  # ² U+00B2 (proportional)
+  twosuperior.prop:  # ² U+00B2 (proportional)
     y_offset: 3
     bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
+      - " ## "
+      - "#  #"
+      - "  # "
+      - " #  "
+      - "####"
 
-  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
+  threesuperior.prop:  # ³ U+00B3 (proportional)
     y_offset: 3
     bitmap:
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   "
+      - "### "
+      - "   #"
+      - "### "
+      - "   #"
+      - "### "
 
   # ── Other ────────────────────────────────────────────────────────────
 
