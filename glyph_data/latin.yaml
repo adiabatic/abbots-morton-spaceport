@@ -434,23 +434,23 @@ glyphs:
       - " ##"
 
   # X-height: 6 rows, # on row 6, width 5
-  a.prop.unused:  # a U+0061 (proportional)
+  a.prop:  # a U+0061 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ###  "
+      - "    # "
+      - " #### "
+      - "#   # "
+      - "#   # "
+      - " ### #" #
 
-  ae.prop.unused:  # æ U+00E6 (proportional)
+  ae.prop:  # æ U+00E6 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ### ### "
+      - "    #   #"
+      - " ########"
+      - "#   #    "
+      - "#   #    "
+      - " ### ####" #
 
   c.prop.unused:  # c U+0063 (proportional)
     bitmap:
@@ -461,14 +461,14 @@ glyphs:
       - "     "
       - "     " #
 
-  e.prop.unused:  # e U+0065 (proportional)
+  e.prop:  # e U+0065 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ### "
+      - "#   #"
+      - "#####"
+      - "#    "
+      - "#    "
+      - " ####" #
 
   i.prop:  # i U+0069 (proportional)
     bitmap:
