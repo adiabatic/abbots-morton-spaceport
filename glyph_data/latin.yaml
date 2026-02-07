@@ -684,7 +684,7 @@ glyphs:
     bitmap:
       - " ### "
       - "#   #"
-      - "#  ##"
+      - "#  ##" #
       - "# # #"
       - "##  #"
       - "#   #"
@@ -834,7 +834,7 @@ glyphs:
       - "   "
       - "   "
 
-  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
+  twosuperior.prop.unused:  # ² U+00B2 (proportional)
     y_offset: 3
     bitmap:
       - "   "
@@ -843,7 +843,7 @@ glyphs:
       - "   "
       - "   "
 
-  twosuperior.prop.unused:  # ² U+00B2 (proportional)
+  threesuperior.prop.unused:  # ³ U+00B3 (proportional)
     y_offset: 3
     bitmap:
       - "   "
