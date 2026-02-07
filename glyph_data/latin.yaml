@@ -2,16 +2,16 @@ glyphs:
   # ── Letters ──────────────────────────────────────────────────────────
 
   # Cap-height: 8 rows, # on row 3, width 5
-  A.prop.unused:  # A U+0041 (proportional)
+  A.prop:  # A U+0041 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
+      - " # # "
+      - "#   #" #
+      - "#   #"
+      - "#####"
+      - "#   #"
+      - "#   #"
+      - "#   #"
 
   AE.prop.unused:  # Æ U+00C6 (proportional)
     bitmap:
