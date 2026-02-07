@@ -791,21 +791,22 @@ glyphs:
       - " ### "
 
   # Cap-height fractions: 8 rows
-  onehalf.prop.unused:  # ½ U+00BD (proportional)
+  onehalf.prop:  # ½ U+00BD (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #"
+      - "  # "
+      - " #  "
+      - "####"
 
   onequarter.prop.unused:  # ¼ U+00BC (proportional)
     bitmap:
