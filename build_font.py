@@ -161,6 +161,9 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     metadata = glyph_data.get("metadata", {})
     glyphs_def = glyph_data["glyphs"]
 
+    # Filter out .unused glyphs — they're stubs not yet ready for compilation
+    glyphs_def = {k: v for k, v in glyphs_def.items() if ".unused" not in k}
+
     # For proportional font, transform glyphs: .prop becomes default
     if is_proportional:
         glyphs_def = prepare_proportional_glyphs(glyphs_def)
