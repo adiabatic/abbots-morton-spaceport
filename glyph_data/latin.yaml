@@ -879,6 +879,60 @@ glyphs:
       - "   #"
       - "   #"
 
+  fivesuperior.prop:  # ⁵ U+2075 (proportional)
+    y_offset: 3
+    bitmap:
+      - "####"
+      - "#   "
+      - "### "
+      - "   #"
+      - "### "
+
+  sixsuperior.prop:  # ⁶ U+2076 (proportional)
+    y_offset: 3
+    bitmap:
+      - " ## "
+      - "#   "
+      - "### "
+      - "#  #"
+      - " ## "
+
+  sevensuperior.prop:  # ⁷ U+2077 (proportional)
+    y_offset: 3
+    bitmap:
+      - "####"
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+
+  eightsuperior.prop:  # ⁸ U+2078 (proportional)
+    y_offset: 3
+    bitmap:
+      - " ## "
+      - "#  #"
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  ninesuperior.prop:  # ⁹ U+2079 (proportional)
+    y_offset: 3
+    bitmap:
+      - " ## "
+      - "#  #"
+      - " ###"
+      - "   #"
+      - " ## "
+
+  zerosuperior.prop:  # ⁰ U+2070 (proportional)
+    y_offset: 3
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "#  #"
+      - " ## "
+
   # ── Other ────────────────────────────────────────────────────────────
 
   # Bracket-height: 10 rows, y_offset -1
