@@ -106,6 +106,7 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 - Proportional copies of Departure Mono’s punctuation
 - Special kerning for `fo` and similar sequences where the second letter is round (`e`, `o`, etc.)
 - Quikscript Senior with a gazillion ligatures
+- Maybe no left side bearing for `j`
 
 ## Licensing
 
