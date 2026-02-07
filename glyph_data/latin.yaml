@@ -1453,7 +1453,7 @@ glyphs:
     bitmap:
       - "#####"
 
-  hyphen.prop:  # - U+002D
+  hyphen.prop:  # - U+002D (HYPHEN-MINUS)
     y_offset: 3
     bitmap:
       - "###"
@@ -1795,18 +1795,18 @@ glyphs:
       - "#"
       - "#"
 
-  uni2010.prop:  # ‐ U+2010
+  uni2010.prop:  # ‐ U+2010 (HYPHEN)
     y_offset: 3
     bitmap:
       - "###"
 
-  uni2027.prop:  # ‧ U+2027
+  uni2027.prop:  # ‧ U+2027 (HYPHENATION POINT)
     y_offset: 4
     bitmap:
       - "#"
       - "#"
 
-  uni2219.prop:  # ∙ U+2219
+  uni2219.prop:  # ∙ U+2219 (BULLET OPERATOR)
     y_offset: 3
     bitmap:
       - "#"
