@@ -1310,8 +1310,22 @@ glyphs:
       - " #  # "
       - " #  # "
 
-  exclam.prop:  # ! U+0021 (proportional)
+  percent.prop:  # % U+0025 (proportional)
     bitmap:
+      - " #   "
+      - "# #  "
+      - " #  #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#  # "
+      - "  # #"
+      - "   # "
+
+  exclam.prop:  # ! U+0021 (proportional)
+    y_offset: -1
+    bitmap:
+      - "#"
       - "#"
       - "#"
       - "#"
@@ -1332,18 +1346,7 @@ glyphs:
       - "#"
       - "#"
       - "#"
-
-  percent.prop:  # % U+0025 (proportional)
-    bitmap:
-      - " #   "
-      - "# #  "
-      - " #  #"
-      - "   # " #
-      - "  #  "
-      - " #   "
-      - "#  # "
-      - "  # #"
-      - "   # "
+      - "#"
 
   question.prop:  # ? U+003F (proportional)
     y_offset: -1
@@ -1358,28 +1361,29 @@ glyphs:
       - "     "
       - "  #  "
 
-  questiondown.prop.unused:  # ¿ U+00BF (proportional)
+  questiondown.prop:  # ¿ U+00BF (proportional)
     y_offset: -2
     bitmap:
+      - "  #  "
       - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - " #   "
+      - "#    " #
+      - "#   #"
+      - " ### "
 
   slash.prop.unused:  # / U+002F (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "   #"
+      - "   #"
+      - "  # " #
+      - "  # "
+      - " #  "
+      - " #  "
+      - "#   "
+      - "#   "
 
   sterling.prop.unused:  # £ U+00A3 (proportional)
     bitmap:
