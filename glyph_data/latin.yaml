@@ -1481,22 +1481,22 @@ glyphs:
       - "#"
       - "#"
 
-  divide.prop.unused:  # ÷ U+00F7 (proportional)
+  divide.prop:  # ÷ U+00F7 (proportional)
     bitmap:
+      - "  #  "
       - "     "
+      - "#####"
       - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
       - "     " #
 
-  multiply.prop.unused:  # × U+00D7 (proportional)
+  multiply.prop:  # × U+00D7 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#   #"
+      - " # # "
+      - "  #  "
+      - " # # "
+      - "#   #"
       - "     " #
 
   # Small mid: 5 rows, y_offset 1
@@ -1509,23 +1509,23 @@ glyphs:
       - "    "
       - "    "
 
-  guillemotleft.prop.unused:  # « U+00AB (proportional)
+  guillemotleft.prop:  # « U+00AB (proportional)
     y_offset: 1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  #"
+      - " #  # "
+      - "#  #  "
+      - " #  # "
+      - "  #  #"
 
-  guillemotright.prop.unused:  # » U+00BB (proportional)
+  guillemotright.prop:  # » U+00BB (proportional)
     y_offset: 1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#  #  "
+      - " #  # "
+      - "  #  #"
+      - " #  # "
+      - "#  #  "
 
   guilsinglleft.prop:  # ‹ U+2039 (proportional)
     y_offset: 1
@@ -1545,14 +1545,14 @@ glyphs:
       - " # "
       - "#  "
 
-  plus.prop.unused:  # + U+002B (proportional)
+  plus.prop:  # + U+002B (proportional)
     y_offset: 1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  #  "
+      - "  #  "
+      - "#####"
+      - "  #  "
+      - "  #  "
 
   # Small high: 5 rows, y_offset 3
   asterisk.prop.unused:  # * U+002A (proportional)
