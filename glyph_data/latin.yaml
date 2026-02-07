@@ -1664,20 +1664,20 @@ glyphs:
       - "#  #  #  "
 
   # Logicalnot: 3 rows, y_offset 3
-  logicalnot.prop.unused:  # ¬ U+00AC (proportional)
+  logicalnot.prop:  # ¬ U+00AC (proportional)
     y_offset: 3
     bitmap:
       - "    "
-      - "    "
-      - "    "
+      - "####"
+      - "   #"
 
   # Equal: 3 rows, y_offset 2
-  equal.prop.unused:  # = U+003D (proportional)
+  equal.prop:  # = U+003D (proportional)
     y_offset: 2
     bitmap:
+      - "#####"
       - "     "
-      - "     "
-      - "     "
+      - "#####"
 
   # Low-hook: 3 rows, y_offset -1
   comma.prop:  # , U+002C (proportional)
@@ -1776,11 +1776,11 @@ glyphs:
       - "# "
 
   # Tilde-height: 2 rows, y_offset 4
-  asciitilde.prop.unused:  # ~ U+007E (proportional)
+  asciitilde.prop:  # ~ U+007E (proportional)
     y_offset: 4
     bitmap:
-      - "     "
-      - "     "
+      - " #  #"
+      - "# ## "
 
   # Mid mark: 1–2 rows, y_offset 3–4
   bullet.prop:  # • U+2022 (proportional)
@@ -1819,8 +1819,7 @@ glyphs:
       - "#"
 
   # Underscore: 2 rows, y_offset -1
-  underscore.prop.unused:  # _ U+005F (proportional)
+  underscore.prop:  # _ U+005F (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
+      - "#####"
