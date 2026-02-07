@@ -16,7 +16,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - `uv run build_font.py` not `python build_font.py`
 - `uv run pytest` not `pytest`
 
-## Generating glyphs for the first time in @glyph_data.yaml
+## Generating glyphs for the first time in @glyph_data/quikscript.yaml
 
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - When looking at @inspo/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
@@ -34,7 +34,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 ## Bumping the version number
 
-1. Update `version` in `glyph_data.yaml` (e.g., `3.000`)
+1. Update `version` in `glyph_data/metadata.yaml` (e.g., `3.000`)
 2. Update `version` in `pyproject.toml` (e.g., `3.0.0`)
 3. Run `uv sync` to update `uv.lock`
 
