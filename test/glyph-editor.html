@@ -374,8 +374,9 @@
     const columnButtonsRight = document.getElementById('column-buttons-right');
 
     // Row marker positions (0-indexed grid rows)
-    const CAP_HEIGHT_ROW = 0;
-    const X_HEIGHT_ROW = 2;
+    const TALL_HEIGHT_ROW = 0;
+    const CAP_HEIGHT_ROW = 1;
+    const X_HEIGHT_ROW = 3;
     const BASELINE_ROW = 8;
 
     // Initialize row markers
@@ -383,6 +384,7 @@
       document.querySelectorAll('.row-marker').forEach(el => el.remove());
 
       const markerRows = [
+        { row: TALL_HEIGHT_ROW, label: 'th', title: 'tall height' },
         { row: CAP_HEIGHT_ROW, label: 'ch', title: 'cap height' },
         { row: X_HEIGHT_ROW, label: 'xh', title: 'x-height' },
         { row: BASELINE_ROW, label: 'bl', title: 'baseline' }
