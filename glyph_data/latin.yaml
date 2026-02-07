@@ -1214,16 +1214,18 @@ glyphs:
       - " ## "
 
   # Cap-height: 8 rows
-  ampersand.prop.unused:  # & U+0026 (proportional)
+  ampersand.prop:  # & U+0026 (proportional)
+    y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "   #  "
+      - " #####"
+      - "#  #  " #
+      - "#  #  "
+      - " #####"
+      - "#  #  "
+      - "#  #  "
+      - " #####"
+      - "   #  "
 
   at.prop.unused:  # @ U+0040 (proportional)
     bitmap:
