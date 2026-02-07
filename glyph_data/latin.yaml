@@ -1431,8 +1431,8 @@ glyphs:
   plusminus.prop:  # ± U+00B1 (proportional)
     bitmap:
       - "  #  "
-      - "  #  " #
-      - "#####"
+      - "  #  "
+      - "#####" #
       - "  #  "
       - "  #  "
       - "     "
@@ -1443,6 +1443,21 @@ glyphs:
     y_offset: 3
     bitmap:
       - "#####"
+
+  hyphen.prop:  # - U+002D (proportional)
+    y_offset: 3
+    bitmap:
+      - "###"
+
+  endash.prop:  # – U+2013 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#####"
+
+  emdash.prop:  # — U+2014 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#######"
 
   # Semicolon: 7 rows, y_offset -1
   semicolon.prop:  # ; U+003B (proportional)
@@ -1757,11 +1772,6 @@ glyphs:
     bitmap:
       - "##"
       - "##"
-
-  hyphen.prop:  # - U+002D (proportional)
-    y_offset: 3
-    bitmap:
-      - "###"
 
   periodcentered.prop:  # · U+00B7 (proportional)
     y_offset: 3
