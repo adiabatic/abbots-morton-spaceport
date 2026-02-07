@@ -1274,6 +1274,17 @@ glyphs:
       - " #   # " #
       - "  ###  "
 
+  registered.prop.unused:  # ® U+00AE (proportional)
+    bitmap:
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
   dollar.prop:  # $ U+0024 (proportional)
     y_offset: -1
     bitmap:
@@ -1297,6 +1308,18 @@ glyphs:
       - "#"
       - "#"
       - " "
+      - "#"
+
+  exclamdown.prop:  # ¡ U+00A1 (proportional)
+    y_offset: -2
+    bitmap:
+      - "#"
+      - " "
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
       - "#"
 
   numbersign.prop:  # # U+0023 (proportional)
@@ -1335,14 +1358,15 @@ glyphs:
       - "     "
       - "  #  "
 
-  registered.prop.unused:  # ® U+00AE (proportional)
+  questiondown.prop.unused:  # ¿ U+00BF (proportional)
+    y_offset: -2
     bitmap:
       - "     "
       - "     "
+      - "     "
+      - "     "
+      - "     "
       - "     " #
-      - "     "
-      - "     "
-      - "     "
       - "     "
       - "     "
 
@@ -1376,31 +1400,6 @@ glyphs:
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
-
-  # Inverted cap: 8 rows, y_offset -2
-  exclamdown.prop:  # ¡ U+00A1 (proportional)
-    y_offset: -2
-    bitmap:
-      - "#"
-      - " "
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-
-  questiondown.prop.unused:  # ¿ U+00BF (proportional)
-    y_offset: -2
-    bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
       - "     "
       - "     "
 
