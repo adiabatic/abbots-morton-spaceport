@@ -508,59 +508,59 @@ glyphs:
       - "#   #"
       - " ### " #
 
-  oslash.prop.unused:  # ø U+00F8 (proportional)
+  oslash.prop:  # ø U+00F8 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "  ###  "
+      - " #   ##"
+      - " # ### "
+      - " ### # "
+      - "##   # "
+      - "  ###  " #
 
-  r.prop.unused:  # r U+0072 (proportional)
+  r.prop:  # r U+0072 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ###" 
+      - "#   " 
+      - "#   " 
+      - "#   " 
+      - "#   " 
+      - "#   " # 
 
-  s.prop.unused:  # s U+0073 (proportional)
+  s.prop:  # s U+0073 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ####"
+      - "#    "
+      - " ##  "
+      - "   # "
+      - "    #"
+      - "#### " #
 
-  u.prop.unused:  # u U+0075 (proportional)
+  u.prop:  # u U+0075 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### " #
 
-  v.prop.unused:  # v U+0076 (proportional)
+  v.prop:  # v U+0076 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#     #"
+      - "#     #"
+      - " #   # "
+      - " #   # "
+      - "  # #  "
+      - "   #   " #
 
-  w.prop.unused:  # w U+0077 (proportional)
+  w.prop:  # w U+0077 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#     #"
+      - "#     #"
+      - "#  #  #"
+      - "#  #  #"
+      - " # # # "
+      - "  # #  " #
 
   x.prop.unused:  # x U+0078 (proportional)
     bitmap:
