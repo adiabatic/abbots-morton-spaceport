@@ -1396,16 +1396,16 @@ glyphs:
       - "     "
       - "     "
 
-  yen.prop.unused:  # ¥ U+00A5 (proportional)
+  yen.prop:  # ¥ U+00A5 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#     #"
+      - " #   # "
+      - "  # #  " #
+      - "   #   "
+      - " ##### "
+      - "   #   "
+      - " ##### "
+      - "   #   "
 
   # Medium: 7 rows
   greater.prop:  # > U+003E (proportional)
@@ -1428,15 +1428,21 @@ glyphs:
       - "  # "
       - "   #"
 
-  plusminus.prop.unused:  # ± U+00B1 (proportional)
+  plusminus.prop:  # ± U+00B1 (proportional)
     bitmap:
+      - "  #  "
+      - "  #  " #
+      - "#####"
+      - "  #  "
+      - "  #  "
       - "     "
-      - "     " #
+      - "#####"
       - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+
+  minus.prop:  # − U+2212 (proportional)
+    y_offset: 3
+    bitmap:
+      - "#####"
 
   # Semicolon: 7 rows, y_offset -1
   semicolon.prop:  # ; U+003B (proportional)
