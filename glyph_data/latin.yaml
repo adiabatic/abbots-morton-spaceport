@@ -1227,27 +1227,27 @@ glyphs:
       - " #####"
       - "   #  "
 
-  at.prop.unused:  # @ U+0040 (proportional)
+  at.prop:  # @ U+0040 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "       "
+      - " ##### "
+      - "#     #" #
+      - "  ##  #"
+      - " #  # #"
+      - " #  # #"
+      - " #  # #"
+      - "  ## # "
 
   backslash.prop.unused:  # \ U+005C (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#   "
+      - "#   "
+      - " #  " #
+      - " #  "
+      - "  # "
+      - "  # "
+      - "   #"
+      - "   #"
 
   cent.prop.unused:  # ¢ U+00A2 (proportional)
     bitmap:
