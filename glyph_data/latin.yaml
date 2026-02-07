@@ -1395,16 +1395,16 @@ glyphs:
       - "   #"
       - "   #"
 
-  sterling.prop.unused:  # £ U+00A3
+  sterling.prop:  # £ U+00A3
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  ## "
+      - " #  #"
+      - " #   " #
+      - " #   "
+      - "#### "
+      - " #   "
+      - " #   "
+      - "#####"
 
   yen.prop:  # ¥ U+00A5
     bitmap:
