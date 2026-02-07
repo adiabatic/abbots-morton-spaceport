@@ -991,33 +991,33 @@ glyphs:
       - "#"
       - "#"
 
-  braceleft.prop.unused:  # { U+007B (proportional)
+  braceleft.prop:  # { U+007B (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
+      - "   ##"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "##   "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "   ##"
 
-  braceright.prop.unused:  # } U+007D (proportional)
+  braceright.prop:  # } U+007D (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
+      - "##   "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "   ##"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  " #
+      - "##   "
 
   bracketleft.prop:  # [ U+005B (proportional)
     y_offset: -1
