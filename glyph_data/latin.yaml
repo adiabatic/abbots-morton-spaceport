@@ -1061,19 +1061,19 @@ glyphs:
       - "#"
       - "#"
 
-  paragraph.prop.unused:  # ¶ U+00B6 (proportional)
+  paragraph.prop:  # ¶ U+00B6 (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
+      - " #### #"
+      - "##### #"
+      - "##### #"
+      - " #### #"
+      - "    # #"
+      - "    # #"
+      - "    # #"
+      - "    # #"
+      - "    # #" #
+      - "    # #"
 
   parenleft.prop:  # ( U+0028 (proportional)
     y_offset: -1
@@ -1103,19 +1103,19 @@ glyphs:
       - " # "
       - "#  "
 
-  section.prop.unused:  # § U+00A7 (proportional)
+  section.prop:  # § U+00A7 (proportional)
     y_offset: -1
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
+      - " ####"
+      - "#    "
+      - " #   "
+      - " ##  "
+      - "#  # "
+      - " #  #"
+      - "  ## "
+      - "   # "
+      - "    #" #
+      - "#### "
 
   uni276C.prop:  # ❬ U+276C (proportional)
     y_offset: -1
