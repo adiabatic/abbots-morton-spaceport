@@ -691,49 +691,49 @@ glyphs:
       - "#   #"
       - " ### "
 
-  one.prop.unused:  # 1 U+0031 (proportional)
+  one.prop:  # 1 U+0031 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ##  "
+      - "# #  "
+      - "  #  " #
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "#####"
 
-  two.prop.unused:  # 2 U+0032 (proportional)
+  two.prop:  # 2 U+0032 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " ### "
+      - "#   #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#####"
 
-  three.prop.unused:  # 3 U+0033 (proportional)
+  three.prop:  # 3 U+0033 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#### "
+      - "    #"
+      - "    #" #
+      - "#### "
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### "
 
-  four.prop.unused:  # 4 U+0034 (proportional)
+  four.prop:  # 4 U+0034 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#  # "
+      - "#  # "
+      - "#  # " #
+      - "#####"
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # "
 
   five.prop.unused:  # 5 U+0035 (proportional)
     bitmap:
