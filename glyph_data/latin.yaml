@@ -333,7 +333,7 @@ glyphs:
       - "######"
 
   germandbls.prop:  # ß U+00DF (proportional)
-    bitmap:
+    bitmap: # yes, I know it is ugly, but gosh darnit, it is mine
       - " ####  "
       - "#    # "
       - "#    # " #
@@ -344,93 +344,94 @@ glyphs:
       - "#  ### "
 
   # Ascender: 8 rows, # on row 3, width 5
-  b.prop.unused:  # b U+0062 (proportional)
+  b.prop:  # b U+0062 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#    "
+      - "#    "
+      - "#### " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#### "
 
-  d.prop.unused:  # d U+0064 (proportional)
+  d.prop:  # d U+0064 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "    #"
+      - "    #"
+      - " ####" #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ####"
 
-  eth.prop.unused:  # ð U+00F0 (proportional)
+  eth.prop:  # ð U+00F0 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  # #"
+      - "   # "
+      - "  # #"
+      - "    #" #
+      - " ####"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
 
-  f.prop.unused:  # f U+0066 (proportional)
+  f.prop:  # f U+0066 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "  ###"
+      - " #   "
+      - "#### " #
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
 
-  h.prop.unused:  # h U+0068 (proportional)
+  h.prop:  # h U+0068 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#    "
+      - "#    "
+      - "#### " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
 
-  k.prop.unused:  # k U+006B (proportional)
+  k.prop:  # k U+006B (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#    "
+      - "#    "
+      - "#   #" #
+      - "#  # "
+      - "# #  "
+      - "###  "
+      - "#  # "
+      - "#   #"
 
-  l.prop.unused:  # l U+006C (proportional)
+  l.prop:  # l U+006C (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - "#"
+      - "#"
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
 
-  t.prop.unused:  # t U+0074 (proportional)
+  t.prop:  # t U+0074 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
+      - " # "
+      - " # "
+      - "###" #
+      - " # "
+      - " # "
+      - " # "
+      - " # "
+      - " ##"
 
   # X-height: 6 rows, # on row 6, width 5
   a.prop.unused:  # a U+0061 (proportional)
@@ -469,14 +470,16 @@ glyphs:
       - "     "
       - "     " #
 
-  i.prop.unused:  # i U+0069 (proportional)
+  i.prop:  # i U+0069 (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#"
+      - " "
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
 
   m.prop.unused:  # m U+006D (proportional)
     bitmap:
