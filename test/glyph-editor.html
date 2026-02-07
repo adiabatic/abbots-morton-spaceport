@@ -11,13 +11,18 @@
     }
 
     @font-face {
+      font-family: 'Abbots Morton Spaceport Sans';
+      src: url('AbbotsMortonSpaceportSans.otf') format('opentype');
+    }
+
+    @font-face {
       font-family: 'Departure Mono';
       src: url('DepartureMono-Regular.otf') format('opentype');
     }
 
     :root {
       color-scheme: light dark;
-      --font-stack: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+      --font-stack: 'Abbots Morton Spaceport Mono', 'Abbots Morton Spaceport Sans', 'Departure Mono', monospace;
       --card-bg: light-dark(#fff, #2a2a2a);
       --card-border: 1px solid light-dark(#ccc, #444);
     }
