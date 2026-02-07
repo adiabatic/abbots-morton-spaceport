@@ -571,41 +571,41 @@ glyphs:
       - " # # "
       - "#   #" #
 
-  z.prop.unused:  # z U+007A (proportional)
+  z.prop:  # z U+007A (proportional)
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#####"
+      - "   # "
+      - "  #  "
+      - "  #  "
+      - " #   "
+      - "#####" #
 
   # Descender: 9 rows, y_offset -3, # on row 6, width 5
-  g.prop.unused:  # g U+0067 (proportional)
+  g.prop:  # g U+0067 (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
+      - " ### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ####" #
+      - "    #"
+      - " ### "
       - "     "
 
-  mu.prop.unused:  # µ U+00B5 (proportional)
+  mu.prop:  # µ U+00B5 (proportional)
     y_offset: -3
     bitmap:
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - "#### #" #
+      - "#     "
+      - "#     "
+      - "      "
 
   p.prop.unused:  # p U+0070 (proportional)
     y_offset: -3
