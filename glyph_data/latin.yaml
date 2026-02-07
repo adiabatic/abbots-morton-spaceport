@@ -1336,7 +1336,7 @@ glyphs:
       - "#"
 
   exclamdown.prop:  # ¡ U+00A1 (proportional)
-    y_offset: -2
+    y_offset: -1
     bitmap:
       - "#"
       - " "
@@ -1362,7 +1362,7 @@ glyphs:
       - "  #  "
 
   questiondown.prop:  # ¿ U+00BF (proportional)
-    y_offset: -2
+    y_offset: -1
     bitmap:
       - "  #  "
       - "     "
