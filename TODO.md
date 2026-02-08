@@ -7,10 +7,6 @@
 | ­ | U+00AD | Soft hyphen |
 | π | U+03C0 | Greek small letter pi |
 | € | U+20AC | Euro sign |
-|   | U+2000 | En quad |
-|   | U+2001 | Em quad |
-|   | U+2002 | En space |
-|   | U+2003 | Em space |
 |   | U+2004 | Three-per-em space |
 |   | U+2005 | Four-per-em space |
 |   | U+2006 | Six-per-em space |

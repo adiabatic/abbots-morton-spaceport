@@ -1045,6 +1045,24 @@ glyphs:
     y_offset: -3
     bitmap: *NINESUPERIOR
 
+  # ── Spaces ───────────────────────────────────────────────────────────
+
+  uni2000.prop:  # EN QUAD
+    advance_width: 5
+    bitmap: []
+
+  uni2001.prop:  # EM QUAD
+    advance_width: 7
+    bitmap: []
+
+  uni2002.prop:  # EN SPACE
+    advance_width: 5
+    bitmap: []
+
+  uni2003.prop:  # EM SPACE
+    advance_width: 7
+    bitmap: []
+
   # ── Other ────────────────────────────────────────────────────────────
 
   # Bracket-height: 10 rows, y_offset -1
