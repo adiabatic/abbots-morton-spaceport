@@ -718,6 +718,7 @@ glyphs:
 
   dotlessj.prop:  # (dotless j, base for accented j)
     top_mark_y: 7
+    top_mark_x: 1
     y_offset: -3
     bitmap:
       - "   "
@@ -1882,6 +1883,7 @@ glyphs:
     base_x_adjust:
       a: -1
       dotlessi: -1
+      dotlessj: -1
       n: -1
       Y: -1
       y: -1
@@ -1889,6 +1891,7 @@ glyphs:
       Z: -1
     mark_base_x_adjust:  # overrides for combining mark only
       dotlessi: -0.5
+      dotlessj: -0.5
 
   uni0303.prop:  # COMBINING TILDE
     advance_width: 0
