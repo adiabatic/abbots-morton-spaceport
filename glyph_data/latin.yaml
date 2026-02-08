@@ -3,6 +3,7 @@ glyphs:
 
   # Cap-height: 8 rows, # on row 3, width 5
   A.prop:  # A U+0041
+    kerning: [leave-space-for-j]
     bitmap:
       - "  #  "
       - " # # "
@@ -14,6 +15,7 @@ glyphs:
       - "#   #"
 
   AE.prop:  # Æ U+00C6
+    kerning: [leave-space-for-j]
     bitmap:
       - "  #######"
       - " #  #    "
@@ -25,6 +27,7 @@ glyphs:
       - "#   #####"
 
   B.prop:  # B U+0042
+    kerning: [leave-space-for-j]
     bitmap:
       - "#### "
       - "#   #"
@@ -36,6 +39,7 @@ glyphs:
       - "#### "
 
   C.prop:  # C U+0043
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ###"
       - " #   "
@@ -47,6 +51,7 @@ glyphs:
       - "  ###"
 
   D.prop:  # D U+0044
+    kerning: [leave-space-for-j]
     bitmap:
       - "###  "
       - "#  # "
@@ -58,6 +63,7 @@ glyphs:
       - "###  "
 
   E.prop:  # E U+0045
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "#    "
@@ -69,6 +75,7 @@ glyphs:
       - "#####"
 
   Eth.prop:  # Ð U+00D0
+    kerning: [leave-space-for-j]
     bitmap:
       - " ###  "
       - " #  # "
@@ -80,6 +87,7 @@ glyphs:
       - " ###  "
 
   F.prop:  # F U+0046
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "#    "
@@ -91,6 +99,7 @@ glyphs:
       - "#    "
 
   G.prop:  # G U+0047
+    kerning: [leave-space-for-j]
     bitmap:
       - " #### "
       - "#    #"
@@ -102,6 +111,7 @@ glyphs:
       - " #### "
 
   H.prop:  # H U+0048
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    #"
       - "#    #"
@@ -113,6 +123,7 @@ glyphs:
       - "#    #"
 
   I.prop:  # I U+0049
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "  #  "
@@ -124,6 +135,7 @@ glyphs:
       - "#####"
 
   J.prop:  # J U+004A
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "    #"
@@ -135,6 +147,7 @@ glyphs:
       - "###  "
 
   K.prop:  # K U+004B
+    kerning: [leave-space-for-j]
     bitmap:
       - "#   #"
       - "#  # "
@@ -146,6 +159,7 @@ glyphs:
       - "#   #"
 
   L.prop:  # L U+004C
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     "
       - "#     "
@@ -157,6 +171,7 @@ glyphs:
       - "######"
 
   M.prop:  # M U+004D
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - "##   ##"
@@ -168,6 +183,7 @@ glyphs:
       - "#     #"
 
   N.prop:  # N U+004E
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - "##    #"
@@ -179,6 +195,7 @@ glyphs:
       - "#     #"
 
   O.prop:  # O U+004F
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ###  "
       - " #   # "
@@ -190,6 +207,7 @@ glyphs:
       - "  ###  "
 
   Oslash.prop:  # Ø U+00D8
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ### #"
       - " #   # "
@@ -201,6 +219,7 @@ glyphs:
       - "# ###  "
 
   P.prop:  # P U+0050
+    kerning: [leave-space-for-j]
     bitmap:
       - "#### "
       - "#   #"
@@ -212,6 +231,7 @@ glyphs:
       - "#    "
 
   Q.prop:  # Q U+0051
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ###  "
       - " #   # "
@@ -223,6 +243,7 @@ glyphs:
       - "  ### #"
 
   R.prop:  # R U+0052
+    kerning: [leave-space-for-j]
     bitmap:
       - "##### "
       - "#    #"
@@ -234,6 +255,7 @@ glyphs:
       - "#    #"
 
   S.prop:  # S U+0053
+    kerning: [leave-space-for-j]
     bitmap:
       - " ####"
       - "#    "
@@ -245,6 +267,7 @@ glyphs:
       - "#### "
 
   T.prop:  # T U+0054
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "  #  "
@@ -256,6 +279,7 @@ glyphs:
       - "  #  "
 
   Thorn.prop:  # Þ U+00DE
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     "
       - "##### "
@@ -267,6 +291,7 @@ glyphs:
       - "#     "
 
   U.prop:  # U U+0055
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    #"
       - "#    #"
@@ -278,6 +303,7 @@ glyphs:
       - " #### "
 
   V.prop:  # V U+0056
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - "#     #"
@@ -289,6 +315,7 @@ glyphs:
       - "   #   "
 
   W.prop:  # W U+0057
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - "#     #"
@@ -300,6 +327,7 @@ glyphs:
       - "#     #"
 
   X.prop:  # X U+0058
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    #"
       - " #  # "
@@ -311,6 +339,7 @@ glyphs:
       - "#    #"
 
   Y.prop:  # Y U+0059
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - " #   # "
@@ -322,6 +351,7 @@ glyphs:
       - "   #   "
 
   Z.prop:  # Z U+005A
+    kerning: [leave-space-for-j]
     bitmap:
       - "######"
       - "     #"
@@ -333,6 +363,7 @@ glyphs:
       - "######"
 
   germandbls.prop:  # ß U+00DF
+    kerning: [leave-space-for-j]
     bitmap: # yes, I know it is ugly, but gosh darnit, it is mine
       - " ####  "
       - "#    # "
@@ -345,6 +376,7 @@ glyphs:
 
   # Ascender: 8 rows, # on row 3, width 5
   b.prop:  # b U+0062
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    "
       - "#    "
@@ -356,6 +388,7 @@ glyphs:
       - "#### "
 
   d.prop:  # d U+0064
+    kerning: [leave-space-for-j]
     bitmap:
       - "    #"
       - "    #"
@@ -367,6 +400,7 @@ glyphs:
       - " ####"
 
   eth.prop:  # ð U+00F0
+    kerning: [leave-space-for-j]
     bitmap:
       - "  # #"
       - "   # "
@@ -379,6 +413,7 @@ glyphs:
       - " ### "
 
   f.prop:  # f U+0066
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ###"
       - " #   "
@@ -390,6 +425,7 @@ glyphs:
       - " #   "
 
   h.prop:  # h U+0068
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    "
       - "#    "
@@ -401,6 +437,7 @@ glyphs:
       - "#   #"
 
   k.prop:  # k U+006B
+    kerning: [leave-space-for-j]
     bitmap:
       - "#    "
       - "#    "
@@ -412,6 +449,7 @@ glyphs:
       - "#   #"
 
   l.prop:  # l U+006C
+    kerning: [leave-space-for-j]
     bitmap:
       - "#"
       - "#"
@@ -423,6 +461,7 @@ glyphs:
       - "#"
 
   t.prop:  # t U+0074
+    kerning: [leave-space-for-j]
     bitmap:
       - " # "
       - " # "
@@ -435,6 +474,7 @@ glyphs:
 
   # X-height: 6 rows, # on row 6, width 5
   a.prop:  # a U+0061
+    kerning: [leave-space-for-j]
     bitmap:
       - " #### "
       - "#   # "
@@ -453,6 +493,7 @@ glyphs:
       - " ### #" #
 
   ae.prop:  # æ U+00E6
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### ### "
       - "    #   #"
@@ -462,6 +503,7 @@ glyphs:
       - " ### ####" #
 
   c.prop:  # c U+0063
+    kerning: [leave-space-for-j]
     bitmap:
       - " ####"
       - "#    "
@@ -471,6 +513,7 @@ glyphs:
       - " ####" #
 
   e.prop:  # e U+0065
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
@@ -480,6 +523,7 @@ glyphs:
       - " ####" #
 
   i.prop:  # i U+0069
+    kerning: [leave-space-for-j]
     bitmap:
       - "#"
       - " "
@@ -491,6 +535,7 @@ glyphs:
       - "#" #
 
   m.prop:  # m U+006D
+    kerning: [leave-space-for-j]
     bitmap:
       - " ## ## "
       - "#  #  #"
@@ -500,6 +545,7 @@ glyphs:
       - "#  #  #" #
 
   n.prop:  # n U+006E
+    kerning: [leave-space-for-j]
     bitmap:
       - "#### "
       - "#   #"
@@ -509,6 +555,7 @@ glyphs:
       - "#   #" #
 
   o.prop:  # o U+006F
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
@@ -518,6 +565,7 @@ glyphs:
       - " ### " #
 
   oslash.prop:  # ø U+00F8
+    kerning: [leave-space-for-j]
     bitmap:
       - "  ###  "
       - " #   ##"
@@ -527,6 +575,7 @@ glyphs:
       - "  ###  " #
 
   r.prop:  # r U+0072
+    kerning: [leave-space-for-j]
     bitmap:
       - " ###" 
       - "#   " 
@@ -536,6 +585,7 @@ glyphs:
       - "#   " # 
 
   s.prop:  # s U+0073
+    kerning: [leave-space-for-j]
     bitmap:
       - " ####"
       - "#    "
@@ -545,6 +595,7 @@ glyphs:
       - "#### " #
 
   u.prop:  # u U+0075
+    kerning: [leave-space-for-j]
     bitmap:
       - "#   #"
       - "#   #"
@@ -554,6 +605,7 @@ glyphs:
       - " ### " #
 
   v.prop:  # v U+0076
+    kerning: [leave-space-for-j]
     bitmap:
       - "#   #"
       - "#   #"
@@ -563,6 +615,7 @@ glyphs:
       - "  #  " #
 
   w.prop:  # w U+0077
+    kerning: [leave-space-for-j]
     bitmap:
       - "#     #"
       - "#     #"
@@ -572,6 +625,7 @@ glyphs:
       - " #   # " #
 
   x.prop:  # x U+0078
+    kerning: [leave-space-for-j]
     bitmap:
       - "#   #"
       - " # # "
@@ -581,6 +635,7 @@ glyphs:
       - "#   #" #
 
   z.prop:  # z U+007A
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "   # "
@@ -591,6 +646,7 @@ glyphs:
 
   # Descender: 9 rows, y_offset -3, # on row 6, width 5
   g.prop:  # g U+0067
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - " ### "
@@ -604,6 +660,7 @@ glyphs:
       - " ### "
 
   mu.prop:  # µ U+00B5
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - "#   # "
@@ -617,6 +674,7 @@ glyphs:
       - "#     "
 
   p.prop:  # p U+0070
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - "#### "
@@ -630,6 +688,7 @@ glyphs:
       - "#    "
 
   q.prop:  # q U+0071
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - " ####"
@@ -643,6 +702,7 @@ glyphs:
       - "    #"
 
   y.prop:  # y U+0079
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - "#   #"
@@ -672,6 +732,7 @@ glyphs:
       - "   "
 
   thorn.prop:  # þ U+00FE
+    kerning: [leave-space-for-j]
     y_offset: -3
     bitmap:
       - "#    "
@@ -690,6 +751,7 @@ glyphs:
 
   # Cap-height: 8 rows
   zero:  # 0 U+0030
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
@@ -701,6 +763,7 @@ glyphs:
       - " ### "
 
   one.prop:  # 1 U+0031
+    kerning: [leave-space-for-j]
     bitmap:
       - " ##  "
       - "# #  "
@@ -712,6 +775,7 @@ glyphs:
       - "#####"
 
   two.prop:  # 2 U+0032
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
@@ -723,6 +787,7 @@ glyphs:
       - "#####"
 
   three.prop:  # 3 U+0033
+    kerning: [leave-space-for-j]
     bitmap:
       - "#### "
       - "    #"
@@ -734,6 +799,7 @@ glyphs:
       - "#### "
 
   four.prop:  # 4 U+0034
+    kerning: [leave-space-for-j]
     bitmap:
       - "#  # "
       - "#  # "
@@ -745,6 +811,7 @@ glyphs:
       - "   # "
 
   five.prop:  # 5 U+0035
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "#    "
@@ -756,6 +823,7 @@ glyphs:
       - "#### "
 
   six.prop:  # 6 U+0036
+    kerning: [leave-space-for-j]
     bitmap:
       - " ##  "
       - "#    "
@@ -767,6 +835,7 @@ glyphs:
       - " ### "
 
   seven.prop:  # 7 U+0037
+    kerning: [leave-space-for-j]
     bitmap:
       - "#####"
       - "    #"
@@ -778,6 +847,7 @@ glyphs:
       - "#    "
 
   eight.prop:  # 8 U+0038
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
@@ -789,6 +859,7 @@ glyphs:
       - " ### "
 
   nine.prop:  # 9 U+0039
+    kerning: [leave-space-for-j]
     bitmap:
       - " ### "
       - "#   #"
