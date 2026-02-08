@@ -295,6 +295,32 @@
       color: light-dark(#0066cc, #4a9eff);
     }
 
+    .toggle-buttons {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 1000;
+
+      button {
+        padding: 0.75rem 1.5rem;
+        font-size: 22px;
+        font-family: inherit;
+        background: light-dark(#0066cc, #4a9eff);
+        color: light-dark(#fff, #1a1a1a);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        -webkit-font-smoothing: none;
+
+        &:hover {
+          background: light-dark(#0055aa, #6ab0ff);
+        }
+      }
+    }
+
     footer {
       text-align: center;
       margin-top: 3rem;
@@ -308,6 +334,9 @@
   </style>
 </head>
 <body>
+  <div class="toggle-buttons">
+    <button id="kern-toggle">No kerning</button>
+  </div>
   <h1>Glyph Editor</h1>
   <p>Paste a glyph&rsquo;s YAML block, edit it visually, then copy the output back.</p>
 
@@ -787,6 +816,18 @@
     document.getElementById('remove-col-left').addEventListener('click', removeColumnLeft);
     document.getElementById('add-col-right').addEventListener('click', addColumnRight);
     document.getElementById('remove-col-right').addEventListener('click', removeColumnRight);
+
+    // Kerning toggle
+    const kernToggle = document.getElementById('kern-toggle');
+    const specimenSection = document.querySelector('.specimen-section');
+    let kerningEnabled = false;
+    specimenSection.style.fontFeatureSettings = "'kern' 0";
+
+    kernToggle.addEventListener('click', () => {
+      kerningEnabled = !kerningEnabled;
+      specimenSection.style.fontFeatureSettings = kerningEnabled ? '' : "'kern' 0";
+      kernToggle.textContent = kerningEnabled ? 'Yes kerning' : 'No kerning';
+    });
 
     // Initialize
     initRowMarkers();
