@@ -203,11 +203,13 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 continue
         base_x = aw // 2
         if "top_mark_y" in glyph_def:
+            top_x = base_x + glyph_def.get("top_mark_x", 0) * pixel_size
             base_y = glyph_def["top_mark_y"] * pixel_size
-            top_bases[glyph_name] = (base_x, base_y)
+            top_bases[glyph_name] = (top_x, base_y)
         if "bottom_mark_y" in glyph_def:
+            bottom_x = base_x + glyph_def.get("bottom_mark_x", 0) * pixel_size
             base_y = glyph_def["bottom_mark_y"] * pixel_size
-            bottom_bases[glyph_name] = (base_x, base_y)
+            bottom_bases[glyph_name] = (bottom_x, base_y)
 
     if not top_bases and not bottom_bases:
         return None
