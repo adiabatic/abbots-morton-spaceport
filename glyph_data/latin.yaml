@@ -3,7 +3,7 @@ glyphs:
 
   # Cap-height: 8 rows, # on row 3, width 5
   A.prop:  # A U+0041
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "  #  "
       - " # # "
@@ -37,7 +37,7 @@ glyphs:
       - "#### "
 
   C.prop:  # C U+0043
-    top_mark_y: 8
+    top_mark_y: 9
     bottom_mark_y: 0
     bitmap:
       - "  ###"
@@ -61,7 +61,7 @@ glyphs:
       - "###  "
 
   E.prop:  # E U+0045
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "#####"
       - "#    "
@@ -117,7 +117,7 @@ glyphs:
       - "#    #"
 
   I.prop:  # I U+0049
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "#####"
       - "  #  "
@@ -185,7 +185,7 @@ glyphs:
       - "#     #"
 
   O.prop:  # O U+004F
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "  ###  "
       - " #   # "
@@ -241,7 +241,7 @@ glyphs:
       - "#    #"
 
   S.prop:  # S U+0053
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - " ####"
       - "#    "
@@ -332,7 +332,7 @@ glyphs:
       - "   #   "
 
   Z.prop:  # Z U+005A
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "######"
       - "     #"
@@ -446,7 +446,7 @@ glyphs:
 
   # X-height: 6 rows, # on row 6, width 5
   a.prop:  # a U+0061
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - " #### "
       - "#   # "
@@ -474,7 +474,7 @@ glyphs:
       - " ### ####" #
 
   c.prop:  # c U+0063
-    top_mark_y: 6
+    top_mark_y: 7
     bottom_mark_y: 0
     bitmap:
       - " ####"
@@ -485,7 +485,7 @@ glyphs:
       - " ####" #
 
   e.prop:  # e U+0065
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - " ### "
       - "#   #"
@@ -506,7 +506,7 @@ glyphs:
       - "#" #
 
   dotlessi.prop:  # ı U+0131 (dotless i, base for accented i)
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - "#" #
       - "#"
@@ -525,7 +525,7 @@ glyphs:
       - "#  #  #" #
 
   n.prop:  # n U+006E
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - "#### "
       - "#   #"
@@ -535,7 +535,7 @@ glyphs:
       - "#   #" #
 
   o.prop:  # o U+006F
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - " ### "
       - "#   #"
@@ -563,7 +563,7 @@ glyphs:
       - "#   " # 
 
   s.prop:  # s U+0073
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - " ####"
       - "#    "
@@ -573,7 +573,7 @@ glyphs:
       - "#### " #
 
   u.prop:  # u U+0075
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - "#   #"
       - "#   #"
@@ -610,7 +610,7 @@ glyphs:
       - "#   #" #
 
   z.prop:  # z U+007A
-    top_mark_y: 6
+    top_mark_y: 7
     bitmap:
       - "#####"
       - "   # "
@@ -675,7 +675,7 @@ glyphs:
       - "    #"
 
   y.prop:  # y U+0079
-    top_mark_y: 6
+    top_mark_y: 7
     y_offset: -3
     bitmap:
       - "#   #"
