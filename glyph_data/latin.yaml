@@ -1768,14 +1768,14 @@ glyphs:
   # Diacritics below: 3 rows, y_offset -3
   cedilla.prop:  # ¸ U+00B8
     y_offset: -3
-    bitmap:
+    bitmap: &CEDILLA
       - " # "
       - "  #"
       - " # "
 
   ogonek.prop:  # ˛ U+02DB
     y_offset: -3
-    bitmap:
+    bitmap: &OGONEK
       - " #"
       - "# "
       - " #"
@@ -1783,53 +1783,53 @@ glyphs:
   # Diacritics above: 1–3 rows, y_offset 6–7
   acute.prop:  # ´ U+00B4
     y_offset: 7
-    bitmap:
+    bitmap: &ACUTE
       - " #"
       - "# "
 
   asciicircum.prop:  # ^ U+005E
     y_offset: 6
-    bitmap:
+    bitmap: &CIRCUMFLEX
       - "  # "
       - " # #"
 
   dieresis.prop:  # ¨ U+00A8
     y_offset: 7
-    bitmap:
+    bitmap: &DIERESIS
       - "# #"
 
   dotaccent.prop:  # ˙ U+02D9
     y_offset: 7
-    bitmap:
+    bitmap: &DOTACCENT
       - "#"
 
   grave.prop:  # ` U+0060
     y_offset: 7
-    bitmap:
+    bitmap: &GRAVE
       - "# "
       - " #"
 
   hungarumlaut.prop:  # ˝ U+02DD
     y_offset: 7
-    bitmap:
+    bitmap: &HUNGARUMLAUT
       - "# #"
       - "# #"
 
   macron.prop:  # ¯ U+00AF
     y_offset: 7
-    bitmap:
+    bitmap: &MACRON
       - "###"
 
   ring.prop:  # ˚ U+02DA
     y_offset: 7
-    bitmap:
+    bitmap: &RING
       - " # "
       - "# #"
       - " # "
 
   tilde.prop:  # ˜ U+02DC
     y_offset: 7
-    bitmap:
+    bitmap: &TILDE
       - " # #"
       - "# # "
 
@@ -1838,6 +1838,73 @@ glyphs:
     bitmap:
       - " #"
       - "# "
+
+  # ── Combining diacritical marks (zero-width) ───────────────────────
+  uni0300.prop:  # COMBINING GRAVE ACCENT
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *GRAVE
+
+  uni0301.prop:  # COMBINING ACUTE ACCENT
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *ACUTE
+
+  uni0302.prop:  # COMBINING CIRCUMFLEX ACCENT
+    advance_width: 0
+    is_mark: true
+    y_offset: 6
+    bitmap: *CIRCUMFLEX
+
+  uni0303.prop:  # COMBINING TILDE
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *TILDE
+
+  uni0304.prop:  # COMBINING MACRON
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *MACRON
+
+  uni0307.prop:  # COMBINING DOT ABOVE
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *DOTACCENT
+
+  uni0308.prop:  # COMBINING DIAERESIS
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *DIERESIS
+
+  uni030A.prop:  # COMBINING RING ABOVE
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *RING
+
+  uni030B.prop:  # COMBINING DOUBLE ACUTE ACCENT
+    advance_width: 0
+    is_mark: true
+    y_offset: 7
+    bitmap: *HUNGARUMLAUT
+
+  uni0327.prop:  # COMBINING CEDILLA
+    advance_width: 0
+    is_mark: true
+    y_offset: -3
+    bitmap: *CEDILLA
+
+  uni0328.prop:  # COMBINING OGONEK
+    advance_width: 0
+    is_mark: true
+    y_offset: -3
+    bitmap: *OGONEK
 
   # Tilde-height: 2 rows, y_offset 4
   asciitilde.prop:  # ~ U+007E

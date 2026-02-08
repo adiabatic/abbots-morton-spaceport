@@ -131,6 +131,97 @@ def generate_kern_fea(
     return "\n".join(lines)
 
 
+def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+    """Generate OpenType feature code for mark positioning (combining diacriticals).
+
+    Scans glyphs_def for marks (is_mark: true) and base glyphs with
+    top_mark_y / bottom_mark_y anchors, then emits a GPOS 'mark' feature.
+
+    Returns the FEA string, or None if there are no marks.
+    """
+    # Collect mark glyphs, split into top vs bottom
+    top_marks = {}   # glyph_name -> (anchor_x, anchor_y)
+    bottom_marks = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None or not glyph_def.get("is_mark"):
+            continue
+        bitmap = glyph_def.get("bitmap", [])
+        y_offset = glyph_def.get("y_offset", 0)
+        bitmap_width = max((len(row) for row in bitmap), default=0) if bitmap else 0
+        # Mark anchor x = 0 (bitmap is centered on origin by zero-width drawing)
+        anchor_x = 0
+        if y_offset >= 0:
+            # Top mark: anchor at the bottom of the drawn pixels
+            anchor_y = y_offset * pixel_size
+            top_marks[glyph_name] = (anchor_x, anchor_y)
+        else:
+            # Bottom mark: anchor at the top of the drawn pixels
+            bitmap_height = len(bitmap) if bitmap else 0
+            anchor_y = (y_offset + bitmap_height) * pixel_size
+            bottom_marks[glyph_name] = (anchor_x, anchor_y)
+
+    if not top_marks and not bottom_marks:
+        return None
+
+    # Collect base glyphs with anchors
+    top_bases = {}    # glyph_name -> (anchor_x, anchor_y)
+    bottom_bases = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None or glyph_def.get("is_mark"):
+            continue
+        advance_width = glyph_def.get("advance_width")
+        if advance_width is not None:
+            aw = advance_width * pixel_size
+        else:
+            bitmap = glyph_def.get("bitmap", [])
+            if bitmap:
+                max_col = max((len(row) for row in bitmap), default=0)
+                aw = (max_col + 2) * pixel_size
+            else:
+                continue
+        base_x = aw // 2
+        if "top_mark_y" in glyph_def:
+            base_y = glyph_def["top_mark_y"] * pixel_size
+            top_bases[glyph_name] = (base_x, base_y)
+        if "bottom_mark_y" in glyph_def:
+            base_y = glyph_def["bottom_mark_y"] * pixel_size
+            bottom_bases[glyph_name] = (base_x, base_y)
+
+    if not top_bases and not bottom_bases:
+        return None
+
+    lines = ["feature mark {"]
+
+    # Emit markClass definitions
+    for glyph_name in sorted(top_marks):
+        ax, ay = top_marks[glyph_name]
+        lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_top;")
+    for glyph_name in sorted(bottom_marks):
+        ax, ay = bottom_marks[glyph_name]
+        lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_bottom;")
+
+    # Emit lookup for top marks
+    if top_marks and top_bases:
+        lines.append("")
+        lines.append("    lookup mark_top {")
+        for glyph_name in sorted(top_bases):
+            bx, by = top_bases[glyph_name]
+            lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_top;")
+        lines.append("    } mark_top;")
+
+    # Emit lookup for bottom marks
+    if bottom_marks and bottom_bases:
+        lines.append("")
+        lines.append("    lookup mark_bottom {")
+        for glyph_name in sorted(bottom_bases):
+            bx, by = bottom_bases[glyph_name]
+            lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_bottom;")
+        lines.append("    } mark_bottom;")
+
+    lines.append("} mark;")
+    return "\n".join(lines)
+
+
 def parse_bitmap(bitmap: list) -> list[list[int]]:
     """
     Convert bitmap to a 2D array of 0s and 1s.
@@ -555,10 +646,16 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
 
         # Calculate x_offset: center glyph within advance width
         bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
-        x_offset = (advance_width - bitmap_width) // 2
+        if advance_width == 0:
+            # Zero-width (combining mark): center bitmap on the origin
+            x_offset = -(bitmap_width // 2)
+        else:
+            x_offset = (advance_width - bitmap_width) // 2
 
         # Calculate left side bearing (LSB) with offset applied
-        if rectangles:
+        if advance_width == 0:
+            lsb = 0
+        elif rectangles:
             lsb = min(r[0] for r in rectangles) + x_offset
         else:
             lsb = x_offset
@@ -643,13 +740,23 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
 
-    # Compile kerning into the proportional font only
+    # Compile OpenType features into the proportional font only
+    fea_code_parts = []
+
     kerning_defs = glyph_data.get("kerning", {})
     if is_proportional and kerning_defs:
         kerning_groups = collect_kerning_groups(glyphs_def)
-        fea_code = generate_kern_fea(
+        fea_code_parts.append(generate_kern_fea(
             kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_size
-        )
+        ))
+
+    if is_proportional:
+        mark_fea = generate_mark_fea(glyphs_def, pixel_size)
+        if mark_fea:
+            fea_code_parts.append(mark_fea)
+
+    if fea_code_parts:
+        fea_code = "\n\n".join(fea_code_parts)
         addOpenTypeFeaturesFromString(fb.font, fea_code)
 
         # Write .fea file alongside the font

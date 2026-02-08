@@ -252,6 +252,17 @@
         margin-top: 0;
       }
 
+      .diacritics {
+        table {
+          border-collapse: collapse;
+
+          td {
+            padding: 0 0.75em 0 0;
+            vertical-align: baseline;
+          }
+        }
+      }
+
       .hoefler {
         margin-top: 1.6em;
       }
@@ -434,6 +445,33 @@
       <p>longjaw gj yj qj pj — aj ej ij oj uj — dj fj hj kj lj nj rj tj</p>
       <p>Wait for it… yes. No… really? I said… well… never mind. Done. …or is it?</p>
       <p>© innacircle. All rights reserved. Brand Name®</p>
+    </section>
+    <section class="diacritics">
+      <!-- Precomposed vs combining, per base letter. Columns should look identical. -->
+      <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
+      <table>
+        <tr><td>À Á Â Ã Ä Å</td><td>A&#x0300; A&#x0301; A&#x0302; A&#x0303; A&#x0304; A&#x0307; A&#x0308; A&#x030A; A&#x030B;</td></tr>
+        <tr><td>à á â ã ä å</td><td>a&#x0300; a&#x0301; a&#x0302; a&#x0303; a&#x0304; a&#x0307; a&#x0308; a&#x030A; a&#x030B;</td></tr>
+        <tr><td>Ç</td><td>C&#x0300; C&#x0301; C&#x0302; C&#x0303; C&#x0304; C&#x0307; C&#x0308; C&#x030A; C&#x030B; C&#x0327; C&#x0328;</td></tr>
+        <tr><td>ç</td><td>c&#x0300; c&#x0301; c&#x0302; c&#x0303; c&#x0304; c&#x0307; c&#x0308; c&#x030A; c&#x030B; c&#x0327; c&#x0328;</td></tr>
+        <tr><td>È É Ê Ë</td><td>E&#x0300; E&#x0301; E&#x0302; E&#x0303; E&#x0304; E&#x0307; E&#x0308; E&#x030A; E&#x030B;</td></tr>
+        <tr><td>è é ê ë</td><td>e&#x0300; e&#x0301; e&#x0302; e&#x0303; e&#x0304; e&#x0307; e&#x0308; e&#x030A; e&#x030B;</td></tr>
+        <tr><td>Ì Í Î Ï</td><td>I&#x0300; I&#x0301; I&#x0302; I&#x0303; I&#x0304; I&#x0307; I&#x0308; I&#x030A; I&#x030B;</td></tr>
+        <tr><td>ì í î ï</td><td>&#x0131;&#x0300; &#x0131;&#x0301; &#x0131;&#x0302; &#x0131;&#x0303; &#x0131;&#x0304; &#x0131;&#x0307; &#x0131;&#x0308; &#x0131;&#x030A; &#x0131;&#x030B;</td></tr>
+        <tr><td></td><td>&#x0237;&#x0300; &#x0237;&#x0301; &#x0237;&#x0302; &#x0237;&#x0303; &#x0237;&#x0304; &#x0237;&#x0307; &#x0237;&#x0308; &#x0237;&#x030A; &#x0237;&#x030B;</td></tr>
+        <tr><td>Ñ</td><td>N&#x0300; N&#x0301; N&#x0302; N&#x0303; N&#x0304; N&#x0307; N&#x0308; N&#x030A; N&#x030B;</td></tr>
+        <tr><td>ñ</td><td>n&#x0300; n&#x0301; n&#x0302; n&#x0303; n&#x0304; n&#x0307; n&#x0308; n&#x030A; n&#x030B;</td></tr>
+        <tr><td>Ò Ó Ô Õ Ö</td><td>O&#x0300; O&#x0301; O&#x0302; O&#x0303; O&#x0304; O&#x0307; O&#x0308; O&#x030A; O&#x030B;</td></tr>
+        <tr><td>ò ó ô õ ö</td><td>o&#x0300; o&#x0301; o&#x0302; o&#x0303; o&#x0304; o&#x0307; o&#x0308; o&#x030A; o&#x030B;</td></tr>
+        <tr><td></td><td>S&#x0300; S&#x0301; S&#x0302; S&#x0303; S&#x0304; S&#x0307; S&#x0308; S&#x030A; S&#x030B;</td></tr>
+        <tr><td></td><td>s&#x0300; s&#x0301; s&#x0302; s&#x0303; s&#x0304; s&#x0307; s&#x0308; s&#x030A; s&#x030B;</td></tr>
+        <tr><td>Ù Ú Û Ü</td><td>U&#x0300; U&#x0301; U&#x0302; U&#x0303; U&#x0304; U&#x0307; U&#x0308; U&#x030A; U&#x030B;</td></tr>
+        <tr><td>ù ú û ü</td><td>u&#x0300; u&#x0301; u&#x0302; u&#x0303; u&#x0304; u&#x0307; u&#x0308; u&#x030A; u&#x030B;</td></tr>
+        <tr><td>Ý Ÿ</td><td>Y&#x0300; Y&#x0301; Y&#x0302; Y&#x0303; Y&#x0304; Y&#x0307; Y&#x0308; Y&#x030A; Y&#x030B;</td></tr>
+        <tr><td>ý ÿ</td><td>y&#x0300; y&#x0301; y&#x0302; y&#x0303; y&#x0304; y&#x0307; y&#x0308; y&#x030A; y&#x030B;</td></tr>
+        <tr><td></td><td>Z&#x0300; Z&#x0301; Z&#x0302; Z&#x0303; Z&#x0304; Z&#x0307; Z&#x0308; Z&#x030A; Z&#x030B;</td></tr>
+        <tr><td></td><td>z&#x0300; z&#x0301; z&#x0302; z&#x0303; z&#x0304; z&#x0307; z&#x0308; z&#x030A; z&#x030B;</td></tr>
+      </table>
     </section>
     <section class="hoefler">
       <p>Angel Adept Blind Bodice Clique Coast Dunce Docile Enact Eosin Furlong Focal Gnome Gondola Human Hoist Inlet Iodine Justin Jocose Knoll Koala Linden Loads Milliner Modal Number Nodule Onset Oddball Pneumo Poncho Quanta Qophs Rhone Roman Snout Sodium Tundra Tocsin Uncle Udder Vulcan Vocal Whale Woman Xmas Xenon Yunnan Young Zloty Zodiac.</p>
