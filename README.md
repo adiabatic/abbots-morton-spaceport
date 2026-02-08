@@ -1,6 +1,6 @@
 # Abbots Morton Spaceport
 
-A pixel font for [Quikscript][]. Available as a sans-serif version, or you can pair its monospace version with [Departure Mono][] to get a full-featured monospace font.
+A pixel-font pair for [Quikscript][]. Available as a sans-serif version, or you can pair its monospace version with [Departure Mono][] to get a full-featured monospace font.
 
 [departure mono]: https://departuremono.com/
 [quikscript]:     https://www.quikscript.net/
