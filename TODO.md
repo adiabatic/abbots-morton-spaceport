@@ -7,7 +7,6 @@
 | π | U+03C0 | Greek small letter pi |
 | € | U+20AC | Euro sign |
 | ‑ | U+2011 | Non-breaking hyphen |
-| ― | U+2015 | Horizontal bar |
 | † | U+2020 | Dagger |
 | ‡ | U+2021 | Double dagger |
 | ⁄ | U+2044 | Fraction slash |
