@@ -112,12 +112,14 @@ def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
 def generate_kern_fea(
     kerning_defs: dict,
     kerning_groups: dict[str, list[str]],
+    all_glyph_names: list[str],
     pixel_size: int,
 ) -> str:
     """Generate OpenType feature code for kern feature from kerning definitions."""
     lines = ["feature kern {"]
     for tag_name, definition in kerning_defs.items():
-        left_glyphs = kerning_groups.get(tag_name, [])
+        excluded = set(kerning_groups.get(tag_name, []))
+        left_glyphs = [g for g in all_glyph_names if g not in excluded]
         if not left_glyphs:
             continue
         right_glyphs = definition["right"]
@@ -479,7 +481,9 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     kerning_defs = glyph_data.get("kerning", {})
     if is_proportional and kerning_defs:
         kerning_groups = collect_kerning_groups(glyphs_def)
-        fea_code = generate_kern_fea(kerning_defs, kerning_groups, pixel_size)
+        fea_code = generate_kern_fea(
+            kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_size
+        )
         addOpenTypeFeaturesFromString(fb.font, fea_code)
 
     # Save font
