@@ -10,7 +10,6 @@
 | ― | U+2015 | Horizontal bar |
 | † | U+2020 | Dagger |
 | ‡ | U+2021 | Double dagger |
-| … | U+2026 | Horizontal ellipsis |
 | ⁄ | U+2044 | Fraction slash |
 | ℅ | U+2105 | Care of |
 | ℓ | U+2113 | Script small L |
@@ -39,7 +38,6 @@
 | ∏ | U+220F | N-ary product |
 | ∑ | U+2211 | N-ary summation |
 | ∕ | U+2215 | Division slash |
-| √ | U+221A | Square root |
 | ∞ | U+221E | Infinity |
 | ∫ | U+222B | Integral |
 | ≈ | U+2248 | Almost equal to |
