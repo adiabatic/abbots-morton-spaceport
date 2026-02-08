@@ -705,7 +705,7 @@ glyphs:
       - "   "
 
   dotlessj.prop:  # (dotless j, base for accented j)
-    top_mark_y: 6
+    top_mark_y: 7
     y_offset: -3
     bitmap:
       - "   "
