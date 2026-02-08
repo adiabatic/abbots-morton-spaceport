@@ -600,8 +600,8 @@ glyphs:
       - "#   #"
       - " ####" #
       - "    #"
+      - "    #"
       - " ### "
-      - "     "
 
   mu.prop:  # µ U+00B5
     y_offset: -3
@@ -614,7 +614,7 @@ glyphs:
       - "#### #" #
       - "#     "
       - "#     "
-      - "      "
+      - "#     "
 
   p.prop:  # p U+0070
     y_offset: -3
@@ -627,7 +627,7 @@ glyphs:
       - "#### " #
       - "#    "
       - "#    "
-      - "     "
+      - "#    "
 
   q.prop:  # q U+0071
     y_offset: -3
@@ -640,7 +640,7 @@ glyphs:
       - " ####" #
       - "    #"
       - "    #"
-      - "     "
+      - "    #"
 
   y.prop:  # y U+0079
     y_offset: -3
@@ -652,8 +652,8 @@ glyphs:
       - " # # "
       - "  #  " #
       - "  #  "
-      - " ##  "
-      - "     "
+      - " #   "
+      - " #   "
 
   # Full-vertical: 11 rows, y_offset -3, # on row 8, width 5
   j.prop:  # j U+006A
