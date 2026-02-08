@@ -1827,8 +1827,8 @@ glyphs:
   hungarumlaut.prop:  # ˝ U+02DD
     y_offset: 7
     bitmap: &HUNGARUMLAUT
-      - "# #"
-      - "# #"
+      - " #  #"
+      - "#  # "
 
   macron.prop:  # ¯ U+00AF
     y_offset: 7
@@ -1885,13 +1885,13 @@ glyphs:
       dotlessi: -1
       dotlessj: -1
       n: -1
-      Y: -1
       y: -1
       z: -1
       Z: -1
     mark_base_x_adjust:  # overrides for combining mark only
       dotlessi: -0.5
       dotlessj: -0.5
+      Y: -0.5
 
   uni0303.prop:  # COMBINING TILDE
     advance_width: 0
