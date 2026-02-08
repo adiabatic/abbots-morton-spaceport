@@ -1063,6 +1063,22 @@ glyphs:
     advance_width: 7
     bitmap: []
 
+  uni2007.prop:  # FIGURE SPACE
+    advance_width: 5
+    bitmap: []
+
+  uni2008.prop:  # PUNCTUATION SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni2009.prop:  # THIN SPACE
+    advance_width: 1
+    bitmap: []
+
+  uni200A.prop:  # HAIR SPACE
+    advance_width: 1
+    bitmap: []
+
   # ── Other ────────────────────────────────────────────────────────────
 
   # Bracket-height: 10 rows, y_offset -1
