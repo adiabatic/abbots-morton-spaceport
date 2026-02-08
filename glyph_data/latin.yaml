@@ -1459,10 +1459,12 @@ glyphs:
     bitmap:
       - "###"
 
-  endash.prop:  # – U+2013
+  endash.prop: &ENDASH  # – U+2013 (EN DASH)
     y_offset: 3
     bitmap:
       - "#####"
+
+  uni2012.prop: *ENDASH  # ‒ U+2012 (FIGURE DASH)
 
   emdash.prop:  # — U+2014
     y_offset: 3
