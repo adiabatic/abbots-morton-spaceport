@@ -199,6 +199,157 @@ def draw_rectangles_to_glyph(rectangles: list[tuple], glyph_set):
     return pen.getCharString()
 
 
+def compose_bitmaps(
+    base_bitmap: list[list[int]],
+    base_y_offset: int,
+    accent_bitmap: list[list[int]],
+    mark_y: int,
+    is_top: bool,
+) -> tuple[list[list[int]], int]:
+    """
+    Overlay an accent bitmap onto a base bitmap.
+
+    Args:
+        base_bitmap: Parsed 2D bitmap of the base glyph
+        base_y_offset: y_offset of the base glyph (negative for descenders)
+        accent_bitmap: Parsed 2D bitmap of the accent glyph
+        mark_y: The anchor y position (in pixels above baseline) from the base glyph
+        is_top: True for top accents, False for bottom accents
+
+    Returns:
+        (combined_bitmap, combined_y_offset) where combined_bitmap is the
+        merged 2D array and combined_y_offset is the y_offset for the result.
+    """
+    base_h = len(base_bitmap)
+    accent_h = len(accent_bitmap)
+    base_w = max((len(row) for row in base_bitmap), default=0)
+    accent_w = max((len(row) for row in accent_bitmap), default=0)
+
+    canvas_w = max(base_w, accent_w)
+
+    # Base occupies pixel rows [base_y_offset, base_y_offset + base_h)
+    # (in font-pixel coordinates where 0 = baseline, positive = up)
+    base_bottom = base_y_offset
+    base_top = base_y_offset + base_h
+
+    if is_top:
+        # Top accent: its bottom edge sits at mark_y
+        accent_bottom = mark_y
+        accent_top = mark_y + accent_h
+    else:
+        # Bottom accent: its top edge sits at mark_y, extending downward
+        accent_top = mark_y
+        accent_bottom = mark_y - accent_h
+
+    # Combined extent in font-pixel coordinates
+    combined_bottom = min(base_bottom, accent_bottom)
+    combined_top = max(base_top, accent_top)
+    combined_h = combined_top - combined_bottom
+
+    # Build canvas (row 0 = top of combined glyph)
+    canvas = [[0] * canvas_w for _ in range(combined_h)]
+
+    def blit(bitmap, bm_w, bm_bottom):
+        """Blit a bitmap onto the canvas, centered horizontally."""
+        x_off = (canvas_w - bm_w) // 2
+        bm_h = len(bitmap)
+        for row_idx, row in enumerate(bitmap):
+            # bitmap row 0 is top; font-pixel y for this row:
+            pixel_y = bm_bottom + bm_h - 1 - row_idx
+            # canvas row for this pixel_y:
+            canvas_row = combined_top - 1 - pixel_y
+            for col_idx, val in enumerate(row):
+                if val:
+                    canvas[canvas_row][x_off + col_idx] = 1
+
+    blit(base_bitmap, base_w, base_bottom)
+    blit(accent_bitmap, accent_w, accent_bottom)
+
+    return canvas, combined_bottom
+
+
+def resolve_composite(
+    glyph_name: str,
+    glyph_def: dict,
+    glyphs_def: dict,
+    is_proportional: bool,
+) -> tuple[list[list[int]], int]:
+    """
+    Resolve a composite glyph definition into a bitmap and y_offset.
+
+    Args:
+        glyph_name: Name of the composite glyph (for error messages)
+        glyph_def: The composite glyph definition (has 'base', 'top'/'bottom')
+        glyphs_def: All glyph definitions (to look up base and accent)
+        is_proportional: Whether building the proportional variant
+
+    Returns:
+        (bitmap, y_offset) for the resolved composite
+    """
+    base_name = glyph_def["base"]
+
+    # Try .prop variant first if building proportional font
+    if is_proportional and base_name + ".prop" in glyphs_def:
+        base_ref = base_name + ".prop"
+    else:
+        base_ref = base_name
+
+    base_glyph = glyphs_def.get(base_ref)
+    if base_glyph is None:
+        raise ValueError(
+            f"Composite glyph '{glyph_name}' references base '{base_name}' which doesn't exist"
+        )
+    base_bitmap = parse_bitmap(base_glyph.get("bitmap", []))
+    base_y_offset = base_glyph.get("y_offset", 0)
+
+    result_bitmap = base_bitmap
+    result_y_offset = base_y_offset
+
+    if "top" in glyph_def:
+        accent_name = glyph_def["top"]
+        if is_proportional and accent_name + ".prop" in glyphs_def:
+            accent_ref = accent_name + ".prop"
+        else:
+            accent_ref = accent_name
+        accent_glyph = glyphs_def.get(accent_ref)
+        if accent_glyph is None:
+            raise ValueError(
+                f"Composite glyph '{glyph_name}' references top accent '{accent_name}' which doesn't exist"
+            )
+        accent_bitmap = parse_bitmap(accent_glyph.get("bitmap", []))
+        mark_y = base_glyph.get("top_mark_y")
+        if mark_y is None:
+            raise ValueError(
+                f"Composite glyph '{glyph_name}' needs top_mark_y on base '{base_ref}'"
+            )
+        result_bitmap, result_y_offset = compose_bitmaps(
+            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=True
+        )
+
+    if "bottom" in glyph_def:
+        accent_name = glyph_def["bottom"]
+        if is_proportional and accent_name + ".prop" in glyphs_def:
+            accent_ref = accent_name + ".prop"
+        else:
+            accent_ref = accent_name
+        accent_glyph = glyphs_def.get(accent_ref)
+        if accent_glyph is None:
+            raise ValueError(
+                f"Composite glyph '{glyph_name}' references bottom accent '{accent_name}' which doesn't exist"
+            )
+        accent_bitmap = parse_bitmap(accent_glyph.get("bitmap", []))
+        mark_y = base_glyph.get("bottom_mark_y")
+        if mark_y is None:
+            raise ValueError(
+                f"Composite glyph '{glyph_name}' needs bottom_mark_y on base '{base_ref}'"
+            )
+        result_bitmap, result_y_offset = compose_bitmaps(
+            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=False
+        )
+
+    return result_bitmap, result_y_offset
+
+
 def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = False):
     """
     Build font from glyph data dictionary.
@@ -302,6 +453,21 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
             continue
 
         glyph_def = glyphs_def.get(glyph_name, {})
+
+        # Handle composite glyphs (have 'base' key, no 'bitmap')
+        if "base" in glyph_def and not glyph_def.get("bitmap"):
+            composed_bitmap, composed_y_offset = resolve_composite(
+                glyph_name, glyph_def, glyphs_def, is_proportional
+            )
+            # Inject the resolved bitmap so the rest of the loop handles it normally
+            glyph_def = dict(glyph_def)
+            glyph_def["bitmap"] = composed_bitmap
+            glyph_def["y_offset"] = composed_y_offset
+            # Remove 'base'/'top'/'bottom' so they don't confuse later logic
+            glyph_def.pop("base", None)
+            glyph_def.pop("top", None)
+            glyph_def.pop("bottom", None)
+
         bitmap = glyph_def.get("bitmap", [])
 
         # Validate bitmap width
