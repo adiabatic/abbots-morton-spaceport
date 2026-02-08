@@ -1615,9 +1615,9 @@ glyphs:
   degree.prop:  # ° U+00B0
     y_offset: 5
     bitmap:
-      - " # "
-      - "# #"
-      - " # "
+      - " #  "
+      - "# # "
+      - " #  "
 
   quotedbl.prop:  # " U+0022
     y_offset: 5
