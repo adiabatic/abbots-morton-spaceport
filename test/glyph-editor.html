@@ -295,6 +295,10 @@
       color: light-dark(#0066cc, #4a9eff);
     }
 
+    .fallback-char {
+      background: light-dark(#ffe0e0, #5a2020);
+    }
+
     .toggle-buttons {
       position: fixed;
       top: 1rem;
@@ -336,6 +340,7 @@
 <body>
   <div class="toggle-buttons">
     <button id="kern-toggle">No kerning</button>
+    <button id="fallback-toggle">Show fallback</button>
   </div>
   <h1>Glyph Editor</h1>
   <p>Paste a glyph&rsquo;s YAML block, edit it visually, then copy the output back.</p>
@@ -828,6 +833,78 @@
       kerningEnabled = !kerningEnabled;
       specimenSection.style.fontFeatureSettings = kerningEnabled ? '' : "'kern' 0";
       kernToggle.textContent = kerningEnabled ? 'Yes kerning' : 'No kerning';
+    });
+
+    // Fallback-font highlighting toggle
+    const fallbackToggle = document.getElementById('fallback-toggle');
+    let fallbackShown = false;
+
+    function fontHasGlyph(ctx, char) {
+      // Compare multiple metrics against a fallback to detect glyph presence.
+      // Width alone can coincidentally match; bounding-box metrics make
+      // a false match essentially impossible.
+      ctx.font = '72px serif';
+      const fb = ctx.measureText(char);
+      ctx.font = '72px "Abbots Morton Spaceport Sans", serif';
+      const test = ctx.measureText(char);
+      return test.width !== fb.width
+        || test.actualBoundingBoxAscent !== fb.actualBoundingBoxAscent
+        || test.actualBoundingBoxDescent !== fb.actualBoundingBoxDescent
+        || test.actualBoundingBoxLeft !== fb.actualBoundingBoxLeft
+        || test.actualBoundingBoxRight !== fb.actualBoundingBoxRight;
+    }
+
+    function wrapFallbackChars() {
+      const ctx = document.createElement('canvas').getContext('2d');
+      const walker = document.createTreeWalker(
+        specimenSection,
+        NodeFilter.SHOW_TEXT
+      );
+      const textNodes = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        textNodes.push(node);
+      }
+      for (const textNode of textNodes) {
+        const text = textNode.textContent;
+        if (!text.trim()) continue;
+        const frag = document.createDocumentFragment();
+        for (const char of text) {
+          if (/\s/.test(char)) {
+            frag.appendChild(document.createTextNode(char));
+            continue;
+          }
+          if (fontHasGlyph(ctx, char)) {
+            frag.appendChild(document.createTextNode(char));
+          } else {
+            const span = document.createElement('span');
+            span.className = 'fallback-char';
+            span.textContent = char;
+            frag.appendChild(span);
+          }
+        }
+        textNode.parentNode.replaceChild(frag, textNode);
+      }
+    }
+
+    function unwrapFallbackChars() {
+      for (const span of specimenSection.querySelectorAll('.fallback-char')) {
+        span.replaceWith(span.textContent);
+      }
+      specimenSection.normalize();
+    }
+
+    fallbackToggle.addEventListener('click', () => {
+      fallbackShown = !fallbackShown;
+      if (fallbackShown) {
+        document.fonts.ready.then(() => {
+          wrapFallbackChars();
+          fallbackToggle.textContent = 'Hide fallback';
+        });
+      } else {
+        unwrapFallbackChars();
+        fallbackToggle.textContent = 'Show fallback';
+      }
     });
 
     // Initialize
