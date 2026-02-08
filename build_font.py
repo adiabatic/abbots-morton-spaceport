@@ -140,10 +140,10 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     Returns the FEA string, or None if there are no marks.
     """
     # Collect mark glyphs, split into top vs bottom.
-    # Marks with base_x_adjust get their own mark class and lookup.
+    # Marks with base_x_adjust or base_y_adjust get their own mark class and lookup.
     top_marks = {}       # glyph_name -> (anchor_x, anchor_y)
     bottom_marks = {}
-    adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust)
+    adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust, base_y_adjust)
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or not glyph_def.get("is_mark"):
             continue
@@ -151,26 +151,34 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         y_offset = glyph_def.get("y_offset", 0)
         # Mark anchor x = 0 (bitmap is centered on origin by zero-width drawing)
         anchor_x = 0
+        # Resolve base_x_adjust with mark-only overrides
         base_x_adjust = glyph_def.get("base_x_adjust")
-        # mark_base_x_adjust overrides base_x_adjust for the combining mark only
-        mark_override = glyph_def.get("mark_base_x_adjust")
-        if mark_override and base_x_adjust:
-            base_x_adjust = {**base_x_adjust, **mark_override}
-        elif mark_override:
-            base_x_adjust = mark_override
+        mark_x_override = glyph_def.get("mark_base_x_adjust")
+        if mark_x_override and base_x_adjust:
+            base_x_adjust = {**base_x_adjust, **mark_x_override}
+        elif mark_x_override:
+            base_x_adjust = mark_x_override
+        # Resolve base_y_adjust with mark-only overrides
+        base_y_adjust = glyph_def.get("base_y_adjust")
+        mark_y_override = glyph_def.get("mark_base_y_adjust")
+        if mark_y_override and base_y_adjust:
+            base_y_adjust = {**base_y_adjust, **mark_y_override}
+        elif mark_y_override:
+            base_y_adjust = mark_y_override
+        has_adjustments = base_x_adjust or base_y_adjust
         if y_offset >= 0:
             # Top mark: anchor at the bottom of the drawn pixels
             anchor_y = y_offset * pixel_size
-            if base_x_adjust:
-                adjusted_marks[glyph_name] = (anchor_x, anchor_y, True, base_x_adjust)
+            if has_adjustments:
+                adjusted_marks[glyph_name] = (anchor_x, anchor_y, True, base_x_adjust or {}, base_y_adjust or {})
             else:
                 top_marks[glyph_name] = (anchor_x, anchor_y)
         else:
             # Bottom mark: anchor at the top of the drawn pixels
             bitmap_height = len(bitmap) if bitmap else 0
             anchor_y = (y_offset + bitmap_height) * pixel_size
-            if base_x_adjust:
-                adjusted_marks[glyph_name] = (anchor_x, anchor_y, False, base_x_adjust)
+            if has_adjustments:
+                adjusted_marks[glyph_name] = (anchor_x, anchor_y, False, base_x_adjust or {}, base_y_adjust or {})
             else:
                 bottom_marks[glyph_name] = (anchor_x, anchor_y)
 
@@ -215,7 +223,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_bottom;")
     # Emit markClass definitions for adjusted marks (each gets its own class)
     for glyph_name in sorted(adjusted_marks):
-        ax, ay, _, _ = adjusted_marks[glyph_name]
+        ax, ay, _, _, _ = adjusted_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_{glyph_name};")
 
     # Emit lookup for standard top marks
@@ -238,7 +246,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
 
     # Emit lookups for adjusted marks (per-base anchor overrides)
     for mark_name in sorted(adjusted_marks):
-        _, _, is_top, base_x_adjust = adjusted_marks[mark_name]
+        _, _, is_top, base_x_adjust, base_y_adjust = adjusted_marks[mark_name]
         bases = top_bases if is_top else bottom_bases
         if not bases:
             continue
@@ -246,8 +254,9 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append(f"    lookup mark_{mark_name} {{")
         for glyph_name in sorted(bases):
             bx, by = bases[glyph_name]
-            adjust = base_x_adjust.get(glyph_name, 0) * pixel_size
-            lines.append(f"        pos base {glyph_name} <anchor {bx + adjust} {by}> mark @mark_{mark_name};")
+            x_adj = base_x_adjust.get(glyph_name, 0) * pixel_size
+            y_adj = base_y_adjust.get(glyph_name, 0) * pixel_size
+            lines.append(f"        pos base {glyph_name} <anchor {int(bx + x_adj)} {int(by + y_adj)}> mark @mark_{mark_name};")
         lines.append(f"    }} mark_{mark_name};")
 
     lines.append("} mark;")
@@ -429,15 +438,21 @@ def resolve_composite(
     result_bitmap = base_bitmap
     result_y_offset = base_y_offset
 
-    # Build mapping from spacing accent bitmap identity -> base_x_adjust
+    # Build mapping from spacing accent bitmap identity -> adjustments
     # (YAML aliases make the combining mark's bitmap the same object as the
     # spacing accent's bitmap, so we can use 'is' for matching)
-    accent_adjusts = {}
+    accent_x_adjusts = {}
+    accent_y_adjusts = {}
     for gn, gd in glyphs_def.items():
-        if gd.get("is_mark") and "base_x_adjust" in gd:
-            bitmap_obj = gd.get("bitmap")
-            if bitmap_obj is not None:
-                accent_adjusts[id(bitmap_obj)] = gd["base_x_adjust"]
+        if not gd.get("is_mark"):
+            continue
+        bitmap_obj = gd.get("bitmap")
+        if bitmap_obj is None:
+            continue
+        if "base_x_adjust" in gd:
+            accent_x_adjusts[id(bitmap_obj)] = gd["base_x_adjust"]
+        if "base_y_adjust" in gd:
+            accent_y_adjusts[id(bitmap_obj)] = gd["base_y_adjust"]
 
     if "top" in glyph_def:
         accent_name = glyph_def["top"]
@@ -456,10 +471,12 @@ def resolve_composite(
             raise ValueError(
                 f"Composite glyph '{glyph_name}' needs top_mark_y on base '{base_ref}'"
             )
-        x_adj = accent_adjusts.get(id(accent_glyph.get("bitmap")), {})
-        accent_x_adjust = x_adj.get(base_name, 0)
+        bitmap_id = id(accent_glyph.get("bitmap"))
+        accent_x_adjust = accent_x_adjusts.get(bitmap_id, {}).get(base_name, 0)
+        accent_y_adjust = accent_y_adjusts.get(bitmap_id, {}).get(base_name, 0)
         result_bitmap, result_y_offset = compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=True,
+            result_bitmap, result_y_offset, accent_bitmap,
+            mark_y + accent_y_adjust, is_top=True,
             accent_x_adjust=accent_x_adjust,
         )
 
@@ -480,10 +497,12 @@ def resolve_composite(
             raise ValueError(
                 f"Composite glyph '{glyph_name}' needs bottom_mark_y on base '{base_ref}'"
             )
-        x_adj = accent_adjusts.get(id(accent_glyph.get("bitmap")), {})
-        accent_x_adjust = x_adj.get(base_name, 0)
+        bitmap_id = id(accent_glyph.get("bitmap"))
+        accent_x_adjust = accent_x_adjusts.get(bitmap_id, {}).get(base_name, 0)
+        accent_y_adjust = accent_y_adjusts.get(bitmap_id, {}).get(base_name, 0)
         result_bitmap, result_y_offset = compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=False,
+            result_bitmap, result_y_offset, accent_bitmap,
+            mark_y + accent_y_adjust, is_top=False,
             accent_x_adjust=accent_x_adjust,
         )
 

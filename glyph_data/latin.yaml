@@ -1871,30 +1871,42 @@ glyphs:
       y: -1
       z: -1
       Z: -1
+    mark_base_x_adjust:  # overrides for combining mark only
+      dotlessi: -0.5
+    base_y_adjust:
+      U: 1
 
   uni0303.prop:  # COMBINING TILDE
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *TILDE
+    base_y_adjust:
+      U: 1
 
   uni0304.prop:  # COMBINING MACRON
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *MACRON
+    base_y_adjust:
+      U: 1
 
   uni0307.prop:  # COMBINING DOT ABOVE
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *DOTACCENT
+    base_y_adjust:
+      U: 1
 
   uni0308.prop:  # COMBINING DIAERESIS
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *DIERESIS
+    base_y_adjust:
+      U: 1
 
   uni030A.prop:  # COMBINING RING ABOVE
     advance_width: 0
@@ -1906,6 +1918,8 @@ glyphs:
     advance_width: 0
     is_mark: true
     y_offset: 7
+    base_y_adjust:
+      U: 1
     bitmap: *HUNGARUMLAUT
 
   uni0327.prop:  # COMBINING CEDILLA
