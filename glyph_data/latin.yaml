@@ -1927,6 +1927,17 @@ glyphs:
       - " #  #"
       - "# ## "
 
+  uni25CC.prop:  # ◌ U+25CC (DOTTED CIRCLE)
+    top_mark_y: 7
+    bottom_mark_y: 0
+    bitmap:
+      - " # # "
+      - "#    "
+      - "    #"
+      - "#    "
+      - "    #"
+      - " # # " #
+
   # Mid mark: 1–2 rows, y_offset 3–4
   bullet.prop:  # • U+2022
     y_offset: 3
