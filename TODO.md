@@ -3,7 +3,6 @@
 | Glyph | Code point | Name |
 | --- | --- | --- |
 | 0 | U+0030 | Digit zero |
-|   | U+00A0 | No-break space |
 | ­ | U+00AD | Soft hyphen |
 | π | U+03C0 | Greek small letter pi |
 | € | U+20AC | Euro sign |

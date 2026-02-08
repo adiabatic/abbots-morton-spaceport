@@ -1047,6 +1047,10 @@ glyphs:
 
   # ── Spaces ───────────────────────────────────────────────────────────
 
+  uni00A0.prop:  # NO-BREAK SPACE
+    advance_width: 7
+    bitmap: []
+
   uni2000.prop:  # EN QUAD
     advance_width: 5
     bitmap: []
