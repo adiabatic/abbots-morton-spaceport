@@ -1851,6 +1851,10 @@ glyphs:
     is_mark: true
     y_offset: 7
     bitmap: *ACUTE
+    base_x_adjust:
+      u: 1
+      y: 1
+      Y: 1
 
   uni0302.prop:  # COMBINING CIRCUMFLEX ACCENT
     advance_width: 0
