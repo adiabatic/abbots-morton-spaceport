@@ -664,10 +664,15 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
                         )
 
         if not bitmap:
-            # Empty glyph
-            pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
+            # Empty glyph — use explicit advance_width if set, else mono_width
+            width = glyph_def.get("advance_width")
+            if width is not None:
+                width = int(width * pixel_size)
+            else:
+                width = mono_width
+            pen = T2CharStringPen(width=width, glyphSet=glyph_set)
             charstrings[glyph_name] = pen.getCharString()
-            metrics[glyph_name] = (mono_width, 0)
+            metrics[glyph_name] = (width, 0)
             continue
 
         # Parse and convert bitmap
