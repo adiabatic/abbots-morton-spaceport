@@ -20,6 +20,7 @@ from pathlib import Path
 
 import yaml
 
+from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
@@ -37,6 +38,7 @@ def load_glyph_data(path: Path) -> dict:
     if path.is_dir():
         metadata = {}
         glyphs = {}
+        kerning_defs = {}
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
                 data = yaml.safe_load(f)
@@ -44,7 +46,9 @@ def load_glyph_data(path: Path) -> dict:
                 metadata = data["metadata"]
             if data and "glyphs" in data:
                 glyphs.update(data["glyphs"])
-        return {"metadata": metadata, "glyphs": glyphs}
+            if data and "kerning" in data:
+                kerning_defs.update(data["kerning"])
+        return {"metadata": metadata, "glyphs": glyphs, "kerning": kerning_defs}
     else:
         with open(path) as f:
             return yaml.safe_load(f)
@@ -92,6 +96,37 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             new_glyphs[glyph_name] = glyph_def
 
     return new_glyphs
+
+
+def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
+    """Build a mapping of {tag_name: [glyph_name, ...]} from kerning tags on glyphs."""
+    groups = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        for tag in glyph_def.get("kerning", []):
+            groups.setdefault(tag, []).append(glyph_name)
+    return groups
+
+
+def generate_kern_fea(
+    kerning_defs: dict,
+    kerning_groups: dict[str, list[str]],
+    pixel_size: int,
+) -> str:
+    """Generate OpenType feature code for kern feature from kerning definitions."""
+    lines = ["feature kern {"]
+    for tag_name, definition in kerning_defs.items():
+        left_glyphs = kerning_groups.get(tag_name, [])
+        if not left_glyphs:
+            continue
+        right_glyphs = definition["right"]
+        value = definition["value"] * pixel_size
+        left = " ".join(sorted(left_glyphs))
+        right = " ".join(right_glyphs)
+        lines.append(f"    pos [{left}] [{right}] {value};")
+    lines.append("} kern;")
+    return "\n".join(lines)
 
 
 def parse_bitmap(bitmap: list) -> list[list[int]]:
@@ -440,12 +475,15 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
 
-    # Save font initially
-    fb.save(str(output_path))
+    # Compile kerning into the proportional font only
+    kerning_defs = glyph_data.get("kerning", {})
+    if is_proportional and kerning_defs:
+        kerning_groups = collect_kerning_groups(glyphs_def)
+        fea_code = generate_kern_fea(kerning_defs, kerning_groups, pixel_size)
+        addOpenTypeFeaturesFromString(fb.font, fea_code)
 
-    # Note: ss01 feature is no longer generated for mono font
-    # since .prop glyphs are not included. The proportional font
-    # uses .prop glyphs as defaults, so no ss01 needed there either.
+    # Save font
+    fb.save(str(output_path))
 
     # Print summary
     variant = "proportional" if is_proportional else "monospace"

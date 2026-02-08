@@ -1,0 +1,4 @@
+kerning:
+  leave-space-for-j:
+    right: [j]
+    value: -1
