@@ -1597,6 +1597,11 @@ glyphs:
     bitmap:
       - "#######"
 
+  uni2015.prop:  # ― HORIZONTAL BAR
+    y_offset: 3
+    bitmap:
+      - "########"
+
   # Semicolon: 7 rows, y_offset -1
   semicolon.prop:  # ; U+003B
     y_offset: -1
