@@ -256,9 +256,11 @@
         table {
           border-collapse: collapse;
 
-          td {
-            padding: 0 0.75em 0 0;
+          th, td {
+            padding: 0 0.5em 0 0;
             vertical-align: baseline;
+            font-weight: normal;
+            text-align: left;
           }
         }
       }
@@ -449,28 +451,30 @@
     <section class="diacritics">
       <!-- Precomposed vs combining, per base letter. Columns should look identical. -->
       <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
+      <!-- One column per mark. Cells with two glyphs = precomposed + combining (should look identical). -->
       <table>
-        <tr><td>À Á Â Ã Ä Å</td><td>A&#x0300; A&#x0301; A&#x0302; A&#x0303; A&#x0304; A&#x0307; A&#x0308; A&#x030A; A&#x030B;</td></tr>
-        <tr><td>à á â ã ä å</td><td>a&#x0300; a&#x0301; a&#x0302; a&#x0303; a&#x0304; a&#x0307; a&#x0308; a&#x030A; a&#x030B;</td></tr>
-        <tr><td>Ç</td><td>C&#x0300; C&#x0301; C&#x0302; C&#x0303; C&#x0304; C&#x0307; C&#x0308; C&#x030A; C&#x030B; C&#x0327; C&#x0328;</td></tr>
-        <tr><td>ç</td><td>c&#x0300; c&#x0301; c&#x0302; c&#x0303; c&#x0304; c&#x0307; c&#x0308; c&#x030A; c&#x030B; c&#x0327; c&#x0328;</td></tr>
-        <tr><td>È É Ê Ë</td><td>E&#x0300; E&#x0301; E&#x0302; E&#x0303; E&#x0304; E&#x0307; E&#x0308; E&#x030A; E&#x030B;</td></tr>
-        <tr><td>è é ê ë</td><td>e&#x0300; e&#x0301; e&#x0302; e&#x0303; e&#x0304; e&#x0307; e&#x0308; e&#x030A; e&#x030B;</td></tr>
-        <tr><td>Ì Í Î Ï</td><td>I&#x0300; I&#x0301; I&#x0302; I&#x0303; I&#x0304; I&#x0307; I&#x0308; I&#x030A; I&#x030B;</td></tr>
-        <tr><td>ì í î ï</td><td>&#x0131;&#x0300; &#x0131;&#x0301; &#x0131;&#x0302; &#x0131;&#x0303; &#x0131;&#x0304; &#x0131;&#x0307; &#x0131;&#x0308; &#x0131;&#x030A; &#x0131;&#x030B;</td></tr>
-        <tr><td></td><td>&#x0237;&#x0300; &#x0237;&#x0301; &#x0237;&#x0302; &#x0237;&#x0303; &#x0237;&#x0304; &#x0237;&#x0307; &#x0237;&#x0308; &#x0237;&#x030A; &#x0237;&#x030B;</td></tr>
-        <tr><td>Ñ</td><td>N&#x0300; N&#x0301; N&#x0302; N&#x0303; N&#x0304; N&#x0307; N&#x0308; N&#x030A; N&#x030B;</td></tr>
-        <tr><td>ñ</td><td>n&#x0300; n&#x0301; n&#x0302; n&#x0303; n&#x0304; n&#x0307; n&#x0308; n&#x030A; n&#x030B;</td></tr>
-        <tr><td>Ò Ó Ô Õ Ö</td><td>O&#x0300; O&#x0301; O&#x0302; O&#x0303; O&#x0304; O&#x0307; O&#x0308; O&#x030A; O&#x030B;</td></tr>
-        <tr><td>ò ó ô õ ö</td><td>o&#x0300; o&#x0301; o&#x0302; o&#x0303; o&#x0304; o&#x0307; o&#x0308; o&#x030A; o&#x030B;</td></tr>
-        <tr><td></td><td>S&#x0300; S&#x0301; S&#x0302; S&#x0303; S&#x0304; S&#x0307; S&#x0308; S&#x030A; S&#x030B;</td></tr>
-        <tr><td></td><td>s&#x0300; s&#x0301; s&#x0302; s&#x0303; s&#x0304; s&#x0307; s&#x0308; s&#x030A; s&#x030B;</td></tr>
-        <tr><td>Ù Ú Û Ü</td><td>U&#x0300; U&#x0301; U&#x0302; U&#x0303; U&#x0304; U&#x0307; U&#x0308; U&#x030A; U&#x030B;</td></tr>
-        <tr><td>ù ú û ü</td><td>u&#x0300; u&#x0301; u&#x0302; u&#x0303; u&#x0304; u&#x0307; u&#x0308; u&#x030A; u&#x030B;</td></tr>
-        <tr><td>Ý Ÿ</td><td>Y&#x0300; Y&#x0301; Y&#x0302; Y&#x0303; Y&#x0304; Y&#x0307; Y&#x0308; Y&#x030A; Y&#x030B;</td></tr>
-        <tr><td>ý ÿ</td><td>y&#x0300; y&#x0301; y&#x0302; y&#x0303; y&#x0304; y&#x0307; y&#x0308; y&#x030A; y&#x030B;</td></tr>
-        <tr><td></td><td>Z&#x0300; Z&#x0301; Z&#x0302; Z&#x0303; Z&#x0304; Z&#x0307; Z&#x0308; Z&#x030A; Z&#x030B;</td></tr>
-        <tr><td></td><td>z&#x0300; z&#x0301; z&#x0302; z&#x0303; z&#x0304; z&#x0307; z&#x0308; z&#x030A; z&#x030B;</td></tr>
+        <tr><th></th><th>`</th><th>´</th><th>^</th><th>˜</th><th>¯</th><th>˙</th><th>¨</th><th>˚</th><th>˝</th><th>¸</th><th>˛</th></tr>
+        <tr><th>A</th><td>À A&#x0300;</td><td>Á A&#x0301;</td><td>Â A&#x0302;</td><td>Ã A&#x0303;</td><td>A&#x0304;</td><td>A&#x0307;</td><td>Ä A&#x0308;</td><td>Å A&#x030A;</td><td>A&#x030B;</td><td></td><td></td></tr>
+        <tr><th>a</th><td>à a&#x0300;</td><td>á a&#x0301;</td><td>â a&#x0302;</td><td>ã a&#x0303;</td><td>a&#x0304;</td><td>a&#x0307;</td><td>ä a&#x0308;</td><td>å a&#x030A;</td><td>a&#x030B;</td><td></td><td></td></tr>
+        <tr><th>C</th><td>C&#x0300;</td><td>C&#x0301;</td><td>C&#x0302;</td><td>C&#x0303;</td><td>C&#x0304;</td><td>C&#x0307;</td><td>C&#x0308;</td><td>C&#x030A;</td><td>C&#x030B;</td><td>Ç C&#x0327;</td><td>C&#x0328;</td></tr>
+        <tr><th>c</th><td>c&#x0300;</td><td>c&#x0301;</td><td>c&#x0302;</td><td>c&#x0303;</td><td>c&#x0304;</td><td>c&#x0307;</td><td>c&#x0308;</td><td>c&#x030A;</td><td>c&#x030B;</td><td>ç c&#x0327;</td><td>c&#x0328;</td></tr>
+        <tr><th>E</th><td>È E&#x0300;</td><td>É E&#x0301;</td><td>Ê E&#x0302;</td><td>E&#x0303;</td><td>E&#x0304;</td><td>E&#x0307;</td><td>Ë E&#x0308;</td><td>E&#x030A;</td><td>E&#x030B;</td><td></td><td></td></tr>
+        <tr><th>e</th><td>è e&#x0300;</td><td>é e&#x0301;</td><td>ê e&#x0302;</td><td>e&#x0303;</td><td>e&#x0304;</td><td>e&#x0307;</td><td>ë e&#x0308;</td><td>e&#x030A;</td><td>e&#x030B;</td><td></td><td></td></tr>
+        <tr><th>I</th><td>Ì I&#x0300;</td><td>Í I&#x0301;</td><td>Î I&#x0302;</td><td>I&#x0303;</td><td>I&#x0304;</td><td>I&#x0307;</td><td>Ï I&#x0308;</td><td>I&#x030A;</td><td>I&#x030B;</td><td></td><td></td></tr>
+        <tr><th>&#x0131;</th><td>ì &#x0131;&#x0300;</td><td>í &#x0131;&#x0301;</td><td>î &#x0131;&#x0302;</td><td>&#x0131;&#x0303;</td><td>&#x0131;&#x0304;</td><td>&#x0131;&#x0307;</td><td>ï &#x0131;&#x0308;</td><td>&#x0131;&#x030A;</td><td>&#x0131;&#x030B;</td><td></td><td></td></tr>
+        <tr><th>&#x0237;</th><td>&#x0237;&#x0300;</td><td>&#x0237;&#x0301;</td><td>&#x0237;&#x0302;</td><td>&#x0237;&#x0303;</td><td>&#x0237;&#x0304;</td><td>&#x0237;&#x0307;</td><td>&#x0237;&#x0308;</td><td>&#x0237;&#x030A;</td><td>&#x0237;&#x030B;</td><td></td><td></td></tr>
+        <tr><th>N</th><td>N&#x0300;</td><td>N&#x0301;</td><td>N&#x0302;</td><td>Ñ N&#x0303;</td><td>N&#x0304;</td><td>N&#x0307;</td><td>N&#x0308;</td><td>N&#x030A;</td><td>N&#x030B;</td><td></td><td></td></tr>
+        <tr><th>n</th><td>n&#x0300;</td><td>n&#x0301;</td><td>n&#x0302;</td><td>ñ n&#x0303;</td><td>n&#x0304;</td><td>n&#x0307;</td><td>n&#x0308;</td><td>n&#x030A;</td><td>n&#x030B;</td><td></td><td></td></tr>
+        <tr><th>O</th><td>Ò O&#x0300;</td><td>Ó O&#x0301;</td><td>Ô O&#x0302;</td><td>Õ O&#x0303;</td><td>O&#x0304;</td><td>O&#x0307;</td><td>Ö O&#x0308;</td><td>O&#x030A;</td><td>O&#x030B;</td><td></td><td></td></tr>
+        <tr><th>o</th><td>ò o&#x0300;</td><td>ó o&#x0301;</td><td>ô o&#x0302;</td><td>õ o&#x0303;</td><td>o&#x0304;</td><td>o&#x0307;</td><td>ö o&#x0308;</td><td>o&#x030A;</td><td>o&#x030B;</td><td></td><td></td></tr>
+        <tr><th>S</th><td>S&#x0300;</td><td>S&#x0301;</td><td>S&#x0302;</td><td>S&#x0303;</td><td>S&#x0304;</td><td>S&#x0307;</td><td>S&#x0308;</td><td>S&#x030A;</td><td>S&#x030B;</td><td></td><td></td></tr>
+        <tr><th>s</th><td>s&#x0300;</td><td>s&#x0301;</td><td>s&#x0302;</td><td>s&#x0303;</td><td>s&#x0304;</td><td>s&#x0307;</td><td>s&#x0308;</td><td>s&#x030A;</td><td>s&#x030B;</td><td></td><td></td></tr>
+        <tr><th>U</th><td>Ù U&#x0300;</td><td>Ú U&#x0301;</td><td>Û U&#x0302;</td><td>U&#x0303;</td><td>U&#x0304;</td><td>U&#x0307;</td><td>Ü U&#x0308;</td><td>U&#x030A;</td><td>U&#x030B;</td><td></td><td></td></tr>
+        <tr><th>u</th><td>ù u&#x0300;</td><td>ú u&#x0301;</td><td>û u&#x0302;</td><td>u&#x0303;</td><td>u&#x0304;</td><td>u&#x0307;</td><td>ü u&#x0308;</td><td>u&#x030A;</td><td>u&#x030B;</td><td></td><td></td></tr>
+        <tr><th>Y</th><td>Y&#x0300;</td><td>Ý Y&#x0301;</td><td>Y&#x0302;</td><td>Y&#x0303;</td><td>Y&#x0304;</td><td>Y&#x0307;</td><td>Ÿ Y&#x0308;</td><td>Y&#x030A;</td><td>Y&#x030B;</td><td></td><td></td></tr>
+        <tr><th>y</th><td>y&#x0300;</td><td>ý y&#x0301;</td><td>y&#x0302;</td><td>y&#x0303;</td><td>y&#x0304;</td><td>y&#x0307;</td><td>ÿ y&#x0308;</td><td>y&#x030A;</td><td>y&#x030B;</td><td></td><td></td></tr>
+        <tr><th>Z</th><td>Z&#x0300;</td><td>Z&#x0301;</td><td>Z&#x0302;</td><td>Z&#x0303;</td><td>Z&#x0304;</td><td>Z&#x0307;</td><td>Z&#x0308;</td><td>Z&#x030A;</td><td>Z&#x030B;</td><td></td><td></td></tr>
+        <tr><th>z</th><td>z&#x0300;</td><td>z&#x0301;</td><td>z&#x0302;</td><td>z&#x0303;</td><td>z&#x0304;</td><td>z&#x0307;</td><td>z&#x0308;</td><td>z&#x030A;</td><td>z&#x030B;</td><td></td><td></td></tr>
       </table>
     </section>
     <section class="hoefler">

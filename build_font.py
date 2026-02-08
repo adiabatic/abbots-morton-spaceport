@@ -139,28 +139,36 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
 
     Returns the FEA string, or None if there are no marks.
     """
-    # Collect mark glyphs, split into top vs bottom
-    top_marks = {}   # glyph_name -> (anchor_x, anchor_y)
+    # Collect mark glyphs, split into top vs bottom.
+    # Marks with base_x_adjust get their own mark class and lookup.
+    top_marks = {}       # glyph_name -> (anchor_x, anchor_y)
     bottom_marks = {}
+    adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust)
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or not glyph_def.get("is_mark"):
             continue
         bitmap = glyph_def.get("bitmap", [])
         y_offset = glyph_def.get("y_offset", 0)
-        bitmap_width = max((len(row) for row in bitmap), default=0) if bitmap else 0
         # Mark anchor x = 0 (bitmap is centered on origin by zero-width drawing)
         anchor_x = 0
+        base_x_adjust = glyph_def.get("base_x_adjust")
         if y_offset >= 0:
             # Top mark: anchor at the bottom of the drawn pixels
             anchor_y = y_offset * pixel_size
-            top_marks[glyph_name] = (anchor_x, anchor_y)
+            if base_x_adjust:
+                adjusted_marks[glyph_name] = (anchor_x, anchor_y, True, base_x_adjust)
+            else:
+                top_marks[glyph_name] = (anchor_x, anchor_y)
         else:
             # Bottom mark: anchor at the top of the drawn pixels
             bitmap_height = len(bitmap) if bitmap else 0
             anchor_y = (y_offset + bitmap_height) * pixel_size
-            bottom_marks[glyph_name] = (anchor_x, anchor_y)
+            if base_x_adjust:
+                adjusted_marks[glyph_name] = (anchor_x, anchor_y, False, base_x_adjust)
+            else:
+                bottom_marks[glyph_name] = (anchor_x, anchor_y)
 
-    if not top_marks and not bottom_marks:
+    if not top_marks and not bottom_marks and not adjusted_marks:
         return None
 
     # Collect base glyphs with anchors
@@ -192,15 +200,19 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
 
     lines = ["feature mark {"]
 
-    # Emit markClass definitions
+    # Emit markClass definitions for standard marks
     for glyph_name in sorted(top_marks):
         ax, ay = top_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_top;")
     for glyph_name in sorted(bottom_marks):
         ax, ay = bottom_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_bottom;")
+    # Emit markClass definitions for adjusted marks (each gets its own class)
+    for glyph_name in sorted(adjusted_marks):
+        ax, ay, _, _ = adjusted_marks[glyph_name]
+        lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_{glyph_name};")
 
-    # Emit lookup for top marks
+    # Emit lookup for standard top marks
     if top_marks and top_bases:
         lines.append("")
         lines.append("    lookup mark_top {")
@@ -209,7 +221,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_top;")
         lines.append("    } mark_top;")
 
-    # Emit lookup for bottom marks
+    # Emit lookup for standard bottom marks
     if bottom_marks and bottom_bases:
         lines.append("")
         lines.append("    lookup mark_bottom {")
@@ -217,6 +229,20 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             bx, by = bottom_bases[glyph_name]
             lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_bottom;")
         lines.append("    } mark_bottom;")
+
+    # Emit lookups for adjusted marks (per-base anchor overrides)
+    for mark_name in sorted(adjusted_marks):
+        _, _, is_top, base_x_adjust = adjusted_marks[mark_name]
+        bases = top_bases if is_top else bottom_bases
+        if not bases:
+            continue
+        lines.append("")
+        lines.append(f"    lookup mark_{mark_name} {{")
+        for glyph_name in sorted(bases):
+            bx, by = bases[glyph_name]
+            adjust = base_x_adjust.get(glyph_name, 0) * pixel_size
+            lines.append(f"        pos base {glyph_name} <anchor {bx + adjust} {by}> mark @mark_{mark_name};")
+        lines.append(f"    }} mark_{mark_name};")
 
     lines.append("} mark;")
     return "\n".join(lines)

@@ -1857,6 +1857,14 @@ glyphs:
     is_mark: true
     y_offset: 6
     bitmap: *CIRCUMFLEX
+    base_x_adjust:
+      a: -1
+      dotlessi: -1
+      n: -1
+      Y: -1
+      y: -1
+      z: -1
+      Z: -1
 
   uni0303.prop:  # COMBINING TILDE
     advance_width: 0
