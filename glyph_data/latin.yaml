@@ -1823,6 +1823,11 @@ glyphs:
       - "#"
       - "#"
 
+  ellipsis.prop:  # … U+2026
+    bitmap:
+      - "# # #"
+      - "# # #"
+
   # Underscore: 2 rows, y_offset -1
   underscore.prop:  # _ U+005F
     y_offset: -1

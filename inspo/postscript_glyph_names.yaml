@@ -90,6 +90,12 @@ divide: 0x00F7
 oslash: 0x00F8
 thorn: 0x00FE
 
+# General punctuation
+endash: 0x2013
+emdash: 0x2014
+bullet: 0x2022
+ellipsis: 0x2026
+
 # Quotes
 quoteleft: 0x2018
 quoteright: 0x2019
