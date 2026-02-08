@@ -152,6 +152,12 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         # Mark anchor x = 0 (bitmap is centered on origin by zero-width drawing)
         anchor_x = 0
         base_x_adjust = glyph_def.get("base_x_adjust")
+        # mark_base_x_adjust overrides base_x_adjust for the combining mark only
+        mark_override = glyph_def.get("mark_base_x_adjust")
+        if mark_override and base_x_adjust:
+            base_x_adjust = {**base_x_adjust, **mark_override}
+        elif mark_override:
+            base_x_adjust = mark_override
         if y_offset >= 0:
             # Top mark: anchor at the bottom of the drawn pixels
             anchor_y = y_offset * pixel_size
