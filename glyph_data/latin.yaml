@@ -1211,6 +1211,20 @@ glyphs:
       - "    "
       - "####"
 
+  radical.prop:  # √ U+221A
+    y_offset: -1
+    bitmap:
+      - "       ##"
+      - "      #  "
+      - "     #   "
+      - "     #   "
+      - "    #    "
+      - "    #    "
+      - " # #     "
+      - " # #     "
+      - "  #      "
+      - "  #      "
+
   uni2669.prop:  # ♩ U+2669
     y_offset: -1
     bitmap:
