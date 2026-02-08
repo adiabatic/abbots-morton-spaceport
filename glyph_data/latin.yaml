@@ -275,7 +275,7 @@ glyphs:
       - "#     "
 
   U.prop:  # U U+0055
-    top_mark_y: 8
+    top_mark_y: 9
     bitmap:
       - "#    #"
       - "#    #"
@@ -1847,6 +1847,8 @@ glyphs:
     is_mark: true
     y_offset: 7
     bitmap: *GRAVE
+    base_y_adjust:
+      U: -1
 
   uni0301.prop:  # COMBINING ACUTE ACCENT
     advance_width: 0
@@ -1857,6 +1859,8 @@ glyphs:
       u: 1
       y: 1
       Y: 1
+    base_y_adjust:
+      U: -1
 
   uni0302.prop:  # COMBINING CIRCUMFLEX ACCENT
     advance_width: 0
@@ -1873,53 +1877,43 @@ glyphs:
       Z: -1
     mark_base_x_adjust:  # overrides for combining mark only
       dotlessi: -0.5
-    base_y_adjust:
-      U: 1
 
   uni0303.prop:  # COMBINING TILDE
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *TILDE
-    base_y_adjust:
-      U: 1
 
   uni0304.prop:  # COMBINING MACRON
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *MACRON
-    base_y_adjust:
-      U: 1
 
   uni0307.prop:  # COMBINING DOT ABOVE
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *DOTACCENT
-    base_y_adjust:
-      U: 1
 
   uni0308.prop:  # COMBINING DIAERESIS
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *DIERESIS
-    base_y_adjust:
-      U: 1
 
   uni030A.prop:  # COMBINING RING ABOVE
     advance_width: 0
     is_mark: true
     y_offset: 7
     bitmap: *RING
+    base_y_adjust:
+      U: -1
 
   uni030B.prop:  # COMBINING DOUBLE ACUTE ACCENT
     advance_width: 0
     is_mark: true
     y_offset: 7
-    base_y_adjust:
-      U: 1
     bitmap: *HUNGARUMLAUT
 
   uni0327.prop:  # COMBINING CEDILLA
