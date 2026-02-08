@@ -10,10 +10,6 @@
 |   | U+2004 | Three-per-em space |
 |   | U+2005 | Four-per-em space |
 |   | U+2006 | Six-per-em space |
-|   | U+2007 | Figure space |
-|   | U+2008 | Punctuation space |
-|   | U+2009 | Thin space |
-|   | U+200A | Hair space |
 | ‑ | U+2011 | Non-breaking hyphen |
 | ― | U+2015 | Horizontal bar |
 | † | U+2020 | Dagger |
