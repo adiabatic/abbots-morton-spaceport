@@ -286,6 +286,18 @@ glyphs:
       - "#    #"
       - " #### "
 
+  U.prop.narrow:  # Narrow U for 3px-wide accents
+    top_mark_y: 9
+    bitmap:
+      - "#   #"
+      - "#   #"
+      - "#   #" #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
+
   V.prop:  # V U+0056
     bitmap:
       - "#     #"
