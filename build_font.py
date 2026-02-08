@@ -322,6 +322,7 @@ def compose_bitmaps(
     accent_bitmap: list[list[int]],
     mark_y: int,
     is_top: bool,
+    accent_x_adjust: int = 0,
 ) -> tuple[list[list[int]], int]:
     """
     Overlay an accent bitmap onto a base bitmap.
@@ -366,9 +367,9 @@ def compose_bitmaps(
     # Build canvas (row 0 = top of combined glyph)
     canvas = [[0] * canvas_w for _ in range(combined_h)]
 
-    def blit(bitmap, bm_w, bm_bottom):
+    def blit(bitmap, bm_w, bm_bottom, x_adjust=0):
         """Blit a bitmap onto the canvas, centered horizontally."""
-        x_off = (canvas_w - bm_w) // 2
+        x_off = (canvas_w - bm_w) // 2 + x_adjust
         bm_h = len(bitmap)
         for row_idx, row in enumerate(bitmap):
             # bitmap row 0 is top; font-pixel y for this row:
@@ -380,7 +381,7 @@ def compose_bitmaps(
                     canvas[canvas_row][x_off + col_idx] = 1
 
     blit(base_bitmap, base_w, base_bottom)
-    blit(accent_bitmap, accent_w, accent_bottom)
+    blit(accent_bitmap, accent_w, accent_bottom, accent_x_adjust)
 
     return canvas, combined_bottom
 
@@ -422,6 +423,16 @@ def resolve_composite(
     result_bitmap = base_bitmap
     result_y_offset = base_y_offset
 
+    # Build mapping from spacing accent bitmap identity -> base_x_adjust
+    # (YAML aliases make the combining mark's bitmap the same object as the
+    # spacing accent's bitmap, so we can use 'is' for matching)
+    accent_adjusts = {}
+    for gn, gd in glyphs_def.items():
+        if gd.get("is_mark") and "base_x_adjust" in gd:
+            bitmap_obj = gd.get("bitmap")
+            if bitmap_obj is not None:
+                accent_adjusts[id(bitmap_obj)] = gd["base_x_adjust"]
+
     if "top" in glyph_def:
         accent_name = glyph_def["top"]
         if is_proportional and accent_name + ".prop" in glyphs_def:
@@ -439,8 +450,11 @@ def resolve_composite(
             raise ValueError(
                 f"Composite glyph '{glyph_name}' needs top_mark_y on base '{base_ref}'"
             )
+        x_adj = accent_adjusts.get(id(accent_glyph.get("bitmap")), {})
+        accent_x_adjust = x_adj.get(base_name, 0)
         result_bitmap, result_y_offset = compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=True
+            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=True,
+            accent_x_adjust=accent_x_adjust,
         )
 
     if "bottom" in glyph_def:
@@ -460,8 +474,11 @@ def resolve_composite(
             raise ValueError(
                 f"Composite glyph '{glyph_name}' needs bottom_mark_y on base '{base_ref}'"
             )
+        x_adj = accent_adjusts.get(id(accent_glyph.get("bitmap")), {})
+        accent_x_adjust = x_adj.get(base_name, 0)
         result_bitmap, result_y_offset = compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=False
+            result_bitmap, result_y_offset, accent_bitmap, mark_y, is_top=False,
+            accent_x_adjust=accent_x_adjust,
         )
 
     return result_bitmap, result_y_offset
