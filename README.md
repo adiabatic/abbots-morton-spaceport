@@ -1,9 +1,9 @@
 # Abbots Morton Spaceport
 
-[Departure Mono][dm], but [Quikscript][qs].
+A pixel font for [Quikscript][]. Available as a sans-serif version, or you can pair its monospace version with [Departure Mono][] to get a full-featured monospace font.
 
-[dm]: https://departuremono.com/
-[qs]: https://www.quikscript.net/
+[departure mono]: https://departuremono.com/
+[quikscript]:     https://www.quikscript.net/
 
 You can get a copy of the latest .otf and .woff2 files from [the Releases page][r].
 
@@ -13,13 +13,16 @@ You can get a copy of the latest .otf and .woff2 files from [the Releases page][
 
 This font comes in two variants:
 
-- monospace (Abbots Morton Spaceport Mono)
 - proportional (Abbots Morton Spaceport Sans)
+- monospace (Abbots Morton Spaceport Mono)
 
-Either way, you’ll need to:
+You’ll definitely need to:
 
-1. set your fonts to multiples of 11 pixels, probably
-1. get [Departure Mono][dm] working, too
+1. set your fonts to multiples of 11 pixels (unless you’re targeting print exclusively)
+
+And you might need to:
+
+2. get [Departure Mono][] working, too
 
 ### Font sizing
 
@@ -29,9 +32,13 @@ On the other hand, if you’re aiming for print (in, say, Word or Typst), you do
 
 ### Using with Departure Mono
 
-No matter whether you’re using Abbots Morton Spaceport Mono or Sans, you’ll want to use it with [Departure Mono][dm], which has all the other characters you’d want. The Abbots Morton Spaceport family doesn’t have many glyphs beyond Quikscript ones.
+While Abbots Morton Spaceport **Sans** is a full-featured font, Abbots Morton Spaceport **Mono** pretty much only supplies Quikscript-only characters. If you want to use Abbots Morton Spaceport in, say, a text editor, you’ll likely want to use it with [Departure Mono][].
 
-If you’re using Abbots Morton Spaceport **Sans**, you’ll want to put it first in your font stack. That way, its proportional punctuation like `·` will get used instead of Departure Mono’s `·` that will have extra space on the sides that you don’t want.
+Even if you _are_ using Abbots Morton Spaceport Sans, you may also want to use Departure Mono anyway — it has Greek and Cyrillic letters and doesn’t skimp on eastern-European diacritical marks, if nothing else.
+
+#### Font-stack ordering
+
+If you’re using Abbots Morton Spaceport **Sans**, you’ll want to put it first in your font stack. That way, its glyphs will get used instead of Departure Mono’s.
 
 If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can tell, the order in which you specify fonts doesn’t matter.
 
@@ -56,7 +63,7 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
 
 /* you probably know what selector you want already, but we’ll go with :root */
 :root {
-  /* For Abbots Morton Spaceport Sans, you want it in front so its proportional punctuation gets used */
+  /* For Abbots Morton Spaceport Sans, you want it in front */
   font-family: 'Abbots Morton Spaceport Sans', 'Departure Mono', monospace;
 
   /* For Abbots Morton Spaceport Mono, the same order should be fine */
@@ -73,7 +80,7 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
 
 ```typst
 #set text(
-    // For Abbots Morton Spaceport Sans, you want it in front so its proportional punctuation gets used
+    // For Abbots Morton Spaceport Sans, you want it in front
     font: ("Abbots Morton Spaceport Sans", "Departure Mono"),
 )
 ```

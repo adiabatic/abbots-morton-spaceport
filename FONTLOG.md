@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 6.000
+
+- Add enough sans-serif glyphs to have a full-featured font
+
 ### 5.000
 
 - Un-swap ·Oy and ·Out
