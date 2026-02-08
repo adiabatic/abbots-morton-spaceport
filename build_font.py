@@ -56,7 +56,7 @@ def load_glyph_data(path: Path) -> dict:
 
 def is_proportional_glyph(glyph_name: str) -> bool:
     """Check if a glyph is a proportional variant."""
-    return glyph_name.endswith(".prop")
+    return glyph_name.endswith(".prop") or ".prop." in glyph_name
 
 
 def get_base_glyph_name(prop_glyph_name: str) -> str:

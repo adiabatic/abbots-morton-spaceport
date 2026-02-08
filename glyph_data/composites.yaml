@@ -200,11 +200,11 @@ glyphs:
     top: acute
 
   Ucircumflex.prop:  # Û U+00DB
-    base: U
+    base: U.prop.narrow
     top: asciicircum
 
   Udieresis.prop:  # Ü U+00DC
-    base: U
+    base: U.prop.narrow
     top: dieresis
 
   Ugrave.prop:  # Ù U+00D9
