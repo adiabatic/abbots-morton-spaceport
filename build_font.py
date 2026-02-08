@@ -486,6 +486,11 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         )
         addOpenTypeFeaturesFromString(fb.font, fea_code)
 
+        # Write .fea file alongside the font
+        fea_path = output_path.with_suffix(".fea")
+        fea_path.write_text(fea_code + "\n")
+        print(f"  Feature code saved to: {fea_path}")
+
     # Save font
     fb.save(str(output_path))
 
