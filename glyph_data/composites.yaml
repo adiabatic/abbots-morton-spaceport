@@ -1,0 +1,220 @@
+glyphs:
+  # ── Composite accented glyphs ──────────────────────────────────────
+
+  # Lowercase composites
+  aacute.prop:  # á U+00E1
+    base: a
+    top: acute
+
+  acircumflex.prop:  # â U+00E2
+    base: a
+    top: asciicircum
+
+  adieresis.prop:  # ä U+00E4
+    base: a
+    top: dieresis
+
+  agrave.prop:  # à U+00E0
+    base: a
+    top: grave
+
+  aring.prop:  # å U+00E5
+    base: a
+    top: ring
+
+  atilde.prop:  # ã U+00E3
+    base: a
+    top: tilde
+
+  ccedilla.prop:  # ç U+00E7
+    base: c
+    bottom: cedilla
+
+  eacute.prop:  # é U+00E9
+    base: e
+    top: acute
+
+  ecircumflex.prop:  # ê U+00EA
+    base: e
+    top: asciicircum
+
+  edieresis.prop:  # ë U+00EB
+    base: e
+    top: dieresis
+
+  egrave.prop:  # è U+00E8
+    base: e
+    top: grave
+
+  iacute.prop:  # í U+00ED
+    base: dotlessi
+    top: acute
+
+  icircumflex.prop:  # î U+00EE
+    base: dotlessi
+    top: asciicircum
+
+  idieresis.prop:  # ï U+00EF
+    base: dotlessi
+    top: dieresis
+
+  igrave.prop:  # ì U+00EC
+    base: dotlessi
+    top: grave
+
+  ntilde.prop:  # ñ U+00F1
+    base: n
+    top: tilde
+
+  oacute.prop:  # ó U+00F3
+    base: o
+    top: acute
+
+  ocircumflex.prop:  # ô U+00F4
+    base: o
+    top: asciicircum
+
+  odieresis.prop:  # ö U+00F6
+    base: o
+    top: dieresis
+
+  ograve.prop:  # ò U+00F2
+    base: o
+    top: grave
+
+  otilde.prop:  # õ U+00F5
+    base: o
+    top: tilde
+
+  uacute.prop:  # ú U+00FA
+    base: u
+    top: acute
+
+  ucircumflex.prop:  # û U+00FB
+    base: u
+    top: asciicircum
+
+  udieresis.prop:  # ü U+00FC
+    base: u
+    top: dieresis
+
+  ugrave.prop:  # ù U+00F9
+    base: u
+    top: grave
+
+  yacute.prop:  # ý U+00FD
+    base: y
+    top: acute
+
+  ydieresis.prop:  # ÿ U+00FF
+    base: y
+    top: dieresis
+
+  # Uppercase composites
+  Aacute.prop:  # Á U+00C1
+    base: A
+    top: acute
+
+  Acircumflex.prop:  # Â U+00C2
+    base: A
+    top: asciicircum
+
+  Adieresis.prop:  # Ä U+00C4
+    base: A
+    top: dieresis
+
+  Agrave.prop:  # À U+00C0
+    base: A
+    top: grave
+
+  Aring.prop:  # Å U+00C5
+    base: A
+    top: ring
+
+  Atilde.prop:  # Ã U+00C3
+    base: A
+    top: tilde
+
+  Ccedilla.prop:  # Ç U+00C7
+    base: C
+    bottom: cedilla
+
+  Eacute.prop:  # É U+00C9
+    base: E
+    top: acute
+
+  Ecircumflex.prop:  # Ê U+00CA
+    base: E
+    top: asciicircum
+
+  Edieresis.prop:  # Ë U+00CB
+    base: E
+    top: dieresis
+
+  Egrave.prop:  # È U+00C8
+    base: E
+    top: grave
+
+  Iacute.prop:  # Í U+00CD
+    base: I
+    top: acute
+
+  Icircumflex.prop:  # Î U+00CE
+    base: I
+    top: asciicircum
+
+  Idieresis.prop:  # Ï U+00CF
+    base: I
+    top: dieresis
+
+  Igrave.prop:  # Ì U+00CC
+    base: I
+    top: grave
+
+  Ntilde.prop:  # Ñ U+00D1
+    base: N
+    top: tilde
+
+  Oacute.prop:  # Ó U+00D3
+    base: O
+    top: acute
+
+  Ocircumflex.prop:  # Ô U+00D4
+    base: O
+    top: asciicircum
+
+  Odieresis.prop:  # Ö U+00D6
+    base: O
+    top: dieresis
+
+  Ograve.prop:  # Ò U+00D2
+    base: O
+    top: grave
+
+  Otilde.prop:  # Õ U+00D5
+    base: O
+    top: tilde
+
+  Uacute.prop:  # Ú U+00DA
+    base: U
+    top: acute
+
+  Ucircumflex.prop:  # Û U+00DB
+    base: U
+    top: asciicircum
+
+  Udieresis.prop:  # Ü U+00DC
+    base: U
+    top: dieresis
+
+  Ugrave.prop:  # Ù U+00D9
+    base: U
+    top: grave
+
+  Yacute.prop:  # Ý U+00DD
+    base: Y
+    top: acute
+
+  Ydieresis.prop:  # Ÿ U+0178
+    base: Y
+    top: dieresis
