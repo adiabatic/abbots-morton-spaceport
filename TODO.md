@@ -7,9 +7,6 @@
 | ­ | U+00AD | Soft hyphen |
 | π | U+03C0 | Greek small letter pi |
 | € | U+20AC | Euro sign |
-|   | U+2004 | Three-per-em space |
-|   | U+2005 | Four-per-em space |
-|   | U+2006 | Six-per-em space |
 | ‑ | U+2011 | Non-breaking hyphen |
 | ― | U+2015 | Horizontal bar |
 | † | U+2020 | Dagger |
