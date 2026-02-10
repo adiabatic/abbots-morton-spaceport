@@ -1580,10 +1580,12 @@ glyphs:
     bitmap:
       - "#####"
 
-  hyphen.prop:  # - U+002D (HYPHEN-MINUS)
+  hyphen.prop: &HYPHEN  # - U+002D (HYPHEN-MINUS)
     y_offset: 3
     bitmap:
       - "###"
+
+  uni2011.prop: *HYPHEN  # ‑ U+2011 (NON-BREAKING HYPHEN)
 
   endash.prop: &ENDASH  # – U+2013 (EN DASH)
     y_offset: 3
