@@ -1815,6 +1815,24 @@ glyphs:
       - "     "
       - "#####"
 
+  approxequal.prop:  # ≈ U+2248
+    y_offset: 1
+    bitmap:
+      - " #  #"
+      - "# ## "
+      - "     "
+      - " #  #"
+      - "# ## "
+
+  notequal.prop:  # ≠ U+2260
+    y_offset: 1
+    bitmap:
+      - "   # "
+      - "#####"
+      - "  #  "
+      - "#####"
+      - " #   "
+
   # Low-hook: 3 rows, y_offset -1
   comma.prop:  # , U+002C
     y_offset: -1
