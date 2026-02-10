@@ -2042,8 +2042,8 @@ glyphs:
   asciitilde.prop:  # ~ U+007E
     y_offset: 4
     bitmap:
-      - " #  #"
-      - "# ## "
+      - " ##  #"
+      - "#  ## "
 
   uni25CC.prop:  # ◌ U+25CC (DOTTED CIRCLE)
     top_mark_y: 7
