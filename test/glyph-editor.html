@@ -1,957 +1,1506 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Glyph Editor - Abbots Morton Spaceport</title>
-  <style>
-    @font-face {
-      font-family: 'Abbots Morton Spaceport Mono';
-      src: url('AbbotsMortonSpaceportMono.otf') format('opentype');
-    }
-
-    @font-face {
-      font-family: 'Abbots Morton Spaceport Sans';
-      src: url('AbbotsMortonSpaceportSans.otf') format('opentype');
-    }
-
-    @font-face {
-      font-family: 'Departure Mono';
-      src: url('DepartureMono-Regular.otf') format('opentype');
-    }
-
-    :root {
-      color-scheme: light dark;
-      --font-stack: 'Abbots Morton Spaceport Mono', 'Abbots Morton Spaceport Sans', 'Departure Mono', monospace;
-      --card-bg: light-dark(#fff, #2a2a2a);
-      --card-border: 1px solid light-dark(#ccc, #444);
-    }
-
-    html {
-      font-family: var(--font-stack);
-      font-size: 11px;
-      -webkit-font-smoothing: none;
-      -moz-osx-font-smoothing: grayscale;
-      font-smooth: never;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      background: light-dark(#f5f5f5, #1a1a1a);
-      color: light-dark(#222, #e0e0e0);
-      padding: 2rem;
-      max-width: 1000px;
-      margin: 0 auto;
-    }
-
-    h1, h2 {
-      color: light-dark(#0066cc, #4a9eff);
-      font-weight: normal;
-    }
-
-    h1 {
-      font-size: 33px;
-    }
-
-    h2 {
-      font-size: 22px;
-      margin-top: 1.5rem;
-      margin-bottom: 0.5rem;
-    }
-
-    .editor-container {
-      display: grid;
-      grid-template-columns: 1fr auto auto;
-      gap: 1.5rem;
-      align-items: start;
-    }
-
-    .input-section, .output-section {
-      background: var(--card-bg);
-      border: var(--card-border);
-      padding: 1rem;
-      border-radius: 4px;
-    }
-
-    textarea {
-      font-family: var(--font-stack);
-      font-size: 11px;
-      width: 100%;
-      resize: vertical;
-      background: light-dark(#fafafa, #1e1e1e);
-      color: light-dark(#222, #e0e0e0);
-      border: 1px solid light-dark(#ccc, #444);
-      border-radius: 4px;
-      padding: 0.5rem;
-      -webkit-font-smoothing: none;
-    }
-
-    #input-yaml {
-      height: 280px;
-    }
-
-    #output-yaml {
-      height: 280px;
-    }
-
-    .lightboard-section {
-      background: var(--card-bg);
-      border: var(--card-border);
-      padding: 1rem;
-      border-radius: 4px;
-    }
-
-    .lightboard {
-      display: grid;
-      gap: 2px;
-      background: #888;
-      padding: 2px;
-      border-radius: 4px;
-      user-select: none;
-    }
-
-    .lightboard-cell {
-      width: 36px;
-      height: 36px;
-      border: none;
-      cursor: pointer;
-      transition: background-color 0.1s;
-
-      &.off {
-        background: #f0f0f0;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Glyph Editor &mdash; Abbots Morton Spaceport</title>
+    <style>
+      @font-face {
+        font-family: "Abbots Morton Spaceport Mono";
+        src: url("AbbotsMortonSpaceportMono.otf") format("opentype");
       }
 
-      &.on {
-        background: #222;
+      @font-face {
+        font-family: "Abbots Morton Spaceport Sans";
+        src: url("AbbotsMortonSpaceportSans.otf") format("opentype");
       }
 
-      &.disabled {
-        background: #aaa;
-        cursor: not-allowed;
+      @font-face {
+        font-family: "Departure Mono";
+        src: url("DepartureMono-Regular.otf") format("opentype");
       }
 
-      &:hover:not(.disabled) {
-        opacity: 0.8;
+      :root {
+        color-scheme: light dark;
+        --font-stack: "Abbots Morton Spaceport Mono", "Abbots Morton Spaceport Sans", "Departure Mono", monospace;
+        --card-bg: light-dark(#fff, #2a2a2a);
+        --card-border: 1px solid light-dark(#ccc, #444);
       }
-    }
 
-    .lightboard-wrapper {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.5rem;
-    }
-
-    .row-marker {
-      position: absolute;
-      height: 36px;
-      width: 100%;
-      display: flex;
-      align-items: center;
-      font-size: 12px;
-      font-family: system-ui, sans-serif;
-      color: light-dark(#888, #666);
-      pointer-events: none;
-    }
-
-    .column-buttons {
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      position: relative;
-
-      button {
-        width: 36px;
-        height: 36px;
-        padding: 0;
-        font-size: 24px;
-        line-height: 1;
-      }
-    }
-
-    #column-buttons-left .row-marker {
-      justify-content: flex-end;
-    }
-
-    #column-buttons-right .row-marker {
-      justify-content: flex-start;
-    }
-
-    .y-offset-control {
-      margin-top: 1rem;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-
-      input {
-        width: 60px;
-        padding: 0.25rem;
+      html {
         font-family: var(--font-stack);
         font-size: 11px;
+        -webkit-font-smoothing: none;
+        -moz-osx-font-smoothing: grayscale;
+        font-smooth: never;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        background: light-dark(#f5f5f5, #1a1a1a);
+        color: light-dark(#222, #e0e0e0);
+        padding: 2rem;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+
+      h1,
+      h2 {
+        color: light-dark(#0066cc, #4a9eff);
+        font-weight: normal;
+      }
+
+      h1 {
+        font-size: 33px;
+      }
+
+      h2 {
+        font-size: 22px;
+        margin-top: 1.5rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .editor-container {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 1.5rem;
+        align-items: start;
+      }
+
+      .input-section,
+      .output-section {
+        background: var(--card-bg);
+        border: var(--card-border);
+        padding: 1rem;
+        border-radius: 4px;
+      }
+
+      textarea {
+        font-family: var(--font-stack);
+        font-size: 11px;
+        width: 100%;
+        resize: vertical;
         background: light-dark(#fafafa, #1e1e1e);
         color: light-dark(#222, #e0e0e0);
         border: 1px solid light-dark(#ccc, #444);
         border-radius: 4px;
+        padding: 0.5rem;
+        -webkit-font-smoothing: none;
       }
-    }
 
-    .preview-section {
-      background: var(--card-bg);
-      border: var(--card-border);
-      padding: 1rem;
-      border-radius: 4px;
-    }
-
-    .preview-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.75rem;
-
-      &:last-child {
-        margin-bottom: 0;
+      #input-yaml {
+        height: 280px;
       }
-    }
 
-    .preview-label {
-      width: 30px;
-      color: light-dark(#666, #888);
-    }
+      #output-yaml {
+        height: 280px;
+      }
 
-    .preview-canvas {
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-      background: light-dark(#f0f0f0, #333);
-      border: 1px solid light-dark(#ccc, #555);
-    }
+      .lightboard-section {
+        background: var(--card-bg);
+        border: var(--card-border);
+        padding: 1rem;
+        border-radius: 4px;
+      }
 
-    .output-section {
-      margin-top: 1.5rem;
-    }
+      .lightboard {
+        display: grid;
+        gap: 2px;
+        background: #888;
+        padding: 2px;
+        border-radius: 4px;
+        user-select: none;
+      }
 
-    .specimen-section {
-      background: var(--card-bg);
-      border: var(--card-border);
-      padding: 1rem;
-      border-radius: 4px;
-      margin-top: 1.5rem;
-      font-size: 22px;
+      .lightboard-cell {
+        width: 36px;
+        height: 36px;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.1s;
 
-      p {
-        margin: 0;
-        line-height: 1.6;
+        &.off {
+          background: #f0f0f0;
+        }
 
-        & + p {
+        &.on {
+          background: #222;
+        }
+
+        &.disabled {
+          background: #aaa;
+          cursor: not-allowed;
+        }
+
+        &:hover:not(.disabled) {
+          opacity: 0.8;
+        }
+      }
+
+      .lightboard-wrapper {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+
+      .row-marker {
+        position: absolute;
+        height: 36px;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        font-size: 12px;
+        font-family: system-ui, sans-serif;
+        color: light-dark(#888, #666);
+        pointer-events: none;
+      }
+
+      .column-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        position: relative;
+
+        button {
+          width: 36px;
+          height: 36px;
+          padding: 0;
+          font-size: 24px;
+          line-height: 1;
+        }
+      }
+
+      #column-buttons-left .row-marker {
+        justify-content: flex-end;
+      }
+
+      #column-buttons-right .row-marker {
+        justify-content: flex-start;
+      }
+
+      .y-offset-control {
+        margin-top: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+
+        input {
+          width: 60px;
+          padding: 0.25rem;
+          font-family: var(--font-stack);
+          font-size: 11px;
+          background: light-dark(#fafafa, #1e1e1e);
+          color: light-dark(#222, #e0e0e0);
+          border: 1px solid light-dark(#ccc, #444);
+          border-radius: 4px;
+        }
+      }
+
+      .preview-section {
+        background: var(--card-bg);
+        border: var(--card-border);
+        padding: 1rem;
+        border-radius: 4px;
+      }
+
+      .preview-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 0.75rem;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      .preview-label {
+        width: 30px;
+        color: light-dark(#666, #888);
+      }
+
+      .preview-canvas {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        background: light-dark(#f0f0f0, #333);
+        border: 1px solid light-dark(#ccc, #555);
+      }
+
+      .output-section {
+        margin-top: 1.5rem;
+      }
+
+      .specimen-section {
+        background: var(--card-bg);
+        border: var(--card-border);
+        padding: 1rem;
+        border-radius: 4px;
+        margin-top: 1.5rem;
+        font-size: 22px;
+
+        p {
+          margin: 0;
+          line-height: 1.6;
+
+          & + p {
+            margin-top: 1.6em;
+          }
+        }
+
+        .oddballs p + p {
+          margin-top: 0;
+        }
+
+        .diacritics {
+          table {
+            border-collapse: collapse;
+
+            th,
+            td {
+              padding: 0 0.5em 0 0;
+              vertical-align: baseline;
+              font-weight: normal;
+              text-align: left;
+            }
+          }
+        }
+
+        .hoefler {
           margin-top: 1.6em;
         }
       }
 
-      .oddballs p + p {
-        margin-top: 0;
-      }
+      .output-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5rem;
 
-      .diacritics {
-        table {
-          border-collapse: collapse;
-
-          th, td {
-            padding: 0 0.5em 0 0;
-            vertical-align: baseline;
-            font-weight: normal;
-            text-align: left;
-          }
+        .section-label {
+          margin-bottom: 0;
         }
       }
-
-      .hoefler {
-        margin-top: 1.6em;
-      }
-    }
-
-    .output-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 0.5rem;
-
-      .section-label {
-        margin-bottom: 0;
-      }
-    }
-
-    button {
-      font-family: var(--font-stack);
-      font-size: 11px;
-      padding: 0.25rem 0.5rem;
-      background: light-dark(#e0e0e0, #444);
-      color: light-dark(#222, #e0e0e0);
-      border: 1px solid light-dark(#ccc, #555);
-      border-radius: 4px;
-      cursor: pointer;
-
-      &:hover {
-        background: light-dark(#d0d0d0, #555);
-      }
-    }
-
-    .section-label {
-      color: light-dark(#666, #888);
-      margin-bottom: 0.5rem;
-      font-size: 11px;
-    }
-
-    .glyph-info {
-      margin-bottom: 0.5rem;
-      font-size: 11px;
-      color: light-dark(#0066cc, #4a9eff);
-    }
-
-    .fallback-char {
-      background: light-dark(#ffe0e0, #5a2020);
-    }
-
-    .toggle-buttons {
-      position: fixed;
-      top: 1rem;
-      right: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-      z-index: 1000;
 
       button {
-        padding: 0.75rem 1.5rem;
-        font-size: 22px;
-        font-family: inherit;
-        background: light-dark(#0066cc, #4a9eff);
-        color: light-dark(#fff, #1a1a1a);
-        border: none;
+        font-family: var(--font-stack);
+        font-size: 11px;
+        padding: 0.25rem 0.5rem;
+        background: light-dark(#e0e0e0, #444);
+        color: light-dark(#222, #e0e0e0);
+        border: 1px solid light-dark(#ccc, #555);
         border-radius: 4px;
         cursor: pointer;
-        -webkit-font-smoothing: none;
 
         &:hover {
-          background: light-dark(#0055aa, #6ab0ff);
+          background: light-dark(#d0d0d0, #555);
         }
       }
-    }
 
-    footer {
-      text-align: center;
-      margin-top: 3rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid light-dark(#ccc, #444);
+      .section-label {
+        color: light-dark(#666, #888);
+        margin-bottom: 0.5rem;
+        font-size: 11px;
+      }
 
-      a {
+      .glyph-info {
+        margin-bottom: 0.5rem;
+        font-size: 11px;
         color: light-dark(#0066cc, #4a9eff);
       }
-    }
-  </style>
-</head>
-<body>
-  <div class="toggle-buttons">
-    <button id="kern-toggle">No kerning</button>
-    <button id="fallback-toggle" title="Highlight characters rendered by a fallback font">No fallback HL</button>
-  </div>
-  <h1>Glyph Editor</h1>
-  <p>Paste a glyph&rsquo;s YAML block, edit it visually, then copy the output back.</p>
 
-  <div class="editor-container">
-    <div class="input-section">
-      <div class="section-label">Input (paste YAML here)</div>
-      <textarea id="input-yaml" placeholder="&#x20;&#x20;uniE650:  # ·Pea
+      .fallback-char {
+        background: light-dark(#ffe0e0, #5a2020);
+      }
+
+      .toggle-buttons {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        z-index: 1000;
+
+        button {
+          padding: 0.75rem 1.5rem;
+          font-size: 22px;
+          font-family: inherit;
+          background: light-dark(#0066cc, #4a9eff);
+          color: light-dark(#fff, #1a1a1a);
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          -webkit-font-smoothing: none;
+
+          &:hover {
+            background: light-dark(#0055aa, #6ab0ff);
+          }
+        }
+      }
+
+      footer {
+        text-align: center;
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid light-dark(#ccc, #444);
+
+        a {
+          color: light-dark(#0066cc, #4a9eff);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toggle-buttons">
+      <button id="kern-toggle">No kerning</button>
+      <button id="fallback-toggle" title="Highlight characters rendered by a fallback font">No fallback HL</button>
+    </div>
+    <h1>Glyph Editor</h1>
+    <p>Paste a glyph&rsquo;s YAML block, edit it visually, then copy the output back.</p>
+
+    <div class="editor-container">
+      <div class="input-section">
+        <div class="section-label">Input (paste YAML here)</div>
+        <textarea
+          id="input-yaml"
+          placeholder='&#x20;&#x20;uniE650:  # ·Pea
 &#x20;&#x20;&#x20;&#x20;bitmap:
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot; ### &quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;#   #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;#   #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot; #
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot;
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- &quot;    #&quot;"></textarea>
-    </div>
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- " ### "
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "#   #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "#   #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #" #
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
+&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"'
+        ></textarea>
+      </div>
 
-    <div class="lightboard-section">
-      <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
-      <div class="glyph-info" id="glyph-info"></div>
-      <div class="lightboard-wrapper">
-        <div class="column-buttons" id="column-buttons-left">
-          <button type="button" id="add-col-left" title="Add column on left">+</button>
-          <button type="button" id="remove-col-left" title="Remove column from left">−</button>
+      <div class="lightboard-section">
+        <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
+        <div class="glyph-info" id="glyph-info"></div>
+        <div class="lightboard-wrapper">
+          <div class="column-buttons" id="column-buttons-left">
+            <button type="button" id="add-col-left" title="Add column on left">+</button>
+            <button type="button" id="remove-col-left" title="Remove column from left">−</button>
+          </div>
+          <div class="lightboard" id="lightboard"></div>
+          <div class="column-buttons" id="column-buttons-right">
+            <button type="button" id="add-col-right" title="Add column on right">+</button>
+            <button type="button" id="remove-col-right" title="Remove column from right">−</button>
+          </div>
         </div>
-        <div class="lightboard" id="lightboard"></div>
-        <div class="column-buttons" id="column-buttons-right">
-          <button type="button" id="add-col-right" title="Add column on right">+</button>
-          <button type="button" id="remove-col-right" title="Remove column from right">−</button>
+        <div class="y-offset-control">
+          <label for="y-offset">y_offset:</label>
+          <input type="number" id="y-offset" value="0" min="-12" max="12" />
         </div>
       </div>
-      <div class="y-offset-control">
-        <label for="y-offset">y_offset:</label>
-        <input type="number" id="y-offset" value="0" min="-12" max="12">
+
+      <div class="preview-section">
+        <div class="section-label">Preview</div>
+        <div class="preview-row">
+          <span class="preview-label">1×</span>
+          <canvas id="preview-1x" class="preview-canvas"></canvas>
+        </div>
+        <div class="preview-row">
+          <span class="preview-label">2×</span>
+          <canvas id="preview-2x" class="preview-canvas"></canvas>
+        </div>
+        <div class="preview-row">
+          <span class="preview-label">3×</span>
+          <canvas id="preview-3x" class="preview-canvas"></canvas>
+        </div>
+        <div class="preview-row">
+          <span class="preview-label">4×</span>
+          <canvas id="preview-4x" class="preview-canvas"></canvas>
+        </div>
       </div>
     </div>
 
-    <div class="preview-section">
-      <div class="section-label">Preview</div>
-      <div class="preview-row">
-        <span class="preview-label">1×</span>
-        <canvas id="preview-1x" class="preview-canvas"></canvas>
+    <div class="output-section">
+      <div class="output-header">
+        <div class="section-label">Output (copy this back to glyph_data.yaml)</div>
+        <button id="copy-btn" type="button">Copy to clipboard</button>
       </div>
-      <div class="preview-row">
-        <span class="preview-label">2×</span>
-        <canvas id="preview-2x" class="preview-canvas"></canvas>
-      </div>
-      <div class="preview-row">
-        <span class="preview-label">3×</span>
-        <canvas id="preview-3x" class="preview-canvas"></canvas>
-      </div>
-      <div class="preview-row">
-        <span class="preview-label">4×</span>
-        <canvas id="preview-4x" class="preview-canvas"></canvas>
-      </div>
+      <textarea id="output-yaml" readonly></textarea>
     </div>
-  </div>
 
-  <div class="output-section">
-    <div class="output-header">
-      <div class="section-label">Output (copy this back to glyph_data.yaml)</div>
-      <button id="copy-btn" type="button">Copy to clipboard</button>
+    <div class="specimen-section">
+      <div class="section-label">Specimen</div>
+      <section class="oddballs">
+        <p>The Ægean encyclopædia described Æthelred's mediæval reign.</p>
+        <p>Øresund's fjørd inspired Søren to write about Ørsted's discoveries.</p>
+        <p>Þórr's þunder shook þe earth, and Þórdís sang þrough þe storm.</p>
+        <p>Die Straße zur großen Schlossstraße war außergewöhnlich. GROẞE STRAẞE!</p>
+        <p>Ðat weorð was goð, and Ðegn broðor stood firm.</p>
+        <p>The mass was 5 µg, the length 12 µm, and the current 300 µA.</p>
+        <p>0123456789 £1,234.56 $7,890.00 €42.99 ¥100 ¤50 99¢ 3½ 2¼ 1¾ 1×2×3 99% #1 0°C 72°F</p>
+        <p>x⁰ x¹ x² x³ x⁴ x⁵ x⁶ x⁷ x⁸ x⁹ ²H ³H ¹⁴C ⁶⁰Co ²³⁵U</p>
+        <p>H₂O CO₂ C₆H₁₂O₆ a₀ a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉</p>
+        <p>(parens) [brackets] {braces} &#xE66E;angle parens&#xE66F; ¶1 ¶2 ¶3 §1 §2 §3 &amp; &amp; &amp;</p>
+        <p>
+          user@host ~$ @TODO @override @param C:\Users\Fonts\ \\server\share \n \t __init__ __main__ snake_case MAX_SIZE
+        </p>
+        <p>What? Why?? How?! Really?! ¿Verdad? x ? y : z foo?.bar a ?? b</p>
+        <p>Stop! Go!! ¡Cuidado! ?! !? ¿¡ ¡¿ ?¿ ¿? !¡ ¡!</p>
+        <p>x = (−b ± √(b² − 4ac)) / 2a</p>
+        <p>5 − 3 = 2 (minus −) 1990–1999 (en dash –) self-reliant (hyphen -) yes — really (em dash —)</p>
+        <p>6 × 7 = 42 42 ÷ 7 = 6 6 * 7 = 42</p>
+        <p>
+          &quot;straight&quot; &apos;straight&apos; &ldquo;curly&rdquo; &lsquo;curly&rsquo; &bdquo;German&ldquo;
+          &sbquo;German&lsquo; &laquo;guillemets&raquo; &lsaquo;single&rsaquo;
+        </p>
+        <p>1º 2º 3º 1ª 2ª 3ª 90° 180° 360° º ª ° 5′6″ 40°26′46″N 3°42′12″W f‴ f″ f′</p>
+        <p>longjaw gj yj qj pj — aj ej ij oj uj — dj fj hj kj lj nj rj tj</p>
+        <p>Wait for it… yes. No… really? I said… well… never mind. Done. …or is it?</p>
+        <p>© innacircle. All rights reserved. Brand Name®</p>
+      </section>
+      <section class="diacritics">
+        <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
+        <table>
+          <tr>
+            <th></th>
+            <th>`</th>
+            <th>&#x25CC;&#x0300;</th>
+            <th>´</th>
+            <th>&#x25CC;&#x0301;</th>
+            <th>^</th>
+            <th>&#x25CC;&#x0302;</th>
+            <th>˜</th>
+            <th>&#x25CC;&#x0303;</th>
+            <th>¯</th>
+            <th>&#x25CC;&#x0304;</th>
+            <th>˙</th>
+            <th>&#x25CC;&#x0307;</th>
+            <th>¨</th>
+            <th>&#x25CC;&#x0308;</th>
+            <th>˚</th>
+            <th>&#x25CC;&#x030A;</th>
+            <th>˝</th>
+            <th>&#x25CC;&#x030B;</th>
+            <th>¸</th>
+            <th>&#x25CC;&#x0327;</th>
+            <th>˛</th>
+            <th>&#x25CC;&#x0328;</th>
+          </tr>
+          <tr>
+            <th>A</th>
+            <td>À</td>
+            <td>A&#x0300;</td>
+            <td>Á</td>
+            <td>A&#x0301;</td>
+            <td>Â</td>
+            <td>A&#x0302;</td>
+            <td>Ã</td>
+            <td>A&#x0303;</td>
+            <td></td>
+            <td>A&#x0304;</td>
+            <td></td>
+            <td>A&#x0307;</td>
+            <td>Ä</td>
+            <td>A&#x0308;</td>
+            <td>Å</td>
+            <td>A&#x030A;</td>
+            <td></td>
+            <td>A&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>a</th>
+            <td>à</td>
+            <td>a&#x0300;</td>
+            <td>á</td>
+            <td>a&#x0301;</td>
+            <td>â</td>
+            <td>a&#x0302;</td>
+            <td>ã</td>
+            <td>a&#x0303;</td>
+            <td></td>
+            <td>a&#x0304;</td>
+            <td></td>
+            <td>a&#x0307;</td>
+            <td>ä</td>
+            <td>a&#x0308;</td>
+            <td>å</td>
+            <td>a&#x030A;</td>
+            <td></td>
+            <td>a&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>C</th>
+            <td></td>
+            <td>C&#x0300;</td>
+            <td></td>
+            <td>C&#x0301;</td>
+            <td></td>
+            <td>C&#x0302;</td>
+            <td></td>
+            <td>C&#x0303;</td>
+            <td></td>
+            <td>C&#x0304;</td>
+            <td></td>
+            <td>C&#x0307;</td>
+            <td></td>
+            <td>C&#x0308;</td>
+            <td></td>
+            <td>C&#x030A;</td>
+            <td></td>
+            <td>C&#x030B;</td>
+            <td>Ç</td>
+            <td>C&#x0327;</td>
+            <td></td>
+            <td>C&#x0328;</td>
+          </tr>
+          <tr>
+            <th>c</th>
+            <td></td>
+            <td>c&#x0300;</td>
+            <td></td>
+            <td>c&#x0301;</td>
+            <td></td>
+            <td>c&#x0302;</td>
+            <td></td>
+            <td>c&#x0303;</td>
+            <td></td>
+            <td>c&#x0304;</td>
+            <td></td>
+            <td>c&#x0307;</td>
+            <td></td>
+            <td>c&#x0308;</td>
+            <td></td>
+            <td>c&#x030A;</td>
+            <td></td>
+            <td>c&#x030B;</td>
+            <td>ç</td>
+            <td>c&#x0327;</td>
+            <td></td>
+            <td>c&#x0328;</td>
+          </tr>
+          <tr>
+            <th>E</th>
+            <td>È</td>
+            <td>E&#x0300;</td>
+            <td>É</td>
+            <td>E&#x0301;</td>
+            <td>Ê</td>
+            <td>E&#x0302;</td>
+            <td></td>
+            <td>E&#x0303;</td>
+            <td></td>
+            <td>E&#x0304;</td>
+            <td></td>
+            <td>E&#x0307;</td>
+            <td>Ë</td>
+            <td>E&#x0308;</td>
+            <td></td>
+            <td>E&#x030A;</td>
+            <td></td>
+            <td>E&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>e</th>
+            <td>è</td>
+            <td>e&#x0300;</td>
+            <td>é</td>
+            <td>e&#x0301;</td>
+            <td>ê</td>
+            <td>e&#x0302;</td>
+            <td></td>
+            <td>e&#x0303;</td>
+            <td></td>
+            <td>e&#x0304;</td>
+            <td></td>
+            <td>e&#x0307;</td>
+            <td>ë</td>
+            <td>e&#x0308;</td>
+            <td></td>
+            <td>e&#x030A;</td>
+            <td></td>
+            <td>e&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>I</th>
+            <td>Ì</td>
+            <td>I&#x0300;</td>
+            <td>Í</td>
+            <td>I&#x0301;</td>
+            <td>Î</td>
+            <td>I&#x0302;</td>
+            <td></td>
+            <td>I&#x0303;</td>
+            <td></td>
+            <td>I&#x0304;</td>
+            <td></td>
+            <td>I&#x0307;</td>
+            <td>Ï</td>
+            <td>I&#x0308;</td>
+            <td></td>
+            <td>I&#x030A;</td>
+            <td></td>
+            <td>I&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>&#x0131;</th>
+            <td>ì</td>
+            <td>&#x0131;&#x0300;</td>
+            <td>í</td>
+            <td>&#x0131;&#x0301;</td>
+            <td>î</td>
+            <td>&#x0131;&#x0302;</td>
+            <td></td>
+            <td>&#x0131;&#x0303;</td>
+            <td></td>
+            <td>&#x0131;&#x0304;</td>
+            <td></td>
+            <td>&#x0131;&#x0307;</td>
+            <td>ï</td>
+            <td>&#x0131;&#x0308;</td>
+            <td></td>
+            <td>&#x0131;&#x030A;</td>
+            <td></td>
+            <td>&#x0131;&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>&#x0237;</th>
+            <td></td>
+            <td>&#x0237;&#x0300;</td>
+            <td></td>
+            <td>&#x0237;&#x0301;</td>
+            <td></td>
+            <td>&#x0237;&#x0302;</td>
+            <td></td>
+            <td>&#x0237;&#x0303;</td>
+            <td></td>
+            <td>&#x0237;&#x0304;</td>
+            <td></td>
+            <td>&#x0237;&#x0307;</td>
+            <td></td>
+            <td>&#x0237;&#x0308;</td>
+            <td></td>
+            <td>&#x0237;&#x030A;</td>
+            <td></td>
+            <td>&#x0237;&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>N</th>
+            <td></td>
+            <td>N&#x0300;</td>
+            <td></td>
+            <td>N&#x0301;</td>
+            <td></td>
+            <td>N&#x0302;</td>
+            <td>Ñ</td>
+            <td>N&#x0303;</td>
+            <td></td>
+            <td>N&#x0304;</td>
+            <td></td>
+            <td>N&#x0307;</td>
+            <td></td>
+            <td>N&#x0308;</td>
+            <td></td>
+            <td>N&#x030A;</td>
+            <td></td>
+            <td>N&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>n</th>
+            <td></td>
+            <td>n&#x0300;</td>
+            <td></td>
+            <td>n&#x0301;</td>
+            <td></td>
+            <td>n&#x0302;</td>
+            <td>ñ</td>
+            <td>n&#x0303;</td>
+            <td></td>
+            <td>n&#x0304;</td>
+            <td></td>
+            <td>n&#x0307;</td>
+            <td></td>
+            <td>n&#x0308;</td>
+            <td></td>
+            <td>n&#x030A;</td>
+            <td></td>
+            <td>n&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>O</th>
+            <td>Ò</td>
+            <td>O&#x0300;</td>
+            <td>Ó</td>
+            <td>O&#x0301;</td>
+            <td>Ô</td>
+            <td>O&#x0302;</td>
+            <td>Õ</td>
+            <td>O&#x0303;</td>
+            <td></td>
+            <td>O&#x0304;</td>
+            <td></td>
+            <td>O&#x0307;</td>
+            <td>Ö</td>
+            <td>O&#x0308;</td>
+            <td></td>
+            <td>O&#x030A;</td>
+            <td></td>
+            <td>O&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>o</th>
+            <td>ò</td>
+            <td>o&#x0300;</td>
+            <td>ó</td>
+            <td>o&#x0301;</td>
+            <td>ô</td>
+            <td>o&#x0302;</td>
+            <td>õ</td>
+            <td>o&#x0303;</td>
+            <td></td>
+            <td>o&#x0304;</td>
+            <td></td>
+            <td>o&#x0307;</td>
+            <td>ö</td>
+            <td>o&#x0308;</td>
+            <td></td>
+            <td>o&#x030A;</td>
+            <td></td>
+            <td>o&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>S</th>
+            <td></td>
+            <td>S&#x0300;</td>
+            <td></td>
+            <td>S&#x0301;</td>
+            <td></td>
+            <td>S&#x0302;</td>
+            <td></td>
+            <td>S&#x0303;</td>
+            <td></td>
+            <td>S&#x0304;</td>
+            <td></td>
+            <td>S&#x0307;</td>
+            <td></td>
+            <td>S&#x0308;</td>
+            <td></td>
+            <td>S&#x030A;</td>
+            <td></td>
+            <td>S&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>s</th>
+            <td></td>
+            <td>s&#x0300;</td>
+            <td></td>
+            <td>s&#x0301;</td>
+            <td></td>
+            <td>s&#x0302;</td>
+            <td></td>
+            <td>s&#x0303;</td>
+            <td></td>
+            <td>s&#x0304;</td>
+            <td></td>
+            <td>s&#x0307;</td>
+            <td></td>
+            <td>s&#x0308;</td>
+            <td></td>
+            <td>s&#x030A;</td>
+            <td></td>
+            <td>s&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>U</th>
+            <td>Ù</td>
+            <td>U&#x0300;</td>
+            <td>Ú</td>
+            <td>U&#x0301;</td>
+            <td>Û</td>
+            <td>U&#x0302;</td>
+            <td></td>
+            <td>U&#x0303;</td>
+            <td></td>
+            <td>U&#x0304;</td>
+            <td></td>
+            <td>U&#x0307;</td>
+            <td>Ü</td>
+            <td>U&#x0308;</td>
+            <td></td>
+            <td>U&#x030A;</td>
+            <td></td>
+            <td>U&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>u</th>
+            <td>ù</td>
+            <td>u&#x0300;</td>
+            <td>ú</td>
+            <td>u&#x0301;</td>
+            <td>û</td>
+            <td>u&#x0302;</td>
+            <td></td>
+            <td>u&#x0303;</td>
+            <td></td>
+            <td>u&#x0304;</td>
+            <td></td>
+            <td>u&#x0307;</td>
+            <td>ü</td>
+            <td>u&#x0308;</td>
+            <td></td>
+            <td>u&#x030A;</td>
+            <td></td>
+            <td>u&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>Y</th>
+            <td></td>
+            <td>Y&#x0300;</td>
+            <td>Ý</td>
+            <td>Y&#x0301;</td>
+            <td></td>
+            <td>Y&#x0302;</td>
+            <td></td>
+            <td>Y&#x0303;</td>
+            <td></td>
+            <td>Y&#x0304;</td>
+            <td></td>
+            <td>Y&#x0307;</td>
+            <td>Ÿ</td>
+            <td>Y&#x0308;</td>
+            <td></td>
+            <td>Y&#x030A;</td>
+            <td></td>
+            <td>Y&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>y</th>
+            <td></td>
+            <td>y&#x0300;</td>
+            <td>ý</td>
+            <td>y&#x0301;</td>
+            <td></td>
+            <td>y&#x0302;</td>
+            <td></td>
+            <td>y&#x0303;</td>
+            <td></td>
+            <td>y&#x0304;</td>
+            <td></td>
+            <td>y&#x0307;</td>
+            <td>ÿ</td>
+            <td>y&#x0308;</td>
+            <td></td>
+            <td>y&#x030A;</td>
+            <td></td>
+            <td>y&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>Z</th>
+            <td></td>
+            <td>Z&#x0300;</td>
+            <td></td>
+            <td>Z&#x0301;</td>
+            <td></td>
+            <td>Z&#x0302;</td>
+            <td></td>
+            <td>Z&#x0303;</td>
+            <td></td>
+            <td>Z&#x0304;</td>
+            <td></td>
+            <td>Z&#x0307;</td>
+            <td></td>
+            <td>Z&#x0308;</td>
+            <td></td>
+            <td>Z&#x030A;</td>
+            <td></td>
+            <td>Z&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+          <tr>
+            <th>z</th>
+            <td></td>
+            <td>z&#x0300;</td>
+            <td></td>
+            <td>z&#x0301;</td>
+            <td></td>
+            <td>z&#x0302;</td>
+            <td></td>
+            <td>z&#x0303;</td>
+            <td></td>
+            <td>z&#x0304;</td>
+            <td></td>
+            <td>z&#x0307;</td>
+            <td></td>
+            <td>z&#x0308;</td>
+            <td></td>
+            <td>z&#x030A;</td>
+            <td></td>
+            <td>z&#x030B;</td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        </table>
+      </section>
+      <section class="hoefler">
+        <p>
+          Angel Adept Blind Bodice Clique Coast Dunce Docile Enact Eosin Furlong Focal Gnome Gondola Human Hoist Inlet
+          Iodine Justin Jocose Knoll Koala Linden Loads Milliner Modal Number Nodule Onset Oddball Pneumo Poncho Quanta
+          Qophs Rhone Roman Snout Sodium Tundra Tocsin Uncle Udder Vulcan Vocal Whale Woman Xmas Xenon Yunnan Young
+          Zloty Zodiac.
+        </p>
+        <p>
+          <span>Angel angel adept for the nuance loads of the arena cocoa and quaalude.</span>
+          <span>Blind blind bodice for the submit oboe of the club snob and abbot.</span>
+          <span>Clique clique coast for the pouch loco of the franc assoc and accede.</span>
+          <span>Dunce dunce docile for the loudness mastodon of the loud statehood and huddle.</span>
+          <span>Enact enact eosin for the quench coed of the pique canoe and bleep.</span>
+          <span>Furlong furlong focal for the genuflect profound of the motif aloof and offers.</span>
+          <span>Gnome gnome gondola for the impugn logos of the unplug analog and smuggle.</span>
+          <span>Human human hoist for the buddhist alcohol of the riyadh caliph and bathhouse.</span>
+          <span>Inlet inlet iodine for the quince champion of the ennui scampi and shiite.</span>
+          <span>Justin justin jocose for the djibouti sojourn of the oranj raj and hajjis.</span>
+          <span>Knoll knoll koala for the banknote lookout of the dybbuk outlook and trekked.</span>
+          <span>Linden linden loads for the ulna monolog of the consul menthol and shallot.</span>
+          <span>Milliner milliner modal for the alumna solomon of the album custom and summon.</span>
+          <span>Number number nodule for the unmade economic of the shotgun bison and tunnel.</span>
+          <span>Onset onset oddball for the abandon podium of the antiquo tempo and moonlit.</span>
+          <span>Pneumo pneumo poncho for the dauphin opossum of the holdup bishop and supplies.</span>
+          <span>Quanta quanta qophs for the inquest sheqel of the cinq coq and suqqu.</span>
+          <span>Rhone rhone roman for the burnt porous of the lemur clamor and carrot.</span>
+          <span>Snout snout sodium for the ensnare bosom of the genus pathos and missing.</span>
+          <span>Tundra tundra tocsin for the nutmeg isotope of the peasant ingot and ottoman.</span>
+          <span>Uncle uncle udder for the dunes cloud of the hindu thou and continuum.</span>
+          <span>Vulcan vulcan vocal for the alluvial ovoid of the yugoslav chekhov and revved.</span>
+          <span>Whale whale woman for the meanwhile blowout of the forepaw meadow and glowworm.</span>
+          <span>Xmas xmas xenon for the bauxite doxology of the tableaux equinox and exxon.</span>
+          <span>Yunnan yunnan young for the dynamo coyote of the obloquy employ and sayyid.</span>
+          <span>Zloty zloty zodiac for the gizmo ozone of the franz laissez and buzzing.</span>
+        </p>
+      </section>
     </div>
-    <textarea id="output-yaml" readonly></textarea>
-  </div>
 
-  <div class="specimen-section">
-    <div class="section-label">Specimen</div>
-    <section class="oddballs">
-      <p>The Ægean encyclopædia described Æthelred's mediæval reign.</p>
-      <p>Øresund's fjørd inspired Søren to write about Ørsted's discoveries.</p>
-      <p>Þórr's þunder shook þe earth, and Þórdís sang þrough þe storm.</p>
-      <p>Die Straße zur großen Schlossstraße war außergewöhnlich. GROẞE STRAẞE!</p>
-      <p>Ðat weorð was goð, and Ðegn broðor stood firm.</p>
-      <p>The mass was 5 µg, the length 12 µm, and the current 300 µA.</p>
-      <p>0123456789 £1,234.56 $7,890.00 €42.99 ¥100 ¤50 99¢ 3½ 2¼ 1¾ 1×2×3 99% #1 0°C 72°F</p>
-      <p>x⁰ x¹ x² x³ x⁴ x⁵ x⁶ x⁷ x⁸ x⁹ ²H ³H ¹⁴C ⁶⁰Co ²³⁵U</p>
-      <p>H₂O CO₂ C₆H₁₂O₆ a₀ a₁ a₂ a₃ a₄ a₅ a₆ a₇ a₈ a₉</p>
-      <p>(parens) [brackets] {braces} &#xE66E;angle parens&#xE66F; ¶1 ¶2 ¶3 §1 §2 §3 &amp; &amp; &amp;</p>
-      <p>user@host ~$ @TODO @override @param C:\Users\Fonts\ \\server\share \n \t __init__ __main__ snake_case MAX_SIZE</p>
-      <p>What? Why?? How?! Really?! ¿Verdad? x ? y : z foo?.bar a ?? b</p>
-      <p>Stop! Go!! ¡Cuidado! ?! !? ¿¡ ¡¿ ?¿ ¿? !¡ ¡!</p>
-      <p>x = (−b ± √(b² − 4ac)) / 2a</p>
-      <p>5 − 3 = 2 (minus −) 1990–1999 (en dash –) self-reliant (hyphen -) yes — really (em dash —)</p>
-      <p>6 × 7 = 42  42 ÷ 7 = 6  6 * 7 = 42</p>
-      <p>&quot;straight&quot; &apos;straight&apos; &ldquo;curly&rdquo; &lsquo;curly&rsquo; &bdquo;German&ldquo; &sbquo;German&lsquo; &laquo;guillemets&raquo; &lsaquo;single&rsaquo;</p>
-      <p>1º 2º 3º 1ª 2ª 3ª 90° 180° 360° º ª ° 5′6″ 40°26′46″N 3°42′12″W f‴ f″ f′</p>
-      <p>longjaw gj yj qj pj — aj ej ij oj uj — dj fj hj kj lj nj rj tj</p>
-      <p>Wait for it… yes. No… really? I said… well… never mind. Done. …or is it?</p>
-      <p>© innacircle. All rights reserved. Brand Name®</p>
-    </section>
-    <section class="diacritics">
-      <!-- Precomposed (p) vs combining (c) in separate columns per mark type -->
-      <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
-      <table>
-        <tr><th></th><th>`</th><th>&#x25CC;&#x0300;</th><th>´</th><th>&#x25CC;&#x0301;</th><th>^</th><th>&#x25CC;&#x0302;</th><th>˜</th><th>&#x25CC;&#x0303;</th><th>¯</th><th>&#x25CC;&#x0304;</th><th>˙</th><th>&#x25CC;&#x0307;</th><th>¨</th><th>&#x25CC;&#x0308;</th><th>˚</th><th>&#x25CC;&#x030A;</th><th>˝</th><th>&#x25CC;&#x030B;</th><th>¸</th><th>&#x25CC;&#x0327;</th><th>˛</th><th>&#x25CC;&#x0328;</th></tr>
-        <tr><th>A</th><td>À</td><td>A&#x0300;</td><td>Á</td><td>A&#x0301;</td><td>Â</td><td>A&#x0302;</td><td>Ã</td><td>A&#x0303;</td><td></td><td>A&#x0304;</td><td></td><td>A&#x0307;</td><td>Ä</td><td>A&#x0308;</td><td>Å</td><td>A&#x030A;</td><td></td><td>A&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>a</th><td>à</td><td>a&#x0300;</td><td>á</td><td>a&#x0301;</td><td>â</td><td>a&#x0302;</td><td>ã</td><td>a&#x0303;</td><td></td><td>a&#x0304;</td><td></td><td>a&#x0307;</td><td>ä</td><td>a&#x0308;</td><td>å</td><td>a&#x030A;</td><td></td><td>a&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>C</th><td></td><td>C&#x0300;</td><td></td><td>C&#x0301;</td><td></td><td>C&#x0302;</td><td></td><td>C&#x0303;</td><td></td><td>C&#x0304;</td><td></td><td>C&#x0307;</td><td></td><td>C&#x0308;</td><td></td><td>C&#x030A;</td><td></td><td>C&#x030B;</td><td>Ç</td><td>C&#x0327;</td><td></td><td>C&#x0328;</td></tr>
-        <tr><th>c</th><td></td><td>c&#x0300;</td><td></td><td>c&#x0301;</td><td></td><td>c&#x0302;</td><td></td><td>c&#x0303;</td><td></td><td>c&#x0304;</td><td></td><td>c&#x0307;</td><td></td><td>c&#x0308;</td><td></td><td>c&#x030A;</td><td></td><td>c&#x030B;</td><td>ç</td><td>c&#x0327;</td><td></td><td>c&#x0328;</td></tr>
-        <tr><th>E</th><td>È</td><td>E&#x0300;</td><td>É</td><td>E&#x0301;</td><td>Ê</td><td>E&#x0302;</td><td></td><td>E&#x0303;</td><td></td><td>E&#x0304;</td><td></td><td>E&#x0307;</td><td>Ë</td><td>E&#x0308;</td><td></td><td>E&#x030A;</td><td></td><td>E&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>e</th><td>è</td><td>e&#x0300;</td><td>é</td><td>e&#x0301;</td><td>ê</td><td>e&#x0302;</td><td></td><td>e&#x0303;</td><td></td><td>e&#x0304;</td><td></td><td>e&#x0307;</td><td>ë</td><td>e&#x0308;</td><td></td><td>e&#x030A;</td><td></td><td>e&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>I</th><td>Ì</td><td>I&#x0300;</td><td>Í</td><td>I&#x0301;</td><td>Î</td><td>I&#x0302;</td><td></td><td>I&#x0303;</td><td></td><td>I&#x0304;</td><td></td><td>I&#x0307;</td><td>Ï</td><td>I&#x0308;</td><td></td><td>I&#x030A;</td><td></td><td>I&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>&#x0131;</th><td>ì</td><td>&#x0131;&#x0300;</td><td>í</td><td>&#x0131;&#x0301;</td><td>î</td><td>&#x0131;&#x0302;</td><td></td><td>&#x0131;&#x0303;</td><td></td><td>&#x0131;&#x0304;</td><td></td><td>&#x0131;&#x0307;</td><td>ï</td><td>&#x0131;&#x0308;</td><td></td><td>&#x0131;&#x030A;</td><td></td><td>&#x0131;&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>&#x0237;</th><td></td><td>&#x0237;&#x0300;</td><td></td><td>&#x0237;&#x0301;</td><td></td><td>&#x0237;&#x0302;</td><td></td><td>&#x0237;&#x0303;</td><td></td><td>&#x0237;&#x0304;</td><td></td><td>&#x0237;&#x0307;</td><td></td><td>&#x0237;&#x0308;</td><td></td><td>&#x0237;&#x030A;</td><td></td><td>&#x0237;&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>N</th><td></td><td>N&#x0300;</td><td></td><td>N&#x0301;</td><td></td><td>N&#x0302;</td><td>Ñ</td><td>N&#x0303;</td><td></td><td>N&#x0304;</td><td></td><td>N&#x0307;</td><td></td><td>N&#x0308;</td><td></td><td>N&#x030A;</td><td></td><td>N&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>n</th><td></td><td>n&#x0300;</td><td></td><td>n&#x0301;</td><td></td><td>n&#x0302;</td><td>ñ</td><td>n&#x0303;</td><td></td><td>n&#x0304;</td><td></td><td>n&#x0307;</td><td></td><td>n&#x0308;</td><td></td><td>n&#x030A;</td><td></td><td>n&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>O</th><td>Ò</td><td>O&#x0300;</td><td>Ó</td><td>O&#x0301;</td><td>Ô</td><td>O&#x0302;</td><td>Õ</td><td>O&#x0303;</td><td></td><td>O&#x0304;</td><td></td><td>O&#x0307;</td><td>Ö</td><td>O&#x0308;</td><td></td><td>O&#x030A;</td><td></td><td>O&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>o</th><td>ò</td><td>o&#x0300;</td><td>ó</td><td>o&#x0301;</td><td>ô</td><td>o&#x0302;</td><td>õ</td><td>o&#x0303;</td><td></td><td>o&#x0304;</td><td></td><td>o&#x0307;</td><td>ö</td><td>o&#x0308;</td><td></td><td>o&#x030A;</td><td></td><td>o&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>S</th><td></td><td>S&#x0300;</td><td></td><td>S&#x0301;</td><td></td><td>S&#x0302;</td><td></td><td>S&#x0303;</td><td></td><td>S&#x0304;</td><td></td><td>S&#x0307;</td><td></td><td>S&#x0308;</td><td></td><td>S&#x030A;</td><td></td><td>S&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>s</th><td></td><td>s&#x0300;</td><td></td><td>s&#x0301;</td><td></td><td>s&#x0302;</td><td></td><td>s&#x0303;</td><td></td><td>s&#x0304;</td><td></td><td>s&#x0307;</td><td></td><td>s&#x0308;</td><td></td><td>s&#x030A;</td><td></td><td>s&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>U</th><td>Ù</td><td>U&#x0300;</td><td>Ú</td><td>U&#x0301;</td><td>Û</td><td>U&#x0302;</td><td></td><td>U&#x0303;</td><td></td><td>U&#x0304;</td><td></td><td>U&#x0307;</td><td>Ü</td><td>U&#x0308;</td><td></td><td>U&#x030A;</td><td></td><td>U&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>u</th><td>ù</td><td>u&#x0300;</td><td>ú</td><td>u&#x0301;</td><td>û</td><td>u&#x0302;</td><td></td><td>u&#x0303;</td><td></td><td>u&#x0304;</td><td></td><td>u&#x0307;</td><td>ü</td><td>u&#x0308;</td><td></td><td>u&#x030A;</td><td></td><td>u&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>Y</th><td></td><td>Y&#x0300;</td><td>Ý</td><td>Y&#x0301;</td><td></td><td>Y&#x0302;</td><td></td><td>Y&#x0303;</td><td></td><td>Y&#x0304;</td><td></td><td>Y&#x0307;</td><td>Ÿ</td><td>Y&#x0308;</td><td></td><td>Y&#x030A;</td><td></td><td>Y&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>y</th><td></td><td>y&#x0300;</td><td>ý</td><td>y&#x0301;</td><td></td><td>y&#x0302;</td><td></td><td>y&#x0303;</td><td></td><td>y&#x0304;</td><td></td><td>y&#x0307;</td><td>ÿ</td><td>y&#x0308;</td><td></td><td>y&#x030A;</td><td></td><td>y&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>Z</th><td></td><td>Z&#x0300;</td><td></td><td>Z&#x0301;</td><td></td><td>Z&#x0302;</td><td></td><td>Z&#x0303;</td><td></td><td>Z&#x0304;</td><td></td><td>Z&#x0307;</td><td></td><td>Z&#x0308;</td><td></td><td>Z&#x030A;</td><td></td><td>Z&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-        <tr><th>z</th><td></td><td>z&#x0300;</td><td></td><td>z&#x0301;</td><td></td><td>z&#x0302;</td><td></td><td>z&#x0303;</td><td></td><td>z&#x0304;</td><td></td><td>z&#x0307;</td><td></td><td>z&#x0308;</td><td></td><td>z&#x030A;</td><td></td><td>z&#x030B;</td><td></td><td></td><td></td><td></td></tr>
-      </table>
-    </section>
-    <section class="hoefler">
-      <p>Angel Adept Blind Bodice Clique Coast Dunce Docile Enact Eosin Furlong Focal Gnome Gondola Human Hoist Inlet Iodine Justin Jocose Knoll Koala Linden Loads Milliner Modal Number Nodule Onset Oddball Pneumo Poncho Quanta Qophs Rhone Roman Snout Sodium Tundra Tocsin Uncle Udder Vulcan Vocal Whale Woman Xmas Xenon Yunnan Young Zloty Zodiac.</p>
-      <p>
-        <span>Angel angel adept for the nuance loads of the arena cocoa and quaalude.</span>
-        <span>Blind blind bodice for the submit oboe of the club snob and abbot.</span>
-        <span>Clique clique coast for the pouch loco of the franc assoc and accede.</span>
-        <span>Dunce dunce docile for the loudness mastodon of the loud statehood and huddle.</span>
-        <span>Enact enact eosin for the quench coed of the pique canoe and bleep.</span>
-        <span>Furlong furlong focal for the genuflect profound of the motif aloof and offers.</span>
-        <span>Gnome gnome gondola for the impugn logos of the unplug analog and smuggle.</span>
-        <span>Human human hoist for the buddhist alcohol of the riyadh caliph and bathhouse.</span>
-        <span>Inlet inlet iodine for the quince champion of the ennui scampi and shiite.</span>
-        <span>Justin justin jocose for the djibouti sojourn of the oranj raj and hajjis.</span>
-        <span>Knoll knoll koala for the banknote lookout of the dybbuk outlook and trekked.</span>
-        <span>Linden linden loads for the ulna monolog of the consul menthol and shallot.</span>
-        <span>Milliner milliner modal for the alumna solomon of the album custom and summon.</span>
-        <span>Number number nodule for the unmade economic of the shotgun bison and tunnel.</span>
-        <span>Onset onset oddball for the abandon podium of the antiquo tempo and moonlit.</span>
-        <span>Pneumo pneumo poncho for the dauphin opossum of the holdup bishop and supplies.</span>
-        <span>Quanta quanta qophs for the inquest sheqel of the cinq coq and suqqu.</span>
-        <span>Rhone rhone roman for the burnt porous of the lemur clamor and carrot.</span>
-        <span>Snout snout sodium for the ensnare bosom of the genus pathos and missing.</span>
-        <span>Tundra tundra tocsin for the nutmeg isotope of the peasant ingot and ottoman.</span>
-        <span>Uncle uncle udder for the dunes cloud of the hindu thou and continuum.</span>
-        <span>Vulcan vulcan vocal for the alluvial ovoid of the yugoslav chekhov and revved.</span>
-        <span>Whale whale woman for the meanwhile blowout of the forepaw meadow and glowworm.</span>
-        <span>Xmas xmas xenon for the bauxite doxology of the tableaux equinox and exxon.</span>
-        <span>Yunnan yunnan young for the dynamo coyote of the obloquy employ and sayyid.</span>
-        <span>Zloty zloty zodiac for the gizmo ozone of the franz laissez and buzzing.</span>
-      </p>
-    </section>
-  </div>
+    <footer>
+      <a href="test.html">Back to Font Test</a> |
+      <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+    </footer>
 
-  <footer>
-    <a href="test.html">Back to Font Test</a> |
-    <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
-  </footer>
+    <script type="module">
+      const MAX_ROWS = 12;
+      let cols = 5;
 
-  <script type="module">
-    const MAX_ROWS = 12;
-    let cols = 5;
+      // State
+      let glyphName = "";
+      let glyphComment = "";
+      let bitmap = [];
+      let yOffset = 0;
+      let rowComments = []; // Store per-row comments
+      let leadingIndent = ""; // Preserve leading whitespace from input
+      let isDragging = false;
+      let paintState = "#"; // '#' for on, ' ' for off
 
-    // State
-    let glyphName = '';
-    let glyphComment = '';
-    let bitmap = [];
-    let yOffset = 0;
-    let rowComments = []; // Store per-row comments
-    let leadingIndent = ''; // Preserve leading whitespace from input
-    let isDragging = false;
-    let paintState = '#'; // '#' for on, ' ' for off
+      // DOM elements
+      const inputYaml = document.getElementById("input-yaml");
+      const outputYaml = document.getElementById("output-yaml");
+      const lightboard = document.getElementById("lightboard");
+      const glyphInfo = document.getElementById("glyph-info");
+      const yOffsetInput = document.getElementById("y-offset");
+      const copyBtn = document.getElementById("copy-btn");
+      const lightboardLabel = document.getElementById("lightboard-label");
+      const columnButtonsLeft = document.getElementById("column-buttons-left");
+      const columnButtonsRight = document.getElementById("column-buttons-right");
 
-    // DOM elements
-    const inputYaml = document.getElementById('input-yaml');
-    const outputYaml = document.getElementById('output-yaml');
-    const lightboard = document.getElementById('lightboard');
-    const glyphInfo = document.getElementById('glyph-info');
-    const yOffsetInput = document.getElementById('y-offset');
-    const copyBtn = document.getElementById('copy-btn');
-    const lightboardLabel = document.getElementById('lightboard-label');
-    const columnButtonsLeft = document.getElementById('column-buttons-left');
-    const columnButtonsRight = document.getElementById('column-buttons-right');
+      // Row marker positions (0-indexed grid rows)
+      const TALL_HEIGHT_ROW = 0;
+      const CAP_HEIGHT_ROW = 1;
+      const X_HEIGHT_ROW = 3;
+      const BASELINE_ROW = 8;
 
-    // Row marker positions (0-indexed grid rows)
-    const TALL_HEIGHT_ROW = 0;
-    const CAP_HEIGHT_ROW = 1;
-    const X_HEIGHT_ROW = 3;
-    const BASELINE_ROW = 8;
+      // Initialize row markers
+      function initRowMarkers() {
+        document.querySelectorAll(".row-marker").forEach((el) => el.remove());
 
-    // Initialize row markers
-    function initRowMarkers() {
-      document.querySelectorAll('.row-marker').forEach(el => el.remove());
+        const markerRows = [
+          { row: TALL_HEIGHT_ROW, label: "th", title: "tall height" },
+          { row: CAP_HEIGHT_ROW, label: "ch", title: "cap height" },
+          { row: X_HEIGHT_ROW, label: "xh", title: "x-height" },
+          { row: BASELINE_ROW, label: "bl", title: "baseline" },
+        ];
 
-      const markerRows = [
-        { row: TALL_HEIGHT_ROW, label: 'th', title: 'tall height' },
-        { row: CAP_HEIGHT_ROW, label: 'ch', title: 'cap height' },
-        { row: X_HEIGHT_ROW, label: 'xh', title: 'x-height' },
-        { row: BASELINE_ROW, label: 'bl', title: 'baseline' }
-      ];
-
-      for (const container of [columnButtonsLeft, columnButtonsRight]) {
-        for (const { row, label, title } of markerRows) {
-          const marker = document.createElement('div');
-          marker.className = 'row-marker';
-          marker.textContent = label;
-          marker.title = title;
-          // Position: row * (cell height + gap) + padding offset
-          marker.style.top = `${row * (36 + 2) + 2}px`;
-          container.appendChild(marker);
-        }
-      }
-    }
-
-    // Calculate the starting row for the bitmap in the lightboard
-    // so that the baseline aligns with BASELINE_ROW
-    function getBitmapStartRow() {
-      return BASELINE_ROW - yOffset - (bitmap.length - 1);
-    }
-
-    // Initialize lightboard grid
-    function initLightboard() {
-      lightboard.innerHTML = '';
-      lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
-      lightboardLabel.textContent = `Lightboard (${MAX_ROWS} rows × ${cols} cols)`;
-      for (let row = 0; row < MAX_ROWS; row++) {
-        for (let col = 0; col < cols; col++) {
-          const cell = document.createElement('button');
-          cell.className = 'lightboard-cell disabled';
-          cell.dataset.row = row;
-          cell.dataset.col = col;
-          cell.addEventListener('mousedown', (e) => {
-            e.preventDefault();
-            const startRow = getBitmapStartRow();
-            const bitmapRow = row - startRow;
-            if (bitmapRow < 0 || bitmapRow >= bitmap.length) return;
-            isDragging = true;
-            const chars = bitmap[bitmapRow].split('');
-            chars[col] = chars[col] === '#' ? ' ' : '#';
-            paintState = chars[col];
-            bitmap[bitmapRow] = chars.join('');
-            updateLightboard();
-            updatePreviews();
-            updateOutput();
-          });
-          cell.addEventListener('mouseenter', () => {
-            const startRow = getBitmapStartRow();
-            const bitmapRow = row - startRow;
-            if (!isDragging || bitmapRow < 0 || bitmapRow >= bitmap.length) return;
-            setCellState(bitmapRow, col, paintState);
-          });
-          lightboard.appendChild(cell);
-        }
-      }
-    }
-
-    // Parse YAML input
-    function parseYaml(text) {
-      const lines = text.split('\n');
-
-      // Extract glyph name and comment from first line (allow leading whitespace)
-      const nameMatch = lines[0]?.match(/^(\s*)([\w.]+):\s*(#.*)?$/);
-      if (!nameMatch) {
-        return null;
-      }
-
-      leadingIndent = nameMatch[1];
-      glyphName = nameMatch[2];
-      glyphComment = nameMatch[3] || '';
-
-      // Extract y_offset if present
-      yOffset = 0;
-      const yOffsetMatch = text.match(/y_offset:\s*(-?\d+)/);
-      if (yOffsetMatch) {
-        yOffset = parseInt(yOffsetMatch[1], 10);
-      }
-
-      // Extract bitmap lines
-      bitmap = [];
-      rowComments = [];
-      const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
-      if (bitmapLines) {
-        bitmapLines.forEach(line => {
-          const match = line.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/);
-          if (match) {
-            bitmap.push(match[1]);
-            rowComments.push(match[2] || '');
+        for (const container of [columnButtonsLeft, columnButtonsRight]) {
+          for (const { row, label, title } of markerRows) {
+            const marker = document.createElement("div");
+            marker.className = "row-marker";
+            marker.textContent = label;
+            marker.title = title;
+            // Position: row * (cell height + gap) + padding offset
+            marker.style.top = `${row * (36 + 2) + 2}px`;
+            container.appendChild(marker);
           }
-        });
+        }
       }
 
-      // Detect column count from first bitmap row
-      if (bitmap.length > 0) {
-        cols = bitmap[0].length;
+      // Calculate the starting row for the bitmap in the lightboard
+      // so that the baseline aligns with BASELINE_ROW
+      function getBitmapStartRow() {
+        return BASELINE_ROW - yOffset - (bitmap.length - 1);
       }
 
-      return { name: glyphName, comment: glyphComment, bitmap, yOffset, rowComments, cols };
-    }
+      // Initialize lightboard grid
+      function initLightboard() {
+        lightboard.innerHTML = "";
+        lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
+        lightboardLabel.textContent = `Lightboard (${MAX_ROWS} rows × ${cols} cols)`;
+        for (let row = 0; row < MAX_ROWS; row++) {
+          for (let col = 0; col < cols; col++) {
+            const cell = document.createElement("button");
+            cell.className = "lightboard-cell disabled";
+            cell.dataset.row = row;
+            cell.dataset.col = col;
+            cell.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              const startRow = getBitmapStartRow();
+              const bitmapRow = row - startRow;
+              if (bitmapRow < 0 || bitmapRow >= bitmap.length) return;
+              isDragging = true;
+              const chars = bitmap[bitmapRow].split("");
+              chars[col] = chars[col] === "#" ? " " : "#";
+              paintState = chars[col];
+              bitmap[bitmapRow] = chars.join("");
+              updateLightboard();
+              updatePreviews();
+              updateOutput();
+            });
+            cell.addEventListener("mouseenter", () => {
+              const startRow = getBitmapStartRow();
+              const bitmapRow = row - startRow;
+              if (!isDragging || bitmapRow < 0 || bitmapRow >= bitmap.length) return;
+              setCellState(bitmapRow, col, paintState);
+            });
+            lightboard.appendChild(cell);
+          }
+        }
+      }
 
-    // Update lightboard display
-    function updateLightboard() {
-      const cells = lightboard.querySelectorAll('.lightboard-cell');
-      const startRow = getBitmapStartRow();
+      // Parse YAML input
+      function parseYaml(text) {
+        const lines = text.split("\n");
 
-      cells.forEach(cell => {
-        const row = parseInt(cell.dataset.row);
-        const col = parseInt(cell.dataset.col);
-        const bitmapRow = row - startRow;
+        // Extract glyph name and comment from first line (allow leading whitespace)
+        const nameMatch = lines[0]?.match(/^(\s*)([\w.]+):\s*(#.*)?$/);
+        if (!nameMatch) {
+          return null;
+        }
 
-        if (bitmapRow >= 0 && bitmapRow < bitmap.length) {
-          cell.classList.remove('disabled');
-          if (bitmap[bitmapRow][col] === '#') {
-            cell.classList.add('on');
-            cell.classList.remove('off');
+        leadingIndent = nameMatch[1];
+        glyphName = nameMatch[2];
+        glyphComment = nameMatch[3] || "";
+
+        // Extract y_offset if present
+        yOffset = 0;
+        const yOffsetMatch = text.match(/y_offset:\s*(-?\d+)/);
+        if (yOffsetMatch) {
+          yOffset = parseInt(yOffsetMatch[1], 10);
+        }
+
+        // Extract bitmap lines
+        bitmap = [];
+        rowComments = [];
+        const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
+        if (bitmapLines) {
+          bitmapLines.forEach((line) => {
+            const match = line.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/);
+            if (match) {
+              bitmap.push(match[1]);
+              rowComments.push(match[2] || "");
+            }
+          });
+        }
+
+        // Detect column count from first bitmap row
+        if (bitmap.length > 0) {
+          cols = bitmap[0].length;
+        }
+
+        return {
+          name: glyphName,
+          comment: glyphComment,
+          bitmap,
+          yOffset,
+          rowComments,
+          cols,
+        };
+      }
+
+      // Update lightboard display
+      function updateLightboard() {
+        const cells = lightboard.querySelectorAll(".lightboard-cell");
+        const startRow = getBitmapStartRow();
+
+        cells.forEach((cell) => {
+          const row = parseInt(cell.dataset.row);
+          const col = parseInt(cell.dataset.col);
+          const bitmapRow = row - startRow;
+
+          if (bitmapRow >= 0 && bitmapRow < bitmap.length) {
+            cell.classList.remove("disabled");
+            if (bitmap[bitmapRow][col] === "#") {
+              cell.classList.add("on");
+              cell.classList.remove("off");
+            } else {
+              cell.classList.add("off");
+              cell.classList.remove("on");
+            }
           } else {
-            cell.classList.add('off');
-            cell.classList.remove('on');
+            cell.classList.add("disabled");
+            cell.classList.remove("on", "off");
           }
-        } else {
-          cell.classList.add('disabled');
-          cell.classList.remove('on', 'off');
-        }
-      });
-
-      glyphInfo.textContent = glyphName ? `${glyphName} ${glyphComment}` : '';
-      yOffsetInput.value = yOffset;
-    }
-
-    // Set a cell to a specific state (used during drag painting)
-    function setCellState(row, col, state) {
-      if (row >= bitmap.length) return;
-      if (bitmap[row][col] === state) return;
-
-      const chars = bitmap[row].split('');
-      chars[col] = state;
-      bitmap[row] = chars.join('');
-
-      updateLightboard();
-    }
-
-    // Render preview canvas
-    const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
-    const PADDING = 1; // 1 column padding on each side
-    function renderPreview(canvas, bitmapData, scale) {
-      const ctx = canvas.getContext('2d');
-      const width = (cols + PADDING * 2) * scale;
-      const height = bitmapData.length * scale;
-
-      canvas.width = width;
-      canvas.height = height;
-      canvas.style.width = (width * DISPLAY_SCALE) + 'px';
-      canvas.style.height = (height * DISPLAY_SCALE) + 'px';
-
-      // Clear canvas with background color
-      ctx.fillStyle = '#f0f0f0';
-      ctx.fillRect(0, 0, width, height);
-
-      // Draw gray padding columns
-      ctx.fillStyle = '#ccc';
-      ctx.fillRect(0, 0, PADDING * scale, height); // left
-      ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height); // right
-
-      // Draw pixels (offset by padding)
-      ctx.fillStyle = '#222';
-      for (let y = 0; y < bitmapData.length; y++) {
-        for (let x = 0; x < cols; x++) {
-          if (bitmapData[y][x] === '#') {
-            ctx.fillRect((x + PADDING) * scale, y * scale, scale, scale);
-          }
-        }
-      }
-    }
-
-    // Update all preview canvases
-    function updatePreviews() {
-      if (bitmap.length === 0) {
-        // Clear canvases if no bitmap
-        [1, 2, 3, 4].forEach(scale => {
-          const canvas = document.getElementById(`preview-${scale}x`);
-          canvas.width = (cols + PADDING * 2) * scale;
-          canvas.height = scale;
-          canvas.style.width = ((cols + PADDING * 2) * scale * DISPLAY_SCALE) + 'px';
-          canvas.style.height = (scale * DISPLAY_SCALE) + 'px';
         });
-        return;
+
+        glyphInfo.textContent = glyphName ? `${glyphName} ${glyphComment}` : "";
+        yOffsetInput.value = yOffset;
       }
 
-      [1, 2, 3, 4].forEach(scale => {
-        const canvas = document.getElementById(`preview-${scale}x`);
-        renderPreview(canvas, bitmap, scale);
-      });
-    }
+      // Set a cell to a specific state (used during drag painting)
+      function setCellState(row, col, state) {
+        if (row >= bitmap.length) return;
+        if (bitmap[row][col] === state) return;
 
-    // Generate YAML output
-    function generateYaml() {
-      if (!glyphName || bitmap.length === 0) {
-        return '';
+        const chars = bitmap[row].split("");
+        chars[col] = state;
+        bitmap[row] = chars.join("");
+
+        updateLightboard();
       }
 
-      let output = `${leadingIndent}${glyphName}:`;
-      if (glyphComment) {
-        output += `  ${glyphComment}`;
-      }
-      output += '\n';
+      // Render preview canvas
+      const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
+      const PADDING = 1; // 1 column padding on each side
+      function renderPreview(canvas, bitmapData, scale) {
+        const ctx = canvas.getContext("2d");
+        const width = (cols + PADDING * 2) * scale;
+        const height = bitmapData.length * scale;
 
-      if (yOffset !== 0) {
-        output += `${leadingIndent}  y_offset: ${yOffset}\n`;
-      }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = width * DISPLAY_SCALE + "px";
+        canvas.style.height = height * DISPLAY_SCALE + "px";
 
-      output += `${leadingIndent}  bitmap:\n`;
-      bitmap.forEach((row, i) => {
-        output += `${leadingIndent}    - "${row}"`;
-        if (rowComments[i]) {
-          output += ` ${rowComments[i]}`;
+        // Clear canvas with background color
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillRect(0, 0, width, height);
+
+        // Draw gray padding columns
+        ctx.fillStyle = "#ccc";
+        ctx.fillRect(0, 0, PADDING * scale, height); // left
+        ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height); // right
+
+        // Draw pixels (offset by padding)
+        ctx.fillStyle = "#222";
+        for (let y = 0; y < bitmapData.length; y++) {
+          for (let x = 0; x < cols; x++) {
+            if (bitmapData[y][x] === "#") {
+              ctx.fillRect((x + PADDING) * scale, y * scale, scale, scale);
+            }
+          }
         }
-        output += '\n';
-      });
-
-      return output;
-    }
-
-    // Update output textarea
-    function updateOutput() {
-      outputYaml.value = generateYaml();
-    }
-
-    // Column manipulation functions
-    function addColumnLeft() {
-      if (bitmap.length === 0) return;
-      bitmap = bitmap.map(row => ' ' + row);
-      cols++;
-      initLightboard();
-      updateLightboard();
-      updatePreviews();
-      updateOutput();
-    }
-
-    function removeColumnLeft() {
-      if (cols <= 1 || bitmap.length === 0) return;
-      bitmap = bitmap.map(row => row.slice(1));
-      cols--;
-      initLightboard();
-      updateLightboard();
-      updatePreviews();
-      updateOutput();
-    }
-
-    function addColumnRight() {
-      if (bitmap.length === 0) return;
-      bitmap = bitmap.map(row => row + ' ');
-      cols++;
-      initLightboard();
-      updateLightboard();
-      updatePreviews();
-      updateOutput();
-    }
-
-    function removeColumnRight() {
-      if (cols <= 1 || bitmap.length === 0) return;
-      bitmap = bitmap.map(row => row.slice(0, -1));
-      cols--;
-      initLightboard();
-      updateLightboard();
-      updatePreviews();
-      updateOutput();
-    }
-
-    // End drag painting on mouseup anywhere
-    document.addEventListener('mouseup', () => {
-      if (isDragging) {
-        isDragging = false;
-        updatePreviews();
-        updateOutput();
       }
-    });
 
-    // Event listeners
-    inputYaml.addEventListener('input', () => {
-      const oldCols = cols;
-      const parsed = parseYaml(inputYaml.value);
-      if (parsed) {
-        if (cols !== oldCols) {
-          initLightboard();
+      // Update all preview canvases
+      function updatePreviews() {
+        if (bitmap.length === 0) {
+          // Clear canvases if no bitmap
+          [1, 2, 3, 4].forEach((scale) => {
+            const canvas = document.getElementById(`preview-${scale}x`);
+            canvas.width = (cols + PADDING * 2) * scale;
+            canvas.height = scale;
+            canvas.style.width = (cols + PADDING * 2) * scale * DISPLAY_SCALE + "px";
+            canvas.style.height = scale * DISPLAY_SCALE + "px";
+          });
+          return;
         }
+
+        [1, 2, 3, 4].forEach((scale) => {
+          const canvas = document.getElementById(`preview-${scale}x`);
+          renderPreview(canvas, bitmap, scale);
+        });
+      }
+
+      // Generate YAML output
+      function generateYaml() {
+        if (!glyphName || bitmap.length === 0) {
+          return "";
+        }
+
+        let output = `${leadingIndent}${glyphName}:`;
+        if (glyphComment) {
+          output += `  ${glyphComment}`;
+        }
+        output += "\n";
+
+        if (yOffset !== 0) {
+          output += `${leadingIndent}  y_offset: ${yOffset}\n`;
+        }
+
+        output += `${leadingIndent}  bitmap:\n`;
+        bitmap.forEach((row, i) => {
+          output += `${leadingIndent}    - "${row}"`;
+          if (rowComments[i]) {
+            output += ` ${rowComments[i]}`;
+          }
+          output += "\n";
+        });
+
+        return output;
+      }
+
+      // Update output textarea
+      function updateOutput() {
+        outputYaml.value = generateYaml();
+      }
+
+      // Column manipulation functions
+      function addColumnLeft() {
+        if (bitmap.length === 0) return;
+        bitmap = bitmap.map((row) => " " + row);
+        cols++;
+        initLightboard();
         updateLightboard();
         updatePreviews();
         updateOutput();
       }
-    });
 
-    yOffsetInput.addEventListener('input', () => {
-      yOffset = parseInt(yOffsetInput.value, 10) || 0;
-      updateLightboard();
-      updateOutput();
-    });
-
-    copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(outputYaml.value).then(() => {
-        const original = copyBtn.textContent;
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => copyBtn.textContent = original, 1500);
-      });
-    });
-
-    document.getElementById('add-col-left').addEventListener('click', addColumnLeft);
-    document.getElementById('remove-col-left').addEventListener('click', removeColumnLeft);
-    document.getElementById('add-col-right').addEventListener('click', addColumnRight);
-    document.getElementById('remove-col-right').addEventListener('click', removeColumnRight);
-
-    // Kerning toggle
-    const kernToggle = document.getElementById('kern-toggle');
-    const specimenSection = document.querySelector('.specimen-section');
-    let kerningEnabled = false;
-    specimenSection.style.fontFeatureSettings = "'kern' 0";
-
-    kernToggle.addEventListener('click', () => {
-      kerningEnabled = !kerningEnabled;
-      specimenSection.style.fontFeatureSettings = kerningEnabled ? '' : "'kern' 0";
-      kernToggle.textContent = kerningEnabled ? 'Yes kerning' : 'No kerning';
-    });
-
-    // Fallback-font highlighting toggle
-    const fallbackToggle = document.getElementById('fallback-toggle');
-    let fallbackShown = false;
-
-    function fontHasGlyph(ctx, char) {
-      // Compare multiple metrics against a fallback to detect glyph presence.
-      // Width alone can coincidentally match; bounding-box metrics make
-      // a false match essentially impossible.
-      ctx.font = '72px serif';
-      const fb = ctx.measureText(char);
-      ctx.font = '72px "Abbots Morton Spaceport Sans", serif';
-      const test = ctx.measureText(char);
-      return test.width !== fb.width
-        || test.actualBoundingBoxAscent !== fb.actualBoundingBoxAscent
-        || test.actualBoundingBoxDescent !== fb.actualBoundingBoxDescent
-        || test.actualBoundingBoxLeft !== fb.actualBoundingBoxLeft
-        || test.actualBoundingBoxRight !== fb.actualBoundingBoxRight;
-    }
-
-    function wrapFallbackChars() {
-      const ctx = document.createElement('canvas').getContext('2d');
-      const walker = document.createTreeWalker(
-        specimenSection,
-        NodeFilter.SHOW_TEXT
-      );
-      const textNodes = [];
-      let node;
-      while ((node = walker.nextNode())) {
-        textNodes.push(node);
+      function removeColumnLeft() {
+        if (cols <= 1 || bitmap.length === 0) return;
+        bitmap = bitmap.map((row) => row.slice(1));
+        cols--;
+        initLightboard();
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
       }
-      for (const textNode of textNodes) {
-        const text = textNode.textContent;
-        if (!text.trim()) continue;
-        const frag = document.createDocumentFragment();
-        for (const char of text) {
-          if (/\s/.test(char)) {
-            frag.appendChild(document.createTextNode(char));
-            continue;
-          }
-          if (fontHasGlyph(ctx, char)) {
-            frag.appendChild(document.createTextNode(char));
-          } else {
-            const span = document.createElement('span');
-            span.className = 'fallback-char';
-            span.textContent = char;
-            frag.appendChild(span);
-          }
+
+      function addColumnRight() {
+        if (bitmap.length === 0) return;
+        bitmap = bitmap.map((row) => row + " ");
+        cols++;
+        initLightboard();
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
+      function removeColumnRight() {
+        if (cols <= 1 || bitmap.length === 0) return;
+        bitmap = bitmap.map((row) => row.slice(0, -1));
+        cols--;
+        initLightboard();
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
+      // End drag painting on mouseup anywhere
+      document.addEventListener("mouseup", () => {
+        if (isDragging) {
+          isDragging = false;
+          updatePreviews();
+          updateOutput();
         }
-        textNode.parentNode.replaceChild(frag, textNode);
-      }
-    }
+      });
 
-    function unwrapFallbackChars() {
-      for (const span of specimenSection.querySelectorAll('.fallback-char')) {
-        span.replaceWith(span.textContent);
-      }
-      specimenSection.normalize();
-    }
+      // Event listeners
+      inputYaml.addEventListener("input", () => {
+        const oldCols = cols;
+        const parsed = parseYaml(inputYaml.value);
+        if (parsed) {
+          if (cols !== oldCols) {
+            initLightboard();
+          }
+          updateLightboard();
+          updatePreviews();
+          updateOutput();
+        }
+      });
 
-    fallbackToggle.addEventListener('click', () => {
-      fallbackShown = !fallbackShown;
-      if (fallbackShown) {
-        document.fonts.ready.then(() => {
-          wrapFallbackChars();
-          fallbackToggle.textContent = 'Fallback HL';
+      yOffsetInput.addEventListener("input", () => {
+        yOffset = parseInt(yOffsetInput.value, 10) || 0;
+        updateLightboard();
+        updateOutput();
+      });
+
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(outputYaml.value).then(() => {
+          const original = copyBtn.textContent;
+          copyBtn.textContent = "Copied!";
+          setTimeout(() => (copyBtn.textContent = original), 1500);
         });
-      } else {
-        unwrapFallbackChars();
-        fallbackToggle.textContent = 'No fallback HL';
-      }
-    });
+      });
 
-    // Initialize
-    initRowMarkers();
-    initLightboard();
-    updatePreviews();
-  </script>
-</body>
+      document.getElementById("add-col-left").addEventListener("click", addColumnLeft);
+      document.getElementById("remove-col-left").addEventListener("click", removeColumnLeft);
+      document.getElementById("add-col-right").addEventListener("click", addColumnRight);
+      document.getElementById("remove-col-right").addEventListener("click", removeColumnRight);
+
+      // Kerning toggle
+      const kernToggle = document.getElementById("kern-toggle");
+      const specimenSection = document.querySelector(".specimen-section");
+      let kerningEnabled = false;
+      specimenSection.style.fontFeatureSettings = "'kern' 0";
+
+      kernToggle.addEventListener("click", () => {
+        kerningEnabled = !kerningEnabled;
+        specimenSection.style.fontFeatureSettings = kerningEnabled ? "" : "'kern' 0";
+        kernToggle.textContent = kerningEnabled ? "Yes kerning" : "No kerning";
+      });
+
+      // Fallback-font highlighting toggle
+      const fallbackToggle = document.getElementById("fallback-toggle");
+      let fallbackShown = false;
+
+      function fontHasGlyph(ctx, char) {
+        // Compare multiple metrics against a fallback to detect glyph presence.
+        // Width alone can coincidentally match; bounding-box metrics make
+        // a false match essentially impossible.
+        ctx.font = "72px serif";
+        const fb = ctx.measureText(char);
+        ctx.font = '72px "Abbots Morton Spaceport Sans", serif';
+        const test = ctx.measureText(char);
+        return (
+          test.width !== fb.width ||
+          test.actualBoundingBoxAscent !== fb.actualBoundingBoxAscent ||
+          test.actualBoundingBoxDescent !== fb.actualBoundingBoxDescent ||
+          test.actualBoundingBoxLeft !== fb.actualBoundingBoxLeft ||
+          test.actualBoundingBoxRight !== fb.actualBoundingBoxRight
+        );
+      }
+
+      function wrapFallbackChars() {
+        const ctx = document.createElement("canvas").getContext("2d");
+        const walker = document.createTreeWalker(specimenSection, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        let node;
+        while ((node = walker.nextNode())) {
+          textNodes.push(node);
+        }
+        for (const textNode of textNodes) {
+          const text = textNode.textContent;
+          if (!text.trim()) continue;
+          const frag = document.createDocumentFragment();
+          for (const char of text) {
+            if (/\s/.test(char)) {
+              frag.appendChild(document.createTextNode(char));
+              continue;
+            }
+            if (fontHasGlyph(ctx, char)) {
+              frag.appendChild(document.createTextNode(char));
+            } else {
+              const span = document.createElement("span");
+              span.className = "fallback-char";
+              span.textContent = char;
+              frag.appendChild(span);
+            }
+          }
+          textNode.parentNode.replaceChild(frag, textNode);
+        }
+      }
+
+      function unwrapFallbackChars() {
+        for (const span of specimenSection.querySelectorAll(".fallback-char")) {
+          span.replaceWith(span.textContent);
+        }
+        specimenSection.normalize();
+      }
+
+      fallbackToggle.addEventListener("click", () => {
+        fallbackShown = !fallbackShown;
+        if (fallbackShown) {
+          document.fonts.ready.then(() => {
+            wrapFallbackChars();
+            fallbackToggle.textContent = "Fallback HL";
+          });
+        } else {
+          unwrapFallbackChars();
+          fallbackToggle.textContent = "No fallback HL";
+        }
+      });
+
+      // Initialize
+      initRowMarkers();
+      initLightboard();
+      updatePreviews();
+    </script>
+  </body>
 </html>
