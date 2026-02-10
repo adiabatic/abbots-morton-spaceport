@@ -2056,6 +2056,30 @@ glyphs:
       - "    #"
       - " # # " #
 
+  # Dagger: 7–8 rows, y_offset 1–2
+  dagger.prop:  # † U+2020
+    y_offset: 2
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "#####"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+
+  daggerdbl.prop:  # ‡ U+2021
+    y_offset: 1
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - "#####"
+      - "  #  "
+      - "  #  "
+      - "#####"
+      - "  #  "
+      - "  #  "
+
   # Mid mark: 1–2 rows, y_offset 3–4
   bullet.prop:  # • U+2022
     y_offset: 3

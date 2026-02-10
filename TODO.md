@@ -2,11 +2,8 @@
 
 | Glyph | Code point | Name |
 | --- | --- | --- |
-| 0 | U+0030 | Digit zero |
 | π | U+03C0 | Greek small letter pi |
 | € | U+20AC | Euro sign |
-| † | U+2020 | Dagger |
-| ‡ | U+2021 | Double dagger |
 | ⁄ | U+2044 | Fraction slash |
 | ℅ | U+2105 | Care of |
 | ℓ | U+2113 | Script small L |
