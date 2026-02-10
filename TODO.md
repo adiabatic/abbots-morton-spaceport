@@ -37,8 +37,6 @@
 | ∕ | U+2215 | Division slash |
 | ∞ | U+221E | Infinity |
 | ∫ | U+222B | Integral |
-| ≈ | U+2248 | Almost equal to |
-| ≠ | U+2260 | Not equal to |
 | 〈 | U+2329 | Left-pointing angle bracket |
 | 〉 | U+232A | Right-pointing angle bracket |
 | ■ | U+25A0 | Black square |

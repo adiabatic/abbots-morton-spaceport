@@ -181,6 +181,8 @@ guilsinglright: 0x203A
 
 # Math
 radical: 0x221A
+approxequal: 0x2248
+notequal: 0x2260
 lessequal: 0x2264
 greaterequal: 0x2265
 
