@@ -1924,6 +1924,9 @@ glyphs:
     y_offset: 7
     bitmap: *ACUTE
     base_x_adjust:
+      A: 1
+      E: 1
+      e: 1
       u: 1
       y: 1
       Y: 1
@@ -1953,6 +1956,14 @@ glyphs:
     is_mark: true
     y_offset: 7
     bitmap: *TILDE
+    base_x_adjust:
+      A: 1
+      C: 1
+      N: 1
+      O: 1
+      a: 1
+      c: 1
+      o: 1
 
   uni0304.prop:  # COMBINING MACRON
     advance_width: 0
@@ -1985,6 +1996,10 @@ glyphs:
     is_mark: true
     y_offset: 7
     bitmap: *HUNGARUMLAUT
+    base_x_adjust:
+      o: 1
+      s: 1
+      S: 1
 
   uni0327.prop:  # COMBINING CEDILLA
     advance_width: 0
