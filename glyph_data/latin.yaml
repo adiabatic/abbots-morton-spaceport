@@ -1802,6 +1802,13 @@ glyphs:
       - " #  #  # "
       - "#  #  #  "
 
+  trademark.prop:  # ™ U+2122
+    y_offset: 5
+    bitmap:
+      - "####   #"
+      - " # ## ##"
+      - " # # # #"
+
   # Logicalnot: 3 rows, y_offset 3
   logicalnot.prop:  # ¬ U+00AC
     y_offset: 3
