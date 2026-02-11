@@ -181,6 +181,9 @@ quotedblbase: 0x201E
 guilsinglleft: 0x2039
 guilsinglright: 0x203A
 
+# Letterlike Symbols
+trademark: 0x2122
+
 # Math
 radical: 0x221A
 approxequal: 0x2248
