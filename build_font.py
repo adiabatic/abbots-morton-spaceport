@@ -571,6 +571,13 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
                 cmap[codepoint] = glyph_name
             except ValueError:
                 pass  # Not a valid hex code, skip
+        elif glyph_name.startswith("u") and not glyph_name.startswith("uni") and len(glyph_name) == 6:
+            try:
+                codepoint = int(glyph_name[1:], 16)
+                if codepoint > 0xFFFF:
+                    cmap[codepoint] = glyph_name
+            except ValueError:
+                pass
         elif glyph_name in postscript_glyph_names:
             cmap[postscript_glyph_names[glyph_name]] = glyph_name
 
