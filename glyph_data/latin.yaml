@@ -1924,6 +1924,20 @@ glyphs:
       - " #  #  # "
       - "#  #  #  "
 
+  uni2117.prop:  # ℗ U+2117 (SOUND RECORDING COPYRIGHT)
+    y_offset: -1
+    bitmap:
+      - "   ###   "
+      - "  #   #  "
+      - " #     # "
+      - "#  ###  #" #
+      - "#  #  # #"
+      - "#  ###  #"
+      - "#  #    #"
+      - " #     # "
+      - "  #   #  " #
+      - "   ###   "
+
   trademark.prop:  # ™ U+2122
     y_offset: 5
     bitmap:
