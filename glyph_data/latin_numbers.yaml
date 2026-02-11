@@ -1,0 +1,400 @@
+glyphs:
+  # ── Numbers ──────────────────────────────────────────────────────────
+
+  # Cap-height: 8 rows
+  zero:  # 0 U+0030
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#  ##" #
+      - "# # #"
+      - "##  #"
+      - "#   #"
+      - "#   #"
+      - " ### "
+
+  one.prop:  # 1 U+0031
+    bitmap:
+      - " ##  "
+      - "# #  "
+      - "  #  " #
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "#####"
+
+  two.prop:  # 2 U+0032
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#####"
+
+  three.prop:  # 3 U+0033
+    bitmap:
+      - "#### "
+      - "    #"
+      - "    #" #
+      - "#### "
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### "
+
+  four.prop:  # 4 U+0034
+    bitmap:
+      - "#  # "
+      - "#  # "
+      - "#  # " #
+      - "#####"
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # "
+
+  five.prop:  # 5 U+0035
+    bitmap:
+      - "#####"
+      - "#    "
+      - "#    " #
+      - "#### "
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### "
+
+  six.prop:  # 6 U+0036
+    bitmap:
+      - " ##  "
+      - "#    "
+      - "#    " #
+      - "#### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
+
+  seven.prop:  # 7 U+0037
+    bitmap:
+      - "#####"
+      - "    #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#    "
+
+  eight.prop:  # 8 U+0038
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#   #" #
+      - " ### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### "
+
+  nine.prop:  # 9 U+0039
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#   #" #
+      - " ####"
+      - "    #"
+      - "    #"
+      - "    #"
+      - " ### "
+
+  # Cap-height fractions: 8 rows
+  onehalf.prop:  # ½ U+00BD
+    y_offset: -3
+    bitmap:
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #" #
+      - "  # "
+      - " #  "
+      - "####"
+
+  onequarter.prop:  # ¼ U+00BC
+    y_offset: -3
+    bitmap:
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - "#  #"
+      - "#  #" #
+      - "####"
+      - "   #"
+      - "   #"
+
+  threequarters.prop:  # ¾ U+00BE
+    y_offset: -3
+    bitmap:
+      - "### "
+      - "   #"
+      - "### "
+      - "   #" #
+      - "### "
+      - "    "
+      - "####"
+      - "    "
+      - "#  #"
+      - "#  #" #
+      - "####"
+      - "   #"
+      - "   #"
+
+  onethird.prop:  # ⅓ U+2153
+    y_offset: -3
+    bitmap:
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - "### "
+      - "   #" #
+      - "### "
+      - "   #"
+      - "### "
+
+  twothirds.prop:  # ⅔ U+2154
+    y_offset: -3
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "  # "
+      - " #  " #
+      - "####"
+      - "    "
+      - "####"
+      - "    "
+      - "### "
+      - "   #" #
+      - "### "
+      - "   #"
+      - "### "
+
+  oneeighth.prop:  # ⅛ U+215B
+    y_offset: -3
+    bitmap:
+      - "  # "
+      - " ## "
+      - "  # "
+      - "  # " #
+      - " ###"
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #" #
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  threeeighths.prop:  # ⅜ U+215C
+    y_offset: -3
+    bitmap:
+      - "### "
+      - "   #"
+      - "### "
+      - "   #" #
+      - "### "
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #" #
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  fiveeighths.prop:  # ⅝ U+215D
+    y_offset: -3
+    bitmap:
+      - "####"
+      - "#   "
+      - "### "
+      - "   #" #
+      - "### "
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #" #
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  seveneighths.prop:  # ⅞ U+215E
+    y_offset: -3
+    bitmap:
+      - "####"
+      - "   #"
+      - "  # "
+      - " #  " #
+      - "#   "
+      - "    "
+      - "####"
+      - "    "
+      - " ## "
+      - "#  #" #
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  # Superscript: 5 rows, y_offset 3, width 3
+  onesuperior.prop:  # ¹ U+00B9
+    y_offset: 3
+    bitmap: &ONESUPERIOR
+      - " # "
+      - "## "
+      - " # "
+      - " # "
+      - "###"
+
+  twosuperior.prop:  # ² U+00B2
+    y_offset: 3
+    bitmap: &TWOSUPERIOR
+      - " ## "
+      - "#  #"
+      - "  # "
+      - " #  "
+      - "####"
+
+  threesuperior.prop:  # ³ U+00B3
+    y_offset: 3
+    bitmap: &THREESUPERIOR
+      - "### "
+      - "   #"
+      - "### "
+      - "   #"
+      - "### "
+
+  foursuperior.prop:  # ⁴ U+2074
+    y_offset: 3
+    bitmap: &FOURSUPERIOR
+      - "#  #"
+      - "#  #"
+      - "####"
+      - "   #"
+      - "   #"
+
+  fivesuperior.prop:  # ⁵ U+2075
+    y_offset: 3
+    bitmap: &FIVESUPERIOR
+      - "####"
+      - "#   "
+      - "### "
+      - "   #"
+      - "### "
+
+  sixsuperior.prop:  # ⁶ U+2076
+    y_offset: 3
+    bitmap: &SIXSUPERIOR
+      - " ## "
+      - "#   "
+      - "### "
+      - "#  #"
+      - " ## "
+
+  sevensuperior.prop:  # ⁷ U+2077
+    y_offset: 3
+    bitmap: &SEVENSUPERIOR
+      - "####"
+      - "   #"
+      - "  # "
+      - " #  "
+      - "#   "
+
+  eightsuperior.prop:  # ⁸ U+2078
+    y_offset: 3
+    bitmap: &EIGHTSUPERIOR
+      - " ## "
+      - "#  #"
+      - " ## "
+      - "#  #"
+      - " ## "
+
+  ninesuperior.prop:  # ⁹ U+2079
+    y_offset: 3
+    bitmap: &NINESUPERIOR
+      - " ## "
+      - "#  #"
+      - " ###"
+      - "   #"
+      - " ## "
+
+  zerosuperior.prop:  # ⁰ U+2070
+    y_offset: 3
+    bitmap: &ZEROSUPERIOR
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "#  #"
+      - " ## "
+
+  # Inferior (subscript): 5 rows, y_offset -3, width 3–4
+  zeroinferior.prop:  # ₀ U+2080
+    y_offset: -3
+    bitmap: *ZEROSUPERIOR
+
+  oneinferior.prop:  # ₁ U+2081
+    y_offset: -3
+    bitmap: *ONESUPERIOR
+
+  twoinferior.prop:  # ₂ U+2082
+    y_offset: -3
+    bitmap: *TWOSUPERIOR
+
+  threeinferior.prop:  # ₃ U+2083
+    y_offset: -3
+    bitmap: *THREESUPERIOR
+
+  fourinferior.prop:  # ₄ U+2084
+    y_offset: -3
+    bitmap: *FOURSUPERIOR
+
+  fiveinferior.prop:  # ₅ U+2085
+    y_offset: -3
+    bitmap: *FIVESUPERIOR
+
+  sixinferior.prop:  # ₆ U+2086
+    y_offset: -3
+    bitmap: *SIXSUPERIOR
+
+  seveninferior.prop:  # ₇ U+2087
+    y_offset: -3
+    bitmap: *SEVENSUPERIOR
+
+  eightinferior.prop:  # ₈ U+2088
+    y_offset: -3
+    bitmap: *EIGHTSUPERIOR
+
+  nineinferior.prop:  # ₉ U+2089
+    y_offset: -3
+    bitmap: *NINESUPERIOR
+
