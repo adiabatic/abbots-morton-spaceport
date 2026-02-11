@@ -634,9 +634,9 @@ glyphs:
       - "#   #"
 
   # Shavian letters (U+10450–U+1047F)
-  u10450.prop: *PEA_PROP  # 𐑐 Pin (= ·Pea)
+  u10450.prop: *PEA_PROP  # 𐑐 Pin
 
-  u10451.prop:  # 𐑑 Tan (~·Tea)
+  u10451.prop:  # 𐑑 Tan
     bitmap:
       - "  #"
       - " ##"
@@ -648,7 +648,7 @@ glyphs:
       - "  #"
       - "  #"
 
-  u10452.prop:  # 𐑒 Key (~·Key)
+  u10452.prop:  # 𐑒 Key
     bitmap:
       - "   # "
       - "   # "
@@ -672,13 +672,13 @@ glyphs:
       - "   # "
       - "###  "
 
-  u10454.prop: *FEE  # 𐑔 Thorn (= ·Fee)
+  u10454.prop: *FEE  # 𐑔 Thorn
 
-  u10455.prop: *SEE  # 𐑕 Sea (= ·See)
+  u10455.prop: *SEE  # 𐑕 Sea
 
-  u10456.prop: *SHE  # 𐑖 Shy (= ·She)
+  u10456.prop: *SHE  # 𐑖 Shy
 
-  u10457.prop: *CHEER  # 𐑗 Cha (= ·Cheer)
+  u10457.prop: *CHEER  # 𐑗 Cha
 
   u10458.prop.unused:  # 𐑘 Yen
     bitmap:
@@ -692,7 +692,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  u10459.prop: *ING  # 𐑙 Song (= ·-ing)
+  u10459.prop: *ING  # 𐑙 Song
 
   u1045A.prop.unused:  # 𐑚 Bell
     y_offset: -3
@@ -707,9 +707,9 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  u1045B.prop: *DAY_PROP  # 𐑛 Dun (= ·Day)
+  u1045B.prop: *DAY_PROP  # 𐑛 Dun
 
-  u1045C.prop:  # 𐑜 Gill (~·Gay)
+  u1045C.prop:  # 𐑜 Gill
     y_offset: -3
     bitmap:
       - "#### "
@@ -735,9 +735,9 @@ glyphs:
       - "#    "
       - "#    "
 
-  u1045E.prop: *VIE  # 𐑞 Thou (= ·Vie)
+  u1045E.prop: *VIE  # 𐑞 Thou
 
-  u1045F.prop: *ZOO  # 𐑟 Zoo (= ·Zoo)
+  u1045F.prop: *ZOO  # 𐑟 Zoo
 
   u10460.prop.unused:  # 𐑠 Zho
     y_offset: -3
@@ -752,9 +752,9 @@ glyphs:
       - "     "
       - "     "
 
-  u10461.prop: *JAY  # 𐑡 Joy (= ·Jay)
+  u10461.prop: *JAY  # 𐑡 Joy
 
-  u10462.prop: *WAY_PROP  # 𐑢 Way (= ·Way)
+  u10462.prop: *WAY_PROP  # 𐑢 Way
 
   u10463.prop.unused:  # 𐑣 Who
     y_offset: -3
@@ -778,19 +778,19 @@ glyphs:
       - "     "
       - "     "
 
-  u10465.prop: *AH  # 𐑥 Me (= ·Ah)
+  u10465.prop: *AH  # 𐑥 Me
 
-  u10466.prop: *IT_PROP  # 𐑦 In (= ·It)
+  u10466.prop: *IT_PROP  # 𐑦 In
 
-  u10467.prop: *ET  # 𐑧 Edge (= ·Et)
+  u10467.prop: *ET  # 𐑧 Edge
 
-  u10468.prop: *AT  # 𐑨 Ash (= ·At)
+  u10468.prop: *AT  # 𐑨 Ash
 
-  u10469.prop: *UTTER  # 𐑩 Ago (= ·Utter)
+  u10469.prop: *UTTER  # 𐑩 Ago
 
-  u1046A.prop: *OX  # 𐑪 On (= ·Ox)
+  u1046A.prop: *OX  # 𐑪 On
 
-  u1046B.prop: *FOOT  # 𐑫 Oomph (= ·Foot)
+  u1046B.prop: *FOOT  # 𐑫 Oomph
 
   u1046C.prop.unused:  # 𐑬 Ounce
     bitmap:
@@ -810,9 +810,9 @@ glyphs:
       - "     "
       - "     "
 
-  u1046E.prop: *ROE  # 𐑮 Row (= ·Roe)
+  u1046E.prop: *ROE  # 𐑮 Row
 
-  u1046F.prop: *AWE  # 𐑯 Now (= ·Awe)
+  u1046F.prop: *AWE  # 𐑯 Now
 
   u10470.prop.unused:  # 𐑰 Eave
     bitmap:
@@ -850,9 +850,9 @@ glyphs:
       - "#    "
       - "#    "
 
-  u10474.prop: *OWE  # 𐑴 Oath (= ·Owe)
+  u10474.prop: *OWE  # 𐑴 Oath
 
-  u10475.prop: *OOZE  # 𐑵 Ooze (= ·Ooze)
+  u10475.prop: *OOZE  # 𐑵 Ooze
 
   u10476.prop.unused:  # 𐑶 Oil
     bitmap:
