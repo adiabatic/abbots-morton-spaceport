@@ -82,6 +82,10 @@ glyphs:
     base: o
     top: grave
 
+  ohungarumlaut.prop:  # ő U+0151
+    base: o
+    top: hungarumlaut
+
   otilde.prop:  # õ U+00F5
     base: o
     top: tilde
@@ -101,6 +105,10 @@ glyphs:
   ugrave.prop:  # ù U+00F9
     base: u
     top: grave
+
+  uhungarumlaut.prop:  # ű U+0171
+    base: u
+    top: hungarumlaut
 
   yacute.prop:  # ý U+00FD
     base: y
@@ -191,6 +199,10 @@ glyphs:
     base: O
     top: grave
 
+  Ohungarumlaut.prop:  # Ő U+0150
+    base: O
+    top: hungarumlaut
+
   Otilde.prop:  # Õ U+00D5
     base: O
     top: tilde
@@ -210,6 +222,10 @@ glyphs:
   Ugrave.prop:  # Ù U+00D9
     base: U
     top: grave
+
+  Uhungarumlaut.prop:  # Ű U+0170
+    base: U
+    top: hungarumlaut
 
   Yacute.prop:  # Ý U+00DD
     base: Y

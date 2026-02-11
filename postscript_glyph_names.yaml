@@ -54,6 +54,12 @@ dotlessj: 0x0237
 # Ydieresis
 Ydieresis: 0x0178
 
+# Latin Extended-A
+Ohungarumlaut: 0x0150
+ohungarumlaut: 0x0151
+Uhungarumlaut: 0x0170
+uhungarumlaut: 0x0171
+
 # Spacing Modifier Letters
 ring: 0x02DA
 dotaccent: 0x02D9
