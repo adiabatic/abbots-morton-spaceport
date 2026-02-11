@@ -28,7 +28,7 @@ from fontTools.ttLib import newTable
 
 def load_postscript_glyph_names() -> dict:
     """Load PostScript glyph name to Unicode codepoint mapping from YAML."""
-    path = Path(__file__).parent / "inspo" / "postscript_glyph_names.yaml"
+    path = Path(__file__).parent / "postscript_glyph_names.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
 
