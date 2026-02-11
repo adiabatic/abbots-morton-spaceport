@@ -114,6 +114,7 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 - Special kerning for `fo` and similar sequences where the second letter is round (`e`, `o`, etc.)
 - Quikscript Senior with a gazillion ligatures
 - Maybe no left side bearing for `j`
+- bold proportional font (use a two-pixel-wide brush stroke like how Chicago 12 does)
 
 ## Licensing
 
