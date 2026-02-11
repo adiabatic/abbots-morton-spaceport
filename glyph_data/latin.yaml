@@ -1335,6 +1335,15 @@ glyphs:
       - "  #      "
       - "  #      "
 
+  infinity.prop:  # ∞ U+221E
+    y_offset: 1
+    bitmap:
+      - " ## ## "
+      - "#  #  #"
+      - "#  #  #"
+      - "#  #  #"
+      - " ## ## "
+
   uni2669.prop:  # ♩ U+2669
     y_offset: -1
     bitmap:
