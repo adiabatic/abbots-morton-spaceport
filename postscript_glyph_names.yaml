@@ -187,6 +187,14 @@ guilsinglright: 0x203A
 # Letterlike Symbols
 trademark: 0x2122
 
+# Number Forms
+onethird: 0x2153
+twothirds: 0x2154
+oneeighth: 0x215B
+threeeighths: 0x215C
+fiveeighths: 0x215D
+seveneighths: 0x215E
+
 # Math
 radical: 0x221A
 infinity: 0x221E

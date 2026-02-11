@@ -11,12 +11,6 @@
 | ℠ | U+2120 | Service mark |
 | Ω | U+2126 | Ohm sign |
 | ℮ | U+212E | Estimated symbol |
-| ⅓ | U+2153 | Vulgar fraction one third |
-| ⅔ | U+2154 | Vulgar fraction two thirds |
-| ⅛ | U+215B | Vulgar fraction one eighth |
-| ⅜ | U+215C | Vulgar fraction three eighths |
-| ⅝ | U+215D | Vulgar fraction five eighths |
-| ⅞ | U+215E | Vulgar fraction seven eighths |
 | ← | U+2190 | Leftwards arrow |
 | ↑ | U+2191 | Upwards arrow |
 | → | U+2192 | Rightwards arrow |
