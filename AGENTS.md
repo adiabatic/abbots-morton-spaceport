@@ -20,6 +20,10 @@ After running `build_font.py`, run `touch test/test.html` to trigger automatic b
 
 - `uv run build_font.py glyph_data test/ && touch test/test.html`
 
+## Adding glyphs
+
+- Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
+
 ## Generating glyphs for the first time in @glyph_data/quikscript.yaml
 
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
