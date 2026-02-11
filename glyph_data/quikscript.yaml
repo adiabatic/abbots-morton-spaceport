@@ -24,7 +24,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE650.prop: &PEA_PROP  # ·Pea
+  uniE650.prop: &PEA  # ·Pea
     bitmap:
       - " ## "
       - "#  #"
@@ -86,7 +86,7 @@ glyphs:
       - "##   "
       - "#    "
 
-  uniE653.prop: &DAY_PROP  # ·Day
+  uniE653.prop: &DAY  # ·Day
     y_offset: -3
     bitmap:
       - "#   "
@@ -300,7 +300,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE661.prop: &WAY_PROP  # ·Way
+  uniE661.prop: &WAY  # ·Way
     y_offset: -3
     bitmap:
       - "   #"
@@ -489,7 +489,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE670.prop: &IT_PROP  # ·It
+  uniE670.prop: &IT  # ·It
     bitmap:
       - "#"
       - "#"
@@ -634,7 +634,7 @@ glyphs:
       - "#   #"
 
   # Shavian letters (U+10450–U+1047F)
-  u10450.prop: *PEA_PROP  # 𐑐 Peep
+  u10450.prop: *PEA  # 𐑐 Peep
 
   u10451.prop:  # 𐑑 Tot
     bitmap:
@@ -707,7 +707,7 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  u1045B.prop: *DAY_PROP  # 𐑛 Dead
+  u1045B.prop: *DAY  # 𐑛 Dead
 
   u1045C.prop:  # 𐑜 Gag
     y_offset: -3
@@ -765,7 +765,7 @@ glyphs:
 
   u10461.prop: *JAY  # 𐑡 Judge
 
-  u10462.prop: *WAY_PROP  # 𐑢 Woe
+  u10462.prop: *WAY  # 𐑢 Woe
 
   u10463.prop.unused:  # 𐑣 Ha-Ha
     y_offset: -3
@@ -791,7 +791,7 @@ glyphs:
 
   u10465.prop: *AH  # 𐑥 Mime
 
-  u10466.prop: *IT_PROP  # 𐑦 If
+  u10466.prop: *IT  # 𐑦 If
 
   u10467.prop: *ET  # 𐑧 Egg
 
