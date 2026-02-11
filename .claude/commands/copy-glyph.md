@@ -21,4 +21,6 @@ Copy a glyph from Departure Mono to this font. Steps:
 
 All metrics must match (advance_width, xMin, yMin, xMax, yMax, left_side_bearing). If they don't match, investigate and fix.
 
+6. If the glyph uses a standard PostScript name (not a `uniXXXX` name), ensure it has an entry in @postscript_glyph_names.yaml.
+
 The glyph to copy is: $ARGUMENTS
