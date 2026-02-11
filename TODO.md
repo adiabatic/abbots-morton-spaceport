@@ -10,7 +10,6 @@
 | № | U+2116 | Numero sign |
 | ℗ | U+2117 | Sound recording copyright |
 | ℠ | U+2120 | Service mark |
-| ™ | U+2122 | Trade mark sign |
 | Ω | U+2126 | Ohm sign |
 | ℮ | U+212E | Estimated symbol |
 | ⅓ | U+2153 | Vulgar fraction one third |
@@ -32,7 +31,6 @@
 | ∏ | U+220F | N-ary product |
 | ∑ | U+2211 | N-ary summation |
 | ∕ | U+2215 | Division slash |
-| ∞ | U+221E | Infinity |
 | ∫ | U+222B | Integral |
 | 〈 | U+2329 | Left-pointing angle bracket |
 | 〉 | U+232A | Right-pointing angle bracket |
@@ -43,5 +41,3 @@
 | ▼ | U+25BC | Black down-pointing triangle |
 | ◀ | U+25C0 | Black left-pointing triangle |
 | ◊ | U+25CA | Lozenge |
-| ♪ | U+266A | Eighth note |
-| ♫ | U+266B | Beamed eighth notes |
