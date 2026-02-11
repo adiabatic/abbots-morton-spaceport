@@ -18,11 +18,11 @@ This font comes in two variants:
 
 You’ll definitely need to:
 
-1. set your fonts to multiples of 11 pixels (unless you’re targeting print exclusively)
+- set your fonts to multiples of 11 pixels (unless you’re targeting print exclusively)
 
 And you might need to:
 
-2. get [Departure Mono][] working, too
+- get [Departure Mono][] working, too
 
 ### Font sizing
 
