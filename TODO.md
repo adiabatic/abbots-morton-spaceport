@@ -7,7 +7,6 @@
 | ℅ | U+2105 | Care of |
 | ℓ | U+2113 | Script small L |
 | № | U+2116 | Numero sign |
-| ℗ | U+2117 | Sound recording copyright |
 | ℠ | U+2120 | Service mark |
 | Ω | U+2126 | Ohm sign |
 | ℮ | U+212E | Estimated symbol |
