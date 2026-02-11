@@ -120,6 +120,6 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
 
-## Acknowledgements
+## Non-obvious acknowledgements
 
 - [Brad Neil](https://friedorange.xyz/) — Design critique
