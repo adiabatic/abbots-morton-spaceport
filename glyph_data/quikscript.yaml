@@ -24,7 +24,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE650.prop:  # ·Pea (proportional)
+  uniE650.prop: &PEA_PROP  # ·Pea (proportional)
     bitmap:
       - " ## "
       - "#  #"
@@ -86,7 +86,7 @@ glyphs:
       - "##   "
       - "#    "
 
-  uniE653.prop:  # ·Day (proportional)
+  uniE653.prop: &DAY_PROP  # ·Day (proportional)
     y_offset: -3
     bitmap:
       - "#   "
@@ -161,7 +161,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE658:  # ·Fee
+  uniE658: &FEE  # ·Fee
     bitmap:
       - "  #  "
       - "   # "
@@ -173,7 +173,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE659:  # ·Vie
+  uniE659: &VIE  # ·Vie
     y_offset: -3
     bitmap:
       - " ### "
@@ -186,7 +186,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE65A:  # ·See
+  uniE65A: &SEE  # ·See
     bitmap:
       - "   ##"
       - "  #  "
@@ -198,7 +198,7 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE65B:  # ·Zoo
+  uniE65B: &ZOO  # ·Zoo
     y_offset: -3
     bitmap:
       - "###  "
@@ -211,7 +211,7 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  uniE65C:  # ·She
+  uniE65C: &SHE  # ·She
     bitmap:
       - "     "
       - "   # "
@@ -249,7 +249,7 @@ glyphs:
       - "# #   "
       - " #    "
 
-  uniE65E:  # ·Cheer
+  uniE65E: &CHEER  # ·Cheer
     bitmap:
       - "     "
       - "  #  "
@@ -261,7 +261,7 @@ glyphs:
       - "#    "
       - " ### "
 
-  uniE65F:  # ·Jay
+  uniE65F: &JAY  # ·Jay
     y_offset: -3
     bitmap:
       - "#### "
@@ -300,7 +300,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE661.prop:  # ·Way (proportional)
+  uniE661.prop: &WAY_PROP  # ·Way (proportional)
     y_offset: -3
     bitmap:
       - "   #"
@@ -350,7 +350,7 @@ glyphs:
       - " ##  "
       - "  #  "
 
-  uniE664:  # ·-ing
+  uniE664: &ING  # ·-ing
     bitmap:
       - "  #  "
       - " # # "
@@ -393,7 +393,7 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE668:  # ·Roe
+  uniE668: &ROE  # ·Roe
     bitmap:
       - "###  "
       - "   # "
@@ -489,7 +489,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE670.prop:  # ·It (proportional)
+  uniE670.prop: &IT_PROP  # ·It (proportional)
     bitmap:
       - "#"
       - "#"
@@ -516,7 +516,7 @@ glyphs:
       - "#  #"
       - "#  #"
 
-  uniE672:  # ·Et
+  uniE672: &ET  # ·Et
     bitmap:
       - "#    "
       - "#    "
@@ -534,7 +534,7 @@ glyphs:
       - "   # "
       - "    #"
 
-  uniE674:  # ·At
+  uniE674: &AT  # ·At
     bitmap:
       - "    #"
       - "    #"
@@ -552,7 +552,7 @@ glyphs:
       - " #   "
       - "#    "
 
-  uniE676:  # ·Ah
+  uniE676: &AH  # ·Ah
     bitmap:
       - "   ##"
       - "  #  "
@@ -561,7 +561,7 @@ glyphs:
       - "  #  "
       - "##   "
 
-  uniE677:  # ·Awe
+  uniE677: &AWE  # ·Awe
     bitmap:
       - "##   "
       - "  #  "
@@ -570,7 +570,7 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  uniE678:  # ·Ox
+  uniE678: &OX  # ·Ox
     bitmap:
       - "##   "
       - "  #  "
@@ -588,7 +588,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE67A:  # ·Utter
+  uniE67A: &UTTER  # ·Utter
     bitmap:
       - "   ##"
       - "  #  "
@@ -606,7 +606,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE67C:  # ·Owe
+  uniE67C: &OWE  # ·Owe
     bitmap:
       - " ### "
       - "#   #"
@@ -615,7 +615,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE67D:  # ·Foot
+  uniE67D: &FOOT  # ·Foot
     bitmap:
       - "#   #"
       - "#   #"
@@ -624,7 +624,7 @@ glyphs:
       - " # # "
       - "  #  "
 
-  uniE67E:  # ·Ooze
+  uniE67E: &OOZE  # ·Ooze
     bitmap:
       - "  #  "
       - " # # "
@@ -632,3 +632,314 @@ glyphs:
       - "#   #"
       - "#   #"
       - "#   #"
+
+  # Shavian letters (U+10450–U+1047F)
+  u10450.prop: *PEA_PROP  # 𐑐 Pin (= ·Pea)
+
+  u10451.prop:  # 𐑑 Tan (~·Tea)
+    bitmap:
+      - "  #"
+      - " ##"
+      - "# #"
+      - "  #" #
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+
+  u10452.prop:  # 𐑒 Key (~·Key)
+    bitmap:
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # " #
+      - " ### "
+      - "#  # "
+      - "#    "
+      - "#    "
+      - " ### "
+
+  u10453.prop.unused:  # 𐑓 Fay
+    bitmap:
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "    #"
+      - "   # "
+      - "###  "
+
+  u10454.prop: *FEE  # 𐑔 Thorn (= ·Fee)
+
+  u10455.prop: *SEE  # 𐑕 Sea (= ·See)
+
+  u10456.prop: *SHE  # 𐑖 Shy (= ·She)
+
+  u10457.prop: *CHEER  # 𐑗 Cha (= ·Cheer)
+
+  u10458.prop.unused:  # 𐑘 Yen
+    bitmap:
+      - "     "
+      - " #   "
+      - " #   "
+      - "  #  " #
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "    #"
+      - "    #"
+
+  u10459.prop: *ING  # 𐑙 Song (= ·-ing)
+
+  u1045A.prop.unused:  # 𐑚 Bell
+    y_offset: -3
+    bitmap:
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    " #
+      - " #   "
+      - "  #  "
+      - "   ##"
+
+  u1045B.prop: *DAY_PROP  # 𐑛 Dun (= ·Day)
+
+  u1045C.prop:  # 𐑜 Gill (~·Gay)
+    y_offset: -3
+    bitmap:
+      - "#### "
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### " #
+      - "#    "
+      - "#    "
+      - "#    "
+
+  u1045D.prop.unused:  # 𐑝 Vie
+    y_offset: -3
+    bitmap:
+      - "  ###"
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    " #
+      - "#    "
+      - "#    "
+      - "#    "
+
+  u1045E.prop: *VIE  # 𐑞 Thou (= ·Vie)
+
+  u1045F.prop: *ZOO  # 𐑟 Zoo (= ·Zoo)
+
+  u10460.prop.unused:  # 𐑠 Zho
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  u10461.prop: *JAY  # 𐑡 Joy (= ·Jay)
+
+  u10462.prop: *WAY_PROP  # 𐑢 Way (= ·Way)
+
+  u10463.prop.unused:  # 𐑣 Who
+    y_offset: -3
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  u10464.prop.unused:  # 𐑤 Lamb
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10465.prop: *AH  # 𐑥 Me (= ·Ah)
+
+  u10466.prop: *IT_PROP  # 𐑦 In (= ·It)
+
+  u10467.prop: *ET  # 𐑧 Edge (= ·Et)
+
+  u10468.prop: *AT  # 𐑨 Ash (= ·At)
+
+  u10469.prop: *UTTER  # 𐑩 Ago (= ·Utter)
+
+  u1046A.prop: *OX  # 𐑪 On (= ·Ox)
+
+  u1046B.prop: *FOOT  # 𐑫 Oomph (= ·Foot)
+
+  u1046C.prop.unused:  # 𐑬 Ounce
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1046D.prop.unused:  # 𐑭 Alms
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1046E.prop: *ROE  # 𐑮 Row (= ·Roe)
+
+  u1046F.prop: *AWE  # 𐑯 Now (= ·Awe)
+
+  u10470.prop.unused:  # 𐑰 Eave
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10471.prop.unused:  # 𐑱 Aim
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10472.prop.unused:  # 𐑲 Eyes
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10473.prop.unused:  # 𐑳 Up
+    bitmap:
+      - "#####"
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "#    "
+      - "#    "
+
+  u10474.prop: *OWE  # 𐑴 Oath (= ·Owe)
+
+  u10475.prop: *OOZE  # 𐑵 Ooze (= ·Ooze)
+
+  u10476.prop.unused:  # 𐑶 Oil
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10477.prop.unused:  # 𐑷 Ought
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10478.prop.unused:  # 𐑸 Aria
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u10479.prop.unused:  # 𐑹 Aura
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1047A.prop.unused:  # 𐑺 Aero
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1047B.prop.unused:  # 𐑻 Early
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1047C.prop.unused:  # 𐑼 Array
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1047D.prop.unused:  # 𐑽 Eerie
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+
+  u1047E.prop.unused:  # 𐑾 Ian
+    bitmap:
+      - "#  ##"
+      - "# #  "
+      - "##   "
+      - "##   "
+      - "#    "
+      - "#    "
+
+  u1047F.prop.unused:  # 𐑿 Yule
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
