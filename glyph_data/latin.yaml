@@ -1555,6 +1555,17 @@ glyphs:
       - " ##### "
       - "   #   "
 
+  Euro.prop:  # € U+20AC
+    bitmap:
+      - "  ### "
+      - " #   #"
+      - " #    "
+      - "####  "
+      - " #    "
+      - " #    "
+      - " #   #"
+      - "  ### "
+
   # Medium: 7 rows
   greater.prop:  # > U+003E
     bitmap:

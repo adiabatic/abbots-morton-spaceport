@@ -177,6 +177,9 @@ quotedblleft: 0x201C
 quotedblright: 0x201D
 quotedblbase: 0x201E
 
+# Currency
+Euro: 0x20AC
+
 # General punctuation (continued)
 guilsinglleft: 0x2039
 guilsinglright: 0x203A
