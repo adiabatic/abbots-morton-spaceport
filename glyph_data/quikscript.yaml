@@ -198,7 +198,7 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE65B: &ZOO  # ·Zoo
+  uniE65B:  # ·Zoo
     y_offset: -3
     bitmap:
       - "###  "
@@ -737,7 +737,18 @@ glyphs:
 
   u1045E.prop: *VIE  # 𐑞 Thou
 
-  u1045F.prop: *ZOO  # 𐑟 Zoo
+  u1045F.prop:  # 𐑟 Zoo
+    y_offset: -3
+    bitmap:
+      - "###  "
+      - "   # "
+      - "   # "
+      - "  #  "
+      - " #   "
+      - " #   " #
+      - "#    "
+      - "#    "
+      - " ##  "
 
   u10460.prop.unused:  # 𐑠 Zho
     y_offset: -3
