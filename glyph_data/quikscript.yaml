@@ -24,7 +24,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE650.prop: &PEA_PROP  # ·Pea (proportional)
+  uniE650.prop: &PEA_PROP  # ·Pea
     bitmap:
       - " ## "
       - "#  #"
@@ -61,7 +61,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE652.prop:  # ·Tea (proportional)
+  uniE652.prop:  # ·Tea
     bitmap:
       - "#"
       - "#"
@@ -86,7 +86,7 @@ glyphs:
       - "##   "
       - "#    "
 
-  uniE653.prop: &DAY_PROP  # ·Day (proportional)
+  uniE653.prop: &DAY_PROP  # ·Day
     y_offset: -3
     bitmap:
       - "#   "
@@ -111,7 +111,7 @@ glyphs:
       - "#    "
       - " ### "
 
-  uniE654.prop:  # ·Key (proportional)
+  uniE654.prop:  # ·Key
     bitmap:
       - "#   "
       - " #  "
@@ -236,7 +236,7 @@ glyphs:
       - "# #  "
       - " #   "
 
-  uniE65D.prop:  # ·J'ai (proportional)
+  uniE65D.prop:  # ·J'ai
     y_offset: -3
     bitmap:
       - " #### "
@@ -300,7 +300,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE661.prop: &WAY_PROP  # ·Way (proportional)
+  uniE661.prop: &WAY_PROP  # ·Way
     y_offset: -3
     bitmap:
       - "   #"
@@ -325,7 +325,7 @@ glyphs:
       - " #   "
       - " #   "
 
-  uniE662.prop:  # ·He (proportional)
+  uniE662.prop:  # ·He
     bitmap:
       - " ##"
       - "#  "
@@ -489,7 +489,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE670.prop: &IT_PROP  # ·It (proportional)
+  uniE670.prop: &IT_PROP  # ·It
     bitmap:
       - "#"
       - "#"
@@ -507,7 +507,7 @@ glyphs:
       - "#  # "
       - "#  # "
 
-  uniE671.prop:  # ·Eat (proportional)
+  uniE671.prop:  # ·Eat
     bitmap:
       - "   #"
       - "  ##"
