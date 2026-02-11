@@ -1613,7 +1613,7 @@ glyphs:
       - "#   #" #
       - " ### "
 
-  slash.prop:  # / U+002F
+  slash.prop: &SLASH  # / U+002F
     bitmap:
       - "   #"
       - "   #"
@@ -1623,6 +1623,8 @@ glyphs:
       - " #  "
       - "#   "
       - "#   "
+
+  uni2215.prop: *SLASH  # ∕ U+2215 (DIVISION SLASH)
 
   backslash.prop:  # \ U+005C
     bitmap:
@@ -1923,6 +1925,18 @@ glyphs:
       - "  #  #  #"
       - " #  #  # "
       - "#  #  #  "
+
+  uni2105.prop:  # ℅ U+2105 (CARE OF)
+    bitmap:
+      - " #   "
+      - "#    "
+      - " #  #"
+      - "   # " #
+      - "  #  "
+      - " #   "
+      - "#  # "
+      - "  # #"
+      - "   # "
 
   uni2117.prop:  # ℗ U+2117 (SOUND RECORDING COPYRIGHT)
     y_offset: -1

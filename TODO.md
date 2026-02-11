@@ -4,7 +4,6 @@
 | --- | --- | --- |
 | π | U+03C0 | Greek small letter pi |
 | ⁄ | U+2044 | Fraction slash |
-| ℅ | U+2105 | Care of |
 | ℓ | U+2113 | Script small L |
 | № | U+2116 | Numero sign |
 | ℠ | U+2120 | Service mark |
@@ -22,7 +21,6 @@
 | ∆ | U+2206 | Increment |
 | ∏ | U+220F | N-ary product |
 | ∑ | U+2211 | N-ary summation |
-| ∕ | U+2215 | Division slash |
 | ∫ | U+222B | Integral |
 | 〈 | U+2329 | Left-pointing angle bracket |
 | 〉 | U+232A | Right-pointing angle bracket |
