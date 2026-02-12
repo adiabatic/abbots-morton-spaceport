@@ -16,12 +16,6 @@
         max-width: 1000px;
       }
 
-      h2 {
-        font-size: 22px;
-        margin-top: 1.5rem;
-        margin-bottom: 0.5rem;
-      }
-
       .specimen-section {
         background: var(--card-bg);
         border: var(--card-border);
@@ -38,26 +32,20 @@
           }
         }
 
-        .oddballs p + p {
+        &.oddballs p + p {
           margin-top: 0;
         }
 
-        .diacritics {
-          table {
-            border-collapse: collapse;
+        &.diacritics table {
+          border-collapse: collapse;
 
-            th,
-            td {
-              padding: 0 0.5em 0 0;
-              vertical-align: baseline;
-              font-weight: normal;
-              text-align: left;
-            }
+          th,
+          td {
+            padding: 0 0.5em 0 0;
+            vertical-align: baseline;
+            font-weight: normal;
+            text-align: left;
           }
-        }
-
-        .hoefler {
-          margin-top: 1.6em;
         }
       }
 
@@ -115,9 +103,9 @@
     </div>
     <h1>Specimen</h1>
 
-    <div class="specimen-section">
-      <section class="oddballs">
-        <p>The Ægean encyclopædia described Æthelred's mediæval reign.</p>
+    <h2>Oddballs</h2>
+    <div class="specimen-section oddballs">
+      <p>The Ægean encyclopædia described Æthelred's mediæval reign.</p>
         <p>Øresund's fjørd inspired Søren to write about Ørsted's discoveries.</p>
         <p>Þórr's þunder shook þe earth, and Þórdís sang þrough þe storm.</p>
         <p>Die Straße zur großen Schlossstraße war außergewöhnlich. GROẞE STRAẞE!</p>
@@ -144,11 +132,13 @@
         <p>longjaw gj yj qj pj — aj ej ij oj uj — dj fj hj kj lj nj rj tj</p>
         <p>Wait for it… yes. No… really? I said… well… never mind. Done. …or is it?</p>
         <p>† dagger ‡ double dagger footnote¹† see also‡</p>
-        <p>© innacircle. All rights reserved. Brand Name®</p>
-      </section>
-      <section class="diacritics">
-        <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
-        <table>
+      <p>© innacircle. All rights reserved. Brand Name®</p>
+    </div>
+
+    <h2>Diacritics</h2>
+    <div class="specimen-section diacritics">
+      <!-- Mark order: grave acute circumflex tilde macron dot-above diaeresis ring double-acute cedilla ogonek -->
+      <table>
           <tr>
             <th></th>
             <th>`</th>
@@ -699,11 +689,13 @@
             <td></td>
             <td></td>
           </tr>
-        </table>
-      </section>
-      <section class="hoefler">
-        <p>
-          Angel Adept Blind Bodice Clique Coast Dunce Docile Enact Eosin Furlong Focal Gnome Gondola Human Hoist Inlet
+      </table>
+    </div>
+
+    <h2>Hoefler</h2>
+    <div class="specimen-section">
+      <p>
+        Angel Adept Blind Bodice Clique Coast Dunce Docile Enact Eosin Furlong Focal Gnome Gondola Human Hoist Inlet
           Iodine Justin Jocose Knoll Koala Linden Loads Milliner Modal Number Nodule Onset Oddball Pneumo Poncho Quanta
           Qophs Rhone Roman Snout Sodium Tundra Tocsin Uncle Udder Vulcan Vocal Whale Woman Xmas Xenon Yunnan Young
           Zloty Zodiac.
@@ -735,8 +727,7 @@
           <span>Xmas xmas xenon for the bauxite doxology of the tableaux equinox and exxon.</span>
           <span>Yunnan yunnan young for the dynamo coyote of the obloquy employ and sayyid.</span>
           <span>Zloty zloty zodiac for the gizmo ozone of the franz laissez and buzzing.</span>
-        </p>
-      </section>
+      </p>
     </div>
 
     <footer>
@@ -747,16 +738,20 @@
     </footer>
 
     <script type="module">
-      const specimenSection = document.querySelector(".specimen-section");
+      const specimenSections = document.querySelectorAll(".specimen-section");
 
       // Kerning toggle
       const kernToggle = document.getElementById("kern-toggle");
       let kerningEnabled = false;
-      specimenSection.style.fontFeatureSettings = "'kern' 0";
+      for (const section of specimenSections) {
+        section.style.fontFeatureSettings = "'kern' 0";
+      }
 
       kernToggle.addEventListener("click", () => {
         kerningEnabled = !kerningEnabled;
-        specimenSection.style.fontFeatureSettings = kerningEnabled ? "" : "'kern' 0";
+        for (const section of specimenSections) {
+          section.style.fontFeatureSettings = kerningEnabled ? "" : "'kern' 0";
+        }
         kernToggle.textContent = kerningEnabled ? "Yes kerning" : "No kerning";
       });
 
@@ -780,39 +775,43 @@
 
       function wrapFallbackChars() {
         const ctx = document.createElement("canvas").getContext("2d");
-        const walker = document.createTreeWalker(specimenSection, NodeFilter.SHOW_TEXT);
-        const textNodes = [];
-        let node;
-        while ((node = walker.nextNode())) {
-          textNodes.push(node);
-        }
-        for (const textNode of textNodes) {
-          const text = textNode.textContent;
-          if (!text.trim()) continue;
-          const frag = document.createDocumentFragment();
-          for (const char of text) {
-            if (/\s/.test(char)) {
-              frag.appendChild(document.createTextNode(char));
-              continue;
-            }
-            if (fontHasGlyph(ctx, char)) {
-              frag.appendChild(document.createTextNode(char));
-            } else {
-              const span = document.createElement("span");
-              span.className = "fallback-char";
-              span.textContent = char;
-              frag.appendChild(span);
-            }
+        for (const section of specimenSections) {
+          const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+          const textNodes = [];
+          let node;
+          while ((node = walker.nextNode())) {
+            textNodes.push(node);
           }
-          textNode.parentNode.replaceChild(frag, textNode);
+          for (const textNode of textNodes) {
+            const text = textNode.textContent;
+            if (!text.trim()) continue;
+            const frag = document.createDocumentFragment();
+            for (const char of text) {
+              if (/\s/.test(char)) {
+                frag.appendChild(document.createTextNode(char));
+                continue;
+              }
+              if (fontHasGlyph(ctx, char)) {
+                frag.appendChild(document.createTextNode(char));
+              } else {
+                const span = document.createElement("span");
+                span.className = "fallback-char";
+                span.textContent = char;
+                frag.appendChild(span);
+              }
+            }
+            textNode.parentNode.replaceChild(frag, textNode);
+          }
         }
       }
 
       function unwrapFallbackChars() {
-        for (const span of specimenSection.querySelectorAll(".fallback-char")) {
-          span.replaceWith(span.textContent);
+        for (const section of specimenSections) {
+          for (const span of section.querySelectorAll(".fallback-char")) {
+            span.replaceWith(span.textContent);
+          }
+          section.normalize();
         }
-        specimenSection.normalize();
       }
 
       fallbackToggle.addEventListener("click", () => {
