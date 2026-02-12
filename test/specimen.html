@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Glyph Editor &mdash; Abbots Morton Spaceport</title>
+    <title>Specimen &mdash; Abbots Morton Spaceport</title>
     <style>
       @font-face {
         font-family: "Abbots Morton Spaceport Mono";
@@ -63,182 +63,11 @@
         margin-bottom: 0.5rem;
       }
 
-      .editor-container {
-        display: grid;
-        grid-template-columns: 1fr auto auto;
-        gap: 1.5rem;
-        align-items: start;
-      }
-
-      .input-section,
-      .output-section {
-        background: var(--card-bg);
-        border: var(--card-border);
-        padding: 1rem;
-        border-radius: 4px;
-      }
-
-      textarea {
-        font-family: var(--font-stack);
-        font-size: 11px;
-        width: 100%;
-        resize: vertical;
-        background: light-dark(#fafafa, #1e1e1e);
-        color: light-dark(#222, #e0e0e0);
-        border: 1px solid light-dark(#ccc, #444);
-        border-radius: 4px;
-        padding: 0.5rem;
-        -webkit-font-smoothing: none;
-      }
-
-      #input-yaml {
-        height: 280px;
-      }
-
-      #output-yaml {
-        height: 280px;
-      }
-
-      .lightboard-section {
-        background: var(--card-bg);
-        border: var(--card-border);
-        padding: 1rem;
-        border-radius: 4px;
-      }
-
-      .lightboard {
-        display: grid;
-        gap: 2px;
-        background: #888;
-        padding: 2px;
-        border-radius: 4px;
-        user-select: none;
-      }
-
-      .lightboard-cell {
-        width: 36px;
-        height: 36px;
-        border: none;
-        cursor: pointer;
-        transition: background-color 0.1s;
-
-        &.off {
-          background: #f0f0f0;
-        }
-
-        &.on {
-          background: #222;
-        }
-
-        &.disabled {
-          background: #aaa;
-          cursor: not-allowed;
-        }
-
-        &:hover:not(.disabled) {
-          opacity: 0.8;
-        }
-      }
-
-      .lightboard-wrapper {
-        display: flex;
-        align-items: flex-start;
-        gap: 0.5rem;
-      }
-
-      .row-marker {
-        position: absolute;
-        height: 36px;
-        width: 100%;
-        display: flex;
-        align-items: center;
-        font-size: 12px;
-        font-family: system-ui, sans-serif;
-        color: light-dark(#888, #666);
-        pointer-events: none;
-      }
-
-      .column-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        position: relative;
-
-        button {
-          width: 36px;
-          height: 36px;
-          padding: 0;
-          font-size: 24px;
-          line-height: 1;
-        }
-      }
-
-      #column-buttons-left .row-marker {
-        justify-content: flex-end;
-      }
-
-      #column-buttons-right .row-marker {
-        justify-content: flex-start;
-      }
-
-      .y-offset-control {
-        margin-top: 1rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-
-        input {
-          width: 60px;
-          padding: 0.25rem;
-          font-family: var(--font-stack);
-          font-size: 11px;
-          background: light-dark(#fafafa, #1e1e1e);
-          color: light-dark(#222, #e0e0e0);
-          border: 1px solid light-dark(#ccc, #444);
-          border-radius: 4px;
-        }
-      }
-
-      .preview-section {
-        background: var(--card-bg);
-        border: var(--card-border);
-        padding: 1rem;
-        border-radius: 4px;
-      }
-
-      .preview-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 0.75rem;
-
-        &:last-child {
-          margin-bottom: 0;
-        }
-      }
-
-      .preview-label {
-        width: 30px;
-        color: light-dark(#666, #888);
-      }
-
-      .preview-canvas {
-        image-rendering: pixelated;
-        image-rendering: crisp-edges;
-        background: light-dark(#f0f0f0, #333);
-        border: 1px solid light-dark(#ccc, #555);
-      }
-
-      .output-section {
-        margin-top: 1.5rem;
-      }
-
       .specimen-section {
         background: var(--card-bg);
         border: var(--card-border);
         padding: 1rem;
         border-radius: 4px;
-        margin-top: 1.5rem;
         font-size: 22px;
 
         p {
@@ -273,17 +102,6 @@
         }
       }
 
-      .output-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.5rem;
-
-        .section-label {
-          margin-bottom: 0;
-        }
-      }
-
       button {
         font-family: var(--font-stack);
         font-size: 11px;
@@ -297,18 +115,6 @@
         &:hover {
           background: light-dark(#d0d0d0, #555);
         }
-      }
-
-      .section-label {
-        color: light-dark(#666, #888);
-        margin-bottom: 0.5rem;
-        font-size: 11px;
-      }
-
-      .glyph-info {
-        margin-bottom: 0.5rem;
-        font-size: 11px;
-        color: light-dark(#0066cc, #4a9eff);
       }
 
       .fallback-char {
@@ -358,79 +164,9 @@
       <button id="kern-toggle">No kerning</button>
       <button id="fallback-toggle" title="Highlight characters rendered by a fallback font">No fallback HL</button>
     </div>
-    <h1>Glyph Editor</h1>
-    <p>Paste a glyph&rsquo;s YAML block, edit it visually, then copy the output back.</p>
-
-    <div class="editor-container">
-      <div class="input-section">
-        <div class="section-label">Input (paste YAML here)</div>
-        <textarea
-          id="input-yaml"
-          placeholder='&#x20;&#x20;uniE650:  # ·Pea
-&#x20;&#x20;&#x20;&#x20;bitmap:
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- " ### "
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "#   #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "#   #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #" #
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"
-&#x20;&#x20;&#x20;&#x20;&#x20;&#x20;- "    #"'
-        ></textarea>
-      </div>
-
-      <div class="lightboard-section">
-        <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
-        <div class="glyph-info" id="glyph-info"></div>
-        <div class="lightboard-wrapper">
-          <div class="column-buttons" id="column-buttons-left">
-            <button type="button" id="add-col-left" title="Add column on left">+</button>
-            <button type="button" id="remove-col-left" title="Remove column from left">−</button>
-          </div>
-          <div class="lightboard" id="lightboard"></div>
-          <div class="column-buttons" id="column-buttons-right">
-            <button type="button" id="add-col-right" title="Add column on right">+</button>
-            <button type="button" id="remove-col-right" title="Remove column from right">−</button>
-          </div>
-        </div>
-        <div class="y-offset-control">
-          <label for="y-offset">y_offset:</label>
-          <input type="number" id="y-offset" value="0" min="-12" max="12" />
-        </div>
-      </div>
-
-      <div class="preview-section">
-        <div class="section-label">Preview</div>
-        <div class="preview-row">
-          <span class="preview-label">1×</span>
-          <canvas id="preview-1x" class="preview-canvas"></canvas>
-        </div>
-        <div class="preview-row">
-          <span class="preview-label">2×</span>
-          <canvas id="preview-2x" class="preview-canvas"></canvas>
-        </div>
-        <div class="preview-row">
-          <span class="preview-label">3×</span>
-          <canvas id="preview-3x" class="preview-canvas"></canvas>
-        </div>
-        <div class="preview-row">
-          <span class="preview-label">4×</span>
-          <canvas id="preview-4x" class="preview-canvas"></canvas>
-        </div>
-      </div>
-    </div>
-
-    <div class="output-section">
-      <div class="output-header">
-        <div class="section-label">Output (copy this back to glyph_data.yaml)</div>
-        <button id="copy-btn" type="button">Copy to clipboard</button>
-      </div>
-      <textarea id="output-yaml" readonly></textarea>
-    </div>
+    <h1>Specimen</h1>
 
     <div class="specimen-section">
-      <div class="section-label">Specimen</div>
       <section class="oddballs">
         <p>The Ægean encyclopædia described Æthelred's mediæval reign.</p>
         <p>Øresund's fjørd inspired Søren to write about Ørsted's discoveries.</p>
@@ -1056,371 +792,16 @@
 
     <footer>
       <a href="test.html">Font Test</a> |
-      <a href="specimen.html">Specimen</a> |
-      Glyph Editor |
+      Specimen |
+      <a href="glyph-editor.html">Glyph Editor</a> |
       <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
     </footer>
 
     <script type="module">
-      const MAX_ROWS = 12;
-      let cols = 5;
-
-      // State
-      let glyphName = "";
-      let glyphComment = "";
-      let bitmap = [];
-      let yOffset = 0;
-      let rowComments = []; // Store per-row comments
-      let leadingIndent = ""; // Preserve leading whitespace from input
-      let isDragging = false;
-      let paintState = "#"; // '#' for on, ' ' for off
-
-      // DOM elements
-      const inputYaml = document.getElementById("input-yaml");
-      const outputYaml = document.getElementById("output-yaml");
-      const lightboard = document.getElementById("lightboard");
-      const glyphInfo = document.getElementById("glyph-info");
-      const yOffsetInput = document.getElementById("y-offset");
-      const copyBtn = document.getElementById("copy-btn");
-      const lightboardLabel = document.getElementById("lightboard-label");
-      const columnButtonsLeft = document.getElementById("column-buttons-left");
-      const columnButtonsRight = document.getElementById("column-buttons-right");
-
-      // Row marker positions (0-indexed grid rows)
-      const TALL_HEIGHT_ROW = 0;
-      const CAP_HEIGHT_ROW = 1;
-      const X_HEIGHT_ROW = 3;
-      const BASELINE_ROW = 8;
-
-      // Initialize row markers
-      function initRowMarkers() {
-        document.querySelectorAll(".row-marker").forEach((el) => el.remove());
-
-        const markerRows = [
-          { row: TALL_HEIGHT_ROW, label: "th", title: "tall height" },
-          { row: CAP_HEIGHT_ROW, label: "ch", title: "cap height" },
-          { row: X_HEIGHT_ROW, label: "xh", title: "x-height" },
-          { row: BASELINE_ROW, label: "bl", title: "baseline" },
-        ];
-
-        for (const container of [columnButtonsLeft, columnButtonsRight]) {
-          for (const { row, label, title } of markerRows) {
-            const marker = document.createElement("div");
-            marker.className = "row-marker";
-            marker.textContent = label;
-            marker.title = title;
-            // Position: row * (cell height + gap) + padding offset
-            marker.style.top = `${row * (36 + 2) + 2}px`;
-            container.appendChild(marker);
-          }
-        }
-      }
-
-      // Calculate the starting row for the bitmap in the lightboard
-      // so that the baseline aligns with BASELINE_ROW
-      function getBitmapStartRow() {
-        return BASELINE_ROW - yOffset - (bitmap.length - 1);
-      }
-
-      // Initialize lightboard grid
-      function initLightboard() {
-        lightboard.innerHTML = "";
-        lightboard.style.gridTemplateColumns = `repeat(${cols}, 36px)`;
-        lightboardLabel.textContent = `Lightboard (${MAX_ROWS} rows × ${cols} cols)`;
-        for (let row = 0; row < MAX_ROWS; row++) {
-          for (let col = 0; col < cols; col++) {
-            const cell = document.createElement("button");
-            cell.className = "lightboard-cell disabled";
-            cell.dataset.row = row;
-            cell.dataset.col = col;
-            cell.addEventListener("mousedown", (e) => {
-              e.preventDefault();
-              const startRow = getBitmapStartRow();
-              const bitmapRow = row - startRow;
-              if (bitmapRow < 0 || bitmapRow >= bitmap.length) return;
-              isDragging = true;
-              const chars = bitmap[bitmapRow].split("");
-              chars[col] = chars[col] === "#" ? " " : "#";
-              paintState = chars[col];
-              bitmap[bitmapRow] = chars.join("");
-              updateLightboard();
-              updatePreviews();
-              updateOutput();
-            });
-            cell.addEventListener("mouseenter", () => {
-              const startRow = getBitmapStartRow();
-              const bitmapRow = row - startRow;
-              if (!isDragging || bitmapRow < 0 || bitmapRow >= bitmap.length) return;
-              setCellState(bitmapRow, col, paintState);
-            });
-            lightboard.appendChild(cell);
-          }
-        }
-      }
-
-      // Parse YAML input
-      function parseYaml(text) {
-        const lines = text.split("\n");
-
-        // Extract glyph name and comment from first line (allow leading whitespace)
-        const nameMatch = lines[0]?.match(/^(\s*)([\w.]+):\s*(#.*)?$/);
-        if (!nameMatch) {
-          return null;
-        }
-
-        leadingIndent = nameMatch[1];
-        glyphName = nameMatch[2];
-        glyphComment = nameMatch[3] || "";
-
-        // Extract y_offset if present
-        yOffset = 0;
-        const yOffsetMatch = text.match(/y_offset:\s*(-?\d+)/);
-        if (yOffsetMatch) {
-          yOffset = parseInt(yOffsetMatch[1], 10);
-        }
-
-        // Extract bitmap lines
-        bitmap = [];
-        rowComments = [];
-        const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
-        if (bitmapLines) {
-          bitmapLines.forEach((line) => {
-            const match = line.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/);
-            if (match) {
-              bitmap.push(match[1]);
-              rowComments.push(match[2] || "");
-            }
-          });
-        }
-
-        // Detect column count from first bitmap row
-        if (bitmap.length > 0) {
-          cols = bitmap[0].length;
-        }
-
-        return {
-          name: glyphName,
-          comment: glyphComment,
-          bitmap,
-          yOffset,
-          rowComments,
-          cols,
-        };
-      }
-
-      // Update lightboard display
-      function updateLightboard() {
-        const cells = lightboard.querySelectorAll(".lightboard-cell");
-        const startRow = getBitmapStartRow();
-
-        cells.forEach((cell) => {
-          const row = parseInt(cell.dataset.row);
-          const col = parseInt(cell.dataset.col);
-          const bitmapRow = row - startRow;
-
-          if (bitmapRow >= 0 && bitmapRow < bitmap.length) {
-            cell.classList.remove("disabled");
-            if (bitmap[bitmapRow][col] === "#") {
-              cell.classList.add("on");
-              cell.classList.remove("off");
-            } else {
-              cell.classList.add("off");
-              cell.classList.remove("on");
-            }
-          } else {
-            cell.classList.add("disabled");
-            cell.classList.remove("on", "off");
-          }
-        });
-
-        glyphInfo.textContent = glyphName ? `${glyphName} ${glyphComment}` : "";
-        yOffsetInput.value = yOffset;
-      }
-
-      // Set a cell to a specific state (used during drag painting)
-      function setCellState(row, col, state) {
-        if (row >= bitmap.length) return;
-        if (bitmap[row][col] === state) return;
-
-        const chars = bitmap[row].split("");
-        chars[col] = state;
-        bitmap[row] = chars.join("");
-
-        updateLightboard();
-      }
-
-      // Render preview canvas
-      const DISPLAY_SCALE = 4; // CSS display multiplier for visibility
-      const PADDING = 1; // 1 column padding on each side
-      function renderPreview(canvas, bitmapData, scale) {
-        const ctx = canvas.getContext("2d");
-        const width = (cols + PADDING * 2) * scale;
-        const height = bitmapData.length * scale;
-
-        canvas.width = width;
-        canvas.height = height;
-        canvas.style.width = width * DISPLAY_SCALE + "px";
-        canvas.style.height = height * DISPLAY_SCALE + "px";
-
-        // Clear canvas with background color
-        ctx.fillStyle = "#f0f0f0";
-        ctx.fillRect(0, 0, width, height);
-
-        // Draw gray padding columns
-        ctx.fillStyle = "#ccc";
-        ctx.fillRect(0, 0, PADDING * scale, height); // left
-        ctx.fillRect(width - PADDING * scale, 0, PADDING * scale, height); // right
-
-        // Draw pixels (offset by padding)
-        ctx.fillStyle = "#222";
-        for (let y = 0; y < bitmapData.length; y++) {
-          for (let x = 0; x < cols; x++) {
-            if (bitmapData[y][x] === "#") {
-              ctx.fillRect((x + PADDING) * scale, y * scale, scale, scale);
-            }
-          }
-        }
-      }
-
-      // Update all preview canvases
-      function updatePreviews() {
-        if (bitmap.length === 0) {
-          // Clear canvases if no bitmap
-          [1, 2, 3, 4].forEach((scale) => {
-            const canvas = document.getElementById(`preview-${scale}x`);
-            canvas.width = (cols + PADDING * 2) * scale;
-            canvas.height = scale;
-            canvas.style.width = (cols + PADDING * 2) * scale * DISPLAY_SCALE + "px";
-            canvas.style.height = scale * DISPLAY_SCALE + "px";
-          });
-          return;
-        }
-
-        [1, 2, 3, 4].forEach((scale) => {
-          const canvas = document.getElementById(`preview-${scale}x`);
-          renderPreview(canvas, bitmap, scale);
-        });
-      }
-
-      // Generate YAML output
-      function generateYaml() {
-        if (!glyphName || bitmap.length === 0) {
-          return "";
-        }
-
-        let output = `${leadingIndent}${glyphName}:`;
-        if (glyphComment) {
-          output += `  ${glyphComment}`;
-        }
-        output += "\n";
-
-        if (yOffset !== 0) {
-          output += `${leadingIndent}  y_offset: ${yOffset}\n`;
-        }
-
-        output += `${leadingIndent}  bitmap:\n`;
-        bitmap.forEach((row, i) => {
-          output += `${leadingIndent}    - "${row}"`;
-          if (rowComments[i]) {
-            output += ` ${rowComments[i]}`;
-          }
-          output += "\n";
-        });
-
-        return output;
-      }
-
-      // Update output textarea
-      function updateOutput() {
-        outputYaml.value = generateYaml();
-      }
-
-      // Column manipulation functions
-      function addColumnLeft() {
-        if (bitmap.length === 0) return;
-        bitmap = bitmap.map((row) => " " + row);
-        cols++;
-        initLightboard();
-        updateLightboard();
-        updatePreviews();
-        updateOutput();
-      }
-
-      function removeColumnLeft() {
-        if (cols <= 1 || bitmap.length === 0) return;
-        bitmap = bitmap.map((row) => row.slice(1));
-        cols--;
-        initLightboard();
-        updateLightboard();
-        updatePreviews();
-        updateOutput();
-      }
-
-      function addColumnRight() {
-        if (bitmap.length === 0) return;
-        bitmap = bitmap.map((row) => row + " ");
-        cols++;
-        initLightboard();
-        updateLightboard();
-        updatePreviews();
-        updateOutput();
-      }
-
-      function removeColumnRight() {
-        if (cols <= 1 || bitmap.length === 0) return;
-        bitmap = bitmap.map((row) => row.slice(0, -1));
-        cols--;
-        initLightboard();
-        updateLightboard();
-        updatePreviews();
-        updateOutput();
-      }
-
-      // End drag painting on mouseup anywhere
-      document.addEventListener("mouseup", () => {
-        if (isDragging) {
-          isDragging = false;
-          updatePreviews();
-          updateOutput();
-        }
-      });
-
-      // Event listeners
-      inputYaml.addEventListener("input", () => {
-        const oldCols = cols;
-        const parsed = parseYaml(inputYaml.value);
-        if (parsed) {
-          if (cols !== oldCols) {
-            initLightboard();
-          }
-          updateLightboard();
-          updatePreviews();
-          updateOutput();
-        }
-      });
-
-      yOffsetInput.addEventListener("input", () => {
-        yOffset = parseInt(yOffsetInput.value, 10) || 0;
-        updateLightboard();
-        updateOutput();
-      });
-
-      copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(outputYaml.value).then(() => {
-          const original = copyBtn.textContent;
-          copyBtn.textContent = "Copied!";
-          setTimeout(() => (copyBtn.textContent = original), 1500);
-        });
-      });
-
-      document.getElementById("add-col-left").addEventListener("click", addColumnLeft);
-      document.getElementById("remove-col-left").addEventListener("click", removeColumnLeft);
-      document.getElementById("add-col-right").addEventListener("click", addColumnRight);
-      document.getElementById("remove-col-right").addEventListener("click", removeColumnRight);
+      const specimenSection = document.querySelector(".specimen-section");
 
       // Kerning toggle
       const kernToggle = document.getElementById("kern-toggle");
-      const specimenSection = document.querySelector(".specimen-section");
       let kerningEnabled = false;
       specimenSection.style.fontFeatureSettings = "'kern' 0";
 
@@ -1435,9 +816,6 @@
       let fallbackShown = false;
 
       function fontHasGlyph(ctx, char) {
-        // Compare multiple metrics against a fallback to detect glyph presence.
-        // Width alone can coincidentally match; bounding-box metrics make
-        // a false match essentially impossible.
         ctx.font = "72px serif";
         const fb = ctx.measureText(char);
         ctx.font = '72px "Abbots Morton Spaceport Sans", serif';
@@ -1500,11 +878,6 @@
           fallbackToggle.textContent = "No fallback HL";
         }
       });
-
-      // Initialize
-      initRowMarkers();
-      initLightboard();
-      updatePreviews();
     </script>
   </body>
 </html>
