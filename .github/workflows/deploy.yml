@@ -59,7 +59,10 @@ jobs:
           cp build/AbbotsMortonSpaceportSans.otf site/
           cp build/AbbotsMortonSpaceportSans.woff2 site/
           cp test/DepartureMono-Regular.otf site/
-          cp test/test.html site/index.html
+          cp test/index.html site/index.html
+          cp test/glyph-editor.html site/
+          cp test/specimen.html site/
+          cp test/shared.css site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
