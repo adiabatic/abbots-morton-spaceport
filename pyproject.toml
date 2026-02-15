@@ -9,6 +9,4 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "opentype-sanitizer>=9.2.0",
-]
+dev = []
