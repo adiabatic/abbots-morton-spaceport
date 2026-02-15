@@ -73,18 +73,19 @@ Ligation connects adjacent letters into joined forms when their connection point
 
 1. **True ligatures** (`liga`): Create combined glyphs for common pairs. Produces the best results but requires many glyphs (N*M potential pairs).
 2. **Contextual adjustment** (`calt` + `kern`): Use alternate glyphs with adjusted spacing to simulate connection. Fewer glyphs needed but less precise.
+3. **Cursive attachment** (`curs`): Use GPOS cursive attachment to connect letters at matching anchor points. No extra glyphs needed but limited to positioning — can't change letterforms. Historically only used by RTL and vertical scripts, but research suggests modern shaping engines handle LTR `curs` fine.
 
-OpenType also has a **cursive attachment** feature (`curs`) that uses entry/exit anchors to automatically align adjacent glyphs. However, `curs` is only used in practice by RTL scripts (Arabic, Syriac, N'Ko) and vertical scripts (Mongolian). No major LTR script uses it, so shaping engine support for LTR `curs` is effectively untested. We avoid it here.
-
-The best approach is likely a combination: `liga` for common pairs that need merged strokes, and `calt` + `kern` for everything else.
+The best approach is likely a combination: use `curs` for simple connections where letters already match, and `liga` for pairs that need shape changes.
 
 ### Prerequisites
 
 - Phase 1 should be complete first
+- Connection point anchors need to be defined for each letter (entry/exit points for `curs`)
 - Common letter pairs in Quikscript need to be identified to prioritize ligature design
 
 ## Implementation order
 
 1. Add `calt` infrastructure to `build_font.py`
 2. Wire up Phase 1 rules (alternate ·Utter and ·No)
-3. Design and add ligature glyphs for common pairs
+3. Add `curs` anchors for simple ligation
+4. Design and add ligature glyphs for common pairs
