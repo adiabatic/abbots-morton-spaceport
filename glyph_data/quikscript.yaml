@@ -93,6 +93,7 @@ glyphs:
 
   uniE653.prop: &DAY  # ·Day
     y_offset: -3
+    cursive_exit: [5, 0]
     bitmap:
       - "#   "
       - "#   "
@@ -206,6 +207,7 @@ glyphs:
       - "###  "
 
   uniE65A.prop:  # ·See
+    cursive_entry: [1, 0]
     cursive_exit: [6, 8]
     bitmap: *see_bitmap
 
@@ -552,13 +554,17 @@ glyphs:
       - "#  #"
 
   uniE672: &ET  # ·Et
-    bitmap:
+    bitmap: &et_bitmap
       - "#    "
       - "#    "
       - "#    "
       - " #   "
       - "  #  "
       - "   ##"
+
+  uniE672.prop:  # ·Et
+    cursive_exit: [6, 0]
+    bitmap: *et_bitmap
 
   uniE673:  # ·Eight
     bitmap:
