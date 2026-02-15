@@ -25,6 +25,7 @@ glyphs:
       - "    #"
 
   uniE650.prop: &PEA  # ·Pea
+    cursive_exit: [5, 0]
     bitmap:
       - " ## "
       - "#  #"
@@ -35,6 +36,19 @@ glyphs:
       - "   #"
       - "   #"
       - "   #"
+
+  uniE650.prop.half:  # ·Pea (half)
+    cursive_exit: [5, 5]
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "   #" #
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
 
   uniE651:  # ·Bay
     y_offset: -3
