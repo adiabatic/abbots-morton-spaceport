@@ -745,13 +745,13 @@
       const kernToggle = document.getElementById("kern-toggle");
       let kerningEnabled = false;
       for (const section of specimenSections) {
-        section.style.fontFeatureSettings = "'kern' 0";
+        section.style.fontKerning = "none";
       }
 
       kernToggle.addEventListener("click", () => {
         kerningEnabled = !kerningEnabled;
         for (const section of specimenSections) {
-          section.style.fontFeatureSettings = kerningEnabled ? "" : "'kern' 0";
+          section.style.fontKerning = kerningEnabled ? "normal" : "none";
         }
         kernToggle.textContent = kerningEnabled ? "Yes kerning" : "No kerning";
       });
