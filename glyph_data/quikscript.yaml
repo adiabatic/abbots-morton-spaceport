@@ -315,6 +315,7 @@ glyphs:
 
   uniE661.prop: &WAY  # ·Way
     y_offset: -3
+    cursive_exit: [4, 5]
     bitmap:
       - "   #"
       - "   #"
@@ -602,6 +603,7 @@ glyphs:
       - "   ##"
 
   uniE672.prop:  # ·Et
+    cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap: *et_bitmap
 
