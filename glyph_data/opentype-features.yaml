@@ -2,3 +2,61 @@ kerning:
   leave-space-for-j:
     right: [j]
     value: -1
+  f-before-short:
+    left: [f]
+    right:
+      # x-height letters
+      - a
+      - ae
+      - c
+      - e
+      - i
+      - dotlessi
+      - m
+      - n
+      - o
+      - oslash
+      - r
+      - s
+      - u
+      - v
+      - w
+      - x
+      - z
+      # descender letters (no ascender)
+      - g
+      - mu
+      - p
+      - q
+      - y
+      # accented composites of non-ascender bases
+      - aacute
+      - acircumflex
+      - adieresis
+      - agrave
+      - aring
+      - atilde
+      - ccedilla
+      - eacute
+      - ecircumflex
+      - edieresis
+      - egrave
+      - iacute
+      - icircumflex
+      - idieresis
+      - igrave
+      - ntilde
+      - oacute
+      - ocircumflex
+      - odieresis
+      - ograve
+      - ohungarumlaut
+      - otilde
+      - uacute
+      - ucircumflex
+      - udieresis
+      - ugrave
+      - uhungarumlaut
+      - yacute
+      - ydieresis
+    value: -1
