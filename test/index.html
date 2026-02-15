@@ -6,7 +6,8 @@
   <title>Abbots Morton Spaceport Mono</title>
   <link rel="preload" href="DepartureMono-Regular.otf" as="font" type="font/otf">
   <link rel="preload" href="AbbotsMortonSpaceportMono.otf" as="font" type="font/otf">
-  <link rel="preload" href="AbbotsMortonSpaceportSans.otf" as="font" type="font/otf">
+  <link rel="preload" href="AbbotsMortonSpaceportSansJunior.otf" as="font" type="font/otf">
+  <link rel="preload" href="AbbotsMortonSpaceportSansSenior.otf" as="font" type="font/otf">
   <link rel="stylesheet" href="shared.css">
   <style>
     :root {
@@ -107,8 +108,9 @@
         }
       }
 
-      #font-toggle {
-        min-width: 15ch;
+      #font-toggle,
+      #level-toggle {
+        min-width: 10ch;
       }
     }
   </style>
@@ -129,31 +131,45 @@
     const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
 
-    const fontModes = [
-      { font: "'Abbots Morton Spaceport Mono'", title: 'Abbots Morton Spaceport Mono' },
-      { font: "'Abbots Morton Spaceport Sans'", title: 'Abbots Morton Spaceport Sans' },
-    ];
-
     const fontOrderToggle = document.getElementById('font-order-toggle');
     const fontToggle = document.getElementById('font-toggle');
+    const levelToggle = document.getElementById('level-toggle');
 
-    let isProportional = true;
+    let isSans = true;
+    let isSenior = true;
     let dmFirst = false;
 
     function applyState() {
-      const mode = fontModes[isProportional ? 1 : 0];
+      let fontFamily, fontTitle;
+      if (isSans) {
+        const level = isSenior ? 'Senior' : 'Junior';
+        fontFamily = `'Abbots Morton Spaceport Sans ${level}'`;
+        fontTitle = `Abbots Morton Spaceport Sans ${level}`;
+        levelToggle.textContent = level;
+        levelToggle.hidden = false;
+      } else {
+        fontFamily = "'Abbots Morton Spaceport Mono'";
+        fontTitle = 'Abbots Morton Spaceport Mono';
+        levelToggle.hidden = true;
+      }
+
       const fontStack = dmFirst
-        ? `'Departure Mono', ${mode.font}, monospace`
-        : `${mode.font}, 'Departure Mono', monospace`;
+        ? `'Departure Mono', ${fontFamily}, monospace`
+        : `${fontFamily}, 'Departure Mono', monospace`;
 
       document.documentElement.style.setProperty('--font-stack', fontStack);
-      title.textContent = mode.title;
-      document.title = mode.title;
-      fontToggle.textContent = isProportional ? 'Proportional' : 'Monospace';
+      title.textContent = fontTitle;
+      document.title = fontTitle;
+      fontToggle.textContent = isSans ? 'Sans' : 'Mono';
     }
 
     fontToggle.addEventListener('click', () => {
-      isProportional = !isProportional;
+      isSans = !isSans;
+      applyState();
+    });
+
+    levelToggle.addEventListener('click', () => {
+      isSenior = !isSenior;
       applyState();
     });
 
@@ -173,7 +189,8 @@
 
   <div class="toggle-buttons">
     <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">AMS first</button>
-    <button id="font-toggle">Monospace</button>
+    <button id="font-toggle">Sans</button>
+    <button id="level-toggle">Senior</button>
   </div>
 
   <div class="controls">
