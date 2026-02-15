@@ -314,6 +314,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """
     # --- Backward-looking: entry variants keyed by entry Y ---
     bk_replacements: dict[str, dict[int, str]] = {}
+    # Pair-specific overrides: entry variants with calt_after lists
+    pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or not _is_entry_variant(glyph_name):
             continue
@@ -327,7 +329,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         base_name = glyph_name.split(".")[0]
         if base_name not in glyphs_def:
             continue
-        bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
+        calt_after = glyph_def.get("calt_after")
+        if calt_after:
+            pair_overrides.setdefault(base_name, []).append(
+                (glyph_name, list(calt_after))
+            )
+        else:
+            bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
 
     # --- Forward-looking: exit-only variants keyed by exit Y ---
     # Detects any variant with cursive_exit but no cursive_entry (catches
@@ -457,21 +465,38 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append(f"    }} {lookup_name};")
 
     def _emit_bk(base_name: str):
-        variants = bk_replacements[base_name]
-        lookup_name = f"calt_{base_name}"
-        lines.append("")
-        lines.append(f"    lookup {lookup_name} {{")
-        for entry_y in sorted(variants.keys()):
-            variant_name = variants[entry_y]
-            if entry_y in exit_classes:
-                lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
-        lines.append(f"    }} {lookup_name};")
+        # Pair-specific overrides run first so they win over the general rule
+        if base_name in pair_overrides:
+            for variant_name, after_glyphs in pair_overrides[base_name]:
+                after_list = " ".join(sorted(after_glyphs))
+                safe = variant_name.replace(".", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_pair_{safe} {{")
+                lines.append(
+                    f"        sub [{after_list}] {base_name}' by {variant_name};"
+                )
+                lines.append(f"    }} calt_pair_{safe};")
+        # General backward rule
+        if base_name in bk_replacements:
+            variants = bk_replacements[base_name]
+            lookup_name = f"calt_{base_name}"
+            lines.append("")
+            lines.append(f"    lookup {lookup_name} {{")
+            for entry_y in sorted(variants.keys()):
+                variant_name = variants[entry_y]
+                if entry_y in exit_classes:
+                    lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+            lines.append(f"    }} {lookup_name};")
 
-    fwd_only = sorted(set(fwd_replacements) - set(bk_replacements))
+    # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
+    pair_only = sorted(set(pair_overrides) - set(bk_replacements))
+    all_bk_bases = sorted_bases + pair_only
+
+    fwd_only = sorted(set(fwd_replacements) - set(bk_replacements) - set(pair_overrides))
     for base_name in fwd_only:
         _emit_fwd(base_name)
 
-    for base_name in sorted_bases:
+    for base_name in all_bk_bases:
         _emit_bk(base_name)
         if base_name in fwd_replacements:
             _emit_fwd(base_name)

@@ -38,7 +38,7 @@ glyphs:
       - "   #"
 
   uniE650.prop.half:  # ·Pea (half)
-    cursive_exit: [5, 5]
+    cursive_exit: [4, 5]
     bitmap:
       - " ## "
       - "#  #"
@@ -472,6 +472,11 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
+    bitmap: *roe_bitmap
+
+  uniE668.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
+    cursive_entry: [1, 5]
+    calt_after: [uniE650.prop.half]
     bitmap: *roe_bitmap
 
   uniE668.entry-baseline.extended:  # ·Roe
