@@ -166,6 +166,9 @@ yacute: 0x00FD
 thorn: 0x00FE
 ydieresis: 0x00FF
 
+# Latin Extended Additional
+Germandbls: 0x1E9E
+
 # General punctuation
 minus: 0x2212
 endash: 0x2013
