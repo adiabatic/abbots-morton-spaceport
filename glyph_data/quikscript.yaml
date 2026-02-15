@@ -365,7 +365,7 @@ glyphs:
       - "  #  "
 
   uniE664: &ING  # ·-ing
-    bitmap:
+    bitmap: &ing_bitmap
       - "  #  "
       - " # # "
       - " # # "
@@ -375,6 +375,11 @@ glyphs:
       - "  #  "
       - " # # "
       - "#   #"
+
+  uniE664.prop:  # ·-ing
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    bitmap: *ing_bitmap
 
   uniE665:  # ·May
     y_offset: -3
@@ -608,13 +613,18 @@ glyphs:
     bitmap: *et_bitmap
 
   uniE673:  # ·Eight
-    bitmap:
+    bitmap: &eight_bitmap
       - "# ## "
       - " #  #"
       - " ### "
       - "  #  "
       - "   # "
       - "    #"
+
+  uniE673.prop:  # ·Eight
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
+    bitmap: *eight_bitmap
 
   uniE674: &AT  # ·At
     bitmap: &at_bitmap
