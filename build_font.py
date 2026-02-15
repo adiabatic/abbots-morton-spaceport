@@ -118,15 +118,20 @@ def generate_kern_fea(
     """Generate OpenType feature code for kern feature from kerning definitions."""
     lines = ["feature kern {"]
     for tag_name, definition in kerning_defs.items():
-        excluded = set(kerning_groups.get(tag_name, []))
-        left_glyphs = [g for g in all_glyph_names if g not in excluded]
+        if "left" in definition:
+            left_glyphs = definition["left"]
+        else:
+            excluded = set(kerning_groups.get(tag_name, []))
+            left_glyphs = [g for g in all_glyph_names if g not in excluded]
         if not left_glyphs:
             continue
         right_glyphs = definition["right"]
         value = definition["value"] * pixel_size
         left = " ".join(sorted(left_glyphs))
         right = " ".join(right_glyphs)
-        lines.append(f"    pos [{left}] [{right}] {value};")
+        lines.append(f"    lookup kern_{tag_name} {{")
+        lines.append(f"        pos [{left}] [{right}] {value};")
+        lines.append(f"    }} kern_{tag_name};")
     lines.append("} kern;")
     return "\n".join(lines)
 
