@@ -110,7 +110,6 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Wishlist
 
-- Proportional copies of Departure Mono’s punctuation
 - Quikscript Senior with a gazillion ligatures
 - Maybe no left side bearing for `j`
 - bold proportional font (use a two-pixel-wide brush stroke like how Chicago 12 does)
