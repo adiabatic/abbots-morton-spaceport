@@ -40,6 +40,12 @@ After running `build_font.py`, run `touch test/test.html` to trigger automatic b
 - Use @inspo/csur/index.html to find out what Quikscript letters go with what code points.
 - To understand a Quikscript letter shape, zoom/crop @inspo/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @inspo/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
 
+## Cursive attachment (`curs`)
+
+- Only `.prop` glyphs get `cursive_entry` / `cursive_exit` anchors (since `curs` is only compiled into the proportional Sans font).
+- If a Quikscript letter doesn't already have a `.prop` variant, create one: add a YAML anchor on the base glyph's `bitmap` (e.g., `&bay_bitmap`), then create the `.prop` with `bitmap: *bay_bitmap` plus the `curs` anchor(s). Copy any non-bitmap keys (like `y_offset`) manually. We alias the bitmap rather than the whole glyph because YAML merge keys (`<<`) are a 1.1 extension, not part of the YAML 1.2 spec.
+- Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
+
 ## Bumping the version number
 
 1. Update `version` in `glyph_data/metadata.yaml` (e.g., `3.000`)
