@@ -357,14 +357,14 @@ glyphs:
 
   germandbls.prop:  # ß U+00DF
     bitmap: # yes, I know it is ugly, but gosh darnit, it is mine
-      - " ####  "
-      - "#    # "
-      - "#    # " #
-      - "#  ##  "
-      - "# #    "
-      - "#  ### "
-      - "#     #"
-      - "#  ### "
+      - " ###  "
+      - "#   # "
+      - "#   # " #
+      - "# ##  "
+      - "#   # "
+      - "#    #"
+      - "#    #"
+      - "# ### "
 
   # Ascender: 8 rows, # on row 3, width 5
   b.prop:  # b U+0062
@@ -747,4 +747,3 @@ glyphs:
       - "#    "
       - "#    "
       - "     "
-
