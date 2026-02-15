@@ -22,8 +22,6 @@
 | ∏ | U+220F | N-ary product |
 | ∑ | U+2211 | N-ary summation |
 | ∫ | U+222B | Integral |
-| 〈 | U+2329 | Left-pointing angle bracket |
-| 〉 | U+232A | Right-pointing angle bracket |
 | ■ | U+25A0 | Black square |
 | □ | U+25A1 | White square |
 | ▲ | U+25B2 | Black up-pointing triangle |
