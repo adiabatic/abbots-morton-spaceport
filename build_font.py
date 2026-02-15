@@ -285,16 +285,31 @@ def _is_entry_variant(glyph_name: str) -> bool:
     return any(p.startswith("entry-") for p in glyph_name.split(".")[1:])
 
 
+def _is_exit_variant(glyph_name: str) -> bool:
+    """Check if a glyph name contains an exit-* modifier segment."""
+    return any(p.startswith("exit-") for p in glyph_name.split(".")[1:])
+
+
+def _is_contextual_variant(glyph_name: str) -> bool:
+    """Check if a glyph name is an entry-* or exit-* contextual variant."""
+    return _is_entry_variant(glyph_name) or _is_exit_variant(glyph_name)
+
+
 def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """Generate OpenType feature code for contextual alternates (calt).
 
-    Scans for glyphs with entry-* modifier segments and cursive_entry anchors,
-    then generates contextual substitution rules to swap in the correct variant
-    based on the preceding glyph's exit height.
+    Generates two kinds of contextual substitution rules:
+
+    1. Backward-looking: scans for entry-* variants with cursive_entry anchors,
+       substitutes based on the preceding glyph's exit height.
+    2. Forward-looking: scans for exit-* variants with cursive_exit anchors,
+       substitutes based on the following glyph's entry height. These run after
+       backward rules, so they only fire for glyphs not already substituted.
 
     Returns the FEA string, or None if no contextual variants are found.
     """
-    replacements: dict[str, dict[int, str]] = {}
+    # --- Backward-looking: entry variants keyed by entry Y ---
+    bk_replacements: dict[str, dict[int, str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or not _is_entry_variant(glyph_name):
             continue
@@ -308,11 +323,29 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         base_name = glyph_name.split(".")[0]
         if base_name not in glyphs_def:
             continue
-        replacements.setdefault(base_name, {})[entry_y] = glyph_name
+        bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
 
-    if not replacements:
+    # --- Forward-looking: exit variants keyed by exit Y ---
+    fwd_replacements: dict[str, dict[int, str]] = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None or not _is_exit_variant(glyph_name):
+            continue
+        raw_exit = glyph_def.get("cursive_exit")
+        if raw_exit is None:
+            continue
+        exits = _normalize_anchors(raw_exit)
+        if not exits:
+            continue
+        exit_y = exits[0][1]
+        base_name = glyph_name.split(".")[0]
+        if base_name not in glyphs_def:
+            continue
+        fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
+
+    if not bk_replacements and not fwd_replacements:
         return None
 
+    # --- Build exit classes (for backward rules) ---
     exit_classes: dict[int, set[str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
@@ -323,8 +356,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         for anchor in _normalize_anchors(raw_exit):
             exit_classes.setdefault(anchor[1], set()).add(glyph_name)
 
+    # --- Build entry classes (for forward rules) ---
+    entry_classes: dict[int, set[str]] = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        raw_entry = glyph_def.get("cursive_entry")
+        if raw_entry is None:
+            continue
+        for anchor in _normalize_anchors(raw_entry):
+            entry_classes.setdefault(anchor[1], set()).add(glyph_name)
+
+    # --- Topological sort for backward-looking lookups ---
     base_exit_ys: dict[str, set[int]] = {}
-    for base_name, variants in replacements.items():
+    for base_name, variants in bk_replacements.items():
         exit_ys = set()
         for variant_name in variants.values():
             variant_def = glyphs_def.get(variant_name, {})
@@ -335,13 +380,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                         exit_ys.add(anchor[1])
         base_exit_ys[base_name] = exit_ys
 
-    base_order = list(replacements.keys())
+    base_order = list(bk_replacements.keys())
     edges: dict[str, set[str]] = {b: set() for b in base_order}
     for base_a in base_order:
         for base_b in base_order:
             if base_a == base_b:
                 continue
-            b_entry_ys = set(replacements[base_b].keys())
+            b_entry_ys = set(bk_replacements[base_b].keys())
             if base_exit_ys[base_a] & b_entry_ys:
                 edges[base_b].add(base_a)
 
@@ -364,18 +409,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for base in sorted(base_order):
         visit(base)
 
-    used_ys = set()
-    for variants in replacements.values():
-        used_ys.update(variants.keys())
+    # --- Generate FEA ---
+    bk_used_ys = set()
+    for variants in bk_replacements.values():
+        bk_used_ys.update(variants.keys())
+
+    fwd_used_ys = set()
+    for variants in fwd_replacements.values():
+        fwd_used_ys.update(variants.keys())
 
     lines = ["feature calt {"]
-    for y in sorted(used_ys):
+
+    for y in sorted(bk_used_ys):
         if y in exit_classes:
             members = sorted(exit_classes[y])
             lines.append(f"    @exit_y{y} = [{' '.join(members)}];")
 
+    for y in sorted(fwd_used_ys):
+        if y in entry_classes:
+            members = sorted(entry_classes[y])
+            lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
+
+    # Backward-looking lookups (preceding glyph's exit → entry variant)
     for base_name in sorted_bases:
-        variants = replacements[base_name]
+        variants = bk_replacements[base_name]
         lookup_name = f"calt_{base_name}"
         lines.append("")
         lines.append(f"    lookup {lookup_name} {{")
@@ -383,6 +440,18 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             variant_name = variants[entry_y]
             if entry_y in exit_classes:
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+        lines.append(f"    }} {lookup_name};")
+
+    # Forward-looking lookups (following glyph's entry → exit variant)
+    for base_name in sorted(fwd_replacements.keys()):
+        variants = fwd_replacements[base_name]
+        lookup_name = f"calt_fwd_{base_name}"
+        lines.append("")
+        lines.append(f"    lookup {lookup_name} {{")
+        for exit_y in sorted(variants.keys()):
+            variant_name = variants[exit_y]
+            if exit_y in entry_classes:
+                lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
         lines.append(f"    }} {lookup_name};")
 
     lines.append("} calt;")
@@ -705,9 +774,9 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     # Filter out .unused glyphs — they're stubs not yet ready for compilation
     glyphs_def = {k: v for k, v in glyphs_def.items() if ".unused" not in k}
 
-    # For non-senior proportional fonts, exclude entry variants
+    # For non-senior proportional fonts, exclude contextual variants
     if not is_senior:
-        glyphs_def = {k: v for k, v in glyphs_def.items() if not _is_entry_variant(k)}
+        glyphs_def = {k: v for k, v in glyphs_def.items() if not _is_contextual_variant(k)}
 
     # For proportional font, transform glyphs: .prop becomes default
     if is_proportional:
@@ -730,8 +799,8 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     glyph_names = [
         name for name in glyphs_def.keys()
         if name not in (".notdef", "space")
-        and (is_proportional or (not is_proportional_glyph(name) and not _is_entry_variant(name)))
-        and (is_senior or not _is_entry_variant(name))
+        and (is_proportional or (not is_proportional_glyph(name) and not _is_contextual_variant(name)))
+        and (is_senior or not _is_contextual_variant(name))
     ]
     glyph_order = [".notdef", "space"] + sorted(glyph_names)
 

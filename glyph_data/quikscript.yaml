@@ -566,6 +566,14 @@ glyphs:
     cursive_exit: [2, 5]
     bitmap: *it_bitmap
 
+  uniE670.exit-xheight:  # ·It (exits at x-height)
+    cursive_exit: [2, 5]
+    bitmap: *it_bitmap
+
+  uniE670.exit-baseline:  # ·It (exits at baseline)
+    cursive_exit: [2, 0]
+    bitmap: *it_bitmap
+
   uniE671:  # ·Eat
     bitmap:
       - "   # "
