@@ -263,7 +263,7 @@ glyphs:
       - " #    "
 
   uniE65E: &CHEER  # ·Cheer
-    bitmap:
+    bitmap: &cheer_bitmap
       - "     "
       - "  #  "
       - "  #  "
@@ -273,6 +273,20 @@ glyphs:
       - "#    "
       - "#    "
       - " ### "
+
+  uniE65E.prop:  # ·Cheer
+    cursive_entry: [1, 5]
+    cursive_exit: [5, 0]
+    bitmap:
+      - "    "
+      - "  # "
+      - "  # "
+      - "##  " #
+      - " #  "
+      - " #  "
+      - "#   "
+      - "#   "
+      - " ###"
 
   uniE65F: &JAY  # ·Jay
     y_offset: -3
@@ -590,6 +604,8 @@ glyphs:
       - "#  # "
 
   uniE671.prop:  # ·Eat
+    cursive_entry: [1, 0]
+    cursive_exit: [5, 0]
     bitmap:
       - "   #"
       - "  ##"
@@ -640,13 +656,18 @@ glyphs:
     bitmap: *at_bitmap
 
   uniE675:  # ·I
-    bitmap:
+    bitmap: &i_bitmap
       - " ## #"
       - "#  # "
       - " ### "
       - "  #  "
       - " #   "
       - "#    "
+
+  uniE675.prop:  # ·I
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 5]
+    bitmap: *i_bitmap
 
   uniE676: &AH  # ·Ah
     bitmap:
