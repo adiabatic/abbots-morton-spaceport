@@ -270,6 +270,15 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     return "\n".join(lines)
 
 
+def _normalize_anchors(raw) -> list[list[int]]:
+    """Normalize a single [x, y] or list of [x, y] pairs to a list of pairs."""
+    if raw is None:
+        return []
+    if isinstance(raw[0], list):
+        return raw
+    return [raw]
+
+
 def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """Generate OpenType feature code for cursive attachment (curs).
 
@@ -288,23 +297,24 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
-        entry = glyph_def.get("cursive_entry")
-        exit_ = glyph_def.get("cursive_exit")
-        if entry is None and exit_ is None:
+        raw_entry = glyph_def.get("cursive_entry")
+        raw_exit = glyph_def.get("cursive_exit")
+        if raw_entry is None and raw_exit is None:
             continue
-        # A glyph with entry y=A and exit y=B appears in both lookups
-        y_values = set()
-        if entry is not None:
-            y_values.add(entry[1])
-        if exit_ is not None:
-            y_values.add(exit_[1])
+        entries = _normalize_anchors(raw_entry)
+        exits = _normalize_anchors(raw_exit)
+        y_values = {a[1] for a in entries} | {a[1] for a in exits}
         for y in y_values:
             entry_anchor = "<anchor NULL>"
             exit_anchor = "<anchor NULL>"
-            if entry is not None and entry[1] == y:
-                entry_anchor = f"<anchor {entry[0] * pixel_size} {entry[1] * pixel_size}>"
-            if exit_ is not None and exit_[1] == y:
-                exit_anchor = f"<anchor {exit_[0] * pixel_size} {exit_[1] * pixel_size}>"
+            for a in entries:
+                if a[1] == y:
+                    entry_anchor = f"<anchor {a[0] * pixel_size} {a[1] * pixel_size}>"
+                    break
+            for a in exits:
+                if a[1] == y:
+                    exit_anchor = f"<anchor {a[0] * pixel_size} {a[1] * pixel_size}>"
+                    break
             y_groups.setdefault(y, []).append((glyph_name, entry_anchor, exit_anchor))
 
     if not y_groups:
