@@ -634,9 +634,9 @@ glyphs:
       - "#   #"
 
   # Shavian letters (U+10450–U+1047F)
-  u10450.prop: *PEA  # 𐑐 Peep
+  u10450.prop.unused: *PEA  # 𐑐 Peep
 
-  u10451.prop:  # 𐑑 Tot
+  u10451.prop.unused:  # 𐑑 Tot
     bitmap:
       - "  #"
       - " ##"
@@ -648,7 +648,7 @@ glyphs:
       - "  #"
       - "  #"
 
-  u10452.prop:  # 𐑒 Kick
+  u10452.prop.unused:  # 𐑒 Kick
     bitmap:
       - "   # "
       - "   # "
@@ -672,13 +672,13 @@ glyphs:
       - "   # "
       - "###  "
 
-  u10454.prop: *FEE  # 𐑔 Thigh
+  u10454.prop.unused: *FEE  # 𐑔 Thigh
 
-  u10455.prop: *SEE  # 𐑕 So
+  u10455.prop.unused: *SEE  # 𐑕 So
 
-  u10456.prop: *SHE  # 𐑖 Sure
+  u10456.prop.unused: *SHE  # 𐑖 Sure
 
-  u10457.prop: *CHEER  # 𐑗 Church
+  u10457.prop.unused: *CHEER  # 𐑗 Church
 
   u10458.prop.unused:  # 𐑘 Yea
     bitmap:
@@ -692,7 +692,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  u10459.prop: *ING  # 𐑙 Hung
+  u10459.prop.unused: *ING  # 𐑙 Hung
 
   u1045A.prop.unused:  # 𐑚 Bib
     y_offset: -3
@@ -707,9 +707,9 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  u1045B.prop: *DAY  # 𐑛 Dead
+  u1045B.prop.unused: *DAY  # 𐑛 Dead
 
-  u1045C.prop:  # 𐑜 Gag
+  u1045C.prop.unused:  # 𐑜 Gag
     y_offset: -3
     bitmap:
       - "#### "
@@ -735,9 +735,9 @@ glyphs:
       - "#    "
       - "#    "
 
-  u1045E.prop: *VIE  # 𐑞 They
+  u1045E.prop.unused: *VIE  # 𐑞 They
 
-  u1045F.prop:  # 𐑟 Zoo
+  u1045F.prop.unused:  # 𐑟 Zoo
     y_offset: -3
     bitmap:
       - "###  "
@@ -763,9 +763,9 @@ glyphs:
       - "     "
       - "     "
 
-  u10461.prop: *JAY  # 𐑡 Judge
+  u10461.prop.unused: *JAY  # 𐑡 Judge
 
-  u10462.prop: *WAY  # 𐑢 Woe
+  u10462.prop.unused: *WAY  # 𐑢 Woe
 
   u10463.prop.unused:  # 𐑣 Ha-Ha
     y_offset: -3
@@ -789,19 +789,19 @@ glyphs:
       - "     "
       - "     "
 
-  u10465.prop: *AH  # 𐑥 Mime
+  u10465.prop.unused: *AH  # 𐑥 Mime
 
-  u10466.prop: *IT  # 𐑦 If
+  u10466.prop.unused: *IT  # 𐑦 If
 
-  u10467.prop: *ET  # 𐑧 Egg
+  u10467.prop.unused: *ET  # 𐑧 Egg
 
-  u10468.prop: *AT  # 𐑨 Ash
+  u10468.prop.unused: *AT  # 𐑨 Ash
 
-  u10469.prop: *UTTER  # 𐑩 Ado
+  u10469.prop.unused: *UTTER  # 𐑩 Ado
 
-  u1046A.prop: *OX  # 𐑪 On
+  u1046A.prop.unused: *OX  # 𐑪 On
 
-  u1046B.prop: *FOOT  # 𐑫 Wool
+  u1046B.prop.unused: *FOOT  # 𐑫 Wool
 
   u1046C.prop.unused:  # 𐑬 Out
     bitmap:
@@ -821,9 +821,9 @@ glyphs:
       - "     "
       - "     "
 
-  u1046E.prop: *ROE  # 𐑮 Roar
+  u1046E.prop.unused: *ROE  # 𐑮 Roar
 
-  u1046F.prop: *AWE  # 𐑯 Nun
+  u1046F.prop.unused: *AWE  # 𐑯 Nun
 
   u10470.prop.unused:  # 𐑰 Eat
     bitmap:
@@ -861,9 +861,9 @@ glyphs:
       - "#    "
       - "#    "
 
-  u10474.prop: *OWE  # 𐑴 Oak
+  u10474.prop.unused: *OWE  # 𐑴 Oak
 
-  u10475.prop: *OOZE  # 𐑵 Ooze
+  u10475.prop.unused: *OOZE  # 𐑵 Ooze
 
   u10476.prop.unused:  # 𐑶 Oil
     bitmap:
