@@ -279,6 +279,115 @@ def _normalize_anchors(raw) -> list[list[int]]:
     return [raw]
 
 
+def _is_entry_variant(glyph_name: str) -> bool:
+    """Check if a glyph name contains an entry-* modifier segment."""
+    return any(p.startswith("entry-") for p in glyph_name.split(".")[1:])
+
+
+def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+    """Generate OpenType feature code for contextual alternates (calt).
+
+    Scans for glyphs with entry-* modifier segments and cursive_entry anchors,
+    then generates contextual substitution rules to swap in the correct variant
+    based on the preceding glyph's exit height.
+
+    Returns the FEA string, or None if no contextual variants are found.
+    """
+    replacements: dict[str, dict[int, str]] = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None or not _is_entry_variant(glyph_name):
+            continue
+        raw_entry = glyph_def.get("cursive_entry")
+        if raw_entry is None:
+            continue
+        entries = _normalize_anchors(raw_entry)
+        if not entries:
+            continue
+        entry_y = entries[0][1]
+        base_name = glyph_name.split(".")[0]
+        if base_name not in glyphs_def:
+            continue
+        replacements.setdefault(base_name, {})[entry_y] = glyph_name
+
+    if not replacements:
+        return None
+
+    exit_classes: dict[int, set[str]] = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        raw_exit = glyph_def.get("cursive_exit")
+        if raw_exit is None:
+            continue
+        for anchor in _normalize_anchors(raw_exit):
+            exit_classes.setdefault(anchor[1], set()).add(glyph_name)
+
+    base_exit_ys: dict[str, set[int]] = {}
+    for base_name, variants in replacements.items():
+        exit_ys = set()
+        for variant_name in variants.values():
+            variant_def = glyphs_def.get(variant_name, {})
+            if variant_def:
+                raw_exit = variant_def.get("cursive_exit")
+                if raw_exit:
+                    for anchor in _normalize_anchors(raw_exit):
+                        exit_ys.add(anchor[1])
+        base_exit_ys[base_name] = exit_ys
+
+    base_order = list(replacements.keys())
+    edges: dict[str, set[str]] = {b: set() for b in base_order}
+    for base_a in base_order:
+        for base_b in base_order:
+            if base_a == base_b:
+                continue
+            b_entry_ys = set(replacements[base_b].keys())
+            if base_exit_ys[base_a] & b_entry_ys:
+                edges[base_b].add(base_a)
+
+    sorted_bases: list[str] = []
+    visited: set[str] = set()
+    temp: set[str] = set()
+
+    def visit(node: str):
+        if node in temp:
+            raise ValueError(f"Circular dependency in calt lookups involving {node}")
+        if node in visited:
+            return
+        temp.add(node)
+        for dep in sorted(edges[node]):
+            visit(dep)
+        temp.remove(node)
+        visited.add(node)
+        sorted_bases.append(node)
+
+    for base in sorted(base_order):
+        visit(base)
+
+    used_ys = set()
+    for variants in replacements.values():
+        used_ys.update(variants.keys())
+
+    lines = ["feature calt {"]
+    for y in sorted(used_ys):
+        if y in exit_classes:
+            members = sorted(exit_classes[y])
+            lines.append(f"    @exit_y{y} = [{' '.join(members)}];")
+
+    for base_name in sorted_bases:
+        variants = replacements[base_name]
+        lookup_name = f"calt_{base_name}"
+        lines.append("")
+        lines.append(f"    lookup {lookup_name} {{")
+        for entry_y in sorted(variants.keys()):
+            variant_name = variants[entry_y]
+            if entry_y in exit_classes:
+                lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+        lines.append(f"    }} {lookup_name};")
+
+    lines.append("} calt;")
+    return "\n".join(lines)
+
+
 def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """Generate OpenType feature code for cursive attachment (curs).
 
@@ -616,7 +725,7 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     glyph_names = [
         name for name in glyphs_def.keys()
         if name not in (".notdef", "space")
-        and (is_proportional or not is_proportional_glyph(name))
+        and (is_proportional or (not is_proportional_glyph(name) and not _is_entry_variant(name)))
     ]
     glyph_order = [".notdef", "space"] + sorted(glyph_names)
 
@@ -906,6 +1015,11 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         curs_fea = generate_curs_fea(glyphs_def, pixel_size)
         if curs_fea:
             fea_code_parts.append(curs_fea)
+
+    if is_proportional:
+        calt_fea = generate_calt_fea(glyphs_def, pixel_size)
+        if calt_fea:
+            fea_code_parts.insert(0, calt_fea)
 
     if fea_code_parts:
         fea_code = "\n\n".join(fea_code_parts)
