@@ -507,7 +507,7 @@ glyphs:
     bitmap: *llan_bitmap
 
   uniE66B:  # ·Excite
-    bitmap:
+    bitmap: &excite_bitmap
       - "#    "
       - "#    "
       - "#    "
@@ -518,9 +518,13 @@ glyphs:
       - "#   #"
       - "#   #"
 
+  uniE66B.prop:  # ·Excite
+    cursive_entry: [1, 0]
+    bitmap: *excite_bitmap
+
   uniE66C:  # ·Exam
     y_offset: -3
-    bitmap:
+    bitmap: &exam_bitmap
       - "#   #"
       - "#   #"
       - " # # "
@@ -530,6 +534,11 @@ glyphs:
       - "    #"
       - "    #"
       - "    #"
+
+  uniE66C.prop:  # ·Exam
+    y_offset: -3
+    cursive_entry: [1, 0]
+    bitmap: *exam_bitmap
 
   uniE66E:  # Quikscript left angled parenthesis
     y_offset: -3
@@ -770,13 +779,18 @@ glyphs:
       - "  #  "
 
   uniE67E: &OOZE  # ·Ooze
-    bitmap:
+    bitmap: &ooze_bitmap
       - "  #  "
       - " # # "
       - " # # "
       - "#   #"
       - "#   #"
       - "#   #"
+
+  uniE67E.prop:  # ·Ooze
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    bitmap: *ooze_bitmap
 
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused: *PEA  # 𐑐 Peep
