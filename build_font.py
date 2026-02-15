@@ -291,8 +291,12 @@ def _is_exit_variant(glyph_name: str) -> bool:
 
 
 def _is_contextual_variant(glyph_name: str) -> bool:
-    """Check if a glyph name is an entry-* or exit-* contextual variant."""
-    return _is_entry_variant(glyph_name) or _is_exit_variant(glyph_name)
+    """Check if a glyph name is a contextual variant (entry-*, exit-*, or half)."""
+    parts = glyph_name.split(".")[1:]
+    return any(
+        p.startswith("entry-") or p.startswith("exit-") or p == "half"
+        for p in parts
+    )
 
 
 def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
@@ -325,13 +329,19 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             continue
         bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
 
-    # --- Forward-looking: exit variants keyed by exit Y ---
+    # --- Forward-looking: exit-only variants keyed by exit Y ---
+    # Detects any variant with cursive_exit but no cursive_entry (catches
+    # .exit-* names and .half variants alike).
     fwd_replacements: dict[str, dict[int, str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or not _is_exit_variant(glyph_name):
+        if glyph_def is None or "." not in glyph_name:
+            continue
+        if _is_entry_variant(glyph_name):
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
+            continue
+        if glyph_def.get("cursive_entry") is not None:
             continue
         exits = _normalize_anchors(raw_exit)
         if not exits:
@@ -430,8 +440,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             members = sorted(entry_classes[y])
             lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
 
-    # Backward-looking lookups (preceding glyph's exit → entry variant)
-    for base_name in sorted_bases:
+    # Lookup ordering: forward-only bases run first so they can change a
+    # glyph's exit before backward rules for the *following* glyph commit to
+    # an entry variant.  For bases with both backward and forward rules, the
+    # backward lookup runs first (so a preceding exit wins over a following
+    # entry), then its forward companion.
+    def _emit_fwd(base_name: str):
+        variants = fwd_replacements[base_name]
+        lookup_name = f"calt_fwd_{base_name}"
+        lines.append("")
+        lines.append(f"    lookup {lookup_name} {{")
+        for exit_y in sorted(variants.keys()):
+            variant_name = variants[exit_y]
+            if exit_y in entry_classes:
+                lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
+        lines.append(f"    }} {lookup_name};")
+
+    def _emit_bk(base_name: str):
         variants = bk_replacements[base_name]
         lookup_name = f"calt_{base_name}"
         lines.append("")
@@ -442,17 +467,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
         lines.append(f"    }} {lookup_name};")
 
-    # Forward-looking lookups (following glyph's entry → exit variant)
-    for base_name in sorted(fwd_replacements.keys()):
-        variants = fwd_replacements[base_name]
-        lookup_name = f"calt_fwd_{base_name}"
-        lines.append("")
-        lines.append(f"    lookup {lookup_name} {{")
-        for exit_y in sorted(variants.keys()):
-            variant_name = variants[exit_y]
-            if exit_y in entry_classes:
-                lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
-        lines.append(f"    }} {lookup_name};")
+    fwd_only = sorted(set(fwd_replacements) - set(bk_replacements))
+    for base_name in fwd_only:
+        _emit_fwd(base_name)
+
+    for base_name in sorted_bases:
+        _emit_bk(base_name)
+        if base_name in fwd_replacements:
+            _emit_fwd(base_name)
 
     lines.append("} calt;")
     return "\n".join(lines)
