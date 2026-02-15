@@ -118,6 +118,7 @@ glyphs:
 
   uniE654.prop:  # ·Key
     cursive_entry: [1, 8]
+    cursive_exit: [5, 0]
     bitmap:
       - "#   "
       - " #  "
@@ -408,13 +409,17 @@ glyphs:
       - "#   #"
 
   uniE667:  # ·Low
-    bitmap:
+    bitmap: &low_bitmap
       - "    #"
       - "  ## "
       - " #   "
       - " ##  "
       - "   # "
       - "###  "
+
+  uniE667.prop:  # ·Low
+    cursive_entry: [1, 0]
+    bitmap: *low_bitmap
 
   uniE668: &ROE  # ·Roe
     bitmap: &roe_bitmap
