@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1100">
+  <title>Ergodox EZ Layout</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    :root {
+      --u: 60px;
+      --key-h: 66px;
+      --gap: 2px;
+      --w150: calc(var(--u) * 1.5);
+      --hand-w: calc(var(--w150) + var(--u) * 6 + var(--gap) * 6);
+      --key-bg: light-dark(#fff, #2a2a2a);
+      --key-border: light-dark(#aaa, #555);
+      --divider: light-dark(#ddd, #444);
+    }
+
+    body {
+      --font-stack: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+    }
+
+    .legend {
+      display: flex;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+      font-size: 13px;
+      color: light-dark(#666, #999);
+
+      .swatch {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--key-border);
+        border-radius: 2px;
+        vertical-align: middle;
+        margin-right: 4px;
+      }
+
+      .swatch.latin {
+        background: var(--key-bg);
+      }
+
+      .swatch.qs {
+        background: light-dark(#f7f5f0, #28261f);
+      }
+    }
+
+    .keyboard {
+      display: flex;
+      gap: 48px;
+      align-items: flex-start;
+    }
+
+    .hand {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .main-keys {
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+      width: var(--hand-w);
+    }
+
+    .row {
+      display: flex;
+      gap: var(--gap);
+    }
+
+    .key {
+      width: var(--u);
+      height: var(--key-h);
+      border: 1px solid var(--key-border);
+      border-radius: 4px;
+      background: var(--key-bg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .key > .latin,
+    .key > .qs {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 0;
+      outline: none;
+    }
+
+    .key > .latin {
+      border-bottom: 1px solid var(--divider);
+      font-family: "Departure Mono", monospace;
+    }
+
+    .key > .qs {
+      font-family: "Abbots Morton Spaceport Mono", monospace;
+      background: light-dark(#f7f5f0, #28261f);
+    }
+
+    .w150 { width: var(--w150); }
+
+    /* Left hand: bottom row near outer (left) edge */
+    .left > .main-keys > .row:nth-child(5) {
+      margin-left: calc(var(--u) * 0.4);
+    }
+
+    /* Right hand: home row pushed right (spanning key occupies left) */
+    .right > .main-keys > .row:nth-child(3) {
+      justify-content: flex-end;
+    }
+
+    /* Right hand: bottom row near outer (right) edge */
+    .right > .main-keys > .row:nth-child(5) {
+      justify-content: flex-end;
+      margin-right: calc(var(--u) * 0.4);
+    }
+
+    /* Thumb clusters */
+    .thumb {
+      display: grid;
+      grid-template-columns: repeat(3, var(--u));
+      grid-template-rows: repeat(3, var(--key-h));
+      gap: var(--gap);
+    }
+
+    .left > .thumb {
+      margin-left: auto;
+    }
+
+    /* Left thumb: top 2 keys over cols 2-3, tall keys at cols 1-2, stacked keys at col 3 */
+    .left > .thumb > :nth-child(1) { grid-column: 2; grid-row: 1; }
+    .left > .thumb > :nth-child(2) { grid-column: 3; grid-row: 1; }
+    .left > .thumb > :nth-child(3) { grid-column: 3; grid-row: 2; }
+    .left > .thumb > :nth-child(4) { grid-column: 1; grid-row: 2 / 4; height: auto; }
+    .left > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
+    .left > .thumb > :nth-child(6) { grid-column: 3; grid-row: 3; }
+
+    /* Right thumb: top 2 keys over cols 1-2, stacked keys at col 1, tall keys at cols 2-3 */
+    .right > .thumb > :nth-child(1) { grid-column: 1; grid-row: 1; }
+    .right > .thumb > :nth-child(2) { grid-column: 2; grid-row: 1; }
+    .right > .thumb > :nth-child(3) { grid-column: 1; grid-row: 2; }
+    .right > .thumb > :nth-child(4) { grid-column: 1; grid-row: 3; }
+    .right > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
+    .right > .thumb > :nth-child(6) { grid-column: 3; grid-row: 2 / 4; height: auto; }
+  </style>
+</head>
+<body>
+  <h1>Ergodox EZ Layout</h1>
+  <div class="legend">
+    <span><span class="swatch latin"></span> Latin</span>
+    <span><span class="swatch qs"></span> Quikscript</span>
+  </div>
+  <div class="keyboard">
+    <!-- Left Hand -->
+    <div class="hand left">
+      <div class="main-keys">
+        <!-- Row 0: number row (7 keys) -->
+        <div class="row">
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 1: top alpha (7 keys) -->
+        <div class="row">
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 2: home row (6 keys; 7th position is the tall spanning key from row 1) -->
+        <div class="row">
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 3: bottom alpha (7 keys) -->
+        <div class="row">
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 4: bottom function (5 keys, near outer edge) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+      </div>
+      <!-- Left thumb cluster (6 keys) -->
+      <div class="thumb">
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+      </div>
+    </div>
+
+    <!-- Right Hand -->
+    <div class="hand right">
+      <div class="main-keys">
+        <!-- Row 0: number row (7 keys, 1.5u key on right) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 1: top alpha (7 keys) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 2: home row (6 keys; 1st position is the tall spanning key from row 1) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 3: bottom alpha (7 keys) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key w150"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+        <!-- Row 4: bottom function (5 keys, near outer edge) -->
+        <div class="row">
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+          <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        </div>
+      </div>
+      <!-- Right thumb cluster (6 keys, mirrored) -->
+      <div class="thumb">
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+        <div class="key"><span class="latin"></span><span class="qs"></span></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
