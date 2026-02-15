@@ -493,13 +493,18 @@ glyphs:
       - " ## #"
 
   uniE66A:  # ·Llan
-    bitmap:
+    bitmap: &llan_bitmap
       - "#    "
       - " ##  "
       - "   # "
       - "  ## "
       - " #   "
       - "  ###"
+
+  uniE66A.prop:  # ·Llan
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
+    bitmap: *llan_bitmap
 
   uniE66B:  # ·Excite
     bitmap:
@@ -653,6 +658,7 @@ glyphs:
 
   uniE674.prop:  # ·At
     cursive_entry: [1, 0]
+    cursive_exit: [6, 5]
     bitmap: *at_bitmap
 
   uniE675:  # ·I
