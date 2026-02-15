@@ -38,8 +38,7 @@ glyphs:
 
   uniE651:  # ·Bay
     y_offset: -3
-    cursive_exit: [6, 0]
-    bitmap:
+    bitmap: &bay_bitmap
       - "   # "
       - "   # "
       - "   # "
@@ -49,6 +48,11 @@ glyphs:
       - "#  # "
       - "#  # "
       - " ##  "
+
+  uniE651.prop:  # ·Bay
+    y_offset: -3
+    cursive_exit: [6, 0]
+    bitmap: *bay_bitmap
 
   uniE652:  # ·Tea
     bitmap:
@@ -113,6 +117,7 @@ glyphs:
       - " ### "
 
   uniE654.prop:  # ·Key
+    cursive_entry: [1, 8]
     bitmap:
       - "#   "
       - " #  "
@@ -188,7 +193,7 @@ glyphs:
       - " ### "
 
   uniE65A: &SEE  # ·See
-    bitmap:
+    bitmap: &see_bitmap
       - "   ##"
       - "  #  "
       - " #   "
@@ -198,6 +203,10 @@ glyphs:
       - "   # "
       - "   # "
       - "###  "
+
+  uniE65A.prop:  # ·See
+    cursive_exit: [6, 8]
+    bitmap: *see_bitmap
 
   uniE65B:  # ·Zoo
     y_offset: -3
@@ -404,14 +413,17 @@ glyphs:
       - "###  "
 
   uniE668: &ROE  # ·Roe
+    bitmap: &roe_bitmap
+      - "###  "
+      - "   # "
+      - "    #"
+      - "    #"
+      - "   # "
+      - "###  "
+
+  uniE668.prop:  # ·Roe
     cursive_entry: [1, 5]
-    bitmap:
-      - "###  "
-      - "   # "
-      - "    #"
-      - "    #"
-      - "   # "
-      - "###  "
+    bitmap: *roe_bitmap
 
   uniE669:  # ·Loch
     bitmap:
@@ -546,14 +558,17 @@ glyphs:
       - "    #"
 
   uniE674: &AT  # ·At
-    cursive_entry: [1, 0]
-    bitmap:
+    bitmap: &at_bitmap
       - "    #"
       - "    #"
       - "    #"
       - "   # "
       - "  #  "
       - "##   "
+
+  uniE674.prop:  # ·At
+    cursive_entry: [1, 0]
+    bitmap: *at_bitmap
 
   uniE675:  # ·I
     bitmap:
@@ -601,14 +616,17 @@ glyphs:
       - "    #"
 
   uniE67A: &UTTER  # ·Utter
-    cursive_exit: [6, 5]
-    bitmap:
+    bitmap: &utter_bitmap
       - "   ##"
       - "  #  "
       - " #   "
       - " #   "
       - "#    "
       - "#    "
+
+  uniE67A.prop:  # ·Utter
+    cursive_exit: [6, 5]
+    bitmap: *utter_bitmap
 
   uniE67A.alt:  # Alternate ·Utter
     bitmap:
