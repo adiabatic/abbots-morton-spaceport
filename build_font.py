@@ -270,6 +270,46 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     return "\n".join(lines)
 
 
+def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+    """Generate OpenType feature code for cursive attachment (curs).
+
+    Scans glyphs_def for cursive_entry / cursive_exit anchors and emits
+    a GPOS 'curs' feature that lets the shaping engine join glyphs at
+    matching exit→entry points.
+
+    Pixel coordinates: x in pixels from x=0 of the glyph coordinate space,
+    y in pixels from baseline (0 = baseline, positive = up).
+
+    Returns the FEA string, or None if no glyphs declare cursive anchors.
+    """
+    entries = []
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        entry = glyph_def.get("cursive_entry")
+        exit_ = glyph_def.get("cursive_exit")
+        if entry is None and exit_ is None:
+            continue
+        if entry is not None:
+            entry_anchor = f"<anchor {entry[0] * pixel_size} {entry[1] * pixel_size}>"
+        else:
+            entry_anchor = "<anchor NULL>"
+        if exit_ is not None:
+            exit_anchor = f"<anchor {exit_[0] * pixel_size} {exit_[1] * pixel_size}>"
+        else:
+            exit_anchor = "<anchor NULL>"
+        entries.append(f"        pos cursive {glyph_name} {entry_anchor} {exit_anchor};")
+
+    if not entries:
+        return None
+
+    lines = ["feature curs {", "    lookup cursive_attachment {"]
+    lines.extend(sorted(entries))
+    lines.append("    } cursive_attachment;")
+    lines.append("} curs;")
+    return "\n".join(lines)
+
+
 def parse_bitmap(bitmap: list) -> list[list[int]]:
     """
     Convert bitmap to a 2D array of 0s and 1s.
@@ -841,6 +881,11 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         mark_fea = generate_mark_fea(glyphs_def, pixel_size)
         if mark_fea:
             fea_code_parts.append(mark_fea)
+
+    if is_proportional:
+        curs_fea = generate_curs_fea(glyphs_def, pixel_size)
+        if curs_fea:
+            fea_code_parts.append(curs_fea)
 
     if fea_code_parts:
         fea_code = "\n\n".join(fea_code_parts)

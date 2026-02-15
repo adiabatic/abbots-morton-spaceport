@@ -38,6 +38,7 @@ glyphs:
 
   uniE651:  # ·Bay
     y_offset: -3
+    cursive_exit: [6, 0]
     bitmap:
       - "   # "
       - "   # "
@@ -544,6 +545,7 @@ glyphs:
       - "    #"
 
   uniE674: &AT  # ·At
+    cursive_entry: [1, 0]
     bitmap:
       - "    #"
       - "    #"
