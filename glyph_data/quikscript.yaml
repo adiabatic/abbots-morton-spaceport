@@ -440,6 +440,26 @@ glyphs:
       - [1, 5]
     bitmap: *roe_bitmap
 
+  uniE668.entry-baseline.extended:  # ·Roe
+    cursive_entry: [1, 0]
+    bitmap:
+      - " ###  "
+      - "    # "
+      - "     #"
+      - "     #"
+      - "    # "
+      - "####  "
+
+  uniE668.entry-xheight.extended:  # ·Roe
+    cursive_entry: [1, 5]
+    bitmap:
+      - "####  "
+      - "    # "
+      - "     #"
+      - "     #"
+      - "    # "
+      - " ###  "
+
   uniE669:  # ·Loch
     bitmap:
       - "  #  "
@@ -528,17 +548,23 @@ glyphs:
       - "  #  "
 
   uniE670.prop: &IT  # ·It
-    cursive_entry:
-      - [1, 5]
-      - [1, 0]
+    bitmap: &it_bitmap
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+
+  uniE670.entry-xheight:  # ·It (enters at x-height, exits at baseline)
+    cursive_entry: [1, 5]
+    cursive_exit: [2, 0]
+    bitmap: *it_bitmap
+
+  uniE670.entry-baseline:  # ·It (enters at baseline, exits at x-height)
+    cursive_entry: [1, 0]
     cursive_exit: [2, 5]
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#"
+    bitmap: *it_bitmap
 
   uniE671:  # ·Eat
     bitmap:
