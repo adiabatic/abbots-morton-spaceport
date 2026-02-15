@@ -10,8 +10,9 @@ Usage:
     When a directory is given, all *.yaml files are loaded and merged.
 
 Outputs:
-    output_dir/AbbotsMortonSpaceportMono.otf  - Monospace font
-    output_dir/AbbotsMortonSpaceportSans.otf  - Proportional font
+    output_dir/AbbotsMortonSpaceportMono.otf        - Monospace font
+    output_dir/AbbotsMortonSpaceportSansJunior.otf  - Proportional font (no cursive/calt)
+    output_dir/AbbotsMortonSpaceportSansSenior.otf  - Proportional font (with cursive/calt)
 """
 
 import sys
@@ -685,7 +686,7 @@ def resolve_composite(
     return result_bitmap, result_y_offset
 
 
-def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = False):
+def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     """
     Build font from glyph data dictionary.
     Creates a CFF-based OpenType font (.otf).
@@ -693,25 +694,29 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     Args:
         glyph_data: Dictionary containing metadata and glyph definitions
         output_path: Path to write the font file
-        is_proportional: If True, build proportional font variant
-                        (uses .prop glyphs as defaults, no ss01 feature)
+        variant: "mono", "junior", or "senior"
     """
+    is_proportional = variant != "mono"
+    is_senior = variant == "senior"
+
     metadata = glyph_data.get("metadata", {})
     glyphs_def = glyph_data["glyphs"]
 
     # Filter out .unused glyphs — they're stubs not yet ready for compilation
     glyphs_def = {k: v for k, v in glyphs_def.items() if ".unused" not in k}
 
+    # For non-senior proportional fonts, exclude entry variants
+    if not is_senior:
+        glyphs_def = {k: v for k, v in glyphs_def.items() if not _is_entry_variant(k)}
+
     # For proportional font, transform glyphs: .prop becomes default
     if is_proportional:
         glyphs_def = prepare_proportional_glyphs(glyphs_def)
 
-    # Font name differs for proportional variant
+    # Font name differs per variant
     base_font_name = metadata["font_name"]
-    if is_proportional:
-        font_name = base_font_name + " Sans"
-    else:
-        font_name = base_font_name + " Mono"
+    suffixes = {"mono": " Mono", "junior": " Sans Junior", "senior": " Sans Senior"}
+    font_name = base_font_name + suffixes[variant]
     version = metadata["version"]
     units_per_em = metadata["units_per_em"]
     pixel_size = metadata["pixel_size"]
@@ -726,6 +731,7 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         name for name in glyphs_def.keys()
         if name not in (".notdef", "space")
         and (is_proportional or (not is_proportional_glyph(name) and not _is_entry_variant(name)))
+        and (is_senior or not _is_entry_variant(name))
     ]
     glyph_order = [".notdef", "space"] + sorted(glyph_names)
 
@@ -1011,12 +1017,12 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
         if mark_fea:
             fea_code_parts.append(mark_fea)
 
-    if is_proportional:
+    if is_senior:
         curs_fea = generate_curs_fea(glyphs_def, pixel_size)
         if curs_fea:
             fea_code_parts.append(curs_fea)
 
-    if is_proportional:
+    if is_senior:
         calt_fea = generate_calt_fea(glyphs_def, pixel_size)
         if calt_fea:
             fea_code_parts.insert(0, calt_fea)
@@ -1034,7 +1040,6 @@ def build_font(glyph_data: dict, output_path: Path, is_proportional: bool = Fals
     fb.save(str(output_path))
 
     # Print summary
-    variant = "proportional" if is_proportional else "monospace"
     print(f"Font saved to: {output_path}")
     print(f"  Variant: {variant}")
     print(f"  Glyphs: {len(glyph_order)}")
@@ -1047,7 +1052,8 @@ def main():
         print("Usage: uv run python build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
-        print("  output_dir/AbbotsMortonSpaceportSans.otf")
+        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf")
+        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf")
         print("\nExample:")
         print("  uv run python build_font.py glyph_data/ build/")
         sys.exit(1)
@@ -1070,11 +1076,15 @@ def main():
 
     # Build monospace font
     mono_path = output_dir / "AbbotsMortonSpaceportMono.otf"
-    build_font(glyph_data, mono_path, is_proportional=False)
+    build_font(glyph_data, mono_path, variant="mono")
 
-    # Build proportional font
-    prop_path = output_dir / "AbbotsMortonSpaceportSans.otf"
-    build_font(glyph_data, prop_path, is_proportional=True)
+    # Build proportional Junior font (no curs/calt)
+    junior_path = output_dir / "AbbotsMortonSpaceportSansJunior.otf"
+    build_font(glyph_data, junior_path, variant="junior")
+
+    # Build proportional Senior font (with curs/calt)
+    senior_path = output_dir / "AbbotsMortonSpaceportSansSenior.otf"
+    build_font(glyph_data, senior_path, variant="senior")
 
 
 if __name__ == "__main__":

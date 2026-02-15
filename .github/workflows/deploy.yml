@@ -45,7 +45,7 @@ jobs:
         run: |
           uv run python -c "
           from fontTools.ttLib import TTFont
-          for name in ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceportSans']:
+          for name in ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceportSansJunior', 'AbbotsMortonSpaceportSansSenior']:
               font = TTFont(f'build/{name}.otf')
               font.flavor = 'woff2'
               font.save(f'build/{name}.woff2')
@@ -56,8 +56,10 @@ jobs:
           mkdir -p site
           cp build/AbbotsMortonSpaceportMono.otf site/
           cp build/AbbotsMortonSpaceportMono.woff2 site/
-          cp build/AbbotsMortonSpaceportSans.otf site/
-          cp build/AbbotsMortonSpaceportSans.woff2 site/
+          cp build/AbbotsMortonSpaceportSansJunior.otf site/
+          cp build/AbbotsMortonSpaceportSansJunior.woff2 site/
+          cp build/AbbotsMortonSpaceportSansSenior.otf site/
+          cp build/AbbotsMortonSpaceportSansSenior.woff2 site/
           cp test/DepartureMono-Regular.otf site/
           cp test/index.html site/index.html
           cp test/glyph-editor.html site/
@@ -77,8 +79,10 @@ jobs:
           path: |
             build/AbbotsMortonSpaceportMono.otf
             build/AbbotsMortonSpaceportMono.woff2
-            build/AbbotsMortonSpaceportSans.otf
-            build/AbbotsMortonSpaceportSans.woff2
+            build/AbbotsMortonSpaceportSansJunior.otf
+            build/AbbotsMortonSpaceportSansJunior.woff2
+            build/AbbotsMortonSpaceportSansSenior.otf
+            build/AbbotsMortonSpaceportSansSenior.woff2
             README.md
             FONTLOG.md
 

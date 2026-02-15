@@ -4,8 +4,13 @@
 }
 
 @font-face {
-  font-family: "Abbots Morton Spaceport Sans";
-  src: url("AbbotsMortonSpaceportSans.otf") format("opentype");
+  font-family: "Abbots Morton Spaceport Sans Junior";
+  src: url("AbbotsMortonSpaceportSansJunior.otf") format("opentype");
+}
+
+@font-face {
+  font-family: "Abbots Morton Spaceport Sans Senior";
+  src: url("AbbotsMortonSpaceportSansSenior.otf") format("opentype");
 }
 
 @font-face {

@@ -11,6 +11,8 @@ wheels/
 
 # Build stuff
 /test/AbbotsMortonSpaceportMono.otf
-/test/AbbotsMortonSpaceportSans.otf
+/test/AbbotsMortonSpaceportSansJunior.otf
+/test/AbbotsMortonSpaceportSansJunior.fea
+/test/AbbotsMortonSpaceportSansSenior.otf
+/test/AbbotsMortonSpaceportSansSenior.fea
 /test/print.pdf
-/test/AbbotsMortonSpaceportSans.fea
