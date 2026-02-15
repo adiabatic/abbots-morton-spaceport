@@ -274,15 +274,17 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """Generate OpenType feature code for cursive attachment (curs).
 
     Scans glyphs_def for cursive_entry / cursive_exit anchors and emits
-    a GPOS 'curs' feature that lets the shaping engine join glyphs at
-    matching exit→entry points.
+    a GPOS 'curs' feature with separate lookups grouped by Y value.
+    This prevents cross-pair attachment between glyphs at different heights.
 
     Pixel coordinates: x in pixels from x=0 of the glyph coordinate space,
     y in pixels from baseline (0 = baseline, positive = up).
 
     Returns the FEA string, or None if no glyphs declare cursive anchors.
     """
-    entries = []
+    # Group glyphs by Y value: y_groups[y] = list of (glyph_name, entry_anchor, exit_anchor)
+    y_groups: dict[int, list[tuple[str, str, str]]] = {}
+
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
@@ -290,22 +292,30 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         exit_ = glyph_def.get("cursive_exit")
         if entry is None and exit_ is None:
             continue
+        # A glyph with entry y=A and exit y=B appears in both lookups
+        y_values = set()
         if entry is not None:
-            entry_anchor = f"<anchor {entry[0] * pixel_size} {entry[1] * pixel_size}>"
-        else:
-            entry_anchor = "<anchor NULL>"
+            y_values.add(entry[1])
         if exit_ is not None:
-            exit_anchor = f"<anchor {exit_[0] * pixel_size} {exit_[1] * pixel_size}>"
-        else:
+            y_values.add(exit_[1])
+        for y in y_values:
+            entry_anchor = "<anchor NULL>"
             exit_anchor = "<anchor NULL>"
-        entries.append(f"        pos cursive {glyph_name} {entry_anchor} {exit_anchor};")
+            if entry is not None and entry[1] == y:
+                entry_anchor = f"<anchor {entry[0] * pixel_size} {entry[1] * pixel_size}>"
+            if exit_ is not None and exit_[1] == y:
+                exit_anchor = f"<anchor {exit_[0] * pixel_size} {exit_[1] * pixel_size}>"
+            y_groups.setdefault(y, []).append((glyph_name, entry_anchor, exit_anchor))
 
-    if not entries:
+    if not y_groups:
         return None
 
-    lines = ["feature curs {", "    lookup cursive_attachment {"]
-    lines.extend(sorted(entries))
-    lines.append("    } cursive_attachment;")
+    lines = ["feature curs {"]
+    for y in sorted(y_groups):
+        lines.append(f"    lookup cursive_y{y} {{")
+        for glyph_name, entry_anchor, exit_anchor in sorted(y_groups[y]):
+            lines.append(f"        pos cursive {glyph_name} {entry_anchor} {exit_anchor};")
+        lines.append(f"    }} cursive_y{y};")
     lines.append("} curs;")
     return "\n".join(lines)
 
