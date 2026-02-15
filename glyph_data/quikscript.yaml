@@ -529,8 +529,8 @@ glyphs:
 
   uniE670.prop: &IT  # ·It
     cursive_entry:
-      - [0, 5]
-      - [0, 0]
+      - [1, 5]
+      - [1, 0]
     cursive_exit: [2, 5]
     bitmap:
       - "#"
