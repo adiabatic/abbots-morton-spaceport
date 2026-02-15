@@ -386,13 +386,17 @@ glyphs:
       - "  ## "
 
   uniE666:  # ·No
-    bitmap:
+    bitmap: &no_bitmap
       - "#   #"
       - " # # "
       - "  #  "
       - " # # "
       - " # # "
       - "  #  "
+
+  uniE666.prop:  # ·No
+    cursive_exit: [6, 5]
+    bitmap: *no_bitmap
 
   uniE666.alt:  # Alternate ·No
     bitmap:
@@ -422,7 +426,9 @@ glyphs:
       - "###  "
 
   uniE668.prop:  # ·Roe
-    cursive_entry: [1, 5]
+    cursive_entry:
+      - [1, 0]
+      - [1, 5]
     bitmap: *roe_bitmap
 
   uniE669:  # ·Loch
@@ -589,13 +595,18 @@ glyphs:
       - "##   "
 
   uniE677: &AWE  # ·Awe
-    bitmap:
+    bitmap: &awe_bitmap
       - "##   "
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
       - "   ##"
+
+  uniE677.prop:  # ·Awe
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
+    bitmap: *awe_bitmap
 
   uniE678: &OX  # ·Ox
     bitmap:
