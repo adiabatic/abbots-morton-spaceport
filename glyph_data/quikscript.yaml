@@ -384,6 +384,15 @@ glyphs:
       - " # # "
       - "  #  "
 
+  uniE666.alt:  # Alternate ·No
+    bitmap:
+      - "  #  "
+      - " # # "
+      - " # # "
+      - "  #  "
+      - " # # "
+      - "#   #"
+
   uniE667:  # ·Low
     bitmap:
       - "    #"
@@ -596,6 +605,15 @@ glyphs:
       - " #   "
       - "#    "
       - "#    "
+
+  uniE67A.alt:  # Alternate ·Utter
+    bitmap:
+      - "  ## "
+      - " #   "
+      - "#    "
+      - "#    "
+      - " #   "
+      - "  ###"
 
   uniE67B:  # ·Out
     bitmap:
