@@ -398,6 +398,7 @@ glyphs:
       - "  #  "
 
   uniE666.prop:  # ·No
+    cursive_entry: [1, 5]
     cursive_exit: [6, 5]
     bitmap: *no_bitmap
 
@@ -527,6 +528,7 @@ glyphs:
       - "  #  "
 
   uniE670.prop: &IT  # ·It
+    cursive_exit: [2, 5]
     bitmap:
       - "#"
       - "#"
