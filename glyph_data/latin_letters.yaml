@@ -366,6 +366,17 @@ glyphs:
       - "#    #"
       - "# ### "
 
+  Germandbls.prop:  # ẞ U+1E9E
+    bitmap:
+      - "  ####"
+      - " #  # "
+      - " #  # " #
+      - " #  # "
+      - " #   #"
+      - " #   #"
+      - " #   #"
+      - "## ## "
+
   # Ascender: 8 rows, # on row 3, width 5
   b.prop:  # b U+0062
     bitmap:
