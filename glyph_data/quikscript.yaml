@@ -411,7 +411,7 @@ glyphs:
 
   uniE665:  # ·May
     y_offset: -3
-    bitmap:
+    bitmap: &may_bitmap
       - "   ##"
       - "  #  "
       - "  #  "
@@ -421,6 +421,25 @@ glyphs:
       - " #  #"
       - " #  #"
       - "  ## "
+
+  uniE665.prop:  # ·May
+    y_offset: -3
+    cursive_exit: [6, 5]
+    bitmap: *may_bitmap
+
+  uniE665.exit-baseline:  # ·May
+    y_offset: -3
+    cursive_exit: [6, 0]
+    bitmap:
+      - "  ## "
+      - " #   "
+      - " #   "
+      - "#    "
+      - "#    "
+      - "# ###" #
+      - "#  # "
+      - "#  # "
+      - " ##  "
 
   uniE666:  # ·No
     bitmap: &no_bitmap
