@@ -341,6 +341,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # Detects any variant with cursive_exit but no cursive_entry (catches
     # .exit-* names and .half variants alike).
     fwd_replacements: dict[str, dict[int, str]] = {}
+    fwd_exclusions: dict[str, dict[int, list[str]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or "." not in glyph_name:
             continue
@@ -359,6 +360,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if base_name not in glyphs_def:
             continue
         fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
+        not_before = glyph_def.get("calt_not_before")
+        if not_before:
+            resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+            fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
 
     if not bk_replacements and not fwd_replacements:
         return None
@@ -455,12 +460,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # entry), then its forward companion.
     def _emit_fwd(base_name: str):
         variants = fwd_replacements[base_name]
+        exclusions = fwd_exclusions.get(base_name, {})
         lookup_name = f"calt_fwd_{base_name}"
         lines.append("")
         lines.append(f"    lookup {lookup_name} {{")
         for exit_y in sorted(variants.keys()):
             variant_name = variants[exit_y]
             if exit_y in entry_classes:
+                excluded = exclusions.get(exit_y, [])
+                for eg in sorted(excluded):
+                    lines.append(f"        ignore sub {base_name}' {eg};")
                 lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
         lines.append(f"    }} {lookup_name};")
 

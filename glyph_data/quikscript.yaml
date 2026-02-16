@@ -430,6 +430,7 @@ glyphs:
   uniE665.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
+    calt_not_before: [uniE67E.prop]
     bitmap:
       - "  ## "
       - " #   "
@@ -835,6 +836,8 @@ glyphs:
       - "#   #"
 
   uniE67E.prop:  # ·Ooze
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
     bitmap: *ooze_bitmap
 
   # Shavian letters (U+10450–U+1047F)
