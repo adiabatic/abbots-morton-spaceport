@@ -6,9 +6,19 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 6.000
 
-- Add “Junior” to the end of “Abbots Morton Spaceport Sans”
+#### Generally
+
+- Completely change the font name by adding “Junior” to the end of “Abbots Morton Spaceport Sans”
+
+#### Latin letters
+
+- Add kerning so short letters after `f` are tucked in more
+- Add kerning so just about everything before a `j` is tucked in more closely
+
+#### Quikscript
+
 - Add enough sans-serif glyphs to have a full-featured font
-- Add enough ligations and things to test out a Senior version of the font
+- Add an alpha-quality very-incomplete proof-of-concepts (yes, plural) Quikscript Senior version of the font with enough ligations (using OpenType’s `curs`) and contextual alternates (·Roe glyphs with an extra-long tail at the top/bottom) and ligatures (·Day·Eat, ·Day·Utter)
 
 ### 5.000
 
