@@ -72,7 +72,7 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
     Prepare glyph definitions for the proportional font variant.
 
     For the proportional font:
-    - .prop glyphs are renamed to their base names (e.g., uniE650.prop → uniE650)
+    - .prop glyphs are renamed to their base names (e.g., qsPea.prop → qsPea)
     - Base glyphs that have .prop variants are excluded
     - Glyphs without .prop variants remain unchanged
     """
@@ -958,7 +958,7 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
             else:
                 # Monospace glyphs: check width requirements
                 base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
-                is_quikscript_glyph = base_name.startswith("uniE6")
+                is_quikscript_glyph = base_name.startswith("uniE6") or base_name.startswith("qs")
                 if is_quikscript_glyph:
                     # Quikscript glyphs: all rows must be exactly 5 characters wide
                     for row_idx, row in enumerate(bitmap):
@@ -996,11 +996,11 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
 
         # Check if this is a Quikscript glyph (uniE6xx or uniE6xx.prop)
         base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
-        is_quikscript = base_name.startswith("uniE6")
+        is_quikscript = base_name.startswith("uniE6") or base_name.startswith("qs")
 
         if is_quikscript:
             # Strict height validation for Quikscript glyphs
-            if glyph_name in ("uniE66E", "uniE66F"):
+            if glyph_name in ("uniE66E", "uniE66F", "qsAngleParenLeft", "qsAngleParenRight"):
                 if row_count != 12:
                     raise ValueError(
                         f"Glyph '{glyph_name}' has {row_count} rows, expected 12 (angled parenthesis)"

@@ -37,24 +37,24 @@ These are the letters where, if preceded by a letter ending at the top, there wo
 
 ### Glyphs
 
-- [x] `uniE67A.alt` — Alternate ·Utter (mirrored ·Roe shape; ends at top instead of baseline)
-- [x] `uniE666.alt` — Alternate ·No (·No flipped upside down; ends at baseline instead of top)
+- [x] `qsUtter.alt` — Alternate ·Utter (mirrored ·Roe shape; ends at top instead of baseline)
+- [x] `qsNo.alt` — Alternate ·No (·No flipped upside down; ends at baseline instead of top)
 
 ### `calt` rules needed
 
-Alternate ·Utter (`uniE67A.alt`) is used before letters that only connect leftward at the baseline:
+Alternate ·Utter (`qsUtter.alt`) is used before letters that only connect leftward at the baseline:
 
 ```fea
-sub uniE67A' [uniE656 uniE658 uniE659 uniE65A uniE65C uniE65E uniE660
-              uniE662 uniE664 uniE665 uniE667] by uniE67A.alt;
+sub qsUtter' [qsThaw qsFee qsVie qsSee qsShe qsCheer qsYe
+              qsHe qsIng qsMay qsLow] by qsUtter.alt;
 ```
 
-Alternate ·No (`uniE666.alt`) is used before letters that only connect leftward at the baseline, and after ·She (for -tion endings):
+Alternate ·No (`qsNo.alt`) is used before letters that only connect leftward at the baseline, and after ·She (for -tion endings):
 
 ```fea
-sub uniE666' [uniE656 uniE658 uniE659 uniE65A uniE65C uniE65E uniE660
-              uniE662 uniE664 uniE665 uniE667] by uniE666.alt;
-sub uniE65C uniE666' by uniE666.alt;
+sub qsNo' [qsThaw qsFee qsVie qsSee qsShe qsCheer qsYe
+              qsHe qsIng qsMay qsLow] by qsNo.alt;
+sub qsShe qsNo' by qsNo.alt;
 ```
 
 ### Build pipeline changes needed
