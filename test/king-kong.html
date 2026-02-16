@@ -32,31 +32,6 @@
       font-weight: 600;
     }
 
-    .legend {
-      display: flex;
-      gap: 1.5rem;
-      margin-bottom: 1.5rem;
-      font-size: 22px;
-      color: light-dark(#666, #999);
-
-      .swatch {
-        display: inline-block;
-        width: 14px;
-        height: 14px;
-        border: 1px solid var(--key-border);
-        border-radius: 2px;
-        vertical-align: middle;
-        margin-right: 4px;
-      }
-
-      .swatch.latin {
-        background: var(--key-bg);
-      }
-
-      .swatch.qs {
-        background: light-dark(#f7f5f0, #28261f);
-      }
-    }
 
     .keyboard {
       display: flex;
@@ -198,10 +173,6 @@
 <body>
   <h1>Ergodox EZ Layout</h1>
   <p>Only guaranteed to go well with <a href="https://github.com/adiabatic/king-kong">King Kong</a> on the <a href='https://github.com/adiabatic/zweihander'>Zweihänder</a> layout.</p>
-  <div class="legend">
-    <span><span class="swatch latin"></span> Latin</span>
-    <span><span class="swatch qs"></span> Quikscript</span>
-  </div>
   <div class="keyboard">
     <!-- Left Hand -->
     <div class="hand left">
