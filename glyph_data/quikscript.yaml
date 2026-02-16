@@ -776,13 +776,17 @@ glyphs:
       - "  ###"
 
   uniE67B:  # ·Out
-    bitmap:
+    bitmap: &out_bitmap
       - "   ##"
       - "  #  "
       - " # # "
       - "# #  "
       - "#    "
       - "#    "
+
+  uniE67B.prop:  # ·Out
+    cursive_exit: [6, 5]
+    bitmap: *out_bitmap
 
   uniE67C: &OWE  # ·Owe
     bitmap:
