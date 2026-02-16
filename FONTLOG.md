@@ -6,7 +6,9 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 6.000
 
+- Add “Junior” to the end of “Abbots Morton Spaceport Sans”
 - Add enough sans-serif glyphs to have a full-featured font
+- Add enough ligations and things to test out a Senior version of the font
 
 ### 5.000
 
