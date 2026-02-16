@@ -8,7 +8,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 #### Generally
 
-- Completely change the font name by adding “Junior” to the end of “Abbots Morton Spaceport Sans”
+- Completely change the Sans-variant font name by adding “Junior” to the end of “Abbots Morton Spaceport Sans”; this means the old filename is gone
 
 #### Latin letters
 
