@@ -514,6 +514,34 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     return "\n".join(lines)
 
 
+def generate_liga_fea(glyphs_def: dict) -> str | None:
+    """Generate OpenType feature code for ligatures (liga).
+
+    Finds glyphs whose names contain underscores (e.g., qsDay_qsUtter),
+    splits on underscores to get component glyph names, and emits
+    a liga feature that substitutes the component sequence with the ligature.
+
+    Returns the FEA string, or None if no ligature glyphs exist.
+    """
+    ligatures = []
+    for glyph_name in glyphs_def:
+        if "_" not in glyph_name:
+            continue
+        components = glyph_name.split("_")
+        if all(c in glyphs_def for c in components):
+            ligatures.append((glyph_name, components))
+
+    if not ligatures:
+        return None
+
+    lines = ["feature liga {"]
+    for lig_name, components in sorted(ligatures):
+        component_str = " ".join(components)
+        lines.append(f"    sub {component_str} by {lig_name};")
+    lines.append("} liga;")
+    return "\n".join(lines)
+
+
 def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """Generate OpenType feature code for cursive attachment (curs).
 
@@ -1141,6 +1169,11 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
         mark_fea = generate_mark_fea(glyphs_def, pixel_size)
         if mark_fea:
             fea_code_parts.append(mark_fea)
+
+    if is_senior:
+        liga_fea = generate_liga_fea(glyphs_def)
+        if liga_fea:
+            fea_code_parts.append(liga_fea)
 
     if is_senior:
         curs_fea = generate_curs_fea(glyphs_def, pixel_size)
