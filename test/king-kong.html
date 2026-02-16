@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1100">
-  <title>Ergodox EZ Layout</title>
+  <title>King Kong layouts</title>
   <link rel="stylesheet" href="shared.css">
   <style>
     :root {
@@ -30,26 +30,6 @@
     h1 {
       font-size: 33px;
       font-weight: 600;
-    }
-
-
-    .keyboard {
-      display: flex;
-      gap: 48px;
-      align-items: flex-start;
-    }
-
-    .hand {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .main-keys {
-      display: flex;
-      flex-direction: column;
-      gap: var(--gap);
-      width: var(--hand-w);
     }
 
     .row {
@@ -111,69 +91,102 @@
       }
     }
 
+    .w125 { width: calc(var(--u) * 1.25); }
     .w150 { width: var(--w150); }
+    .w175 { width: calc(var(--u) * 1.75); }
+    .w200 { width: calc(var(--u) * 2); }
+    .w225 { width: calc(var(--u) * 2.25); }
+    .w275 { width: calc(var(--u) * 2.75); }
 
-    .key.h150 {
-      height: calc(var(--key-h) * 1.5 + var(--gap));
-      align-self: flex-start;
-      z-index: 1;
+    /* Ergodox EZ */
+    .keyboard.ergodox {
+      display: flex;
+      gap: 48px;
+      align-items: flex-start;
+
+      .hand {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .main-keys {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap);
+        width: var(--hand-w);
+      }
+
+      .key.h150 {
+        height: calc(var(--key-h) * 1.5 + var(--gap));
+        align-self: flex-start;
+        z-index: 1;
+      }
+
+      .key.h150-up {
+        height: calc(var(--key-h) * 1.5 + var(--gap));
+        align-self: flex-end;
+        z-index: 1;
+      }
+
+      .left > .main-keys > .row:nth-child(5) {
+        margin-left: calc(var(--u) * 0.4);
+      }
+
+      .right > .main-keys > .row:nth-child(3) {
+        justify-content: flex-end;
+      }
+
+      .right > .main-keys > .row:nth-child(5) {
+        justify-content: flex-end;
+        margin-right: calc(var(--u) * 0.4);
+      }
+
+      .thumb {
+        display: grid;
+        grid-template-columns: repeat(3, var(--u));
+        grid-template-rows: repeat(3, var(--key-h));
+        gap: var(--gap);
+      }
+
+      .left > .thumb {
+        margin-left: auto;
+      }
+
+      .left > .thumb > :nth-child(1) { grid-column: 2; grid-row: 1; }
+      .left > .thumb > :nth-child(2) { grid-column: 3; grid-row: 1; }
+      .left > .thumb > :nth-child(3) { grid-column: 3; grid-row: 2; }
+      .left > .thumb > :nth-child(4) { grid-column: 1; grid-row: 2 / 4; height: auto; }
+      .left > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
+      .left > .thumb > :nth-child(6) { grid-column: 3; grid-row: 3; }
+
+      .right > .thumb > :nth-child(1) { grid-column: 1; grid-row: 1; }
+      .right > .thumb > :nth-child(2) { grid-column: 2; grid-row: 1; }
+      .right > .thumb > :nth-child(3) { grid-column: 1; grid-row: 2; }
+      .right > .thumb > :nth-child(4) { grid-column: 1; grid-row: 3; }
+      .right > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
+      .right > .thumb > :nth-child(6) { grid-column: 3; grid-row: 2 / 4; height: auto; }
     }
 
-    .key.h150-up {
-      height: calc(var(--key-h) * 1.5 + var(--gap));
-      align-self: flex-end;
-      z-index: 1;
-    }
-
-    /* Left hand: bottom row near outer (left) edge */
-    .left > .main-keys > .row:nth-child(5) {
-      margin-left: calc(var(--u) * 0.4);
-    }
-
-    /* Right hand: home row pushed right (spanning key occupies left) */
-    .right > .main-keys > .row:nth-child(3) {
-      justify-content: flex-end;
-    }
-
-    /* Right hand: bottom row near outer (right) edge */
-    .right > .main-keys > .row:nth-child(5) {
-      justify-content: flex-end;
-      margin-right: calc(var(--u) * 0.4);
-    }
-
-    /* Thumb clusters */
-    .thumb {
-      display: grid;
-      grid-template-columns: repeat(3, var(--u));
-      grid-template-rows: repeat(3, var(--key-h));
+    /* MacBook */
+    .keyboard.macbook {
+      display: flex;
+      flex-direction: column;
       gap: var(--gap);
+      width: calc(var(--u) * 15 + var(--gap) * 13);
     }
 
-    .left > .thumb {
-      margin-left: auto;
+    .key.space {
+      flex-grow: 1;
     }
-
-    /* Left thumb: top 2 keys over cols 2-3, tall keys at cols 1-2, stacked keys at col 3 */
-    .left > .thumb > :nth-child(1) { grid-column: 2; grid-row: 1; }
-    .left > .thumb > :nth-child(2) { grid-column: 3; grid-row: 1; }
-    .left > .thumb > :nth-child(3) { grid-column: 3; grid-row: 2; }
-    .left > .thumb > :nth-child(4) { grid-column: 1; grid-row: 2 / 4; height: auto; }
-    .left > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
-    .left > .thumb > :nth-child(6) { grid-column: 3; grid-row: 3; }
-
-    /* Right thumb: top 2 keys over cols 1-2, stacked keys at col 1, tall keys at cols 2-3 */
-    .right > .thumb > :nth-child(1) { grid-column: 1; grid-row: 1; }
-    .right > .thumb > :nth-child(2) { grid-column: 2; grid-row: 1; }
-    .right > .thumb > :nth-child(3) { grid-column: 1; grid-row: 2; }
-    .right > .thumb > :nth-child(4) { grid-column: 1; grid-row: 3; }
-    .right > .thumb > :nth-child(5) { grid-column: 2; grid-row: 2 / 4; height: auto; }
-    .right > .thumb > :nth-child(6) { grid-column: 3; grid-row: 2 / 4; height: auto; }
   </style>
 </head>
 <body>
-  <h1>Ergodox EZ Layout</h1>
+  <h1>King Kong layouts</h1>
   <p>Only guaranteed to go well with <a href="https://github.com/adiabatic/king-kong">King Kong</a> on the <a href='https://github.com/adiabatic/zweihander'>Zweihänder</a> layout.</p>
-  <div class="keyboard">
+
+  <h2>Ergodox EZ</h2>
+  <div class="keyboard ergodox">
     <!-- Left Hand -->
     <div class="hand left">
       <div class="main-keys">
@@ -296,6 +309,85 @@
         <div class="key"><span class="latin"></span><span class="qs"></span></div>
         <div class="key"><span class="latin"></span><span class="qs"></span></div>
       </div>
+    </div>
+  </div>
+
+  <h2>MacBook</h2>
+  <div class="keyboard macbook">
+    <!-- Number row -->
+    <div class="row">
+      <div class="key"><span class="latin">`</span><span class="qs">`</span></div>
+      <div class="key"><span class="latin">1</span><span class="qs"><span class="shifted">[</span><span class="optioned">&#xE66C;</span>&#xE655;</span></div>
+      <div class="key"><span class="latin">2</span><span class="qs"><span class="shifted">]</span>&#xE664;</span></div>
+      <div class="key"><span class="latin">3</span><span class="qs"><span class="shifted">{</span>&#xE662;</span></div>
+      <div class="key"><span class="latin">4</span><span class="qs"><span class="shifted">}</span>&#xE658;</span></div>
+      <div class="key"><span class="latin">5</span><span class="qs"><span class="shifted">_</span>&#xE676;</span></div>
+      <div class="key"><span class="latin">6</span><span class="qs"><span class="shifted">/</span>&#xE679;</span></div>
+      <div class="key"><span class="latin">7</span><span class="qs"><span class="shifted">7</span>&#xE67B;</span></div>
+      <div class="key"><span class="latin">8</span><span class="qs"><span class="shifted">8</span>&#xE660;</span></div>
+      <div class="key"><span class="latin">9</span><span class="qs"><span class="shifted">9</span>&#xE651;</span></div>
+      <div class="key"><span class="latin">0</span><span class="qs"><span class="shifted">0</span>&#xE65C;</span></div>
+      <div class="key"><span class="latin">-</span><span class="qs"><span class="shifted">-</span>&#xE65E;</span></div>
+      <div class="key"><span class="latin">=</span><span class="qs"><span class="shifted">=</span>&#xE65F;</span></div>
+      <div class="key w200"><span class="latin">⌫</span><span class="qs"></span></div>
+    </div>
+    <!-- QWERTY row -->
+    <div class="row">
+      <div class="key w150"><span class="latin">⇥</span><span class="qs"></span></div>
+      <div class="key"><span class="latin">q</span><span class="qs"><span class="shifted">(</span><span class="optioned">&#xE66B;</span>&#xE654;</span></div>
+      <div class="key"><span class="latin">w</span><span class="qs"><span class="shifted">)</span>&#xE661;</span></div>
+      <div class="key"><span class="latin">e</span><span class="qs"><span class="shifted" style="font-family: 'Abbots Morton Spaceport Mono', monospace">&#xE66E;</span>&#xE657;</span></div>
+      <div class="key"><span class="latin">r</span><span class="qs"><span class="shifted" style="font-family: 'Abbots Morton Spaceport Mono', monospace">&#xE66F;</span>&#xE67C;</span></div>
+      <div class="key"><span class="latin">t</span><span class="qs"><span class="shifted">&#x2013;</span>&#xE677;</span></div>
+      <div class="key"><span class="latin">y</span><span class="qs"><span class="shifted">*</span>&#xE675;</span></div>
+      <div class="key"><span class="latin">u</span><span class="qs"><span class="shifted">4</span>&#xE673;</span></div>
+      <div class="key"><span class="latin">i</span><span class="qs"><span class="shifted">5</span>&#xE674;</span></div>
+      <div class="key"><span class="latin">o</span><span class="qs"><span class="shifted">6</span>&#xE65B;</span></div>
+      <div class="key"><span class="latin">p</span><span class="qs"><span class="shifted">+</span>&#xE650;</span></div>
+      <div class="key"><span class="latin">[</span><span class="qs">\</span></div>
+      <div class="key"><span class="latin">]</span><span class="qs">;</span></div>
+      <div class="key w150"><span class="latin">\</span><span class="qs"><span class="shifted">ZWNJ</span>&#xE659;</span></div>
+    </div>
+    <!-- Home row -->
+    <div class="row">
+      <div class="key w175"><span class="latin">⇪</span><span class="qs"></span></div>
+      <div class="key"><span class="latin">a</span><span class="qs"><span class="shifted">&#x201C;</span>&#xE653;</span></div>
+      <div class="key"><span class="latin">s</span><span class="qs"><span class="shifted">&#x201D;</span>&#xE65A;</span></div>
+      <div class="key"><span class="latin">d</span><span class="qs"><span class="shifted">&#x2018;</span>&#xE668;</span></div>
+      <div class="key"><span class="latin">f</span><span class="qs"><span class="shifted">&#x2019;</span>&#xE670;</span></div>
+      <div class="key"><span class="latin">g</span><span class="qs"><span class="shifted">&#x2014;</span>&#xE678;</span></div>
+      <div class="key"><span class="latin">h</span><span class="qs"><span class="shifted">&#x00B7;</span>&#xE672;</span></div>
+      <div class="key"><span class="latin">j</span><span class="qs"><span class="shifted">1</span>&#xE67A;</span></div>
+      <div class="key"><span class="latin">k</span><span class="qs"><span class="shifted">2</span>&#xE666;</span></div>
+      <div class="key"><span class="latin">l</span><span class="qs"><span class="shifted">3</span><span class="optioned">&#xE66A;</span>&#xE667;</span></div>
+      <div class="key"><span class="latin">;</span><span class="qs"><span class="shifted">&#x2026;</span>&#xE652;</span></div>
+      <div class="key"><span class="latin">'</span><span class="qs"><span class="shifted">"</span>'</span></div>
+      <div class="key w225"><span class="latin">⏎</span><span class="qs"></span></div>
+    </div>
+    <!-- Bottom alpha row -->
+    <div class="row">
+      <div class="key w225"><span class="latin">⇧</span><span class="qs"></span></div>
+      <div class="key"><span class="latin">z</span><span class="qs"><span class="shifted">!</span>&#xE65D;</span></div>
+      <div class="key"><span class="latin">x</span><span class="qs"><span class="shifted">@</span><span class="optioned">&#xE669;</span>&#xE663;</span></div>
+      <div class="key"><span class="latin">c</span><span class="qs"><span class="shifted">#</span>&#xE656;</span></div>
+      <div class="key"><span class="latin">v</span><span class="qs"><span class="shifted">$</span>&#xE67D;</span></div>
+      <div class="key"><span class="latin">b</span><span class="qs"><span class="shifted">%</span>&#xE67E;</span></div>
+      <div class="key"><span class="latin">n</span><span class="qs"><span class="shifted">^</span>&#xE671;</span></div>
+      <div class="key"><span class="latin">m</span><span class="qs"><span class="shifted">&amp;</span>&#xE665;</span></div>
+      <div class="key"><span class="latin">,</span><span class="qs"><span class="shifted">&lt;</span>,</span></div>
+      <div class="key"><span class="latin">.</span><span class="qs"><span class="shifted">&gt;</span>.</span></div>
+      <div class="key"><span class="latin">/</span><span class="qs">/</span></div>
+      <div class="key w275"><span class="latin">⇧</span><span class="qs"></span></div>
+    </div>
+    <!-- Modifier row -->
+    <div class="row">
+      <div class="key"><span class="latin">fn</span><span class="qs"></span></div>
+      <div class="key"><span class="latin">⌃</span><span class="qs"></span></div>
+      <div class="key w125"><span class="latin">⌥</span><span class="qs"></span></div>
+      <div class="key w125"><span class="latin">⌘</span><span class="qs"></span></div>
+      <div class="key space"><span class="latin"></span><span class="qs"></span></div>
+      <div class="key w125"><span class="latin">⌘</span><span class="qs"></span></div>
+      <div class="key w125"><span class="latin">⌥</span><span class="qs"></span></div>
     </div>
   </div>
 </body>
