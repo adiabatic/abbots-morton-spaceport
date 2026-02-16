@@ -115,6 +115,25 @@
     .key > .qs {
       font-family: "Abbots Morton Spaceport Mono", monospace;
       background: light-dark(#f7f5f0, #28261f);
+      position: relative;
+
+      .shifted, .optioned {
+        position: absolute;
+        font-size: 11px;
+        font-family: "Departure Mono", monospace;
+        color: light-dark(#555, #b0b0b0);
+      }
+
+      .shifted {
+        top: 1px;
+        left: 2px;
+      }
+
+      .optioned {
+        bottom: 1px;
+        right: 2px;
+        font-family: "Abbots Morton Spaceport Mono", monospace;
+      }
     }
 
     .w150 { width: var(--w150); }
@@ -188,22 +207,22 @@
       <div class="main-keys">
         <!-- Row 0: number row (7 keys) -->
         <div class="row">
-          <div class="key w150"><span class="latin">=</span><span class="qs">&#xE65F;</span></div>
-          <div class="key"><span class="latin">1</span><span class="qs">&#xE655;</span></div>
-          <div class="key"><span class="latin">2</span><span class="qs">&#xE664;</span></div>
-          <div class="key"><span class="latin">3</span><span class="qs">&#xE662;</span></div>
-          <div class="key"><span class="latin">4</span><span class="qs">&#xE658;</span></div>
-          <div class="key"><span class="latin">5</span><span class="qs">&#xE676;</span></div>
+          <div class="key w150"><span class="latin">=</span><span class="qs"><span class="shifted">=</span>&#xE65F;</span></div>
+          <div class="key"><span class="latin">1</span><span class="qs"><span class="shifted">[</span><span class="optioned">&#xE66C;</span>&#xE655;</span></div>
+          <div class="key"><span class="latin">2</span><span class="qs"><span class="shifted">]</span>&#xE664;</span></div>
+          <div class="key"><span class="latin">3</span><span class="qs"><span class="shifted">{</span>&#xE662;</span></div>
+          <div class="key"><span class="latin">4</span><span class="qs"><span class="shifted">}</span>&#xE658;</span></div>
+          <div class="key"><span class="latin">5</span><span class="qs"><span class="shifted">_</span>&#xE676;</span></div>
           <div class="key"><span class="latin"></span><span class="qs"></span></div>
         </div>
         <!-- Row 1: top alpha (6 keys + tall inner key extending down into row 2) -->
         <div class="row">
           <div class="key w150"><span class="latin">⌦</span><span class="qs"></span></div>
-          <div class="key"><span class="latin">q</span><span class="qs">&#xE654;</span></div>
-          <div class="key"><span class="latin">w</span><span class="qs">&#xE661;</span></div>
-          <div class="key"><span class="latin">e</span><span class="qs">&#xE657;</span></div>
-          <div class="key"><span class="latin">r</span><span class="qs">&#xE67C;</span></div>
-          <div class="key"><span class="latin">t</span><span class="qs">&#xE677;</span></div>
+          <div class="key"><span class="latin">q</span><span class="qs"><span class="shifted">(</span>&#xE654;</span></div>
+          <div class="key"><span class="latin">w</span><span class="qs"><span class="shifted">)</span>&#xE661;</span></div>
+          <div class="key"><span class="latin">e</span><span class="qs"><span class="shifted" style="font-family: 'Abbots Morton Spaceport Mono', monospace">&#xE66E;</span>&#xE657;</span></div>
+          <div class="key"><span class="latin">r</span><span class="qs"><span class="shifted" style="font-family: 'Abbots Morton Spaceport Mono', monospace">&#xE66F;</span>&#xE67C;</span></div>
+          <div class="key"><span class="latin">t</span><span class="qs"><span class="shifted">&#x2013;</span>&#xE677;</span></div>
           <div class="key h150"><span class="latin"></span><span class="qs"></span></div>
         </div>
         <!-- Row 2: home row (6 keys) -->
@@ -251,22 +270,22 @@
         <!-- Row 0: number row (7 keys, 1.5u key on right) -->
         <div class="row">
           <div class="key"><span class="latin"></span><span class="qs"></span></div>
-          <div class="key"><span class="latin">6</span><span class="qs">&#xE679;</span></div>
-          <div class="key"><span class="latin">7</span><span class="qs">&#xE67B;</span></div>
-          <div class="key"><span class="latin">8</span><span class="qs">&#xE660;</span></div>
-          <div class="key"><span class="latin">9</span><span class="qs">&#xE651;</span></div>
-          <div class="key"><span class="latin">0</span><span class="qs">&#xE65C;</span></div>
-          <div class="key w150"><span class="latin">-</span><span class="qs">&#xE65E;</span></div>
+          <div class="key"><span class="latin">6</span><span class="qs"><span class="shifted">/</span>&#xE679;</span></div>
+          <div class="key"><span class="latin">7</span><span class="qs"><span class="shifted">7</span>&#xE67B;</span></div>
+          <div class="key"><span class="latin">8</span><span class="qs"><span class="shifted">8</span>&#xE660;</span></div>
+          <div class="key"><span class="latin">9</span><span class="qs"><span class="shifted">9</span>&#xE651;</span></div>
+          <div class="key"><span class="latin">0</span><span class="qs"><span class="shifted">0</span>&#xE65C;</span></div>
+          <div class="key w150"><span class="latin">-</span><span class="qs"><span class="shifted">-</span>&#xE65E;</span></div>
         </div>
         <!-- Row 1: top alpha (tall inner key extending down + 5 keys + 1.5u outer) -->
         <div class="row">
           <div class="key h150"><span class="latin"></span><span class="qs"></span></div>
-          <div class="key"><span class="latin">y</span><span class="qs">&#xE675;</span></div>
-          <div class="key"><span class="latin">u</span><span class="qs">&#xE673;</span></div>
-          <div class="key"><span class="latin">i</span><span class="qs">&#xE674;</span></div>
-          <div class="key"><span class="latin">o</span><span class="qs">&#xE65B;</span></div>
-          <div class="key"><span class="latin">p</span><span class="qs">&#xE650;</span></div>
-          <div class="key w150"><span class="latin">\</span><span class="qs">&#xE659;</span></div>
+          <div class="key"><span class="latin">y</span><span class="qs"><span class="shifted">*</span>&#xE675;</span></div>
+          <div class="key"><span class="latin">u</span><span class="qs"><span class="shifted">4</span>&#xE673;</span></div>
+          <div class="key"><span class="latin">i</span><span class="qs"><span class="shifted">5</span>&#xE674;</span></div>
+          <div class="key"><span class="latin">o</span><span class="qs"><span class="shifted">6</span>&#xE65B;</span></div>
+          <div class="key"><span class="latin">p</span><span class="qs"><span class="shifted">+</span>&#xE650;</span></div>
+          <div class="key w150"><span class="latin">\</span><span class="qs"><span class="shifted">ZWNJ</span>&#xE659;</span></div>
         </div>
         <!-- Row 2: home row (6 keys) -->
         <div class="row">
