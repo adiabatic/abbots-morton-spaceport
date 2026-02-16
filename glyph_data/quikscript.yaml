@@ -8,11 +8,11 @@ glyphs:
   # x-height is 6 pixels
   # Talls are 9 pixels
   # Deeps are 9 pixels
-  # Angled parentheses (uniE66E, uniE66F) are 12 pixels
+  # Angled parentheses (qsAngleParenLeft, qsAngleParenRight) are 12 pixels
   # Add a nothing comment on the bottom inside of the X-height or right on top of the baseline
 
   # Quikscript letters (CSUR PUA U+E650–U+E67F)
-  uniE650:  # ·Pea
+  qsPea:  # ·Pea
     bitmap:
       - " ### "
       - "#   #"
@@ -24,7 +24,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE650.prop: &PEA  # ·Pea
+  qsPea.prop: &PEA  # ·Pea
     cursive_exit: [5, 0]
     bitmap:
       - " ## "
@@ -37,7 +37,7 @@ glyphs:
       - "   #"
       - "   #"
 
-  uniE650.prop.half:  # ·Pea (half)
+  qsPea.prop.half:  # ·Pea (half)
     cursive_exit: [4, 5]
     bitmap:
       - " ## "
@@ -50,7 +50,7 @@ glyphs:
       - "    "
       - "    "
 
-  uniE651:  # ·Bay
+  qsBay:  # ·Bay
     y_offset: -3
     bitmap: &bay_bitmap
       - "   # "
@@ -63,12 +63,12 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  uniE651.prop:  # ·Bay
+  qsBay.prop:  # ·Bay
     y_offset: -3
     cursive_exit: [6, 0]
     bitmap: *bay_bitmap
 
-  uniE652:  # ·Tea
+  qsTea:  # ·Tea
     bitmap:
       - "  #  "
       - "  #  "
@@ -80,7 +80,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE652.prop:  # ·Tea
+  qsTea.prop:  # ·Tea
     bitmap:
       - "#"
       - "#"
@@ -92,7 +92,7 @@ glyphs:
       - "#"
       - "#"
 
-  uniE653:  # ·Day
+  qsDay:  # ·Day
     y_offset: -3
     bitmap:
       - "#    "
@@ -105,7 +105,7 @@ glyphs:
       - "##   "
       - "#    "
 
-  uniE653.prop: &DAY  # ·Day
+  qsDay.prop: &DAY  # ·Day
     y_offset: -3
     cursive_exit: [5, 0]
     bitmap:
@@ -119,7 +119,7 @@ glyphs:
       - "##  "
       - "#   "
 
-  uniE654:  # ·Key
+  qsKey:  # ·Key
     bitmap:
       - "#    "
       - " #   "
@@ -131,7 +131,7 @@ glyphs:
       - "#    "
       - " ### "
 
-  uniE654.prop:  # ·Key
+  qsKey.prop:  # ·Key
     cursive_entry: [1, 8]
     cursive_exit: [5, 0]
     bitmap:
@@ -145,7 +145,7 @@ glyphs:
       - "#   "
       - " ###"
 
-  uniE655:  # ·Gay
+  qsGay:  # ·Gay
     y_offset: -3
     bitmap:
       - "  ## "
@@ -158,7 +158,7 @@ glyphs:
       - " #  #"
       - "  ## "
 
-  uniE656:  # ·Thaw
+  qsThaw:  # ·Thaw
     bitmap:
       - " ### "
       - "#   #"
@@ -170,7 +170,7 @@ glyphs:
       - "   # "
       - "  #  "
 
-  uniE657:  # ·They
+  qsThey:  # ·They
     y_offset: -3
     bitmap:
       - "  #  "
@@ -183,7 +183,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE658: &FEE  # ·Fee
+  qsFee: &FEE  # ·Fee
     bitmap:
       - "  #  "
       - "   # "
@@ -195,7 +195,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE659: &VIE  # ·Vie
+  qsVie: &VIE  # ·Vie
     y_offset: -3
     bitmap:
       - " ### "
@@ -208,7 +208,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE65A: &SEE  # ·See
+  qsSee: &SEE  # ·See
     bitmap: &see_bitmap
       - "   ##"
       - "  #  "
@@ -220,12 +220,12 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE65A.prop:  # ·See
+  qsSee.prop:  # ·See
     cursive_entry: [1, 0]
     cursive_exit: [6, 8]
     bitmap: *see_bitmap
 
-  uniE65B:  # ·Zoo
+  qsZoo:  # ·Zoo
     y_offset: -3
     bitmap:
       - "###  "
@@ -238,7 +238,7 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  uniE65C: &SHE  # ·She
+  qsShe: &SHE  # ·She
     bitmap:
       - "     "
       - "   # "
@@ -250,7 +250,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE65D:  # ·J'ai
+  qsJai:  # ·J'ai
     y_offset: -3
     bitmap:
       - "#### "
@@ -263,7 +263,7 @@ glyphs:
       - "# #  "
       - " #   "
 
-  uniE65D.prop:  # ·J'ai
+  qsJai.prop:  # ·J'ai
     y_offset: -3
     bitmap:
       - " #### "
@@ -276,7 +276,7 @@ glyphs:
       - "# #   "
       - " #    "
 
-  uniE65E: &CHEER  # ·Cheer
+  qsCheer: &CHEER  # ·Cheer
     bitmap: &cheer_bitmap
       - "     "
       - "  #  "
@@ -288,7 +288,7 @@ glyphs:
       - "#    "
       - " ### "
 
-  uniE65E.prop:  # ·Cheer
+  qsCheer.prop:  # ·Cheer
     cursive_entry: [1, 5]
     cursive_exit: [5, 0]
     bitmap:
@@ -302,7 +302,7 @@ glyphs:
       - "#   "
       - " ###"
 
-  uniE65F: &JAY  # ·Jay
+  qsJay: &JAY  # ·Jay
     y_offset: -3
     bitmap:
       - "#### "
@@ -315,7 +315,7 @@ glyphs:
       - "##   "
       - "#    "
 
-  uniE660:  # ·Ye
+  qsYe:  # ·Ye
     bitmap:
       - "  #  "
       - " # # "
@@ -327,7 +327,7 @@ glyphs:
       - " #   "
       - " #   "
 
-  uniE661:  # ·Way
+  qsWay:  # ·Way
     y_offset: -3
     # idea: extend the bitmap up by one column so there's no final curve at the top
     bitmap:
@@ -341,7 +341,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE661.prop: &WAY  # ·Way
+  qsWay.prop: &WAY  # ·Way
     y_offset: -3
     cursive_exit: [4, 5]
     bitmap:
@@ -355,7 +355,7 @@ glyphs:
       - "#   "
       - "#   "
 
-  uniE662:  # ·He
+  qsHe:  # ·He
     bitmap:
       - "  ## "
       - " #   "
@@ -367,7 +367,7 @@ glyphs:
       - " #   "
       - " #   "
 
-  uniE662.prop:  # ·He
+  qsHe.prop:  # ·He
     bitmap:
       - " ##"
       - "#  "
@@ -379,7 +379,7 @@ glyphs:
       - "#  "
       - "#  "
 
-  uniE663:  # ·Why
+  qsWhy:  # ·Why
     y_offset: -3
     bitmap:
       - "    #"
@@ -392,7 +392,7 @@ glyphs:
       - " ##  "
       - "  #  "
 
-  uniE664: &ING  # ·-ing
+  qsIng: &ING  # ·-ing
     bitmap: &ing_bitmap
       - "  #  "
       - " # # "
@@ -404,12 +404,12 @@ glyphs:
       - " # # "
       - "#   #"
 
-  uniE664.prop:  # ·-ing
+  qsIng.prop:  # ·-ing
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap: *ing_bitmap
 
-  uniE665:  # ·May
+  qsMay:  # ·May
     y_offset: -3
     bitmap: &may_bitmap
       - "   ##"
@@ -422,15 +422,15 @@ glyphs:
       - " #  #"
       - "  ## "
 
-  uniE665.prop:  # ·May
+  qsMay.prop:  # ·May
     y_offset: -3
     cursive_exit: [6, 5]
     bitmap: *may_bitmap
 
-  uniE665.exit-baseline:  # ·May
+  qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_not_before: [uniE67E.prop]
+    calt_not_before: [qsOoze.prop]
     bitmap:
       - "  ## "
       - " #   "
@@ -442,7 +442,7 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  uniE666:  # ·No
+  qsNo:  # ·No
     bitmap: &no_bitmap
       - "#   #"
       - " # # "
@@ -451,12 +451,12 @@ glyphs:
       - " # # "
       - "  #  "
 
-  uniE666.prop:  # ·No
+  qsNo.prop:  # ·No
     cursive_entry: [1, 5]
     cursive_exit: [6, 5]
     bitmap: *no_bitmap
 
-  uniE666.alt:  # Alternate ·No
+  qsNo.alt:  # Alternate ·No
     bitmap:
       - "  #  "
       - " # # "
@@ -465,7 +465,7 @@ glyphs:
       - " # # "
       - "#   #"
 
-  uniE667:  # ·Low
+  qsLow:  # ·Low
     bitmap: &low_bitmap
       - "    #"
       - "  ## "
@@ -474,12 +474,12 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE667.prop:  # ·Low
+  qsLow.prop:  # ·Low
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *low_bitmap
 
-  uniE668: &ROE  # ·Roe
+  qsRoe: &ROE  # ·Roe
     bitmap: &roe_bitmap
       - "###  "
       - "   # "
@@ -488,18 +488,18 @@ glyphs:
       - "   # "
       - "###  "
 
-  uniE668.prop:  # ·Roe
+  qsRoe.prop:  # ·Roe
     cursive_entry:
       - [1, 0]
       - [1, 5]
     bitmap: *roe_bitmap
 
-  uniE668.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
+  qsRoe.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
     cursive_entry: [1, 5]
-    calt_after: [uniE650.prop.half]
+    calt_after: [qsPea.prop.half]
     bitmap: *roe_bitmap
 
-  uniE668.entry-baseline.extended:  # ·Roe
+  qsRoe.entry-baseline.extended:  # ·Roe
     cursive_entry: [1, 0]
     bitmap:
       - " ###  "
@@ -509,7 +509,7 @@ glyphs:
       - "    # "
       - "####  "
 
-  uniE668.entry-xheight.extended:  # ·Roe
+  qsRoe.entry-xheight.extended:  # ·Roe
     cursive_entry: [1, 5]
     bitmap:
       - "####  "
@@ -519,7 +519,7 @@ glyphs:
       - "    # "
       - " ###  "
 
-  uniE669:  # ·Loch
+  qsLoch:  # ·Loch
     bitmap:
       - "  #  "
       - "  #  "
@@ -531,7 +531,7 @@ glyphs:
       - "# # #"
       - " ## #"
 
-  uniE66A:  # ·Llan
+  qsLlan:  # ·Llan
     bitmap: &llan_bitmap
       - "#    "
       - " ##  "
@@ -540,12 +540,12 @@ glyphs:
       - " #   "
       - "  ###"
 
-  uniE66A.prop:  # ·Llan
+  qsLlan.prop:  # ·Llan
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap: *llan_bitmap
 
-  uniE66B:  # ·Excite
+  qsExcite:  # ·Excite
     bitmap: &excite_bitmap
       - "#    "
       - "#    "
@@ -557,11 +557,11 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  uniE66B.prop:  # ·Excite
+  qsExcite.prop:  # ·Excite
     cursive_entry: [1, 0]
     bitmap: *excite_bitmap
 
-  uniE66C:  # ·Exam
+  qsExam:  # ·Exam
     y_offset: -3
     bitmap: &exam_bitmap
       - "#   #"
@@ -574,12 +574,12 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE66C.prop:  # ·Exam
+  qsExam.prop:  # ·Exam
     y_offset: -3
     cursive_entry: [1, 0]
     bitmap: *exam_bitmap
 
-  uniE66E:  # Quikscript left angled parenthesis
+  qsAngleParenLeft:  # Quikscript left angled parenthesis
     y_offset: -3
     bitmap:
       - "    #"
@@ -595,7 +595,7 @@ glyphs:
       - "#    "
       - "#####"
 
-  uniE66F:  # Quikscript right angled parenthesis
+  qsAngleParenRight:  # Quikscript right angled parenthesis
     y_offset: -3
     bitmap:
       - "#####"
@@ -611,7 +611,7 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE670:  # ·It
+  qsIt:  # ·It
     bitmap:
       - "  #  "
       - "  #  "
@@ -620,7 +620,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  uniE670.prop: &IT  # ·It
+  qsIt.prop: &IT  # ·It
     bitmap: &it_bitmap
       - "#"
       - "#"
@@ -629,25 +629,25 @@ glyphs:
       - "#"
       - "#"
 
-  uniE670.entry-xheight:  # ·It (enters at x-height, exits at baseline)
+  qsIt.entry-xheight:  # ·It (enters at x-height, exits at baseline)
     cursive_entry: [1, 5]
     cursive_exit: [2, 0]
     bitmap: *it_bitmap
 
-  uniE670.entry-baseline:  # ·It (enters at baseline, exits at x-height)
+  qsIt.entry-baseline:  # ·It (enters at baseline, exits at x-height)
     cursive_entry: [1, 0]
     cursive_exit: [2, 5]
     bitmap: *it_bitmap
 
-  uniE670.exit-xheight:  # ·It (exits at x-height)
+  qsIt.exit-xheight:  # ·It (exits at x-height)
     cursive_exit: [2, 5]
     bitmap: *it_bitmap
 
-  uniE670.exit-baseline:  # ·It (exits at baseline)
+  qsIt.exit-baseline:  # ·It (exits at baseline)
     cursive_exit: [2, 0]
     bitmap: *it_bitmap
 
-  uniE671:  # ·Eat
+  qsEat:  # ·Eat
     bitmap:
       - "   # "
       - "  ## "
@@ -656,7 +656,7 @@ glyphs:
       - "#  # "
       - "#  # "
 
-  uniE671.prop:  # ·Eat
+  qsEat.prop:  # ·Eat
     cursive_entry: [1, 0]
     cursive_exit: [5, 0]
     bitmap:
@@ -667,7 +667,7 @@ glyphs:
       - "#  #"
       - "#  #"
 
-  uniE672: &ET  # ·Et
+  qsEt: &ET  # ·Et
     bitmap: &et_bitmap
       - "#    "
       - "#    "
@@ -676,12 +676,12 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  uniE672.prop:  # ·Et
+  qsEt.prop:  # ·Et
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap: *et_bitmap
 
-  uniE673:  # ·Eight
+  qsEight:  # ·Eight
     bitmap: &eight_bitmap
       - "# ## "
       - " #  #"
@@ -690,12 +690,12 @@ glyphs:
       - "   # "
       - "    #"
 
-  uniE673.prop:  # ·Eight
+  qsEight.prop:  # ·Eight
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap: *eight_bitmap
 
-  uniE674: &AT  # ·At
+  qsAt: &AT  # ·At
     bitmap: &at_bitmap
       - "    #"
       - "    #"
@@ -704,12 +704,12 @@ glyphs:
       - "  #  "
       - "##   "
 
-  uniE674.prop:  # ·At
+  qsAt.prop:  # ·At
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *at_bitmap
 
-  uniE675:  # ·I
+  qsI:  # ·I
     bitmap: &i_bitmap
       - " ## #"
       - "#  # "
@@ -718,12 +718,12 @@ glyphs:
       - " #   "
       - "#    "
 
-  uniE675.prop:  # ·I
+  qsI.prop:  # ·I
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *i_bitmap
 
-  uniE676: &AH  # ·Ah
+  qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
       - "   ##"
       - "  #  "
@@ -732,12 +732,12 @@ glyphs:
       - "  #  "
       - "##   "
 
-  uniE676.prop:  # ·Ah
+  qsAh.prop:  # ·Ah
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *ah_bitmap
 
-  uniE677: &AWE  # ·Awe
+  qsAwe: &AWE  # ·Awe
     bitmap: &awe_bitmap
       - "##   "
       - "  #  "
@@ -746,12 +746,12 @@ glyphs:
       - "  #  "
       - "   ##"
 
-  uniE677.prop:  # ·Awe
+  qsAwe.prop:  # ·Awe
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap: *awe_bitmap
 
-  uniE678: &OX  # ·Ox
+  qsOx: &OX  # ·Ox
     bitmap: &ox_bitmap
       - "##   "
       - "  #  "
@@ -760,11 +760,11 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE678.prop:  # ·Ox
+  qsOx.prop:  # ·Ox
     cursive_entry: [1, 5]
     bitmap: *ox_bitmap
 
-  uniE679:  # ·Oy
+  qsOy:  # ·Oy
     bitmap:
       - "##   "
       - "  #  "
@@ -773,7 +773,7 @@ glyphs:
       - "    #"
       - "    #"
 
-  uniE67A: &UTTER  # ·Utter
+  qsUtter: &UTTER  # ·Utter
     bitmap: &utter_bitmap
       - "   ##"
       - "  #  "
@@ -782,11 +782,11 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE67A.prop:  # ·Utter
+  qsUtter.prop:  # ·Utter
     cursive_exit: [6, 5]
     bitmap: *utter_bitmap
 
-  uniE67A.alt:  # Alternate ·Utter
+  qsUtter.alt:  # Alternate ·Utter
     bitmap:
       - "  ## "
       - " #   "
@@ -795,7 +795,7 @@ glyphs:
       - " #   "
       - "  ###"
 
-  uniE67B:  # ·Out
+  qsOut:  # ·Out
     bitmap: &out_bitmap
       - "   ##"
       - "  #  "
@@ -804,11 +804,11 @@ glyphs:
       - "#    "
       - "#    "
 
-  uniE67B.prop:  # ·Out
+  qsOut.prop:  # ·Out
     cursive_exit: [6, 5]
     bitmap: *out_bitmap
 
-  uniE67C: &OWE  # ·Owe
+  qsOwe: &OWE  # ·Owe
     bitmap:
       - " ### "
       - "#   #"
@@ -817,7 +817,7 @@ glyphs:
       - "#   #"
       - " ### "
 
-  uniE67D: &FOOT  # ·Foot
+  qsFoot: &FOOT  # ·Foot
     bitmap:
       - "#   #"
       - "#   #"
@@ -826,7 +826,7 @@ glyphs:
       - " # # "
       - "  #  "
 
-  uniE67E: &OOZE  # ·Ooze
+  qsOoze: &OOZE  # ·Ooze
     bitmap: &ooze_bitmap
       - "  #  "
       - " # # "
@@ -835,7 +835,7 @@ glyphs:
       - "#   #"
       - "#   #"
 
-  uniE67E.prop:  # ·Ooze
+  qsOoze.prop:  # ·Ooze
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap: *ooze_bitmap
