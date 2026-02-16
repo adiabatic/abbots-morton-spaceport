@@ -704,13 +704,18 @@ glyphs:
     bitmap: *i_bitmap
 
   uniE676: &AH  # ·Ah
-    bitmap:
+    bitmap: &ah_bitmap
       - "   ##"
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
       - "##   "
+
+  uniE676.prop:  # ·Ah
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 5]
+    bitmap: *ah_bitmap
 
   uniE677: &AWE  # ·Awe
     bitmap: &awe_bitmap
