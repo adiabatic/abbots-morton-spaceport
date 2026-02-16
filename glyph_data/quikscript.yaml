@@ -121,7 +121,7 @@ glyphs:
 
   qsDay_qsUtter.prop:  # ·Day·Utter ligature
     y_offset: -3
-    cursive_exit: [14, 5]
+    cursive_exit: [9, 5]
     bitmap:
       - "#    ###"
       - "#   #   "
@@ -132,6 +132,20 @@ glyphs:
       - "##      "
       - "##      "
       - "#       "
+
+  qsDay_qsEat.prop:  # ·Day·Eat ligature
+    y_offset: -3
+    cursive_exit: [7, 0]
+    bitmap:
+      - "#    #"
+      - "#   ##"
+      - "#  # #"
+      - "#  # #"
+      - "# #  #"
+      - "# #  #" #
+      - "##    "
+      - "##    "
+      - "#     "
 
   qsKey:  # ·Key
     bitmap:
