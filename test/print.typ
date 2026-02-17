@@ -8,7 +8,8 @@
   numbering: "1 of 1",
 )
 
-#let fontStack = ("Abbots Morton Spaceport Mono", "Departure Mono")
+#let monoStack = ("Abbots Morton Spaceport Mono", "Departure Mono")
+#let seniorStack = ("Abbots Morton Spaceport Sans Senior", "Departure Mono")
 
 // #let ppi = 96
 // #let sizeInPixels = 11
@@ -18,13 +19,12 @@
 #let sizeInPoints = 12pt
 
 #set text(
-  font: fontStack,
+  font: monoStack,
   size: sizeInPoints,
 )
 
 #show heading: it => [
   #set text(
-    font: fontStack,
     size: sizeInPoints * 2,
   )
 
@@ -33,7 +33,6 @@
 
 #show raw: it => [
   #set text(
-    font: fontStack,
     size: sizeInPoints,
   )
   #it
@@ -41,16 +40,32 @@
 
 #show link: underline
 
-= Abbots Morton Spaceport Mono in print
+= Abbots Morton Spaceport in print
 
 #outline()
 
-== Quikscript —       .
+== Mono
+
+=== Quikscript —       .
 
 What is the price of a foot-bath kit? A goose in a dress near North Square thought it would cure jelly ankle. The goat nurse suggested palm oil in the mouth or wrapped around the ankle with a cloth. (Shiny yellow cheese helps with night vision on the ax exams in both Llanberis and Loch Affric.)
 
       - ?       ·       .                 .              ·   ·.
 
-== Lorem ipsum.
+=== Lorem ipsum.
+
+#lorem(100)
+
+== Senior
+
+#set text(font: seniorStack)
+
+=== Quikscript —       .
+
+What is the price of a foot-bath kit? A goose in a dress near North Square thought it would cure jelly ankle. The goat nurse suggested palm oil in the mouth or wrapped around the ankle with a cloth. (Shiny yellow cheese helps with night vision on the ax exams in both Llanberis and Loch Affric.)
+
+      - ?       ·       .                 .              ·   ·.
+
+=== Lorem ipsum.
 
 #lorem(100)
