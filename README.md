@@ -15,7 +15,7 @@ This font comes in two-and-a-half variants:
 
 - proportional (Abbots Morton Spaceport **Sans**)
   - unligated (Abbots Morton Spaceport Sans **Junior**)
-  - <del>ligated (Abbots Morton Spaceport Sans **Senior**)</del> — not ready for production use yet, but tell me if it breaks on your setup because it uses OpenType’s `curs` and is basically unused for LTRTTB scripts
+  - <del>ligated (Abbots Morton Spaceport Sans **Senior**)</del> — not ready for production use yet (see [Known issues](#known-issues) below)
 - monospace (Abbots Morton Spaceport **Mono**)
 
 You’ll definitely need to:
@@ -116,6 +116,23 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 - Maybe no left side bearing for `j`
 - bold proportional font (use a two-pixel-wide brush stroke like how Chicago 12 does)
 
+## Known issues
+
+Abbots Morton Spaceport Sans **Senior** uses OpenType’s `curs` feature. While this is very much the obviously correct OpenType feature to use to join letters to one another as done in Quikscript, support for it in LTRTTB scripts like Latin and Quikscript isn’t universal because so far, `curs` is only used in RTLTTB scripts like Arabic and the one naturally-occurring TTBLTR script, [Mongolian](https://en.wikipedia.org/wiki/Mongolian_script).
+
+In my testing, AMSS Senior works fine in:
+
+- current evergreen browser engines (WebKit (Safari), Gecko (Firefox), Blink (Chrome, Edge))
+- Typst
+
+It _should_ work fine in:
+
+- anything that uses [Harfbuzz](https://github.com/harfbuzz/harfbuzz)
+
+It does _not_ work in:
+
+- Microsoft Word 365 (as of February 18, 2026)
+
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
@@ -123,3 +140,4 @@ SIL OFL 1.1 for the font files themselves, and MIT for everything else.
 ## Non-obvious acknowledgements
 
 - [Brad Neil](https://friedorange.xyz/) — Design critique
+- anyone who’s ever written about fontmaking in public on the Internet — your discussions have been the wind beneath my LLMs’ wings
