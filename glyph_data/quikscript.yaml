@@ -81,7 +81,7 @@ glyphs:
       - "  #  "
 
   qsTea.prop:  # ·Tea
-    bitmap:
+    bitmap: &tea_prop_bitmap
       - "#"
       - "#"
       - "#"
@@ -91,6 +91,10 @@ glyphs:
       - "#"
       - "#"
       - "#"
+
+  qsTea.entry-baseline:  # ·Tea (enters at baseline, no exit)
+    cursive_entry: [1, 0]
+    bitmap: *tea_prop_bitmap
 
   qsDay:  # ·Day
     y_offset: -3
