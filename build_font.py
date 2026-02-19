@@ -406,17 +406,27 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     entry_classes[anchor[1]].add(base_name)
 
     # --- Topological sort for backward-looking lookups ---
+    # Only consider exit heights INTRODUCED by entry variants (not already
+    # present on the base glyph) to avoid spurious dependency cycles.
     base_exit_ys: dict[str, set[int]] = {}
     for base_name, variants in bk_replacements.items():
-        exit_ys = set()
+        base_def = glyphs_def.get(base_name, {})
+        base_ys = set()
+        if base_def:
+            raw_exit = base_def.get("cursive_exit")
+            if raw_exit:
+                for anchor in _normalize_anchors(raw_exit):
+                    base_ys.add(anchor[1])
+        new_exit_ys = set()
         for variant_name in variants.values():
             variant_def = glyphs_def.get(variant_name, {})
             if variant_def:
                 raw_exit = variant_def.get("cursive_exit")
                 if raw_exit:
                     for anchor in _normalize_anchors(raw_exit):
-                        exit_ys.add(anchor[1])
-        base_exit_ys[base_name] = exit_ys
+                        if anchor[1] not in base_ys:
+                            new_exit_ys.add(anchor[1])
+        base_exit_ys[base_name] = new_exit_ys
 
     base_order = list(bk_replacements.keys())
     edges: dict[str, set[str]] = {b: set() for b in base_order}
