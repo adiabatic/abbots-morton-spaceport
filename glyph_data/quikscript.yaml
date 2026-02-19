@@ -476,6 +476,20 @@ glyphs:
       - "#   "
       - "#   "
 
+  qsWay_qsUtter.prop:  # ·Way·Utter ligature
+    y_offset: -3
+    cursive_exit: [7, 5]
+    bitmap:
+      - "    ##"
+      - "   #  "
+      - "  #   "
+      - "  #   "
+      - " #    "
+      - " #    " #
+      - "#     "
+      - "#     "
+      - "#     "
+
   qsHe:  # ·He
     bitmap:
       - "  ## "
