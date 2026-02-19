@@ -49,6 +49,10 @@ glyphs:
     advance_width: 1
     bitmap: []
 
+  uni200C:  # ZERO WIDTH NON-JOINER
+    advance_width: 0
+    bitmap: []
+
   # ── Other ────────────────────────────────────────────────────────────
 
   # Bracket-height: 10 rows, y_offset -1
