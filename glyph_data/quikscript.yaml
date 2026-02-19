@@ -37,6 +37,20 @@ glyphs:
       - "   #"
       - "   #"
 
+  qsPea.entry-y6:  # ·Pea (enters at y=6)
+    cursive_entry: [1, 6]
+    cursive_exit: [5, 0]
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "   #" #
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+
   qsPea.prop.half:  # ·Pea (half)
     cursive_exit: [4, 5]
     bitmap:
@@ -91,6 +105,14 @@ glyphs:
       - "#"
       - "#"
       - "#"
+
+  qsTea.exit-baseline:  # ·Tea (exits at baseline)
+    cursive_exit: [2, 0]
+    bitmap: *tea_prop_bitmap
+
+  qsTea.entry-top:  # ·Tea (enters at top)
+    cursive_entry: [1, 8]
+    bitmap: *tea_prop_bitmap
 
   qsTea.entry-baseline:  # ·Tea (enters at baseline, no exit)
     cursive_entry: [1, 0]
@@ -282,6 +304,20 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 8]
     bitmap: *see_bitmap
+
+  qsSee.exit-y6:  # ·See (exits at y=6)
+    cursive_entry: [1, 0]
+    cursive_exit: [7, 6]
+    bitmap:
+      - "   ## "
+      - "  #  #"
+      - " #   #"
+      - " #    " #
+      - "  #   "
+      - "  #   "
+      - "   #  "
+      - "   #  "
+      - "###   "
 
   qsZoo:  # ·Zoo
     y_offset: -3

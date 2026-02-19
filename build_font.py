@@ -337,9 +337,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         else:
             bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
 
-    # --- Forward-looking: exit-only variants keyed by exit Y ---
-    # Detects any variant with cursive_exit but no cursive_entry (catches
-    # .exit-* names and .half variants alike).
+    # --- Forward-looking: exit variants keyed by exit Y ---
+    # Detects any variant with cursive_exit (catches .exit-* names and
+    # .half variants alike). Entry variants (entry-* names) are excluded
+    # since they are handled by the backward-looking rules.
     fwd_replacements: dict[str, dict[int, str]] = {}
     fwd_exclusions: dict[str, dict[int, list[str]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
@@ -349,8 +350,6 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
-            continue
-        if glyph_def.get("cursive_entry") is not None:
             continue
         exits = _normalize_anchors(raw_exit)
         if not exits:
@@ -380,6 +379,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             exit_classes.setdefault(anchor[1], set()).add(glyph_name)
 
     # --- Build entry classes (for forward rules) ---
+    # Includes both glyphs with explicit cursive_entry anchors and base
+    # glyphs that have entry-* variants (so forward rules can match the
+    # base glyph before the backward rule substitutes it).
     entry_classes: dict[int, set[str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
@@ -389,6 +391,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             continue
         for anchor in _normalize_anchors(raw_entry):
             entry_classes.setdefault(anchor[1], set()).add(glyph_name)
+            if _is_entry_variant(glyph_name):
+                base_name = glyph_name.split(".")[0]
+                if base_name in glyphs_def:
+                    entry_classes[anchor[1]].add(base_name)
 
     # --- Topological sort for backward-looking lookups ---
     base_exit_ys: dict[str, set[int]] = {}
