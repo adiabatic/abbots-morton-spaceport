@@ -235,7 +235,7 @@ glyphs:
       - " ### "
 
   qsFee: &FEE  # ·Fee
-    bitmap:
+    bitmap: &fee_bitmap
       - "  #  "
       - "   # "
       - "    #"
@@ -245,6 +245,13 @@ glyphs:
       - "#   #"
       - "#   #"
       - " ### "
+
+  qsFee.prop:  # ·Fee
+    bitmap: *fee_bitmap
+
+  qsFee.exit-xheight:  # ·Fee (exits at x-height)
+    cursive_exit: [6, 5]
+    bitmap: *fee_bitmap
 
   qsVie: &VIE  # ·Vie
     y_offset: -3
