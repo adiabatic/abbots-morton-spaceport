@@ -492,7 +492,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             lookup_name = f"calt_fwd_{base_name}"
             lines.append("")
             lines.append(f"    lookup {lookup_name} {{")
-            for exit_y in sorted(variants.keys()):
+            for exit_y in sorted(variants.keys(), reverse=True):
                 variant_name = variants[exit_y]
                 if exit_y in entry_classes:
                     excluded = exclusions.get(exit_y, [])
