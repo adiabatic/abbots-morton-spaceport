@@ -548,6 +548,12 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *may_bitmap
 
+  qsMay.entry-baseline:  # ·May (enters at baseline)
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 5]
+    bitmap: *may_bitmap
+
   qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
