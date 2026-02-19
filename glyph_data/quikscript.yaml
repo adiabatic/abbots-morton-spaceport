@@ -500,6 +500,19 @@ glyphs:
       - "#  "
       - "#  "
 
+  qsHe.half:  # ·He (half, exits at x-height)
+    cursive_exit: [2, 5]
+    bitmap:
+      - " ##"
+      - "#  "
+      - "#  "
+      - "## " #
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+
   qsWhy:  # ·Why
     y_offset: -3
     bitmap:
