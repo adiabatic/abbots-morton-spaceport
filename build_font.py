@@ -343,6 +343,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # since they are handled by the backward-looking rules.
     fwd_replacements: dict[str, dict[int, str]] = {}
     fwd_exclusions: dict[str, dict[int, list[str]]] = {}
+    # Pair-specific forward overrides: variants with calt_before lists
+    fwd_pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or "." not in glyph_name:
             continue
@@ -358,11 +360,18 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         base_name = glyph_name.split(".")[0]
         if base_name not in glyphs_def:
             continue
-        fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
-        not_before = glyph_def.get("calt_not_before")
-        if not_before:
-            resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
-            fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
+        calt_before = glyph_def.get("calt_before")
+        if calt_before:
+            resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in calt_before]
+            fwd_pair_overrides.setdefault(base_name, []).append(
+                (glyph_name, resolved)
+            )
+        else:
+            fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
+            not_before = glyph_def.get("calt_not_before")
+            if not_before:
+                resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
 
     if not bk_replacements and not fwd_replacements:
         return None
@@ -465,19 +474,32 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # backward lookup runs first (so a preceding exit wins over a following
     # entry), then its forward companion.
     def _emit_fwd(base_name: str):
-        variants = fwd_replacements[base_name]
-        exclusions = fwd_exclusions.get(base_name, {})
-        lookup_name = f"calt_fwd_{base_name}"
-        lines.append("")
-        lines.append(f"    lookup {lookup_name} {{")
-        for exit_y in sorted(variants.keys()):
-            variant_name = variants[exit_y]
-            if exit_y in entry_classes:
-                excluded = exclusions.get(exit_y, [])
-                for eg in sorted(excluded):
-                    lines.append(f"        ignore sub {base_name}' {eg};")
-                lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
-        lines.append(f"    }} {lookup_name};")
+        # Pair-specific forward overrides run first so they win over general
+        if base_name in fwd_pair_overrides:
+            for variant_name, before_glyphs in fwd_pair_overrides[base_name]:
+                before_list = " ".join(sorted(before_glyphs))
+                safe = variant_name.replace(".", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_fwd_pair_{safe} {{")
+                lines.append(
+                    f"        sub {base_name}' [{before_list}] by {variant_name};"
+                )
+                lines.append(f"    }} calt_fwd_pair_{safe};")
+        # General forward rule
+        if base_name in fwd_replacements:
+            variants = fwd_replacements[base_name]
+            exclusions = fwd_exclusions.get(base_name, {})
+            lookup_name = f"calt_fwd_{base_name}"
+            lines.append("")
+            lines.append(f"    lookup {lookup_name} {{")
+            for exit_y in sorted(variants.keys()):
+                variant_name = variants[exit_y]
+                if exit_y in entry_classes:
+                    excluded = exclusions.get(exit_y, [])
+                    for eg in sorted(excluded):
+                        lines.append(f"        ignore sub {base_name}' {eg};")
+                    lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
+            lines.append(f"    }} {lookup_name};")
 
     def _emit_bk(base_name: str):
         # Pair-specific overrides run first so they win over the general rule
@@ -507,13 +529,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     pair_only = sorted(set(pair_overrides) - set(bk_replacements))
     all_bk_bases = sorted_bases + pair_only
 
-    fwd_only = sorted(set(fwd_replacements) - set(bk_replacements) - set(pair_overrides))
+    all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
+    fwd_only = sorted(all_fwd_bases - set(bk_replacements) - set(pair_overrides))
     for base_name in fwd_only:
         _emit_fwd(base_name)
 
     for base_name in all_bk_bases:
         _emit_bk(base_name)
-        if base_name in fwd_replacements:
+        if base_name in all_fwd_bases:
             _emit_fwd(base_name)
 
     lines.append("} calt;")
