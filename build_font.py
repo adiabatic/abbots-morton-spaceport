@@ -348,7 +348,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or "." not in glyph_name:
             continue
-        if _is_entry_variant(glyph_name):
+        if _is_entry_variant(glyph_name) or glyph_name.endswith(".noentry"):
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
@@ -379,7 +379,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # --- Build exit classes (for backward rules) ---
     exit_classes: dict[int, set[str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
+        if glyph_def is None or glyph_name.endswith(".noentry"):
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
@@ -477,6 +477,25 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if y in entry_classes:
             members = sorted(entry_classes[y])
             lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
+
+    # ZWNJ chain-breaking: substitute glyphs after ZWNJ with .noentry
+    # variants so the curs feature sees NULL entry and breaks the chain.
+    zwnj = "uni200C"
+    noentry_pairs = []
+    for name in sorted(glyphs_def):
+        if name.endswith(".noentry"):
+            base = name[:-len(".noentry")]
+            if base in glyphs_def:
+                noentry_pairs.append((base, name))
+    if zwnj in glyphs_def and noentry_pairs:
+        cursive_names = [b for b, _ in noentry_pairs]
+        noentry_names = [n for _, n in noentry_pairs]
+        lines.append(f"    @qs_has_entry = [{' '.join(cursive_names)}];")
+        lines.append(f"    @qs_noentry = [{' '.join(noentry_names)}];")
+        lines.append("")
+        lines.append("    lookup calt_zwnj {")
+        lines.append(f"        sub {zwnj} @qs_has_entry' by @qs_noentry;")
+        lines.append("    } calt_zwnj;")
 
     # Lookup ordering: forward-only bases run first so they can change a
     # glyph's exit before backward rules for the *following* glyph commit to
@@ -622,6 +641,26 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     if not y_groups:
         return None
 
+    # Add .noentry glyphs (no cursive_exit) to the Y-groups they need to
+    # appear in so they break the cursive chain.  .noentry glyphs WITH
+    # cursive_exit are already picked up by the normal scan above.
+    for glyph_name, glyph_def in glyphs_def.items():
+        if not glyph_name.endswith(".noentry") or glyph_def is None:
+            continue
+        if glyph_def.get("cursive_exit"):
+            continue
+        original_name = glyph_def.get("_noentry_for")
+        if not original_name:
+            continue
+        original_def = glyphs_def.get(original_name)
+        if not original_def:
+            continue
+        for anchor in _normalize_anchors(original_def.get("cursive_entry")):
+            y = anchor[1]
+            y_groups.setdefault(y, []).append(
+                (glyph_name, "<anchor NULL>", "<anchor NULL>")
+            )
+
     lines = ["feature curs {"]
     for y in sorted(y_groups):
         lines.append(f"    lookup cursive_y{y} {{")
@@ -630,6 +669,28 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append(f"    }} cursive_y{y};")
     lines.append("} curs;")
     return "\n".join(lines)
+
+
+def generate_noentry_variants(glyphs_def: dict) -> dict:
+    """Create .noentry glyph variants for ZWNJ chain-breaking.
+
+    For each base glyph with cursive_entry (no dot in name), creates a copy
+    without cursive_entry.  These are substituted by calt when ZWNJ precedes
+    them, so the curs feature sees NULL entry and breaks the chain.
+    """
+    if "uni200C" not in glyphs_def:
+        return {}
+
+    variants = {}
+    for name, gdef in sorted(glyphs_def.items()):
+        if gdef is None or "." in name:
+            continue
+        if not gdef.get("cursive_entry"):
+            continue
+        noentry_def = {k: v for k, v in gdef.items() if k != "cursive_entry"}
+        noentry_def["_noentry_for"] = name
+        variants[name + ".noentry"] = noentry_def
+    return variants
 
 
 def parse_bitmap(bitmap: list) -> list[list[int]]:
@@ -904,6 +965,10 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     # For proportional font, transform glyphs: .prop becomes default
     if is_proportional:
         glyphs_def = prepare_proportional_glyphs(glyphs_def)
+
+    # For senior font, create .noentry variants for ZWNJ chain-breaking
+    if is_senior:
+        glyphs_def.update(generate_noentry_variants(glyphs_def))
 
     # Font name differs per variant
     base_font_name = metadata["font_name"]
