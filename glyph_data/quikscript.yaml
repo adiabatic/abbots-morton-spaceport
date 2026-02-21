@@ -52,17 +52,17 @@ glyphs:
       - "   #"
 
   qsPea.prop.half:  # ·Pea (half)
-    cursive_exit: [4, 5]
+    cursive_exit: [6, 5]
     bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "   #" #
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    "
+      - " ##   "
+      - "#  #  "
+      - "#  #  "
+      - "   ###" #
+      - "      "
+      - "      "
+      - "      "
+      - "      "
+      - "      "
 
   qsBay:  # ·Bay
     y_offset: -3
