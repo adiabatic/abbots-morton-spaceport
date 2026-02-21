@@ -379,6 +379,21 @@ glyphs:
     cursive_entry: [1, 5]
     bitmap: *zoo_bitmap
 
+  qsZoo.half:  # ·Zoo (half)
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "#    " #
+      - "#   #"
+      - "#  # "
+      - " ##  "
+
   qsShe: &SHE  # ·She
     bitmap:
       - "     "
