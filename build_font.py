@@ -417,10 +417,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     entry_classes[anchor[1]].add(base_name)
 
     # --- Topological sort for backward-looking lookups ---
-    # Only consider exit heights INTRODUCED by entry variants (not already
-    # present on the base glyph) to avoid spurious dependency cycles.
+    # Consider exit heights INTRODUCED by both entry (backward) and exit
+    # (forward) variants — any variant that changes the base glyph's exit
+    # height creates a dependency for bases whose backward rules consume
+    # that height.
     base_exit_ys: dict[str, set[int]] = {}
-    for base_name, variants in bk_replacements.items():
+    for base_name in bk_replacements:
         base_def = glyphs_def.get(base_name, {})
         base_ys = set()
         if base_def:
@@ -429,7 +431,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 for anchor in _normalize_anchors(raw_exit):
                     base_ys.add(anchor[1])
         new_exit_ys = set()
-        for variant_name in variants.values():
+        all_variants = list(bk_replacements[base_name].values())
+        if base_name in fwd_replacements:
+            all_variants.extend(fwd_replacements[base_name].values())
+        for variant_name in all_variants:
             variant_def = glyphs_def.get(variant_name, {})
             if variant_def:
                 raw_exit = variant_def.get("cursive_exit")
@@ -601,15 +606,39 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for base_name in fwd_only:
         _emit_fwd(base_name)
 
+    # Split non-cycle bases into those the cycle depends on (emit before
+    # the cycle) and the rest (emit after).  The topological order already
+    # places dependencies first, so we just need to find the split point.
+    pre_cycle: list[str] = []
+    post_cycle: list[str] = []
+    if cycle_bases:
+        cycle_deps: set[str] = set()
+        for cb in cycle_bases:
+            cycle_deps |= edges.get(cb, set())
+        cycle_deps -= cycle_bases
+        for base_name in all_bk_bases:
+            if base_name in cycle_bases:
+                continue
+            if base_name in cycle_deps:
+                pre_cycle.append(base_name)
+            else:
+                post_cycle.append(base_name)
+    else:
+        post_cycle = list(all_bk_bases)
+
+    for base_name in pre_cycle:
+        _emit_bk_pairs(base_name)
+        _emit_bk_general(base_name)
+        if base_name in all_fwd_bases:
+            _emit_fwd(base_name)
+
     if cycle_bases:
         cycle_list = sorted(cycle_bases)
         for base_name in cycle_list:
             _emit_bk_pairs(base_name)
         _emit_bk_cycle(cycle_list)
 
-    for base_name in all_bk_bases:
-        if base_name in cycle_bases:
-            continue
+    for base_name in post_cycle:
         _emit_bk_pairs(base_name)
         _emit_bk_general(base_name)
         if base_name in all_fwd_bases:
