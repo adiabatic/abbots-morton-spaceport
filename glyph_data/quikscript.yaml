@@ -993,6 +993,7 @@ glyphs:
 
   qsOx.prop:  # ·Ox
     cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
     bitmap: *ox_bitmap
 
   qsOy:  # ·Oy
