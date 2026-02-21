@@ -590,7 +590,7 @@ glyphs:
 
   qsWhy_qsUtter.prop:  # ·Why·Utter ligature
     y_offset: -3
-    cursive_exit: [7, 5]
+    cursive_exit: [10, 5]
     bitmap:
       - "       ##"
       - "      #  "
