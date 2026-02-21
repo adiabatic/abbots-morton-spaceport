@@ -123,7 +123,7 @@ glyphs:
       - "   "
       - "   "
 
-  qsTea.half:  # ·Tea (half, exits at x-height)
+  qsTea.half.exit-xheight:  # ·Tea (half, exits at x-height)
     cursive_exit: [3, 5]
     bitmap:
       - "#  "
