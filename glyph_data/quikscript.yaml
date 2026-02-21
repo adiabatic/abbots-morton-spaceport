@@ -110,20 +110,20 @@ glyphs:
     cursive_exit: [2, 0]
     bitmap: *tea_prop_bitmap
 
-  qsTea.half:  # ·Tea (half, exits at x-height)
-    cursive_exit: [2, 5]
+  qsTea.half.entry-xheight:  # ·Tea (half)
+    cursive_entry: [1, 5]
     bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-      - " "
-      - " "
-      - " "
-      - " "
-      - " "
+      - "  #"
+      - "  #"
+      - "  #"
+      - "###" #
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
 
-  qsTea.half: # ·Tea (half)
+  qsTea.half:  # ·Tea (half, exits at x-height)
     cursive_exit: [3, 5]
     bitmap:
       - "#  "
