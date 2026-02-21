@@ -348,7 +348,7 @@ glyphs:
 
   qsZoo:  # ·Zoo
     y_offset: -3
-    bitmap:
+    bitmap: &zoo_bitmap
       - "###  "
       - "   # "
       - "   # "
@@ -358,6 +358,11 @@ glyphs:
       - "#   #"
       - "#  # "
       - " ##  "
+
+  qsZoo.prop:  # ·Zoo
+    y_offset: -3
+    cursive_entry: [1, 5]
+    bitmap: *zoo_bitmap
 
   qsShe: &SHE  # ·She
     bitmap:
