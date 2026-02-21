@@ -123,8 +123,7 @@ glyphs:
       - " "
       - " "
 
-  qsTea.half.zigzag:  # ·Tea (half with upward zig-zag, exits at x-height)
-    calt_before: [qsIt.prop, qsEt.prop]
+  qsTea.half: # ·Tea (half)
     cursive_exit: [3, 5]
     bitmap:
       - "#  "
