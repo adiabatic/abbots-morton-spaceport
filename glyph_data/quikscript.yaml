@@ -172,6 +172,21 @@ glyphs:
       - "##  "
       - "#   "
 
+  qsDay.half:  # ·Day (half, exits at baseline)
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit: [5, 0]
+    bitmap:
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "#  #" #
+      - "# # "
+      - "##  "
+      - "#   "
+
   qsDay_qsUtter.prop:  # ·Day·Utter ligature
     y_offset: -3
     cursive_exit: [9, 5]
