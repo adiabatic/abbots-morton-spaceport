@@ -1287,7 +1287,7 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     if is_senior:
         calt_fea = generate_calt_fea(glyphs_def, pixel_size)
         if calt_fea:
-            fea_code_parts.insert(0, calt_fea)
+            fea_code_parts.append(calt_fea)
 
     if fea_code_parts:
         fea_code = "\n\n".join(fea_code_parts)
