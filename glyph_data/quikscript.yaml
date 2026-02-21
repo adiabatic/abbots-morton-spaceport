@@ -475,6 +475,20 @@ glyphs:
       - "#   "
       - "#   "
 
+  qsWay.half:  # ·Way (half, exits at baseline)
+    y_offset: -3
+    cursive_exit: [4, 0]
+    bitmap:
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   "
+      - "   " #
+      - "  #"
+      - " # "
+      - "#  "
+
   qsWay_qsUtter.prop:  # ·Way·Utter ligature
     y_offset: -3
     cursive_exit: [7, 5]
@@ -537,6 +551,20 @@ glyphs:
       - "   # " #
       - "# #  "
       - " ##  "
+      - "  #  "
+
+  qsWhy.half:  # ·Why (half, exits at baseline)
+    y_offset: -3
+    cursive_exit: [5, 0]
+    bitmap:
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "#   #"
+      - " # # "
       - "  #  "
 
   qsIng: &ING  # ·-ing
