@@ -159,6 +159,7 @@ glyphs:
 
   qsDay.prop: &DAY  # ·Day
     y_offset: -3
+    cursive_entry: [1, 5]
     cursive_exit: [5, 0]
     bitmap:
       - "#   "
