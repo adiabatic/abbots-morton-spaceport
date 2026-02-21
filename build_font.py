@@ -579,6 +579,17 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+        for base_name in bases:
+            if base_name in fwd_replacements:
+                variants = fwd_replacements[base_name]
+                exclusions = fwd_exclusions.get(base_name, {})
+                for exit_y in sorted(variants.keys(), reverse=True):
+                    variant_name = variants[exit_y]
+                    if exit_y in entry_classes:
+                        excluded = exclusions.get(exit_y, [])
+                        for eg in sorted(excluded):
+                            lines.append(f"        ignore sub {base_name}' {eg};")
+                        lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
         lines.append("    } calt_cycle;")
 
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
@@ -595,9 +606,6 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         for base_name in cycle_list:
             _emit_bk_pairs(base_name)
         _emit_bk_cycle(cycle_list)
-        for base_name in cycle_list:
-            if base_name in all_fwd_bases:
-                _emit_fwd(base_name)
 
     for base_name in all_bk_bases:
         if base_name in cycle_bases:
