@@ -317,8 +317,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # Pair-specific overrides: entry variants with calt_after lists
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or not _is_entry_variant(glyph_name):
+        if glyph_def is None:
             continue
+        if not _is_entry_variant(glyph_name):
+            parts = glyph_name.split(".")[1:]
+            if "half" not in parts or not glyph_def.get("cursive_entry"):
+                continue
         raw_entry = glyph_def.get("cursive_entry")
         if raw_entry is None:
             continue
@@ -349,6 +353,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if glyph_def is None or "." not in glyph_name:
             continue
         if _is_entry_variant(glyph_name) or glyph_name.endswith(".noentry"):
+            continue
+        parts = glyph_name.split(".")[1:]
+        if "half" in parts and glyph_def.get("cursive_entry"):
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
@@ -400,7 +407,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             continue
         for anchor in _normalize_anchors(raw_entry):
             entry_classes.setdefault(anchor[1], set()).add(glyph_name)
-            if _is_entry_variant(glyph_name):
+            is_bk = _is_entry_variant(glyph_name)
+            if not is_bk:
+                parts = glyph_name.split(".")[1:]
+                is_bk = "half" in parts and glyph_def.get("cursive_entry") is not None
+            if is_bk:
                 base_name = glyph_name.split(".")[0]
                 if base_name in glyphs_def:
                     entry_classes[anchor[1]].add(base_name)
