@@ -449,24 +449,27 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             if base_exit_ys[base_a] & b_entry_ys:
                 edges[base_b].add(base_a)
 
+    # Kahn's algorithm: topological sort that collects cycle members
+    # instead of raising an error.  Cycle members are merged into a
+    # single lookup so left-to-right rule processing resolves them.
+    out_edges: dict[str, set[str]] = {b: set() for b in base_order}
+    in_degree: dict[str, int] = {b: len(edges[b]) for b in base_order}
+    for b in base_order:
+        for dep in edges[b]:
+            out_edges[dep].add(b)
+
+    queue = sorted(b for b in base_order if in_degree[b] == 0)
     sorted_bases: list[str] = []
-    visited: set[str] = set()
-    temp: set[str] = set()
-
-    def visit(node: str):
-        if node in temp:
-            raise ValueError(f"Circular dependency in calt lookups involving {node}")
-        if node in visited:
-            return
-        temp.add(node)
-        for dep in sorted(edges[node]):
-            visit(dep)
-        temp.remove(node)
-        visited.add(node)
+    while queue:
+        node = queue.pop(0)
         sorted_bases.append(node)
+        for neighbor in sorted(out_edges[node]):
+            in_degree[neighbor] -= 1
+            if in_degree[neighbor] == 0:
+                queue.append(neighbor)
 
-    for base in sorted(base_order):
-        visit(base)
+    cycle_bases: set[str] = set(base_order) - set(sorted_bases)
+    sorted_bases.extend(sorted(cycle_bases))
 
     # --- Generate FEA ---
     bk_used_ys = set()
@@ -541,8 +544,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
-    def _emit_bk(base_name: str):
-        # Pair-specific overrides run first so they win over the general rule
+    def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
             for variant_name, after_glyphs in pair_overrides[base_name]:
                 after_list = " ".join(sorted(after_glyphs))
@@ -553,7 +555,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     f"        sub [{after_list}] {base_name}' by {variant_name};"
                 )
                 lines.append(f"    }} calt_pair_{safe};")
-        # General backward rule
+
+    def _emit_bk_general(base_name: str):
         if base_name in bk_replacements:
             variants = bk_replacements[base_name]
             lookup_name = f"calt_{base_name}"
@@ -565,6 +568,19 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
+    def _emit_bk_cycle(bases: list[str]):
+        lines.append("")
+        lines.append("    lookup calt_cycle {")
+        for base_name in bases:
+            if base_name not in bk_replacements:
+                continue
+            variants = bk_replacements[base_name]
+            for entry_y in sorted(variants.keys()):
+                variant_name = variants[entry_y]
+                if entry_y in exit_classes:
+                    lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+        lines.append("    } calt_cycle;")
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
     pair_only = sorted(set(pair_overrides) - set(bk_replacements))
     all_bk_bases = sorted_bases + pair_only
@@ -574,8 +590,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for base_name in fwd_only:
         _emit_fwd(base_name)
 
+    if cycle_bases:
+        cycle_list = sorted(cycle_bases)
+        for base_name in cycle_list:
+            _emit_bk_pairs(base_name)
+        _emit_bk_cycle(cycle_list)
+        for base_name in cycle_list:
+            if base_name in all_fwd_bases:
+                _emit_fwd(base_name)
+
     for base_name in all_bk_bases:
-        _emit_bk(base_name)
+        if base_name in cycle_bases:
+            continue
+        _emit_bk_pairs(base_name)
+        _emit_bk_general(base_name)
         if base_name in all_fwd_bases:
             _emit_fwd(base_name)
 
