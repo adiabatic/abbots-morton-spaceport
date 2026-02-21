@@ -588,6 +588,20 @@ glyphs:
       - " # # "
       - "  #  "
 
+  qsWhy_qsUtter.prop:  # ·Why·Utter ligature
+    y_offset: -3
+    cursive_exit: [7, 5]
+    bitmap:
+      - "       ##"
+      - "      #  "
+      - "     #   "
+      - "     #   "
+      - "    #    "
+      - "    #    " #
+      - "#  #     "
+      - " # #     "
+      - "  #      "
+
   qsIng: &ING  # ·-ing
     bitmap: &ing_bitmap
       - "  #  "
