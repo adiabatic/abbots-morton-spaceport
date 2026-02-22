@@ -689,6 +689,8 @@ glyphs:
     bitmap: *no_bitmap
 
   qsNo.alt:  # Alternate ·No
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
     bitmap:
       - "  #  "
       - " # # "
@@ -1044,6 +1046,7 @@ glyphs:
       - "#    "
 
   qsOut.prop:  # ·Out
+    cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *out_bitmap
 
