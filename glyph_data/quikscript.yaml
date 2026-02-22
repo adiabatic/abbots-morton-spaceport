@@ -1112,13 +1112,18 @@ glyphs:
       - " ### "
 
   qsFoot: &FOOT  # ·Foot
-    bitmap:
+    bitmap: &foot_bitmap
       - "#   #"
       - "#   #"
       - "#   #"
       - " # # "
       - " # # "
       - "  #  "
+
+  qsFoot.prop:  # ·Foot
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 5]
+    bitmap: *foot_bitmap
 
   qsOoze: &OOZE  # ·Ooze
     bitmap: &ooze_bitmap
