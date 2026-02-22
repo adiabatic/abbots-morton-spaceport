@@ -53,6 +53,7 @@ glyphs:
 
   qsPea.prop.half:  # ·Pea (half)
     cursive_exit: [6, 5]
+    calt_not_before: [qsDay]
     bitmap:
       - " ##   "
       - "#  #  "
