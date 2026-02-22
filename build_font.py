@@ -450,8 +450,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         raw = base_def.get("cursive_exit")
         if raw:
             base_exit_ys = {a[1] for a in _normalize_anchors(raw)}
+            min_base_exit = min(base_exit_ys)
             for exit_y in fwd_replacements[base_name]:
-                if exit_y not in base_exit_ys:
+                if exit_y not in base_exit_ys and exit_y < min_base_exit:
                     fwd_use_exclusive.add((base_name, exit_y))
 
     # --- Topological sort for backward-looking lookups ---
@@ -715,6 +716,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         for lig_name, components in sorted(ligatures):
             component_str = " ".join(components)
             lines.append(f"        sub {component_str} by {lig_name};")
+            first = components[0]
+            if first in fwd_replacements:
+                for variant in fwd_replacements[first].values():
+                    rest = " ".join(components[1:])
+                    lines.append(
+                        f"        sub {variant} {rest} by {lig_name};"
+                    )
         lines.append("    } calt_liga;")
 
     lines.append("} calt;")
