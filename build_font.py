@@ -658,7 +658,45 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     all_bk_bases = sorted_bases + pair_only
 
     all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
-    fwd_only = sorted(all_fwd_bases - set(bk_replacements) - set(pair_overrides))
+    fwd_only_set = all_fwd_bases - set(bk_replacements) - set(pair_overrides)
+
+    # --- Topological sort for forward-only lookups ---
+    # If base A's forward rule checks an entry class containing base B,
+    # and B's forward rule substitutes B with a variant NOT in that class,
+    # then B must fire before A (so A sees B's final form).
+    fwd_fwd_edges: dict[str, set[str]] = {b: set() for b in fwd_only_set}
+    for base_a in fwd_only_set:
+        for exit_y in fwd_replacements.get(base_a, {}):
+            use_excl = (base_a, exit_y) in fwd_use_exclusive
+            if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
+                continue
+            cls = entry_exclusive[exit_y] if use_excl else entry_classes.get(exit_y, set())
+            for base_b in fwd_only_set:
+                if base_b == base_a or base_b not in cls:
+                    continue
+                for b_variant in fwd_replacements.get(base_b, {}).values():
+                    if b_variant not in cls:
+                        fwd_fwd_edges[base_a].add(base_b)
+                        break
+
+    fwd_out: dict[str, set[str]] = {b: set() for b in fwd_only_set}
+    fwd_in_deg: dict[str, int] = {b: len(fwd_fwd_edges[b]) for b in fwd_only_set}
+    for b in fwd_only_set:
+        for dep in fwd_fwd_edges[b]:
+            fwd_out[dep].add(b)
+
+    fwd_queue = sorted(b for b in fwd_only_set if fwd_in_deg[b] == 0)
+    fwd_only: list[str] = []
+    while fwd_queue:
+        node = fwd_queue.pop(0)
+        fwd_only.append(node)
+        for neighbor in sorted(fwd_out[node]):
+            fwd_in_deg[neighbor] -= 1
+            if fwd_in_deg[neighbor] == 0:
+                fwd_queue.append(neighbor)
+
+    fwd_only.extend(sorted(fwd_only_set - set(fwd_only)))
+
     for base_name in fwd_only:
         _emit_fwd(base_name)
 
