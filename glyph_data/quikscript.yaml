@@ -330,6 +330,20 @@ glyphs:
       - "#   #"
       - " ### "
 
+  qsVie.prop:  # ·Vie
+    y_offset: -3
+    cursive_entry: [1, 0]
+    bitmap:
+      - "  ### "
+      - " #   #"
+      - " #   #"
+      - " #   #"
+      - " #  # "
+      - "####  " #
+      - " #    "
+      - " #   #"
+      - "  ### "
+
   qsSee: &SEE  # ·See
     bitmap: &see_bitmap
       - "   ##"
