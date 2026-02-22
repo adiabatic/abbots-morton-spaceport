@@ -18,4 +18,4 @@ Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
 ## Testing
 
-Open `test/test.html` in a browser to test the font interactively.
+Open `test/index.html` in a browser to test the font interactively.
