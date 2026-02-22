@@ -451,9 +451,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if raw:
             base_exit_ys = {a[1] for a in _normalize_anchors(raw)}
             min_base_exit = min(base_exit_ys)
-            for exit_y in fwd_replacements[base_name]:
+            for exit_y, variant_name in fwd_replacements[base_name].items():
                 if exit_y not in base_exit_ys and exit_y < min_base_exit:
-                    fwd_use_exclusive.add((base_name, exit_y))
+                    variant_def = glyphs_def.get(variant_name, {}) or {}
+                    if not variant_def.get("calt_not_before"):
+                        fwd_use_exclusive.add((base_name, exit_y))
 
     # --- Topological sort for backward-looking lookups ---
     # Consider exit heights INTRODUCED by both entry (backward) and exit
