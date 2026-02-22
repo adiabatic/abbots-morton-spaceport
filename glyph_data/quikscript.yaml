@@ -189,6 +189,7 @@ glyphs:
 
   qsDay_qsUtter.prop:  # ·Day·Utter ligature
     y_offset: -3
+    cursive_entry: [1, 5]
     cursive_exit: [9, 5]
     bitmap:
       - "#    ###"
