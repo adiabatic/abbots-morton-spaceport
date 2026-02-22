@@ -418,6 +418,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 if base_name in glyphs_def:
                     entry_classes[anchor[1]].add(base_name)
 
+    # --- Exclusive entry classes (for restricted forward rules) ---
+    # A glyph is in @entry_only_yN when it enters at y=N but at NO other
+    # height.  Forward rules use this restricted class when the selected
+    # variant is also a backward variant — preventing the forward rule from
+    # firing when the next glyph could enter at a different height that
+    # the backward rule would prefer.
+    entry_exclusive: dict[int, set[str]] = {}
+    all_entry_ys = set(entry_classes.keys())
+    for y in all_entry_ys:
+        exclusive = set(entry_classes[y])
+        for other_y in all_entry_ys:
+            if other_y != y:
+                exclusive -= entry_classes[other_y]
+        entry_exclusive[y] = exclusive
+
+    fwd_use_exclusive: set[tuple[str, int]] = set()
+    for base_name in fwd_replacements:
+        if base_name not in bk_replacements:
+            continue
+        bk_variant_names = set(bk_replacements[base_name].values())
+        for exit_y, variant_name in fwd_replacements[base_name].items():
+            if variant_name in bk_variant_names:
+                fwd_use_exclusive.add((base_name, exit_y))
+
     # --- Topological sort for backward-looking lookups ---
     # Consider exit heights INTRODUCED by both entry (backward) and exit
     # (forward) variants — any variant that changes the base glyph's exit
@@ -498,6 +522,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if y in entry_classes:
             members = sorted(entry_classes[y])
             lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
+        if y in entry_exclusive and entry_exclusive[y] != entry_classes.get(y):
+            excl_members = sorted(entry_exclusive[y])
+            if excl_members:
+                lines.append(f"    @entry_only_y{y} = [{' '.join(excl_members)}];")
 
     # ZWNJ chain-breaking: substitute glyphs after ZWNJ with .noentry
     # variants so the curs feature sees NULL entry and breaks the chain.
@@ -544,11 +572,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             lines.append(f"    lookup {lookup_name} {{")
             for exit_y in sorted(variants.keys(), reverse=True):
                 variant_name = variants[exit_y]
-                if exit_y in entry_classes:
-                    excluded = exclusions.get(exit_y, [])
-                    for eg in sorted(excluded):
-                        lines.append(f"        ignore sub {base_name}' {eg};")
-                    lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
+                if exit_y not in entry_classes:
+                    continue
+                use_excl = (base_name, exit_y) in fwd_use_exclusive
+                if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
+                    continue
+                cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                excluded = exclusions.get(exit_y, [])
+                for eg in sorted(excluded):
+                    lines.append(f"        ignore sub {base_name}' {eg};")
+                lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_bk_pairs(base_name: str):
@@ -592,11 +625,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 exclusions = fwd_exclusions.get(base_name, {})
                 for exit_y in sorted(variants.keys(), reverse=True):
                     variant_name = variants[exit_y]
-                    if exit_y in entry_classes:
-                        excluded = exclusions.get(exit_y, [])
-                        for eg in sorted(excluded):
-                            lines.append(f"        ignore sub {base_name}' {eg};")
-                        lines.append(f"        sub {base_name}' @entry_y{exit_y} by {variant_name};")
+                    if exit_y not in entry_classes:
+                        continue
+                    use_excl = (base_name, exit_y) in fwd_use_exclusive
+                    if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
+                        continue
+                    cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                    excluded = exclusions.get(exit_y, [])
+                    for eg in sorted(excluded):
+                        lines.append(f"        ignore sub {base_name}' {eg};")
+                    lines.append(f"        sub {base_name}' {cls} by {variant_name};")
         lines.append("    } calt_cycle;")
 
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
