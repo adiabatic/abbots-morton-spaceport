@@ -377,6 +377,7 @@ glyphs:
   qsZoo.prop:  # ·Zoo
     y_offset: -3
     cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
     bitmap: *zoo_bitmap
 
   qsZoo.half:  # ·Zoo (half)
