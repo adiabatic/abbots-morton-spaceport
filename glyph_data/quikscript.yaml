@@ -1064,7 +1064,6 @@ glyphs:
     bitmap: *utter_bitmap
 
   qsUtter.alt:  # Alternate ·Utter
-    cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap:
       - "  ## "
