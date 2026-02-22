@@ -1073,6 +1073,20 @@ glyphs:
       - " #   "
       - "  ###"
 
+  qsUtter_qsBay.prop:  # ·Utter·Bay ligature
+    y_offset: -3
+    cursive_entry: [1, 5]
+    cursive_exit: [9, 0]
+      - "    ## "
+      - "   # # "
+      - "  #  # "
+      - "  #  # "
+      - " #   # "
+      - " # ####" #
+      - "  #  # "
+      - "  #  # "
+      - "   ##  "
+
   qsOut:  # ·Out
     bitmap: &out_bitmap
       - "   ##"
