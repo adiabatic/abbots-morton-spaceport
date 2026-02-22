@@ -16,3 +16,6 @@ wheels/
 /test/AbbotsMortonSpaceportSansSenior.otf
 /test/AbbotsMortonSpaceportSansSenior.fea
 /test/print.pdf
+
+# Scratch files
+tmp/

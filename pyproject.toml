@@ -9,4 +9,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = []
+dev = [
+    "uharfbuzz>=0.43.0",
+    "pytest>=8.0.0",
+]
