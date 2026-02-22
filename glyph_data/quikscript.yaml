@@ -319,6 +319,20 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *fee_bitmap
 
+  qsFee.exit-xheight.extended:  # ·Fee (exits at x-height, extended bridge)
+    cursive_exit: [7, 5]
+    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsTea]
+    bitmap:
+      - "  #   "
+      - "   #  "
+      - "    # "
+      - "  ####" #
+      - " #  # "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - " ###  "
+
   qsVie: &VIE  # ·Vie
     y_offset: -3
     bitmap:
