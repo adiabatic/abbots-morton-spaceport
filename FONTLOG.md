@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 7.000
+
+- Make the Senior font way more connected (even though it’s still a work in progress)
+
 ### 6.000
 
 #### Generally

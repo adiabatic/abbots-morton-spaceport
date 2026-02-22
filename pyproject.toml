@@ -1,6 +1,6 @@
 [project]
 name = "abbots-morton-spaceport"
-version = "6.0.0"
+version = "7.0.0"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
