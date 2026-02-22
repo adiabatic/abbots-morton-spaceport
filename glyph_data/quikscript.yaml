@@ -476,7 +476,7 @@ glyphs:
 
   qsJay: &JAY  # ·Jay
     y_offset: -3
-    bitmap:
+    bitmap: &jay_bitmap
       - "#### "
       - "    #"
       - "    #"
@@ -486,6 +486,11 @@ glyphs:
       - " ##  "
       - "##   "
       - "#    "
+
+  qsJay.prop:  # ·Jay
+    y_offset: -3
+    cursive_exit: [6, 0]
+    bitmap: *jay_bitmap
 
   qsYe:  # ·Ye
     bitmap:
