@@ -38,5 +38,5 @@ metadata:
   x_height: 300
 
   # sample_text: Text displayed in font previews (Name ID 19 in the OpenType name table). Used by font managers and OS font previews.
-  # …not that any operating-system font preview I use actually uses an all-PUA sample text…
+  # …not that any operating-system font preview I use actually uses an all-PUA sample text _and_ puts spaces in it…
   sample_text: "\uE657\uE65A \uE65B \uE657 \uE661\uE673 \uE652 \uE653 \uE670" # this is the way to do it
