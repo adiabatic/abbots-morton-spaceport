@@ -140,6 +140,11 @@ glyphs:
     cursive_entry: [1, 8]
     bitmap: *tea_prop_bitmap
 
+  qsTea.entry-top.exit-baseline:  # ·Tea (enters at top, exits at baseline)
+    cursive_entry: [1, 8]
+    cursive_exit: [2, 0]
+    bitmap: *tea_prop_bitmap
+
   qsTea.entry-baseline:  # ·Tea (enters at baseline, no exit)
     cursive_entry: [1, 0]
     bitmap: *tea_prop_bitmap
