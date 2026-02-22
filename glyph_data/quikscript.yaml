@@ -1227,7 +1227,7 @@ glyphs:
       - "  ### "
 
   qsOwe.exit-xheight:  # ·Owe (exits at x-height)
-    cursive_exit: [6, 5]
+    cursive_exit: [7, 5]
     bitmap:
       - " # ###"
       - "#  #  "
@@ -1238,7 +1238,7 @@ glyphs:
 
   qsOwe.entry-xheight.exit-xheight:  # ·Owe (enters and exits at x-height)
     cursive_entry: [1, 5]
-    cursive_exit: [6, 5]
+    cursive_exit: [8, 5]
     bitmap:
       - "### ###"
       - "  # #  " 
