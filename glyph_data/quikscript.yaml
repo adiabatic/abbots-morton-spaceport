@@ -782,7 +782,7 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *no_bitmap
 
-  qsNo.alt:  # Alternate ·No
+  qsNo.alt:  # Alternate ·No (upside-down)
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap:
