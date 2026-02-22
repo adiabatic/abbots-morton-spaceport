@@ -266,6 +266,20 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *gay_bitmap
 
+  qsGay.exit-xheight:  # ·Gay (exits at x-height, connecting bitmap)
+    y_offset: -3
+    cursive_exit: [6, 5]
+    bitmap:
+      - "  ###"
+      - " #   "
+      - " #   "
+      - "  #  "
+      - "   # "
+      - "  ###" #
+      - " #  #"
+      - " #  #"
+      - "  ## "
+
   qsGay.exit-baseline:  # ·Gay (exits at baseline)
     y_offset: -3
     cursive_exit: [6, 0]

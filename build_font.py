@@ -690,6 +690,29 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             lines.append(f"        sub {entry_only_var}' {cls} by {entry_exit_var};")
             lines.append(f"    }} calt_upgrade_{safe};")
 
+    def _emit_post_upgrade_bk(bases: list[str]):
+        upgrade_exit_ys: set[int] = set()
+        for base_name in bases:
+            if base_name in fwd_upgrades:
+                for _, _, exit_y in fwd_upgrades[base_name]:
+                    upgrade_exit_ys.add(exit_y)
+        if not upgrade_exit_ys:
+            return
+        for base_name in bases:
+            if base_name not in bk_replacements:
+                continue
+            variants = bk_replacements[base_name]
+            relevant = {y: v for y, v in variants.items()
+                        if y in upgrade_exit_ys and y in exit_classes}
+            if not relevant:
+                continue
+            safe = base_name.replace(".", "_").replace("-", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
+            for entry_y in sorted(relevant.keys()):
+                lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
+            lines.append(f"    }} calt_post_upgrade_bk_{safe};")
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
     pair_only = sorted(set(pair_overrides) - set(bk_replacements))
     all_bk_bases = sorted_bases + pair_only
@@ -771,6 +794,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         _emit_bk_cycle(cycle_list)
         for base_name in cycle_list:
             _emit_upgrades(base_name)
+        _emit_post_upgrade_bk(cycle_list)
 
     for base_name in post_cycle:
         _emit_bk_pairs(base_name)
