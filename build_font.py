@@ -335,6 +335,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         base_name = glyph_name.split(".")[0]
         if base_name not in glyphs_def:
             continue
+        if "alt" in glyph_name.split(".")[1:]:
+            base_def = glyphs_def.get(base_name)
+            if base_def:
+                raw = base_def.get("cursive_entry")
+                if raw and entry_y in {a[1] for a in _normalize_anchors(raw)}:
+                    continue
         calt_after = glyph_def.get("calt_after")
         if calt_after:
             pair_overrides.setdefault(base_name, []).append(
@@ -435,12 +441,18 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
 
     fwd_use_exclusive: set[tuple[str, int]] = set()
     for base_name in fwd_replacements:
-        if base_name not in bk_replacements:
-            continue
-        bk_variant_names = set(bk_replacements[base_name].values())
-        for exit_y, variant_name in fwd_replacements[base_name].items():
-            if variant_name in bk_variant_names:
-                fwd_use_exclusive.add((base_name, exit_y))
+        if base_name in bk_replacements:
+            bk_variant_names = set(bk_replacements[base_name].values())
+            for exit_y, variant_name in fwd_replacements[base_name].items():
+                if variant_name in bk_variant_names:
+                    fwd_use_exclusive.add((base_name, exit_y))
+        base_def = glyphs_def.get(base_name, {}) or {}
+        raw = base_def.get("cursive_exit")
+        if raw:
+            base_exit_ys = {a[1] for a in _normalize_anchors(raw)}
+            for exit_y in fwd_replacements[base_name]:
+                if exit_y not in base_exit_ys:
+                    fwd_use_exclusive.add((base_name, exit_y))
 
     # --- Topological sort for backward-looking lookups ---
     # Consider exit heights INTRODUCED by both entry (backward) and exit
@@ -522,7 +534,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if y in entry_classes:
             members = sorted(entry_classes[y])
             lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
-        if y in entry_exclusive and entry_exclusive[y] != entry_classes.get(y):
+        needs_excl = any(ey == y for _, ey in fwd_use_exclusive)
+        if needs_excl and y in entry_exclusive:
             excl_members = sorted(entry_exclusive[y])
             if excl_members:
                 lines.append(f"    @entry_only_y{y} = [{' '.join(excl_members)}];")
