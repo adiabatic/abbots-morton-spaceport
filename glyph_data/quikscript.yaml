@@ -1156,6 +1156,37 @@ glyphs:
       - "#   #"
       - " ### "
 
+  qsOwe.entry-xheight:  # ·Owe (enters at x-height)
+    cursive_entry: [1, 5]
+    bitmap:
+      - "### # "
+      - "  #  #"
+      - " #   #"
+      - " #   #"
+      - " #   #"
+      - "  ### "
+
+  qsOwe.exit-xheight:  # ·Owe (exits at x-height)
+    cursive_exit: [6, 5]
+    bitmap:
+      - " # ###"
+      - "#  #  "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - " ###  "
+
+  qsOwe.entry-xheight.exit-xheight:  # ·Owe (enters and exits at x-height)
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 5]
+    bitmap:
+      - "### ###"
+      - "  # #  " 
+      - " #   # "
+      - " #   # "
+      - " #   # "
+      - "  ###  "
+
   qsFoot: &FOOT  # ·Foot
     bitmap: &foot_bitmap
       - "#   #"
