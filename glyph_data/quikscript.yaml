@@ -998,13 +998,18 @@ glyphs:
     bitmap: *ox_bitmap
 
   qsOy:  # ·Oy
-    bitmap:
+    bitmap: &oy_bitmap
       - "##   "
       - "  #  "
       - " # # "
       - "  # #"
       - "    #"
       - "    #"
+
+  qsOy.prop:  # ·Oy
+    cursive_entry: [1, 5]
+    cursive_exit: [6, 0]
+    bitmap: *oy_bitmap
 
   qsUtter: &UTTER  # ·Utter
     bitmap: &utter_bitmap
