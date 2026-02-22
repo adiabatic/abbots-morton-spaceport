@@ -316,6 +316,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     bk_replacements: dict[str, dict[int, str]] = {}
     # Pair-specific overrides: entry variants with calt_after lists
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
+    fwd_upgrades: dict[str, list[tuple[str, str, int]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
@@ -347,7 +348,27 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 (glyph_name, list(calt_after))
             )
         else:
-            bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
+            existing = bk_replacements.get(base_name, {}).get(entry_y)
+            if existing is not None:
+                existing_def = glyphs_def.get(existing, {}) or {}
+                existing_has_exit = existing_def.get("cursive_exit") is not None
+                new_has_exit = glyph_def.get("cursive_exit") is not None
+                if existing_has_exit != new_has_exit:
+                    if new_has_exit:
+                        exit_y_val = _normalize_anchors(glyph_def["cursive_exit"])[0][1]
+                        fwd_upgrades.setdefault(base_name, []).append(
+                            (glyph_name, existing, exit_y_val)
+                        )
+                    else:
+                        exit_y_val = _normalize_anchors(existing_def["cursive_exit"])[0][1]
+                        fwd_upgrades.setdefault(base_name, []).append(
+                            (existing, glyph_name, exit_y_val)
+                        )
+                        bk_replacements[base_name][entry_y] = glyph_name
+                else:
+                    bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
+            else:
+                bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
 
     # --- Forward-looking: exit variants keyed by exit Y ---
     # Detects any variant with cursive_exit (catches .exit-* names and
@@ -525,6 +546,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     fwd_used_ys = set()
     for variants in fwd_replacements.values():
         fwd_used_ys.update(variants.keys())
+    for upgrade_list in fwd_upgrades.values():
+        for _, _, exit_y in upgrade_list:
+            fwd_used_ys.add(exit_y)
 
     lines = ["feature calt {"]
 
@@ -653,6 +677,19 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     lines.append(f"        sub {base_name}' {cls} by {variant_name};")
         lines.append("    } calt_cycle;")
 
+    def _emit_upgrades(base_name: str):
+        if base_name not in fwd_upgrades:
+            return
+        for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+            if exit_y not in entry_classes:
+                continue
+            cls = f"@entry_y{exit_y}"
+            safe = entry_exit_var.replace(".", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_upgrade_{safe} {{")
+            lines.append(f"        sub {entry_only_var}' {cls} by {entry_exit_var};")
+            lines.append(f"    }} calt_upgrade_{safe};")
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
     pair_only = sorted(set(pair_overrides) - set(bk_replacements))
     all_bk_bases = sorted_bases + pair_only
@@ -723,6 +760,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for base_name in pre_cycle:
         _emit_bk_pairs(base_name)
         _emit_bk_general(base_name)
+        _emit_upgrades(base_name)
         if base_name in all_fwd_bases:
             _emit_fwd(base_name)
 
@@ -731,10 +769,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         for base_name in cycle_list:
             _emit_bk_pairs(base_name)
         _emit_bk_cycle(cycle_list)
+        for base_name in cycle_list:
+            _emit_upgrades(base_name)
 
     for base_name in post_cycle:
         _emit_bk_pairs(base_name)
         _emit_bk_general(base_name)
+        _emit_upgrades(base_name)
         if base_name in all_fwd_bases:
             _emit_fwd(base_name)
 
