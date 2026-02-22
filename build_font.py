@@ -697,6 +697,26 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if base_name in all_fwd_bases:
             _emit_fwd(base_name)
 
+    # Ligature substitutions live in calt (not liga) so that forward
+    # rules selecting alternate glyphs can block the ligature.  For
+    # example, ·Day·Utter·Low: the forward rule replaces ·Utter with
+    # alt ·Utter first, so the ·Day·Utter ligature pattern no longer
+    # matches.
+    ligatures = []
+    for glyph_name in glyphs_def:
+        if "_" not in glyph_name:
+            continue
+        components = glyph_name.split("_")
+        if all(c in glyphs_def for c in components):
+            ligatures.append((glyph_name, components))
+    if ligatures:
+        lines.append("")
+        lines.append("    lookup calt_liga {")
+        for lig_name, components in sorted(ligatures):
+            component_str = " ".join(components)
+            lines.append(f"        sub {component_str} by {lig_name};")
+        lines.append("    } calt_liga;")
+
     lines.append("} calt;")
     return "\n".join(lines)
 
@@ -1402,11 +1422,6 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
         mark_fea = generate_mark_fea(glyphs_def, pixel_size)
         if mark_fea:
             fea_code_parts.append(mark_fea)
-
-    if is_senior:
-        liga_fea = generate_liga_fea(glyphs_def)
-        if liga_fea:
-            fea_code_parts.append(liga_fea)
 
     if is_senior:
         curs_fea = generate_curs_fea(glyphs_def, pixel_size)
