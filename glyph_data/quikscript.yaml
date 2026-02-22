@@ -1077,6 +1077,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 5]
     cursive_exit: [9, 0]
+    bitmap:
       - "   ### "
       - "  #  # "
       - " #   # "
