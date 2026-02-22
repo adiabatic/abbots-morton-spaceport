@@ -565,6 +565,19 @@ glyphs:
       - " #   "
       - " #   "
 
+  qsYe.prop:  # ·Ye
+    cursive_exit: [2, 0]
+    bitmap:
+      - "  # "
+      - " # #"
+      - "### "
+      - " #  " #
+      - " #  "
+      - " #  "
+      - " #  "
+      - " #  "
+      - " #  "
+
   qsWay:  # ·Way
     y_offset: -3
     # idea: extend the bitmap up by one column so there's no final curve at the top
@@ -1202,7 +1215,7 @@ glyphs:
     bitmap: *foot_bitmap
 
   qsOoze: &OOZE  # ·Ooze
-    bitmap: &ooze_bitmap
+    bitmap:
       - "  #  "
       - " # # "
       - " # # "
@@ -1212,8 +1225,14 @@ glyphs:
 
   qsOoze.prop:  # ·Ooze
     cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    bitmap: *ooze_bitmap
+    cursive_exit: [8, 0]
+    bitmap:
+      - "   #   "
+      - "  # #  "
+      - "  # #  "
+      - " #   # "
+      - " #   # "
+      - "#     #"
 
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused: *PEA  # 𐑐 Peep
