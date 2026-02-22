@@ -458,6 +458,19 @@ glyphs:
       - "#   #"
       - " ### "
 
+  qsShe.prop:  # ·She
+    cursive_exit: [6, 0]
+    bitmap:
+      - "     "
+      - "   # "
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "#    " #
+      - "#    "
+      - "#    "
+      - " ####"
+
   qsJai:  # ·J'ai
     y_offset: -3
     bitmap:
