@@ -324,6 +324,19 @@ glyphs:
     cursive_entry: [3, 0]
     bitmap: *thaw_bitmap
 
+  qsThaw.entry-y1:  # ·Thaw (enters at y=1)
+    cursive_entry: [3, 1] 
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "    #"
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "   # "
+      - "     "
+
   qsThey:  # ·They
     y_offset: -3
     bitmap: &they_bitmap
@@ -925,15 +938,15 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
-    cursive_exit: [7, 0]
+    cursive_exit: [6, 1]
     calt_before: [qsI, qsThaw]
     bitmap:
       - "###   "
       - "   #  "
       - "    # "
       - "    # "
-      - "   #  "
-      - "######"
+      - "   # #"
+      - "##### "
 
   qsLoch:  # ·Loch
     bitmap:
@@ -1138,6 +1151,17 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *i_bitmap
+
+  qsI.entry-y1:  # ·I (enters at y=1)
+    cursive_entry: [1, 1]
+    cursive_exit: [6, 5]
+    bitmap:
+      - "  # #"
+      - " # # "
+      - "  ## "
+      - "  #  "
+      - "##   "
+      - "     "
 
   qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
