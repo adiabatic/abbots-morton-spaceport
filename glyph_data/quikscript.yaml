@@ -1301,15 +1301,15 @@ glyphs:
       - "#   #"
 
   qsOoze.prop:  # ·Ooze
-    cursive_entry: [1, 0]
-    cursive_exit: [8, 0]
+    cursive_entry: [0, 0] # an entry past the glyph might only be good for ·Ye·Ooze and nothing else
+    cursive_exit: [6, 0]
     bitmap:
-      - "   #   "
-      - "  # #  "
-      - "  # #  "
-      - " #   # "
-      - " #   # "
-      - "#     #"
+      - "  #  "
+      - " # # "
+      - " # # "
+      - "#   #"
+      - "#   #"
+      - "#   #"
 
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused: *PEA  # 𐑐 Peep
