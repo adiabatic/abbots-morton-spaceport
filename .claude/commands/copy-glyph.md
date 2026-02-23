@@ -7,7 +7,8 @@ Steps:
 2. Add the new glyph to the appropriate YAML file, copying all properties from the source glyph. Literally duplicate the bitmap data — do not use YAML anchors/aliases (`&`/`*`) unless explicitly asked to copy "by reference". Follow the placement and ordering rules in @AGENTS.md.
 
 3. Rebuild fonts:
-   ```
+
+   ```sh
    make all
    ```
 
