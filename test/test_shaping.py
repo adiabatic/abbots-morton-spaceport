@@ -46,7 +46,7 @@ TOKEN_RE = re.compile(
     r"""
     ·(-ing|[A-Z][a-z]*)        # letter name (·Bay, ·-ing)
     (?:\+([A-Z][a-z]*))?       # optional ligature partner (+Utter)
-    ((?:\.[a-z]+)*)            # optional variant assertions (.half.extended)
+    ((?:\.!?[a-z]+)*)           # optional variant assertions (.half.extended, .!exit)
     """,
     re.VERBOSE,
 )
@@ -132,12 +132,22 @@ def parse_expect(raw):
         lig_partner = tok_m.group(2)
         variant_str = tok_m.group(3)
 
-        variants = [v for v in variant_str.split(".") if v] if variant_str else []
+        pos_variants = []
+        neg_variants = []
+        if variant_str:
+            for v in variant_str.split("."):
+                if not v:
+                    continue
+                if v.startswith("!"):
+                    neg_variants.append(v[1:])
+                else:
+                    pos_variants.append(v)
 
         tokens.append({
             "base": _letter_to_qs(letter),
             "lig_base": _letter_to_qs(lig_partner) if lig_partner else None,
-            "variants": variants,
+            "variants": pos_variants,
+            "neg_variants": neg_variants,
         })
         pos += tok_m.end()
 
@@ -280,6 +290,11 @@ def test_shaping(senior_font, anchor_map, test_id, text, expect_str):
         for v in tok["variants"]:
             assert v in gname, (
                 f"Glyph {i}: expected variant '{v}' in {gname!r}"
+            )
+
+        for v in tok.get("neg_variants", []):
+            assert v not in gname, (
+                f"Glyph {i}: variant '{v}' must NOT appear in {gname!r}"
             )
 
     for i, conn in enumerate(connections):
