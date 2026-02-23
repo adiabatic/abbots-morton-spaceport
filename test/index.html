@@ -92,6 +92,10 @@
       td {
         text-align: center;
       }
+
+      td.highlighted {
+        background: light-dark(#fff3cd, #5a4800);
+      }
     }
 
     #sample-quikscript {
@@ -210,6 +214,7 @@
     <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">AMS first</button>
     <button id="font-toggle">Sans</button>
     <button id="level-toggle">Senior</button>
+    <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
   </div>
 
   <div class="controls">
@@ -229,7 +234,7 @@
 
   <h2>Joins</h2>
   <div class="sample-box">
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>merry</td>
         <td>Mary</td>
@@ -256,7 +261,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>merry</td>
         <td>Mary</td>
@@ -283,7 +288,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>dear</td>
         <td>fear</td>
@@ -298,7 +303,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>other</td>
         <td>mother</td>
@@ -321,7 +326,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>br</td>
         <td>bl</td>
@@ -358,7 +363,7 @@
       </tr>
     </table>
     <h3>Half letters</h3>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>pry</td>
         <td></td>
@@ -395,7 +400,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>won/one</td>
         <td></td>
@@ -424,7 +429,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>aid</td>
         <td></td>
@@ -465,7 +470,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>till</td>
         <td></td>
@@ -494,7 +499,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td colspan="7">Steps</td>
         <td></td>
@@ -536,7 +541,7 @@
       </tr>
     </table>
     <h3>Alternative letter-symbols</h3>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>no</td>
         <td></td>
@@ -573,7 +578,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>in</td>
         <td></td>
@@ -618,7 +623,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>allay</td>
         <td></td>
@@ -659,7 +664,7 @@
       </tr>
     </table>
     <hr>
-    <table class="pairings" contenteditable>
+    <table class="pairings">
       <tr>
         <td>dull</td>
         <td></td>
@@ -767,6 +772,82 @@
     <div class="size-label">44px (4x)</div>
     <div class="sample size-test" style="font-size: 44px;">123 &ldquo;Handgloves&rdquo;?       .</div>
   </div>
+
+  <script type="module">
+    const STORAGE_KEY = 'ams-highlights';
+    const tables = document.querySelectorAll('.pairings');
+
+    for (const table of tables) {
+      const rows = [...table.rows];
+      let dataRowIndex = 0;
+      for (const row of rows) {
+        if (row.querySelector('td[colspan]')) continue;
+        const isQuikscript = dataRowIndex % 2 === 1;
+        if (isQuikscript) {
+          for (const td of row.cells) {
+            td.contentEditable = 'true';
+          }
+        }
+        dataRowIndex++;
+      }
+    }
+
+    function cellPath(td) {
+      const table = td.closest('table.pairings');
+      const tableIndex = [...tables].indexOf(table);
+      const row = td.parentElement;
+      const rowIndex = [...table.rows].indexOf(row);
+      const cellIndex = [...row.cells].indexOf(td);
+      return `${tableIndex}-${rowIndex}-${cellIndex}`;
+    }
+
+    function loadHighlights() {
+      try {
+        return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []);
+      } catch {
+        return new Set();
+      }
+    }
+
+    function saveHighlights(set) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+    }
+
+    const highlighted = loadHighlights();
+    for (const path of highlighted) {
+      const [ti, ri, ci] = path.split('-').map(Number);
+      const td = tables[ti]?.rows[ri]?.cells[ci];
+      if (td) td.classList.add('highlighted');
+    }
+
+    for (const table of tables) {
+      table.addEventListener('click', (e) => {
+        const td = e.target.closest('td');
+        if (!td || td.isContentEditable) return;
+        td.classList.toggle('highlighted');
+        const path = cellPath(td);
+        if (td.classList.contains('highlighted')) {
+          highlighted.add(path);
+        } else {
+          highlighted.delete(path);
+        }
+        saveHighlights(highlighted);
+      });
+    }
+
+    function clearAllHighlights() {
+      for (const td of document.querySelectorAll('.pairings td.highlighted')) {
+        td.classList.remove('highlighted');
+      }
+      highlighted.clear();
+      saveHighlights(highlighted);
+    }
+
+    document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') clearAllHighlights();
+    });
+  </script>
 
   <footer>
     Font Test |
