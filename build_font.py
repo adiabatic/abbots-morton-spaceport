@@ -822,12 +822,19 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             component_str = " ".join(components)
             lines.append(f"        sub {component_str} by {lig_name};")
             first = components[0]
+            first_variants: set[str] = set()
             if first in fwd_replacements:
-                for variant in fwd_replacements[first].values():
-                    rest = " ".join(components[1:])
-                    lines.append(
-                        f"        sub {variant} {rest} by {lig_name};"
-                    )
+                first_variants.update(fwd_replacements[first].values())
+            if first in bk_replacements:
+                first_variants.update(bk_replacements[first].values())
+            if first in pair_overrides:
+                for variant_name, _ in pair_overrides[first]:
+                    first_variants.add(variant_name)
+            for variant in sorted(first_variants):
+                rest = " ".join(components[1:])
+                lines.append(
+                    f"        sub {variant} {rest} by {lig_name};"
+                )
         lines.append("    } calt_liga;")
 
     lines.append("} calt;")
