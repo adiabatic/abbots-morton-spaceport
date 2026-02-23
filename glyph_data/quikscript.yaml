@@ -872,13 +872,19 @@ glyphs:
   qsNo.alt:  # Alternate ·No (upside-down)
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
-    bitmap:
+    bitmap: &no_alt_bitmap
       - "  #  "
       - " # # "
       - " # # "
       - "  #  "
       - " # # "
       - "#   #"
+
+  qsNo.alt.after-it:  # Alternate ·No (after ·It)
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    calt_after: [qsIt]
+    bitmap: *no_alt_bitmap
 
   qsLow:  # ·Low
     bitmap: &low_bitmap
