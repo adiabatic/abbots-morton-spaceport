@@ -309,7 +309,7 @@ glyphs:
     bitmap: *gay_bitmap
 
   qsThaw:  # ·Thaw
-    bitmap:
+    bitmap: &thaw_bitmap
       - " ### "
       - "#   #"
       - "    #"
@@ -319,6 +319,10 @@ glyphs:
       - "   # "
       - "   # "
       - "  #  "
+
+  qsThaw.prop:  # ·Thaw
+    cursive_entry: [3, 0]
+    bitmap: *thaw_bitmap
 
   qsThey:  # ·They
     y_offset: -3
@@ -916,6 +920,20 @@ glyphs:
       - "     #"
       - "    # "
       - " ###  "
+
+  qsRoe.exit-baseline:  # ·Roe (exits at baseline)
+    cursive_entry:
+      - [1, 0]
+      - [1, 5]
+    cursive_exit: [7, 0]
+    calt_before: [qsI, qsThaw]
+    bitmap:
+      - "###   "
+      - "   #  "
+      - "    # "
+      - "    # "
+      - "   #  "
+      - "######"
 
   qsLoch:  # ·Loch
     bitmap:

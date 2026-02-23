@@ -595,13 +595,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         # Pair-specific forward overrides run first so they win over general
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs in fwd_pair_overrides[base_name]:
-                before_list = " ".join(sorted(before_glyphs))
+                expanded_before = set(before_glyphs)
+                for bg in before_glyphs:
+                    bg_base = bg.split(".")[0] if "." in bg else bg
+                    if bg_base in bk_replacements:
+                        expanded_before.update(bk_replacements[bg_base].values())
+                    if bg_base in pair_overrides:
+                        for pv, _ in pair_overrides[bg_base]:
+                            expanded_before.add(pv)
+                before_list = " ".join(sorted(expanded_before))
+
+                targets = {base_name}
+                if base_name in bk_replacements:
+                    targets.update(bk_replacements[base_name].values())
+                if base_name in pair_overrides:
+                    for pv, _ in pair_overrides[base_name]:
+                        targets.add(pv)
+
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
-                lines.append(
-                    f"        sub {base_name}' [{before_list}] by {variant_name};"
-                )
+                for target in sorted(targets):
+                    lines.append(
+                        f"        sub {target}' [{before_list}] by {variant_name};"
+                    )
                 lines.append(f"    }} calt_fwd_pair_{safe};")
         # General forward rule
         if base_name in fwd_replacements:
@@ -795,6 +812,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         for base_name in cycle_list:
             _emit_upgrades(base_name)
         _emit_post_upgrade_bk(cycle_list)
+        for base_name in cycle_list:
+            if base_name in all_fwd_bases:
+                _emit_fwd(base_name)
 
     for base_name in post_cycle:
         _emit_bk_pairs(base_name)
