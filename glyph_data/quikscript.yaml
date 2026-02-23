@@ -1174,19 +1174,25 @@ glyphs:
 
   qsAh.prop:  # ·Ah
     cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    bitmap: *ah_bitmap
+    cursive_exit: [8, 5]
+    bitmap:
+      - "     ##"
+      - "    #  "
+      - "   #   "
+      - "   #   "
+      - "  #    "
+      - "##     "
 
   qsAh.exit-xheight.extended:  # ·Ah (exits at x-height, extended arm)
-    cursive_exit: [7, 5]
+    cursive_exit: [9, 5]
     calt_before: [qsBay, qsThey, qsMay]
     bitmap:
-      - "   ###"
-      - "  #   "
-      - "  #   "
-      - "  #   "
-      - "  #   "
-      - "##    "
+      - "     ###"
+      - "    #   "
+      - "   #    "
+      - "   #    "
+      - "  #     "
+      - "##      "
 
   qsAwe: &AWE  # ·Awe
     bitmap: &awe_bitmap
@@ -1200,7 +1206,13 @@ glyphs:
   qsAwe.prop:  # ·Awe
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
-    bitmap: *awe_bitmap
+    bitmap:
+      - "##     "
+      - "  #    "
+      - "   #   "
+      - "   #   "
+      - "    #  "
+      - "     ##"
 
   qsOx: &OX  # ·Ox
     bitmap: &ox_bitmap
