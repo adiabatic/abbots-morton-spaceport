@@ -944,8 +944,22 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
+    cursive_exit: [6, 0]
+    calt_before: [qsAh, qsAt, qsDay, qsEat, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsUtter, qsVie, qsZoo]
+    bitmap:
+      - "###   "
+      - "   #  "
+      - "    # "
+      - "    # "
+      - "   #  "
+      - "######"
+
+  qsRoe.exit-y1.before-thaw:  # ·Roe (exits at y=1, before ·Thaw)
+    cursive_entry:
+      - [1, 0]
+      - [1, 5]
     cursive_exit: [6, 1]
-    calt_before: [qsI, qsThaw]
+    calt_before: [qsThaw]
     bitmap:
       - "###   "
       - "   #  "
@@ -1158,16 +1172,17 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *i_bitmap
 
-  qsI.entry-y1:  # ·I (enters at y=1)
-    cursive_entry: [1, 1]
+  qsI.entry-after-roe:  # ·I (after ·Roe)
+    cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    calt_after: [qsRoe.exit-baseline]
     bitmap:
       - "  # #"
       - " # # "
       - "  ## "
       - "  #  "
-      - "##   "
-      - "     "
+      - " #   "
+      - "#    "
 
   qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
