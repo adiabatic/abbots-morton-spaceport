@@ -16,9 +16,9 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - `uv run build_font.py` not `python build_font.py`
 - `uv run pytest` not `pytest`
 
-After running `build_font.py`, run `touch test/test.html` to trigger automatic browser refresh:
+After running `build_font.py`, run `touch test/index.html` to trigger automatic browser refresh:
 
-- `uv run build_font.py glyph_data test/ && touch test/test.html`
+- `uv run build_font.py glyph_data test/ && touch test/index.html`
 
 ## Adding glyphs
 
