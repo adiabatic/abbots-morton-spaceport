@@ -733,6 +733,20 @@ glyphs:
       - " ##  "
       - "  #  "
 
+  qsWhy.prop:  # ·Why
+    y_offset: -3
+    cursive_exit: [5, 5]
+    bitmap:
+      - "    #"
+      - "    #"
+      - "    #"
+      - "   # "
+      - "   # "
+      - "   # " #
+      - "# #  "
+      - " ##  "
+      - "  #  "
+
   qsWhy.half:  # ·Why (half, exits at baseline)
     y_offset: -3
     cursive_exit: [5, 0]
