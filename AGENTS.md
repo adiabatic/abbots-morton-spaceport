@@ -43,12 +43,7 @@ After running `build_font.py`, run `touch test/index.html` to trigger automatic 
 ## Cursive attachment (`curs`)
 
 - Only `.prop` glyphs get `cursive_entry` / `cursive_exit` anchors (since `curs` is only compiled into the proportional Sans font).
-- If a Quikscript letter doesn't already have a `.prop` variant, create one: add a YAML anchor on the
-  base glyph's `bitmap` (e.g., `&bay_bitmap`), then create the `.prop` with `bitmap: *bay_bitmap` plus
-  the `curs` anchor(s). Copy any non-bitmap keys (like `y_offset`) manually. We alias the bitmap rather
-  than the whole glyph because YAML merge keys (`<<`) are a 1.1 extension, not part of the YAML 1.2 spec.
-  (This is a "by reference" copy — when the user just says "copy a glyph" without mentioning references,
-  duplicate the bitmap literally instead.)
+- If a Quikscript letter doesn't already have a `.prop` variant, create one: add a YAML anchor on the base glyph's `bitmap` (e.g., `&bay_bitmap`), then create the `.prop` with `bitmap: *bay_bitmap` plus the `curs` anchor(s). Copy any non-bitmap keys (like `y_offset`) manually. We alias the bitmap rather than the whole glyph because YAML merge keys (`<<`) are a 1.1 extension, not part of the YAML 1.2 spec. (This is a "by reference" copy — when the user just says "copy a glyph" without mentioning references, duplicate the bitmap literally instead.)
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 
 ## Bumping the version number
@@ -60,4 +55,5 @@ After running `build_font.py`, run `touch test/index.html` to trigger automatic 
 ## Markdown-document style
 
 - Use sentence case for titles, not title case.
+- Do not hard-wrap lines. Let each paragraph or list item be a single long line.
 - Make sure `markdownlint-cli2` doesn’t have anything to complain about.
