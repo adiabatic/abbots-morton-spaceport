@@ -10,11 +10,13 @@ from pathlib import Path
 
 import pytest
 import uharfbuzz as hb
+import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf"
 GLYPH_DATA_DIR = ROOT / "glyph_data"
 HTML_PATH = ROOT / "test" / "index.html"
+PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
 import sys
 sys.path.insert(0, str(ROOT))
@@ -24,6 +26,16 @@ from build_font import (
     load_glyph_data,
     prepare_proportional_glyphs,
 )
+
+def _build_char_to_glyph_name():
+    with open(PS_NAMES_PATH) as f:
+        ps_names = yaml.safe_load(f)
+    result = {}
+    for name, codepoint in ps_names.items():
+        result[chr(codepoint)] = name
+    return result
+
+_CHAR_TO_GLYPH = _build_char_to_glyph_name()
 
 
 # ---------------------------------------------------------------------------
@@ -38,6 +50,8 @@ TOKEN_RE = re.compile(
     """,
     re.VERBOSE,
 )
+
+ESCAPE_RE = re.compile(r"\\(.)")
 
 CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*\|\s*")
 
@@ -95,6 +109,20 @@ def parse_expect(raw):
 
         remaining = remaining.lstrip()
         pos = len(raw) - len(remaining)
+
+        esc_m = ESCAPE_RE.match(remaining)
+        if esc_m:
+            char = esc_m.group(1)
+            glyph_name = _CHAR_TO_GLYPH.get(char)
+            if glyph_name is None:
+                glyph_name = f"uni{ord(char):04X}"
+            tokens.append({
+                "base": glyph_name,
+                "lig_base": None,
+                "variants": [],
+            })
+            pos += esc_m.end()
+            continue
 
         tok_m = TOKEN_RE.match(remaining)
         if tok_m is None:
