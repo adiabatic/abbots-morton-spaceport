@@ -339,6 +339,20 @@ glyphs:
     calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
     bitmap: *they_bitmap
 
+  qsThey_qsUtter.prop:  # ·They·Utter ligature
+    y_offset: -3
+    cursive_exit: [11, 5]
+    bitmap:
+      - "  #      ## "
+      - "  #     #   "
+      - " #     #    "
+      - " #     #    "
+      - " #    #     "
+      - "#    #      " #
+      - "#   #       "
+      - "#   #       "
+      - " ###        "
+
   qsFee: &FEE  # ·Fee
     bitmap: &fee_bitmap
       - "  #  "
