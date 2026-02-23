@@ -2,7 +2,7 @@
 
 all:
 	uv run python build_font.py glyph_data/ test/
-	touch test/test.html
+	touch test/index.html
 	cd test && typst compile --font-path . print.typ
 
 test: all
