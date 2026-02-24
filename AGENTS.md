@@ -3,6 +3,7 @@
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
+- After any glyph or code changes, run `make test` to make sure nothing is broken.
 
 ## HTML/CSS/JS
 
