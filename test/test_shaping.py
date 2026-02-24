@@ -205,6 +205,7 @@ class _DataExpectCollector(HTMLParser):
         self._in_td = False
         self._expect = None
         self._text_parts = []
+        self._line = None
 
     def handle_starttag(self, tag, attrs):
         if tag == "td":
@@ -213,11 +214,12 @@ class _DataExpectCollector(HTMLParser):
                 self._in_td = True
                 self._expect = attr_dict["data-expect"]
                 self._text_parts = []
+                self._line = self.getpos()[0]
 
     def handle_endtag(self, tag):
         if tag == "td" and self._in_td:
             text = "".join(self._text_parts).strip()
-            self.cells.append((text, self._expect))
+            self.cells.append((text, self._expect, self._line))
             self._in_td = False
             self._expect = None
 
@@ -235,7 +237,7 @@ def _collect_cases():
 
     seen_ids = {}
     results = []
-    for text, expect in collector.cells:
+    for text, expect, line in collector.cells:
         slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
         if not slug:
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", expect).strip("_")[:40]
@@ -244,16 +246,17 @@ def _collect_cases():
             slug = f"{slug}_{seen_ids[slug]}"
         else:
             seen_ids[slug] = 0
-        results.append((slug, text, expect))
+        results.append((slug, text, expect, line))
     return results
 
 
 _CASES = _collect_cases()
+CASE_LINES = {tid: line for tid, _, _, line in _CASES}
 
 
 @pytest.mark.parametrize(
     "test_id,text,expect_str",
-    [pytest.param(tid, txt, exp, id=tid) for tid, txt, exp in _CASES],
+    [pytest.param(tid, txt, exp, id=tid) for tid, txt, exp, _ in _CASES],
 )
 def test_shaping(senior_font, anchor_map, test_id, text, expect_str):
     tokens, connections = parse_expect(expect_str)
