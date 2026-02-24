@@ -6,7 +6,7 @@ all:
 	cd test && typst compile --font-path . print.typ
 
 test: all
-	uv run pytest test/test_shaping.py -v
+	uv run pytest test/ -v
 
 print-job: all
 	lp test/print.pdf

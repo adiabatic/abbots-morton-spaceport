@@ -1,4 +1,4 @@
-"""HarfBuzz shaping regression tests for the Senior Sans font.
+"""HarfBuzz shaping test helpers for the Senior Sans font.
 
 Parses data-expect attributes from test/index.html and verifies that
 HarfBuzz produces the expected glyph sequence and cursive connections.
@@ -8,14 +8,12 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
-import pytest
 import uharfbuzz as hb
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf"
 GLYPH_DATA_DIR = ROOT / "glyph_data"
-HTML_PATH = ROOT / "test" / "index.html"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
 import sys
@@ -155,45 +153,7 @@ def parse_expect(raw):
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def senior_font():
-    if not FONT_PATH.exists():
-        pytest.skip(f"Font not built: {FONT_PATH}")
-    blob = hb.Blob.from_file_path(str(FONT_PATH))
-    face = hb.Face(blob)
-    font = hb.Font(face)
-    return font
-
-
-@pytest.fixture(scope="session")
-def anchor_map():
-    """Map glyph names to their cursive_entry/cursive_exit anchors.
-
-    Uses the same pipeline as build_font (prepare_proportional_glyphs +
-    generate_noentry_variants) so names match what's in the Senior font.
-    """
-    data = load_glyph_data(GLYPH_DATA_DIR)
-    glyphs = data["glyphs"]
-    glyphs = {k: v for k, v in glyphs.items() if ".unused" not in k}
-    glyphs = prepare_proportional_glyphs(glyphs)
-    glyphs.update(generate_noentry_variants(glyphs))
-
-    result = {}
-    for name, gdef in glyphs.items():
-        if gdef is None:
-            continue
-        entry = _normalize_anchors(gdef.get("cursive_entry"))
-        exit_ = _normalize_anchors(gdef.get("cursive_exit"))
-        if entry or exit_:
-            result[name] = {"entry": entry, "exit": exit_}
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Test collection from HTML
+# HTML collector
 # ---------------------------------------------------------------------------
 
 class _DataExpectCollector(HTMLParser):
@@ -228,48 +188,50 @@ class _DataExpectCollector(HTMLParser):
             self._text_parts.append(data)
 
 
-def _collect_cases():
-    if not HTML_PATH.exists():
-        return []
-    raw = HTML_PATH.read_text(encoding="utf-8")
-    collector = _DataExpectCollector()
-    collector.feed(raw)
+# ---------------------------------------------------------------------------
+# Font/anchor loading
+# ---------------------------------------------------------------------------
 
-    seen_ids = {}
-    results = []
-    for text, expect, line in collector.cells:
-        slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
-        if not slug:
-            slug = re.sub(r"[^a-zA-Z0-9]+", "_", expect).strip("_")[:40]
-        if slug in seen_ids:
-            seen_ids[slug] += 1
-            slug = f"{slug}_{seen_ids[slug]}"
-        else:
-            seen_ids[slug] = 0
-        results.append((slug, text, expect, line))
-    return results
+def load_font():
+    blob = hb.Blob.from_file_path(str(FONT_PATH))
+    face = hb.Face(blob)
+    return hb.Font(face)
 
 
-_CASES = _collect_cases()
-CASE_LINES = {tid: line for tid, _, _, line in _CASES}
+def build_anchor_map():
+    data = load_glyph_data(GLYPH_DATA_DIR)
+    glyphs = data["glyphs"]
+    glyphs = {k: v for k, v in glyphs.items() if ".unused" not in k}
+    glyphs = prepare_proportional_glyphs(glyphs)
+    glyphs.update(generate_noentry_variants(glyphs))
+
+    result = {}
+    for name, gdef in glyphs.items():
+        if gdef is None:
+            continue
+        entry = _normalize_anchors(gdef.get("cursive_entry"))
+        exit_ = _normalize_anchors(gdef.get("cursive_exit"))
+        if entry or exit_:
+            result[name] = {"entry": entry, "exit": exit_}
+    return result
 
 
-@pytest.mark.parametrize(
-    "test_id,text,expect_str",
-    [pytest.param(tid, txt, exp, id=tid) for tid, txt, exp, _ in _CASES],
-)
-def test_shaping(senior_font, anchor_map, test_id, text, expect_str):
+# ---------------------------------------------------------------------------
+# Test runner
+# ---------------------------------------------------------------------------
+
+def run_shaping_test(font, anchor_map, text, expect_str):
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
-    hb.shape(senior_font, buf)
+    hb.shape(font, buf)
 
     infos = buf.glyph_infos
     glyph_names = []
     for info in infos:
-        name = senior_font.glyph_to_string(info.codepoint)
+        name = font.glyph_to_string(info.codepoint)
         glyph_names.append(name)
 
     assert len(glyph_names) == len(tokens), (
