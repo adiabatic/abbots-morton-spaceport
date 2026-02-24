@@ -843,7 +843,7 @@ glyphs:
   qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_not_before: [qsOoze.prop, qsUtter]
+    calt_not_before: [qsEat, qsOoze.prop, qsUtter]
     bitmap:
       - "  ## "
       - " #   "
