@@ -387,6 +387,20 @@ glyphs:
   qsFee.prop:  # ·Fee
     bitmap: *fee_bitmap
 
+  qsFee.entry-xheight:  # ·Fee (enters at x-height)
+    cursive_entry: [2, 5]
+    calt_after: [qsI]
+    bitmap:
+      - "  #   "
+      - "   #  "
+      - "    # "
+      - " #  # " #
+      - " #  # "
+      - "#   # "
+      - "#   # "
+      - "#   # "
+      - " ###  "
+
   qsFee.exit-xheight:  # ·Fee (exits at x-height)
     cursive_exit: [6, 5]
     bitmap: *fee_bitmap
@@ -1183,6 +1197,17 @@ glyphs:
       - "  #  "
       - " #   "
       - "#    "
+
+  qsI.exit-xheight.extended:  # ·I (exits at x-height, extended arm)
+    cursive_entry: [1, 0]
+    cursive_exit: [7, 5]
+    bitmap:
+      - " ## ##"
+      - "#  #  "
+      - " ###  "
+      - "  #   "
+      - " #    "
+      - "#     "
 
   qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
