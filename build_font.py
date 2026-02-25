@@ -638,6 +638,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
                     continue
                 cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                base_ey = {y for y, m in entry_classes.items() if base_name in m}
+                var_ey = {y for y, m in entry_classes.items() if variant_name in m}
+                for h in sorted(base_ey - var_ey):
+                    if h in exit_classes:
+                        lines.append(f"        ignore sub @exit_y{h} {base_name}' {cls};")
                 excluded = exclusions.get(exit_y, [])
                 for eg in sorted(excluded):
                     lines.append(f"        ignore sub {base_name}' {eg};")
@@ -691,6 +696,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
                         continue
                     cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                    base_ey = {y for y, m in entry_classes.items() if base_name in m}
+                    var_ey = {y for y, m in entry_classes.items() if variant_name in m}
+                    for h in sorted(base_ey - var_ey):
+                        if h in exit_classes:
+                            lines.append(f"        ignore sub @exit_y{h} {base_name}' {cls};")
                     excluded = exclusions.get(exit_y, [])
                     for eg in sorted(excluded):
                         lines.append(f"        ignore sub {base_name}' {eg};")
