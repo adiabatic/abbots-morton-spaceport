@@ -603,6 +603,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     if bg_base in pair_overrides:
                         for pv, _ in pair_overrides[bg_base]:
                             expanded_before.add(pv)
+                    if bg_base in fwd_pair_overrides:
+                        for pv, _ in fwd_pair_overrides[bg_base]:
+                            expanded_before.add(pv)
                 before_list = " ".join(sorted(expanded_before))
 
                 targets = {base_name}
