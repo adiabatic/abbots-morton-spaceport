@@ -1205,6 +1205,7 @@ glyphs:
       - "##     "
 
   qsAh.exit-xheight.extended:  # ·Ah (exits at x-height, extended arm)
+    cursive_entry: [1, 0]
     cursive_exit: [9, 5]
     calt_before: [qsBay, qsThey, qsMay]
     bitmap:
