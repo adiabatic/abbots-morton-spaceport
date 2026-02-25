@@ -1,4 +1,4 @@
-.PHONY: all test print-job
+.PHONY: all test print-job watch
 
 all:
 	uv run python build_font.py glyph_data/ test/
@@ -10,3 +10,6 @@ test: all
 
 print-job: all
 	lp test/print.pdf
+
+watch:
+	browser-sync start --server test/ --port 7293 --files "test/*.html, test/*.css, *.otf"
