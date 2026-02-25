@@ -407,7 +407,7 @@ glyphs:
 
   qsFee.exit-xheight.extended:  # ·Fee (exits at x-height, extended bridge)
     cursive_exit: [7, 5]
-    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsTea]
+    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
     bitmap:
       - "  #   "
       - "   #  "
