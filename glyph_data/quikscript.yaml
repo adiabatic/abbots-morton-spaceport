@@ -959,7 +959,7 @@ glyphs:
       - [1, 0]
       - [1, 5]
     cursive_exit: [6, 0]
-    calt_before: [qsAh, qsAt, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsUtter, qsVie, qsZoo]
+    calt_before: [qsAh, qsAt, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsVie, qsZoo]
     bitmap:
       - "###   "
       - "   #  "
