@@ -1,6 +1,9 @@
 # Standard PostScript glyph names to Unicode codepoints
 # Reference: Adobe Glyph List (AGL)
 
+# Space
+space: 0x0020
+
 # Digits
 zero: 0x0030
 one: 0x0031

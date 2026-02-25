@@ -51,6 +51,12 @@ TOKEN_RE = re.compile(
 
 ESCAPE_RE = re.compile(r"\\(.)")
 
+LOZENGE_RE = re.compile(r"◊([A-Za-z]+)")
+LOZENGE_MAP = {
+    "space": "space",
+    "ZWNJ": "space",
+}
+
 CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*\|\s*")
 
 
@@ -120,6 +126,20 @@ def parse_expect(raw):
                 "variants": [],
             })
             pos += esc_m.end()
+            continue
+
+        loz_m = LOZENGE_RE.match(remaining)
+        if loz_m:
+            key = loz_m.group(1)
+            glyph_name = LOZENGE_MAP.get(key)
+            if glyph_name is None:
+                raise ValueError(f"Unknown lozenge name: ◊{key}")
+            tokens.append({
+                "base": glyph_name,
+                "lig_base": None,
+                "variants": [],
+            })
+            pos += loz_m.end()
             continue
 
         tok_m = TOKEN_RE.match(remaining)
