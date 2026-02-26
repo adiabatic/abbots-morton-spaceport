@@ -419,6 +419,19 @@ glyphs:
       - "#   # "
       - " ###  "
 
+  qsFee_qsUtter.alt.prop:  # ·Fee·Utter ligature (alt form)
+    cursive_exit: [12, 0]
+    bitmap:
+      - "  #        "
+      - "   #       "
+      - "    #      "
+      - "  ######## " #
+      - " #  #  #   "
+      - "#   # #    "
+      - "#   # #    "
+      - "#   #  #   "
+      - " ###    ###"
+
   qsVie: &VIE  # ·Vie
     y_offset: -3
     bitmap:
@@ -869,6 +882,23 @@ glyphs:
       - "#  # "
       - " ##  "
 
+  qsMay_qsUtter.alt.prop:  # ·May·Utter ligature (alt form)
+    y_offset: -3
+    cursive_entry:
+      - [1, 0]
+      - [4, 5]
+    cursive_exit: [11, 0]
+    bitmap:
+      - "   ###### "
+      - "  #   #   "
+      - "  #  #    "
+      - " #   #    "
+      - " #    #   "
+      - "####   ###" #
+      - " #  #     "
+      - " #  #     "
+      - "  ##      "
+
   qsNo:  # ·No
     bitmap: &no_bitmap
       - "#   #"
@@ -1305,7 +1335,7 @@ glyphs:
 
   qsUtter.alt:  # Alternate ·Utter
     cursive_exit: [6, 0]
-    bitmap:
+    bitmap: &utter_alt_bitmap
       - "  ## "
       - " #   "
       - "#    "
@@ -1313,9 +1343,14 @@ glyphs:
       - " #   "
       - "  ###"
 
+  qsUtter.alt.before-may:  # Alternate ·Utter (before ·May)
+    cursive_exit: [6, 0]
+    calt_before: [qsMay]
+    bitmap: *utter_alt_bitmap
+
   qsUtter.exit-xheight.extended:  # ·Utter (exits at x-height, extended arm)
     cursive_exit: [7, 5]
-    calt_before: [qsBay, qsThey, qsMay]
+    calt_before: [qsBay, qsThey]
     bitmap:
       - "   ###"
       - "  #   "
