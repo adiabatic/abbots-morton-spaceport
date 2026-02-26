@@ -9,6 +9,7 @@
 
 - Prefer nested CSS over flat CSS.
 - Prefer for-of loops to `.forEach()`.
+- Use modern range syntax for media/container queries: `(width > 40em)` not `(max-width: 40em)`.
 
 ## Python
 
