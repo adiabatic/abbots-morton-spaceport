@@ -133,15 +133,15 @@
         margin: 0;
       }
 
-      @container (width < 81ch) {
+      @container (width < 42ch) {
         columns: 2;
 
-        .col-break {
+        div.col-break {
           break-before: auto;
         }
       }
 
-      @container (width < 20ch) { /* likely needs work */
+      @container (width < 30ch) { /* likely needs work */
         columns: 1;
       }
     }
