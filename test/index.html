@@ -112,6 +112,10 @@
       div {
         display: flex;
         break-inside: avoid;
+
+        &.col-break {
+          break-before: column;
+        }
       }
 
       dt {
@@ -125,6 +129,10 @@
 
       @container (width < 81ch) {
         columns: 2;
+
+        .col-break {
+          break-before: auto;
+        }
       }
 
       @container (width < 20ch) { /* likely needs work */
@@ -778,6 +786,29 @@
         <div><dt>know/n</dt><dd>&#xE666;&#xE67C;, &#xE666;&#xE67C;&#xE666;</dd></div>
         <div><dt>last</dt><dd>&#xE667;&#xE674;&#xE65A;&#xE652;</dd></div>
         <div><dt>long</dt><dd>&#xE667;&#xE678;&#xE664;</dd></div>
+        <div class="col-break"><dt>may</dt><dd>&#xE665;&#xE673;</dd></div>
+        <div><dt>might</dt><dd data-changeme>&#xE665;&#xE675;&#xE652;</dd></div>
+        <div><dt>more</dt><dd>&#xE665;&#xE677;&#xE668;</dd></div>
+        <div><dt>most</dt><dd>&#xE665;&#xE67C;&#xE65A;&#xE652;</dd></div>
+        <div><dt>must</dt><dd>&#xE665;&#xE67A;&#xE65A;&#xE652;</dd></div>
+        <div><dt>mine</dt><dd>&#xE665;&#xE675;&#xE666;</dd></div>
+        <div><dt>my</dt><dd>&#xE665;&#xE675;</dd></div>
+        <div><dt>new/s</dt><dd data-changeme>&#xE666;&#xE660;&#xE67E;, &#xE666;&#xE660;&#xE67E;&#xE65B;</dd></div>
+        <div><dt>no</dt><dd>&#xE666;&#xE67C;</dd></div>
+        <div><dt>none</dt><dd>&#xE666;&#xE67A;&#xE666;</dd></div>
+        <div><dt>not</dt><dd>&#xE666;&#xE678;&#xE652;</dd></div>
+        <div><dt>now</dt><dd data-changeme>&#xE666;&#xE67B;</dd></div>
+        <div><dt>off</dt><dd>&#xE678;&#xE658;</dd></div>
+        <div><dt>one, once</dt><dd>&#xE661;&#xE67A;&#xE666;, &#xE661;&#xE67A;&#xE666;&#xE65A;</dd></div>
+        <div><dt>or</dt><dd>&#xE677;&#xE668;</dd></div>
+        <div><dt>other/s</dt><dd data-changeme>&#xE67A;&#xE657;&#xE67A;&#xE668;, &#xE67A;&#xE657;&#xE67A;&#xE668;&#xE65B;</dd></div>
+        <div><dt>our</dt><dd>&#xE67B;&#xE668;</dd></div>
+        <div><dt>over</dt><dd>&#xE67C;&#xE659;&#xE67A;&#xE668;</dd></div>
+        <div><dt>said</dt><dd>&#xE65A;&#xE672;&#xE653;</dd></div>
+        <div><dt>say/s</dt><dd>&#xE65A;&#xE673;, &#xE65A;&#xE672;&#xE65B;</dd></div>
+        <div><dt>some</dt><dd data-changeme>&#xE65A;&#xE67A;&#xE665;</dd></div>
+        <div><dt>take/n</dt><dd>&#xE652;&#xE673;&#xE654;, &#xE652;&#xE673;&#xE654;&#xE67A;&#xE666;</dd></div>
+        <div><dt>that*</dt><dd data-changeme>&#xE657;&#xE674;&#xE652;</dd></div>
       </dl>
     </div>
   </div>
