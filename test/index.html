@@ -102,6 +102,36 @@
       }
     }
 
+    .common-words-container {
+      container-type: inline-size;
+    }
+
+    .common-words {
+      columns: 3;
+
+      div {
+        display: flex;
+        break-inside: avoid;
+      }
+
+      dt {
+        width: 10ch;
+        flex-shrink: 0;
+      }
+
+      dd {
+        margin: 0;
+      }
+
+      @container (max-width: 40em) {
+        columns: 2;
+      }
+
+      @container (max-width: 20em) {
+        columns: 1;
+      }
+    }
+
     .toggle-buttons {
       position: fixed;
       top: 1rem;
@@ -717,6 +747,13 @@
         <td data-expect="\- | ·Fee+Utter.alt ~b~ ·Low">-</td>
       </tr>
     </table>
+
+    <h3>Common words</h3>
+    <div class="common-words-container">
+      <dl class="common-words sample">
+        <div><dt>a, an</dt><dd>&#xE67A;, &#xE67A;&#xE666;</dd></div>
+      </dl>
+    </div>
   </div>
 
   <h2>Every Quikscript character</h2>
