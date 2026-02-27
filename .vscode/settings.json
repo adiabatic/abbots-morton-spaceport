@@ -1,12 +1,10 @@
 {
-   "editor.fontFamily": "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
-   "editor.fontSize": 22,
-   "terminal.integrated.fontSize": 11,
+  "editor.fontFamily": "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
+  "editor.fontSize": 22,
+  "terminal.integrated.fontSize": 11,
+  "[html]": { "editor.wordBasedSuggestions": "off" },
   "tinymist.fontPaths": ["${workspaceFolder}/test"],
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
   "python.testing.pytestEnabled": true,
-  "python.testing.pytestArgs": [
-    "test",
-    "-v"
-  ]
+  "python.testing.pytestArgs": ["test", "-v"]
 }
