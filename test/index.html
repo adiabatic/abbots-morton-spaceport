@@ -107,21 +107,16 @@
       }
     }
 
-    .common-words-container {
+    .word-list-container {
       container-type: inline-size;
     }
 
-    .common-words {
-      columns: 3;
+    .word-list {
       column-rule: calc(1em / 11) solid;
 
       div {
         display: flex;
         break-inside: avoid;
-
-        &.col-break {
-          break-before: column;
-        }
       }
 
       dt {
@@ -132,17 +127,41 @@
       dd {
         margin: 0;
       }
+    }
+
+    .word-list--3col {
+      columns: 3;
+
+      .word-list__col-break {
+        break-before: column;
+      }
 
       @container (width < 42ch) {
         columns: 2;
 
-        div.col-break {
+        div.word-list__col-break {
           break-before: auto;
         }
       }
 
       @container (width < 30ch) { /* likely needs work */
         columns: 1;
+      }
+    }
+
+    .word-list--2col {
+      columns: 2;
+
+      .word-list__col-break {
+        break-before: column;
+      }
+
+      @container (width < 30ch) {
+        columns: 1;
+
+        div.word-list__col-break {
+          break-before: auto;
+        }
       }
     }
 
@@ -767,8 +786,8 @@
     </table>
 
     <h3>Common words</h3>
-    <div class="common-words-container">
-      <dl class="common-words sample">
+    <div class="word-list-container">
+      <dl class="word-list word-list--3col sample">
         <div><dt>a, an</dt><dd>&#xE67A;, &#xE67A;&#xE666;</dd></div>
         <div><dt>about</dt><dd data-changeme>&#xE67A;&#xE651;&#xE67B;&#xE652;</dd></div>
         <div><dt>after</dt><dd>&#xE674;&#xE658;&#xE652;&#xE67A;&#xE668;</dd></div>
@@ -792,7 +811,7 @@
         <div><dt>know/n</dt><dd>&#xE666;&#xE67C;, &#xE666;&#xE67C;&#xE666;</dd></div>
         <div><dt>last</dt><dd>&#xE667;&#xE674;&#xE65A;&#xE652;</dd></div>
         <div><dt>long</dt><dd>&#xE667;&#xE678;&#xE664;</dd></div>
-        <div class="col-break"><dt>may</dt><dd>&#xE665;&#xE673;</dd></div>
+        <div class="word-list__col-break"><dt>may</dt><dd>&#xE665;&#xE673;</dd></div>
         <div><dt>might</dt><dd data-changeme>&#xE665;&#xE675;&#xE652;</dd></div>
         <div><dt>more</dt><dd>&#xE665;&#xE677;&#xE668;</dd></div>
         <div><dt>most</dt><dd>&#xE665;&#xE67C;&#xE65A;&#xE652;</dd></div>
@@ -815,7 +834,7 @@
         <div><dt>some</dt><dd data-changeme>&#xE65A;&#xE67A;&#xE665;</dd></div>
         <div><dt>take/n</dt><dd>&#xE652;&#xE673;&#xE654;, &#xE652;&#xE673;&#xE654;&#xE67A;&#xE666;</dd></div>
         <div><dt>that*</dt><dd data-changeme>&#xE657;&#xE674;&#xE652;</dd></div>
-        <div class="col-break"><dt>their/s</dt><dd data-changeme>&#xE657;&#xE673;&#xE668;, &#xE657;&#xE673;&#xE668;&#xE65B;</dd></div>
+        <div class="word-list__col-break"><dt>their/s</dt><dd data-changeme>&#xE657;&#xE673;&#xE668;, &#xE657;&#xE673;&#xE668;&#xE65B;</dd></div>
         <div><dt>then</dt><dd data-changeme>&#xE657;&#xE672;&#xE666;</dd></div>
         <div><dt>there</dt><dd data-changeme>&#xE657;&#xE673;&#xE668;</dd></div>
         <div><dt>they</dt><dd data-changeme>&#xE657;&#xE673;</dd></div>
@@ -841,6 +860,35 @@
       </dl>
     </div>
     <p style="text-align: center">*that, spelt in full only when demonstrative; otherwise &mdash; &#xE657;&#xE652;.</p>
+    <h3>Contractions</h3>
+    <div class="word-list-container">
+      <dl class="word-list word-list--2col sample">
+        <div><dt>also</dt><dd></dd></div>
+        <div><dt>are</dt><dd></dd></div>
+        <div><dt>as</dt><dd></dd></div>
+        <div><dt>be/ing/en</dt><dd></dd></div>
+        <div><dt>because</dt><dd></dd></div>
+        <div><dt>before</dt><dd></dd></div>
+        <div><dt>but</dt><dd></dd></div>
+        <div><dt>can/'t/not</dt><dd></dd></div>
+        <div><dt>come/s/ing</dt><dd></dd></div>
+        <div><dt>could/n't</dt><dd></dd></div>
+        <div><dt>do, did</dt><dd></dd></div>
+        <div><dt>don't, didn't</dt><dd></dd></div>
+        <div><dt>ever, every</dt><dd></dd></div>
+        <div><dt>from</dt><dd></dd></div>
+        <div><dt>go/ing/ne</dt><dd></dd></div>
+        <div><dt>good</dt><dd></dd></div>
+        <div><dt>have/n't</dt><dd></dd></div>
+        <div><dt>he, him, his</dt><dd></dd></div>
+        <div><dt>into</dt><dd></dd></div>
+        <div><dt>its, it's</dt><dd></dd></div>
+        <div><dt>little</dt><dd></dd></div>
+        <div><dt>make/ing, made</dt><dd></dd></div>
+        <div><dt>me</dt><dd></dd></div>
+        <div><dt>much</dt><dd></dd></div>
+      </dl>
+    </div>
   </div>
 
   <h2>Every Quikscript character</h2>
