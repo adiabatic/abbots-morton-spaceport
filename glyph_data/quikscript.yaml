@@ -1373,6 +1373,19 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *out_bitmap
 
+  qsOut_qsTea.prop:  # ·Out·Tea ligature
+    cursive_entry: [1, 0]
+    bitmap:
+      - "     #   "
+      - "     #   "
+      - "     #   "
+      - "    #### " #
+      - "   # #  #"
+      - "  #  #  #"
+      - " #    ## "
+      - "#        "
+      - "#        "
+
   qsOwe: &OWE  # ·Owe
     bitmap:
       - " ### "
