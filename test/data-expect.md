@@ -23,6 +23,13 @@ variant:
 | `.half`     | `half`                         | `·Pea.half`     |
 | `.extended` | `extended`                     | `·Roe.extended` |
 
+Prefix a modifier with `!` to assert the glyph name does **not** contain that string:
+
+| Modifier     | Rejects glyph names containing | Example          |
+| ------------ | ------------------------------ | ---------------- |
+| `.!alt`      | `alt`                          | `·No.!alt`       |
+| `.!extended` | `extended`                     | `·Roe.!extended` |
+
 Variant assertions are optional. Without them, any variant of the base
 letter satisfies the check.
 
