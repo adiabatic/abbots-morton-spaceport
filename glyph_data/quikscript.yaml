@@ -1262,6 +1262,7 @@ glyphs:
   qsI.exit-xheight.extended:  # ·I (exits at x-height, extended arm)
     cursive_entry: [1, 0]
     cursive_exit: [7, 5]
+    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
     bitmap:
       - " ## ##" #
       - "#  #  "
