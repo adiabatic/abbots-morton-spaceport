@@ -22,7 +22,7 @@ glyphs:
       - "    #"
       - "    #"
       - "    #"
-      - "    #"
+      - "    #" #
 
   qsPea.prop: &PEA  # ·Pea
     cursive_exit: [5, 0]
@@ -35,7 +35,7 @@ glyphs:
       - "   #"
       - "   #"
       - "   #"
-      - "   #"
+      - "   #" #
 
   qsPea.entry-y6:  # ·Pea (enters at y=6)
     cursive_entry: [1, 6]
@@ -49,7 +49,7 @@ glyphs:
       - "   #"
       - "   #"
       - "   #"
-      - "   #"
+      - "   #" #
 
   qsPea.prop.half:  # ·Pea (half)
     cursive_exit: [6, 5]
@@ -63,12 +63,12 @@ glyphs:
       - "      "
       - "      "
       - "      "
-      - "      "
+      - "      " #
 
   qsBay:  # ·Bay
     y_offset: -3
     bitmap: &bay_bitmap
-      - "   # "
+      - "   # " #
       - "   # "
       - "   # "
       - "   # "
@@ -100,7 +100,7 @@ glyphs:
       - "  #  "
       - "  #  "
       - "  #  "
-      - "  #  "
+      - "  #  " #
 
   qsTea.prop:  # ·Tea
     bitmap: &tea_prop_bitmap
@@ -112,7 +112,7 @@ glyphs:
       - "#"
       - "#"
       - "#"
-      - "#"
+      - "#" #
 
   qsTea.exit-baseline:  # ·Tea (exits at baseline)
     cursive_exit: [2, 0]
@@ -130,7 +130,7 @@ glyphs:
       - "   "
       - "   "
       - "   "
-      - "   "
+      - "   " #
 
   qsTea.half.exit-xheight:  # ·Tea (half, exits at x-height)
     cursive_exit: [3, 5]
@@ -143,7 +143,7 @@ glyphs:
       - "   "
       - "   "
       - "   "
-      - "   "
+      - "   " #
 
   qsTea.entry-top:  # ·Tea (enters at top)
     cursive_entry: [1, 8]
@@ -161,7 +161,7 @@ glyphs:
   qsDay:  # ·Day
     y_offset: -3
     bitmap:
-      - "#    "
+      - "#    " #
       - "#    "
       - "#    "
       - "#    "
@@ -176,7 +176,7 @@ glyphs:
     cursive_entry: [1, 5]
     cursive_exit: [5, 0]
     bitmap:
-      - "#   "
+      - "#   " #
       - "#   "
       - "#   "
       - "#   "
@@ -191,7 +191,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [5, 0]
     bitmap:
-      - "    "
+      - "    " #
       - "    "
       - "    "
       - "    "
@@ -206,7 +206,7 @@ glyphs:
     cursive_entry: [1, 5]
     cursive_exit: [9, 5]
     bitmap:
-      - "#    ###"
+      - "#    ###" #
       - "#   #   "
       - "#  #    "
       - "#  #    "
@@ -220,7 +220,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [7, 0]
     bitmap:
-      - "#    #"
+      - "#    #" #
       - "#   ##"
       - "#  # #"
       - "#  # #"
@@ -240,7 +240,7 @@ glyphs:
       - " #   "
       - "#    "
       - "#    "
-      - " ### "
+      - " ### " #
 
   qsKey.prop:  # ·Key
     cursive_entry: [1, 8]
@@ -254,12 +254,12 @@ glyphs:
       - " #  "
       - "#   "
       - "#   "
-      - " ###"
+      - " ###" #
 
   qsGay:  # ·Gay
     y_offset: -3
     bitmap: &gay_bitmap
-      - "  ## "
+      - "  ## " #
       - " #   "
       - " #   "
       - "  #  "
@@ -278,7 +278,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [6, 5]
     bitmap:
-      - "  ###"
+      - "  ###" #
       - " #   "
       - " #   "
       - "  #  "
@@ -293,7 +293,7 @@ glyphs:
     cursive_exit: [6, 0]
     calt_not_before: [qsNo]
     bitmap:
-      - "  ## "
+      - "  ## " #
       - " #   "
       - " #   "
       - "  #  "
@@ -319,7 +319,7 @@ glyphs:
       - "    #"
       - "   # "
       - "   # "
-      - "  #  "
+      - "  #  " #
 
   qsThaw.prop:  # ·Thaw
     cursive_entry: [3, 0]
@@ -336,12 +336,12 @@ glyphs:
       - "    #"
       - "   # "
       - "   # "
-      - "     "
+      - "     " #
 
   qsThey:  # ·They
     y_offset: -3
     bitmap: &they_bitmap
-      - "  #  "
+      - "  #  " #
       - "  #  "
       - " #   "
       - " #   "
@@ -363,7 +363,7 @@ glyphs:
     cursive_exit: [11, 5]
     calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
     bitmap:
-      - "  #      ##"
+      - "  #      ##" #
       - "  #     #  "
       - " #     #   "
       - " #    #    "
@@ -383,7 +383,7 @@ glyphs:
       - "#   #"
       - "#   #"
       - "#   #"
-      - " ### "
+      - " ### " #
 
   qsFee.prop:  # ·Fee
     bitmap: *fee_bitmap
@@ -400,7 +400,7 @@ glyphs:
       - "#   # "
       - "#   # "
       - "#   # "
-      - " ###  "
+      - " ###  " #
 
   qsFee.exit-xheight:  # ·Fee (exits at x-height)
     cursive_exit: [6, 5]
@@ -418,7 +418,7 @@ glyphs:
       - "#   # "
       - "#   # "
       - "#   # "
-      - " ###  "
+      - " ###  " #
 
   qsFee_qsUtter.alt.prop:  # ·Fee·Utter ligature (alt form)
     cursive_exit: [12, 0]
@@ -431,12 +431,12 @@ glyphs:
       - "#   # #    "
       - "#   # #    "
       - "#   #  #   "
-      - " ###    ###"
+      - " ###    ###" #
 
   qsVie: &VIE  # ·Vie
     y_offset: -3
     bitmap:
-      - " ### "
+      - " ### " #
       - "#   #"
       - "#   #"
       - "#   #"
@@ -450,7 +450,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     bitmap:
-      - "  ### "
+      - "  ### " #
       - " #   #"
       - " #   #"
       - " #   #"
@@ -465,7 +465,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [11, 5]
     bitmap:
-      - " ###     ##"
+      - " ###     ##" #
       - "#   #   #  "
       - "#   #  #   "
       - "#   #  #   "
@@ -485,7 +485,7 @@ glyphs:
       - "  #  "
       - "   # "
       - "   # "
-      - "###  "
+      - "###  " #
 
   qsSee.prop:  # ·See
     cursive_entry: [1, 0]
@@ -504,12 +504,12 @@ glyphs:
       - "  #   "
       - "   #  "
       - "   #  "
-      - "###   "
+      - "###   " #
 
   qsZoo:  # ·Zoo
     y_offset: -3
     bitmap: &zoo_bitmap
-      - "###  "
+      - "###  " #
       - "   # "
       - "   # "
       - "  #  "
@@ -530,7 +530,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap:
-      - "     "
+      - "     " #
       - "     "
       - "     "
       - "     "
@@ -550,7 +550,7 @@ glyphs:
       - "#    "
       - "#    "
       - "#   #"
-      - " ### "
+      - " ### " #
 
   qsShe.prop:  # ·She
     bitmap:
@@ -562,7 +562,7 @@ glyphs:
       - "#    "
       - "#    "
       - "#   #"
-      - " ### "
+      - " ### " #
 
   qsShe.exit-baseline:  # ·She (exits at baseline)
     cursive_exit: [6, 0]
@@ -575,12 +575,12 @@ glyphs:
       - "#    "
       - "#    "
       - "#    "
-      - " ####"
+      - " ####" #
 
   qsJai:  # ·J'ai
     y_offset: -3
     bitmap:
-      - "#### "
+      - "#### " #
       - "    #"
       - "    #"
       - "   # "
@@ -593,7 +593,7 @@ glyphs:
   qsJai.prop:  # ·J'ai
     y_offset: -3
     bitmap:
-      - " #### "
+      - " #### " #
       - "     #"
       - "     #"
       - "    # "
@@ -613,7 +613,7 @@ glyphs:
       - " #   "
       - "#    "
       - "#    "
-      - " ### "
+      - " ### " #
 
   qsCheer.prop:  # ·Cheer
     cursive_entry: [1, 5]
@@ -627,12 +627,12 @@ glyphs:
       - " #  "
       - "#   "
       - "#   "
-      - " ###"
+      - " ###" #
 
   qsJay: &JAY  # ·Jay
     y_offset: -3
     bitmap: &jay_bitmap
-      - "#### "
+      - "#### " #
       - "    #"
       - "    #"
       - "   # "
@@ -657,7 +657,7 @@ glyphs:
       - " #   "
       - " #   "
       - " #   "
-      - " #   "
+      - " #   " #
 
   qsYe.prop:  # ·Ye
     cursive_exit: [2, 0]
@@ -670,13 +670,13 @@ glyphs:
       - " #  "
       - " #  "
       - " #  "
-      - " #  "
+      - " #  " #
 
   qsWay:  # ·Way
     y_offset: -3
     # idea: extend the bitmap up by one column so there's no final curve at the top
     bitmap:
-      - "    #"
+      - "    #" #
       - "   # "
       - "   # "
       - "  #  "
@@ -690,7 +690,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [4, 5]
     bitmap:
-      - "   #"
+      - "   #" #
       - "   #"
       - "  # "
       - "  # "
@@ -704,7 +704,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [4, 0]
     bitmap:
-      - "   "
+      - "   " #
       - "   "
       - "   "
       - "   "
@@ -718,7 +718,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [7, 5]
     bitmap:
-      - "    ##"
+      - "    ##" #
       - "   #  "
       - "  #   "
       - "  #   "
@@ -738,7 +738,7 @@ glyphs:
       - " #   "
       - " #   "
       - " #   "
-      - " #   "
+      - " #   " #
 
   qsHe.prop:  # ·He
     bitmap:
@@ -750,7 +750,7 @@ glyphs:
       - "#  "
       - "#  "
       - "#  "
-      - "#  "
+      - "#  " #
 
   qsHe.half:  # ·He (half, exits at x-height)
     cursive_exit: [2, 5]
@@ -763,12 +763,12 @@ glyphs:
       - "   "
       - "   "
       - "   "
-      - "   "
+      - "   " #
 
   qsWhy:  # ·Why
     y_offset: -3
     bitmap:
-      - "    #"
+      - "    #" #
       - "    #"
       - "    #"
       - "   # "
@@ -782,7 +782,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [5, 5]
     bitmap:
-      - "    #"
+      - "    #" #
       - "    #"
       - "    #"
       - "   # "
@@ -796,7 +796,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [5, 0]
     bitmap:
-      - "     "
+      - "     " #
       - "     "
       - "     "
       - "     "
@@ -810,7 +810,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [10, 5]
     bitmap:
-      - "       ##"
+      - "       ##" #
       - "      #  "
       - "     #   "
       - "     #   "
@@ -830,7 +830,7 @@ glyphs:
       - " # # "
       - "  #  "
       - " # # "
-      - "#   #"
+      - "#   #" #
 
   qsIng.prop:  # ·-ing
     cursive_entry: [1, 0]
@@ -840,7 +840,7 @@ glyphs:
   qsMay:  # ·May
     y_offset: -3
     bitmap: &may_bitmap
-      - "   ##"
+      - "   ##" #
       - "  #  "
       - "  #  "
       - " #   "
@@ -873,7 +873,7 @@ glyphs:
     cursive_exit: [6, 0]
     calt_not_before: [qsEat, qsOoze.prop, qsUtter]
     bitmap:
-      - "  ## "
+      - "  ## " #
       - " #   "
       - " #   "
       - "#    "
@@ -890,7 +890,7 @@ glyphs:
       - [4, 5]
     cursive_exit: [11, 0]
     bitmap:
-      - "   ###### "
+      - "   ###### " #
       - "  #   #   "
       - "  #  #    "
       - " #   #    "
@@ -902,12 +902,12 @@ glyphs:
 
   qsNo:  # ·No
     bitmap: &no_bitmap
-      - "#   #"
+      - "#   #" #
       - " # # "
       - "  #  "
       - " # # "
       - " # # "
-      - "  #  "
+      - "  #  " #
 
   qsNo.prop:  # ·No
     cursive_entry: [1, 5]
@@ -918,12 +918,12 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     bitmap: &no_alt_bitmap
-      - "  #  "
+      - "  #  " #
       - " # # "
       - " # # "
       - "  #  "
       - " # # "
-      - "#   #"
+      - "#   #" #
 
   qsNo.alt.after-it:  # Alternate ·No (after ·It)
     cursive_entry: [1, 0]
@@ -933,12 +933,12 @@ glyphs:
 
   qsLow:  # ·Low
     bitmap: &low_bitmap
-      - "    #"
+      - "    #" #
       - "  ## "
       - " #   "
       - " ##  "
       - "   # "
-      - "###  "
+      - "###  " #
 
   qsLow.prop:  # ·Low
     cursive_entry: [1, 0]
@@ -947,12 +947,12 @@ glyphs:
 
   qsRoe: &ROE  # ·Roe
     bitmap: &roe_bitmap
-      - "###  "
+      - "###  " #
       - "   # "
       - "    #"
       - "    #"
       - "   # "
-      - "###  "
+      - "###  " #
 
   qsRoe.prop:  # ·Roe
     cursive_entry:
@@ -968,22 +968,22 @@ glyphs:
   qsRoe.entry-baseline.extended:  # ·Roe
     cursive_entry: [1, 0]
     bitmap:
-      - " ###  "
+      - " ###  " #
       - "    # "
       - "     #"
       - "     #"
       - "    # "
-      - "####  "
+      - "####  " #
 
   qsRoe.entry-xheight.extended:  # ·Roe
     cursive_entry: [1, 5]
     bitmap:
-      - "####  "
+      - "####  " #
       - "    # "
       - "     #"
       - "     #"
       - "    # "
-      - " ###  "
+      - " ###  " #
 
   qsRoe.exit-baseline:  # ·Roe (exits at baseline)
     cursive_entry:
@@ -992,12 +992,12 @@ glyphs:
     cursive_exit: [6, 0]
     calt_before: [qsAh, qsAt, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsVie, qsZoo]
     bitmap:
-      - "###   "
+      - "###   " #
       - "   #  "
       - "    # "
       - "    # "
       - "   #  "
-      - "######"
+      - "######" #
 
   qsRoe.exit-y1.before-thaw:  # ·Roe (exits at y=1, before ·Thaw)
     cursive_entry:
@@ -1006,12 +1006,12 @@ glyphs:
     cursive_exit: [6, 1]
     calt_before: [qsThaw]
     bitmap:
-      - "###   "
+      - "###   " #
       - "   #  "
       - "    # "
       - "    # "
       - "   # #"
-      - "##### "
+      - "##### " #
 
   qsLoch:  # ·Loch
     bitmap:
@@ -1023,16 +1023,16 @@ glyphs:
       - "# # #"
       - "# # #"
       - "# # #"
-      - " ## #"
+      - " ## #" #
 
   qsLlan:  # ·Llan
     bitmap: &llan_bitmap
-      - "#    "
+      - "#    " #
       - " ##  "
       - "   # "
       - "  ## "
       - " #   "
-      - "  ###"
+      - "  ###" #
 
   qsLlan.prop:  # ·Llan
     cursive_entry: [1, 5]
@@ -1049,7 +1049,7 @@ glyphs:
       - "  #  "
       - " # # "
       - "#   #"
-      - "#   #"
+      - "#   #" #
 
   qsExcite.prop:  # ·Excite
     cursive_entry: [1, 0]
@@ -1058,7 +1058,7 @@ glyphs:
   qsExam:  # ·Exam
     y_offset: -3
     bitmap: &exam_bitmap
-      - "#   #"
+      - "#   #" #
       - "#   #"
       - " # # "
       - "  #  "
@@ -1107,21 +1107,21 @@ glyphs:
 
   qsIt:  # ·It
     bitmap:
+      - "  #  " #
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
-      - "  #  "
-      - "  #  "
+      - "  #  " #
 
   qsIt.prop: &IT  # ·It
     bitmap: &it_bitmap
+      - "#" #
       - "#"
       - "#"
       - "#"
       - "#"
-      - "#"
-      - "#"
+      - "#" #
 
   qsIt.entry-xheight:  # ·It (enters at x-height, exits at baseline)
     cursive_entry: [1, 5]
@@ -1143,32 +1143,32 @@ glyphs:
 
   qsEat:  # ·Eat
     bitmap:
-      - "   # "
+      - "   # " #
       - "  ## "
       - " # # "
       - " # # "
       - "#  # "
-      - "#  # "
+      - "#  # " #
 
   qsEat.prop:  # ·Eat
     cursive_entry: [1, 0]
     cursive_exit: [5, 0]
     bitmap:
-      - "   #"
+      - "   #" #
       - "  ##"
       - " # #"
       - " # #"
       - "#  #"
-      - "#  #"
+      - "#  #" #
 
   qsEt: &ET  # ·Et
     bitmap: &et_bitmap
-      - "#    "
+      - "#    " #
       - "#    "
       - "#    "
       - " #   "
       - "  #  "
-      - "   ##"
+      - "   ##" #
 
   qsEt.prop:  # ·Et
     cursive_entry: [1, 5]
@@ -1177,12 +1177,12 @@ glyphs:
 
   qsEight:  # ·Eight
     bitmap: &eight_bitmap
-      - "# ## "
+      - "# ## " #
       - " #  #"
       - " ### "
       - "  #  "
       - "   # "
-      - "    #"
+      - "    #" #
 
   qsEight.prop:  # ·Eight
     cursive_entry: [1, 5]
@@ -1191,12 +1191,12 @@ glyphs:
 
   qsAt: &AT  # ·At
     bitmap: &at_bitmap
-      - "    #"
+      - "    #" #
       - "    #"
       - "    #"
       - "   # "
       - "  #  "
-      - "##   "
+      - "##   " #
 
   qsAt.prop:  # ·At
     cursive_entry: [1, 0]
@@ -1208,24 +1208,24 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [11, 5]
     bitmap:
-      - "    #   ##"
+      - "    #   ##" #
       - "    #  #  "
       - "    #  #  "
       - "   #  #   "
       - "  #   #   "
-      - "######### "
+      - "######### " #
       - "      #  #"
       - "      #  #"
       - "       ## "
 
   qsI:  # ·I
     bitmap: &i_bitmap
-      - " ## #"
+      - " ## #" #
       - "#  # "
       - " ### "
       - "  #  "
       - " #   "
-      - "#    "
+      - "#    " #
 
   qsI.prop:  # ·I
     cursive_entry: [1, 0]
@@ -1237,84 +1237,84 @@ glyphs:
     cursive_exit: [6, 5]
     calt_after: [qsRoe.exit-baseline]
     bitmap:
-      - "  # #"
+      - "  # #" #
       - " # # "
       - "  ## "
       - "  #  "
       - " #   "
-      - "#    "
+      - "#    " #
 
   qsI.exit-xheight.extended:  # ·I (exits at x-height, extended arm)
     cursive_entry: [1, 0]
     cursive_exit: [7, 5]
     bitmap:
-      - " ## ##"
+      - " ## ##" #
       - "#  #  "
       - " ###  "
       - "  #   "
       - " #    "
-      - "#     "
+      - "#     " #
 
   qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
-      - "   ##"
+      - "   ##" #
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
-      - "##   "
+      - "##   " #
 
   qsAh.prop:  # ·Ah
     cursive_entry: [1, 0]
     cursive_exit: [8, 5]
     bitmap:
-      - "     ##"
+      - "     ##" #
       - "    #  "
       - "   #   "
       - "   #   "
       - "  #    "
-      - "##     "
+      - "##     " #
 
   qsAh.exit-xheight.extended:  # ·Ah (exits at x-height, extended arm)
     cursive_entry: [1, 0]
     cursive_exit: [9, 5]
     calt_before: [qsBay, qsThey, qsMay]
     bitmap:
-      - "     ###"
+      - "     ###" #
       - "    #   "
       - "   #    "
       - "   #    "
       - "  #     "
-      - "##      "
+      - "##      " #
 
   qsAwe: &AWE  # ·Awe
     bitmap: &awe_bitmap
-      - "##   "
+      - "##   " #
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
-      - "   ##"
+      - "   ##" #
 
   qsAwe.prop:  # ·Awe
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
     bitmap:
-      - "##     "
+      - "##     " #
       - "  #    "
       - "   #   "
       - "   #   "
       - "    #  "
-      - "     ##"
+      - "     ##" #
 
   qsOx: &OX  # ·Ox
     bitmap: &ox_bitmap
-      - "##   "
+      - "##   " #
       - "  #  "
       - "   # "
       - "   # "
       - "    #"
-      - "    #"
+      - "    #" #
 
   qsOx.prop:  # ·Ox
     cursive_entry: [1, 5]
@@ -1323,12 +1323,12 @@ glyphs:
 
   qsOy:  # ·Oy
     bitmap: &oy_bitmap
-      - "##   "
+      - "##   " #
       - "  #  "
       - " # # "
       - "  # #"
       - "    #"
-      - "    #"
+      - "    #" #
 
   qsOy.prop:  # ·Oy
     cursive_entry: [1, 5]
@@ -1337,12 +1337,12 @@ glyphs:
 
   qsUtter: &UTTER  # ·Utter
     bitmap: &utter_bitmap
-      - "   ##"
+      - "   ##" #
       - "  #  "
       - " #   "
       - " #   "
       - "#    "
-      - "#    "
+      - "#    " #
 
   qsUtter.prop:  # ·Utter
     cursive_entry: [1, 0]
@@ -1352,12 +1352,12 @@ glyphs:
   qsUtter.alt:  # Alternate ·Utter
     cursive_exit: [6, 0]
     bitmap: &utter_alt_bitmap
-      - "  ## "
+      - "  ## " #
       - " #   "
       - "#    "
       - "#    "
       - " #   "
-      - "  ###"
+      - "  ###" #
 
   qsUtter.alt.before-may:  # Alternate ·Utter (before ·May)
     cursive_exit: [6, 0]
@@ -1368,21 +1368,21 @@ glyphs:
     cursive_exit: [7, 5]
     calt_before: [qsBay, qsThey]
     bitmap:
-      - "   ###"
+      - "   ###" #
       - "  #   "
       - " #    "
       - " #    "
       - "#     "
-      - "#     "
+      - "#     " #
 
   qsOut:  # ·Out
     bitmap: &out_bitmap
-      - "   ##"
+      - "   ##" #
       - "  #  "
       - " # # "
       - "# #  "
       - "#    "
-      - "#    "
+      - "#    " #
 
   qsOut.prop:  # ·Out
     cursive_entry: [1, 0]
@@ -1400,56 +1400,56 @@ glyphs:
       - " #  #  #"
       - "#    ## "
       - "#       "
-      - "#       "
+      - "#       " #
 
   qsOwe: &OWE  # ·Owe
     bitmap:
-      - " ### "
+      - " ### " #
       - "#   #"
       - "#   #"
       - "#   #"
       - "#   #"
-      - " ### "
+      - " ### " #
 
   qsOwe.entry-xheight:  # ·Owe (enters at x-height)
     cursive_entry: [1, 5]
     bitmap:
-      - "### # "
+      - "### # " #
       - "  #  #"
       - " #   #"
       - " #   #"
       - " #   #"
-      - "  ### "
+      - "  ### " #
 
   qsOwe.exit-xheight:  # ·Owe (exits at x-height)
     cursive_exit: [7, 5]
     bitmap:
-      - " # ###"
+      - " # ###" #
       - "#  #  "
       - "#   # "
       - "#   # "
       - "#   # "
-      - " ###  "
+      - " ###  " #
 
   qsOwe.entry-xheight.exit-xheight:  # ·Owe (enters and exits at x-height)
     cursive_entry: [1, 5]
     cursive_exit: [8, 5]
     bitmap:
-      - "### ###"
+      - "### ###" #
       - "  # #  " 
       - " #   # "
       - " #   # "
       - " #   # "
-      - "  ###  "
+      - "  ###  " #
 
   qsFoot: &FOOT  # ·Foot
     bitmap: &foot_bitmap
-      - "#   #"
+      - "#   #" #
       - "#   #"
       - "#   #"
       - " # # "
       - " # # "
-      - "  #  "
+      - "  #  " #
 
   qsFoot.prop:  # ·Foot
     cursive_entry: [1, 5]
@@ -1458,23 +1458,23 @@ glyphs:
 
   qsOoze: &OOZE  # ·Ooze
     bitmap:
-      - "  #  "
+      - "  #  " #
       - " # # "
       - " # # "
       - "#   #"
       - "#   #"
-      - "#   #"
+      - "#   #" #
 
   qsOoze.prop:  # ·Ooze
     cursive_entry: [0, 0] # an entry past the glyph might only be good for ·Ye·Ooze and nothing else
     cursive_exit: [6, 0]
     bitmap:
-      - "  #  "
+      - "  #  " #
       - " # # "
       - " # # "
       - "#   #"
       - "#   #"
-      - "#   #"
+      - "#   #" #
 
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused: *PEA  # 𐑐 Peep
@@ -1489,7 +1489,7 @@ glyphs:
       - "  #"
       - "  #"
       - "  #"
-      - "  #"
+      - "  #" #
 
   u10452.prop.unused:  # 𐑒 Kick
     bitmap:
@@ -1501,7 +1501,7 @@ glyphs:
       - "#  # "
       - "#    "
       - "#    "
-      - " ### "
+      - " ### " #
 
   u10453.prop.unused:  # 𐑓 Fee
     bitmap:
@@ -1513,7 +1513,7 @@ glyphs:
       - "    #"
       - "    #"
       - "   # "
-      - "###  "
+      - "###  " #
 
   u10454.prop.unused: *FEE  # 𐑔 Thigh
 
@@ -1533,14 +1533,14 @@ glyphs:
       - "   # "
       - "   # "
       - "    #"
-      - "    #"
+      - "    #" #
 
   u10459.prop.unused: *ING  # 𐑙 Hung
 
   u1045A.prop.unused:  # 𐑚 Bib
     y_offset: -3
     bitmap:
-      - "#    "
+      - "#    " #
       - "#    "
       - "#    "
       - "#    "
@@ -1555,7 +1555,7 @@ glyphs:
   u1045C.prop.unused:  # 𐑜 Gag
     y_offset: -3
     bitmap:
-      - "#### "
+      - "#### " #
       - "    #"
       - "    #"
       - "    #"
@@ -1568,7 +1568,7 @@ glyphs:
   u1045D.prop.unused:  # 𐑝 Vow
     y_offset: -3
     bitmap:
-      - "  ###"
+      - "  ###" #
       - " #   "
       - "#    "
       - "#    "
@@ -1583,7 +1583,7 @@ glyphs:
   u1045F.prop.unused:  # 𐑟 Zoo
     y_offset: -3
     bitmap:
-      - "###  "
+      - "###  " #
       - "   # "
       - "   # "
       - "  #  "
@@ -1596,7 +1596,7 @@ glyphs:
   u10460.prop.unused:  # 𐑠 Measure
     y_offset: -3
     bitmap:
-      - "     "
+      - "     " #
       - "     "
       - "     "
       - "     "
@@ -1613,7 +1613,7 @@ glyphs:
   u10463.prop.unused:  # 𐑣 Ha-Ha
     y_offset: -3
     bitmap:
-      - "     "
+      - "     " #
       - "     "
       - "     "
       - "     "
@@ -1625,12 +1625,12 @@ glyphs:
 
   u10464.prop.unused:  # 𐑤 Loll
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10465.prop.unused: *AH  # 𐑥 Mime
 
@@ -1648,21 +1648,21 @@ glyphs:
 
   u1046C.prop.unused:  # 𐑬 Out
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1046D.prop.unused:  # 𐑭 Ah
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1046E.prop.unused: *ROE  # 𐑮 Roar
 
@@ -1670,39 +1670,39 @@ glyphs:
 
   u10470.prop.unused:  # 𐑰 Eat
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10471.prop.unused:  # 𐑱 Age
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10472.prop.unused:  # 𐑲 Ice
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10473.prop.unused:  # 𐑳 Up
     bitmap:
-      - "#####"
+      - "#####" #
       - "  #  "
       - " #   "
       - " #   "
       - "#    "
-      - "#    "
+      - "#    " #
 
   u10474.prop.unused: *OWE  # 𐑴 Oak
 
@@ -1710,90 +1710,90 @@ glyphs:
 
   u10476.prop.unused:  # 𐑶 Oil
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10477.prop.unused:  # 𐑷 Awe
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10478.prop.unused:  # 𐑸 Are
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u10479.prop.unused:  # 𐑹 Or
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1047A.prop.unused:  # 𐑺 Air
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1047B.prop.unused:  # 𐑻 Err
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1047C.prop.unused:  # 𐑼 Array
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1047D.prop.unused:  # 𐑽 Ear
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
 
   u1047E.prop.unused:  # 𐑾 Ian
     bitmap:
-      - "#  ##"
+      - "#  ##" #
       - "# #  "
       - "##   "
       - "##   "
       - "#    "
-      - "#    "
+      - "#    " #
 
   u1047F.prop.unused:  # 𐑿 Yew
     bitmap:
+      - "     " #
       - "     "
       - "     "
       - "     "
       - "     "
-      - "     "
-      - "     "
+      - "     " #
