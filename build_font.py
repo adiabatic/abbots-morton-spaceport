@@ -450,6 +450,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 if base_name in glyphs_def:
                     entry_classes[anchor[1]].add(base_name)
 
+    # --- Add exit-only variants to entry classes ---
+    # If a base glyph is in an entry class (because it has entry variants),
+    # its exit-only variants should also be in the class — they can be
+    # reverse-upgraded to entry+exit variants by a later backward rule.
+    for base_name in fwd_upgrades:
+        for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+            entry_def = glyphs_def.get(entry_only_var, {}) or {}
+            raw_entry = entry_def.get("cursive_entry")
+            if not raw_entry:
+                continue
+            entry_y_val = _normalize_anchors(raw_entry)[0][1]
+            exit_only_var = fwd_replacements.get(base_name, {}).get(exit_y)
+            if exit_only_var and entry_y_val in entry_classes:
+                entry_classes[entry_y_val].add(exit_only_var)
+
     # --- Exclusive entry classes (for restricted forward rules) ---
     # A glyph is in @entry_only_yN when it enters at y=N but at NO other
     # height.  Forward rules use this restricted class when the selected
@@ -759,6 +774,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
+    def _emit_reverse_upgrades():
+        """Emit rules that convert exit-only variants to entry+exit variants.
+
+        When a preceding glyph's forward rule fires late (after the cycle
+        has already applied the exit-only variant to the current glyph),
+        this rule upgrades the exit-only variant to entry+exit so the
+        connection is established.
+        """
+        for base_name in sorted(fwd_upgrades):
+            for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+                entry_def = glyphs_def.get(entry_only_var, {}) or {}
+                raw_entry = entry_def.get("cursive_entry")
+                if not raw_entry:
+                    continue
+                entry_y_val = _normalize_anchors(raw_entry)[0][1]
+                exit_only_var = fwd_replacements.get(base_name, {}).get(exit_y)
+                if not exit_only_var or entry_y_val not in exit_classes:
+                    continue
+                safe = entry_exit_var.replace(".", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_reverse_upgrade_{safe} {{")
+                lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
+                lines.append(f"    }} calt_reverse_upgrade_{safe};")
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
     pair_only = sorted(set(pair_overrides) - set(bk_replacements))
     all_bk_bases = sorted_bases + pair_only
@@ -851,6 +890,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         _emit_upgrades(base_name)
         if base_name in all_fwd_bases:
             _emit_fwd(base_name)
+
+    _emit_reverse_upgrades()
 
     # Ligature substitutions live in calt (not liga) so that forward
     # rules selecting alternate glyphs can block the ligature.  For
