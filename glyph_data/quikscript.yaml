@@ -1446,6 +1446,17 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *out_bitmap
 
+  qsOut.fina:  # ·Out (word-final form)
+    calt_word_final: true
+    cursive_entry: [1, 0]
+    bitmap:
+      - " #  " #
+      - " ## "
+      - " # #"
+      - "# # "
+      - "#   "
+      - "#   " #
+
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
     bitmap:

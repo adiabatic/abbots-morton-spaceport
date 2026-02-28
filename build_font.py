@@ -321,6 +321,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
+        if glyph_def.get("calt_word_final"):
+            continue
         if not _is_entry_variant(glyph_name):
             if not glyph_def.get("cursive_entry"):
                 continue
@@ -387,6 +389,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if glyph_def is None or "." not in glyph_name:
             continue
         if _is_entry_variant(glyph_name) or glyph_name.endswith(".noentry"):
+            continue
+        if glyph_def.get("calt_word_final"):
             continue
         parts = glyph_name.split(".")[1:]
         if "half" in parts and glyph_def.get("cursive_entry"):
@@ -605,6 +609,44 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append("    lookup calt_zwnj {")
         lines.append(f"        sub {zwnj} @qs_has_entry' by @qs_noentry;")
         lines.append("    } calt_zwnj;")
+
+    # Word-final substitutions: mark glyphs as word-final, then revert
+    # when followed by another Quikscript letter. Net effect: .fina
+    # variants only survive at end-of-word (before space/punctuation/EOT).
+    word_final_pairs = {}
+    for name, gdef in glyphs_def.items():
+        if gdef and gdef.get("calt_word_final"):
+            base = name.split(".")[0]
+            if base in glyphs_def:
+                word_final_pairs[base] = name
+
+    if word_final_pairs:
+        excluded_bases = {"qsAngleParenLeft", "qsAngleParenRight"}
+        qs_letter_names = set()
+        for name in glyphs_def:
+            if not name.startswith("qs"):
+                continue
+            base = name.split(".")[0]
+            if base in excluded_bases:
+                continue
+            if "." not in name and "_" not in name:
+                qs_letter_names.add(name)
+        qs_letter_names.update(word_final_pairs.values())
+        qs_letters_sorted = " ".join(sorted(qs_letter_names))
+
+        lines.append("")
+        lines.append(f"    @qs_letters = [{qs_letters_sorted}];")
+
+        for base, variant in sorted(word_final_pairs.items()):
+            safe = variant.replace(".", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_word_final_{safe} {{")
+            lines.append(f"        sub {base} by {variant};")
+            lines.append(f"    }} calt_word_final_{safe};")
+            lines.append("")
+            lines.append(f"    lookup calt_word_final_revert_{safe} {{")
+            lines.append(f"        sub {variant}' @qs_letters by {base};")
+            lines.append(f"    }} calt_word_final_revert_{safe};")
 
     # Lookup ordering: forward-only bases run first so they can change a
     # glyph's exit before backward rules for the *following* glyph commit to
