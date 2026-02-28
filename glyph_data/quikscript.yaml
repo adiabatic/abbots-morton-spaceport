@@ -158,6 +158,21 @@ glyphs:
     cursive_entry: [1, 0]
     bitmap: *tea_prop_bitmap
 
+  qsTea.entry-xheight:  # ·Tea (full height, enters at x-height)
+    cursive_entry: [1, 5]
+    cursive_exit: [2, 0]
+    calt_after: [qsFee, qsI]
+    bitmap:
+      - " #"
+      - " #"
+      - " #"
+      - "##" #
+      - " #"
+      - " #"
+      - " #"
+      - " #"
+      - " #" #
+
   qsDay:  # ·Day
     y_offset: -3
     bitmap:
