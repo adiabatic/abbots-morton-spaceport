@@ -1376,15 +1376,15 @@ glyphs:
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
     bitmap:
-      - "     #   "
-      - "     #   "
-      - "     #   "
-      - "    #### " #
-      - "   # #  #"
-      - "  #  #  #"
-      - " #    ## "
-      - "#        "
-      - "#        "
+      - "    #   "
+      - "    #   "
+      - "    #   "
+      - "   #### " #
+      - "  # #  #"
+      - " #  #  #"
+      - "#    ## "
+      - "#       "
+      - "#       "
 
   qsOwe: &OWE  # ·Owe
     bitmap:
