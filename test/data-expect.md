@@ -1,9 +1,6 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>` cells in `test/index.html` describes
-the expected HarfBuzz shaping output for the Senior Sans font. The test
-runner (`test_shaping.py`) parses these attributes and verifies glyph
-selection and cursive attachment.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in `test/index.html` describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment.
 
 ## Glyph tokens
 
@@ -11,6 +8,8 @@ selection and cursive attachment.
 | ------------- | ------------------------------------------------ | ------- |
 | `·LetterName` | Base Quikscript letter (maps to `qsLetterName`)  | `·Bay`  |
 | `·-ing`       | Special case for `qsIng`                         | `·-ing` |
+| `\X`          | Literal character (looked up in `postscript_glyph_names.yaml`, falls back to `uniXXXX`) | `\.` |
+| `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)       | `◊space` |
 
 ## Variant assertions
 
