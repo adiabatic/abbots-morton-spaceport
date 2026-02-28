@@ -1340,7 +1340,7 @@ glyphs:
 
   qsAwe.prop:  # ·Awe
     cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
+    cursive_exit: [7, 0]
     bitmap:
       - "##     " #
       - "  #    "
