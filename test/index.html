@@ -169,6 +169,10 @@
       }
     }
 
+    dt.highlighted {
+      background: light-dark(#fff3cd, #5a4800);
+    }
+
     [data-changeme] {
       background: light-dark(#e8c4c4, #6b3333);
     }
@@ -1048,9 +1052,40 @@
       });
     }
 
+    const wordLists = document.querySelectorAll('.word-list');
+
+    function dtPath(dt) {
+      const dl = dt.closest('.word-list');
+      const dlIndex = [...wordLists].indexOf(dl);
+      const dtIndex = [...dl.querySelectorAll('dt')].indexOf(dt);
+      return `dt-${dlIndex}-${dtIndex}`;
+    }
+
+    for (const path of highlighted) {
+      if (!path.startsWith('dt-')) continue;
+      const [, di, dti] = path.split('-').map(Number);
+      const dt = wordLists[di]?.querySelectorAll('dt')[dti];
+      if (dt) dt.classList.add('highlighted');
+    }
+
+    for (const dl of wordLists) {
+      dl.addEventListener('click', (e) => {
+        const dt = e.target.closest('dt');
+        if (!dt) return;
+        dt.classList.toggle('highlighted');
+        const path = dtPath(dt);
+        if (dt.classList.contains('highlighted')) {
+          highlighted.add(path);
+        } else {
+          highlighted.delete(path);
+        }
+        saveHighlights(highlighted);
+      });
+    }
+
     function clearAllHighlights() {
-      for (const td of document.querySelectorAll('.pairings td.highlighted')) {
-        td.classList.remove('highlighted');
+      for (const el of document.querySelectorAll('.highlighted')) {
+        el.classList.remove('highlighted');
       }
       highlighted.clear();
       saveHighlights(highlighted);
