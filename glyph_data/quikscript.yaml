@@ -1019,7 +1019,7 @@ glyphs:
       - [1, 0]
       - [1, 5]
     cursive_exit: [6, 0]
-    calt_before: [qsAh, qsAt, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsVie, qsZoo]
+    calt_before: [qsAh, qsAt, qsExam, qsExcite, qsI, qsIng, qsIt, qsLow, qsMay, qsNo, qsOoze, qsOut, qsRoe, qsSee, qsTea, qsVie]
     bitmap:
       - "###   " #
       - "   #  "
@@ -1027,6 +1027,18 @@ glyphs:
       - "    # "
       - "   #  "
       - "######" #
+
+  qsRoe.exit-xheight:  # ·Roe (exits at x-height)
+    cursive_entry: [1, 0]
+    cursive_exit: [5, 5]
+    calt_before: [qsZoo]
+    bitmap:
+      - " ####" #
+      - "   # "
+      - "    #"
+      - "    #"
+      - "   # "
+      - "###  " #
 
   qsRoe.exit-y1.before-thaw:  # ·Roe (exits at y=1, before ·Thaw)
     cursive_entry:
