@@ -1203,6 +1203,21 @@ glyphs:
     cursive_exit: [6, 5]
     bitmap: *at_bitmap
 
+  qsAt_qsMay.prop:  # ·At·May ligature
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit: [11, 5]
+    bitmap:
+      - "    #   ##"
+      - "    #  #  "
+      - "    #  #  "
+      - "   #  #   "
+      - "  #   #   "
+      - "######### "
+      - "      #  #"
+      - "      #  #"
+      - "       ## "
+
   qsI:  # ·I
     bitmap: &i_bitmap
       - " ## #"
