@@ -187,7 +187,7 @@ class _DataExpectCollector(HTMLParser):
         self._text_parts = []
         self._line = None
 
-    _TAGS = {"td", "span"}
+    _TAGS = {"td", "span", "dd"}
 
     def handle_starttag(self, tag, attrs):
         if tag in self._TAGS:
