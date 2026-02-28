@@ -115,7 +115,7 @@ glyphs:
       - "#" #
 
   qsTea.exit-baseline:  # ·Tea (exits at baseline)
-    cursive_exit: [2, 0]
+    cursive_exit: [1, 0]
     bitmap: *tea_prop_bitmap
 
   qsTea.half.entry-xheight:  # ·Tea (half)
