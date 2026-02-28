@@ -372,6 +372,20 @@ glyphs:
     calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
     bitmap: *they_bitmap
 
+  qsThey.exit-xheight:  # ·They (exits at x-height)
+    y_offset: -3
+    cursive_exit: [4, 5]
+    bitmap:
+      - "  #  " #
+      - "  #  "
+      - " #   "
+      - " #   "
+      - " #   "
+      - "#    " #
+      - "#    "
+      - "#   #"
+      - " ### "
+
   qsThey_qsUtter.prop:  # ·They·Utter ligature
     y_offset: -3
     cursive_entry: [3, 5]
