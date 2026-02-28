@@ -120,6 +120,7 @@ glyphs:
 
   qsTea.half.entry-xheight:  # ·Tea (half)
     cursive_entry: [1, 5]
+    calt_not_after: [qsAt]
     bitmap:
       - "  #"
       - "  #"

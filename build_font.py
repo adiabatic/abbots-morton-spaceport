@@ -314,6 +314,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     """
     # --- Backward-looking: entry variants keyed by entry Y ---
     bk_replacements: dict[str, dict[int, str]] = {}
+    bk_exclusions: dict[str, dict[int, list[str]]] = {}
     # Pair-specific overrides: entry variants with calt_after lists
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
     fwd_upgrades: dict[str, list[tuple[str, str, int]]] = {}
@@ -369,6 +370,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
             else:
                 bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
+            not_after = glyph_def.get("calt_not_after")
+            if not_after:
+                resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_after]
+                bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
 
     # --- Forward-looking: exit variants keyed by exit Y ---
     # Detects any variant with cursive_exit (catches .exit-* names and
@@ -665,12 +670,15 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     def _emit_bk_general(base_name: str):
         if base_name in bk_replacements:
             variants = bk_replacements[base_name]
+            exclusions = bk_exclusions.get(base_name, {})
             lookup_name = f"calt_{base_name}"
             lines.append("")
             lines.append(f"    lookup {lookup_name} {{")
             for entry_y in sorted(variants.keys()):
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
+                    for eg in sorted(exclusions.get(entry_y, [])):
+                        lines.append(f"        ignore sub {eg} {base_name}';")
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
@@ -681,9 +689,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             if base_name not in bk_replacements:
                 continue
             variants = bk_replacements[base_name]
+            exclusions = bk_exclusions.get(base_name, {})
             for entry_y in sorted(variants.keys()):
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
+                    for eg in sorted(exclusions.get(entry_y, [])):
+                        lines.append(f"        ignore sub {eg} {base_name}';")
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
         for base_name in bases:
             if base_name in fwd_replacements:
@@ -740,8 +751,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 continue
             safe = base_name.replace(".", "_").replace("-", "_")
             lines.append("")
+            exclusions = bk_exclusions.get(base_name, {})
             lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
+                for eg in sorted(exclusions.get(entry_y, [])):
+                    lines.append(f"        ignore sub {eg} {base_name}';")
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
