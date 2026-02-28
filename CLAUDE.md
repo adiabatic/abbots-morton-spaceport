@@ -1,3 +1,1 @@
-# Instructions for Claude
-
-- Read @AGENTS.md
+AGENTS.md
