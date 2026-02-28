@@ -7,21 +7,21 @@ selection and cursive attachment.
 
 ## Glyph tokens
 
-| Syntax | Meaning | Example |
-| --- | --- | --- |
-| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`) | `·Bay` |
-| `·-ing` | Special case for `qsIng` | `·-ing` |
+| Syntax        | Meaning                                          | Example |
+| ------------- | ------------------------------------------------ | ------- |
+| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`)  | `·Bay`  |
+| `·-ing`       | Special case for `qsIng`                         | `·-ing` |
 
 ## Variant assertions
 
 Append dot-separated modifiers to assert properties of the selected glyph
 variant:
 
-| Modifier | Matches glyph names containing | Example |
-| --- | --- | --- |
-| `.alt` | `alt` | `·No.alt` |
-| `.half` | `half` | `·Pea.half` |
-| `.extended` | `extended` | `·Roe.extended` |
+| Modifier    | Matches glyph names containing | Example         |
+| ----------- | ------------------------------ | --------------- |
+| `.alt`      | `alt`                          | `·No.alt`       |
+| `.half`     | `half`                         | `·Pea.half`     |
+| `.extended` | `extended`                     | `·Roe.extended` |
 
 Variant assertions are optional. Without them, any variant of the base
 letter satisfies the check.
@@ -42,14 +42,14 @@ This expects one output glyph whose name contains both `qsDay` and
 Tokens are separated by connection operators that describe how adjacent
 glyphs attach (or don't):
 
-| Operator | Meaning |
-| --- | --- |
-| (adjacency) | Joined, height unasserted |
-| `~x~` | Joined at x-height (y = 5) |
-| `~b~` | Joined at baseline (y = 0) |
-| `~t~` | Joined at top (y = 8) |
-| `~6~` | Joined at y = 6 |
-| ` \| ` | Break (no cursive connection) |
+| Operator    | Meaning                        |
+| ----------- | ------------------------------ |
+| (adjacency) | Joined, height unasserted      |
+| `~x~`       | Joined at x-height (y = 5)     |
+| `~b~`       | Joined at baseline (y = 0)     |
+| `~t~`       | Joined at top (y = 8)          |
+| `~6~`       | Joined at y = 6                |
+| ` \| `      | Break (no cursive connection)  |
 
 A "join" means the preceding glyph's exit anchor and the following glyph's
 entry anchor share the specified Y coordinate. A "break" means no matching
