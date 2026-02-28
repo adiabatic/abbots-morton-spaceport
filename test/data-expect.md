@@ -4,12 +4,12 @@ The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in `test/in
 
 ## Glyph tokens
 
-| Syntax        | Meaning                                          | Example |
-| ------------- | ------------------------------------------------ | ------- |
-| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`)  | `·Bay`  |
-| `·-ing`       | Special case for `qsIng`                         | `·-ing` |
-| `\X`          | Literal character (looked up in `postscript_glyph_names.yaml`, falls back to `uniXXXX`) | `\.` |
-| `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)       | `◊space` |
+| Syntax        | Meaning                                          | Example  |
+| ------------- | ------------------------------------------------ | -------- |
+| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`)  | `·Bay`   |
+| `·-ing`       | Special case for `qsIng`                         | `·-ing`  |
+| `\X`          | Literal character (via glyph names or `uniXXXX`) | `\.`     |
+| `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)        | `◊space` |
 
 ## Variant assertions
 
