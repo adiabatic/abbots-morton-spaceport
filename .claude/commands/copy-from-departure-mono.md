@@ -3,7 +3,8 @@ Copy a glyph from Departure Mono to this font. Only create a `.prop` variant unl
 Steps:
 
 1. Extract the glyph bitmap:
-   ```
+
+   ```zsh
    uv run python extract_glyph.py test/DepartureMono-Regular.otf $ARGUMENTS
    ```
 
@@ -12,12 +13,14 @@ Steps:
 3. Add the `.prop` glyph to @glyph_data/latin.yaml in the "Non-Quikscript glyphs" section at the end, sorted by Unicode code point (not alphabetically by glyph name).
 
 4. Rebuild fonts:
-   ```
+
+   ```zsh
    make all
    ```
 
 5. Verify the glyph matches exactly:
-   ```
+
+   ```zsh
    uv run python extract_glyph.py --compare $ARGUMENTS test/DepartureMono-Regular.otf test/AbbotsMortonSpaceportMono.otf
    ```
 
