@@ -851,25 +851,26 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if all(c in glyphs_def for c in components):
             ligatures.append((glyph_name, components))
     if ligatures:
+        from itertools import product as _product
+
         lines.append("")
         lines.append("    lookup calt_liga {")
         for lig_name, components in sorted(ligatures):
-            component_str = " ".join(components)
-            lines.append(f"        sub {component_str} by {lig_name};")
-            first = components[0]
-            first_variants: set[str] = set()
-            if first in fwd_replacements:
-                first_variants.update(fwd_replacements[first].values())
-            if first in bk_replacements:
-                first_variants.update(bk_replacements[first].values())
-            if first in pair_overrides:
-                for variant_name, _ in pair_overrides[first]:
-                    first_variants.add(variant_name)
-            for variant in sorted(first_variants):
-                rest = " ".join(components[1:])
-                lines.append(
-                    f"        sub {variant} {rest} by {lig_name};"
-                )
+            variant_sets: list[list[str]] = []
+            for i, comp in enumerate(components):
+                variants: set[str] = set()
+                if comp in bk_replacements:
+                    variants.update(bk_replacements[comp].values())
+                if comp in pair_overrides:
+                    for variant_name, _ in pair_overrides[comp]:
+                        variants.add(variant_name)
+                if i == 0:
+                    if comp in fwd_replacements:
+                        variants.update(fwd_replacements[comp].values())
+                variant_sets.append([comp] + sorted(variants))
+            for combo in _product(*variant_sets):
+                component_str = " ".join(combo)
+                lines.append(f"        sub {component_str} by {lig_name};")
         lines.append("    } calt_liga;")
 
     lines.append("} calt;")
