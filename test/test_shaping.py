@@ -177,7 +177,7 @@ def parse_expect(raw):
 # ---------------------------------------------------------------------------
 
 class _DataExpectCollector(HTMLParser):
-    """Collect <td data-expect="..."> cells from HTML."""
+    """Collect data-expect="..." from <td> and <span> elements in HTML."""
 
     def __init__(self):
         super().__init__()
@@ -187,8 +187,10 @@ class _DataExpectCollector(HTMLParser):
         self._text_parts = []
         self._line = None
 
+    _TAGS = {"td", "span"}
+
     def handle_starttag(self, tag, attrs):
-        if tag == "td":
+        if tag in self._TAGS:
             attr_dict = dict(attrs)
             if "data-expect" in attr_dict:
                 self._in_td = True
@@ -197,7 +199,7 @@ class _DataExpectCollector(HTMLParser):
                 self._line = self.getpos()[0]
 
     def handle_endtag(self, tag):
-        if tag == "td" and self._in_td:
+        if tag in self._TAGS and self._in_td:
             text = "".join(self._text_parts).strip()
             self.cells.append((text, self._expect, self._line))
             self._in_td = False
