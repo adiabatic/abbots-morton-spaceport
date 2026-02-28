@@ -152,11 +152,15 @@
     .word-list--2col {
       columns: 2;
 
+      &.word-list dt {
+        width: 16ch;
+      }
+
       .word-list__col-break {
         break-before: column;
       }
 
-      @container (width < 30ch) {
+      @container (width < 50ch) {
         columns: 1;
 
         div.word-list__col-break {
