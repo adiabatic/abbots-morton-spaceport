@@ -701,6 +701,21 @@ glyphs:
       - " #  "
       - " #  " #
 
+  qsYe.entry-xheight.exit-baseline:  # ·Ye (enters and exits at x-height)
+    cursive_entry: [1, 5]
+    cursive_exit:  [2, 0]
+    calt_after: [qsNo]
+    bitmap:
+      - "  ## "
+      - " #  #"
+      - " ### "
+      - "##   " #
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   "
+      - " #   " #
+
   qsWay:  # ·Way
     y_offset: -3
     # idea: extend the bitmap up by one column so there's no final curve at the top
