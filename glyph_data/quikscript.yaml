@@ -975,6 +975,7 @@ glyphs:
   qsIng.prop.widebase:  # ·-ing (wide base, after ·Thaw)
     cursive_entry: [1, 0]
     cursive_exit: [8, 0]
+    calt_before: [qsThaw]
     bitmap:
       - "   #   "
       - "  # #  "
