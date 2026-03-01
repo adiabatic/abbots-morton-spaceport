@@ -5,7 +5,7 @@ Steps:
 1. Extract the glyph bitmap:
 
    ```zsh
-   uv run python extract_glyph.py test/DepartureMono-Regular.otf $ARGUMENTS
+   uv run python tools/extract_glyph.py test/DepartureMono-Regular.otf $ARGUMENTS
    ```
 
 2. Create the `.prop` variant by trimming any leading or trailing columns that are all spaces across every row.
@@ -21,7 +21,7 @@ Steps:
 5. Verify the glyph matches exactly:
 
    ```zsh
-   uv run python extract_glyph.py --compare $ARGUMENTS test/DepartureMono-Regular.otf test/AbbotsMortonSpaceportMono.otf
+   uv run python tools/extract_glyph.py --compare $ARGUMENTS test/DepartureMono-Regular.otf test/AbbotsMortonSpaceportMono.otf
    ```
 
    All metrics must match (advance_width, xMin, yMin, xMax, yMax, left_side_bearing). If they don't match, investigate and fix.

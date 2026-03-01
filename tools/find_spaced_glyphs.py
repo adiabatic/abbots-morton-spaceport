@@ -7,7 +7,7 @@ bitmap content is narrower than the standard monospace width (5 pixels).
 These "spaced out" glyphs have padding on the sides.
 
 Usage:
-    uv run python find_spaced_glyphs.py test/DepartureMono-Regular.otf
+    uv run python tools/find_spaced_glyphs.py test/DepartureMono-Regular.otf
 """
 
 import argparse
