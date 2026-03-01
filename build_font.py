@@ -75,12 +75,33 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
     - .prop glyphs are renamed to their base names (e.g., qsPea.prop → qsPea)
     - Base glyphs that have .prop variants are excluded
     - Glyphs without .prop variants remain unchanged
+    - Glyph name references inside definitions are updated accordingly
     """
-    # Find all base glyph names that have .prop variants
+    # Build rename map: old .prop name → new base name
+    rename_map: dict[str, str] = {}
     prop_base_names = set()
     for glyph_name in glyphs_def.keys():
         if is_proportional_glyph(glyph_name):
-            prop_base_names.add(get_base_glyph_name(glyph_name))
+            base_name = get_base_glyph_name(glyph_name)
+            prop_base_names.add(base_name)
+            rename_map[glyph_name] = base_name
+
+    def _rename_refs(glyph_def: dict | None) -> dict | None:
+        if not glyph_def or not rename_map:
+            return glyph_def
+        ref_keys = ("calt_after", "calt_before", "calt_not_after", "calt_not_before")
+        changed = False
+        for key in ref_keys:
+            val = glyph_def.get(key)
+            if not val:
+                continue
+            new_val = [rename_map.get(g, g) for g in val]
+            if new_val != list(val):
+                if not changed:
+                    glyph_def = dict(glyph_def)
+                    changed = True
+                glyph_def[key] = new_val
+        return glyph_def
 
     # Build new glyph dict
     new_glyphs = {}
@@ -88,13 +109,13 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
         if is_proportional_glyph(glyph_name):
             # Rename .prop glyph to its base name
             base_name = get_base_glyph_name(glyph_name)
-            new_glyphs[base_name] = glyph_def
+            new_glyphs[base_name] = _rename_refs(glyph_def)
         elif glyph_name in prop_base_names:
             # Skip base glyphs that have .prop variants
             continue
         else:
             # Keep glyphs without .prop variants unchanged
-            new_glyphs[glyph_name] = glyph_def
+            new_glyphs[glyph_name] = _rename_refs(glyph_def)
 
     return new_glyphs
 
@@ -975,6 +996,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 if comp in pair_overrides:
                     for variant_name, _ in pair_overrides[comp]:
                         variants.add(variant_name)
+                if comp in fwd_pair_overrides:
+                    for variant_name, _ in fwd_pair_overrides[comp]:
+                        variants.add(variant_name)
                 if i == 0:
                     if comp in fwd_replacements:
                         variants.update(fwd_replacements[comp].values())
@@ -983,6 +1007,26 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 component_str = " ".join(combo)
                 lines.append(f"        sub {component_str} by {lig_name};")
         lines.append("    } calt_liga;")
+
+        lig_glyph_names = {lig_name for lig_name, _ in ligatures}
+        post_liga_rules: list[tuple[str, str, list[str]]] = []
+        for base_name in sorted(pair_overrides):
+            for variant_name, after_glyphs in pair_overrides[base_name]:
+                if any(g in lig_glyph_names for g in after_glyphs):
+                    post_liga_rules.append((base_name, variant_name, after_glyphs))
+        if post_liga_rules:
+            lines.append("")
+            lines.append("    lookup calt_post_liga {")
+            for base_name, variant_name, after_glyphs in post_liga_rules:
+                after_list = " ".join(sorted(after_glyphs))
+                targets = {base_name}
+                if base_name in bk_replacements:
+                    targets.update(bk_replacements[base_name].values())
+                for target in sorted(targets):
+                    lines.append(
+                        f"        sub [{after_list}] {target}' by {variant_name};"
+                    )
+            lines.append("    } calt_post_liga;")
 
     lines.append("} calt;")
     return "\n".join(lines)
