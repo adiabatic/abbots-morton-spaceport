@@ -348,7 +348,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             if not glyph_def.get("cursive_entry"):
                 continue
             parts = glyph_name.split(".")[1:]
-            if "half" not in parts and "alt" not in parts:
+            if "half" not in parts and "alt" not in parts and not glyph_def.get("calt_after"):
                 continue
         raw_entry = glyph_def.get("cursive_entry")
         if raw_entry is None:
@@ -420,6 +420,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if _is_entry_variant(glyph_name) and not glyph_def.get("calt_before"):
             continue
         if glyph_def.get("calt_word_final"):
+            continue
+        if glyph_def.get("calt_after"):
             continue
         parts = glyph_name.split(".")[1:]
         if "half" in parts and glyph_def.get("cursive_entry") and not glyph_def.get("calt_before"):

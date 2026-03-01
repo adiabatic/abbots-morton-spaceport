@@ -361,6 +361,20 @@ glyphs:
     cursive_entry: [3, 0]
     bitmap: *thaw_bitmap
 
+  qsThaw.exit-baseline:  # ·Thaw (exits at baseline, before ·-ing)
+    cursive_exit: [5, 0]
+    calt_before: [qsIng]
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "    #"
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "   # "
+      - "  ## " #
+
   qsThaw.entry-y1:  # ·Thaw (enters at y=1)
     cursive_entry: [3, 1] 
     bitmap:
@@ -975,7 +989,7 @@ glyphs:
   qsIng.prop.widebase:  # ·-ing (wide base, after ·Thaw)
     cursive_entry: [1, 0]
     cursive_exit: [8, 0]
-    calt_before: [qsThaw]
+    calt_after: [qsThaw]
     bitmap:
       - "   #   "
       - "  # #  "
