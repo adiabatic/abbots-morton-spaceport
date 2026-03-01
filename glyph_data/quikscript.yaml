@@ -535,6 +535,19 @@ glyphs:
       - "   #  "
       - "###   " #
 
+  qsSee_qsUtter.prop:  # ·See·Utter ligature
+    cursive_exit: [8, 5]
+    bitmap:
+      - "   #   "
+      - "  #    "
+      - " #     "
+      - " #   ##" #
+      - " #  #  "
+      - "  ##   "
+      - "  #    "
+      - " #     "
+      - "#      " #
+
   qsZoo:  # ·Zoo
     y_offset: -3
     bitmap: &zoo_bitmap
