@@ -1468,13 +1468,12 @@ glyphs:
     calt_word_final: true
     cursive_entry: [1, 0]
     bitmap:
-      - " #  " #
-      - " ## "
-      - " # #"
-      - "# # "
-      - "#   "
-      - "#   " #
-
+      - "    ### " #
+      - "   ##  #"
+      - "  # #  #"
+      - " #   ## "
+      - "#       "
+      - "#       " #
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
     bitmap:
