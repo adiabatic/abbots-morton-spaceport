@@ -833,6 +833,11 @@ glyphs:
     calt_not_before: [qsSee, qsThaw]
     bitmap: *he_prop_bitmap
 
+  qsHe.exit-baseline.before-may:  # ·He (exits at baseline, before ·May)
+    cursive_exit: [1, 0]
+    calt_before: [qsMay]
+    bitmap: *he_prop_bitmap
+
   qsWhy:  # ·Why
     y_offset: -3
     bitmap:
