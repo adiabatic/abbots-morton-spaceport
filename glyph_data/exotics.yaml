@@ -10,14 +10,14 @@ glyphs:
 
   arrowup.prop:
     bitmap:
-      - "   #  "
-      - "  ### "
-      - " # # #"
-      - "   #  "
-      - "   #  "
-      - "   #  "
-      - "   #  "
-      - "   #  "
+      - "  #  "
+      - " ### "
+      - "# # #"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
 
   arrowright.prop:
     y_offset: 1
@@ -30,24 +30,24 @@ glyphs:
 
   arrowdown.prop:
     bitmap:
-      - "   #  "
-      - "   #  "
-      - "   #  "
-      - "   #  "
-      - "   #  "
-      - " # # #"
-      - "  ### "
-      - "   #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "# # #"
+      - " ### "
+      - "  #  "
 
   uni2196.prop:  # North west arrow
     y_offset: 1
     bitmap:
-      - " ####  "
-      - " ##    "
-      - " # #   "
-      - " #  #  "
-      - "     # "
-      - "      #"
+      - "####  "
+      - "##    "
+      - "# #   "
+      - "#  #  "
+      - "    # "
+      - "     #"
 
   uni2197.prop:  # North east arrow
     y_offset: 1
@@ -72,12 +72,12 @@ glyphs:
   uni2199.prop:  # South west arrow
     y_offset: 1
     bitmap:
-      - "      #"
-      - "     # "
-      - " #  #  "
-      - " # #   "
-      - " ##    "
-      - " ####  "
+      - "     #"
+      - "    # "
+      - "#  #  "
+      - "# #   "
+      - "##    "
+      - "####  "
 
   uni25A0.prop:  # ■ Black square
     bitmap:
@@ -138,3 +138,134 @@ glyphs:
       - "  #####"
       - "    ###"
       - "      #"
+
+  lozenge.prop:  # ◊ Lozenge
+    y_offset: -1
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - " # # "
+      - " # # "
+      - "#   #"
+      - "#   #"
+      - " # # "
+      - " # # "
+      - "  #  "
+      - "  #  "
+
+  pi.prop:  # π Greek small letter pi
+    bitmap:
+      - "######"
+      - " #  # "
+      - " #  # "
+      - " #  # "
+      - " #  # "
+      - " #   #"
+
+  fraction.prop:  # ⁄ Fraction slash
+    y_offset: 2
+    bitmap:
+      - "     ##"
+      - "  ###  "
+      - "##     "
+
+  uni2113.prop:  # ℓ Script small L
+    bitmap:
+      - "   # "
+      - "  # #"
+      - "  # #"
+      - " #  #"
+      - " # # "
+      - " ##  "
+      - "##  #"
+      - "  ## "
+
+  numero.prop:  # № Numero sign
+    bitmap:
+      - "#  #   "
+      - "#  # # "
+      - "## ## #"
+      - "# ## # "
+      - "#  #   "
+      - "#  # # "
+      - "#  #   "
+      - "#  #   "
+
+  Ohm.prop:  # Ω Ohm sign
+    bitmap:
+      - " ### "
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " # # "
+      - "## ##"
+
+  estimated.prop:  # ℮ Estimated symbol
+    bitmap:
+      - "  ###  "
+      - " #   # "
+      - "##   ##"
+      - "#######"
+      - "##     "
+      - " #   # "
+      - "  ###  "
+
+  partialdiff.prop:  # ∂ Partial differential
+    bitmap:
+      - "  ## "
+      - "    #"
+      - "    #"
+      - "  ###"
+      - " #  #"
+      - "#   #"
+      - "#  # "
+      - " ##  "
+
+  increment.prop:  # ∆ Increment
+    bitmap:
+      - "  #  "
+      - "  #  "
+      - " # # "
+      - " # # "
+      - " # # "
+      - "#   #"
+      - "#   #"
+      - "#####"
+
+  product.prop:  # ∏ N-ary product
+    bitmap:
+      - "#####"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+
+  summation.prop:  # ∑ N-ary summation
+    bitmap:
+      - "#####"
+      - "#   #"
+      - " #   "
+      - "  #  "
+      - " #   "
+      - "#    "
+      - "#   #"
+      - "#####"
+
+  integral.prop:  # ∫ Integral
+    y_offset: -2
+    bitmap:
+      - "   ##"
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "##   "
