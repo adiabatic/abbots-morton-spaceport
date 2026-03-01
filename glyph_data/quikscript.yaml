@@ -987,8 +987,25 @@ glyphs:
 
   qsMay.prop:  # ·May
     y_offset: -3
+    cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     bitmap: *may_bitmap
+
+  qsMay.exit-xheight.extended:  # ·May (exits at x-height, extended bridge)
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit:  [7, 5]
+    calt_before: [qsDay]
+    bitmap:
+      - "   ###" #
+      - "  #   "
+      - "  #   "
+      - " #    "
+      - " #    "
+      - "####  " #
+      - " #  # "
+      - " #  # "
+      - "  ##  "
 
   qsMay.entry-xheight:  # ·May (enters at x-height)
     y_offset: -3
