@@ -514,7 +514,7 @@ glyphs:
   qsVie.exit-baseline:  # ·Vie (exits at baseline, before ·No)
     y_offset: -3
     cursive_entry: [1, 0]
-    cursive_exit: [5, 0]
+    cursive_exit: [8, 0]
     calt_before: [qsNo]
     bitmap:
       - "  ###   " #
