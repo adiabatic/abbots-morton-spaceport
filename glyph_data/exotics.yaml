@@ -1,0 +1,80 @@
+glyphs:
+  arrowleft.prop:
+    y_offset: 1
+    bitmap:
+      - "  #    "
+      - " #     "
+      - "#######"
+      - " #     "
+      - "  #    "
+
+  arrowup.prop:
+    bitmap:
+      - "   #  "
+      - "  ### "
+      - " # # #"
+      - "   #  "
+      - "   #  "
+      - "   #  "
+      - "   #  "
+      - "   #  "
+
+  arrowright.prop:
+    y_offset: 1
+    bitmap:
+      - "    #  "
+      - "     # "
+      - "#######"
+      - "     # "
+      - "    #  "
+
+  arrowdown.prop:
+    bitmap:
+      - "   #  "
+      - "   #  "
+      - "   #  "
+      - "   #  "
+      - "   #  "
+      - " # # #"
+      - "  ### "
+      - "   #  "
+
+  uni2196.prop:  # North west arrow
+    y_offset: 1
+    bitmap:
+      - " ####  "
+      - " ##    "
+      - " # #   "
+      - " #  #  "
+      - "     # "
+      - "      #"
+
+  uni2197.prop:  # North east arrow
+    y_offset: 1
+    bitmap:
+      - "  ####"
+      - "    ##"
+      - "   # #"
+      - "  #  #"
+      - " #    "
+      - "#     "
+
+  uni2198.prop:  # South east arrow
+    y_offset: 1
+    bitmap:
+      - "#     "
+      - " #    "
+      - "  #  #"
+      - "   # #"
+      - "    ##"
+      - "  ####"
+
+  uni2199.prop:  # South west arrow
+    y_offset: 1
+    bitmap:
+      - "      #"
+      - "     # "
+      - " #  #  "
+      - " # #   "
+      - " ##    "
+      - " ####  "

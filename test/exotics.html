@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Exotics &mdash; Abbots Morton Spaceport</title>
+    <link rel="stylesheet" href="shared.css">
+    <style>
+      :root {
+        --font-stack: "Abbots Morton Spaceport Sans Senior", "Abbots Morton Spaceport Sans Junior", sans-serif;
+        --card-bg: light-dark(#fff, #2a2a2a);
+        --card-border: 1px solid light-dark(#ccc, #444);
+      }
+
+      body {
+        max-width: 800px;
+      }
+
+      .specimen-section {
+        background: var(--card-bg);
+        border: var(--card-border);
+        padding: 1rem;
+        border-radius: 4px;
+        font-size: 22px;
+
+        table {
+          border-collapse: collapse;
+          width: 100%;
+
+          th,
+          td {
+            padding: 0.25em 0.5em;
+            vertical-align: baseline;
+            text-align: left;
+            font-weight: normal;
+          }
+
+          th {
+            font-size: 11px;
+            color: light-dark(#666, #999);
+          }
+
+          td:first-child {
+            font-size: 44px;
+            text-align: center;
+            width: 3em;
+          }
+        }
+
+        p {
+          margin: 0;
+          line-height: 1.6;
+
+          & + p {
+            margin-top: 1.6em;
+          }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Exotics</h1>
+
+    <h2>Arrows</h2>
+    <div class="specimen-section">
+      <table>
+        <tr>
+          <th>Glyph</th>
+          <th>Code point</th>
+          <th>Name</th>
+        </tr>
+        <tr>
+          <td>&#x2190;</td>
+          <td>U+2190</td>
+          <td>Leftwards arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2191;</td>
+          <td>U+2191</td>
+          <td>Upwards arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2192;</td>
+          <td>U+2192</td>
+          <td>Rightwards arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2193;</td>
+          <td>U+2193</td>
+          <td>Downwards arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2196;</td>
+          <td>U+2196</td>
+          <td>North west arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2197;</td>
+          <td>U+2197</td>
+          <td>North east arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2198;</td>
+          <td>U+2198</td>
+          <td>South east arrow</td>
+        </tr>
+        <tr>
+          <td>&#x2199;</td>
+          <td>U+2199</td>
+          <td>South west arrow</td>
+        </tr>
+      </table>
+    </div>
+
+    <h2>In context</h2>
+    <div class="specimen-section">
+      <p>&#x2190; back | next &#x2192;</p>
+      <p>scroll &#x2191; | scroll &#x2193;</p>
+      <p>&#x2196; &#x2191; &#x2197;</p>
+      <p>&#x2190; &#xB7; &#x2192;</p>
+      <p>&#x2199; &#x2193; &#x2198;</p>
+    </div>
+
+    <footer>
+      <a href="index.html">Font Test</a> |
+      <a href="specimen.html">Specimen</a> |
+      Exotics |
+      <a href="glyph-editor.html">Glyph Editor</a> |
+      <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+    </footer>
+  </body>
+</html>
