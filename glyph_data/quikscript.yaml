@@ -1018,6 +1018,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    pad_entry_after: *vertical_exit_letters
     bitmap: *may_bitmap
 
   qsMay.exit-xheight.extended:  # ·May (exits at x-height, extended bridge)
