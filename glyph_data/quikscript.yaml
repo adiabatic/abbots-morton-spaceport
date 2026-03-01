@@ -318,10 +318,10 @@ glyphs:
       - " #  #"
       - "  ## "
 
-  qsGay.exit-baseline.before-no:  # ·Gay (exits at baseline, before ·No)
+  qsGay.exit-baseline.before-deep:  # ·Gay (exits at baseline, before deep letters)
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_before: [qsNo]
+    calt_before: [qsDay, qsNo]
     bitmap: *gay_bitmap
 
   qsGay.exit-baseline.before-roe:  # ·Gay (exits at baseline, before ·Roe)
