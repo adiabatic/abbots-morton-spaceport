@@ -1148,16 +1148,6 @@ glyphs:
     calt_after: [qsPea.prop.half]
     bitmap: *roe_bitmap
 
-  qsRoe.entry-xheight.extended:  # ·Roe
-    cursive_entry: [1, 5]
-    bitmap:
-      - "####  " #
-      - "    # "
-      - "     #"
-      - "     #"
-      - "    # "
-      - " ###  " #
-
   qsRoe.exit-baseline:  # ·Roe (exits at baseline)
     cursive_entry:
       - [1, 5]

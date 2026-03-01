@@ -718,18 +718,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 lines.append("")
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
                 for target in sorted(targets):
+                    guard_list = None
                     if variant_entry_ys is not None:
                         target_def = glyphs_def.get(target, {}) or {}
                         target_raw = target_def.get("cursive_entry")
                         if target_raw:
                             target_entry_ys = {a[1] for a in _normalize_anchors(target_raw)}
                             if not target_entry_ys.issubset(variant_entry_ys):
-                                continue
+                                incompatible_ys = target_entry_ys - variant_entry_ys
+                                if incompatible_ys == target_entry_ys:
+                                    continue
+                                guard_glyphs = set()
+                                for iy in incompatible_ys:
+                                    guard_glyphs.update(exit_classes.get(iy, set()))
+                                if guard_glyphs:
+                                    guard_list = " ".join(sorted(guard_glyphs))
                     actual_variant = variant_name
                     if target.endswith(".entry-padded"):
                         padded = variant_name + ".entry-padded"
                         if padded in glyphs_def:
                             actual_variant = padded
+                    if guard_list:
+                        lines.append(
+                            f"        ignore sub [{guard_list}] {target}' [{before_list}];"
+                        )
                     lines.append(
                         f"        sub {target}' [{before_list}] by {actual_variant};"
                     )
@@ -969,23 +981,39 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     else:
         post_cycle = list(all_bk_bases)
 
-    # Identify bases with self-referencing forward pair overrides
-    # (calt_before targets include the same base glyph). These need their
-    # forward pair lookup emitted before backward rules so the created exit
-    # is visible to subsequent backward substitutions.
-    self_ref_fwd_pairs: set[str] = set()
+    # Identify bases whose forward pair lookups must run before backward
+    # rules.  Two cases:
+    # 1. Self-referencing: calt_before targets include the same base glyph.
+    # 2. Cross-referencing: the variant's exit Y feeds into a before_glyph's
+    #    backward entry Y, so the exit must be visible when that glyph's
+    #    backward rule fires.
+    early_fwd_pairs: set[str] = set()
     for base_name, overrides in fwd_pair_overrides.items():
-        for _, before_glyphs in overrides:
+        found = False
+        for variant_name, before_glyphs in overrides:
             if base_name in {g.split(".")[0] for g in before_glyphs}:
-                self_ref_fwd_pairs.add(base_name)
+                early_fwd_pairs.add(base_name)
+                found = True
+                break
+            variant_def = glyphs_def.get(variant_name, {}) or {}
+            raw_exit = variant_def.get("cursive_exit")
+            if raw_exit:
+                exit_ys = {a[1] for a in _normalize_anchors(raw_exit)}
+                for bg in before_glyphs:
+                    bg_base = bg.split(".")[0] if "." in bg else bg
+                    if exit_ys & set(bk_replacements.get(bg_base, {})):
+                        early_fwd_pairs.add(base_name)
+                        found = True
+                        break
+            if found:
                 break
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
-            if base_name in self_ref_fwd_pairs:
-                _emit_fwd_pairs(base_name)
-        for base_name in bases:
             _emit_bk_pairs(base_name)
+        for base_name in bases:
+            if base_name in early_fwd_pairs:
+                _emit_fwd_pairs(base_name)
         if use_cycle:
             _emit_bk_cycle(bases)
         else:
@@ -997,7 +1025,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             _emit_post_upgrade_bk(bases)
         for base_name in bases:
             if base_name in all_fwd_bases:
-                if base_name in self_ref_fwd_pairs:
+                if base_name in early_fwd_pairs:
                     _emit_fwd_general(base_name)
                 else:
                     _emit_fwd(base_name)
