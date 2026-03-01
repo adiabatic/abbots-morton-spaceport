@@ -1263,14 +1263,18 @@ def generate_padded_entry_variants(glyphs_def: dict) -> dict:
         entry = gdef.get("cursive_entry")
         if not entry:
             continue
-        variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
-        variant_def["cursive_entry"] = _shift_entry(entry)
-        variant_def["calt_after"] = list(pad_after)
-        variants[name + ".entry-padded"] = variant_def
+        padded_name = name + ".entry-padded"
+        if padded_name not in glyphs_def:
+            variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
+            variant_def["cursive_entry"] = _shift_entry(entry)
+            variant_def["calt_after"] = list(pad_after)
+            variants[padded_name] = variant_def
 
         base_name = name.split(".")[0]
         for other_name, other_gdef in sorted(glyphs_def.items()):
             if other_gdef is None or other_name == name:
+                continue
+            if other_name.endswith(".entry-padded"):
                 continue
             other_base = other_name.split(".")[0]
             is_variant = other_base == base_name and "." in other_name
