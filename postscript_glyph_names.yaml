@@ -72,6 +72,7 @@ hungarumlaut: 0x02DD
 
 # Greek
 tonos: 0x0384
+pi: 0x03C0
 
 # Latin-1 Supplement
 exclamdown: 0x00A1
@@ -195,9 +196,13 @@ Euro: 0x20AC
 # General punctuation (continued)
 guilsinglleft: 0x2039
 guilsinglright: 0x203A
+fraction: 0x2044
 
 # Letterlike Symbols
+numero: 0x2116
 trademark: 0x2122
+Ohm: 0x2126
+estimated: 0x212E
 
 # Number Forms
 onethird: 0x2153
@@ -214,12 +219,20 @@ arrowright: 0x2192
 arrowdown: 0x2193
 
 # Math
+partialdiff: 0x2202
+increment: 0x2206
+product: 0x220F
+summation: 0x2211
 radical: 0x221A
 infinity: 0x221E
+integral: 0x222B
 approxequal: 0x2248
 notequal: 0x2260
 lessequal: 0x2264
 greaterequal: 0x2265
+
+# Geometric Shapes
+lozenge: 0x25CA
 
 # Superscripts (beyond Latin-1)
 zerosuperior: 0x2070
