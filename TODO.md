@@ -9,14 +9,6 @@
 | ℠ | U+2120 | Service mark |
 | Ω | U+2126 | Ohm sign |
 | ℮ | U+212E | Estimated symbol |
-| ← | U+2190 | Leftwards arrow |
-| ↑ | U+2191 | Upwards arrow |
-| → | U+2192 | Rightwards arrow |
-| ↓ | U+2193 | Downwards arrow |
-| ↖ | U+2196 | North west arrow |
-| ↗ | U+2197 | North east arrow |
-| ↘ | U+2198 | South east arrow |
-| ↙ | U+2199 | South west arrow |
 | ∂ | U+2202 | Partial differential |
 | ∆ | U+2206 | Increment |
 | ∏ | U+220F | N-ary product |
