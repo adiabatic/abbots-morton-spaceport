@@ -14,10 +14,4 @@
 | ∏ | U+220F | N-ary product |
 | ∑ | U+2211 | N-ary summation |
 | ∫ | U+222B | Integral |
-| ■ | U+25A0 | Black square |
-| □ | U+25A1 | White square |
-| ▲ | U+25B2 | Black up-pointing triangle |
-| ▶ | U+25B6 | Black right-pointing triangle |
-| ▼ | U+25BC | Black down-pointing triangle |
-| ◀ | U+25C0 | Black left-pointing triangle |
 | ◊ | U+25CA | Lozenge |

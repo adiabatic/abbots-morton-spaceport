@@ -78,3 +78,63 @@ glyphs:
       - " # #   "
       - " ##    "
       - " ####  "
+
+  uni25A0.prop:  # ■ Black square
+    bitmap:
+      - "#######"
+      - "#######"
+      - "#######"
+      - "#######"
+      - "#######"
+      - "#######"
+      - "#######"
+
+  uni25A1.prop:  # □ White square
+    bitmap:
+      - "#######"
+      - "#     #"
+      - "#     #"
+      - "#     #"
+      - "#     #"
+      - "#     #"
+      - "#######"
+
+  uni25B2.prop:  # ▲ Black up-pointing triangle
+    y_offset: 1
+    bitmap:
+      - "   #   "
+      - "  ###  "
+      - "  ###  "
+      - " ##### "
+      - " ##### "
+      - "#######"
+
+  uni25B6.prop:  # ▶ Black right-pointing triangle
+    bitmap:
+      - "#     "
+      - "###   "
+      - "##### "
+      - "######"
+      - "##### "
+      - "###   "
+      - "#     "
+
+  uni25BC.prop:  # ▼ Black down-pointing triangle
+    y_offset: 1
+    bitmap:
+      - "#######"
+      - " ##### "
+      - " ##### "
+      - "  ###  "
+      - "  ###  "
+      - "   #   "
+
+  uni25C0.prop:  # ◀ Black left-pointing triangle
+    bitmap:
+      - "      #"
+      - "    ###"
+      - "  #####"
+      - " ######"
+      - "  #####"
+      - "    ###"
+      - "      #"
