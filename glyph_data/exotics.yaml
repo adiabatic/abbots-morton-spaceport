@@ -2,7 +2,7 @@ glyphs:
   arrowleft.prop:
     y_offset: 1
     bitmap:
-      - "  #    "
+      - "  #    " #
       - " #     "
       - "#######"
       - " #     "
@@ -12,17 +12,17 @@ glyphs:
     bitmap:
       - "  #  "
       - " ### "
-      - "# # #"
+      - "# # #" #
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
-      - "  #  "
+      - "  #  " #
 
   arrowright.prop:
     y_offset: 1
     bitmap:
-      - "    #  "
+      - "    #  " #
       - "     # "
       - "#######"
       - "     # "
@@ -32,18 +32,18 @@ glyphs:
     bitmap:
       - "  #  "
       - "  #  "
-      - "  #  "
+      - "  #  " #
       - "  #  "
       - "  #  "
       - "# # #"
       - " ### "
-      - "  #  "
+      - "  #  " #
 
   uni2196.prop:  # North west arrow
     y_offset: 1
     bitmap:
       - "####  "
-      - "##    "
+      - "##    " #
       - "# #   "
       - "#  #  "
       - "    # "
@@ -53,7 +53,7 @@ glyphs:
     y_offset: 1
     bitmap:
       - "  ####"
-      - "    ##"
+      - "    ##" #
       - "   # #"
       - "  #  #"
       - " #    "
@@ -63,7 +63,7 @@ glyphs:
     y_offset: 1
     bitmap:
       - "#     "
-      - " #    "
+      - " #    " #
       - "  #  #"
       - "   # #"
       - "    ##"
@@ -73,7 +73,7 @@ glyphs:
     y_offset: 1
     bitmap:
       - "     #"
-      - "    # "
+      - "    # " #
       - "#  #  "
       - "# #   "
       - "##    "
@@ -82,28 +82,28 @@ glyphs:
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
+      - "#######" #
       - "#######"
       - "#######"
       - "#######"
       - "#######"
-      - "#######"
-      - "#######"
+      - "#######" #
 
   uni25A1.prop:  # □ White square
     bitmap:
       - "#######"
+      - "#     #" #
       - "#     #"
       - "#     #"
       - "#     #"
       - "#     #"
-      - "#     #"
-      - "#######"
+      - "#######" #
 
   uni25B2.prop:  # ▲ Black up-pointing triangle
     y_offset: 1
     bitmap:
       - "   #   "
-      - "  ###  "
+      - "  ###  " #
       - "  ###  "
       - " ##### "
       - " ##### "
@@ -112,18 +112,18 @@ glyphs:
   uni25B6.prop:  # ▶ Black right-pointing triangle
     bitmap:
       - "#     "
-      - "###   "
+      - "###   " #
       - "##### "
       - "######"
       - "##### "
       - "###   "
-      - "#     "
+      - "#     " #
 
   uni25BC.prop:  # ▼ Black down-pointing triangle
     y_offset: 1
     bitmap:
       - "#######"
-      - " ##### "
+      - " ##### " #
       - " ##### "
       - "  ###  "
       - "  ###  "
@@ -132,12 +132,12 @@ glyphs:
   uni25C0.prop:  # ◀ Black left-pointing triangle
     bitmap:
       - "      #"
-      - "    ###"
+      - "    ###" #
       - "  #####"
       - " ######"
       - "  #####"
       - "    ###"
-      - "      #"
+      - "      #" #
 
   lozenge.prop:  # ◊ Lozenge
     y_offset: -1
@@ -145,22 +145,22 @@ glyphs:
       - "  #  "
       - "  #  "
       - " # # "
-      - " # # "
+      - " # # " #
       - "#   #"
       - "#   #"
       - " # # "
       - " # # "
-      - "  #  "
+      - "  #  " #
       - "  #  "
 
   pi.prop:  # π Greek small letter pi
     bitmap:
-      - "######"
+      - "######" #
       - " #  # "
       - " #  # "
       - " #  # "
       - " #  # "
-      - " #   #"
+      - " #   #" #
 
   fraction.prop:  # ⁄ Fraction slash
     y_offset: 2
@@ -173,99 +173,99 @@ glyphs:
     bitmap:
       - "   # "
       - "  # #"
-      - "  # #"
+      - "  # #" #
       - " #  #"
       - " # # "
       - " ##  "
       - "##  #"
-      - "  ## "
+      - "  ## " #
 
   numero.prop:  # № Numero sign
     bitmap:
       - "#  #   "
       - "#  # # "
-      - "## ## #"
+      - "## ## #" #
       - "# ## # "
       - "#  #   "
       - "#  # # "
       - "#  #   "
-      - "#  #   "
+      - "#  #   " #
 
   Ohm.prop:  # Ω Ohm sign
     bitmap:
       - " ### "
       - "#   #"
-      - "#   #"
+      - "#   #" #
       - "#   #"
       - "#   #"
       - "#   #"
       - " # # "
-      - "## ##"
+      - "## ##" #
 
   estimated.prop:  # ℮ Estimated symbol
     bitmap:
       - "  ###  "
-      - " #   # "
+      - " #   # " #
       - "##   ##"
       - "#######"
       - "##     "
       - " #   # "
-      - "  ###  "
+      - "  ###  " #
 
   partialdiff.prop:  # ∂ Partial differential
     bitmap:
       - "  ## "
       - "    #"
-      - "    #"
+      - "    #" #
       - "  ###"
       - " #  #"
       - "#   #"
       - "#  # "
-      - " ##  "
+      - " ##  " #
 
   increment.prop:  # ∆ Increment
     bitmap:
       - "  #  "
       - "  #  "
-      - " # # "
+      - " # # " #
       - " # # "
       - " # # "
       - "#   #"
       - "#   #"
-      - "#####"
+      - "#####" #
 
   product.prop:  # ∏ N-ary product
     bitmap:
       - "#####"
       - "#   #"
+      - "#   #" #
       - "#   #"
       - "#   #"
       - "#   #"
       - "#   #"
-      - "#   #"
-      - "#   #"
+      - "#   #" #
 
   summation.prop:  # ∑ N-ary summation
     bitmap:
       - "#####"
       - "#   #"
-      - " #   "
+      - " #   " #
       - "  #  "
       - " #   "
       - "#    "
       - "#   #"
-      - "#####"
+      - "#####" #
 
   integral.prop:  # ∫ Integral
     y_offset: -2
     bitmap:
       - "   ##"
       - "  #  "
+      - "  #  " #
       - "  #  "
       - "  #  "
       - "  #  "
       - "  #  "
-      - "  #  "
-      - "  #  "
+      - "  #  " #
       - "  #  "
       - "##   "
