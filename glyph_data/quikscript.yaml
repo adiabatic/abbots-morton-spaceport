@@ -511,6 +511,22 @@ glyphs:
       - " #   #"
       - "  ### "
 
+  qsVie.exit-baseline:  # ·Vie (exits at baseline, before ·No)
+    y_offset: -3
+    cursive_entry: [1, 0]
+    cursive_exit: [5, 0]
+    calt_before: [qsNo]
+    bitmap:
+      - "  ###   " #
+      - " #   #  "
+      - " #   #  "
+      - " #   #  "
+      - " #  #   "
+      - "####   #" #
+      - " #    # "
+      - " #   #  "
+      - "  ###   "
+
   qsVie_qsUtter.prop:  # ·Vie·Utter ligature
     y_offset: -3
     cursive_entry: [1, 0]
@@ -1015,10 +1031,10 @@ glyphs:
       - " # # "
       - "#   #" #
 
-  qsNo.alt.after-it:  # Alternate ·No (after ·It)
+  qsNo.alt.after-it:  # Alternate ·No (after ·It or ·Vie)
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
-    calt_after: [qsIt]
+    calt_after: [qsIt, qsVie]
     bitmap: *no_alt_bitmap
 
   qsLow:  # ·Low
