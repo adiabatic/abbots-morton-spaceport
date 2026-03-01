@@ -558,17 +558,17 @@ glyphs:
   qsVie_qsUtter.prop:  # ·Vie·Utter ligature
     y_offset: -3
     cursive_entry: [1, 0]
-    cursive_exit: [11, 5]
+    cursive_exit: [12, 5]
     bitmap:
-      - " ###     ##" #
-      - "#   #   #  "
-      - "#   #  #   "
-      - "#   #  #   "
-      - "#  #  #    "
-      - "###   #    " #
-      - "#    #     "
-      - "#   #      "
-      - " ###       "
+      - "  ###     ##" #
+      - " #   #   #  "
+      - " #   #  #   "
+      - " #   #  #   "
+      - " #  #  #    "
+      - "####   #    " #
+      - " #    #     "
+      - " #   #      "
+      - "  ###       "
 
   qsSee: &SEE  # ·See
     bitmap: &see_bitmap
