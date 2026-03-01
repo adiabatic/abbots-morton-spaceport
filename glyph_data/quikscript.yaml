@@ -468,6 +468,22 @@ glyphs:
       - "#   #  #   "
       - " ###    ###" #
 
+  qsFee_qsMay.prop:  # ·Fee·May ligature
+    y_offset: -3
+    bitmap:
+      - "  #       "
+      - "   #      "
+      - "    #     "
+      - "  ########" #
+      - " #  #  #  "
+      - "#   #  #  "
+      - "#   # #   "
+      - "#   # #   "
+      - " ###  ### " #
+      - "      #  #"
+      - "      #  #"
+      - "       ## "
+
   qsVie: &VIE  # ·Vie
     y_offset: -3
     bitmap:

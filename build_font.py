@@ -1598,9 +1598,9 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
                         f"Glyph '{glyph_name}' has {row_count} rows, expected 12 (angled parenthesis)"
                     )
             elif y_offset == -3:
-                if row_count != 9:
+                if row_count not in (9, 12):
                     raise ValueError(
-                        f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9"
+                        f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9 or 12"
                     )
             elif row_count not in (6, 9):
                 raise ValueError(
