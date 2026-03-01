@@ -1140,23 +1140,13 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
+    pad_entry_after: [qsYe]
     bitmap: *roe_bitmap
 
   qsRoe.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
     cursive_entry: [1, 5]
     calt_after: [qsPea.prop.half]
     bitmap: *roe_bitmap
-
-  qsRoe.entry-baseline.extended:  # ·Roe
-    cursive_entry: [1, 0]
-    calt_after: [qsYe]
-    bitmap:
-      - " ###  " #
-      - "    # "
-      - "     #"
-      - "     #"
-      - "    # "
-      - "####  " #
 
   qsRoe.entry-xheight.extended:  # ·Roe
     cursive_entry: [1, 5]
@@ -1170,7 +1160,6 @@ glyphs:
 
   qsRoe.exit-baseline:  # ·Roe (exits at baseline)
     cursive_entry:
-      - [1, 0]
       - [1, 5]
     cursive_exit: [6, 0]
     calt_before: [qsAh, qsAt, qsI, qsIng, qsLow, qsSee, qsVie]
@@ -1183,16 +1172,17 @@ glyphs:
       - "######" #
 
   qsRoe.exit-xheight:  # ·Roe (exits at x-height)
-    cursive_entry: [1, 0]
-    cursive_exit: [5, 5]
+    cursive_entry:
+      - [1, 0]
+    cursive_exit: [7, 5]
     calt_before: [qsZoo]
     bitmap:
-      - " ####" #
-      - "   # "
-      - "    #"
-      - "    #"
-      - "   # "
-      - "###  " #
+      - "  #####" #
+      - "    #  "
+      - "     # "
+      - "     # "
+      - "    #  "
+      - "####   " #
 
   qsRoe.exit-y1.before-thaw:  # ·Roe (exits at y=1, before ·Thaw)
     cursive_entry:
