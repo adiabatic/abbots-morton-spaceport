@@ -407,6 +407,19 @@ glyphs:
       - "#   #"
       - " ### "
 
+  qsThey_qsZoo.prop:  # ·They·Zoo ligature
+    y_offset: -3
+    bitmap:
+      - "  #      " #
+      - "  #      "
+      - " #       "
+      - " #       "
+      - " #       "
+      - "#        " #
+      - "#   #   #"
+      - "#   #  # "
+      - " ### ##  "
+
   qsThey_qsUtter.prop:  # ·They·Utter ligature
     y_offset: -3
     cursive_entry: [3, 5]
