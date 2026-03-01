@@ -65,6 +65,21 @@ glyphs:
       - "      "
       - "      " #
 
+  qsPea.half.entry-y6.exit-y6:  # ·Pea (half, enters and exits at y=6)
+    cursive_entry: [1, 6]
+    cursive_exit: [4, 6]
+    calt_before: [qsPea]
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "    " #
+      - "    "
+      - "    "
+      - "    "
+      - "    "
+      - "    " #
+
   qsBay:  # ·Bay
     y_offset: -3
     bitmap: &bay_bitmap
