@@ -798,7 +798,7 @@ glyphs:
       - " #   " #
 
   qsHe.prop:  # ·He
-    bitmap:
+    bitmap: &he_prop_bitmap
       - " ##"
       - "#  "
       - "#  "
@@ -821,6 +821,11 @@ glyphs:
       - "   "
       - "   "
       - "   " #
+
+  qsHe.exit-baseline:  # ·He (exits at baseline)
+    cursive_exit: [1, 0]
+    calt_not_before: [qsSee, qsThaw]
+    bitmap: *he_prop_bitmap
 
   qsWhy:  # ·Why
     y_offset: -3
