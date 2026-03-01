@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT))
 from build_font import (
     _normalize_anchors,
     generate_noentry_variants,
+    generate_padded_entry_variants,
     load_glyph_data,
     prepare_proportional_glyphs,
 )
@@ -226,6 +227,7 @@ def build_anchor_map():
     glyphs = {k: v for k, v in glyphs.items() if ".unused" not in k}
     glyphs = prepare_proportional_glyphs(glyphs)
     glyphs.update(generate_noentry_variants(glyphs))
+    glyphs.update(generate_padded_entry_variants(glyphs))
 
     result = {}
     for name, gdef in glyphs.items():

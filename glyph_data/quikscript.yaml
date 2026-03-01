@@ -528,6 +528,7 @@ glyphs:
   qsVie.prop:  # ·Vie
     y_offset: -3
     cursive_entry: [1, 0]
+    pad_entry_after: &vertical_exit_letters [qsHe, qsPea, qsTea, qsIt, qsYe]
     bitmap:
       - "  ### " #
       - " #   #"
@@ -1625,6 +1626,7 @@ glyphs:
   qsOoze.prop:  # ·Ooze
     cursive_entry: [0, 0] # an entry past the glyph might only be good for ·Ye·Ooze and nothing else
     cursive_exit: [6, 0]
+    pad_entry_after: *vertical_exit_letters
     bitmap:
       - "  #  " #
       - " # # "
