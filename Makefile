@@ -1,7 +1,7 @@
 .PHONY: all test print-job watch
 
 all:
-	uv run python build_font.py glyph_data/ test/
+	uv run python tools/build_font.py glyph_data/ test/
 	touch test/index.html
 	cd test && typst compile --font-path . print.typ
 

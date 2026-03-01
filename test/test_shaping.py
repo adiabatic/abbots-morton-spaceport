@@ -17,7 +17,7 @@ GLYPH_DATA_DIR = ROOT / "glyph_data"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
 import sys
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
     _normalize_anchors,
     generate_noentry_variants,

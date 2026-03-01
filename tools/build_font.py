@@ -4,7 +4,7 @@ Build a pixel font from bitmap glyph definitions.
 Uses fonttools FontBuilder to create OTF output.
 
 Usage:
-    uv run python build_font.py <glyph_data.yaml|glyph_data/> [output_dir]
+    uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]
 
     The first argument can be a single YAML file or a directory of YAML files.
     When a directory is given, all *.yaml files are loaded and merged.
@@ -29,7 +29,7 @@ from fontTools.ttLib import newTable
 
 def load_postscript_glyph_names() -> dict:
     """Load PostScript glyph name to Unicode codepoint mapping from YAML."""
-    path = Path(__file__).parent / "postscript_glyph_names.yaml"
+    path = Path(__file__).parent.parent / "postscript_glyph_names.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
 
@@ -1873,13 +1873,13 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
+        print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
         print("  output_dir/AbbotsMortonSpaceportSansJunior.otf")
         print("  output_dir/AbbotsMortonSpaceportSansSenior.otf")
         print("\nExample:")
-        print("  uv run python build_font.py glyph_data/ build/")
+        print("  uv run python tools/build_font.py glyph_data/ build/")
         sys.exit(1)
 
     input_path = Path(sys.argv[1])

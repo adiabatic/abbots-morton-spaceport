@@ -39,7 +39,7 @@ jobs:
       - name: Build fonts
         run: |
           mkdir -p build
-          uv run python build_font.py glyph_data/ build/
+          uv run python tools/build_font.py glyph_data/ build/
 
       - name: Convert to woff2
         run: |

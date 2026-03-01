@@ -8,10 +8,10 @@ glyphs between two fonts.
 
 Usage:
     # Extract a glyph bitmap
-    uv run python extract_glyph.py test/DepartureMono-Regular.otf zero
+    uv run python tools/extract_glyph.py test/DepartureMono-Regular.otf zero
 
     # Compare a glyph between two fonts
-    uv run python extract_glyph.py --compare zero \\
+    uv run python tools/extract_glyph.py --compare zero \\
         test/DepartureMono-Regular.otf \\
         test/AbbotsMortonSpaceportMono.otf
 """
