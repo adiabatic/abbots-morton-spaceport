@@ -857,6 +857,7 @@ glyphs:
   qsWhy.half:  # ·Why (half, exits at baseline)
     y_offset: -3
     cursive_exit: [5, 0]
+    calt_not_before: [qsI]
     bitmap:
       - "     " #
       - "     "
