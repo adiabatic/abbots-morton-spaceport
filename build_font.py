@@ -373,6 +373,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             pair_overrides.setdefault(base_name, []).append(
                 (glyph_name, list(calt_after))
             )
+        elif glyph_name.endswith(".entry-padded"):
+            pass
         else:
             existing = bk_replacements.get(base_name, {}).get(entry_y)
             if existing is not None:
@@ -412,6 +414,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         if glyph_def is None or "." not in glyph_name:
             continue
         if glyph_name.endswith(".noentry"):
+            continue
+        if glyph_name.endswith(".entry-padded"):
             continue
         if _is_entry_variant(glyph_name) and not glyph_def.get("calt_before"):
             continue
@@ -719,8 +723,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                             target_entry_ys = {a[1] for a in _normalize_anchors(target_raw)}
                             if not target_entry_ys.issubset(variant_entry_ys):
                                 continue
+                    actual_variant = variant_name
+                    if target.endswith(".entry-padded"):
+                        padded = variant_name + ".entry-padded"
+                        if padded in glyphs_def:
+                            actual_variant = padded
                     lines.append(
-                        f"        sub {target}' [{before_list}] by {variant_name};"
+                        f"        sub {target}' [{before_list}] by {actual_variant};"
                     )
                 lines.append(f"    }} calt_fwd_pair_{safe};")
 
@@ -1028,7 +1037,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 variant_sets.append([comp] + sorted(variants))
             for combo in _product(*variant_sets):
                 component_str = " ".join(combo)
-                lines.append(f"        sub {component_str} by {lig_name};")
+                actual_lig = lig_name
+                if combo[0].endswith(".entry-padded"):
+                    padded_lig = lig_name + ".entry-padded"
+                    if padded_lig in glyphs_def:
+                        actual_lig = padded_lig
+                lines.append(f"        sub {component_str} by {actual_lig};")
         lines.append("    } calt_liga;")
 
         lig_glyph_names = {lig_name for lig_name, _ in ligatures}
@@ -1170,9 +1184,68 @@ def generate_noentry_variants(glyphs_def: dict) -> dict:
             continue
         if not gdef.get("cursive_entry"):
             continue
-        noentry_def = {k: v for k, v in gdef.items() if k != "cursive_entry"}
+        noentry_def = {k: v for k, v in gdef.items() if k not in ("cursive_entry", "pad_entry_after")}
         noentry_def["_noentry_for"] = name
         variants[name + ".noentry"] = noentry_def
+    return variants
+
+
+def _shift_entry(entry, dx=-1):
+    if isinstance(entry[0], list):
+        return [[x + dx, y] for x, y in entry]
+    return [entry[0] + dx, entry[1]]
+
+
+_CALT_KEYS = frozenset((
+    "calt_after", "calt_before", "calt_not_after", "calt_not_before",
+    "calt_word_final", "pad_entry_after",
+))
+
+
+def generate_padded_entry_variants(glyphs_def: dict) -> dict:
+    """Create .entry-padded variants for glyphs with pad_entry_after.
+
+    For each glyph with pad_entry_after, creates a copy whose cursive_entry
+    x-coordinate is shifted left by 1 pixel.  The cursive system then positions
+    the following glyph 1 pixel further right, adding visual separation.
+    Uses entry-* naming so _is_entry_variant() recognizes the variant.
+
+    Also generates padded versions of related glyphs (exit variants, ligatures)
+    so that forward substitutions and ligatures preserve the padding.  These
+    secondary variants have no calt directives of their own — they are only
+    referenced by the modified forward-pair and ligature emission code.
+    """
+    variants = {}
+    for name, gdef in sorted(glyphs_def.items()):
+        if gdef is None:
+            continue
+        pad_after = gdef.get("pad_entry_after")
+        if not pad_after:
+            continue
+        entry = gdef.get("cursive_entry")
+        if not entry:
+            continue
+        variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
+        variant_def["cursive_entry"] = _shift_entry(entry)
+        variant_def["calt_after"] = list(pad_after)
+        variants[name + ".entry-padded"] = variant_def
+
+        base_name = name.split(".")[0]
+        for other_name, other_gdef in sorted(glyphs_def.items()):
+            if other_gdef is None or other_name == name:
+                continue
+            other_base = other_name.split(".")[0]
+            is_variant = other_base == base_name and "." in other_name
+            is_ligature = other_name.startswith(base_name + "_")
+            if not (is_variant or is_ligature):
+                continue
+            other_entry = other_gdef.get("cursive_entry")
+            if not other_entry:
+                continue
+            padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
+            padded["cursive_entry"] = _shift_entry(other_entry)
+            variants[other_name + ".entry-padded"] = padded
+
     return variants
 
 
@@ -1452,6 +1525,7 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     # For senior font, create .noentry variants for ZWNJ chain-breaking
     if is_senior:
         glyphs_def.update(generate_noentry_variants(glyphs_def))
+        glyphs_def.update(generate_padded_entry_variants(glyphs_def))
 
     # Font name differs per variant
     base_font_name = metadata["font_name"]
