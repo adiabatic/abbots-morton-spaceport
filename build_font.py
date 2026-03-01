@@ -767,7 +767,15 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
             for variant_name, after_glyphs in pair_overrides[base_name]:
-                after_list = " ".join(sorted(after_glyphs))
+                expanded_after = set(after_glyphs)
+                for ag in after_glyphs:
+                    ag_base = ag.split(".")[0] if "." in ag else ag
+                    if ag_base in fwd_replacements:
+                        expanded_after.update(fwd_replacements[ag_base].values())
+                    if ag_base in fwd_pair_overrides:
+                        for pv, _ in fwd_pair_overrides[ag_base]:
+                            expanded_after.add(pv)
+                after_list = " ".join(sorted(expanded_after))
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_pair_{safe} {{")
