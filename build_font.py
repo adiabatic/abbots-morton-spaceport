@@ -366,6 +366,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                 raw = base_def.get("cursive_entry")
                 if raw and entry_y in {a[1] for a in _normalize_anchors(raw)}:
                     continue
+        if glyph_def.get("calt_before"):
+            continue
         calt_after = glyph_def.get("calt_after")
         if calt_after:
             pair_overrides.setdefault(base_name, []).append(
@@ -409,12 +411,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or "." not in glyph_name:
             continue
-        if _is_entry_variant(glyph_name) or glyph_name.endswith(".noentry"):
+        if glyph_name.endswith(".noentry"):
+            continue
+        if _is_entry_variant(glyph_name) and not glyph_def.get("calt_before"):
             continue
         if glyph_def.get("calt_word_final"):
             continue
         parts = glyph_name.split(".")[1:]
-        if "half" in parts and glyph_def.get("cursive_entry"):
+        if "half" in parts and glyph_def.get("cursive_entry") and not glyph_def.get("calt_before"):
             continue
         raw_exit = glyph_def.get("cursive_exit")
         if raw_exit is None:
@@ -674,8 +678,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     # an entry variant.  For bases with both backward and forward rules, the
     # backward lookup runs first (so a preceding exit wins over a following
     # entry), then its forward companion.
-    def _emit_fwd(base_name: str):
-        # Pair-specific forward overrides run first so they win over general
+    def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs in fwd_pair_overrides[base_name]:
                 expanded_before = set(before_glyphs)
@@ -720,7 +723,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                         f"        sub {target}' [{before_list}] by {variant_name};"
                     )
                 lines.append(f"    }} calt_fwd_pair_{safe};")
-        # General forward rule
+
+    def _emit_fwd_general(base_name: str):
         if base_name in fwd_replacements:
             variants = fwd_replacements[base_name]
             exclusions = fwd_exclusions.get(base_name, {})
@@ -746,6 +750,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     lines.append(f"        ignore sub {base_name}' {eg};")
                 lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             lines.append(f"    }} {lookup_name};")
+
+    def _emit_fwd(base_name: str):
+        _emit_fwd_pairs(base_name)
+        _emit_fwd_general(base_name)
 
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
@@ -942,31 +950,46 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
     else:
         post_cycle = list(all_bk_bases)
 
-    for base_name in pre_cycle:
-        _emit_bk_pairs(base_name)
-        _emit_bk_general(base_name)
-        _emit_upgrades(base_name)
-        if base_name in all_fwd_bases:
-            _emit_fwd(base_name)
+    # Identify bases with self-referencing forward pair overrides
+    # (calt_before targets include the same base glyph). These need their
+    # forward pair lookup emitted before backward rules so the created exit
+    # is visible to subsequent backward substitutions.
+    self_ref_fwd_pairs: set[str] = set()
+    for base_name, overrides in fwd_pair_overrides.items():
+        for _, before_glyphs in overrides:
+            if base_name in {g.split(".")[0] for g in before_glyphs}:
+                self_ref_fwd_pairs.add(base_name)
+                break
+
+    def _emit_block(bases: list[str], *, use_cycle: bool = False):
+        for base_name in bases:
+            if base_name in self_ref_fwd_pairs:
+                _emit_fwd_pairs(base_name)
+        for base_name in bases:
+            _emit_bk_pairs(base_name)
+        if use_cycle:
+            _emit_bk_cycle(bases)
+        else:
+            for base_name in bases:
+                _emit_bk_general(base_name)
+        for base_name in bases:
+            _emit_upgrades(base_name)
+        if use_cycle:
+            _emit_post_upgrade_bk(bases)
+        for base_name in bases:
+            if base_name in all_fwd_bases:
+                if base_name in self_ref_fwd_pairs:
+                    _emit_fwd_general(base_name)
+                else:
+                    _emit_fwd(base_name)
+
+    _emit_block(pre_cycle)
 
     if cycle_bases:
         cycle_list = sorted(cycle_bases)
-        for base_name in cycle_list:
-            _emit_bk_pairs(base_name)
-        _emit_bk_cycle(cycle_list)
-        for base_name in cycle_list:
-            _emit_upgrades(base_name)
-        _emit_post_upgrade_bk(cycle_list)
-        for base_name in cycle_list:
-            if base_name in all_fwd_bases:
-                _emit_fwd(base_name)
+        _emit_block(cycle_list, use_cycle=True)
 
-    for base_name in post_cycle:
-        _emit_bk_pairs(base_name)
-        _emit_bk_general(base_name)
-        _emit_upgrades(base_name)
-        if base_name in all_fwd_bases:
-            _emit_fwd(base_name)
+    _emit_block(post_cycle)
 
     _emit_reverse_upgrades()
 
