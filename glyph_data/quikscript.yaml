@@ -1143,6 +1143,18 @@ glyphs:
     pad_entry_after: [qsYe]
     bitmap: *roe_bitmap
 
+  qsRoe.entry-padded:  # ·Roe (wider form after ·Ye)
+    cursive_entry:
+      - [0, 0]
+    calt_after: [qsYe]
+    bitmap:
+      - "  ##  " #
+      - "    # "
+      - "     #"
+      - "     #"
+      - "    # "
+      - "####  " #
+
   qsRoe.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
     cursive_entry: [1, 5]
     calt_after: [qsPea.prop.half]
