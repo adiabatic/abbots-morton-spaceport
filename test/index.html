@@ -78,7 +78,16 @@
       color: light-dark(#0066cc, #4a9eff);
       font-size: var(--font-size);
       font-weight: normal;
-      text-align: center;
+    }
+
+    hgroup {
+      margin-top: 2em;
+    }
+
+    .sample-box hgroup {
+      h3, p {
+        display: inline;
+      }
     }
 
     .sample-box hr {
@@ -814,7 +823,10 @@
       </tr>
     </table>
 
-    <h3>Common words</h3>
+    <hgroup>
+      <h3>Common words</h3>
+      <p>to be fully spelt, with their Standard word-outlines:</p>
+    </hgroup>
     <div class="word-list-container">
       <dl class="word-list word-list--3col sample">
         <div>
@@ -985,7 +997,10 @@
       </dl>
     </div>
     <p style="text-align: center">*that, spelt in full only when demonstrative; otherwise — .</p>
-    <h3>Contractions</h3>
+    <hgroup>
+      <h3>Contractions</h3>
+      <p>, for common words not previously listed:</p>
+    </hgroup>
     <div class="word-list-container">
       <dl class="word-list word-list--2col sample">
         <div><dt>also</dt><dd></dd></div>
