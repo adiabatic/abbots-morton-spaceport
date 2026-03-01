@@ -677,10 +677,24 @@ def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
                     for pv, _ in pair_overrides[base_name]:
                         targets.add(pv)
 
+                variant_def = glyphs_def.get(variant_name, {}) or {}
+                variant_raw = variant_def.get("cursive_entry")
+                variant_entry_ys = (
+                    {a[1] for a in _normalize_anchors(variant_raw)}
+                    if variant_raw else None
+                )
+
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
                 for target in sorted(targets):
+                    if variant_entry_ys is not None:
+                        target_def = glyphs_def.get(target, {}) or {}
+                        target_raw = target_def.get("cursive_entry")
+                        if target_raw:
+                            target_entry_ys = {a[1] for a in _normalize_anchors(target_raw)}
+                            if not target_entry_ys.issubset(variant_entry_ys):
+                                continue
                     lines.append(
                         f"        sub {target}' [{before_list}] by {variant_name};"
                     )
