@@ -117,6 +117,10 @@
       div {
         display: flex;
         break-inside: avoid;
+
+        &[hidden] {
+          display: none;
+        }
       }
 
       dt {
@@ -913,12 +917,12 @@
         <div><dt>good</dt><dd data-expect="·Gay ·Day.half"></dd></div>
         <div>
           <dt>have/n’t</dt>
-          <dd data-changeme>
+          <dd>
             <span data-expect='·He ~b~ ·Vie'></span>,
             <span data-expect='·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea'></span>
           </dd>
         </div>
-        <div class='testing-only'><dt>Hvəd</dt><dd data-changeme><span data-expect='·He ~b~ ·Vie+Utter.entry-padded ~x~ ·Day'></span></dd></div>
+        <div hidden data-changeme><dt>Hvəd</dt><dd><span data-expect='·He ~b~ ·Vie+Utter.entry-padded ~x~ ·Day'></span></dd></div>
         <div>
           <dt>he, him, his</dt>
           <dd>
