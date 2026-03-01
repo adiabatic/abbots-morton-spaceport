@@ -16,12 +16,7 @@
 
 IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For example:
 
-- `uv run tools/build_font.py` not `python tools/build_font.py`
 - `uv run pytest` not `pytest`
-
-After running `tools/build_font.py`:
-
-- `uv run tools/build_font.py glyph_data test/`
 
 ## Adding glyphs
 
