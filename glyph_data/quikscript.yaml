@@ -558,7 +558,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     cursive_exit: [8, 0]
-    calt_before: [qsNo]
+    calt_before: [qsNo, qsRoe]
     bitmap:
       - "  ###   " #
       - " #   #  "
