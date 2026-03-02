@@ -7,6 +7,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 ### 8.000
 
 - Make the Senior font match The Manual up through the contractions list on page 17
+- Copy a number of glyphs (arrows, boxes, etc.) wholesale from Departure Mono
 
 ### 7.000
 
