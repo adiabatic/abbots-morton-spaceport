@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 8.000
+
+- Make the Senior font match The Manual up through the contractions list on page 17
+
 ### 7.000
 
 - Make the Senior font way more connected (even though it’s still a work in progress)
