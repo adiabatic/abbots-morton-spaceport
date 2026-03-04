@@ -4,6 +4,12 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 9.000
+
+- Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (400–800)
+- Bold weight uses 2× wide pixels, keeping height the same
+- Mono font remains static (no weight axis)
+
 ### 8.000
 
 - Make the Senior font match The Manual up through the contractions list on page 17
