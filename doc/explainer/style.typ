@@ -10,7 +10,6 @@
 #let code-fill = rgb("#F3F6F9")
 #let frame = rgb("#C8D3DA")
 
-#let _seen_first_h1 = state("explainer-seen-first-h1", false)
 #let apply_explainer_style(doc) = {
   set document(
     title: "Abbots Morton Spaceport: how Quikscript joining works",
@@ -26,19 +25,18 @@
   set par(justify: true, leading: 0.68em)
   set heading(numbering: "1.")
   show heading.where(level: 1): it => context {
-    let chapter_n = counter(heading).at(it.location()).at(0)
-    if _seen_first_h1.get() {
+    let chapter_n = counter(heading).get().first()
+    if chapter_n > 1 {
       pagebreak()
     }
-    _seen_first_h1.update(true)
     set block(above: 1.5em, below: 0.8em)
-    set text(fill: accent, size: 15pt, weight: "bold")
-    set heading(numbering: n => [
+    [
       #set text(fill: accent, size: 10.5pt, weight: "semibold")
       Chapter #chapter_n
       #linebreak()
-    ])
-    it
+      #set text(fill: accent, size: 15pt, weight: "bold")
+      #it.body
+    ]
   }
   show heading.where(level: 2): it => {
     set block(above: 1em, below: 0.35em)

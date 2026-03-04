@@ -37,6 +37,8 @@ Each major numbered section should start on a new page in the final rendered doc
 
 Each major section heading should be formatted as two lines: first line `Chapter N` (automatic chapter number), second line the section title.
 
+Chapter numbering must start at `Chapter 1` for the first level-1 heading in the assembled document.
+
 ### 1. What is Quikscript?
 
 A brief introduction. It's a phonetic alphabet for English designed by Kingsley Read, released in 1966 as an evolution of the Shavian alphabet. Show the letter inventory at a glance (a table or grid). Mention that it's a cursive script — letters within a word connect to each other, much like cursive Latin handwriting. Mention Junior (unconnected/print) vs. Senior (connected/cursive) Quikscript.
