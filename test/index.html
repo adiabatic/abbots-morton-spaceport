@@ -27,6 +27,7 @@
     .sample {
       font-family: var(--font-stack);
       font-size: var(--font-size);
+      font-weight: var(--font-weight, 400);
       line-height: 1.5;
       /* Disable font smoothing for crisp pixels */
       -webkit-font-smoothing: none;
@@ -70,6 +71,7 @@
 
     pre {
       font-family: var(--font-stack);
+      font-weight: var(--font-weight, 400);
       -webkit-font-smoothing: none;
       white-space: pre-wrap;
     }
@@ -96,6 +98,7 @@
 
     .pairings {
       font-size: var(--font-size);
+      font-weight: var(--font-weight, 400);
       margin-inline: auto;
       border-spacing: .5ch 0;
 
@@ -241,10 +244,12 @@
     const fontOrderToggle = document.getElementById('font-order-toggle');
     const fontToggle = document.getElementById('font-toggle');
     const levelToggle = document.getElementById('level-toggle');
+    const weightToggle = document.getElementById('weight-toggle');
 
     let isSans = true;
     let isSenior = true;
     let dmFirst = false;
+    let isBold = false;
 
     function applyState() {
       let fontFamily, fontTitle;
@@ -254,10 +259,12 @@
         fontTitle = `Abbots Morton Spaceport Sans ${level}`;
         levelToggle.textContent = level;
         levelToggle.hidden = false;
+        weightToggle.hidden = false;
       } else {
         fontFamily = "'Abbots Morton Spaceport Mono'";
         fontTitle = 'Abbots Morton Spaceport Mono';
         levelToggle.hidden = true;
+        weightToggle.hidden = true;
       }
 
       const fontStack = dmFirst
@@ -265,9 +272,11 @@
         : `${fontFamily}, 'Departure Mono', monospace`;
 
       document.documentElement.style.setProperty('--font-stack', fontStack);
+      document.documentElement.style.setProperty('--font-weight', isBold ? '700' : '400');
       title.textContent = fontTitle;
       document.title = fontTitle;
       fontToggle.textContent = isSans ? 'Sans' : 'Mono';
+      weightToggle.textContent = isBold ? 'Bold' : 'Regular';
     }
 
     fontToggle.addEventListener('click', () => {
@@ -277,6 +286,11 @@
 
     levelToggle.addEventListener('click', () => {
       isSenior = !isSenior;
+      applyState();
+    });
+
+    weightToggle.addEventListener('click', () => {
+      isBold = !isBold;
       applyState();
     });
 
@@ -298,6 +312,7 @@
     <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">AMS first</button>
     <button id="font-toggle">Sans</button>
     <button id="level-toggle">Senior</button>
+    <button id="weight-toggle">Regular</button>
     <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
   </div>
 
