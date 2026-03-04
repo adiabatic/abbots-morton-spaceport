@@ -1,0 +1,176 @@
+# How to generate the explainer document
+
+This file contains instructions for an LLM to generate a Typst document explaining how Abbots Morton Spaceport's cursive-attachment and OpenType machinery works to produce a font that ligates and joins Quikscript letters.
+
+## Output files
+
+Generate two files in this directory:
+
+- **`style.typ`** — All styling, layout, page setup, fonts, colors, custom show rules, and reusable components (callout boxes, code blocks, figure templates, etc.). This file should be `#import`ed by the main document. It should not contain any prose.
+- **`main.typ`** — The full document text. Imports `style.typ`. Contains all headings, paragraphs, figures, and code examples. This file can be blown away and regenerated without losing any styling work.
+
+`main.typ` should start with something like:
+
+```typst
+#import "style.typ": *
+```
+
+## Audience and tone
+
+The reader is someone who:
+
+- Knows what a font is and has used fonts before
+- Has heard of OpenType but doesn't know how it works internally
+- May or may not know what Quikscript is (explain it briefly)
+- Has no prior knowledge of GPOS, GSUB, `curs`, `calt`, feature files, or font engineering
+- Is comfortable with light technical content (pixel grids, coordinate systems) but needs concepts introduced one at a time
+
+Write like a high-school textbook: clear, patient, building one concept on the last. Use analogies where helpful. Each section should assume the reader has read and understood everything before it, but nothing after it. Avoid jargon-first explanations — introduce the plain-English idea before naming the technical term.
+
+## Document structure
+
+The document should proceed in the following order. Each numbered item is a major section; lettered items are subsections. Not every subsection needs to be equally long.
+
+### 1. What is Quikscript?
+
+A brief introduction. It's a phonetic alphabet for English designed by Kingsley Read, released in 1966 as an evolution of the Shavian alphabet. Show the letter inventory at a glance (a table or grid). Mention that it's a cursive script — letters within a word connect to each other, much like cursive Latin handwriting. Mention Junior (unconnected/print) vs. Senior (connected/cursive) Quikscript.
+
+### 2. What is a font, actually?
+
+Explain that a font file isn't just a bag of pictures. It contains:
+
+a. **Glyphs** — the actual shapes (outlines/bitmaps)
+b. **A character map** — which Unicode code point maps to which glyph
+c. **Metrics** — how wide each glyph is, where the baseline is, etc.
+d. **OpenType tables** — extra instructions that tell the text engine how to modify the glyph stream
+
+Introduce the idea that OpenType tables are what make smart font behavior possible. They're divided into two families: tables that *substitute* glyphs (GSUB) and tables that *position* glyphs (GPOS). Tease that both are needed for Quikscript joining.
+
+### 3. The pixel grid
+
+Explain how this particular font (Abbots Morton Spaceport) works in a pixel grid:
+
+a. **Units per em and pixel size** — 550 UPM, each pixel is 50 font units, the em square is 11 pixels tall
+b. **The three glyph heights** — Short (6px, baseline to x-height), Tall (9px, baseline to ascender), Deep (9px, 3px below baseline to x-height)
+c. **Bitmap representation in YAML** — show a simple glyph's bitmap and explain the `#` markers that indicate the x-height zone
+d. **y_offset** — how Deep letters use `y_offset: -3` to shift downward
+
+Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (Deep, 9px with y_offset: -3).
+
+### 4. How letters join: the concept
+
+Before getting into OpenType mechanics, explain *what* joining means visually:
+
+a. **Entry and exit points** — every letter has a place where the pen arrives (entry) and a place where the pen leaves (exit). These happen at specific heights.
+b. **Height matching** — a letter's exit height must match the next letter's entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected form).
+c. **The basic idea of cursive attachment** — the text engine slides glyphs together so their exit and entry points overlap.
+
+Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea's exit point at the baseline meets ·Bay's entry point at the baseline and the engine nudges them together.
+
+### 5. Glyph variants: why one letter needs many shapes
+
+Explain that a single Quikscript letter may need different shapes depending on context:
+
+a. **Monospace vs. proportional** — the Mono font uses fixed-width base glyphs; the proportional Sans fonts use `.prop` variants that may be narrower
+b. **Entry/exit variants** — a letter like ·Tea might need forms that enter at the top, at the x-height, at the baseline, or not at all. Each is a separate glyph in the font.
+c. **Half-letter variants** — some Tall/Deep letters have a half-height form used when connecting to certain neighbors (e.g., ·Pea half). Explain with an example.
+d. **Alternate forms** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
+e. **Naming convention** — explain the dot-separated naming scheme: `qsTea.entry-xheight.exit-baseline`, `qsPea.prop.half`, etc.
+
+### 6. Feature files and the OpenType pipeline
+
+Introduce the `.fea` (feature file) syntax as the "programming language" for OpenType:
+
+a. **What a feature is** — a named bundle of rules that a text engine can activate. Features have four-letter tags like `calt`, `curs`, `liga`.
+b. **Lookups** — the individual rule sets within a feature. Introduce the concept without going deep yet.
+c. **How the build script works at a high level** — YAML glyph data goes in, Python reads it, generates `.fea` code, and `fonttools` compiles it into binary OpenType tables inside the font file. The `.fea` file is also saved alongside the font for debugging.
+
+### 7. GSUB: substituting the right glyph
+
+Explain glyph substitution (GSUB) features used in this font:
+
+a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs and swaps in the right variant. This is the heart of making joins work.
+   - **Backward-looking rules** — "if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y." Walk through a concrete example.
+   - **Forward-looking rules** — "if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y." Walk through a concrete example.
+   - **Explicit overrides** — `calt_before`, `calt_after`, `calt_not_before`, `calt_not_after` in the YAML, and how they produce specific substitution rules that override the height-based defaults.
+   - **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
+   - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
+
+b. **`liga` (standard ligatures)** — when two specific letters appear in sequence, replace them with a single pre-drawn combined glyph. Explain the underscore naming convention (`qsDay_qsUtter.prop`). Mention that ligatures can themselves have cursive anchors.
+
+### 8. GPOS: positioning the joined glyphs
+
+Explain glyph positioning (GPOS) features:
+
+a. **`curs` (cursive attachment)** — the feature that actually slides glyphs together at their anchors.
+   - **Anchor format** — each glyph declares an entry anchor, an exit anchor, or both, as `<anchor X Y>` in font units.
+   - **How attachment works** — the text engine adjusts the position of each glyph in a cursive chain so that the exit anchor of glyph N overlaps with the entry anchor of glyph N+1.
+   - **Y-grouped lookups** — explain the critical detail that glyphs are grouped into separate lookups by their Y values. This prevents a glyph entering at the baseline from accidentally attaching to a glyph exiting at the x-height. Walk through why this grouping is necessary with a concrete bad-case example.
+   - **Multiple entry anchors** — some glyphs (like ·Roe) declare multiple entry anchors at different heights, meaning they can participate in cursive chains at either height.
+
+b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pairs (like `f` before short letters). This is separate from the Quikscript joining system.
+
+### 9. Padding and spacing refinements
+
+a. **`pad_entry_after`** — explain how certain glyph pairs need a little extra space when joined. The build script generates `.entry-padded` variants with a shifted entry anchor. Walk through an example (e.g., ·Ye followed by ·Roe).
+b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the "escape hatch" for when automatic joining is wrong.
+
+### 10. The three font variants
+
+Tie it all together by explaining the three output fonts:
+
+a. **Mono** — fixed-width, no joining, no contextual features. Uses base glyphs only. Good for code editors and tabular display.
+b. **Junior (Sans)** — proportional, no joining. Uses `.prop` glyphs (renamed to base names). Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
+c. **Senior (Sans)** — proportional with full joining. Uses `.prop` glyphs plus all contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
+
+### 11. Putting it all together: a worked example
+
+Walk through a complete word being shaped, step by step:
+
+1. The user types a sequence of Unicode code points
+2. The character map resolves them to base glyphs
+3. `calt` backward rules fire, substituting entry variants based on the preceding glyph's exit height
+4. `calt` forward rules fire, substituting exit variants based on the following glyph's entry height
+5. `liga` fires, combining adjacent glyphs into ligatures where applicable
+6. `curs` fires, positioning the cursive chain by aligning anchors
+7. The final positioned glyph stream is rendered
+
+Pick a real word (maybe 4–6 letters) that exercises several features: a height transition, a half-letter, and/or a ligature. Show the glyph stream at each stage, ideally with small diagrams.
+
+### 12. Appendix: the YAML schema
+
+A reference section listing every key that can appear in a glyph definition in the YAML files, with a one-line explanation of each:
+
+- `bitmap`
+- `advance_width`
+- `y_offset`
+- `cursive_entry`
+- `cursive_exit`
+- `calt_before`
+- `calt_after`
+- `calt_not_before`
+- `calt_not_after`
+- `calt_word_final`
+- `pad_entry_after`
+
+## Style guidance for `style.typ`
+
+- Use a clean, textbook-like layout. Generous margins, readable body font, monospace for code.
+- Section numbers should be visible and prominent.
+- Use callout/aside boxes for:
+  - **"Try it"** — hands-on exercises or things to look for in the font
+  - **"Technical detail"** — deeper info that can be skipped on first read
+  - **"Key idea"** — the one-sentence takeaway from a section
+- Code blocks should be syntax-highlighted where possible (FEA code, YAML).
+- Figures showing glyph bitmaps should ideally use a grid where filled pixels are colored squares and empty pixels are blank/lightly outlined. If Typst's drawing capabilities allow this, define a reusable function in `style.typ` for rendering a bitmap from a list of strings.
+- Use consistent colors: one accent color for headings and callout borders, a second for code/technical elements.
+
+## Notes for the generator
+
+- Read `tools/build_font.py` for the actual implementation. The functions `generate_calt_fea()`, `generate_curs_fea()`, `generate_liga_fea()`, and `generate_padded_entry_variants()` are the key ones.
+- Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
+- Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
+- Read `inspo/csur/index.html` for the code-point chart and character property descriptions.
+- When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
+- The audience-appropriate depth level is: explain *what* the OpenType engine does at each step, not *how* the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
+- For the worked example in section 11, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.
