@@ -46,14 +46,14 @@ class TestVariableFontStructure:
         assert axis.axisTag == "wght"
         assert axis.minValue == 400
         assert axis.defaultValue == 400
-        assert axis.maxValue == 700
+        assert axis.maxValue == 800
 
     def test_named_instances(self, varfont):
         instances = varfont["fvar"].instances
         assert len(instances) == 2
         coords = [inst.coordinates for inst in instances]
         assert {"wght": 400} in coords
-        assert {"wght": 700} in coords
+        assert {"wght": 800} in coords
 
     def test_instance_names(self, varfont):
         name_table = varfont["name"]

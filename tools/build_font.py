@@ -1923,7 +1923,7 @@ def build_font(
 
 def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
     """
-    Build a variable font with a wght axis (Regular 400, Bold 700).
+    Build a variable font with a wght axis (Regular 400, Bold 800).
 
     Bold pixels are 2× wide (pixel_width=100 vs 50), keeping pixel_height
     at 50.  Both masters share the same bitmap data and feature structure,
@@ -1952,7 +1952,7 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
     axis.name = "Weight"
     axis.minimum = 400
     axis.default = 400
-    axis.maximum = 700
+    axis.maximum = 800
     ds.addAxis(axis)
 
     src_regular = SourceDescriptor()
@@ -1962,10 +1962,10 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
 
     src_bold = SourceDescriptor()
     src_bold.font = bold
-    src_bold.location = {"Weight": 700}
+    src_bold.location = {"Weight": 800}
     ds.addSource(src_bold)
 
-    for style_name, wght in (("Regular", 400), ("Bold", 700)):
+    for style_name, wght in (("Regular", 400), ("Bold", 800)):
         inst = InstanceDescriptor()
         inst.name = f"{regular['name'].getDebugName(1)} {style_name}"
         inst.familyName = regular["name"].getDebugName(1)
@@ -1990,8 +1990,8 @@ def main():
         print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf  (variable, wght 400-700)")
-        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf  (variable, wght 400-700)")
+        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf  (variable, wght 400-800)")
+        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf  (variable, wght 400-800)")
         print("\nExample:")
         print("  uv run python tools/build_font.py glyph_data/ build/")
         sys.exit(1)
@@ -2016,11 +2016,11 @@ def main():
     mono_path = output_dir / "AbbotsMortonSpaceportMono.otf"
     build_font(glyph_data, mono_path, variant="mono")
 
-    # Build proportional Junior font (variable, wght 400-700)
+    # Build proportional Junior font (variable, wght 400-800)
     junior_path = output_dir / "AbbotsMortonSpaceportSansJunior.otf"
     build_variable_font(glyph_data, junior_path, variant="junior")
 
-    # Build proportional Senior font (variable, wght 400-700)
+    # Build proportional Senior font (variable, wght 400-800)
     senior_path = output_dir / "AbbotsMortonSpaceportSansSenior.otf"
     build_variable_font(glyph_data, senior_path, variant="senior")
 
