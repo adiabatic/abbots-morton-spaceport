@@ -1,4 +1,5 @@
-#import "style.typ": *
+#import "style.typ": apply_explainer_style
+#show: apply_explainer_style
 
 #include "chapters/00-introduction.typ"
 #include "chapters/01-what-is-quikscript.typ"

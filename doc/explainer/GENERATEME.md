@@ -15,6 +15,8 @@ Generate two files in this directory:
 #import "style.typ": *
 ```
 
+Use real Typst heading levels (`=`, `==`, etc.) so section/subsection numbering is automatic. Do not hard-code section numbers in prose.
+
 ## Audience and tone
 
 The reader is someone who:
@@ -30,6 +32,10 @@ Write like a high-school textbook: clear, patient, building one concept on the l
 ## Document structure
 
 The document should proceed in the following order. Each numbered item is a major section; lettered items are subsections. Not every subsection needs to be equally long.
+
+Each major numbered section should start on a new page in the final rendered document.
+
+Each major section heading should be formatted as two lines: first line `Chapter N` (automatic chapter number), second line the section title.
 
 ### 1. What is Quikscript?
 
@@ -156,7 +162,9 @@ A reference section listing every key that can appear in a glyph definition in t
 ## Style guidance for `style.typ`
 
 - Use a clean, textbook-like layout. Generous margins, readable body font, monospace for code.
-- Section numbers should be visible and prominent.
+- Chapter headings should display `Chapter N` on one line and the chapter title on the next line.
+- Add running page headers that automatically show the current section and subsection ("what section/subsection am I in?"), generated from the heading structure rather than hand-written text.
+- Start each major chapter/section on a new page, preferably by an automatic heading-level rule in `style.typ` (not by manual `#pagebreak()` lines between sections).
 - Use callout/aside boxes for:
   - **"Try it"** — hands-on exercises or things to look for in the font
   - **"Technical detail"** — deeper info that can be skipped on first read

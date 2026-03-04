@@ -1,15 +1,3 @@
-#set document(
-  title: "Abbots Morton Spaceport: how Quikscript joining works",
-  author: ("Abbots Morton Spaceport project",),
-)
-
-#set page(
-  paper: "us-letter",
-  margin: (x: 0.95in, y: 0.9in),
-  numbering: "1",
-  number-align: bottom + right,
-)
-
 #let body-font = ("New Computer Modern", "Libertinus Serif", "Georgia")
 #let mono-font = ("Departure Mono", "Courier New")
 #let qs-font = ("Abbots Morton Spaceport Sans Senior", "Abbots Morton Spaceport Sans Junior", "Departure Mono")
@@ -22,36 +10,57 @@
 #let code-fill = rgb("#F3F6F9")
 #let frame = rgb("#C8D3DA")
 
-#set text(font: body-font, size: 10.5pt, fill: rgb("#1A1A1A"))
-#set par(justify: true, leading: 0.68em)
-
-#set heading(numbering: "1.")
-#show heading.where(level: 1): it => {
-  set block(above: 1.5em, below: 0.6em)
-  set text(fill: accent, size: 15pt, weight: "bold")
-  it
-}
-#show heading.where(level: 2): it => {
-  set block(above: 1em, below: 0.35em)
-  set text(fill: accent, size: 12pt, weight: "bold")
-  it
-}
-
-#show raw.where(block: true): it => block(
-  fill: code-fill,
-  stroke: (paint: frame, thickness: 0.6pt),
-  radius: 3pt,
-  inset: 8pt,
-  above: 0.7em,
-  below: 0.9em,
-)[
-  #set text(font: mono-font, size: 9pt)
-  #it
-]
-
-#show figure: it => {
-  set block(above: 0.9em, below: 1em)
-  it
+#let _seen_first_h1 = state("explainer-seen-first-h1", false)
+#let apply_explainer_style(doc) = {
+  set document(
+    title: "Abbots Morton Spaceport: how Quikscript joining works",
+    author: ("Abbots Morton Spaceport project",),
+  )
+  set page(
+    paper: "us-letter",
+    margin: (x: 0.95in, y: 0.9in),
+    numbering: "1",
+    number-align: bottom + right,
+  )
+  set text(font: body-font, size: 10.5pt, fill: rgb("#1A1A1A"))
+  set par(justify: true, leading: 0.68em)
+  set heading(numbering: "1.")
+  show heading.where(level: 1): it => context {
+    let chapter_n = counter(heading).at(it.location()).at(0)
+    if _seen_first_h1.get() {
+      pagebreak()
+    }
+    _seen_first_h1.update(true)
+    set block(above: 1.5em, below: 0.8em)
+    set text(fill: accent, size: 15pt, weight: "bold")
+    set heading(numbering: n => [
+      #set text(fill: accent, size: 10.5pt, weight: "semibold")
+      Chapter #chapter_n
+      #linebreak()
+    ])
+    it
+  }
+  show heading.where(level: 2): it => {
+    set block(above: 1em, below: 0.35em)
+    set text(fill: accent, size: 12pt, weight: "bold")
+    it
+  }
+  show raw.where(block: true): it => block(
+    fill: code-fill,
+    stroke: (paint: frame, thickness: 0.6pt),
+    radius: 3pt,
+    inset: 8pt,
+    above: 0.7em,
+    below: 0.9em,
+  )[
+    #set text(font: mono-font, size: 9pt)
+    #it
+  ]
+  show figure: it => {
+    set block(above: 0.9em, below: 1em)
+    it
+  }
+  doc
 }
 
 #let _callout(title, fill-color, body) = block(
