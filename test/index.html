@@ -249,7 +249,8 @@
     let isSans = true;
     let isSenior = true;
     let dmFirst = false;
-    let isBold = false;
+    const weights = [400, 600, 800];
+    let weightIndex = 0;
 
     function applyState() {
       let fontFamily, fontTitle;
@@ -272,11 +273,11 @@
         : `${fontFamily}, 'Departure Mono', monospace`;
 
       document.documentElement.style.setProperty('--font-stack', fontStack);
-      document.documentElement.style.setProperty('--font-weight', isBold ? '800' : '400');
+      document.documentElement.style.setProperty('--font-weight', String(weights[weightIndex]));
       title.textContent = fontTitle;
       document.title = fontTitle;
       fontToggle.textContent = isSans ? 'Sans' : 'Mono';
-      weightToggle.textContent = isBold ? 'Bold' : 'Regular';
+      weightToggle.textContent = `Weight ${weights[weightIndex]}`;
     }
 
     fontToggle.addEventListener('click', () => {
@@ -290,7 +291,7 @@
     });
 
     weightToggle.addEventListener('click', () => {
-      isBold = !isBold;
+      weightIndex = (weightIndex + 1) % weights.length;
       applyState();
     });
 
@@ -312,7 +313,7 @@
     <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">AMS first</button>
     <button id="font-toggle">Sans</button>
     <button id="level-toggle">Senior</button>
-    <button id="weight-toggle">Regular</button>
+    <button id="weight-toggle">Weight 400</button>
     <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
   </div>
 
