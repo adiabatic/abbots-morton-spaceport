@@ -135,7 +135,7 @@ def generate_kern_fea(
     kerning_defs: dict,
     kerning_groups: dict[str, list[str]],
     all_glyph_names: list[str],
-    pixel_size: int,
+    pixel_width: int,
 ) -> str:
     """Generate OpenType feature code for kern feature from kerning definitions."""
     lines = ["feature kern {"]
@@ -148,7 +148,7 @@ def generate_kern_fea(
         if not left_glyphs:
             continue
         right_glyphs = definition["right"]
-        value = definition["value"] * pixel_size
+        value = definition["value"] * pixel_width
         left = " ".join(sorted(left_glyphs))
         right = " ".join(right_glyphs)
         lines.append(f"    lookup kern_{tag_name} {{")
@@ -158,7 +158,7 @@ def generate_kern_fea(
     return "\n".join(lines)
 
 
-def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+def generate_mark_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
     """Generate OpenType feature code for mark positioning (combining diacriticals).
 
     Scans glyphs_def for marks (is_mark: true) and base glyphs with
@@ -195,7 +195,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         has_adjustments = base_x_adjust or base_y_adjust
         if y_offset >= 0:
             # Top mark: anchor at the bottom of the drawn pixels
-            anchor_y = y_offset * pixel_size
+            anchor_y = y_offset * pixel_height
             if has_adjustments:
                 adjusted_marks[glyph_name] = (anchor_x, anchor_y, True, base_x_adjust or {}, base_y_adjust or {})
             else:
@@ -203,7 +203,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         else:
             # Bottom mark: anchor at the top of the drawn pixels
             bitmap_height = len(bitmap) if bitmap else 0
-            anchor_y = (y_offset + bitmap_height) * pixel_size
+            anchor_y = (y_offset + bitmap_height) * pixel_height
             if has_adjustments:
                 adjusted_marks[glyph_name] = (anchor_x, anchor_y, False, base_x_adjust or {}, base_y_adjust or {})
             else:
@@ -220,22 +220,22 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             continue
         advance_width = glyph_def.get("advance_width")
         if advance_width is not None:
-            aw = advance_width * pixel_size
+            aw = advance_width * pixel_width
         else:
             bitmap = glyph_def.get("bitmap", [])
             if bitmap:
                 max_col = max((len(row) for row in bitmap), default=0)
-                aw = (max_col + 2) * pixel_size
+                aw = (max_col + 2) * pixel_width
             else:
                 continue
         base_x = aw // 2
         if "top_mark_y" in glyph_def:
-            top_x = base_x + glyph_def.get("top_mark_x", 0) * pixel_size
-            base_y = glyph_def["top_mark_y"] * pixel_size
+            top_x = base_x + glyph_def.get("top_mark_x", 0) * pixel_width
+            base_y = glyph_def["top_mark_y"] * pixel_height
             top_bases[glyph_name] = (top_x, base_y)
         if "bottom_mark_y" in glyph_def:
-            bottom_x = base_x + glyph_def.get("bottom_mark_x", 0) * pixel_size
-            base_y = glyph_def["bottom_mark_y"] * pixel_size
+            bottom_x = base_x + glyph_def.get("bottom_mark_x", 0) * pixel_width
+            base_y = glyph_def["bottom_mark_y"] * pixel_height
             bottom_bases[glyph_name] = (bottom_x, base_y)
 
     if not top_bases and not bottom_bases:
@@ -283,8 +283,8 @@ def generate_mark_fea(glyphs_def: dict, pixel_size: int) -> str | None:
         lines.append(f"    lookup mark_{mark_name} {{")
         for glyph_name in sorted(bases):
             bx, by = bases[glyph_name]
-            x_adj = base_x_adjust.get(glyph_name, 0) * pixel_size
-            y_adj = base_y_adjust.get(glyph_name, 0) * pixel_size
+            x_adj = base_x_adjust.get(glyph_name, 0) * pixel_width
+            y_adj = base_y_adjust.get(glyph_name, 0) * pixel_height
             lines.append(f"        pos base {glyph_name} <anchor {int(bx + x_adj)} {int(by + y_adj)}> mark @mark_{mark_name};")
         lines.append(f"    }} mark_{mark_name};")
 
@@ -320,7 +320,7 @@ def _is_contextual_variant(glyph_name: str) -> bool:
     )
 
 
-def generate_calt_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     """Generate OpenType feature code for contextual alternates (calt).
 
     Generates two kinds of contextual substitution rules:
@@ -1135,7 +1135,7 @@ def generate_liga_fea(glyphs_def: dict) -> str | None:
     return "\n".join(lines)
 
 
-def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
+def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
     """Generate OpenType feature code for cursive attachment (curs).
 
     Scans glyphs_def for cursive_entry / cursive_exit anchors and emits
@@ -1165,11 +1165,11 @@ def generate_curs_fea(glyphs_def: dict, pixel_size: int) -> str | None:
             exit_anchor = "<anchor NULL>"
             for a in entries:
                 if a[1] == y:
-                    entry_anchor = f"<anchor {a[0] * pixel_size} {a[1] * pixel_size}>"
+                    entry_anchor = f"<anchor {a[0] * pixel_width} {a[1] * pixel_height}>"
                     break
             for a in exits:
                 if a[1] == y:
-                    exit_anchor = f"<anchor {a[0] * pixel_size} {a[1] * pixel_size}>"
+                    exit_anchor = f"<anchor {a[0] * pixel_width} {a[1] * pixel_height}>"
                     break
             y_groups.setdefault(y, []).append((glyph_name, entry_anchor, exit_anchor))
 
@@ -1309,15 +1309,17 @@ def parse_bitmap(bitmap: list) -> list[list[int]]:
 
 def bitmap_to_rectangles(
     bitmap: list[list[int]],
-    pixel_size: int,
-    y_offset: int = 0
+    pixel_width: int,
+    pixel_height: int,
+    y_offset: int = 0,
 ) -> list[tuple[int, int, int, int]]:
     """
     Convert a 2D bitmap array to a list of rectangle coordinates.
 
     Args:
         bitmap: 2D array of 0s and 1s
-        pixel_size: size of each pixel in font units
+        pixel_width: width of each pixel in font units
+        pixel_height: height of each pixel in font units
         y_offset: vertical offset in pixels (negative for descenders)
                   0 = bottom of bitmap on baseline
                   -3 = bottom of bitmap is 3 pixels below baseline
@@ -1331,12 +1333,12 @@ def bitmap_to_rectangles(
     for row_idx, row in enumerate(bitmap):
         # Flip y-axis: bitmap row 0 is top, font y increases upward
         # y_offset shifts the whole glyph (negative = below baseline)
-        y = (y_offset + height - 1 - row_idx) * pixel_size
+        y = (y_offset + height - 1 - row_idx) * pixel_height
 
         for col_idx, pixel in enumerate(row):
             if pixel:  # Pixel is "on"
-                x = col_idx * pixel_size
-                rectangles.append((x, y, pixel_size, pixel_size))
+                x = col_idx * pixel_width
+                rectangles.append((x, y, pixel_width, pixel_height))
 
     return rectangles
 
@@ -1537,15 +1539,25 @@ def resolve_composite(
     return result_bitmap, result_y_offset
 
 
-def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
+def build_font(
+    glyph_data: dict,
+    output_path: Path | None = None,
+    variant: str = "mono",
+    pixel_width: int | None = None,
+):
     """
     Build font from glyph data dictionary.
     Creates a CFF-based OpenType font (.otf).
 
     Args:
         glyph_data: Dictionary containing metadata and glyph definitions
-        output_path: Path to write the font file
+        output_path: Path to write the font file (None to skip saving)
         variant: "mono", "junior", or "senior"
+        pixel_width: Width of each pixel in font units. Defaults to
+                     metadata["pixel_size"]. Height is always metadata["pixel_size"].
+
+    Returns:
+        The built TTFont object.
     """
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
@@ -1575,7 +1587,9 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     font_name = base_font_name + suffixes[variant]
     version = metadata["version"]
     units_per_em = metadata["units_per_em"]
-    pixel_size = metadata["pixel_size"]
+    pixel_height = metadata["pixel_size"]
+    if pixel_width is None:
+        pixel_width = pixel_height
     ascender = metadata["ascender"]
     descender = metadata["descender"]
     cap_height = metadata["cap_height"]
@@ -1632,21 +1646,21 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     glyph_set = GlyphSet()
 
     # Standard monospace width: 7 pixels (bitmap 5 + 2 spacing)
-    mono_width = 7 * pixel_size  # 350 units
+    mono_width = 7 * pixel_width
 
     # Create .notdef glyph (simple rectangle, sized to fit mono_width)
     pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
-    pen.moveTo((50, 0))
-    pen.lineTo((50, 250))
-    pen.lineTo((250, 250))
-    pen.lineTo((250, 0))
+    pen.moveTo((pixel_width, 0))
+    pen.lineTo((pixel_width, 5 * pixel_height))
+    pen.lineTo((5 * pixel_width, 5 * pixel_height))
+    pen.lineTo((5 * pixel_width, 0))
     pen.closePath()
     charstrings[".notdef"] = pen.getCharString()
-    metrics[".notdef"] = (mono_width, 50)
+    metrics[".notdef"] = (mono_width, pixel_width)
 
     # Create space glyph (empty)
     space_def = glyphs_def.get("space", {})
-    space_width = space_def["advance_width"] * pixel_size
+    space_width = space_def["advance_width"] * pixel_width
     pen = T2CharStringPen(width=space_width, glyphSet=glyph_set)
     charstrings["space"] = pen.getCharString()
     metrics["space"] = (space_width, 0)
@@ -1710,7 +1724,7 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
             # Empty glyph — use explicit advance_width if set, else mono_width
             width = glyph_def.get("advance_width")
             if width is not None:
-                width = int(width * pixel_size)
+                width = int(width * pixel_width)
             else:
                 width = mono_width
             pen = T2CharStringPen(width=width, glyphSet=glyph_set)
@@ -1747,7 +1761,7 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
                 )
         # Non-Quikscript glyphs: no height restrictions
 
-        rectangles = bitmap_to_rectangles(bitmap, pixel_size, y_offset)
+        rectangles = bitmap_to_rectangles(bitmap, pixel_width, pixel_height, y_offset)
 
         # Calculate advance width
         advance_width = glyph_def.get("advance_width")
@@ -1755,15 +1769,15 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
             if is_prop_glyph:
                 # Proportional glyphs: bitmap width + 2 pixel spacing
                 max_col = max((len(row) for row in bitmap), default=0)
-                advance_width = (max_col + 2) * pixel_size
+                advance_width = (max_col + 2) * pixel_width
             else:
                 # Monospace glyphs: use fixed mono_width
                 advance_width = mono_width
         else:
-            advance_width *= pixel_size
+            advance_width *= pixel_width
 
         # Calculate x_offset: center glyph within advance width
-        bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_size
+        bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_width
         if advance_width == 0:
             # Zero-width (combining mark): center bitmap on the origin
             x_offset = -(bitmap_width // 2)
@@ -1865,42 +1879,110 @@ def build_font(glyph_data: dict, output_path: Path, variant: str = "mono"):
     if is_proportional and kerning_defs:
         kerning_groups = collect_kerning_groups(glyphs_def)
         fea_code_parts.append(generate_kern_fea(
-            kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_size
+            kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width
         ))
 
     if is_proportional:
-        mark_fea = generate_mark_fea(glyphs_def, pixel_size)
+        mark_fea = generate_mark_fea(glyphs_def, pixel_width, pixel_height)
         if mark_fea:
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        curs_fea = generate_curs_fea(glyphs_def, pixel_size)
+        curs_fea = generate_curs_fea(glyphs_def, pixel_width, pixel_height)
         if curs_fea:
             fea_code_parts.append(curs_fea)
 
     if is_senior:
-        calt_fea = generate_calt_fea(glyphs_def, pixel_size)
+        calt_fea = generate_calt_fea(glyphs_def, pixel_width)
         if calt_fea:
             fea_code_parts.append(calt_fea)
 
+    fea_code = None
     if fea_code_parts:
         fea_code = "\n\n".join(fea_code_parts)
         addOpenTypeFeaturesFromString(fb.font, fea_code)
 
-        # Write .fea file alongside the font
+        if output_path is not None:
+            fea_path = output_path.with_suffix(".fea")
+            fea_path.write_text(fea_code + "\n")
+            print(f"  Feature code saved to: {fea_path}")
+
+    if output_path is not None:
+        fb.save(str(output_path))
+        print(f"Font saved to: {output_path}")
+
+    print(f"  Variant: {variant}")
+    print(f"  Glyphs: {len(glyph_order)}")
+    print(f"  Units per em: {units_per_em}")
+    print(f"  Pixel: {pixel_width}×{pixel_height} units")
+
+    font = fb.font
+    font._fea_code = fea_code
+    return font
+
+
+def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
+    """
+    Build a variable font with a wght axis (Regular 400, Bold 700).
+
+    Bold pixels are 2× wide (pixel_width=100 vs 50), keeping pixel_height
+    at 50.  Both masters share the same bitmap data and feature structure,
+    differing only in x-coordinates and advance widths.
+    """
+    from fontTools.designspaceLib import (
+        AxisDescriptor,
+        DesignSpaceDocument,
+        InstanceDescriptor,
+        SourceDescriptor,
+    )
+    from fontTools.varLib import build as varLib_build
+
+    metadata = glyph_data["metadata"]
+    pixel_height = metadata["pixel_size"]
+
+    print(f"\nBuilding variable font: {output_path.name}")
+
+    regular = build_font(glyph_data, variant=variant, pixel_width=pixel_height)
+    bold = build_font(glyph_data, variant=variant, pixel_width=pixel_height * 2)
+
+    ds = DesignSpaceDocument()
+
+    axis = AxisDescriptor()
+    axis.tag = "wght"
+    axis.name = "Weight"
+    axis.minimum = 400
+    axis.default = 400
+    axis.maximum = 700
+    ds.addAxis(axis)
+
+    src_regular = SourceDescriptor()
+    src_regular.font = regular
+    src_regular.location = {"Weight": 400}
+    ds.addSource(src_regular)
+
+    src_bold = SourceDescriptor()
+    src_bold.font = bold
+    src_bold.location = {"Weight": 700}
+    ds.addSource(src_bold)
+
+    for style_name, wght in (("Regular", 400), ("Bold", 700)):
+        inst = InstanceDescriptor()
+        inst.name = f"{regular['name'].getDebugName(1)} {style_name}"
+        inst.familyName = regular["name"].getDebugName(1)
+        inst.styleName = style_name
+        inst.location = {"Weight": wght}
+        ds.addInstance(inst)
+
+    vf, _, _ = varLib_build(ds)
+
+    fea_code = getattr(regular, "_fea_code", None)
+    if fea_code:
         fea_path = output_path.with_suffix(".fea")
         fea_path.write_text(fea_code + "\n")
         print(f"  Feature code saved to: {fea_path}")
 
-    # Save font
-    fb.save(str(output_path))
-
-    # Print summary
-    print(f"Font saved to: {output_path}")
-    print(f"  Variant: {variant}")
-    print(f"  Glyphs: {len(glyph_order)}")
-    print(f"  Units per em: {units_per_em}")
-    print(f"  Pixel size: {pixel_size} units")
+    vf.save(str(output_path))
+    print(f"Variable font saved to: {output_path}")
 
 
 def main():
@@ -1908,8 +1990,8 @@ def main():
         print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf")
+        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf  (variable, wght 400-700)")
+        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf  (variable, wght 400-700)")
         print("\nExample:")
         print("  uv run python tools/build_font.py glyph_data/ build/")
         sys.exit(1)
@@ -1930,17 +2012,17 @@ def main():
 
     glyph_data = load_glyph_data(input_path)
 
-    # Build monospace font
+    # Build monospace font (static, no variable font)
     mono_path = output_dir / "AbbotsMortonSpaceportMono.otf"
     build_font(glyph_data, mono_path, variant="mono")
 
-    # Build proportional Junior font (no curs/calt)
+    # Build proportional Junior font (variable, wght 400-700)
     junior_path = output_dir / "AbbotsMortonSpaceportSansJunior.otf"
-    build_font(glyph_data, junior_path, variant="junior")
+    build_variable_font(glyph_data, junior_path, variant="junior")
 
-    # Build proportional Senior font (with curs/calt)
+    # Build proportional Senior font (variable, wght 400-700)
     senior_path = output_dir / "AbbotsMortonSpaceportSansSenior.otf"
-    build_font(glyph_data, senior_path, variant="senior")
+    build_variable_font(glyph_data, senior_path, variant="senior")
 
 
 if __name__ == "__main__":
