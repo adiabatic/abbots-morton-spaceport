@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
     _normalize_anchors,
     generate_noentry_variants,
-    generate_padded_entry_variants,
+    generate_extended_entry_variants,
     load_glyph_data,
     prepare_proportional_glyphs,
 )
@@ -45,7 +45,7 @@ TOKEN_RE = re.compile(
     r"""
     ·(-ing|[A-Z][a-z]*)        # letter name (·Bay, ·-ing)
     (?:\+([A-Z][a-z]*))?       # optional ligature partner (+Utter)
-    ((?:\.!?[a-z][-a-z]*)*)     # optional variant assertions (.half.extended, .!exit, .entry-padded)
+    ((?:\.!?[a-z][-a-z]*)*)     # optional variant assertions (.half.extended, .!exit, .entry-extended)
     """,
     re.VERBOSE,
 )
@@ -227,7 +227,7 @@ def build_anchor_map():
     glyphs = {k: v for k, v in glyphs.items() if ".unused" not in k}
     glyphs = prepare_proportional_glyphs(glyphs)
     glyphs.update(generate_noentry_variants(glyphs))
-    glyphs.update(generate_padded_entry_variants(glyphs))
+    glyphs.update(generate_extended_entry_variants(glyphs))
 
     result = {}
     for name, gdef in glyphs.items():

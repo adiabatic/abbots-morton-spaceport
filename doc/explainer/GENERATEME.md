@@ -120,7 +120,7 @@ b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pa
 
 ### 9. Padding and spacing refinements
 
-a. **`pad_entry_after`** — explain how certain glyph pairs need a little extra space when joined. The build script generates `.entry-padded` variants with a shifted entry anchor. Walk through an example (e.g., ·Ye followed by ·Roe).
+a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. The build script generates `.entry-extended` variants with a shifted entry anchor. Walk through an example (e.g., ·Ye followed by ·Roe).
 b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the "escape hatch" for when automatic joining is wrong.
 
 ### 10. The three font variants
@@ -159,7 +159,7 @@ A reference section listing every key that can appear in a glyph definition in t
 - `calt_not_before`
 - `calt_not_after`
 - `calt_word_final`
-- `pad_entry_after`
+- `extend_entry_after`
 
 ## Style guidance for `style.typ`
 
@@ -177,7 +177,7 @@ A reference section listing every key that can appear in a glyph definition in t
 
 ## Notes for the generator
 
-- Read `tools/build_font.py` for the actual implementation. The functions `generate_calt_fea()`, `generate_curs_fea()`, `generate_liga_fea()`, and `generate_padded_entry_variants()` are the key ones.
+- Read `tools/build_font.py` for the actual implementation. The functions `generate_calt_fea()`, `generate_curs_fea()`, `generate_liga_fea()`, and `generate_extended_entry_variants()` are the key ones.
 - Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
 - Read `inspo/csur/index.html` for the code-point chart and character property descriptions.

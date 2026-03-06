@@ -188,7 +188,7 @@ glyphs:
 
   qsTea.entry-baseline:  # ·Tea (enters at baseline, no exit)
     cursive_entry: [1, 0]
-    pad_entry_after: [qsKey]
+    extend_entry_after: [qsKey]
     bitmap: *tea_prop_bitmap
 
   qsTea.entry-xheight:  # ·Tea (full height, enters at x-height)
@@ -560,7 +560,7 @@ glyphs:
   qsVie.prop:  # ·Vie
     y_offset: -3
     cursive_entry: [1, 0]
-    pad_entry_after: &vertical_exit_letters [qsHe, qsPea, qsTea, qsIt, qsYe]
+    extend_entry_after: &vertical_exit_letters [qsHe, qsPea, qsTea, qsIt, qsYe]
     bitmap:
       - "  ### " #
       - " #   #"
@@ -1036,7 +1036,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
-    pad_entry_after: *vertical_exit_letters
+    extend_entry_after: *vertical_exit_letters
     bitmap: *may_bitmap
 
   qsMay.exit-xheight.extended:  # ·May (exits at x-height, extended bridge)
@@ -1158,10 +1158,10 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
-    pad_entry_after: [qsEight, qsIt, qsYe]
+    extend_entry_after: [qsEight, qsIt, qsYe]
     bitmap: *roe_bitmap
 
-  qsRoe.entry-padded-at-baseline:  # ·Roe (wider form, enters at baseline)
+  qsRoe.entry-extended-at-baseline:  # ·Roe (wider form, enters at baseline)
     cursive_entry: [1, 0]
     calt_after: [qsEight, qsIt, qsYe]
     bitmap:
@@ -1172,7 +1172,7 @@ glyphs:
       - "    # "
       - "####  " #
 
-  qsRoe.entry-padded-at-xheight:  # ·Roe (wider form, enters at x-height)
+  qsRoe.entry-extended-at-xheight:  # ·Roe (wider form, enters at x-height)
     cursive_entry: [1, 5]
     calt_after: [qsIt, qsYe]
     bitmap:
@@ -1346,7 +1346,7 @@ glyphs:
   qsIt.entry-baseline:  # ·It (enters at baseline, exits at x-height)
     cursive_entry: [1, 0]
     cursive_exit: [2, 5]
-    pad_entry_after: [qsKey]
+    extend_entry_after: [qsKey]
     bitmap: *it_bitmap
 
   qsIt.exit-xheight:  # ·It (exits at x-height)
@@ -1695,7 +1695,7 @@ glyphs:
   qsOoze.prop:  # ·Ooze
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
-    pad_entry_after: *vertical_exit_letters
+    extend_entry_after: *vertical_exit_letters
     bitmap:
       - "  #  " #
       - " # # "
