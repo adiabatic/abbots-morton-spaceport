@@ -1157,12 +1157,12 @@ glyphs:
     cursive_entry:
       - [1, 0]
       - [1, 5]
-    pad_entry_after: [qsYe, qsIt]
+    pad_entry_after: [qsEight, qsIt, qsYe]
     bitmap: *roe_bitmap
 
   qsRoe.entry-padded-at-baseline:  # ·Roe (wider form, enters at baseline)
     cursive_entry: [1, 0]
-    calt_after: [qsYe, qsIt]
+    calt_after: [qsEight, qsIt, qsYe]
     bitmap:
       - "  ##  " #
       - "    # "
@@ -1173,7 +1173,7 @@ glyphs:
 
   qsRoe.entry-padded-at-xheight:  # ·Roe (wider form, enters at x-height)
     cursive_entry: [1, 5]
-    calt_after: [qsYe, qsIt]
+    calt_after: [qsIt, qsYe]
     bitmap:
       - "####  " #
       - "    # "
