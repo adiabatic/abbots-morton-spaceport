@@ -7,15 +7,18 @@ This file contains instructions for an LLM to generate a Typst document explaini
 Generate two files in this directory:
 
 - **`style.typ`** — All styling, layout, page setup, fonts, colors, custom show rules, and reusable components (callout boxes, code blocks, figure templates, etc.). This file should be `#import`ed by the main document. It should not contain any prose.
-- **`main.typ`** — The full document text. Imports `style.typ`. Contains all headings, paragraphs, figures, and code examples. This file can be blown away and regenerated without losing any styling work.
+- **`main.typ`** — The full document text. Imports `style.typ`. Contains `#include`d individual chapters. These chapters contain all headings, paragraphs, figures, and code examples. This file, and the individual chapters, can be deleted and regenerated without losing any styling work.
 
-`main.typ` should start with something like:
+`main.typ` should start like this:
 
 ```typst
-#import "style.typ": *
+#import "style.typ": apply_explainer_style
+#show: apply_explainer_style
+
+// ⋮
 ```
 
-Use real Typst heading levels (`=`, `==`, etc.) so section/subsection numbering is automatic. Do not hard-code section numbers in prose.
+Each chapter is a separate `.typ` file under `chapters/`. The `00-introduction.typ` file is a brief intro that doesn't count as a numbered chapter. Use real Typst heading levels (`=`, `==`, etc.) so section/subsection numbering is automatic. Do not hard-code section numbers in prose.
 
 ## Audience and tone
 
