@@ -1265,6 +1265,22 @@ def _shift_entry(entry, dx=-1):
     return [entry[0] + dx, entry[1]]
 
 
+def _widen_bitmap_with_connector(bitmap, entry_y, y_offset=0):
+    """Widen bitmap by 1 pixel on the left, adding a connecting pixel at entry_y."""
+    if not bitmap:
+        return bitmap
+    height = len(bitmap)
+    row_from_bottom = entry_y - y_offset
+    connecting_row_idx = (height - 1) - row_from_bottom
+    new_bitmap = []
+    for i, row in enumerate(bitmap):
+        if isinstance(row, str):
+            new_bitmap.append(("#" if i == connecting_row_idx else " ") + row)
+        else:
+            new_bitmap.append(([1] if i == connecting_row_idx else [0]) + list(row))
+    return new_bitmap
+
+
 _CALT_KEYS = frozenset((
     "calt_after", "calt_before", "calt_not_after", "calt_not_before",
     "calt_word_final", "pad_entry_after",
@@ -1274,9 +1290,9 @@ _CALT_KEYS = frozenset((
 def generate_padded_entry_variants(glyphs_def: dict) -> dict:
     """Create .entry-padded variants for glyphs with pad_entry_after.
 
-    For each glyph with pad_entry_after, creates a copy whose cursive_entry
-    x-coordinate is shifted left by 1 pixel.  The cursive system then positions
-    the following glyph 1 pixel further right, adding visual separation.
+    For each glyph with pad_entry_after, creates a copy whose bitmap is widened
+    by 1 pixel on the left with a connecting pixel at the entry y-coordinate.
+    The entry anchor stays unchanged; the exit anchor (if any) shifts right by 1.
     Uses entry-* naming so _is_entry_variant() recognizes the variant.
 
     Also generates padded versions of related glyphs (exit variants, ligatures)
@@ -1305,14 +1321,23 @@ def generate_padded_entry_variants(glyphs_def: dict) -> dict:
                 padded_name = f"{name}.entry-padded-at-{label}"
                 if padded_name not in glyphs_def:
                     variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
-                    variant_def["cursive_entry"] = [anchor[0] - 1, anchor[1]]
+                    variant_def["cursive_entry"] = [anchor[0], anchor[1]]
+                    variant_def["bitmap"] = _widen_bitmap_with_connector(
+                        variant_def["bitmap"], anchor[1], variant_def.get("y_offset", 0)
+                    )
+                    if "cursive_exit" in variant_def:
+                        variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
                     variant_def["calt_after"] = list(pad_after)
                     variants[padded_name] = variant_def
         else:
             padded_name = name + ".entry-padded"
             if padded_name not in glyphs_def:
                 variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
-                variant_def["cursive_entry"] = _shift_entry(entry)
+                variant_def["bitmap"] = _widen_bitmap_with_connector(
+                    variant_def["bitmap"], entries[0][1], variant_def.get("y_offset", 0)
+                )
+                if "cursive_exit" in variant_def:
+                    variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
                 variant_def["calt_after"] = list(pad_after)
                 variants[padded_name] = variant_def
 
@@ -1338,13 +1363,23 @@ def generate_padded_entry_variants(glyphs_def: dict) -> dict:
                     sec_name = f"{other_name}.entry-padded-at-{label}"
                     if sec_name not in glyphs_def:
                         padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                        padded["cursive_entry"] = [anchor[0] - 1, anchor[1]]
+                        padded["cursive_entry"] = [anchor[0], anchor[1]]
+                        padded["bitmap"] = _widen_bitmap_with_connector(
+                            padded["bitmap"], anchor[1], padded.get("y_offset", 0)
+                        )
+                        if "cursive_exit" in padded:
+                            padded["cursive_exit"] = _shift_entry(padded["cursive_exit"], dx=1)
                         variants[sec_name] = padded
             else:
                 sec_name = other_name + ".entry-padded"
                 if sec_name not in glyphs_def:
                     padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                    padded["cursive_entry"] = _shift_entry(other_entry)
+                    other_entries_norm = _normalize_anchors(other_entry)
+                    padded["bitmap"] = _widen_bitmap_with_connector(
+                        padded["bitmap"], other_entries_norm[0][1], padded.get("y_offset", 0)
+                    )
+                    if "cursive_exit" in padded:
+                        padded["cursive_exit"] = _shift_entry(padded["cursive_exit"], dx=1)
                     variants[sec_name] = padded
 
     return variants
