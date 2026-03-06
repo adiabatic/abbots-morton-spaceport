@@ -193,6 +193,10 @@
       background: light-dark(#e8c4c4, #6b3333);
     }
 
+    .wip {
+      background: light-dark(#c4d4e8, #2a3a5a);
+    }
+
     .toggle-buttons {
       position: fixed;
       top: 1rem;
@@ -1355,6 +1359,85 @@
     }
 
     document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
+  </script>
+
+  <script type="module">
+    const NAME_TO_CP = {
+      Pea: 0xE650, Bay: 0xE651, Tea: 0xE652, Day: 0xE653,
+      Key: 0xE654, Gay: 0xE655, Thaw: 0xE656, They: 0xE657,
+      Fee: 0xE658, Vie: 0xE659, See: 0xE65A, Zoo: 0xE65B,
+      She: 0xE65C, "J'ai": 0xE65D, Cheer: 0xE65E, Jay: 0xE65F,
+      Ye: 0xE660, Way: 0xE661, He: 0xE662, Why: 0xE663,
+      '-ing': 0xE664, May: 0xE665, No: 0xE666, Low: 0xE667,
+      Roe: 0xE668, Loch: 0xE669, Llan: 0xE66A, Excite: 0xE66B,
+      Exam: 0xE66C,
+      It: 0xE670, Eat: 0xE671, Et: 0xE672, Eight: 0xE673,
+      At: 0xE674, I: 0xE675, Ah: 0xE676, Awe: 0xE677,
+      Ox: 0xE678, Oy: 0xE679, Utter: 0xE67A, Out: 0xE67B,
+      Owe: 0xE67C, Foot: 0xE67D, Ooze: 0xE67E,
+    };
+
+    function parseToken(raw) {
+      const dotIdx = raw.indexOf('.');
+      if (dotIdx === -1) return { base: raw, variant: null };
+      return { base: raw.slice(0, dotIdx), variant: raw.slice(dotIdx + 1) };
+    }
+
+    function matchesDataExpect(expectStr, tokens) {
+      const parts = expectStr.split(/[|·~+\s]+/).filter(Boolean);
+      let ti = 0;
+      for (const part of parts) {
+        if (ti >= tokens.length) break;
+        const parsed = parseToken(part);
+        if (parsed.base === tokens[ti].base) {
+          if (tokens[ti].variant && !part.includes('.' + tokens[ti].variant)) continue;
+          ti++;
+        }
+      }
+      return ti === tokens.length;
+    }
+
+    function buildTextSubstring(tokens) {
+      const cps = [];
+      for (const t of tokens) {
+        const cp = NAME_TO_CP[t.base];
+        if (cp == null) return null;
+        cps.push(cp);
+      }
+      return String.fromCodePoint(...cps);
+    }
+
+    try {
+      const resp = await fetch('wip.json');
+      if (!resp.ok) throw new Error(resp.status);
+      const sequences = await resp.json();
+      if (!Array.isArray(sequences) || sequences.length === 0) throw new Error('empty');
+
+      const parsed = sequences.map(seq => {
+        const tokens = seq.split(/\s+/).map(parseToken);
+        return { tokens, textSubstr: buildTextSubstring(tokens) };
+      });
+
+      const candidates = document.querySelectorAll(
+        '[data-expect], .pairings td, .pairings dd, .word-list td, .word-list dd, #sample-text td, #sample-text dd'
+      );
+
+      for (const el of candidates) {
+        for (const { tokens, textSubstr } of parsed) {
+          const expectAttr = el.getAttribute('data-expect');
+          if (expectAttr && matchesDataExpect(expectAttr, tokens)) {
+            el.classList.add('wip');
+            break;
+          }
+          if (textSubstr && el.textContent.includes(textSubstr)) {
+            el.classList.add('wip');
+            break;
+          }
+        }
+      }
+    } catch {
+      // wip.json missing, empty, or malformed — no highlights
+    }
   </script>
 
   <footer>
