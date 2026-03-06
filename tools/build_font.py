@@ -311,6 +311,17 @@ def _is_exit_variant(glyph_name: str) -> bool:
     return any(p.startswith("exit-") for p in glyph_name.split(".")[1:])
 
 
+def _padded_entry_suffix(glyph_name: str) -> str | None:
+    """Return the .entry-padded* suffix segment if present, else None."""
+    for part in glyph_name.split(".")[1:]:
+        if part.startswith("entry-padded"):
+            return "." + part
+    return None
+
+
+_PADDED_HEIGHT_LABELS = {0: "baseline", 5: "xheight", 6: "y6", 8: "top"}
+
+
 def _is_contextual_variant(glyph_name: str) -> bool:
     """Check if a glyph name is a contextual variant (entry-*, exit-*, or half)."""
     parts = glyph_name.split(".")[1:]
@@ -373,7 +384,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             pair_overrides.setdefault(base_name, []).append(
                 (glyph_name, list(calt_after))
             )
-        elif glyph_name.endswith(".entry-padded"):
+        elif _padded_entry_suffix(glyph_name) is not None:
             pass
         else:
             existing = bk_replacements.get(base_name, {}).get(entry_y)
@@ -415,7 +426,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             continue
         if glyph_name.endswith(".noentry"):
             continue
-        if glyph_name.endswith(".entry-padded"):
+        if _padded_entry_suffix(glyph_name) is not None:
             continue
         if _is_entry_variant(glyph_name) and not glyph_def.get("calt_before"):
             continue
@@ -734,8 +745,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                 if guard_glyphs:
                                     guard_list = " ".join(sorted(guard_glyphs))
                     actual_variant = variant_name
-                    if target.endswith(".entry-padded"):
-                        padded = variant_name + ".entry-padded"
+                    suffix = _padded_entry_suffix(target)
+                    if suffix:
+                        padded = variant_name + suffix
+                        if padded not in glyphs_def:
+                            padded = variant_name + ".entry-padded"
                         if padded in glyphs_def:
                             actual_variant = padded
                     if guard_list:
@@ -789,6 +803,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if ag_base in fwd_pair_overrides:
                         for pv, _ in fwd_pair_overrides[ag_base]:
                             expanded_after.add(pv)
+                    if ag_base in bk_replacements:
+                        expanded_after.update(bk_replacements[ag_base].values())
+                    if ag_base in pair_overrides:
+                        for pv, _ in pair_overrides[ag_base]:
+                            expanded_after.add(pv)
+                suffix = _padded_entry_suffix(variant_name)
+                if suffix:
+                    label = suffix.removeprefix(".entry-padded-at-")
+                    entry_y = next(
+                        (y for y, lbl in _PADDED_HEIGHT_LABELS.items() if lbl == label),
+                        None,
+                    )
+                    if entry_y is not None and entry_y in exit_classes:
+                        expanded_after &= exit_classes[entry_y]
                 after_list = " ".join(sorted(expanded_after))
                 safe = variant_name.replace(".", "_")
                 lines.append("")
@@ -1076,8 +1104,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for combo in _product(*variant_sets):
                 component_str = " ".join(combo)
                 actual_lig = lig_name
-                if combo[0].endswith(".entry-padded"):
-                    padded_lig = lig_name + ".entry-padded"
+                suffix = _padded_entry_suffix(combo[0])
+                if suffix:
+                    padded_lig = lig_name + suffix
+                    if padded_lig not in glyphs_def:
+                        padded_lig = lig_name + ".entry-padded"
                     if padded_lig in glyphs_def:
                         actual_lig = padded_lig
                 lines.append(f"        sub {component_str} by {actual_lig};")
@@ -1263,18 +1294,33 @@ def generate_padded_entry_variants(glyphs_def: dict) -> dict:
         entry = gdef.get("cursive_entry")
         if not entry:
             continue
-        padded_name = name + ".entry-padded"
-        if padded_name not in glyphs_def:
-            variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
-            variant_def["cursive_entry"] = _shift_entry(entry)
-            variant_def["calt_after"] = list(pad_after)
-            variants[padded_name] = variant_def
+
+        entries = _normalize_anchors(entry)
+        multi = len(entries) > 1
+
+        if multi:
+            for anchor in entries:
+                y = anchor[1]
+                label = _PADDED_HEIGHT_LABELS.get(y, f"y{y}")
+                padded_name = f"{name}.entry-padded-at-{label}"
+                if padded_name not in glyphs_def:
+                    variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
+                    variant_def["cursive_entry"] = [anchor[0] - 1, anchor[1]]
+                    variant_def["calt_after"] = list(pad_after)
+                    variants[padded_name] = variant_def
+        else:
+            padded_name = name + ".entry-padded"
+            if padded_name not in glyphs_def:
+                variant_def = {k: v for k, v in gdef.items() if k != "pad_entry_after"}
+                variant_def["cursive_entry"] = _shift_entry(entry)
+                variant_def["calt_after"] = list(pad_after)
+                variants[padded_name] = variant_def
 
         base_name = name.split(".")[0]
         for other_name, other_gdef in sorted(glyphs_def.items()):
             if other_gdef is None or other_name == name:
                 continue
-            if other_name.endswith(".entry-padded"):
+            if _padded_entry_suffix(other_name) is not None:
                 continue
             other_base = other_name.split(".")[0]
             is_variant = other_base == base_name and "." in other_name
@@ -1284,9 +1330,22 @@ def generate_padded_entry_variants(glyphs_def: dict) -> dict:
             other_entry = other_gdef.get("cursive_entry")
             if not other_entry:
                 continue
-            padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-            padded["cursive_entry"] = _shift_entry(other_entry)
-            variants[other_name + ".entry-padded"] = padded
+            if multi:
+                other_entries = _normalize_anchors(other_entry)
+                for anchor in other_entries:
+                    y = anchor[1]
+                    label = _PADDED_HEIGHT_LABELS.get(y, f"y{y}")
+                    sec_name = f"{other_name}.entry-padded-at-{label}"
+                    if sec_name not in glyphs_def:
+                        padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
+                        padded["cursive_entry"] = [anchor[0] - 1, anchor[1]]
+                        variants[sec_name] = padded
+            else:
+                sec_name = other_name + ".entry-padded"
+                if sec_name not in glyphs_def:
+                    padded = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
+                    padded["cursive_entry"] = _shift_entry(other_entry)
+                    variants[sec_name] = padded
 
     return variants
 

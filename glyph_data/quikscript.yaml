@@ -1160,13 +1160,8 @@ glyphs:
     pad_entry_after: [qsYe, qsIt]
     bitmap: *roe_bitmap
 
-  qsRoe.entry-padded:  # ·Roe (wider form after ·Ye and ·It)
-    # NB: This name intentionally matches the auto-generated .entry-padded suffix
-    # to block generate_padded_entry_variants() from creating a conflicting version.
-    # The manual bitmap is even wider (6 columns) than what auto-generation would produce.
-    cursive_entry:
-      - [0, 0]
-      - [0, 5]
+  qsRoe.entry-padded-at-baseline:  # ·Roe (wider form, enters at baseline)
+    cursive_entry: [0, 0]
     calt_after: [qsYe, qsIt]
     bitmap:
       - "  ##  " #
@@ -1175,6 +1170,17 @@ glyphs:
       - "     #"
       - "    # "
       - "####  " #
+
+  qsRoe.entry-padded-at-xheight:  # ·Roe (wider form, enters at x-height)
+    cursive_entry: [0, 5]
+    calt_after: [qsYe, qsIt]
+    bitmap:
+      - "####  " #
+      - "    # "
+      - "     #"
+      - "     #"
+      - "    # "
+      - "  ##  " #
 
   qsRoe.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
     cursive_entry: [1, 5]
