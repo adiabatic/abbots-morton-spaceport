@@ -1161,7 +1161,7 @@ glyphs:
     bitmap: *roe_bitmap
 
   qsRoe.entry-padded-at-baseline:  # ·Roe (wider form, enters at baseline)
-    cursive_entry: [0, 0]
+    cursive_entry: [1, 0]
     calt_after: [qsYe, qsIt]
     bitmap:
       - "  ##  " #
@@ -1172,7 +1172,7 @@ glyphs:
       - "####  " #
 
   qsRoe.entry-padded-at-xheight:  # ·Roe (wider form, enters at x-height)
-    cursive_entry: [0, 5]
+    cursive_entry: [1, 5]
     calt_after: [qsYe, qsIt]
     bitmap:
       - "####  " #
@@ -1691,7 +1691,7 @@ glyphs:
       - "#   #" #
 
   qsOoze.prop:  # ·Ooze
-    cursive_entry: [0, 0] # an entry past the glyph might only be good for ·Ye·Ooze and nothing else
+    cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     pad_entry_after: *vertical_exit_letters
     bitmap:
