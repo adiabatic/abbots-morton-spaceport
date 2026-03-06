@@ -4,22 +4,22 @@
 
 Some pairings need extra breathing room even when anchors match.
 
-== a. `pad_entry_after`
+== a. `extend_entry_after`
 
-If a glyph has `pad_entry_after`, the build creates `.entry-padded` variants with entry anchor shifted left one pixel; cursive attachment then places the glyph one pixel farther right on screen.
+If a glyph has `extend_entry_after`, the build creates `.entry-extended` variants with entry anchor shifted left one pixel; cursive attachment then places the glyph one pixel farther right on screen.
 
 Real data source:
 
 ```yaml
 qsVie.prop:
   cursive_entry: [1, 0]
-  pad_entry_after: [qsHe, qsPea, qsTea, qsIt, qsYe]
+  extend_entry_after: [qsHe, qsPea, qsTea, qsIt, qsYe]
 ```
 
-`·Roe` has a hand-tuned padded form after `·Ye`:
+`·Roe` has a hand-tuned extended form after `·Ye`:
 
 ```yaml
-qsRoe.entry-padded:
+qsRoe.entry-extended:
   cursive_entry:
     - [0, 0]
   calt_after: [qsYe]

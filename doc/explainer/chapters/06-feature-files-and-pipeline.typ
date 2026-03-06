@@ -21,6 +21,6 @@ A lookup is a concrete rule set inside a feature. Features can contain many look
 5. Save both `.otf` and human-readable `.fea` in `test/`.
 
 #technical_detail([
-The key functions are `generate_calt_fea()`, `generate_curs_fea()`, and `generate_padded_entry_variants()`. A generic `generate_liga_fea()` function exists, but in the current Senior build ligature substitutions are emitted inside `calt` (`lookup calt_liga`) to preserve interaction with contextual alternates.
+The key functions are `generate_calt_fea()`, `generate_curs_fea()`, and `generate_extended_entry_variants()`. A generic `generate_liga_fea()` function exists, but in the current Senior build ligature substitutions are emitted inside `calt` (`lookup calt_liga`) to preserve interaction with contextual alternates.
 ])
 

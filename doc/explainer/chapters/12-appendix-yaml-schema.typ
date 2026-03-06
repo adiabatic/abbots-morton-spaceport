@@ -19,7 +19,7 @@ This project's glyph definitions use the following keys:
   [`calt_not_before`], [Block a forward contextual substitution for listed following glyphs.],
   [`calt_not_after`], [Block a backward contextual substitution for listed preceding glyphs.],
   [`calt_word_final`], [Marks a word-final variant; build emits substitute/revert rules around word boundaries.],
-  [`pad_entry_after`], [Requests auto-generated `.entry-padded` variants after listed glyphs for spacing refinements.],
+  [`extend_entry_after`], [Requests auto-generated `.entry-extended` variants after listed glyphs for spacing refinements.],
 )
 
 #technical_detail([
