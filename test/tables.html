@@ -85,7 +85,9 @@
         }
 
         span {
+          display: inline-block;
           cursor: pointer;
+          margin-right: 1ch;
           padding: 0 2px;
           border-radius: 2px;
 
@@ -186,6 +188,7 @@
 
       const STORAGE_KEY = 'ams-joins-highlights';
       const SELECTED_KEY = 'ams-joins-selected';
+      const STRIP_KEY = 'ams-joins-strip';
 
       const select = document.getElementById('letter-select');
       const table = document.getElementById('matrix-table');
@@ -226,6 +229,22 @@
         strip.hidden = true;
         strip.innerHTML = '';
         activeHeader = null;
+        localStorage.removeItem(STRIP_KEY);
+      }
+
+      function headerIndex(headerEl, mode) {
+        if (mode === 'column') {
+          const ths = table.querySelectorAll('thead th');
+          for (let i = 1; i < ths.length; i++) {
+            if (ths[i] === headerEl) return i - 1;
+          }
+        } else {
+          const rows = table.querySelectorAll('tbody tr');
+          for (let i = 0; i < rows.length; i++) {
+            if (rows[i].querySelector('th') === headerEl) return i;
+          }
+        }
+        return -1;
       }
 
       function showStrip(headerEl, mode) {
@@ -234,6 +253,7 @@
           return;
         }
         activeHeader = headerEl;
+        localStorage.setItem(STRIP_KEY, JSON.stringify({ mode, index: headerIndex(headerEl, mode) }));
         strip.innerHTML = '';
         strip.hidden = false;
 
@@ -288,12 +308,29 @@
         }
       }
 
+      function restoreStrip() {
+        try {
+          const data = JSON.parse(localStorage.getItem(STRIP_KEY));
+          if (!data) return;
+          const { mode, index } = data;
+          let headerEl;
+          if (mode === 'column') {
+            headerEl = table.querySelectorAll('thead th')[index + 1];
+          } else {
+            headerEl = table.querySelectorAll('tbody tr')[index]?.querySelector('th');
+          }
+          if (headerEl) showStrip(headerEl, mode);
+        } catch {}
+      }
+
       function buildTable() {
         const idx = Number(select.value);
         const selected = LETTERS[idx];
         localStorage.setItem(SELECTED_KEY, idx);
 
-        hideStrip();
+        activeHeader = null;
+        strip.hidden = true;
+        strip.innerHTML = '';
         table.innerHTML = '';
 
         const thead = document.createElement('thead');
@@ -375,7 +412,7 @@
       document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
       initEscapeToClear(clearAllHighlights);
 
-      select.addEventListener('change', buildTable);
+      select.addEventListener('change', () => { buildTable(); restoreStrip(); });
 
       initToggles({
         fontOrderToggle: 'font-order-toggle',
@@ -389,6 +426,7 @@
       });
 
       buildTable();
+      restoreStrip();
     </script>
   </body>
 </html>
