@@ -148,21 +148,8 @@ glyphs:
 
   qsTea.exit-baseline:  # ·Tea (exits at baseline)
     cursive_exit: [1, 0]
+    doubly_extend_exit_before: [qsSee]
     bitmap: *tea_prop_bitmap
-
-  qsTea.exit-baseline.extended:  # ·Tea (exits at baseline, extended connecting stroke)
-    cursive_exit: [3, 0]
-    calt_before: [qsSee]
-    bitmap:
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  " #
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "###" #
 
   qsTea.half.entry-xheight:  # ·Tea (half)
     cursive_entry: [1, 5]
