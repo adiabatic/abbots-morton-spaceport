@@ -69,6 +69,32 @@
         }
       }
 
+      .preview-strip {
+        margin: 1rem 0;
+        padding: 1rem;
+        background: light-dark(#fff, #2a2a2a);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+        line-height: 2;
+
+        .preview-label {
+          font-family: inherit;
+          font-size: 0.85rem;
+          color: light-dark(#555, #aaa);
+          margin-right: 0.5rem;
+        }
+
+        span {
+          cursor: pointer;
+          padding: 0 2px;
+          border-radius: 2px;
+
+          &.highlighted {
+            background: light-dark(#fff3cd, #5a4800);
+          }
+        }
+      }
+
       .matrix-scroll {
         overflow-x: auto;
       }
@@ -93,6 +119,7 @@
           background: light-dark(#e8e8e8, #333);
           font-size: 11px;
           font-family: inherit;
+          cursor: pointer;
         }
 
         thead th {
@@ -139,6 +166,8 @@
       </label>
     </div>
 
+    <div class="preview-strip sample" id="preview-strip" hidden></div>
+
     <div class="matrix-scroll">
       <table class="matrix" id="matrix-table"></table>
     </div>
@@ -160,6 +189,8 @@
 
       const select = document.getElementById('letter-select');
       const table = document.getElementById('matrix-table');
+      const strip = document.getElementById('preview-strip');
+      let activeHeader = null;
 
       for (const [i, letter] of LETTERS.entries()) {
         const option = document.createElement('option');
@@ -191,11 +222,78 @@
         return `${letterName}-${row}-${col}`;
       }
 
+      function hideStrip() {
+        strip.hidden = true;
+        strip.innerHTML = '';
+        activeHeader = null;
+      }
+
+      function showStrip(headerEl, mode) {
+        if (activeHeader === headerEl) {
+          hideStrip();
+          return;
+        }
+        activeHeader = headerEl;
+        strip.innerHTML = '';
+        strip.hidden = false;
+
+        const idx = Number(select.value);
+        const selected = LETTERS[idx];
+        const letterName = headerEl.title;
+        const label = document.createElement('span');
+        label.className = 'preview-label';
+        label.textContent = `${letterName} (${mode}):`;
+        strip.appendChild(label);
+
+        const rows = table.querySelectorAll('tbody tr');
+        const cells = [];
+
+        if (mode === 'column') {
+          const ths = table.querySelectorAll('thead th');
+          let colIndex = -1;
+          for (let i = 0; i < ths.length; i++) {
+            if (ths[i] === headerEl) { colIndex = i; break; }
+          }
+          for (const row of rows) {
+            const td = row.children[colIndex];
+            if (td && td.tagName === 'TD') cells.push(td);
+          }
+        } else {
+          const row = headerEl.closest('tr');
+          for (const td of row.querySelectorAll('td')) {
+            cells.push(td);
+          }
+        }
+
+        for (const td of cells) {
+          const span = document.createElement('span');
+          span.textContent = td.textContent;
+          span.dataset.row = td.dataset.row;
+          span.dataset.col = td.dataset.col;
+          if (td.classList.contains('highlighted')) {
+            span.classList.add('highlighted');
+          }
+          span.addEventListener('click', () => {
+            const key = cellKey(selected.name, span.dataset.row, span.dataset.col);
+            span.classList.toggle('highlighted');
+            td.classList.toggle('highlighted');
+            if (span.classList.contains('highlighted')) {
+              highlighted.add(key);
+            } else {
+              highlighted.delete(key);
+            }
+            saveHighlights(highlighted);
+          });
+          strip.appendChild(span);
+        }
+      }
+
       function buildTable() {
         const idx = Number(select.value);
         const selected = LETTERS[idx];
         localStorage.setItem(SELECTED_KEY, idx);
 
+        hideStrip();
         table.innerHTML = '';
 
         const thead = document.createElement('thead');
@@ -237,6 +335,17 @@
       }
 
       table.addEventListener('click', (e) => {
+        const th = e.target.closest('th');
+        if (th) {
+          const corner = table.querySelector('thead th:first-child');
+          if (th === corner) return;
+          if (th.closest('thead')) {
+            showStrip(th, 'column');
+          } else if (th.closest('tbody')) {
+            showStrip(th, 'row');
+          }
+          return;
+        }
         const td = e.target.closest('td');
         if (!td) return;
         td.classList.toggle('highlighted');
@@ -248,6 +357,10 @@
           highlighted.delete(key);
         }
         saveHighlights(highlighted);
+        if (!strip.hidden) {
+          const span = strip.querySelector(`span[data-row="${td.dataset.row}"][data-col="${td.dataset.col}"]`);
+          if (span) span.classList.toggle('highlighted', td.classList.contains('highlighted'));
+        }
       });
 
       function clearAllHighlights() {
@@ -256,6 +369,7 @@
         }
         highlighted.clear();
         saveHighlights(highlighted);
+        hideStrip();
       }
 
       document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
