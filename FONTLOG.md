@@ -9,6 +9,9 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 - Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (400–800)
 - Bold weight uses 2× wide pixels, keeping height the same
 - Mono font remains static (no weight axis)
+- Improve Senior connecting strokes: wider ·Roe exit before ·I and ·Low, wider ·Tea exit before ·See, and connecting pixels on auto-extended entry variants (·Vie, ·May, ·Ooze, ·Roe after ·It/·Eight/·Ye, ·Tea after ·Key)
+- Narrow half-·Tea from 3 to 2 pixels wide
+- Fix ·It/·Roe overlap in proportional Senior font
 
 ### 8.000
 
