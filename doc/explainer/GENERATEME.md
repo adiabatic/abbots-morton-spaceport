@@ -42,33 +42,23 @@ Each major section heading should be formatted as two lines: first line `Chapter
 
 Chapter numbering must start at `Chapter 1` for the first level-1 heading in the assembled document.
 
-### 1. What is Quikscript?
+### 1. The font and its pixel grid
 
-A brief introduction. It's a phonetic alphabet for English designed by Kingsley Read, released in 1966 as an evolution of the Shavian alphabet. Show the letter inventory at a glance (a table or grid). Mention that it's a cursive script — letters within a word connect to each other, much like cursive Latin handwriting. Mention Junior (unconnected/print) vs. Senior (connected/cursive) Quikscript.
+Combine two topics into one chapter: what a font file contains, and how this particular font maps to a pixel grid.
 
-### 2. What is a font, actually?
+Start with an aside (callout box) briefly explaining what Quikscript is: a phonetic alphabet for English designed by Kingsley Read (1966), evolved from Shavian, with Junior (unconnected) and Senior (connected/cursive) styles. Show the letter inventory at a glance. This is background context, not the main topic — keep it to a short aside.
 
-Explain that a font file isn't just a bag of pictures. It contains:
+Then cover:
 
-a. **Glyphs** — the actual shapes (outlines/bitmaps)
-b. **A character map** — which Unicode code point maps to which glyph
-c. **Metrics** — how wide each glyph is, where the baseline is, etc.
-d. **OpenType tables** — extra instructions that tell the text engine how to modify the glyph stream
-
-Introduce the idea that OpenType tables are what make smart font behavior possible. They're divided into two families: tables that *substitute* glyphs (GSUB) and tables that *position* glyphs (GPOS). Tease that both are needed for Quikscript joining.
-
-### 3. The pixel grid
-
-Explain how this particular font (Abbots Morton Spaceport) works in a pixel grid:
-
-a. **Units per em and pixel size** — 550 UPM, each pixel is 50 font units, the em square is 11 pixels tall
-b. **The three glyph heights** — Short (6px, baseline to x-height), Tall (9px, baseline to ascender), Deep (9px, 3px below baseline to x-height)
-c. **Bitmap representation in YAML** — show a simple glyph's bitmap and explain the `#` markers that indicate the x-height zone
-d. **y_offset** — how Deep letters use `y_offset: -3` to shift downward
+a. **What's in a font file** — glyphs (shapes), a character map (Unicode → glyph), metrics (widths, baseline), and OpenType tables (instructions for substitution and positioning). Introduce GSUB and GPOS as the two families of smart-font tables, and tease that both are needed for Quikscript joining.
+b. **Units per em and pixel size** — 550 UPM, each pixel is 50 font units, the em square is 11 pixels tall
+c. **The three glyph heights** — Short (6px, baseline to x-height), Tall (9px, baseline to ascender), Deep (9px, 3px below baseline to x-height)
+d. **Bitmap representation in YAML** — show a simple glyph's bitmap and explain the `#` markers that indicate the x-height zone
+e. **y_offset** — how Deep letters use `y_offset: -3` to shift downward
 
 Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (Deep, 9px with y_offset: -3).
 
-### 4. How letters join: the concept
+### 2. How letters join: the concept
 
 Before getting into OpenType mechanics, explain *what* joining means visually:
 
@@ -78,7 +68,7 @@ c. **The basic idea of cursive attachment** — the text engine slides glyphs to
 
 Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea's exit point at the baseline meets ·Bay's entry point at the baseline and the engine nudges them together.
 
-### 5. Glyph variants: why one letter needs many shapes
+### 3. Glyph variants: why one letter needs many shapes
 
 Explain that a single Quikscript letter may need different shapes depending on context:
 
@@ -88,7 +78,7 @@ c. **Half-letter variants** — some Tall/Deep letters have a half-height form u
 d. **Alternate forms** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
 e. **Naming convention** — explain the dot-separated naming scheme: `qsTea.entry-xheight.exit-baseline`, `qsPea.prop.half`, etc.
 
-### 6. Feature files and the OpenType pipeline
+### 4. Feature files and the OpenType pipeline
 
 Introduce the `.fea` (feature file) syntax as the "programming language" for OpenType:
 
@@ -96,7 +86,7 @@ a. **What a feature is** — a named bundle of rules that a text engine can acti
 b. **Lookups** — the individual rule sets within a feature. Introduce the concept without going deep yet.
 c. **How the build script works at a high level** — YAML glyph data goes in, Python reads it, generates `.fea` code, and `fonttools` compiles it into binary OpenType tables inside the font file. The `.fea` file is also saved alongside the font for debugging.
 
-### 7. GSUB: substituting the right glyph
+### 5. GSUB: substituting the right glyph
 
 Explain glyph substitution (GSUB) features used in this font:
 
@@ -109,7 +99,7 @@ a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs
 
 b. **`liga` (standard ligatures)** — when two specific letters appear in sequence, replace them with a single pre-drawn combined glyph. Explain the underscore naming convention (`qsDay_qsUtter.prop`). Mention that ligatures can themselves have cursive anchors.
 
-### 8. GPOS: positioning the joined glyphs
+### 6. GPOS: positioning the joined glyphs
 
 Explain glyph positioning (GPOS) features:
 
@@ -121,12 +111,12 @@ a. **`curs` (cursive attachment)** — the feature that actually slides glyphs t
 
 b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pairs (like `f` before short letters). This is separate from the Quikscript joining system.
 
-### 9. Padding and spacing refinements
+### 7. Padding and spacing refinements
 
 a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. The build script generates `.entry-extended` variants with a shifted entry anchor. Walk through an example (e.g., ·Ye followed by ·Roe).
 b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the "escape hatch" for when automatic joining is wrong.
 
-### 10. The three font variants
+### 8. The three font variants
 
 Tie it all together by explaining the three output fonts:
 
@@ -134,7 +124,7 @@ a. **Mono** — fixed-width, no joining, no contextual features. Uses base glyph
 b. **Junior (Sans)** — proportional, no joining. Uses `.prop` glyphs (renamed to base names). Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
 c. **Senior (Sans)** — proportional with full joining. Uses `.prop` glyphs plus all contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
 
-### 11. Putting it all together: a worked example
+### 9. Putting it all together: a worked example
 
 Walk through a complete word being shaped, step by step:
 
@@ -148,7 +138,7 @@ Walk through a complete word being shaped, step by step:
 
 Pick a real word (maybe 4–6 letters) that exercises several features: a height transition, a half-letter, and/or a ligature. Show the glyph stream at each stage, ideally with small diagrams.
 
-### 12. Appendix: the YAML schema
+### 10. Appendix: the YAML schema
 
 A reference section listing every key that can appear in a glyph definition in the YAML files, with a one-line explanation of each:
 
@@ -186,4 +176,4 @@ A reference section listing every key that can appear in a glyph definition in t
 - Read `inspo/csur/index.html` for the code-point chart and character property descriptions.
 - When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
 - The audience-appropriate depth level is: explain *what* the OpenType engine does at each step, not *how* the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
-- For the worked example in section 11, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.
+- For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.
