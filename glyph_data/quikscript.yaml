@@ -469,7 +469,7 @@ glyphs:
   qsThey_qsUtter.prop:  # ·They·Utter ligature
     y_offset: -3
     cursive_entry: [3, 5]
-    cursive_exit: [11, 5]
+    cursive_exit: [12, 5]
     calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
     bitmap:
       - "  #      ##" #
@@ -605,7 +605,7 @@ glyphs:
   qsVie_qsUtter.prop:  # ·Vie·Utter ligature
     y_offset: -3
     cursive_entry: [1, 0]
-    cursive_exit: [12, 5]
+    cursive_exit: [13, 5]
     bitmap:
       - "  ###     ##" #
       - " #   #   #  "
@@ -649,7 +649,7 @@ glyphs:
       - "###   " #
 
   qsSee_qsUtter.prop:  # ·See·Utter ligature
-    cursive_exit: [5, 5]
+    cursive_exit: [6, 5]
     bitmap:
       - "  #  "
       - " #   "
