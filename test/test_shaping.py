@@ -23,6 +23,8 @@ from build_font import (
     generate_noentry_variants,
     generate_extended_entry_variants,
     generate_extended_exit_variants,
+    generate_doubly_extended_entry_variants,
+    generate_doubly_extended_exit_variants,
     load_glyph_data,
     prepare_proportional_glyphs,
 )
@@ -230,6 +232,8 @@ def build_anchor_map():
     glyphs.update(generate_noentry_variants(glyphs))
     glyphs.update(generate_extended_entry_variants(glyphs))
     glyphs.update(generate_extended_exit_variants(glyphs))
+    glyphs.update(generate_doubly_extended_entry_variants(glyphs))
+    glyphs.update(generate_doubly_extended_exit_variants(glyphs))
 
     result = {}
     for name, gdef in glyphs.items():
