@@ -70,7 +70,7 @@ glyphs:
 
   qsPea.prop.half:  # ·Pea (half)
     cursive_exit: [6, 5]
-    calt_not_before: [qsDay]
+    calt_not_before: [qsDay, qsFee]
     bitmap:
       - " ##   "
       - "#  #  "
@@ -180,6 +180,7 @@ glyphs:
 
   qsTea.half.exit-xheight:  # ·Tea (half, exits at x-height)
     cursive_exit: [2, 5]
+    calt_not_before: [qsFee]
     bitmap:
       - "# "
       - "# "
@@ -912,6 +913,7 @@ glyphs:
 
   qsHe.half:  # ·He (half, exits at x-height)
     cursive_exit: [2, 5]
+    calt_not_before: [qsFee]
     bitmap:
       - " ##"
       - "#  "
