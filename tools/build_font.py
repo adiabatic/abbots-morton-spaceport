@@ -1129,6 +1129,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     for glyph_name in glyphs_def:
         if "_" not in glyph_name:
             continue
+        if _extended_exit_suffix(glyph_name) is not None:
+            continue
         components = glyph_name.split("_")
         if all(c in glyphs_def for c in components):
             ligatures.append((glyph_name, components))
@@ -1161,6 +1163,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     ext_lig = lig_name + suffix
                     if ext_lig not in glyphs_def:
                         ext_lig = lig_name + ".entry-extended"
+                    if ext_lig in glyphs_def:
+                        actual_lig = ext_lig
+                exit_suffix = _extended_exit_suffix(combo[-1])
+                if exit_suffix:
+                    ext_lig = actual_lig + ".exit-extended"
                     if ext_lig in glyphs_def:
                         actual_lig = ext_lig
                 lines.append(f"        sub {component_str} by {actual_lig};")
@@ -1484,12 +1491,15 @@ def generate_extended_exit_variants(glyphs_def: dict) -> dict:
 
         ext_name = name + ".exit-extended"
         if ext_name not in glyphs_def:
-            variant_def = {k: v for k, v in gdef.items() if k != "extend_exit_before"}
+            skip_keys = {"extend_exit_before", "extend_exit_no_entry"}
+            variant_def = {k: v for k, v in gdef.items() if k not in skip_keys}
             variant_def["bitmap"] = _widen_bitmap_right_with_connector(
                 variant_def["bitmap"], exit_y, variant_def.get("y_offset", 0)
             )
             variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
             variant_def["calt_before"] = list(extend_before)
+            if gdef.get("extend_exit_no_entry"):
+                variant_def.pop("cursive_entry", None)
             variants[ext_name] = variant_def
 
         base_name = name.split(".")[0]

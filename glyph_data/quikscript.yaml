@@ -119,7 +119,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [4, 5]
     cursive_exit: [6, 0]
-    calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
+    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
     bitmap: *bay_bitmap
 
   qsTea:  # ·Tea
@@ -436,7 +436,7 @@ glyphs:
   qsThey.entry-xheight:  # ·They (enters at x-height)
     y_offset: -3
     cursive_entry: [3, 5]
-    calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
+    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
     bitmap: *they_bitmap
 
   qsThey.exit-xheight:  # ·They (exits at x-height)
@@ -470,7 +470,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [3, 5]
     cursive_exit: [12, 5]
-    calt_after: [qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
+    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
     bitmap:
       - "  #      ##" #
       - "  #     #  "
@@ -513,21 +513,8 @@ glyphs:
 
   qsFee.exit-xheight:  # ·Fee (exits at x-height)
     cursive_exit: [6, 5]
+    extend_exit_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
     bitmap: *fee_bitmap
-
-  qsFee.exit-xheight.extended:  # ·Fee (exits at x-height, extended bridge)
-    cursive_exit: [7, 5]
-    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
-    bitmap:
-      - "  #   "
-      - "   #  "
-      - "    # "
-      - "  ####" #
-      - " #  # "
-      - "#   # "
-      - "#   # "
-      - "#   # "
-      - " ###  " #
 
   qsFee_qsUtter.prop.alt:  # ·Fee·Utter ligature (alt form)
     cursive_exit: [12, 0]
@@ -1052,28 +1039,13 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_entry_after: *vertical_exit_letters
+    extend_exit_before: [qsDay]
     bitmap: *may_bitmap
-
-  qsMay.exit-xheight.extended:  # ·May (exits at x-height, extended bridge)
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit:  [7, 5]
-    calt_before: [qsDay]
-    bitmap:
-      - "   ###" #
-      - "  #   "
-      - "  #   "
-      - " #    "
-      - " #    "
-      - "####  " #
-      - " #  # "
-      - " #  # "
-      - "  ##  "
 
   qsMay.entry-xheight:  # ·May (enters at x-height)
     y_offset: -3
     cursive_entry: [4, 5]
-    calt_after: [qsSee_qsUtter.prop, qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
+    calt_after: [qsSee_qsUtter.prop, qsUtter.exit-extended, qsAh.exit-extended]
     bitmap:
       - "   # " #
       - "  #  "
@@ -1216,6 +1188,7 @@ glyphs:
       - [1, 5]
     cursive_exit: [6, 0]
     calt_before: [qsAh, qsAt, qsIng, qsSee, qsVie]
+    extend_exit_before: [qsI, qsLow]
     bitmap:
       - "###   " #
       - "   #  "
@@ -1223,19 +1196,6 @@ glyphs:
       - "    # "
       - "   #  "
       - "######" #
-
-  qsRoe.exit-baseline.extended:  # ·Roe (exits at baseline, extended connecting stroke)
-    cursive_entry:
-      - [1, 5]
-    cursive_exit: [7, 0]
-    calt_before: [qsI, qsLow]
-    bitmap:
-      - "###    " #
-      - "   #   "
-      - "    #  "
-      - "    #  "
-      - "   #   "
-      - "#######" #
 
   qsRoe.exit-xheight:  # ·Roe (exits at x-height)
     cursive_entry:
@@ -1482,6 +1442,7 @@ glyphs:
   qsI.prop:  # ·I
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    extend_exit_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
     bitmap: *i_bitmap
 
   qsI.entry-after-roe:  # ·I (after ·Roe)
@@ -1496,18 +1457,6 @@ glyphs:
       - " #   "
       - "#    " #
 
-  qsI.exit-xheight.extended:  # ·I (exits at x-height, extended arm)
-    cursive_entry: [1, 0]
-    cursive_exit: [7, 5]
-    calt_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
-    bitmap:
-      - " ## ##" #
-      - "#  #  "
-      - " ###  "
-      - "  #   "
-      - " #    "
-      - "#     " #
-
   qsAh: &AH  # ·Ah
     bitmap: &ah_bitmap
       - "   ##" #
@@ -1520,6 +1469,7 @@ glyphs:
   qsAh.prop:  # ·Ah
     cursive_entry: [1, 0]
     cursive_exit: [8, 5]
+    extend_exit_before: [qsBay, qsThey, qsMay]
     bitmap:
       - "     ##" #
       - "    #  "
@@ -1527,18 +1477,6 @@ glyphs:
       - "   #   "
       - "  #    "
       - "##     " #
-
-  qsAh.exit-xheight.extended:  # ·Ah (exits at x-height, extended arm)
-    cursive_entry: [1, 0]
-    cursive_exit: [9, 5]
-    calt_before: [qsBay, qsThey, qsMay]
-    bitmap:
-      - "     ###" #
-      - "    #   "
-      - "   #    "
-      - "   #    "
-      - "  #     "
-      - "##      " #
 
   qsAwe: &AWE  # ·Awe
     bitmap: &awe_bitmap
@@ -1600,6 +1538,8 @@ glyphs:
   qsUtter.prop:  # ·Utter
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    extend_exit_before: [qsBay, qsThey]
+    extend_exit_no_entry: true
     bitmap: *utter_bitmap
 
   qsUtter.alt:  # Alternate ·Utter
@@ -1616,17 +1556,6 @@ glyphs:
     cursive_exit: [6, 0]
     calt_before: [qsMay]
     bitmap: *utter_alt_bitmap
-
-  qsUtter.exit-xheight.extended:  # ·Utter (exits at x-height, extended arm)
-    cursive_exit: [7, 5]
-    calt_before: [qsBay, qsThey]
-    bitmap:
-      - "   ###" #
-      - "  #   "
-      - " #    "
-      - " #    "
-      - "#     "
-      - "#     " #
 
   qsOut:  # ·Out
     bitmap: &out_bitmap
