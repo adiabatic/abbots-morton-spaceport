@@ -1027,7 +1027,17 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     fwd_only.extend(sorted(fwd_only_set - set(fwd_only)))
 
+    lig_fwd_bases: set[str] = set()
     for base_name in fwd_only:
+        if "_" not in base_name:
+            continue
+        components = base_name.split("_")
+        if all(c in glyphs_def for c in components):
+            lig_fwd_bases.add(base_name)
+
+    for base_name in fwd_only:
+        if base_name in lig_fwd_bases:
+            continue
         _emit_bk_pairs(base_name)
         _emit_fwd(base_name)
 
@@ -1175,6 +1185,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         f"        sub [{after_list}] {target}' by {variant_name};"
                     )
             lines.append("    } calt_post_liga;")
+
+        for base_name in sorted(lig_fwd_bases):
+            _emit_fwd(base_name)
 
     lines.append("} calt;")
     return "\n".join(lines)
