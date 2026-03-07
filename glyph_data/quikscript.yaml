@@ -515,7 +515,7 @@ glyphs:
       - "#   # "
       - " ###  " #
 
-  qsFee_qsUtter.alt.prop:  # ·Fee·Utter ligature (alt form)
+  qsFee_qsUtter.prop.alt:  # ·Fee·Utter ligature (alt form)
     cursive_exit: [12, 0]
     bitmap:
       - "  #        "
@@ -1083,7 +1083,7 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  qsMay_qsUtter.alt.prop:  # ·May·Utter ligature (alt form)
+  qsMay_qsUtter.prop.alt:  # ·May·Utter ligature (alt form)
     y_offset: -3
     cursive_entry:
       - [1, 0]
