@@ -961,12 +961,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
+    # Bases whose pair_overrides come entirely from entry-extended variants
+    # should remain forward-only — entry-extended pairs are about the entry
+    # side and don't affect the base's forward exit behaviour.
+    entry_ext_pair_only: set[str] = set()
+    for base_name, overrides in pair_overrides.items():
+        if all(_extended_entry_suffix(vn) is not None for vn, _ in overrides):
+            entry_ext_pair_only.add(base_name)
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
-    pair_only = sorted(set(pair_overrides) - set(bk_replacements))
+    pair_only = sorted(set(pair_overrides) - set(bk_replacements) - entry_ext_pair_only)
     all_bk_bases = sorted_bases + pair_only
 
     all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
-    fwd_only_set = all_fwd_bases - set(bk_replacements) - set(pair_overrides)
+    fwd_only_set = all_fwd_bases - set(bk_replacements) - (set(pair_overrides) - entry_ext_pair_only)
 
     # --- Topological sort for forward-only lookups ---
     # If base A's forward rule checks an entry class containing base B,
@@ -1006,6 +1014,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     fwd_only.extend(sorted(fwd_only_set - set(fwd_only)))
 
     for base_name in fwd_only:
+        _emit_bk_pairs(base_name)
         _emit_fwd(base_name)
 
     # Split non-cycle bases into those the cycle depends on (emit before
