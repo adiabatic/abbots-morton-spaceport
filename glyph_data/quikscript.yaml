@@ -168,28 +168,28 @@ glyphs:
     cursive_entry: [1, 5]
     calt_not_after: [qsAt]
     bitmap:
-      - "  #"
-      - "  #"
-      - "  #"
-      - "###" #
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   " #
+      - " #"
+      - " #"
+      - " #"
+      - "##" #
+      - "  "
+      - "  "
+      - "  "
+      - "  "
+      - "  " #
 
   qsTea.half.exit-xheight:  # ·Tea (half, exits at x-height)
-    cursive_exit: [3, 5]
+    cursive_exit: [2, 5]
     bitmap:
-      - "#  "
-      - "#  "
-      - "#  "
-      - "###" #
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   " #
+      - "# "
+      - "# "
+      - "# "
+      - "##" #
+      - "  "
+      - "  "
+      - "  "
+      - "  "
+      - "  " #
 
   qsTea.entry-top:  # ·Tea (enters at top)
     cursive_entry: [1, 8]
