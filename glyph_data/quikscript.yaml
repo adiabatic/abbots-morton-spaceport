@@ -723,9 +723,7 @@ glyphs:
 
   qsJai.prop:  # ·J'ai
     y_offset: -3
-    cursive_exit: [6, 0]
-    extend_exit_before: [qsIng, qsLow, qsNo, qsRoe, qsSee, qsTea, qsThaw, qsVie]
-    bitmap:
+    bitmap: &jai_prop_bitmap
       - " #### " #
       - "     #"
       - "     #"
@@ -735,6 +733,13 @@ glyphs:
       - " # #  "
       - "# #   "
       - " #    "
+
+  qsJai.exit-baseline:  # ·J'ai (exits at baseline)
+    y_offset: -3
+    cursive_exit: [6, 0]
+    extend_exit_before: [qsIng, qsLow, qsNo, qsRoe, qsSee, qsTea, qsThaw, qsVie]
+    calt_not_before: [qsAt, qsExam, qsIt, qsEat]
+    bitmap: *jai_prop_bitmap
 
   qsCheer: &CHEER  # ·Cheer
     bitmap: &cheer_bitmap
