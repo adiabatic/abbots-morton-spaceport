@@ -514,7 +514,7 @@ glyphs:
 
   qsFee.exit-xheight:  # ·Fee (exits at x-height)
     cursive_exit: [6, 5]
-    extend_exit_before: [qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
+    extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
     bitmap: *fee_bitmap
 
   qsFee_qsUtter.prop.alt:  # ·Fee·Utter ligature (alt form)
