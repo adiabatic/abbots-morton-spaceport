@@ -5,6 +5,7 @@
 - Always ask clarifying questions when there are multiple valid ways to do something.
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
+- In this repository only, it’s OK to have multiline commit messages, although by no means mandatory.
 
 ## HTML/CSS/JS
 
