@@ -500,7 +500,7 @@ glyphs:
 
   qsFee.entry-xheight:  # ·Fee (enters at x-height)
     cursive_entry: [2, 5]
-    calt_after: [qsI]
+    calt_after: [qsI, qsOwe, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-extended]
     bitmap:
       - "  #   "
       - "   #  "
@@ -1041,7 +1041,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_entry_after: *vertical_exit_letters
-    extend_exit_before: [qsDay]
+    extend_exit_before: [qsDay, qsFee]
     bitmap: *may_bitmap
 
   qsMay.entry-xheight:  # ·May (enters at x-height)
@@ -1109,6 +1109,7 @@ glyphs:
   qsNo.prop:  # ·No
     cursive_entry: [1, 5]
     cursive_exit: [6, 5]
+    extend_exit_before: [qsFee]
     bitmap: *no_bitmap
 
   qsNo.alt:  # Alternate ·No (upside-down)
@@ -1140,6 +1141,7 @@ glyphs:
   qsLow.prop:  # ·Low
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    extend_exit_before: [qsFee]
     bitmap: *low_bitmap
 
   qsRoe: &ROE  # ·Roe
@@ -1471,7 +1473,7 @@ glyphs:
   qsAh.prop:  # ·Ah
     cursive_entry: [1, 0]
     cursive_exit: [8, 5]
-    extend_exit_before: [qsBay, qsThey, qsMay]
+    extend_exit_before: [qsBay, qsFee, qsThey, qsMay]
     bitmap:
       - "     ##" #
       - "    #  "
@@ -1540,7 +1542,7 @@ glyphs:
   qsUtter.prop:  # ·Utter
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
-    extend_exit_before: [qsBay, qsThey]
+    extend_exit_before: [qsBay, qsFee, qsThey]
     extend_exit_no_entry: true
     bitmap: *utter_bitmap
 
@@ -1571,6 +1573,7 @@ glyphs:
   qsOut.prop:  # ·Out
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    extend_exit_before: [qsFee]
     bitmap: *out_bitmap
 
   qsOut.fina:  # ·Out (word-final form)
@@ -1617,6 +1620,7 @@ glyphs:
 
   qsOwe.exit-xheight:  # ·Owe (exits at x-height)
     cursive_exit: [7, 5]
+    extend_exit_before: [qsFee]
     bitmap:
       - " # ###" #
       - "#  #  "
@@ -1628,6 +1632,7 @@ glyphs:
   qsOwe.entry-xheight.exit-xheight:  # ·Owe (enters and exits at x-height)
     cursive_entry: [1, 5]
     cursive_exit: [8, 5]
+    extend_exit_before: [qsFee]
     bitmap:
       - "### ###" #
       - "  # #  " 
