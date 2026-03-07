@@ -1072,9 +1072,17 @@ glyphs:
   qsMay.entry-xheight:  # ·May (enters at x-height)
     y_offset: -3
     cursive_entry: [4, 5]
-    cursive_exit: [6, 5]
     calt_after: [qsSee_qsUtter.prop, qsUtter.exit-xheight.extended, qsAh.exit-xheight.extended]
-    bitmap: *may_bitmap
+    bitmap:
+      - "   # " #
+      - "  #  "
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "#### " #
+      - " #  #"
+      - " #  #"
+      - "  ## "
 
   qsMay.entry-baseline:  # ·May (enters at baseline)
     y_offset: -3
