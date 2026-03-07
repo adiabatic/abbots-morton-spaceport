@@ -1206,7 +1206,7 @@ glyphs:
     cursive_entry:
       - [1, 5]
     cursive_exit: [6, 0]
-    calt_before: [qsAh, qsAt, qsI, qsIng, qsLow, qsSee, qsVie]
+    calt_before: [qsAh, qsAt, qsIng, qsSee, qsVie]
     bitmap:
       - "###   " #
       - "   #  "
@@ -1214,6 +1214,19 @@ glyphs:
       - "    # "
       - "   #  "
       - "######" #
+
+  qsRoe.exit-baseline.extended:  # ·Roe (exits at baseline, extended connecting stroke)
+    cursive_entry:
+      - [1, 5]
+    cursive_exit: [7, 0]
+    calt_before: [qsI, qsLow]
+    bitmap:
+      - "###    " #
+      - "   #   "
+      - "    #  "
+      - "    #  "
+      - "   #   "
+      - "#######" #
 
   qsRoe.exit-xheight:  # ·Roe (exits at x-height)
     cursive_entry:
