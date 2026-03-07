@@ -61,9 +61,17 @@ def is_proportional_glyph(glyph_name: str) -> bool:
 
 
 def get_base_glyph_name(prop_glyph_name: str) -> str:
-    """Get the base glyph name from a proportional glyph name."""
+    """Get the base glyph name from a proportional glyph name.
+
+    Strips .prop from the end or middle of the name:
+      qsPea.prop       → qsPea
+      qsFee_qsUtter.prop.alt → qsFee_qsUtter.alt
+      U.prop.narrow    → U.narrow
+    """
     if prop_glyph_name.endswith(".prop"):
         return prop_glyph_name[:-5]
+    if ".prop." in prop_glyph_name:
+        return prop_glyph_name.replace(".prop.", ".", 1)
     return prop_glyph_name
 
 
@@ -89,9 +97,13 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
     def _rename_refs(glyph_def: dict | None) -> dict | None:
         if not glyph_def or not rename_map:
             return glyph_def
-        ref_keys = ("calt_after", "calt_before", "calt_not_after", "calt_not_before")
+        list_keys = (
+            "calt_after", "calt_before", "calt_not_after", "calt_not_before",
+            "extend_entry_after",
+        )
+        scalar_keys = ("base",)
         changed = False
-        for key in ref_keys:
+        for key in list_keys:
             val = glyph_def.get(key)
             if not val:
                 continue
@@ -101,6 +113,13 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
                     glyph_def = dict(glyph_def)
                     changed = True
                 glyph_def[key] = new_val
+        for key in scalar_keys:
+            val = glyph_def.get(key)
+            if val and val in rename_map:
+                if not changed:
+                    glyph_def = dict(glyph_def)
+                    changed = True
+                glyph_def[key] = rename_map[val]
         return glyph_def
 
     # Build new glyph dict
