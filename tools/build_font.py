@@ -733,6 +733,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 targets = {base_name}
                 if base_name in bk_replacements:
                     targets.update(bk_replacements[base_name].values())
+                if base_name in fwd_replacements:
+                    targets.update(fwd_replacements[base_name].values())
                 if base_name in pair_overrides:
                     for pv, _ in pair_overrides[base_name]:
                         targets.add(pv)

@@ -150,6 +150,20 @@ glyphs:
     cursive_exit: [1, 0]
     bitmap: *tea_prop_bitmap
 
+  qsTea.exit-baseline.extended:  # ·Tea (exits at baseline, extended connecting stroke)
+    cursive_exit: [3, 0]
+    calt_before: [qsSee]
+    bitmap:
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  " #
+      - "#  "
+      - "#  "
+      - "#  "
+      - "#  "
+      - "###" #
+
   qsTea.half.entry-xheight:  # ·Tea (half)
     cursive_entry: [1, 5]
     calt_not_after: [qsAt]
@@ -618,7 +632,6 @@ glyphs:
   qsSee.prop:  # ·See
     cursive_entry: [1, 0]
     cursive_exit: [6, 8]
-    extend_entry_after: [qsTea]
     bitmap: *see_bitmap
 
   qsSee.exit-y6:  # ·See (exits at y=6)
