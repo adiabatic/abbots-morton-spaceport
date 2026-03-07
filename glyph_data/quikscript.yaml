@@ -618,6 +618,7 @@ glyphs:
   qsSee.prop:  # ·See
     cursive_entry: [1, 0]
     cursive_exit: [6, 8]
+    extend_entry_after: [qsTea]
     bitmap: *see_bitmap
 
   qsSee.exit-y6:  # ·See (exits at y=6)
