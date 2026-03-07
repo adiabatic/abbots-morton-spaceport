@@ -229,6 +229,8 @@
     }
   </style>
   <script type="module">
+    import { initToggles } from './shared.js';
+
     const slider = document.getElementById('size-slider');
     const sizeValue = document.getElementById('size-value');
     const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
@@ -241,72 +243,17 @@
       }
     });
 
-    const title = document.querySelector('h1');
     const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
 
-    const fontOrderToggle = document.getElementById('font-order-toggle');
-    const fontToggle = document.getElementById('font-toggle');
-    const levelToggle = document.getElementById('level-toggle');
-    const weightToggle = document.getElementById('weight-toggle');
-
-    let isSans = true;
-    let isSenior = true;
-    let dmFirst = false;
-    const weights = [400, 600, 800];
-    let weightIndex = 0;
-
-    function applyState() {
-      let fontFamily, fontTitle;
-      if (isSans) {
-        const level = isSenior ? 'Senior' : 'Junior';
-        fontFamily = `'Abbots Morton Spaceport Sans ${level}'`;
-        fontTitle = `Abbots Morton Spaceport Sans ${level}`;
-        levelToggle.textContent = level;
-        levelToggle.hidden = false;
-        weightToggle.hidden = false;
-      } else {
-        fontFamily = "'Abbots Morton Spaceport Mono'";
-        fontTitle = 'Abbots Morton Spaceport Mono';
-        levelToggle.hidden = true;
-        weightToggle.hidden = true;
-      }
-
-      const fontStack = dmFirst
-        ? `'Departure Mono', ${fontFamily}, monospace`
-        : `${fontFamily}, 'Departure Mono', monospace`;
-
-      document.documentElement.style.setProperty('--font-stack', fontStack);
-      document.documentElement.style.setProperty('--font-weight', String(weights[weightIndex]));
-      title.textContent = fontTitle;
-      document.title = fontTitle;
-      fontToggle.textContent = isSans ? 'Sans' : 'Mono';
-      weightToggle.textContent = `Weight ${weights[weightIndex]}`;
-    }
-
-    fontToggle.addEventListener('click', () => {
-      isSans = !isSans;
-      applyState();
+    initToggles({
+      fontOrderToggle: 'font-order-toggle',
+      fontToggle: 'font-toggle',
+      levelToggle: 'level-toggle',
+      weightToggle: 'weight-toggle',
+      titleEl: 'h1',
+      onApply: (state) => { document.title = state.fontTitle; },
     });
-
-    levelToggle.addEventListener('click', () => {
-      isSenior = !isSenior;
-      applyState();
-    });
-
-    weightToggle.addEventListener('click', () => {
-      weightIndex = (weightIndex + 1) % weights.length;
-      applyState();
-    });
-
-    fontOrderToggle.addEventListener('click', () => {
-      dmFirst = !dmFirst;
-      fontOrderToggle.textContent = dmFirst ? 'DM first' : 'AMS first';
-      applyState();
-    });
-
-    // Initialize
-    applyState();
   </script>
 </head>
 <body>
@@ -1258,9 +1205,9 @@
   </div>
 
   <script type="module">
-    const STORAGE_KEY = 'ams-highlights';
-    const tables = document.querySelectorAll('.pairings');
+    import { initHighlights, initEscapeToClear } from './shared.js';
 
+    const tables = document.querySelectorAll('.pairings');
     for (const table of tables) {
       const rows = [...table.rows];
       let dataRowIndex = 0;
@@ -1276,106 +1223,18 @@
       }
     }
 
-    function cellPath(td) {
-      const table = td.closest('table.pairings');
-      const tableIndex = [...tables].indexOf(table);
-      const row = td.parentElement;
-      const rowIndex = [...table.rows].indexOf(row);
-      const cellIndex = [...row.cells].indexOf(td);
-      return `${tableIndex}-${rowIndex}-${cellIndex}`;
-    }
+    const { clearAllHighlights } = initHighlights({
+      storageKey: 'ams-highlights',
+      clearButtonId: 'clear-highlights',
+      tableSelector: '.pairings',
+      wordListSelector: '.word-list',
+    });
 
-    function loadHighlights() {
-      try {
-        return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []);
-      } catch {
-        return new Set();
-      }
-    }
-
-    function saveHighlights(set) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
-    }
-
-    const highlighted = loadHighlights();
-    for (const path of highlighted) {
-      const [ti, ri, ci] = path.split('-').map(Number);
-      const td = tables[ti]?.rows[ri]?.cells[ci];
-      if (td) td.classList.add('highlighted');
-    }
-
-    for (const table of tables) {
-      table.addEventListener('click', (e) => {
-        const td = e.target.closest('td');
-        if (!td || td.isContentEditable) return;
-        td.classList.toggle('highlighted');
-        const path = cellPath(td);
-        if (td.classList.contains('highlighted')) {
-          highlighted.add(path);
-        } else {
-          highlighted.delete(path);
-        }
-        saveHighlights(highlighted);
-      });
-    }
-
-    const wordLists = document.querySelectorAll('.word-list');
-
-    function dtPath(dt) {
-      const dl = dt.closest('.word-list');
-      const dlIndex = [...wordLists].indexOf(dl);
-      const dtIndex = [...dl.querySelectorAll('dt')].indexOf(dt);
-      return `dt-${dlIndex}-${dtIndex}`;
-    }
-
-    for (const path of highlighted) {
-      if (!path.startsWith('dt-')) continue;
-      const [, di, dti] = path.split('-').map(Number);
-      const dt = wordLists[di]?.querySelectorAll('dt')[dti];
-      if (dt) dt.classList.add('highlighted');
-    }
-
-    for (const dl of wordLists) {
-      dl.addEventListener('click', (e) => {
-        const dt = e.target.closest('dt');
-        if (!dt) return;
-        dt.classList.toggle('highlighted');
-        const path = dtPath(dt);
-        if (dt.classList.contains('highlighted')) {
-          highlighted.add(path);
-        } else {
-          highlighted.delete(path);
-        }
-        saveHighlights(highlighted);
-      });
-    }
-
-    function clearAllHighlights() {
-      for (const el of document.querySelectorAll('.highlighted')) {
-        el.classList.remove('highlighted');
-      }
-      highlighted.clear();
-      saveHighlights(highlighted);
-    }
-
-    document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
+    initEscapeToClear(clearAllHighlights);
   </script>
 
   <script type="module">
-    const NAME_TO_CP = {
-      Pea: 0xE650, Bay: 0xE651, Tea: 0xE652, Day: 0xE653,
-      Key: 0xE654, Gay: 0xE655, Thaw: 0xE656, They: 0xE657,
-      Fee: 0xE658, Vie: 0xE659, See: 0xE65A, Zoo: 0xE65B,
-      She: 0xE65C, "J'ai": 0xE65D, Cheer: 0xE65E, Jay: 0xE65F,
-      Ye: 0xE660, Way: 0xE661, He: 0xE662, Why: 0xE663,
-      '-ing': 0xE664, May: 0xE665, No: 0xE666, Low: 0xE667,
-      Roe: 0xE668, Loch: 0xE669, Llan: 0xE66A, Excite: 0xE66B,
-      Exam: 0xE66C,
-      It: 0xE670, Eat: 0xE671, Et: 0xE672, Eight: 0xE673,
-      At: 0xE674, I: 0xE675, Ah: 0xE676, Awe: 0xE677,
-      Ox: 0xE678, Oy: 0xE679, Utter: 0xE67A, Out: 0xE67B,
-      Owe: 0xE67C, Foot: 0xE67D, Ooze: 0xE67E,
-    };
+    import { NAME_TO_CP } from './shared.js';
 
     function parseToken(raw) {
       const dotIdx = raw.indexOf('.');
@@ -1443,6 +1302,7 @@
   <footer>
     Font Test |
     <a href="specimen.html">Specimen</a> |
+    <a href="joins.html">Tables</a> |
     <a href="exotics.html">Exotics</a> |
     <a href="glyph-editor.html">Glyph Editor</a> |
     <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>

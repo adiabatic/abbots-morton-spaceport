@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tables &mdash; Abbots Morton Spaceport</title>
+    <link rel="stylesheet" href="shared.css">
+    <style>
+      :root {
+        --font-stack: "Abbots Morton Spaceport Sans Senior", "Departure Mono", monospace;
+        --font-size: 22px;
+      }
+
+      .sample {
+        font-family: var(--font-stack);
+        font-size: var(--font-size);
+        font-weight: var(--font-weight, 400);
+        -webkit-font-smoothing: none;
+        -moz-osx-font-smoothing: grayscale;
+        font-smooth: never;
+      }
+
+      .toggle-buttons {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        z-index: 1000;
+
+        button {
+          padding: 0.75rem 1.5rem;
+          font-size: var(--font-size);
+          font-family: inherit;
+          background: light-dark(#0066cc, #4a9eff);
+          color: light-dark(#fff, #1a1a1a);
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          -webkit-font-smoothing: none;
+
+          &:hover {
+            background: light-dark(#0055aa, #6ab0ff);
+          }
+        }
+
+        #font-toggle,
+        #level-toggle {
+          min-width: 10ch;
+        }
+      }
+
+      .controls {
+        margin: 1rem 0;
+        padding: 1rem;
+        background: light-dark(#fff, #2a2a2a);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+
+        select {
+          font-family: var(--font-stack);
+          font-size: 11px;
+          padding: 0.25rem 0.5rem;
+          background: light-dark(#fafafa, #1e1e1e);
+          color: light-dark(#222, #e0e0e0);
+          border: 1px solid light-dark(#ccc, #444);
+          border-radius: 4px;
+        }
+      }
+
+      .matrix-scroll {
+        overflow-x: auto;
+      }
+
+      .matrix {
+        border-collapse: separate;
+        border-spacing: 0;
+
+        th, td {
+          padding: 2px 4px;
+          text-align: center;
+          border: 1px solid light-dark(#ddd, #444);
+          font-size: var(--font-size);
+          font-family: var(--font-stack);
+          font-weight: var(--font-weight, 400);
+          -webkit-font-smoothing: none;
+          -moz-osx-font-smoothing: grayscale;
+          font-smooth: never;
+        }
+
+        th {
+          background: light-dark(#e8e8e8, #333);
+          font-size: 11px;
+          font-family: inherit;
+        }
+
+        thead th {
+          position: sticky;
+          top: 0;
+          z-index: 2;
+        }
+
+        thead th:first-child {
+          z-index: 3;
+        }
+
+        tbody th {
+          position: sticky;
+          left: 0;
+          z-index: 1;
+        }
+
+        td {
+          white-space: nowrap;
+          cursor: pointer;
+        }
+
+        td.highlighted {
+          background: light-dark(#fff3cd, #5a4800);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Tables</h1>
+
+    <div class="toggle-buttons">
+      <button id="font-order-toggle">AMS first</button>
+      <button id="font-toggle">Sans</button>
+      <button id="level-toggle">Senior</button>
+      <button id="weight-toggle">Weight 400</button>
+      <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
+    </div>
+
+    <div class="controls">
+      <label>
+        Letter: <select id="letter-select"></select>
+      </label>
+    </div>
+
+    <div class="matrix-scroll">
+      <table class="matrix" id="matrix-table"></table>
+    </div>
+
+    <footer>
+      <a href="index.html">Font Test</a> |
+      <a href="specimen.html">Specimen</a> |
+      Tables |
+      <a href="exotics.html">Exotics</a> |
+      <a href="glyph-editor.html">Glyph Editor</a> |
+      <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+    </footer>
+
+    <script type="module">
+      import { LETTERS, initToggles, initEscapeToClear } from './shared.js';
+
+      const STORAGE_KEY = 'ams-joins-highlights';
+      const SELECTED_KEY = 'ams-joins-selected';
+
+      const select = document.getElementById('letter-select');
+      const table = document.getElementById('matrix-table');
+
+      for (const [i, letter] of LETTERS.entries()) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = letter.name;
+        select.appendChild(option);
+      }
+
+      const saved = localStorage.getItem(SELECTED_KEY);
+      if (saved != null && LETTERS[Number(saved)]) {
+        select.value = saved;
+      }
+
+      function loadHighlights() {
+        try {
+          return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY)) || []);
+        } catch {
+          return new Set();
+        }
+      }
+
+      function saveHighlights(set) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+      }
+
+      const highlighted = loadHighlights();
+
+      function cellKey(letterName, row, col) {
+        return `${letterName}-${row}-${col}`;
+      }
+
+      function buildTable() {
+        const idx = Number(select.value);
+        const selected = LETTERS[idx];
+        localStorage.setItem(SELECTED_KEY, idx);
+
+        table.innerHTML = '';
+
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        const corner = document.createElement('th');
+        corner.textContent = selected.name;
+        headerRow.appendChild(corner);
+        for (const col of LETTERS) {
+          const th = document.createElement('th');
+          th.textContent = String.fromCodePoint(col.code);
+          th.title = col.name;
+          headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for (const [ri, row] of LETTERS.entries()) {
+          const tr = document.createElement('tr');
+          const th = document.createElement('th');
+          th.textContent = String.fromCodePoint(row.code);
+          th.title = row.name;
+          tr.appendChild(th);
+          for (const [ci, col] of LETTERS.entries()) {
+            const td = document.createElement('td');
+            td.textContent = String.fromCodePoint(col.code, selected.code, row.code);
+            td.title = `${col.name} + ${selected.name} + ${row.name}`;
+            td.dataset.row = ri;
+            td.dataset.col = ci;
+            const key = cellKey(selected.name, ri, ci);
+            if (highlighted.has(key)) {
+              td.classList.add('highlighted');
+            }
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+      }
+
+      table.addEventListener('click', (e) => {
+        const td = e.target.closest('td');
+        if (!td) return;
+        td.classList.toggle('highlighted');
+        const idx = Number(select.value);
+        const key = cellKey(LETTERS[idx].name, td.dataset.row, td.dataset.col);
+        if (td.classList.contains('highlighted')) {
+          highlighted.add(key);
+        } else {
+          highlighted.delete(key);
+        }
+        saveHighlights(highlighted);
+      });
+
+      function clearAllHighlights() {
+        for (const el of table.querySelectorAll('.highlighted')) {
+          el.classList.remove('highlighted');
+        }
+        highlighted.clear();
+        saveHighlights(highlighted);
+      }
+
+      document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
+      initEscapeToClear(clearAllHighlights);
+
+      select.addEventListener('change', buildTable);
+
+      initToggles({
+        fontOrderToggle: 'font-order-toggle',
+        fontToggle: 'font-toggle',
+        levelToggle: 'level-toggle',
+        weightToggle: 'weight-toggle',
+        titleEl: 'h1',
+        onApply: (state) => {
+          document.title = `Tables \u2014 ${state.fontTitle}`;
+        },
+      });
+
+      buildTable();
+    </script>
+  </body>
+</html>
