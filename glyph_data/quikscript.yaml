@@ -650,6 +650,7 @@ glyphs:
 
   qsSee_qsUtter.prop:  # ·See·Utter ligature
     cursive_exit: [6, 5]
+    extend_exit_before: [qsMay]
     bitmap:
       - "  #  "
       - " #   "
