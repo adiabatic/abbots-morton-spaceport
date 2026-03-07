@@ -736,7 +736,7 @@ glyphs:
 
   qsJai.exit-baseline:  # ·J'ai (exits at baseline)
     y_offset: -3
-    cursive_exit: [6, 0]
+    cursive_exit: [7, 0]
     extend_exit_before: [qsIng, qsLow, qsNo, qsRoe, qsSee, qsTea, qsThaw, qsVie]
     calt_not_before: [qsAt, qsExam, qsIt, qsEat]
     bitmap: *jai_prop_bitmap
