@@ -736,6 +736,8 @@ glyphs:
 
   qsJai.prop:  # ·J'ai
     y_offset: -3
+    cursive_exit: [6, 0]
+    extend_exit_before: [qsIng, qsLow, qsNo, qsRoe, qsSee, qsTea, qsThaw, qsVie]
     bitmap:
       - " #### " #
       - "     #"
