@@ -1316,12 +1316,13 @@ glyphs:
   qsIt.entry-xheight:  # ·It (exits at baseline)
     cursive_entry: [1, 5]
     cursive_exit: [2, 0]
+    calt_not_after: [qsIt]
     bitmap: *it_bitmap
 
   qsIt.entry-baseline:  # ·It (exits at x-height)
     cursive_entry: [1, 0]
     cursive_exit: [2, 5]
-    calt_not_after: [qsEat]
+    calt_not_after: [qsEat, qsIt]
     extend_entry_after: [qsKey]
     bitmap: *it_bitmap
 
