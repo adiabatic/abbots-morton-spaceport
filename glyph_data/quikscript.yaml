@@ -14,7 +14,7 @@ glyphs:
   #                tall letters render only the top or bottom portion
   # .alt           alternate letterform
   # .fina          word-final form (OpenType convention)
-  # .before-X      context qualifier: calt triggers before glyph X
+  # .before-X      context qualifier: calt triggers before glyph X (build uses calt_before field)
   # .after-X       context qualifier: calt triggers after glyph X (build uses calt_after field)
   # .extended      extended connecting stroke (wider bitmap to bridge a gap)
   #
@@ -666,7 +666,7 @@ glyphs:
       - " ##  "
 
   qsShe: &SHE  # ·She
-    bitmap:
+    bitmap: &she_bitmap
       - "     "
       - "   # "
       - "  #  "
@@ -678,16 +678,7 @@ glyphs:
       - " ### " #
 
   qsShe.prop:  # ·She
-    bitmap:
-      - "     "
-      - "   # "
-      - "  #  "
-      - " #   " #
-      - " #   "
-      - "#    "
-      - "#    "
-      - "#   #"
-      - " ### " #
+    bitmap: *she_bitmap
 
   qsShe.exit-baseline:  # ·She
     cursive_exit: [6, 0]
@@ -925,7 +916,7 @@ glyphs:
 
   qsWhy:  # ·Why
     y_offset: -3
-    bitmap:
+    bitmap: &why_bitmap
       - "    #" #
       - "    #"
       - "    #"
@@ -939,16 +930,7 @@ glyphs:
   qsWhy.prop:  # ·Why
     y_offset: -3
     cursive_exit: [5, 5]
-    bitmap:
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - "   # " #
-      - "# #  "
-      - " ##  "
-      - "  #  "
+    bitmap: *why_bitmap
 
   qsWhy.half:  # ·Why (exits at baseline)
     y_offset: -3
@@ -1056,7 +1038,7 @@ glyphs:
   qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_not_before: [qsDay, qsEat, qsOoze.prop, qsUtter]
+    calt_not_before: [qsDay, qsEat, qsOoze, qsUtter]
     bitmap:
       - "  ## " #
       - " #   "
@@ -1644,7 +1626,7 @@ glyphs:
     bitmap: *foot_bitmap
 
   qsOoze: &OOZE  # ·Ooze
-    bitmap:
+    bitmap: &ooze_bitmap
       - "  #  " #
       - " # # "
       - " # # "
@@ -1656,13 +1638,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     extend_entry_after: *vertical_exit_letters
-    bitmap:
-      - "  #  " #
-      - " # # "
-      - " # # "
-      - "#   #"
-      - "#   #"
-      - "#   #" #
+    bitmap: *ooze_bitmap
 
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused: *PEA  # 𐑐 Peep
