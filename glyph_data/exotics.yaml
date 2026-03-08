@@ -79,6 +79,28 @@ glyphs:
       - "##    "
       - "####  "
 
+  uni21DE.prop:  # ⇞ Upwards arrow with double stroke (Page Up)
+    bitmap:
+      - "   #   "
+      - "  ###  "
+      - " # # # " #
+      - "   #   "
+      - "#######"
+      - "   #   "
+      - "#######"
+      - "   #   " #
+
+  uni21DF.prop:  # ⇟ Downwards arrow with double stroke (Page Down)
+    bitmap:
+      - "   #   "
+      - "#######"
+      - "   #   "
+      - "#######"
+      - "   #   " #
+      - " # # # "
+      - "  ###  "
+      - "   #   " #
+
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
