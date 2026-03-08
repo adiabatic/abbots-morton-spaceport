@@ -359,7 +359,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [6, 0]
     calt_before: [qsNo, qsRoe]
-    extend_exit_before: [qsDay]
+    extend_exit_before: [qsDay, qsZoo]
     bitmap: *gay_bitmap
 
   qsThaw:  # ·Thaw
