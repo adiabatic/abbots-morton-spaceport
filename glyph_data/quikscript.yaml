@@ -353,16 +353,10 @@ glyphs:
       - " #  #"
       - "  ## "
 
-  qsGay.exit-baseline.before-deep:  # ·Gay
+  qsGay.exit-baseline.before-deep-or-roe:  # ·Gay
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_before: [qsDay, qsNo]
-    bitmap: *gay_bitmap
-
-  qsGay.exit-baseline.before-roe:  # ·Gay
-    y_offset: -3
-    cursive_exit: [6, 0]
-    calt_before: [qsRoe]
+    calt_before: [qsDay, qsNo, qsRoe]
     bitmap: *gay_bitmap
 
   qsThaw:  # ·Thaw
