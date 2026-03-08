@@ -1043,7 +1043,7 @@ glyphs:
   qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_not_before: [qsDay, qsEat, qsOoze, qsRoe, qsUtter]
+    calt_not_before: [qsDay, qsEat, qsIt, qsOoze, qsRoe, qsUtter]
     bitmap:
       - "  ## " #
       - " #   "
@@ -1332,6 +1332,11 @@ glyphs:
 
   qsIt.exit-baseline:  # ·It
     cursive_exit: [2, 0]
+    bitmap: *it_bitmap
+
+  qsIt.exit-baseline.before-ing:  # ·It
+    cursive_exit: [2, 0]
+    calt_before: [qsIng]
     bitmap: *it_bitmap
 
   qsEat:  # ·Eat
