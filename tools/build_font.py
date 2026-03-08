@@ -787,8 +787,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                     guard_glyphs.update(exit_classes.get(iy, set()))
                                 if guard_glyphs:
                                     guard_list = " ".join(sorted(guard_glyphs))
-                    elif target_raw and _is_entry_variant(target) and target_def.get("calt_after"):
-                        continue
+                    elif target_raw and _is_entry_variant(target):
+                        target_exit_raw = target_def.get("cursive_exit")
+                        if not target_exit_raw:
+                            continue
+                        target_exit_ys = {a[1] for a in _normalize_anchors(target_exit_raw)}
+                        variant_exit_ys = {a[1] for a in _normalize_anchors(variant_def.get("cursive_exit", []))}
+                        if variant_exit_ys <= target_exit_ys:
+                            continue
                     actual_variant = variant_name
                     suffix = _extended_entry_suffix(target)
                     if suffix:
