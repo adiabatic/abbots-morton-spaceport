@@ -356,7 +356,8 @@ glyphs:
   qsGay.exit-baseline.before-deep-or-roe:  # ·Gay
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_before: [qsDay, qsNo, qsRoe]
+    calt_before: [qsNo, qsRoe]
+    extend_exit_before: [qsDay]
     bitmap: *gay_bitmap
 
   qsThaw:  # ·Thaw
