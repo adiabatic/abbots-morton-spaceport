@@ -773,9 +773,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
                 for target in sorted(targets):
                     guard_list = None
+                    target_def = glyphs_def.get(target, {}) or {}
+                    target_raw = target_def.get("cursive_entry")
                     if variant_entry_ys is not None:
-                        target_def = glyphs_def.get(target, {}) or {}
-                        target_raw = target_def.get("cursive_entry")
                         if target_raw:
                             target_entry_ys = {a[1] for a in _normalize_anchors(target_raw)}
                             if not target_entry_ys.issubset(variant_entry_ys):
@@ -787,6 +787,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                     guard_glyphs.update(exit_classes.get(iy, set()))
                                 if guard_glyphs:
                                     guard_list = " ".join(sorted(guard_glyphs))
+                    elif target_raw and _is_entry_variant(target) and target_def.get("calt_after"):
+                        continue
                     actual_variant = variant_name
                     suffix = _extended_entry_suffix(target)
                     if suffix:
