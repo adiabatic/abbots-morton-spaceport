@@ -980,6 +980,7 @@ glyphs:
   qsIng.prop:  # ·-ing
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
+    extend_entry_after: [qsTea]
     bitmap: *ing_bitmap
 
   qsIng.prop.widebase:  # ·-ing (after ·Thaw)
