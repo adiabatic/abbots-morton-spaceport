@@ -25,6 +25,8 @@ class ShapingFile(pytest.File):
 
         seen_ids = {}
         for text, expect, line in collector.cells:
+            if not expect.strip():
+                continue
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
             if not slug:
                 slug = re.sub(r"[^a-zA-Z0-9]+", "_", expect).strip("_")[:40]
