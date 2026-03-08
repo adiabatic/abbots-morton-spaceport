@@ -1111,7 +1111,7 @@ glyphs:
       - " # # "
       - "#   #" #
 
-  qsNo.alt.after-it:  # ·No (also after ·Vie)
+  qsNo.alt.after-it-and-vie:  # ·No
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
     calt_after: [qsIt, qsVie]
