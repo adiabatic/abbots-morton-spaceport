@@ -956,7 +956,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             exclusions = bk_exclusions.get(base_name, {})
             lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
-                for eg in sorted(exclusions.get(entry_y, [])):
+                for eg in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
                     lines.append(f"        ignore sub {eg} {base_name}';")
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
