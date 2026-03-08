@@ -1517,7 +1517,6 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_exit_before: [qsBay, qsFee, qsThey]
-    extend_exit_no_entry: true
     bitmap: *utter_bitmap
 
   qsUtter.alt:  # ·Utter
