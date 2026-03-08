@@ -240,7 +240,8 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     cursive_exit: [5, 0]
-    calt_not_after: [qsYe]
+    calt_not_after: [qsTea, qsYe]
+    extend_entry_after: [qsTea, qsYe]
     bitmap:
       - "    " #
       - "    "
