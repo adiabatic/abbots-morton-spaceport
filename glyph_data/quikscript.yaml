@@ -1015,7 +1015,7 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_entry_after: *vertical_exit_letters
-    extend_exit_before: [qsDay, qsFee]
+    extend_exit_before: [qsDay, qsFee, qsRoe]
     bitmap: *may_bitmap
 
   qsMay.entry-xheight:  # ·May
@@ -1042,7 +1042,7 @@ glyphs:
   qsMay.exit-baseline:  # ·May
     y_offset: -3
     cursive_exit: [6, 0]
-    calt_not_before: [qsDay, qsEat, qsOoze, qsUtter]
+    calt_not_before: [qsDay, qsEat, qsOoze, qsRoe, qsUtter]
     bitmap:
       - "  ## " #
       - " #   "
@@ -1147,7 +1147,7 @@ glyphs:
 
   qsRoe.entry-extended-at-xheight:  # ·Roe
     cursive_entry: [1, 5]
-    calt_after: [qsIt, qsYe]
+    calt_after: [qsIt, qsMay, qsYe]
     bitmap:
       - "####  " #
       - "    # "
