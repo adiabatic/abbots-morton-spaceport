@@ -240,6 +240,7 @@ glyphs:
     y_offset: -3
     cursive_entry: [1, 0]
     cursive_exit: [5, 0]
+    calt_not_after: [qsYe]
     bitmap:
       - "    " #
       - "    "
@@ -786,7 +787,6 @@ glyphs:
 
   qsYe.prop:  # ·Ye
     cursive_exit: [2, 0]
-    calt_not_before: [qsDay]
     bitmap:
       - "  # "
       - " # #"
