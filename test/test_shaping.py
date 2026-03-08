@@ -48,7 +48,7 @@ TOKEN_RE = re.compile(
     r"""
     ·(-ing|[A-Z][a-z]*)        # letter name (·Bay, ·-ing)
     (?:\+([A-Z][a-z]*))?       # optional ligature partner (+Utter)
-    ((?:\.!?[a-z][-a-z]*)*)     # optional variant assertions (.half.extended, .!exit, .entry-extended)
+    ((?:\.!?[a-z][-a-z0-9]*)*)  # optional variant assertions (.half.extended, .!exit, .entry-extended, .exit.y1)
     """,
     re.VERBOSE,
 )

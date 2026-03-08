@@ -1202,7 +1202,7 @@ glyphs:
       - "    #  "
       - "####   " #
 
-  qsRoe.exit-y1.before-thaw:  # ·Roe
+  qsRoe.exit-y1:  # ·Roe
     cursive_entry:
       - [1, 0]
       - [1, 5]
@@ -1437,7 +1437,7 @@ glyphs:
     extend_exit_before: [qsDay, qsEight, qsEt, qsFee, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
     bitmap: *i_bitmap
 
-  qsI.entry-after-roe:  # ·I
+  qsI.entry-baseline.smaller-loop:  # ·I
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     calt_after: [qsRoe.exit-baseline]
