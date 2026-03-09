@@ -139,13 +139,13 @@ glyphs:
   uni2305.prop:  # ⌅ Projective (Enter key on numpad)
     y_offset: 1
     bitmap:
-      - "#      #"
-      - " #    # "
-      - "  #  #  " #
-      - "   ##   "
-      - "        "
-      - "########"
       - "        " #
+      - "########"
+      - "        "
+      - "   ##   "
+      - "  #  #  " #
+      - " #    # "
+      - "#      #"
 
   uni2318.prop:  # ⌘ Place of interest sign (Command key)
     bitmap:
