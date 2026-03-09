@@ -65,7 +65,7 @@ def get_base_glyph_name(prop_glyph_name: str) -> str:
 
     Strips .prop from the end or middle of the name:
       qsPea.prop       → qsPea
-      qsFee_qsUtter.prop.alt → qsFee_qsUtter.alt
+      qsFee_qsMay.prop → qsFee_qsMay
       U.prop.narrow    → U.narrow
     """
     if prop_glyph_name.endswith(".prop"):
@@ -1157,7 +1157,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 exit_ys = {a[1] for a in _normalize_anchors(raw_exit)}
                 for bg in before_glyphs:
                     bg_base = bg.split(".")[0] if "." in bg else bg
-                    if exit_ys & set(bk_replacements.get(bg_base, {})):
+                    bk_ys = set(bk_replacements.get(bg_base, {}))
+                    for pv, _ in pair_overrides.get(bg_base, []):
+                        pv_def = glyphs_def.get(pv, {}) or {}
+                        pv_entry = pv_def.get("cursive_entry")
+                        if pv_entry:
+                            bk_ys.update(a[1] for a in _normalize_anchors(pv_entry))
+                    if exit_ys & bk_ys:
                         early_fwd_pairs.add(base_name)
                         found = True
                         break
@@ -1193,7 +1199,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         cycle_list = sorted(cycle_bases)
         _emit_block(cycle_list, use_cycle=True)
 
-    _emit_block(post_cycle)
+    early_post = [b for b in post_cycle if b in early_fwd_pairs]
+    late_post = [b for b in post_cycle if b not in early_fwd_pairs]
+    _emit_block(early_post)
+    _emit_block(late_post)
 
     _emit_reverse_upgrades()
 

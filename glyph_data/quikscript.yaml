@@ -502,18 +502,6 @@ glyphs:
     extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
     bitmap: *fee_bitmap
 
-  qsFee_qsUtter.prop.alt:  # ·Fee·Utter ligature
-    cursive_exit: [12, 0]
-    bitmap:
-      - "  #        "
-      - "   #       "
-      - "    #      "
-      - "  ######## " #
-      - " #  #  #   "
-      - "#   # #    "
-      - "#   # #    "
-      - "#   #  #   "
-      - " ###    ###" #
 
   qsFee_qsMay.prop:  # ·Fee·May ligature
     y_offset: -3
@@ -1055,22 +1043,6 @@ glyphs:
       - "#  # "
       - " ##  "
 
-  qsMay_qsUtter.prop.alt:  # ·May·Utter ligature
-    y_offset: -3
-    cursive_entry:
-      - [1, 0]
-      - [4, 5]
-    cursive_exit: [11, 0]
-    bitmap:
-      - "   ###### " #
-      - "  #   #   "
-      - "  #  #    "
-      - " #   #    "
-      - " #    #   "
-      - "####   ###" #
-      - " #  #     "
-      - " #  #     "
-      - "  ##      "
 
   qsNo:  # ·No
     bitmap: &no_bitmap
@@ -1540,6 +1512,7 @@ glyphs:
   qsUtter.alt.prop.reaches-way-back:  # ·Utter
     cursive_entry: [1, 5]
     cursive_exit: [7, 0]
+    calt_after: [qsFee, qsMay]
     bitmap:
       - "##### " #
       - "  #   "
