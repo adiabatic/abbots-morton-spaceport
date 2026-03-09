@@ -238,6 +238,12 @@ glyphs:
       - " #   # "
       - "  ###  " #
 
+  uni2423.prop:  # ␣ Open box (Space key label)
+    bitmap:
+      - "#   #"
+      - "#   #"
+      - "#####" #
+
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
