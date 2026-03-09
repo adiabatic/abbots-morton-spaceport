@@ -128,6 +128,25 @@ glyphs:
       - "  #  #  "
       - "  ####  "
 
+  uni2303.prop:  # ⌃ Up arrowhead (Control key)
+    y_offset: 2
+    bitmap:
+      - "   ##   "
+      - "  #  #  "
+      - " #    # "
+      - "#      #"
+
+  uni2305.prop:  # ⌅ Projective (Enter key on numpad)
+    y_offset: 1
+    bitmap:
+      - "#      #"
+      - " #    # "
+      - "  #  #  " #
+      - "   ##   "
+      - "        "
+      - "########"
+      - "        " #
+
   uni2318.prop:  # ⌘ Place of interest sign (Command key)
     bitmap:
       - " #    # "

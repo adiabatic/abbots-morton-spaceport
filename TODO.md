@@ -2,13 +2,6 @@
 
 Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morton Experiment Sans doesn't yet implement.
 
-## Modifier keys
-
-| Glyph | Code point | Name                          | Notes                  |
-|-------|------------|-------------------------------|------------------------|
-| ⌃     | U+2303     | UP ARROWHEAD                  | Control key            |
-| ⌅     | U+2305     | PROJECTIVE                    | Enter key (on numpad)  |
-
 ## Editing keys
 
 | Glyph | Code point | Name                                 | Notes                  |
