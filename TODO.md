@@ -11,7 +11,6 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 | ⇥     | U+21E5     | RIGHTWARDS ARROW TO BAR              | Tab key                |
 | ⇤     | U+21E4     | LEFTWARDS ARROW TO BAR               | Backtab (Shift+Tab)    |
 | ⎋     | U+238B     | BROKEN CIRCLE WITH NORTHWEST ARROW   | Escape key             |
-| ⌧     | U+2327     | X IN A RECTANGLE OPEN                | Clear key              |
 | ␣     | U+2423     | OPEN BOX                             | Space key label        |
 
 ## Function/system keys
