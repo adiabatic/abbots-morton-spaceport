@@ -126,6 +126,21 @@
         }
       }
 
+      .row-buttons {
+        display: flex;
+        gap: 0.25rem;
+        justify-content: center;
+        margin: 0.25rem 0;
+
+        button {
+          width: 36px;
+          height: 36px;
+          padding: 0;
+          font-size: 24px;
+          line-height: 1;
+        }
+      }
+
       #column-buttons-left .row-marker {
         justify-content: flex-end;
       }
@@ -252,6 +267,10 @@
       <div class="lightboard-section">
         <div class="section-label" id="lightboard-label">Lightboard (12 rows × 5 cols)</div>
         <div class="glyph-info" id="glyph-info"></div>
+        <div class="row-buttons">
+          <button type="button" id="add-row-top" title="Add row on top">+</button>
+          <button type="button" id="remove-row-top" title="Remove row from top">−</button>
+        </div>
         <div class="lightboard-wrapper">
           <div class="column-buttons" id="column-buttons-left">
             <button type="button" id="add-col-left" title="Add column on left">+</button>
@@ -263,6 +282,10 @@
             <button type="button" id="remove-col-right" title="Remove column from right">−</button>
           </div>
         </div>
+        <div class="row-buttons">
+          <button type="button" id="add-row-bottom" title="Add row on bottom">+</button>
+          <button type="button" id="remove-row-bottom" title="Remove row from bottom">−</button>
+        </div>
         <div class="y-offset-control">
           <label for="y-offset">y_offset:</label>
           <input type="number" id="y-offset" value="0" min="-12" max="12" />
@@ -271,6 +294,10 @@
 
       <div class="preview-section">
         <div class="section-label">Preview</div>
+        <div class="preview-row" id="preview-half-row" hidden>
+          <span class="preview-label">½×</span>
+          <canvas id="preview-half" class="preview-canvas"></canvas>
+        </div>
         <div class="preview-row">
           <span class="preview-label">1×</span>
           <canvas id="preview-1x" class="preview-canvas"></canvas>
@@ -528,24 +555,55 @@
         }
       }
 
+      // Render the ½× preview (1× bitmap displayed at half CSS size)
+      function renderHalfPreview(canvas, bitmapData) {
+        const ctx = canvas.getContext("2d");
+        const width = cols + PADDING * 2;
+        const height = bitmapData.length;
+
+        canvas.width = width;
+        canvas.height = height;
+        canvas.style.width = width * (DISPLAY_SCALE / 2) + "px";
+        canvas.style.height = height * (DISPLAY_SCALE / 2) + "px";
+
+        ctx.fillStyle = "#f0f0f0";
+        ctx.fillRect(0, 0, width, height);
+        ctx.fillStyle = "#ccc";
+        ctx.fillRect(0, 0, PADDING, height);
+        ctx.fillRect(width - PADDING, 0, PADDING, height);
+        ctx.fillStyle = "#222";
+        for (let y = 0; y < bitmapData.length; y++) {
+          for (let x = 0; x < cols; x++) {
+            if (bitmapData[y][x] === "#") {
+              ctx.fillRect(x + PADDING, y, 1, 1);
+            }
+          }
+        }
+      }
+
       // Update all preview canvases
       function updatePreviews() {
+        const halfCanvas = document.getElementById("preview-half");
         if (bitmap.length === 0) {
-          // Clear canvases if no bitmap
-          [1, 2, 3, 4].forEach((scale) => {
+          halfCanvas.width = (cols + PADDING * 2);
+          halfCanvas.height = 1;
+          halfCanvas.style.width = (cols + PADDING * 2) * (DISPLAY_SCALE / 2) + "px";
+          halfCanvas.style.height = (DISPLAY_SCALE / 2) + "px";
+          for (const scale of [1, 2, 3, 4]) {
             const canvas = document.getElementById(`preview-${scale}x`);
             canvas.width = (cols + PADDING * 2) * scale;
             canvas.height = scale;
             canvas.style.width = (cols + PADDING * 2) * scale * DISPLAY_SCALE + "px";
             canvas.style.height = scale * DISPLAY_SCALE + "px";
-          });
+          }
           return;
         }
 
-        [1, 2, 3, 4].forEach((scale) => {
+        renderHalfPreview(halfCanvas, bitmap);
+        for (const scale of [1, 2, 3, 4]) {
           const canvas = document.getElementById(`preview-${scale}x`);
           renderPreview(canvas, bitmap, scale);
-        });
+        }
       }
 
       // Generate YAML output
@@ -622,6 +680,43 @@
         updateOutput();
       }
 
+      // Row manipulation functions
+      function addRowTop() {
+        if (bitmap.length === 0 || bitmap.length >= MAX_ROWS) return;
+        bitmap.unshift(" ".repeat(cols));
+        rowComments.unshift("");
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
+      function removeRowTop() {
+        if (bitmap.length <= 1) return;
+        bitmap.shift();
+        rowComments.shift();
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
+      function addRowBottom() {
+        if (bitmap.length === 0 || bitmap.length >= MAX_ROWS) return;
+        bitmap.push(" ".repeat(cols));
+        rowComments.push("");
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
+      function removeRowBottom() {
+        if (bitmap.length <= 1) return;
+        bitmap.pop();
+        rowComments.pop();
+        updateLightboard();
+        updatePreviews();
+        updateOutput();
+      }
+
       // End drag painting on mouseup anywhere
       document.addEventListener("mouseup", () => {
         if (isDragging) {
@@ -663,6 +758,18 @@
       document.getElementById("remove-col-left").addEventListener("click", removeColumnLeft);
       document.getElementById("add-col-right").addEventListener("click", addColumnRight);
       document.getElementById("remove-col-right").addEventListener("click", removeColumnRight);
+      document.getElementById("add-row-top").addEventListener("click", addRowTop);
+      document.getElementById("remove-row-top").addEventListener("click", removeRowTop);
+      document.getElementById("add-row-bottom").addEventListener("click", addRowBottom);
+      document.getElementById("remove-row-bottom").addEventListener("click", removeRowBottom);
+
+      // Show ½× preview only on 2×+ displays
+      const halfRow = document.getElementById("preview-half-row");
+      const hiDpiQuery = matchMedia("(resolution >= 2dppx)");
+      hiDpiQuery.addEventListener("change", (e) => {
+        halfRow.hidden = !e.matches;
+      });
+      halfRow.hidden = !hiDpiQuery.matches;
 
       // Initialize
       initRowMarkers();
