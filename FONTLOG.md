@@ -6,11 +6,12 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 9.000
 
-- Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (400–800)
+- Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (200–800)
   - “Bold” is 800 here (usually it’s 700)
   - weight increases “pixel” _width_, but keeps height the same
   - A weight of 800 will have “pixels” that are twice as wide as they are tall
   - A weight of 600 will have “pixels” that are 1½ times as wide as they are tall
+  - A weight of 200 will have “pixels” that are half as wide as they are tall
   - Mono font doesn’t get a bold version
 - Add macOS keyboard symbol glyphs: ⌃ ⌅ ⌘ ⌥ ⌦ ⌧ ⌫ ⎋ ⏎ ⏏ ⏻ ␣ 🌐 ↩ ⇞ ⇟ ⇤ ⇥ ⇧ ⇪
 - Massive amounts of cleanup and fiddling around
