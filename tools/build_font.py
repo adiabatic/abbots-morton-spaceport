@@ -528,7 +528,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 is_bk = ("half" in parts or "alt" in parts) and glyph_def.get("cursive_entry") is not None
             if is_bk:
                 base_name = glyph_name.split(".")[0]
-                if base_name in glyphs_def:
+                if base_name in glyphs_def and anchor[1] in bk_replacements.get(base_name, {}):
                     entry_classes[anchor[1]].add(base_name)
 
     # --- Add exit-only variants to entry classes ---
