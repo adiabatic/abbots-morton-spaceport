@@ -79,6 +79,16 @@ glyphs:
       - "##    "
       - "####  "
 
+  uni21A9.prop:  # ↩ Leftwards arrow with hook (Return key alternate)
+    y_offset: 1
+    bitmap:
+      - "      #"
+      - "  #   #" #
+      - " #    #"
+      - "#######"
+      - " #     "
+      - "  #    "
+
   uni21DE.prop:  # ⇞ Upwards arrow with double stroke (Page Up)
     bitmap:
       - "   #   "
@@ -227,6 +237,17 @@ glyphs:
       - " #     #"
       - "  #   # "
       - "   ###  " #
+
+  uni23CE.prop:  # ⏎ Return symbol (Return key)
+    bitmap:
+      - "      #"
+      - "      #"
+      - "      #" #
+      - "  #   #"
+      - " #    #"
+      - "#######"
+      - " #     "
+      - "  #    " #
 
   uni23CF.prop:  # ⏏ Eject symbol (Eject key)
     bitmap:

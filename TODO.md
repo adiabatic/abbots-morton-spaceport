@@ -6,5 +6,3 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 
 | Glyph | Code point | Name                                 | Notes                  |
 |-------|------------|--------------------------------------|------------------------|
-| ⏎     | U+23CE     | RETURN SYMBOL                        | Return key (ISO symbol)|
-| ↩     | U+21A9     | LEFTWARDS ARROW WITH HOOK            | Return key (alternate) |
