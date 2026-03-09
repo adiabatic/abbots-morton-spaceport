@@ -15,6 +15,5 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 
 | Glyph | Code point | Name                                  | Notes                                                 |
 |-------|------------|---------------------------------------|-------------------------------------------------------|
-| ⏏     | U+23CF     | EJECT SYMBOL                          | Eject key                                             |
 | ⏻     | U+23FB     | POWER SYMBOL                          | Power key (IEC 5009)                                  |
 |      | U+F8FF     | APPLE LOGO                            | Apple menu; PUA, won't render outside Apple platforms |
