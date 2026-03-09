@@ -217,6 +217,17 @@ glyphs:
       - "  #     #"
       - "   ######" #
 
+  uni238B.prop:  # ⎋ Broken circle with northwest arrow (Escape key)
+    bitmap:
+      - "###     "
+      - "##  ##  "
+      - "# #   # " #
+      - "   #   #"
+      - " #  #  #"
+      - " #     #"
+      - "  #   # "
+      - "   ###  " #
+
   uni23CF.prop:  # ⏏ Eject symbol (Eject key)
     bitmap:
       - "   ##   "
