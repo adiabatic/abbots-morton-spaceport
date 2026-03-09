@@ -6,8 +6,6 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 
 | Glyph | Code point | Name                          | Notes                  |
 |-------|------------|-------------------------------|------------------------|
-| ⌘     | U+2318     | PLACE OF INTEREST SIGN        | Command key            |
-| ⌥     | U+2325     | OPTION KEY                    | Option/Alt key         |
 | ⇧     | U+21E7     | UPWARDS WHITE ARROW           | Shift key              |
 | ⌃     | U+2303     | UP ARROWHEAD                  | Control key            |
 | ⇪     | U+21EA     | UPWARDS WHITE ARROW FROM BAR  | Caps Lock key          |
