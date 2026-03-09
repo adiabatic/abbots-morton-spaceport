@@ -1537,10 +1537,10 @@ glyphs:
       - " #   "
       - "  ###" #
 
-  qsUtter.alt.reaches-way-back:  # ·Utter
+  qsUtter.alt.prop.reaches-way-back:  # ·Utter
     cursive_entry: [5, 1]
     cursive_exit: [7, 0]
-    bitmap: &utter_alt_bitmap
+    bitmap:
       - "##### " #
       - "  #   "
       - " #    "
