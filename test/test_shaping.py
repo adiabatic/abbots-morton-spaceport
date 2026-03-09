@@ -83,6 +83,7 @@ def parse_expect(raw):
     """
     HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
 
+    raw = raw.strip()
     tokens = []
     connections = []
     pos = 0
