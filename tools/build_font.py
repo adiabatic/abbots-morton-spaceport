@@ -896,6 +896,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_pair_{safe} {{")
+                variant_def = glyphs_def.get(variant_name, {}) or {}
+                not_before = variant_def.get("calt_not_before", [])
+                if not_before:
+                    resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                    for nb in sorted(_expand_exclusions(resolved)):
+                        lines.append(f"        ignore sub [{after_list}] {base_name}' {nb};")
                 lines.append(
                     f"        sub [{after_list}] {base_name}' by {variant_name};"
                 )
