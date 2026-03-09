@@ -189,11 +189,11 @@ glyphs:
   uni2324.prop:  # ⌤ Up arrowhead between two horizontal bars (Numpad Enter key)
     y_offset: 1
     bitmap:
-      - "        "
+      - "        " #
       - "## ## ##"
       - "  #  #  "
       - " #    # "
-      - "#      #"
+      - "#      #" #
       - "        "
       - "        "
 
