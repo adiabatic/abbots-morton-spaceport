@@ -8,8 +8,6 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 |-------|------------|--------------------------------------|------------------------|
 | ⏎     | U+23CE     | RETURN SYMBOL                        | Return key (ISO symbol)|
 | ↩     | U+21A9     | LEFTWARDS ARROW WITH HOOK            | Return key (alternate) |
-| ⇥     | U+21E5     | RIGHTWARDS ARROW TO BAR              | Tab key                |
-| ⇤     | U+21E4     | LEFTWARDS ARROW TO BAR               | Backtab (Shift+Tab)    |
 | ⎋     | U+238B     | BROKEN CIRCLE WITH NORTHWEST ARROW   | Escape key             |
 | ␣     | U+2423     | OPEN BOX                             | Space key label        |
 

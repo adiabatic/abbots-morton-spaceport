@@ -101,6 +101,24 @@ glyphs:
       - "  ###  "
       - "   #   " #
 
+  uni21E4.prop:  # ⇤ Leftwards arrow to bar (Backtab / Shift+Tab)
+    y_offset: 1
+    bitmap:
+      - "#   #   " #
+      - "#  #    "
+      - "# ######"
+      - "#  #    "
+      - "#   #   "
+
+  uni21E5.prop:  # ⇥ Rightwards arrow to bar (Tab key)
+    y_offset: 1
+    bitmap:
+      - "   #   #" #
+      - "    #  #"
+      - "###### #"
+      - "    #  #"
+      - "   #   #"
+
   uni21E7.prop:  # ⇧ Upwards white arrow (Shift key)
     bitmap:
       - "   ##   "
