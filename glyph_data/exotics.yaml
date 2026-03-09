@@ -179,6 +179,16 @@ glyphs:
       - "#     #  "
       - "######   " #
 
+  uni2327.prop:  # ⌧ X in a rectangle open (Clear key)
+    bitmap:
+      - "#########"
+      - "#       #" #
+      - "#  # #  #"
+      - "#   #   #"
+      - "#  # #  #"
+      - "#       #"
+      - "#########" #
+
   uni232B.prop:  # ⌫ Erase to the left (Delete/Backspace key)
     bitmap:
       - "   ######"
