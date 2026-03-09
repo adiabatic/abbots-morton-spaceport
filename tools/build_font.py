@@ -787,14 +787,35 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                     guard_glyphs.update(exit_classes.get(iy, set()))
                                 if guard_glyphs:
                                     guard_list = " ".join(sorted(guard_glyphs))
-                    elif target_raw and _is_entry_variant(target):
-                        target_exit_raw = target_def.get("cursive_exit")
-                        if not target_exit_raw:
-                            continue
-                        target_exit_ys = {a[1] for a in _normalize_anchors(target_exit_raw)}
-                        variant_exit_ys = {a[1] for a in _normalize_anchors(variant_def.get("cursive_exit", []))}
-                        if variant_exit_ys <= target_exit_ys:
-                            continue
+                    else:
+                        if target_raw and _is_entry_variant(target):
+                            target_exit_raw = target_def.get("cursive_exit")
+                            if target_exit_raw:
+                                target_exit_ys = {a[1] for a in _normalize_anchors(target_exit_raw)}
+                                variant_exit_ys = {a[1] for a in _normalize_anchors(variant_def.get("cursive_exit", []))}
+                                if variant_exit_ys <= target_exit_ys:
+                                    continue
+                            elif target_def.get("calt_after"):
+                                continue
+                        elif not target_raw:
+                            variant_exit_raw = variant_def.get("cursive_exit")
+                            if variant_exit_raw:
+                                variant_exit_ys = {a[1] for a in _normalize_anchors(variant_exit_raw)}
+                                base_for_target = target.split(".")[0]
+                                protect_ys = set()
+                                for bk_y, bk_var in bk_replacements.get(base_for_target, {}).items():
+                                    bk_def = glyphs_def.get(bk_var, {}) or {}
+                                    bk_exit_raw = bk_def.get("cursive_exit")
+                                    if bk_exit_raw:
+                                        bk_exit_ys = {a[1] for a in _normalize_anchors(bk_exit_raw)}
+                                        if variant_exit_ys <= bk_exit_ys:
+                                            protect_ys.add(bk_y)
+                                if protect_ys:
+                                    guard_glyphs = set()
+                                    for py in protect_ys:
+                                        guard_glyphs.update(exit_classes.get(py, set()))
+                                    if guard_glyphs:
+                                        guard_list = " ".join(sorted(guard_glyphs))
                     actual_variant = variant_name
                     suffix = _extended_entry_suffix(target)
                     if suffix:
