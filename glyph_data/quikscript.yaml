@@ -1538,7 +1538,7 @@ glyphs:
       - "  ###" #
 
   qsUtter.alt.prop.reaches-way-back:  # ·Utter
-    cursive_entry: [5, 1]
+    cursive_entry: [1, 5]
     cursive_exit: [7, 0]
     bitmap:
       - "##### " #
