@@ -10,9 +10,3 @@ Glyphs used in macOS menus, keyboard shortcuts, and key labels that Abbots Morto
 | ↩     | U+21A9     | LEFTWARDS ARROW WITH HOOK            | Return key (alternate) |
 | ⎋     | U+238B     | BROKEN CIRCLE WITH NORTHWEST ARROW   | Escape key             |
 | ␣     | U+2423     | OPEN BOX                             | Space key label        |
-
-## Function/system keys
-
-| Glyph | Code point | Name                                  | Notes                                                 |
-|-------|------------|---------------------------------------|-------------------------------------------------------|
-|      | U+F8FF     | APPLE LOGO                            | Apple menu; PUA, won't render outside Apple platforms |
