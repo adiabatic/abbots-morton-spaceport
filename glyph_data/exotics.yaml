@@ -164,7 +164,7 @@ glyphs:
       - " #    # "
       - "#      #"
 
-  uni2305.prop:  # ⌅ Projective (Enter key on numpad)
+  uni2305.prop:  # ⌅ Projective (Actually not Numpad Enter)
     y_offset: 1
     bitmap:
       - "        " #
@@ -185,6 +185,17 @@ glyphs:
       - " ###### "
       - "# #  # #"
       - " #    # " #
+
+  uni2324.prop:  # ⌤ Up arrowhead between two horizontal bars (Numpad Enter key)
+    y_offset: 1
+    bitmap:
+      - "        "
+      - "## ## ##"
+      - "  #  #  "
+      - " #    # "
+      - "#      #"
+      - "        "
+      - "        "
 
   uni2325.prop:  # ⌥ Option key
     bitmap:
