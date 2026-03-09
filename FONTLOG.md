@@ -7,11 +7,13 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 ### 9.000
 
 - Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (400–800)
-- Bold weight uses 2× wide pixels, keeping height the same
-- Mono font remains static (no weight axis)
-- Improve Senior connecting strokes: wider ·Roe exit before ·I and ·Low, wider ·Tea exit before ·See, and connecting pixels on auto-extended entry variants (·Vie, ·May, ·Ooze, ·Roe after ·It/·Eight/·Ye, ·Tea after ·Key)
-- Narrow half-·Tea from 3 to 2 pixels wide
-- Fix ·It/·Roe overlap in proportional Senior font
+  - “Bold” is 800 here (usually it’s 700)
+  - weight increases “pixel” _width_, but keeps height the same
+  - A weight of 800 will have “pixels” that are twice as wide as they are tall
+  - A weight of 600 will have “pixels” that are 1½ times as wide as they are tall
+  - Mono font doesn’t get a bold version
+- Add macOS keyboard symbol glyphs: ⌃ ⌅ ⌘ ⌥ ⌦ ⌧ ⌫ ⎋ ⏎ ⏏ ⏻ ␣ 🌐 ↩ ⇞ ⇟ ⇤ ⇥ ⇧ ⇪
+- Massive amounts of cleanup and fiddling around
 
 ### 8.000
 
