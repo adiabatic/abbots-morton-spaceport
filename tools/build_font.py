@@ -1014,6 +1014,40 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
+    def _emit_noentry_fwd_overrides(bases: list[str]):
+        """Replace no-exit backward variants with forward-only variants."""
+        for base_name in bases:
+            if base_name not in bk_replacements or base_name not in fwd_replacements:
+                continue
+            for entry_y, bk_var in sorted(bk_replacements[base_name].items()):
+                bk_def = glyphs_def.get(bk_var, {}) or {}
+                if bk_def.get("cursive_exit"):
+                    continue
+                for fwd_exit_y, fwd_var in sorted(fwd_replacements[base_name].items()):
+                    if fwd_exit_y not in entry_classes:
+                        continue
+                    fwd_var_ey = {y for y, m in entry_classes.items() if fwd_var in m}
+                    if fwd_var_ey:
+                        continue
+                    has_upgrade = any(
+                        entry_only == bk_var and ey == fwd_exit_y
+                        for _, entry_only, ey in fwd_upgrades.get(base_name, [])
+                    )
+                    if has_upgrade:
+                        continue
+                    cls = f"@entry_y{fwd_exit_y}"
+                    safe = f"{bk_var}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
+                    lines.append("")
+                    lines.append(f"    lookup calt_fwd_override_{safe} {{")
+                    fwd_def = glyphs_def.get(fwd_var, {}) or {}
+                    not_before = fwd_def.get("calt_not_before", [])
+                    if not_before:
+                        resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                        for nb in sorted(_expand_exclusions(resolved)):
+                            lines.append(f"        ignore sub {bk_var}' {nb};")
+                    lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
+                    lines.append(f"    }} calt_fwd_override_{safe};")
+
     # Bases whose pair_overrides come entirely from entry-extended variants
     # should remain forward-only — entry-extended pairs are about the entry
     # side and don't affect the base's forward exit behaviour.
@@ -1140,6 +1174,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 _emit_bk_general(base_name)
         for base_name in bases:
             _emit_upgrades(base_name)
+        _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
         for base_name in bases:
