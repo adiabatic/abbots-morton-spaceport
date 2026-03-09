@@ -169,6 +169,26 @@ glyphs:
       - "    #   "
       - "     ###" #
 
+  uni2326.prop:  # ⌦ Erase to the right (Forward Delete key)
+    bitmap:
+      - "######   "
+      - "#     #  " #
+      - "# # #  # "
+      - "#  #    #"
+      - "# # #  # "
+      - "#     #  "
+      - "######   " #
+
+  uni232B.prop:  # ⌫ Erase to the left (Delete/Backspace key)
+    bitmap:
+      - "   ######"
+      - "  #     #" #
+      - " #  # # #"
+      - "#    #  #"
+      - " #  # # #"
+      - "  #     #"
+      - "   ######" #
+
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
