@@ -101,6 +101,28 @@ glyphs:
       - "  ###  "
       - "   #   " #
 
+  uni2318.prop:  # ⌘ Place of interest sign (Command key)
+    bitmap:
+      - " #    # "
+      - "# #  # #"
+      - " ###### "
+      - "  #  #  " #
+      - "  #  #  "
+      - " ###### "
+      - "# #  # #"
+      - " #    # " #
+
+  uni2325.prop:  # ⌥ Option key
+    bitmap:
+      - "###  ###"
+      - "   #    "
+      - "   #    " #
+      - "   #    "
+      - "    #   "
+      - "    #   "
+      - "    #   "
+      - "     ###" #
+
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
