@@ -103,26 +103,30 @@ glyphs:
 
   uni21E7.prop:  # ⇧ Upwards white arrow (Shift key)
     bitmap:
-      - "  ##  "
-      - " #  # "
-      - "#    #" #
-      - " #  # "
-      - " #  # "
-      - " #  # "
-      - " #  # "
-      - " #### " #
+      - "   ##   "
+      - "  #  #  "
+      - " #    # "
+      - "#      #" #
+      - " ##  ## "
+      - "  #  #  "
+      - "  #  #  "
+      - "  #  #  "
+      - "  ####  " #
 
   uni21EA.prop:  # ⇪ Upwards white arrow from bar (Caps Lock key)
     y_offset: -2
     bitmap:
-      - "  ##  "
-      - " #  # "
-      - "#    #" #
-      - " #  # "
-      - " #  # "
-      - " #### "
-      - " #  # "
-      - " #### " #
+      - "   ##   "
+      - "  #  #  "
+      - " #    # "
+      - "#      #" #
+      - " ##  ## "
+      - "  #  #  "
+      - "  ####  "
+      - "        "
+      - "  ####  " #
+      - "  #  #  "
+      - "  ####  "
 
   uni2318.prop:  # ⌘ Place of interest sign (Command key)
     bitmap:
