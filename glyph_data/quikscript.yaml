@@ -1537,6 +1537,17 @@ glyphs:
       - " #   "
       - "  ###" #
 
+  qsUtter.alt.reaches-way-back:  # ·Utter
+    cursive_entry: [5, 1]
+    cursive_exit: [7, 0]
+    bitmap: &utter_alt_bitmap
+      - "##### " #
+      - "  #   "
+      - " #    "
+      - " #    "
+      - "  #   "
+      - "   ###" #
+
   qsUtter.alt.before-may:  # ·Utter
     cursive_exit: [6, 0]
     calt_before: [qsMay]
