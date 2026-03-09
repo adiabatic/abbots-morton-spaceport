@@ -228,6 +228,16 @@ glyphs:
       - "########"
       - "########" #
 
+  uni23FB.prop:  # ⏻ Power symbol (Power key, IEC 5009)
+    bitmap:
+      - "   #   "
+      - " # # # " #
+      - "#  #  #"
+      - "#  #  #"
+      - "#     #"
+      - " #   # "
+      - "  ###  " #
+
   uni25A0.prop:  # ■ Black square
     bitmap:
       - "#######"
