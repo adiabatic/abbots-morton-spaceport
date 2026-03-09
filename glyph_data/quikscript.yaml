@@ -1513,6 +1513,7 @@ glyphs:
     cursive_entry: [1, 5]
     cursive_exit: [7, 0]
     calt_after: [qsFee, qsMay]
+    calt_not_before: [qsRoe]
     bitmap:
       - "##### " #
       - "  #   "
