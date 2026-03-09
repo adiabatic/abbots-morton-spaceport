@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 9.001
+
+- Move 🌐︎ up by one pixel
+
 ### 9.000
 
 - Make the Sans Junior and Sans Senior fonts variable with a `wght` axis (200–800)
