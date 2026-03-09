@@ -59,8 +59,8 @@ export function initToggles(opts = {}) {
   let isSans = true;
   let isSenior = true;
   let dmFirst = false;
-  const weights = [400, 600, 800];
-  let weightIndex = 0;
+  const weights = [200, 400, 600, 800];
+  let weightIndex = 1;
 
   function applyState() {
     let fontFamily, fontTitle;

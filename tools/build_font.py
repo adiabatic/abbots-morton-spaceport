@@ -2408,10 +2408,14 @@ def build_font(
 
 def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
     """
-    Build a variable font with a wght axis (Regular 400, Bold 800).
+    Build a variable font with a wght axis (ExtraLight 200, Regular 400, Bold 800).
 
-    Bold pixels are 2× wide (pixel_width=100 vs 50), keeping pixel_height
-    at 50.  Both masters share the same bitmap data and feature structure,
+    Weight controls pixel_width relative to a constant pixel_height of 50:
+      200 → pixel_width=25  (half-wide pixels)
+      400 → pixel_width=50  (square pixels)
+      800 → pixel_width=100 (2× wide pixels)
+
+    All three masters share the same bitmap data and feature structure,
     differing only in x-coordinates and advance widths.
     """
     from fontTools.designspaceLib import (
@@ -2427,6 +2431,7 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
 
     print(f"\nBuilding variable font: {output_path.name}")
 
+    thin = build_font(glyph_data, variant=variant, pixel_width=pixel_height // 2)
     regular = build_font(glyph_data, variant=variant, pixel_width=pixel_height)
     bold = build_font(glyph_data, variant=variant, pixel_width=pixel_height * 2)
 
@@ -2435,10 +2440,15 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
     axis = AxisDescriptor()
     axis.tag = "wght"
     axis.name = "Weight"
-    axis.minimum = 400
+    axis.minimum = 200
     axis.default = 400
     axis.maximum = 800
     ds.addAxis(axis)
+
+    src_thin = SourceDescriptor()
+    src_thin.font = thin
+    src_thin.location = {"Weight": 200}
+    ds.addSource(src_thin)
 
     src_regular = SourceDescriptor()
     src_regular.font = regular
@@ -2450,7 +2460,7 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
     src_bold.location = {"Weight": 800}
     ds.addSource(src_bold)
 
-    for style_name, wght in (("Regular", 400), ("Bold", 800)):
+    for style_name, wght in (("ExtraLight", 200), ("Regular", 400), ("Bold", 800)):
         inst = InstanceDescriptor()
         inst.name = f"{regular['name'].getDebugName(1)} {style_name}"
         inst.familyName = regular["name"].getDebugName(1)
@@ -2475,8 +2485,8 @@ def main():
         print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")
         print("  output_dir/AbbotsMortonSpaceportMono.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf  (variable, wght 400-800)")
-        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf  (variable, wght 400-800)")
+        print("  output_dir/AbbotsMortonSpaceportSansJunior.otf  (variable, wght 200-800)")
+        print("  output_dir/AbbotsMortonSpaceportSansSenior.otf  (variable, wght 200-800)")
         print("\nExample:")
         print("  uv run python tools/build_font.py glyph_data/ build/")
         sys.exit(1)
