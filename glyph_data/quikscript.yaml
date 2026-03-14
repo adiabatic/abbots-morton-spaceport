@@ -469,6 +469,7 @@ glyphs:
       - " ###       "
 
   qsFee: &FEE  # ·Fee
+    joins_on_one_side_only: true
     bitmap: &fee_bitmap
       - "  #  "
       - "   # "

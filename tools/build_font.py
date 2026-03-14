@@ -123,13 +123,29 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
                 glyph_def[key] = rename_map[val]
         return glyph_def
 
+    # Collect inheritable keys from base glyphs being replaced by .prop variants
+    _INHERITABLE_KEYS = ("joins_on_one_side_only",)
+    base_inheritable: dict[str, dict] = {}
+    for base_name in prop_base_names:
+        base_def = glyphs_def.get(base_name)
+        if base_def:
+            inherited = {k: base_def[k] for k in _INHERITABLE_KEYS if k in base_def}
+            if inherited:
+                base_inheritable[base_name] = inherited
+
     # Build new glyph dict
     new_glyphs = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if is_proportional_glyph(glyph_name):
             # Rename .prop glyph to its base name
             base_name = get_base_glyph_name(glyph_name)
-            new_glyphs[base_name] = _rename_refs(glyph_def)
+            renamed = _rename_refs(glyph_def)
+            if base_name in base_inheritable and renamed:
+                for k, v in base_inheritable[base_name].items():
+                    if k not in renamed:
+                        renamed = dict(renamed)
+                        renamed[k] = v
+            new_glyphs[base_name] = renamed
         elif glyph_name in prop_base_names:
             # Skip base glyphs that have .prop variants
             continue
@@ -579,6 +595,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if not variant_def.get("calt_not_before"):
                         fwd_use_exclusive.add((base_name, exit_y))
 
+    # --- joins_on_one_side_only bases ---
+    joins_on_one_side_only_bases: set[str] = set()
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def and glyph_def.get("joins_on_one_side_only"):
+            base = glyph_name.split(".")[0]
+            joins_on_one_side_only_bases.add(base)
+            for vname, vdef in glyphs_def.items():
+                if vdef and vname.split(".")[0] == base and vname != base:
+                    if vdef.get("cursive_entry") and vdef.get("cursive_exit"):
+                        print(
+                            f"WARNING: {vname} has both cursive_entry and cursive_exit "
+                            f"but base {base} is joins_on_one_side_only",
+                            file=sys.stderr,
+                        )
+
     # --- Topological sort for backward-looking lookups ---
     # Consider exit heights INTRODUCED by both entry (backward) and exit
     # (forward) variants — any variant that changes the base glyph's exit
@@ -771,6 +802,18 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if variant_raw else None
                 )
 
+                joso_ignore_variants: list[str] = []
+                if variant_def.get("cursive_exit"):
+                    for bg in before_glyphs:
+                        bg_base = bg.split(".")[0] if "." in bg else bg
+                        if bg_base in joins_on_one_side_only_bases:
+                            for eb_var in sorted(expanded_before):
+                                if eb_var.split(".")[0] != bg_base:
+                                    continue
+                                eb_def = glyphs_def.get(eb_var, {}) or {}
+                                if eb_def.get("cursive_exit"):
+                                    joso_ignore_variants.append(eb_var)
+
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
@@ -831,6 +874,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         lines.append(
                             f"        ignore sub [{guard_list}] {target}' [{before_list}];"
                         )
+                    for jv in joso_ignore_variants:
+                        lines.append(f"        ignore sub {target}' {jv};")
                     lines.append(
                         f"        sub {target}' [{before_list}] by {actual_variant};"
                     )
@@ -897,6 +942,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append("")
                 lines.append(f"    lookup calt_pair_{safe} {{")
                 variant_def = glyphs_def.get(variant_name, {}) or {}
+                if variant_def.get("cursive_entry"):
+                    for ag in after_glyphs:
+                        ag_base = ag.split(".")[0] if "." in ag else ag
+                        if ag_base in joins_on_one_side_only_bases:
+                            for ea_var in sorted(expanded_after):
+                                if ea_var.split(".")[0] != ag_base:
+                                    continue
+                                ea_def = glyphs_def.get(ea_var, {}) or {}
+                                if ea_def.get("cursive_entry"):
+                                    lines.append(f"        ignore sub {ea_var} {base_name}';")
                 not_before = variant_def.get("calt_not_before", [])
                 if not_before:
                     resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
@@ -1457,6 +1512,7 @@ _CALT_KEYS = frozenset((
     "calt_after", "calt_before", "calt_not_after", "calt_not_before",
     "calt_word_final", "extend_entry_after", "extend_exit_before",
     "doubly_extend_entry_after", "doubly_extend_exit_before",
+    "joins_on_one_side_only",
 ))
 
 
