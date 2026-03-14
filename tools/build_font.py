@@ -2330,6 +2330,10 @@ def build_font(
         name_strings["vendorURL"] = {"en": metadata["vendor_url"]}
     if "description" in metadata:
         name_strings["description"] = {"en": metadata["description"]}
+    if "designer" in metadata:
+        name_strings["designer"] = {"en": metadata["designer"]}
+    if "manufacturer" in metadata:
+        name_strings["manufacturer"] = {"en": metadata["manufacturer"]}
 
     fb.setupNameTable(name_strings)
 
