@@ -776,7 +776,7 @@ glyphs:
       - " #   " #
 
   qsYe.prop:  # ·Ye
-    cursive_exit: [2, 0]
+    cursive_exit: [3, 0]
     bitmap:
       - "  # "
       - " # #"
@@ -790,7 +790,7 @@ glyphs:
 
   qsYe.entry-xheight.exit-baseline:  # ·Ye
     cursive_entry: [1, 5]
-    cursive_exit:  [2, 0]
+    cursive_exit:  [3, 0]
     calt_after: [qsNo]
     bitmap:
       - "  ## "
@@ -884,7 +884,7 @@ glyphs:
       - "#  " #
 
   qsHe.half:  # ·He (exits at x-height)
-    cursive_exit: [2, 5]
+    cursive_exit: [3, 5]
     calt_not_before: [qsFee]
     bitmap:
       - " ##"
@@ -898,12 +898,12 @@ glyphs:
       - "   " #
 
   qsHe.exit-baseline:  # ·He
-    cursive_exit: [1, 0]
+    cursive_exit: [2, 0]
     calt_not_before: [qsSee, qsThaw]
     bitmap: *he_prop_bitmap
 
   qsHe.exit-baseline.before-may:  # ·He
-    cursive_exit: [1, 0]
+    cursive_exit: [2, 0]
     calt_before: [qsMay]
     bitmap: *he_prop_bitmap
 
