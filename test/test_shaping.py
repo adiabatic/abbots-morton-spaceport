@@ -46,7 +46,7 @@ _CHAR_TO_GLYPH = _build_char_to_glyph_name()
 
 TOKEN_RE = re.compile(
     r"""
-    ·(-ing|[A-Z][a-z]*)        # letter name (·Bay, ·-ing)
+    ·(-ing|J['\u2019]?ai|[A-Z][a-z]*)  # letter name (·Bay, ·-ing, ·J'ai)
     (?:\+([A-Z][a-z]*))?       # optional ligature partner (+Utter)
     ((?:\.!?[a-z][-a-z0-9]*)*)  # optional variant assertions (.half.extended, .!exit, .entry-extended, .exit.y1)
     """,
@@ -67,6 +67,7 @@ CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*\|\s*")
 def _letter_to_qs(name):
     if name == "-ing":
         return "qsIng"
+    name = name.replace("\u2019", "").replace("'", "")
     return "qs" + name
 
 
