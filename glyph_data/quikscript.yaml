@@ -1473,17 +1473,23 @@ glyphs:
 
   qsOy:  # ·Oy
     bitmap: &oy_bitmap
-      - "##   " #
-      - "  #  "
+      - " #   " #
+      - "# #  "
       - " # # "
-      - "  # #"
+      - "    #"
       - "    #"
       - "    #" #
 
   qsOy.prop:  # ·Oy
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
-    bitmap: *oy_bitmap
+    bitmap:
+      - "##   " #
+      - "  #  "
+      - " # # "
+      - "  # #"
+      - "    #"
+      - "    #" #
 
   qsUtter: &UTTER  # ·Utter
     bitmap: &utter_bitmap
