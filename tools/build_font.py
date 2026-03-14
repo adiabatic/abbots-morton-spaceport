@@ -1265,6 +1265,45 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     _emit_block(early_post)
     _emit_block(late_post)
 
+    if cycle_bases:
+        pair_only_new_exit_ys: set[int] = set()
+        for po_base in pair_only:
+            base_def = glyphs_def.get(po_base, {})
+            base_ys = set()
+            if base_def:
+                raw_exit = base_def.get("cursive_exit")
+                if raw_exit:
+                    for anchor in _normalize_anchors(raw_exit):
+                        base_ys.add(anchor[1])
+            for variant_name, _ in pair_overrides[po_base]:
+                variant_def = glyphs_def.get(variant_name, {})
+                if variant_def:
+                    raw_exit = variant_def.get("cursive_exit")
+                    if raw_exit:
+                        for anchor in _normalize_anchors(raw_exit):
+                            if anchor[1] not in base_ys:
+                                pair_only_new_exit_ys.add(anchor[1])
+        for cb in sorted(cycle_bases):
+            if cb not in bk_replacements:
+                continue
+            variants = bk_replacements[cb]
+            relevant = {y: v for y, v in variants.items()
+                        if y in pair_only_new_exit_ys and y in exit_classes}
+            if not relevant:
+                continue
+            safe = cb.replace(".", "_").replace("-", "_")
+            exclusions = bk_exclusions.get(cb, {})
+            lines.append("")
+            lines.append(f"    lookup calt_post_pair_bk_{safe} {{")
+            for entry_y in sorted(relevant.keys()):
+                for eg in sorted(_expand_exclusions(
+                        exclusions.get(entry_y, []))):
+                    lines.append(f"        ignore sub {eg} {cb}';")
+                lines.append(
+                    f"        sub @exit_y{entry_y} {cb}'"
+                    f" by {relevant[entry_y]};")
+            lines.append(f"    }} calt_post_pair_bk_{safe};")
+
     _emit_reverse_upgrades()
 
     # Ligature substitutions live in calt (not liga) so that forward
