@@ -1481,8 +1481,14 @@ glyphs:
       - "    #" #
 
   qsOy.prop:  # ·Oy
-    cursive_exit: [6, 0]
-    bitmap: *oy_bitmap
+    cursive_exit: [8, 0]
+    bitmap:
+      - " ###    " #
+      - "#  ##   "
+      - "#  # #  "
+      - " ##   # "
+      - "       #"
+      - "       #" #
 
   qsOy.entry-xheight:  # ·Oy
     cursive_entry: [1, 5]
