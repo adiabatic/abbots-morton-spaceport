@@ -1309,7 +1309,7 @@ glyphs:
 
   qsIt.exit-baseline.before-ing:  # ·It
     cursive_exit: [2, 0]
-    calt_before: [qsIng]
+    calt_before: [qsIng, qsZoo]
     bitmap: *it_bitmap
 
   qsEat:  # ·Eat
@@ -1493,6 +1493,7 @@ glyphs:
   qsOy.entry-xheight:  # ·Oy
     cursive_entry: [1, 5]
     cursive_exit: [6, 0]
+    calt_after: [qsNo]
     bitmap:
       - "##   " #
       - "  #  "
