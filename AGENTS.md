@@ -43,6 +43,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 - Only `.prop` glyphs get `cursive_entry` / `cursive_exit` anchors (since `curs` is only compiled into the proportional Sans font).
 - If a Quikscript letter doesn't already have a `.prop` variant, create one: add a YAML anchor on the base glyph's `bitmap` (e.g., `&bay_bitmap`), then create the `.prop` with `bitmap: *bay_bitmap` plus the `curs` anchor(s). Copy any non-bitmap keys (like `y_offset`) manually. We alias the bitmap rather than the whole glyph because YAML merge keys (`<<`) are a 1.1 extension, not part of the YAML 1.2 spec. (This is a "by reference" copy — when the user just says "copy a glyph" without mentioning references, duplicate the bitmap literally instead.)
+- The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 
 ## Bumping the version number
