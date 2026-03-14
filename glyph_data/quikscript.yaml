@@ -1536,10 +1536,10 @@ glyphs:
 
   qsOut:  # ·Out
     bitmap: &out_bitmap
-      - "   ##" #
-      - "  #  "
+      - "   # " #
+      - "  # #"
       - " # # "
-      - "# #  "
+      - "#    "
       - "#    "
       - "#    " #
 
@@ -1547,7 +1547,13 @@ glyphs:
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_exit_before: [qsFee]
-    bitmap: *out_bitmap
+    bitmap:
+      - "   ##" #
+      - "  #  "
+      - " # # "
+      - "# #  "
+      - "#    "
+      - "#    " #
 
   qsOut.fina:  # ·Out
     calt_word_final: true
