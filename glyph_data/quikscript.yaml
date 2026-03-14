@@ -486,7 +486,7 @@ glyphs:
 
   qsFee.entry-xheight:  # ·Fee
     cursive_entry: [2, 5]
-    calt_after: [qsI, qsOwe, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-extended]
+    calt_after: [qsI, qsOwe, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-xheight.exit-extended]
     bitmap:
       - "  #   "
       - "   #  "
@@ -1549,6 +1549,16 @@ glyphs:
 
   qsOut.prop:  # ·Out
     cursive_entry: [1, 0]
+    bitmap:
+      - "    ### " #
+      - "   ##  #"
+      - "  # #  #"
+      - " #   ## "
+      - "#       "
+      - "#       " #
+
+  qsOut.exit-xheight:  # ·Out
+    cursive_entry: [1, 0]
     cursive_exit: [6, 5]
     extend_exit_before: [qsFee]
     bitmap:
@@ -1558,17 +1568,6 @@ glyphs:
       - "# #  "
       - "#    "
       - "#    " #
-
-  qsOut.fina:  # ·Out
-    calt_word_final: true
-    cursive_entry: [1, 0]
-    bitmap:
-      - "    ### " #
-      - "   ##  #"
-      - "  # #  #"
-      - " #   ## "
-      - "#       "
-      - "#       " #
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
     bitmap:
