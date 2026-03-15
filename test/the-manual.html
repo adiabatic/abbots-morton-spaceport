@@ -68,9 +68,6 @@
        *   = 1em/11       + 3em/11
        *   Places the dot on the baseline.
        *
-       * box-shadow: 0 calc(-6em / 11)
-       *   Adds a second dot 6 font pixels up — exactly at the x-height.
-       *
        * Use .alphabet__glyphs--baseline-only to show the baseline dot alone.
        */
       .alphabet__glyphs td + td + td::before,
@@ -82,7 +79,7 @@
         width: calc(1em / 11);
         height: calc(1em / 11);
         bottom: calc(4em / 11);
-        box-shadow: 0 calc(-6em / 11) currentColor;
+        box-shadow: 0 calc(-5em / 11) currentColor; /* Adds a second dot at the Short height */
       }
 
       .alphabet__glyphs--baseline-only td + td + td::before,
