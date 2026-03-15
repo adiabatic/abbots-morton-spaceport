@@ -12,8 +12,38 @@
     }
 
     body {
-      max-width: 67ch;
+      max-width: 70ch;
       font-size: var(--font-size);
+    }
+
+    .alphabet {
+      font-size: var(--font-size);
+      font-weight: var(--font-weight, 400);
+      border-spacing: 1ch 0;
+      margin-inline: auto;
+
+      td, th {
+        vertical-align: baseline;
+      }
+
+      td {
+        text-align: center;
+      }
+
+      th {
+        text-align: left;
+        font-weight: normal;
+        white-space: nowrap;
+      }
+
+      .uppercase {
+        text-transform: uppercase;
+      }
+
+      .alphabet__glyphs td {
+        font-size: 2em;
+        line-height: 1.5;
+      }
     }
   </style>
   <script type="module">
@@ -25,12 +55,11 @@
       fontToggle: 'font-toggle',
       levelToggle: 'level-toggle',
       weightToggle: 'weight-toggle',
-      titleEl: 'h1',
     });
   </script>
 </head>
 <body>
-  <h1>The Manual</h1>
+  <h1>The Quickscript Alphabet</h1>
 
   <div class="toggle-buttons">
     <div id="size-toggle" class="size-control">
@@ -43,6 +72,255 @@
     <button id="level-toggle">Senior</button>
     <button id="weight-toggle">Weight 400</button>
     <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
+  </div>
+
+  <h2>The Quickscript Alphabet</h2>
+  <div class="sample-box">
+    <table class="alphabet">
+      <tr class="alphabet__glyphs">
+        <td></td>
+        <td>&#xE650;</td>
+        <td>&#xE651;</td>
+        <td>&#xE652;</td>
+        <td>&#xE653;</td>
+        <td>&#xE654;</td>
+        <td>&#xE655;</td>
+        <td>&#xE656;</td>
+        <td>&#xE657;</td>
+        <td>&#xE658;</td>
+        <td>&#xE659;</td>
+      </tr>
+      <tr>
+        <th class="uppercase">Keyword</th>
+        <td>P-ea</td>
+        <td>B-ay</td>
+        <td>T-ea</td>
+        <td>D-ay</td>
+        <td>K-ey</td>
+        <td>G-ay</td>
+        <td>TH-aw</td>
+        <td>TH-ey</td>
+        <td>F-ee</td>
+        <td>V-ie</td>
+      </tr>
+      <tr>
+        <th>& as in</th>
+        <td>up</td>
+        <td>be</td>
+        <td>to</td>
+        <td>do</td>
+        <td>can</td>
+        <td>go</td>
+        <td>think</td>
+        <td>the</td>
+        <td>for</td>
+        <td>of</td>
+      </tr>
+      <tr>
+        <th>No.</th>
+        <td>1</td>
+        <td>2</td>
+        <td>3</td>
+        <td>4</td>
+        <td>5</td>
+        <td>6</td>
+        <td>7</td>
+        <td>8</td>
+        <td>9</td>
+        <td>10</td>
+      </tr>
+    </table>
+    <hr>
+    <table class="alphabet">
+      <tr class="alphabet__glyphs">
+        <td></td>
+        <td>&#xE65A;</td>
+        <td>&#xE65B;</td>
+        <td>&#xE65C;</td>
+        <td>&#xE65D;</td>
+        <td>&#xE65E;</td>
+        <td>&#xE65F;</td>
+        <td>&#xE660;</td>
+        <td>&#xE661;</td>
+        <td>&#xE662;</td>
+        <td>&#xE663;</td>
+      </tr>
+      <tr>
+        <th class="uppercase">Keyword</th>
+        <td>S-ee</td>
+        <td>Z-oo</td>
+        <td>SH-e</td>
+        <td>J'ai</td>
+        <td>CHeer</td>
+        <td>J-ay</td>
+        <td>Y-e</td>
+        <td>W-ay</td>
+        <td>H-e</td>
+        <td>WH-y</td>
+      </tr>
+      <tr>
+        <th>& as in</th>
+        <td>so</td>
+        <td>is</td>
+        <td>show</td>
+        <td>vision</td>
+        <td>which</td>
+        <td>just</td>
+        <td>you</td>
+        <td>we</td>
+        <td>have</td>
+        <td>what</td>
+      </tr>
+      <tr>
+        <th>No.</th>
+        <td>11</td>
+        <td>12</td>
+        <td>13</td>
+        <td>14</td>
+        <td>15</td>
+        <td>16</td>
+        <td>17</td>
+        <td>18</td>
+        <td>19</td>
+        <td>20</td>
+      </tr>
+    </table>
+    <hr>
+    <table class="alphabet">
+      <tr class="alphabet__glyphs">
+        <td></td>
+        <td>&#xE664;</td>
+        <td>&#xE665;</td>
+        <td>&#xE666;</td>
+        <td>&#xE667;</td>
+        <td>&#xE668;</td>
+      </tr>
+      <tr>
+        <th class="uppercase">Keyword</th>
+        <td>-iNG</td>
+        <td>M-ay</td>
+        <td>N-o</td>
+        <td>L-ow</td>
+        <td>R-oe</td>
+      </tr>
+      <tr>
+        <th>& as in</th>
+        <td>ink</td>
+        <td>me</td>
+        <td>and</td>
+        <td>will</td>
+        <td>are</td>
+      </tr>
+      <tr>
+        <th>No.</th>
+        <td>21</td>
+        <td>22</td>
+        <td>23</td>
+        <td>24</td>
+        <td>25</td>
+      </tr>
+    </table>
+    <hr>
+    <table class="alphabet">
+      <tr class="alphabet__glyphs">
+        <td></td>
+        <td>&#xE670;</td>
+        <td>&#xE671;</td>
+        <td>&#xE672;</td>
+        <td>&#xE673;</td>
+        <td>&#xE674;</td>
+        <td>&#xE675;</td>
+        <td>&#xE676;</td>
+        <td>&#xE677;</td>
+        <td>&#xE678;</td>
+        <td>&#xE679;</td>
+      </tr>
+      <tr>
+        <th class="uppercase">Keyword</th>
+        <td>I-t</td>
+        <td>EA-t</td>
+        <td>E-t</td>
+        <td>EIGH-t</td>
+        <td>A-t</td>
+        <td>I</td>
+        <td>A-h</td>
+        <td>AWE</td>
+        <td>O-x</td>
+        <td>OY</td>
+      </tr>
+      <tr>
+        <th>& as in</th>
+        <td>busy</td>
+        <td>even</td>
+        <td>ever</td>
+        <td>able</td>
+        <td>as</td>
+        <td>my</td>
+        <td>calm</td>
+        <td>haul</td>
+        <td>on</td>
+        <td>oil</td>
+      </tr>
+      <tr>
+        <th>No.</th>
+        <td>26</td>
+        <td>27</td>
+        <td>28</td>
+        <td>29</td>
+        <td>30</td>
+        <td>31</td>
+        <td>32</td>
+        <td>33</td>
+        <td>34</td>
+        <td>35</td>
+      </tr>
+    </table>
+    <hr>
+    <table class="alphabet">
+      <tr class="alphabet__glyphs">
+        <td></td>
+        <td>&#xE67A;</td>
+        <td>&#xE67B;</td>
+        <td>&#xE67C;</td>
+        <td>&#xE67D;</td>
+        <td>&#xE67E;</td>
+      </tr>
+      <tr>
+        <th class="uppercase">Keyword</th>
+        <td>U-tter</td>
+        <td>OU-t</td>
+        <td>OWE</td>
+        <td>f-OO-t</td>
+        <td>OO-ze</td>
+      </tr>
+      <tr>
+        <th>& as in</th>
+        <td>us, murmurous</td>
+        <td>how</td>
+        <td>toe</td>
+        <td>pull</td>
+        <td>boot</td>
+      </tr>
+      <tr>
+        <th></th>
+        <td>among, girder</td>
+        <td>now</td>
+        <td>dough</td>
+        <td>good</td>
+        <td>truth</td>
+      </tr>
+      <tr>
+        <th>No.</th>
+        <td>36</td>
+        <td>37</td>
+        <td>38</td>
+        <td>39</td>
+        <td>40</td>
+      </tr>
+    </table>
+    <hr>
+    <p>For the y/oo sound in 'Ewe, Use, Few' combine Nos. 17+40: write &#xE660;&#xE67E;</p>
+    <p>For the sounds of ai/r in 'Pair, Dare, There', Nos. 29+25: write &#xE673;&#xE668;</p>
   </div>
 
   <h2>Joins</h2>
