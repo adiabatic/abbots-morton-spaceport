@@ -63,11 +63,18 @@ export function initToggles(opts = {}) {
   const weightToggle = opts.weightToggle && document.getElementById(opts.weightToggle);
   const titleEl = opts.titleEl && document.querySelector(opts.titleEl);
 
+  const sizeContainer = opts.sizeToggle && document.getElementById(opts.sizeToggle);
+  const sizeDown = sizeContainer && sizeContainer.querySelector('.size-down');
+  const sizeDisplay = sizeContainer && sizeContainer.querySelector('.size-display');
+  const sizeUp = sizeContainer && sizeContainer.querySelector('.size-up');
+
   let isSans = true;
   let isSenior = true;
   let dmFirst = false;
   const weights = [200, 400, 600, 800];
   let weightIndex = 1;
+  const sizes = [11, 22, 33, 44, 55, 66, 77, 88];
+  let sizeIndex = 1;
 
   function applyState() {
     let fontFamily, fontTitle;
@@ -97,6 +104,11 @@ export function initToggles(opts = {}) {
     if (fontToggle) fontToggle.textContent = isSans ? 'Sans' : 'Mono';
     if (weightToggle) weightToggle.textContent = `Weight ${weights[weightIndex]}`;
 
+    if (sizeDisplay) {
+      document.documentElement.style.setProperty('--font-size', sizes[sizeIndex] + 'px');
+      sizeDisplay.textContent = sizes[sizeIndex] + 'px';
+    }
+
     if (opts.onApply) opts.onApply({ isSans, isSenior, dmFirst, fontTitle, fontStack });
   }
 
@@ -117,6 +129,20 @@ export function initToggles(opts = {}) {
   if (weightToggle) {
     weightToggle.addEventListener('click', () => {
       weightIndex = (weightIndex + 1) % weights.length;
+      applyState();
+    });
+  }
+
+  if (sizeDown) {
+    sizeDown.addEventListener('click', () => {
+      if (sizeIndex > 0) sizeIndex--;
+      applyState();
+    });
+  }
+
+  if (sizeUp) {
+    sizeUp.addEventListener('click', () => {
+      if (sizeIndex < sizes.length - 1) sizeIndex++;
       applyState();
     });
   }
