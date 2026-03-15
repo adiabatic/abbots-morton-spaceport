@@ -248,13 +248,13 @@ dt.highlighted {
       padding: 0.75rem;
       font-size: var(--font-size);
       font-family: inherit;
+      background: light-dark(#0066cc, #4a9eff);
+      color: light-dark(#fff, #1a1a1a);
       border: none;
       -webkit-font-smoothing: none;
     }
 
     button {
-      background: light-dark(#0066cc, #4a9eff);
-      color: light-dark(#fff, #1a1a1a);
       cursor: pointer;
       padding-inline: 1rem;
 
@@ -265,15 +265,16 @@ dt.highlighted {
 
     .size-down {
       border-radius: 4px 0 0 4px;
+      border-right: calc(1em / 11) solid light-dark(#fff, #1a1a1a);
     }
 
     .size-up {
       border-radius: 0 4px 4px 0;
+      border-left: calc(1em / 11) solid light-dark(#fff, #1a1a1a);
     }
 
     .size-display {
-      background: light-dark(#e0e0e0, #3a3a3a);
-      color: light-dark(#222, #e0e0e0);
+      flex: 1;
       min-width: 5ch;
       text-align: center;
     }
