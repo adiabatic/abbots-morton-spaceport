@@ -90,6 +90,17 @@
     .alphabet__glyphs--baseline-only td::after {
       box-shadow: none;
     }
+
+    .title-logo {
+      display: block;
+      width: 70%;
+      aspect-ratio: 1102 / 458;
+      background: currentColor;
+      mask-image: url(quikscript-title.svg);
+      mask-size: contain;
+      mask-repeat: no-repeat;
+      margin: 4em auto .5em;
+    }
   </style>
   <script type="module">
     import { initToggles } from './shared.js';
@@ -370,13 +381,13 @@
 
   <h2>Title Page</h2>
   <div class="sample-box" style="text-align: center">
-    <img src="quikscript-title.svg" alt="Quikscript" style="width: 70%; margin-block: .5em">
+    <div class="title-logo" role="img" aria-label="Quikscript"></div>
     <p style="line-height: 2">
       <span class="uppercase">its alphabet and manual</span><br>
       with a general introduction<br>
       to reformed alphabetic writings
     </p>
-    <p style="font-size: 2em; font-style: oblique; margin-top: 0">&#xE657;&#xE65A; &#xE65B; &#xE657; &#xE661;&#xE673; &#xE652; &#xE653; &#xE670;.</p>
+    <p style="font-size: 3em; font-style: oblique; word-spacing: -0.5ch; margin-top: 0">&#xE657;&#xE65A; &#xE65B; &#xE657; &#xE661;&#xE673; &#xE652; &#xE653; &#xE670;.</p>
     <p>Devised and issued by</p>
     <p class="uppercase">Kingsley Read</p>
     <p>Abbots Morton<br>Worcester<br>England</p>
