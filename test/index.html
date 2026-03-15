@@ -52,22 +52,11 @@
   <script type="module">
     import { initToggles } from './shared.js';
 
-    const slider = document.getElementById('size-slider');
-    const sizeValue = document.getElementById('size-value');
-    const samples = document.querySelectorAll('#sample-upper, #sample-lower, #sample-numbers, #sample-punct, #sample-text');
-
-    slider.addEventListener('input', (e) => {
-      const size = e.target.value;
-      sizeValue.textContent = size;
-      for (const el of samples) {
-        el.style.fontSize = size + 'px';
-      }
-    });
-
     const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
 
     initToggles({
+      sizeToggle: 'size-toggle',
       fontOrderToggle: 'font-order-toggle',
       fontToggle: 'font-toggle',
       levelToggle: 'level-toggle',
@@ -82,18 +71,16 @@
   <p>Want it? <a href="https://github.com/adiabatic/abbots-morton-spaceport">Get it on GitHub</a>.</p>
 
   <div class="toggle-buttons">
+    <div id="size-toggle" class="size-control">
+      <button class="size-down">&minus;</button>
+      <span class="size-display">22px</span>
+      <button class="size-up">+</button>
+    </div>
     <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">AMS first</button>
     <button id="font-toggle">Sans</button>
     <button id="level-toggle">Senior</button>
     <button id="weight-toggle">Weight 400</button>
     <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
-  </div>
-
-  <div class="controls">
-    <label>
-      Font size: <span id="size-value">22</span>px
-      <input type="range" id="size-slider" min="11" max="77" value="22">
-    </label>
   </div>
 
   <h2>Pangram (editable)</h2>

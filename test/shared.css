@@ -240,21 +240,42 @@ dt.highlighted {
   #level-toggle {
     min-width: 10ch;
   }
-}
 
-.controls {
-  margin: 1rem 0;
-  padding: 1rem;
-  background: light-dark(#fff, #2a2a2a);
-  border: 1px solid light-dark(#ccc, #444);
-  border-radius: 4px;
+  .size-control {
+    display: flex;
 
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-  }
+    button, .size-display {
+      padding: 0.75rem;
+      font-size: var(--font-size);
+      font-family: inherit;
+      border: none;
+      -webkit-font-smoothing: none;
+    }
 
-  input[type="range"] {
-    width: 200px;
+    button {
+      background: light-dark(#0066cc, #4a9eff);
+      color: light-dark(#fff, #1a1a1a);
+      cursor: pointer;
+      padding-inline: 1rem;
+
+      &:hover {
+        background: light-dark(#0055aa, #6ab0ff);
+      }
+    }
+
+    .size-down {
+      border-radius: 4px 0 0 4px;
+    }
+
+    .size-up {
+      border-radius: 0 4px 4px 0;
+    }
+
+    .size-display {
+      background: light-dark(#e0e0e0, #3a3a3a);
+      color: light-dark(#222, #e0e0e0);
+      min-width: 5ch;
+      text-align: center;
+    }
   }
 }
