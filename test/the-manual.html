@@ -48,8 +48,8 @@
 
       .alphabet__glyphs td {
         font-size: 2em;
-        line-height: 1.5;
-        padding-inline: 0;
+        line-height: calc(16 / 11);
+        padding: 0;
         position: relative;
       }
 
@@ -57,10 +57,15 @@
        * Dot markers between and around glyphs, replacing typographic colons.
        * Each dot is one font pixel: calc(1em / 11), since 550 UPM / 50 px = 11.
        *
-       * bottom: calc(17em / 44)
+       * The line-height above is calc(16 / 11) rather than a rounder number so
+       * that the half-leading is exactly 1 font pixel:
+       *   half-leading = (16/11 − 14/11) / 2 = 1/11 em
+       * With a round line-height like 1.5, the half-leading is 1.25 font pixels,
+       * which causes the baseline to land between pixels at some sizes.
+       *
+       * bottom: calc(4em / 11)
        *   = half-leading + descender
-       *   = (1.5em − 14em/11) / 2  +  3em/11
-       *   = 5em/44                 +  12em/44
+       *   = 1em/11       + 3em/11
        *   Places the dot on the baseline.
        *
        * box-shadow: 0 calc(-6em / 11)
@@ -76,7 +81,7 @@
         background: currentColor;
         width: calc(1em / 11);
         height: calc(1em / 11);
-        bottom: calc(17em / 44);
+        bottom: calc(4em / 11);
         box-shadow: 0 calc(-6em / 11) currentColor;
       }
 
