@@ -197,7 +197,19 @@
       background: light-dark(#c4d4e8, #2a3a5a);
     }
 
-    .stressed { text-emphasis: filled dot above; }
+    .stressed {
+      position: relative;
+
+      &::before {
+        content: '·';
+        position: absolute;
+        top: -0.5em;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        color: light-dark(#cc3333, #ff6666);
+      }
+    }
 
     .toggle-buttons {
       position: fixed;
@@ -1784,9 +1796,9 @@
     <table class="pairings">
       <tr>
         <td>
-          legat<u><span class="stressed">e</span></u>e,
-          less<u><span class="stressed">e</span></u>e,
-          pay<u><span class="stressed">e</span></u>e
+          legat<span class="stressed">e</span>e,
+          less<span class="stressed">e</span>e,
+          pay<span class="stressed">e</span>e
         </td>
       </tr>
       <tr>
