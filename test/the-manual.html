@@ -53,42 +53,42 @@
         position: relative;
       }
 
-      /*
-       * Dot markers between and around glyphs, replacing typographic colons.
-       * Each dot is one font pixel: calc(1em / 11), since 550 UPM / 50 px = 11.
-       *
-       * Use .alphabet__glyphs--baseline-only to show the baseline dot alone.
-       */
-      .alphabet__glyphs td + td + td::before,
-      .alphabet__glyphs td:nth-child(2)::before,
-      .alphabet__glyphs td:last-child::after {
-        content: '';
-        position: absolute;
-        background: currentColor;
-        width: calc(1em / 11);
-        height: calc(1em / 11);
+      .alphabet__glyphs td::after {
         bottom: calc(4em / 11);
-        box-shadow: 0 calc(-5em / 11) currentColor; /* Adds a second dot at the Short height */
-      }
-
-      .alphabet__glyphs--baseline-only td + td + td::before,
-      .alphabet__glyphs--baseline-only td:nth-child(2)::before,
-      .alphabet__glyphs--baseline-only td:last-child::after {
-        box-shadow: none;
-      }
-
-      .alphabet__glyphs td + td + td::before {
-        right: 100%;
-        transform: translateX(50%);
-      }
-
-      .alphabet__glyphs td:nth-child(2)::before {
-        right: 100%;
-      }
-
-      .alphabet__glyphs td:last-child::after {
         left: 100%;
       }
+
+      .alphabet__glyphs td + td:not(:last-child)::after {
+        transform: translateX(-50%);
+      }
+    }
+
+    /*
+     * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
+     *
+     * .dot-marker uses bottom: 0 because its inline-block baseline IS the text baseline. The .alphabet__glyphs pseudo-elements override bottom to calc(4em / 11) to account for half-leading (1em/11) + descender (3em/11) within the table cell.
+     */
+    .dot-marker {
+      display: inline-block;
+      width: calc(1em / 11);
+      vertical-align: baseline;
+      position: relative;
+    }
+
+    .dot-marker::after,
+    .alphabet__glyphs td::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      background: currentColor;
+      width: calc(1em / 11);
+      height: calc(1em / 11);
+      box-shadow: 0 calc(-5em / 11) currentColor;
+    }
+
+    .dot-marker--baseline-only::after,
+    .alphabet__glyphs--baseline-only td::after {
+      box-shadow: none;
     }
   </style>
   <script type="module">
@@ -364,7 +364,7 @@
       </tr>
     </table>
     <hr>
-    <p>For the y/oo sound in 'Ewe, Use, Few' combine Nos. 17+40: write &#xE660;&#xE67E;</p>
+    <p>For the y/oo sound in 'Ewe, Use, Few' combine Nos. 17+40: write &#xE660;&#xE67E;<span class="dot-marker"></span></p>
     <p>For the sounds of ai/r in 'Pair, Dare, There', Nos. 29+25: write &#xE673;&#xE668;</p>
   </div>
 
