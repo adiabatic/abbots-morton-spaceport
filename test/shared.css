@@ -66,8 +66,16 @@ footer {
   }
 }
 
+.center {
+  text-align: center;
+}
+
 .force-junior {
   font-family: "Abbots Morton Spaceport Sans Junior", "Departure Mono", monospace;
+}
+
+.force-senior {
+  font-family: "Abbots Morton Spaceport Sans Senior", "Departure Mono", monospace;
 }
 
 .sample {
