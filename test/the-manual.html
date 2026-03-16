@@ -12,7 +12,7 @@
     }
 
     body {
-      max-width: 70ch;
+      max-width: 80ch;
       font-size: var(--font-size);
     }
 
@@ -451,6 +451,13 @@
     <table>
       <style>
         @scope {
+          /* too big to fit? shrink it */
+          @container (width < 71ch) {
+            :scope {
+              font-size: 0.5em;
+            }
+          }
+
           td:nth-last-child(2) {
             text-align: right;
             padding-left: 1ch;
