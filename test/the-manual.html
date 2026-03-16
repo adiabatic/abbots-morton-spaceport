@@ -14,6 +14,8 @@
     body {
       max-width: 80ch;
       font-size: var(--font-size);
+      /* 14/11 is the natural line-height: ascender (11px) + descender (3px) = 14px, over 11px per em (550 UPM / 50 units per pixel). */
+      line-height: calc((14 + 2) / 11);
     }
 
     .alphabet {
@@ -601,7 +603,12 @@
       </tr>
     </table>
     <p>These words occur so very often that their contractions save nearly 7 % of letters required in fully phonetic writings. It is hardly necessary to point out that O<u>f</u> is spoken and written with a V-sound, I<u>s</u> with a Z-sound; and that Tall and Short letters for <u>To</u> and <u>It</u> are quite distinct when written in context on the same writing-line. In this example, use of the eight contractions saves (abnormally) 17 letters (40 %) compared with the same sentence in Orthodox, though a full phonetic spelling saves only 6 letters (14 %):</p>
-    <p class='force-junior'>             .</p>
+    <p class='force-junior'>
+       
+      <span class='force-senior'></span>
+        <span class='force-senior'></span>
+        <span class='force-senior'></span>     .
+    </p>
     <h3 class="uppercase">Other conventions</h3>
     <p>Quickscript writers have replaced the Latin 'etc.' by &#xE666;&#xE666;&#xE666; 'and-and-and'. Other Latin conventions will gradually get converted and accepted. Meanwhile the accustomed Orthodox conventions suffice.</p>
     <p><u class="uppercase">Further development</u> is <u class="uppercase">entirely optional</u> &mdash; though valuable in writing,</p>
