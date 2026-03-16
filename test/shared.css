@@ -66,6 +66,10 @@ footer {
   }
 }
 
+.force-junior {
+  font-family: "Abbots Morton Spaceport Sans Junior", "Departure Mono", monospace;
+}
+
 .sample {
   font-family: var(--font-stack);
   font-size: var(--font-size);
