@@ -55,6 +55,23 @@ def load_glyph_data(path: Path) -> dict:
             return yaml.safe_load(f)
 
 
+def _resolve_codepoint(glyph_name: str, postscript_names: dict) -> int | None:
+    if len(glyph_name) == 1:
+        return ord(glyph_name)
+    if glyph_name.startswith("uni") and len(glyph_name) == 7:
+        try:
+            return int(glyph_name[3:], 16)
+        except ValueError:
+            return None
+    if glyph_name.startswith("u") and not glyph_name.startswith("uni") and len(glyph_name) == 6:
+        try:
+            cp = int(glyph_name[1:], 16)
+            return cp if cp > 0xFFFF else None
+        except ValueError:
+            return None
+    return postscript_names.get(glyph_name)
+
+
 def is_proportional_glyph(glyph_name: str) -> bool:
     """Check if a glyph is a proportional variant."""
     return glyph_name.endswith(".prop") or ".prop." in glyph_name or ".fina" in glyph_name
@@ -2183,11 +2200,30 @@ def build_font(
         and (is_proportional or (not is_proportional_glyph(name) and not _is_contextual_variant(name)))
         and (is_senior or not _is_contextual_variant(name))
     ]
-    glyph_order = [".notdef", "space"] + sorted(glyph_names)
+    postscript_glyph_names = load_postscript_glyph_names()
+
+    name_to_codepoint = {}
+    for name in glyphs_def:
+        cp = _resolve_codepoint(name, postscript_glyph_names)
+        if cp is not None:
+            name_to_codepoint[name] = cp
+
+    def _sort_key(name):
+        cp = name_to_codepoint.get(name)
+        if cp is not None:
+            return (cp, name)
+        base = name.split(".")[0]
+        if "_" in base:
+            base = base.split("_")[0]
+        cp = name_to_codepoint.get(base)
+        if cp is not None:
+            return (cp, name)
+        return (float('inf'), name)
+
+    glyph_order = [".notdef", "space"] + sorted(glyph_names, key=_sort_key)
 
     # Build character map (Unicode codepoint -> glyph name)
     # Exclude .prop glyphs - they have no direct Unicode mapping
-    postscript_glyph_names = load_postscript_glyph_names()
     cmap = {32: "space"}  # Always include space
     for glyph_name, glyph_def in glyphs_def.items():
         if is_proportional_glyph(glyph_name):
