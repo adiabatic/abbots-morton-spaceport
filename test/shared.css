@@ -80,7 +80,7 @@ footer {
   font-smooth: never;
 }
 
-.sample-box {
+.panel {
   background: light-dark(#fff, #2a2a2a);
   border: 1px solid light-dark(#ccc, #444);
   padding: 1.5rem;

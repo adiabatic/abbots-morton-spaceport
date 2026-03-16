@@ -52,7 +52,7 @@
   <script type="module">
     import { initToggles } from './shared.js';
 
-    const pangramBox = document.querySelector('#sample-text').closest('.sample-box');
+    const pangramBox = document.querySelector('#sample-text').closest('.panel');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
 
     initToggles({
@@ -84,7 +84,7 @@
   </div>
 
   <h2>Pangram (editable)</h2>
-  <div class="sample-box">
+  <div class="panel">
     <div class="sample" id="sample-text" contenteditable>
       <p>
         What is the price of a foot-bath kit?
@@ -109,7 +109,7 @@
   </div>
 
   <h2>Every Quikscript character</h2>
-  <div class="sample-box">
+  <div class="panel">
     <table class="sample" id="sample-quikscript">
       <tr><td>&#xE650;</td><td>·Pea</td><td>U+E650</td></tr>
       <tr><td>&#xE651;</td><td>·Bay</td><td>U+E651</td></tr>
@@ -161,7 +161,7 @@
   </div>
 
   <h2>Size comparison<br>(multiples of 11px)</h2>
-  <div class="sample-box">
+  <div class="panel">
     <div class="size-label">11px (1x)</div>
     <div class="sample size-test" style="font-size: 11px;">123 &ldquo;Handgloves&rdquo;?       .</div>
 
