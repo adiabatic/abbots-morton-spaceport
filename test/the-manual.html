@@ -88,9 +88,12 @@
       box-shadow: 0 calc(-5em / 11) currentColor;
     }
 
-    .dot-marker--baseline-only::after,
     .alphabet__glyphs--baseline-only td::after {
       box-shadow: none;
+    }
+
+    .alphabet__glyphs--baseline-only td:last-child::after {
+      display: none;
     }
 
     .title-logo {
