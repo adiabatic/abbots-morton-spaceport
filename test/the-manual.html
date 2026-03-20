@@ -100,6 +100,10 @@
       display: none;
     }
 
+    body.letters-only {
+      --m-table-spacing: 1ch;
+    }
+
     body:not(.letters-only) .visibility-mutable__divider,
     body:not(.letters-only) .visibility-mutable__when-no-prose {
       display: none;
@@ -892,6 +896,13 @@
     <hr class="visibility-mutable__divider">
     <p class="visibility-mutable__verbiage">While many connections forward from the M-letter (as well as those forward <u>to</u> it) require its normal low start, foresight will sometimes suggest writing it downwards from the top, so as to connect forward from it along the writing line &mdash; as below in &lsquo;Marry, mire, mar&rsquo;; but avoid connection where the next letter immediately leaves the writing-line (in Moor, mere).</p>
     <table class="pairings">
+      <style>
+        @scope {
+          :scope {
+            border-spacing: var(--m-table-spacing, 2ch) 0;
+          }
+        }
+      </style>
       <tr class='visibility-mutable__when-no-prose'>
         <td>merry</td>
         <td>Mary</td>
