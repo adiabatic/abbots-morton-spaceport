@@ -132,9 +132,15 @@
     });
 
     const verbiageToggle = document.getElementById('verbiage-toggle');
+    if (localStorage.getItem('letters-only') === '1') {
+      document.body.classList.add('letters-only');
+      verbiageToggle.textContent = 'Only letters';
+    }
     verbiageToggle.addEventListener('click', () => {
       document.body.classList.toggle('letters-only');
-      verbiageToggle.textContent = document.body.classList.contains('letters-only') ? 'Only Letters' : 'Whole Manual';
+      const active = document.body.classList.contains('letters-only');
+      verbiageToggle.textContent = active ? 'Only letters' : 'Whole manual';
+      localStorage.setItem('letters-only', active ? '1' : '0');
     });
   </script>
 </head>
@@ -151,8 +157,8 @@
     <button id="font-toggle">Sans</button>
     <button id="level-toggle">Senior</button>
     <button id="weight-toggle">Weight 400</button>
-    <button id="clear-highlights" title="Clear all highlighted cells (Escape)">Clear HL</button>
-    <button id="verbiage-toggle">Whole Manual</button>
+    <button id="verbiage-toggle">Whole manual</button>
+    <button id="wipe-settings">Wipe settings</button>
   </div>
 
   <h2>Alphabet sheet</h2>
@@ -554,6 +560,7 @@
   <h2>Section I: How to write Junior Quikscript</h2>
   <section class='panel'>
     <a name="page-9"></a>
+    <div class="visibility-mutable__verbiage">
     <p>Unfold the Alphabet Sheet for constant reference as you read, and study page 8 carefully first.</p>
 
     <h3 class="uppercase">Spelling</h3>
@@ -638,6 +645,7 @@
 
     <h3 class="uppercase">Spell all R's</h3>
     <p>Most of the English-speaking world utters an R-sound wherever this letter occurs in Orthodox spelling, though an influential minority will frequently omit to pronounce R where followed immediately by a consonant. For the sake of uniform spelling, it will be assumed that a single R is pronounced wherever single or doubled R occurs in Orthodox. That is to say, we all agree to follow the pronunciation of the majority who speak English at home and abroad. This rule enables us to distinguish such spellings as &mdash;</p>
+    </div>
     <p style="text-align: center">
        = saw,
        = sore;
@@ -2428,12 +2436,16 @@
 
     const { clearAllHighlights } = initHighlights({
       storageKey: 'ams-highlights',
-      clearButtonId: 'clear-highlights',
       tableSelector: '.pairings',
       wordListSelector: '.word-list',
     });
 
     initEscapeToClear(clearAllHighlights);
+
+    document.getElementById('wipe-settings').addEventListener('click', () => {
+      localStorage.clear();
+      location.reload();
+    });
   </script>
 
   <script type="module">
