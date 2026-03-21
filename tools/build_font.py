@@ -25,6 +25,7 @@ from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
+from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 
 
 def load_postscript_glyph_names() -> dict:
@@ -70,6 +71,39 @@ def _resolve_codepoint(glyph_name: str, postscript_names: dict) -> int | None:
         except ValueError:
             return None
     return postscript_names.get(glyph_name)
+
+
+def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint: dict):
+    """Build a cmap format 14 subtable for Unicode Variation Sequences."""
+    if not variation_sequences:
+        return None
+
+    uvsDict = {}
+    for vs_cp, mappings in variation_sequences.items():
+        entries = []
+        for base_name, target_name in mappings.items():
+            base_cp = name_to_codepoint.get(base_name)
+            if base_cp is None:
+                continue
+            resolved = target_name
+            if resolved not in glyphs_def:
+                resolved = get_base_glyph_name(resolved)
+            if resolved not in glyphs_def:
+                continue
+            entries.append((base_cp, resolved))
+        if entries:
+            uvsDict[vs_cp] = entries
+
+    if not uvsDict:
+        return None
+
+    subtable = cmap_format_14(14)
+    subtable.platformID = 0
+    subtable.platEncID = 5
+    subtable.language = 0
+    subtable.cmap = {}
+    subtable.uvsDict = uvsDict
+    return subtable
 
 
 def is_proportional_glyph(glyph_name: str) -> bool:
@@ -2491,6 +2525,11 @@ def build_font(
 
     # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
+
+    vs_defs = metadata.get("variation_sequences", {})
+    cmap14 = build_cmap14(vs_defs, glyphs_def, name_to_codepoint)
+    if cmap14:
+        fb.font["cmap"].tables.append(cmap14)
 
     # Compile OpenType features into the proportional font only
     fea_code_parts = []

@@ -151,6 +151,18 @@ glyphs:
     doubly_extend_exit_before: [qsSee]
     bitmap: *tea_prop_bitmap
 
+  qsTea.half:  # ·Tea
+    bitmap:
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+      - " "
+      - " "
+      - " "
+      - " "
+      - " " #
+
   qsTea.half.entry-xheight:  # ·Tea
     cursive_entry: [1, 5]
     calt_not_after: [qsAt, qsNo]
