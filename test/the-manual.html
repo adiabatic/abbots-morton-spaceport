@@ -119,6 +119,11 @@
       mask-repeat: no-repeat;
       margin: 4em auto .5em;
     }
+
+    /* Prefer <u> to <span class="underline"> where possible */
+    .underline {
+      text-decoration: underline;
+    }
   </style>
   <script type="module">
     import { initToggles } from './shared.js';
@@ -1468,7 +1473,7 @@
     <p class="visibility-mutable__verbiage">Common words listed overleaf show to what advantage these various letter connections are applied in standard word-outlines.</p>
 
     <hgroup>
-      <h3>Common words</h3>
+      <h3 class='uppercase underline'>Common words</h3>
       <p>to be fully spelt, with their Standard word-outlines:</p>
     </hgroup>
     <div class="word-list-container">
@@ -1641,8 +1646,12 @@
       </dl>
     </div>
     <p style="text-align: center">*that, spelt in full only when demonstrative; otherwise — .</p>
+  </section>
+
+  <h2>Section III: <u>Senior</u> Quickscript’s <span style='text-transform: uppercase'>standard contractions</span> and <span style='text-transform: uppercase'>affixes</span></h2>
+  <section class="panel">
     <hgroup>
-      <h3>Contractions</h3><p>, for common words not previously listed:</p>
+      <h3 class='uppercase'><u>Contractions</u></h3><p>, for common words not previously listed:</p>
     </hgroup>
     <div class="word-list-container">
       <dl class="word-list word-list--2col sample">
@@ -1813,9 +1822,31 @@
         <div><dt>*<u>that</u>, if demonstrative</dt><dd></dd></div>
       </dl>
     </div>
+
+    <p class="visibility-mutable__verbiage">It is known that our 70 commonest words, constantly repeated, account for <u>half the total</u> of words in English writings as a whole. Most of these repeatable words have been simplified on pages 12 and 17. Adding the standardized full spellings on page 16, we already extend well beyond the commonest 70. These lists are arranged for reference as need arises, not to be memorized all at once.</p>
+    <p class="visibility-mutable__verbiage">Less than half of the words to be written, though the longer ones, remain; and phonetic spelling deals with their stressed root syllables. Only a few much used affix syllables are contracted with advantage, but as their unstressed vowels may be variably pronounced, some standard usage must be established.</p>
+
     <hgroup>
-      <h3>Terminal -es, -ed</h3>
+      <h3><u class='uppercase'>Terminal</u> -es, -ed</h3>
     </hgroup>
+    <p class="visibility-mutable__verbiage">How &mdash; or why &mdash; should we spell any sound of <u>e</u> in such words as:</p>
+
+    <div style='display: flex; gap: 1ch;'>
+      <div>races</div>
+      <div>kisses</div>
+      <div>wages</div>
+      <div>loses</div>
+      <div>churches'</div>
+      <div>Jones's</div>
+      <div>treated</div>
+      <div>ended</div>
+      <div>fitted</div>
+      <div>loaded</div>
+      <div>guarded</div>
+      <div>seated</div>
+    </div>
+  
+    <p class="visibility-mutable__verbiage">Is it uttered like the e in &lsquo;e<u>gg</u>&rsquo;, the <u>i</u> in &lsquo;<u>i</u>t&rsquo;, or the <u>u</u> in &lsquo;upon&rsquo;? Its sound is not spelt at all in &lsquo;Jone&rsquo;s&rsquo;: in &lsquo;join<u>e</u>d&rsquo;, its spelling is not sounded, nor is it in countless other words. It is only heard as a mere separator of consonants which cannot be pronounced together. Between these &mdash; SZ, ShZ, ChZ, JZ, ZZ, DD, TD &mdash; some kind of vowel has to be uttered. But what is its sound to be? And who will miss it if it is omitted in spelling? It is a frequent and profitable omission:</p>
     <table class="pairings">
       <tr>
         <td>ki<u>sses</u></td>
@@ -1836,7 +1867,8 @@
         <td data-expect="\- | ·Tea   ~b~ ·Day">-</td>
       </tr>
     </table>
-    <hr>
+    <p class="visibility-mutable__verbiage">Notice that the -Z ending of plurals and tenses becomes an -S sound where it follows certain consonants:</p>
+    <hr class="visibility-mutable__divider">
     <table class="pairings">
       <tr>
         <td>cubs</td>
@@ -1872,7 +1904,8 @@
         </td>
       </tr>
     </table>
-    <hr>
+    <p class="visibility-mutable__verbiage">After seven consonants, the -d tense ending changes to a T sound: as in &mdash; tipped, licked, frothed, roughed, fussed, rushed, clutched. All these D&rsquo;s are pronounced as T, and they will be spelt with a T-letter.</p>
+    <hr class="visibility-mutable__divider">
     <table class="pairings">
       <tr>
         <td>Mr Jones’s</td>
@@ -1884,9 +1917,11 @@
         </td>
       </tr>
     </table>
+    <p class="visibility-mutable__verbiage">clearly means &ldquo;Mr Jones&rsquo;s&rdquo;: with one name-dot, no apostrophe.</p>
     <hgroup>
       <h3>Terminal -ing</h3>
     </hgroup>
+    <p class="visibility-mutable__verbiage">Provided it is an affix and not a root, omit vowel-i. See examples:</p>
     <table class="pairings">
       <tr>
         <td>call<del>i</del>ng</td>
@@ -1932,7 +1967,8 @@
         <td data-expect="·Thaw ~b~ ·-ing"></td>
       </tr>
     </table>
-    <hr>
+    <p class="visibility-mutable__verbiage">Root Contractions plus Affix allow: = being, = doing, = thinking, but spell the root fully after a prefix or with somewhat changed meaning, e.g., in &mdash; b<u>e</u>ings, und<u>o</u>ing, unth<u>ink</u>ingly, <u>wi</u>llingness, c<u>ann</u>ing.</p>
+    <hr class="visibility-mutable__divider">
     <table class="pairings">
       <tr>
         <td>b<u>e</u>ings</td>
@@ -1949,7 +1985,8 @@
         <td data-expect="·Key ~b~ ·At ~x~ ·No | ·-ing"></td>
       </tr>
     </table>
-    <hr>
+    <p class="visibility-mutable__verbiage">Spell -ing in full after roots ending in -y:</p>
+    <hr class="visibility-mutable__divider">
     <table class="pairings">
       <tr>
         <td>carrying</td>
