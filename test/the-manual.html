@@ -105,7 +105,6 @@
         --m-table-spacing: 1ch;
       }
 
-      body:not(.letters-only) .visibility-mutable__divider,
       body:not(.letters-only) .visibility-mutable__when-no-prose {
         display: none;
       }
@@ -1142,7 +1141,7 @@
           <td data-expect="\- | ·Out   ~x~ ·Roe">-</td>
         </tr>
       </table>
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
       <p class="visibility-mutable__verbiage">
         While many connections forward from the M-letter (as well as those forward <u>to</u> it) require its normal low
         start, foresight will sometimes suggest writing it downwards from the top, so as to connect forward from it
@@ -1182,7 +1181,7 @@
           <td data-expect="     ·See | ·Out   ~x~ ·Roe"></td>
         </tr>
       </table>
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
       <p class="visibility-mutable__verbiage">Notice the connected -der of Murder. Write ‘Dear’ connectedly: .</p>
       <p class="visibility-mutable__verbiage">
         ‘Fear’  has a penlift. ‘Career’  and ‘Carrier’  have breaks.
@@ -1202,7 +1201,7 @@
         </tr>
       </table>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <p class="visibility-mutable__verbiage">
         Letter No. 8 may connect on the writing-line by an allowable extension upward <u>and</u> <u>forward</u> to that
@@ -1231,7 +1230,7 @@
         </tr>
       </table>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <p class="visibility-mutable__verbiage">
         Connections producing a right-angle or wider angle are slower than acute-angled connections. Detachment is often
@@ -1334,7 +1333,7 @@
         below the writing-line in —
       </p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1375,7 +1374,7 @@
         frequently for tenses, plurals, possessives:
       </p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1421,7 +1420,7 @@
         In some halved connections a tiny zig-zag or ‘step’ breaks confusing continuity. There is a step needed on the
         upper parallel in —
       </p>
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
       <table class="pairings">
         <tr>
           <td>till</td>
@@ -1453,7 +1452,7 @@
 
       <p class="visibility-mutable__verbiage">Examples of:</p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1546,7 +1545,7 @@
 
       <p class="visibility-mutable__verbiage">Any preceding letter determines the sort of N:</p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1605,7 +1604,7 @@
         alternative:
       </p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1654,7 +1653,7 @@
         alternative form on grounds of appearance only, despite its earlier penlift.
       </p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1699,7 +1698,7 @@
 
       <p class="visibility-mutable__verbiage"></p>
 
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -2392,7 +2391,7 @@
       <p class="visibility-mutable__verbiage">
         Notice that the -Z ending of plurals and tenses becomes an -S sound where it follows certain consonants:
       </p>
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
       <table class="pairings">
         <tr>
           <td>cubs</td>
@@ -2431,7 +2430,7 @@
         frothe<u>d</u>, roughe<u>d</u>, fusse<u>d</u>, rushe<u>d</u>, clutche<u>d</u>. All these D’s are pronounced as
         T, and they will be spelt with a T-letter.
       </p>
-      <hr class="visibility-mutable__divider" />
+      <hr class="visibility-mutable__when-no-prose" />
       <table class="pairings">
         <tr>
           <td>Mr Jones’s</td>
@@ -2448,7 +2447,7 @@
       </p>
 
       <hgroup>
-        <h3>Terminal -ing</h3>
+        <h3 class='underline'><span class='uppercase'>Terminal</span> -ing</h3>
       </hgroup>
       <p class="visibility-mutable__verbiage">Provided it is an affix and not a root, omit vowel-i. See examples:</p>
       <table class="pairings">
@@ -2483,8 +2482,10 @@
           <td data-expect="\· | ·Et | ·Pea.half ~x~ ·It ~b~ ·-ing">·</td>
         </tr>
       </table>
-      <hr />
-      <table class="pairings">
+
+      <hr class="visibility-mutable__when-no-prose" />
+
+      <table class="visibility-mutable__when-no-prose pairings">
         <tr>
           <td>being</td>
           <td>doing</td>
@@ -2497,12 +2498,14 @@
         </tr>
       </table>
       <p class="visibility-mutable__verbiage">
-        Root Contractions plus Affix allow: = being, = doing, = thinking, but spell the root fully after a prefix or
+        Root Contractions plus Affix allow:  = being,  = doing,  = thinking, but spell the root fully after a prefix or
         with somewhat changed meaning, e.g., in — b<u>e</u>ings, und<u>o</u>ing, unth<u>ink</u>ingly,
         <u>wi</u>llingness, c<u>ann</u>ing.
       </p>
-      <hr class="visibility-mutable__divider" />
-      <table class="pairings">
+
+      <hr class="visibility-mutable__when-no-prose" />
+      
+      <table class="visibility-mutable__when-no-prose pairings">
         <tr>
           <td>b<u>e</u>ings</td>
           <td>und<u>o</u>ing</td>
@@ -2520,9 +2523,12 @@
           <td data-expect="·Key ~b~ ·At ~x~ ·No | ·-ing"></td>
         </tr>
       </table>
-      <p class="visibility-mutable__verbiage">Spell -ing in full after roots ending in -y:</p>
-      <hr class="visibility-mutable__divider" />
-      <table class="pairings">
+
+      <p class="visibility-mutable__verbiage">Spell -ing in full after roots ending in -y:  = carr<u>yi</u>ng</p>
+
+      <hr class="visibility-mutable__when-no-prose" />
+
+      <table class="visibility-mutable__when-no-prose pairings">
         <tr>
           <td>carrying</td>
         </tr>
@@ -2530,9 +2536,11 @@
           <td data-expect="·Key ~b~ ·At ~x~ ·Roe | ·It | ·It ~b~ ·-ing"></td>
         </tr>
       </table>
+
       <hgroup>
         <h3>Terminal -al, -el, -le, -il</h3>
       </hgroup>
+      
       <table class="pairings">
         <tr>
           <td>trib<del>a</del>l</td>
