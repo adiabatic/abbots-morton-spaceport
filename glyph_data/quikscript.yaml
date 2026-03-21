@@ -498,7 +498,7 @@ glyphs:
 
   qsFee.entry-xheight:  # ·Fee
     cursive_entry: [2, 5]
-    calt_after: [qsI, qsOwe, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-xheight.exit-extended]
+    calt_after: [qsI, qsOwe, qsUtter, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-xheight.exit-extended]
     bitmap:
       - "  #   "
       - "   #  "
