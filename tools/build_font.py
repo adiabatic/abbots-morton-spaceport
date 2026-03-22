@@ -1068,9 +1068,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for entry_y in sorted(variants.keys()):
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
-                    for eg in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
-                        lines.append(f"        ignore sub {eg} {base_name}';")
-                    lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                    excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
+                    if excluded:
+                        filtered = sorted(exit_classes[entry_y] - excluded)
+                        if filtered:
+                            member_list = " ".join(filtered)
+                            lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
+                    else:
+                        lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
         for base_name in bases:
             if base_name in fwd_replacements:
                 variants = fwd_replacements[base_name]
