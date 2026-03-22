@@ -53,7 +53,9 @@ class ShapingItem(pytest.Item):
             from test_shaping import load_font, build_anchor_map
 
             self.session._shaping_font = load_font()
-            self.session._shaping_anchors = build_anchor_map()
+            anchors, potential = build_anchor_map()
+            self.session._shaping_anchors = anchors
+            self.session._shaping_potential_entries = potential
 
     def runtest(self):
         from test_shaping import run_shaping_test
@@ -63,6 +65,7 @@ class ShapingItem(pytest.Item):
             self.session._shaping_anchors,
             self.text,
             self.expect_str,
+            base_potential_entries=self.session._shaping_potential_entries,
         )
 
     def reportinfo(self):
