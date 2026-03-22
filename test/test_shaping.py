@@ -238,6 +238,7 @@ def build_anchor_map():
     glyphs.update(generate_doubly_extended_exit_variants(glyphs))
 
     result = {}
+    base_potential_entries = {}
     for name, gdef in glyphs.items():
         if gdef is None:
             continue
@@ -245,14 +246,19 @@ def build_anchor_map():
         exit_ = _normalize_anchors(gdef.get("cursive_exit"))
         if entry or exit_:
             result[name] = {"entry": entry, "exit": exit_}
-    return result
+        if entry:
+            base = name.split(".")[0]
+            for _, y in entry:
+                base_potential_entries.setdefault(base, set()).add(y)
+    return result, base_potential_entries
 
 
 # ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
 
-def run_shaping_test(font, anchor_map, text, expect_str):
+def run_shaping_test(font, anchor_map, text, expect_str,
+                     base_potential_entries=None):
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
@@ -308,6 +314,21 @@ def run_shaping_test(font, anchor_map, text, expect_str):
                 f"Connection {i}: expected break between {left} and {right}, "
                 f"but found common Y values {common_ys}"
             )
+            if base_potential_entries and left_exits and "half" in left:
+                left_base = left.split(".")[0]
+                base_key = left_base if left_base in anchor_map else f"{left_base}.prop"
+                base_exits = {a[1] for a in anchor_map.get(base_key, {}).get("exit", [])}
+                extra_exits = left_exits - base_exits
+                if extra_exits:
+                    right_base = right.split(".")[0]
+                    potential = base_potential_entries.get(right_base, set())
+                    suspect_ys = extra_exits & potential
+                    assert not suspect_ys, (
+                        f"Connection {i}: break between {left} and {right}, "
+                        f"but {left} exits at Y={suspect_ys} (not on base form) "
+                        f"matching potential entries for {right_base} — forward "
+                        f"calt may have selected the half form across a break"
+                    )
         elif conn["kind"] == "join":
             assert common_ys, (
                 f"Connection {i}: expected join between {left} and {right}, "
