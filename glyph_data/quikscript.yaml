@@ -635,6 +635,21 @@ glyphs:
       - " #   "
       - "#    "
       - "#    " #
+  qsSee.exit-baseline:  # ·See
+    cursive_exit: [4, 0]
+    calt_before: [qsLow]
+    extend_exit_before: [qsLow]
+    bitmap:
+
+      - "   ##"
+      - "  #  "
+      - " #   "
+      - " #   " #
+      - "  #  "
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "  #  " #
 
   qsZoo:  # ·Zoo
     y_offset: -3
