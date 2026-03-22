@@ -761,6 +761,21 @@ glyphs:
     calt_not_before: [qsAt, qsExam, qsIt, qsEat]
     bitmap: *jai_prop_bitmap
 
+  qsJai_qsUtter.prop:  # ·J'ai
+    y_offset: -3
+    cursive_entry: [0, 6]
+    cursive_exit: [11, 5]
+    bitmap:
+      - "#####   ##" #
+      - "     # #  "
+      - "     ##   "
+      - "    ##    "
+      - "   ##     "
+      - "  # #     " #
+      - " #  #     "
+      - "#  #      "
+      - " ##       "
+
   qsCheer: &CHEER  # ·Cheer
     bitmap: &cheer_bitmap
       - "     "
