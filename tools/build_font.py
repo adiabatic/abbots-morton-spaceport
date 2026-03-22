@@ -558,6 +558,39 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     if not bk_replacements and not fwd_replacements:
         return None
 
+    # --- Build terminal sets ---
+    # Entry-only terminal: has cursive_entry but no cursive_exit, and no
+    # sibling variant has both entry at the same Y and any exit (i.e., no
+    # upgrade path exists).  Exit-only terminal: the reverse.
+    _base_anchors: dict[str, list[tuple[str, set[int], set[int]]]] = {}
+    for gn, gd in glyphs_def.items():
+        if gd is None or gn.endswith(".noentry"):
+            continue
+        eys = {a[1] for a in _normalize_anchors(gd.get("cursive_entry"))}
+        exs = {a[1] for a in _normalize_anchors(gd.get("cursive_exit"))}
+        _base_anchors.setdefault(gn.split(".")[0], []).append((gn, eys, exs))
+
+    terminal_entry_only: set[str] = set()
+    terminal_exit_only: set[str] = set()
+    for base, siblings in _base_anchors.items():
+        for gn, eys, exs in siblings:
+            if eys and not exs:
+                for y in eys:
+                    if not any(
+                        sn != gn and y in se and sx
+                        for sn, se, sx in siblings
+                    ):
+                        terminal_entry_only.add(gn)
+                        break
+            if exs and not eys:
+                for y in exs:
+                    if not any(
+                        sn != gn and y in sx2 and se2
+                        for sn, se2, sx2 in siblings
+                    ):
+                        terminal_exit_only.add(gn)
+                        break
+
     # --- Build exit classes (for backward rules) ---
     exit_classes: dict[int, set[str]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
@@ -911,6 +944,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         lines.append(
                             f"        ignore sub [{na_list}] {target}' [{before_list}];"
                         )
+                    for teo in sorted(expanded_before & terminal_exit_only):
+                        lines.append(f"        ignore sub {target}' {teo};")
                     lines.append(
                         f"        sub {target}' [{before_list}] by {actual_variant};"
                     )
@@ -982,6 +1017,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
                     for nb in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {nb};")
+                for tei in sorted(expanded_after & terminal_entry_only):
+                    lines.append(f"        ignore sub {tei} {base_name}';")
                 lines.append(
                     f"        sub [{after_list}] {base_name}' by {variant_name};"
                 )
