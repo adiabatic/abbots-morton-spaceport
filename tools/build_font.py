@@ -444,7 +444,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     bk_exclusions: dict[str, dict[int, list[str]]] = {}
     # Pair-specific overrides: entry variants with calt_after lists
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
-    fwd_upgrades: dict[str, list[tuple[str, str, int]]] = {}
+    # Each entry is (entry_exit_var, entry_only_var, exit_y, not_before_glyphs)
+    fwd_upgrades: dict[str, list[tuple[str, str, int, list[str]]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
@@ -492,13 +493,15 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 if existing_has_exit != new_has_exit:
                     if new_has_exit:
                         exit_y_val = _normalize_anchors(glyph_def["cursive_exit"])[0][1]
+                        nb = glyph_def.get("calt_not_before", [])
                         fwd_upgrades.setdefault(base_name, []).append(
-                            (glyph_name, existing, exit_y_val)
+                            (glyph_name, existing, exit_y_val, list(nb))
                         )
                     else:
                         exit_y_val = _normalize_anchors(existing_def["cursive_exit"])[0][1]
+                        nb = existing_def.get("calt_not_before", [])
                         fwd_upgrades.setdefault(base_name, []).append(
-                            (existing, glyph_name, exit_y_val)
+                            (existing, glyph_name, exit_y_val, list(nb))
                         )
                         bk_replacements[base_name][entry_y] = glyph_name
                 else:
@@ -609,7 +612,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # its exit-only variants should also be in the class — they can be
     # reverse-upgraded to entry+exit variants by a later backward rule.
     for base_name in fwd_upgrades:
-        for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+        for entry_exit_var, entry_only_var, exit_y, _ in fwd_upgrades[base_name]:
             entry_def = glyphs_def.get(entry_only_var, {}) or {}
             raw_entry = entry_def.get("cursive_entry")
             if not raw_entry:
@@ -736,7 +739,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     for variants in fwd_replacements.values():
         fwd_used_ys.update(variants.keys())
     for upgrade_list in fwd_upgrades.values():
-        for _, _, exit_y in upgrade_list:
+        for _, _, exit_y, _ in upgrade_list:
             fwd_used_ys.add(exit_y)
 
     lines = ["feature calt {"]
@@ -1095,13 +1098,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     def _emit_upgrades(base_name: str):
         if base_name not in fwd_upgrades:
             return
-        for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+        for entry_exit_var, entry_only_var, exit_y, not_before in fwd_upgrades[base_name]:
             if exit_y not in entry_classes:
                 continue
             cls = f"@entry_y{exit_y}"
             safe = entry_exit_var.replace(".", "_")
             lines.append("")
             lines.append(f"    lookup calt_upgrade_{safe} {{")
+            if not_before:
+                expanded = set()
+                for nb in not_before:
+                    nb_base = nb.split(".")[0] if "." in nb else nb
+                    expanded.add(nb_base)
+                    if nb_base in bk_replacements:
+                        expanded.update(bk_replacements[nb_base].values())
+                    if nb_base in fwd_replacements:
+                        expanded.update(fwd_replacements[nb_base].values())
+                    if nb_base in pair_overrides:
+                        for pv, _ in pair_overrides[nb_base]:
+                            expanded.add(pv)
+                    if nb_base in fwd_pair_overrides:
+                        for pv, _, _ in fwd_pair_overrides[nb_base]:
+                            expanded.add(pv)
+                nb_list = " ".join(sorted(expanded))
+                lines.append(f"        ignore sub {entry_only_var}' [{nb_list}];")
             lines.append(f"        sub {entry_only_var}' {cls} by {entry_exit_var};")
             lines.append(f"    }} calt_upgrade_{safe};")
 
@@ -1109,7 +1129,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         upgrade_exit_ys: set[int] = set()
         for base_name in bases:
             if base_name in fwd_upgrades:
-                for _, _, exit_y in fwd_upgrades[base_name]:
+                for _, _, exit_y, _ in fwd_upgrades[base_name]:
                     upgrade_exit_ys.add(exit_y)
         if not upgrade_exit_ys:
             return
@@ -1140,7 +1160,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         connection is established.
         """
         for base_name in sorted(fwd_upgrades):
-            for entry_exit_var, entry_only_var, exit_y in fwd_upgrades[base_name]:
+            for entry_exit_var, entry_only_var, exit_y, not_before in fwd_upgrades[base_name]:
                 entry_def = glyphs_def.get(entry_only_var, {}) or {}
                 raw_entry = entry_def.get("cursive_entry")
                 if not raw_entry:
@@ -1152,6 +1172,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 safe = entry_exit_var.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_reverse_upgrade_{safe} {{")
+                if not_before:
+                    expanded = set()
+                    for nb in not_before:
+                        nb_base = nb.split(".")[0] if "." in nb else nb
+                        expanded.add(nb_base)
+                        if nb_base in bk_replacements:
+                            expanded.update(bk_replacements[nb_base].values())
+                        if nb_base in fwd_replacements:
+                            expanded.update(fwd_replacements[nb_base].values())
+                        if nb_base in pair_overrides:
+                            for pv, _ in pair_overrides[nb_base]:
+                                expanded.add(pv)
+                        if nb_base in fwd_pair_overrides:
+                            for pv, _, _ in fwd_pair_overrides[nb_base]:
+                                expanded.add(pv)
+                    nb_list = " ".join(sorted(expanded))
+                    lines.append(f"        ignore sub {exit_only_var}' [{nb_list}];")
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
@@ -1172,7 +1209,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         continue
                     has_upgrade = any(
                         entry_only == bk_var and ey == fwd_exit_y
-                        for _, entry_only, ey in fwd_upgrades.get(base_name, [])
+                        for _, entry_only, ey, _ in fwd_upgrades.get(base_name, [])
                     )
                     if has_upgrade:
                         continue
