@@ -523,6 +523,20 @@ glyphs:
       - "#   # "
       - " ###  " #
 
+  qsFee.entry-top:  # ·Fee
+    cursive_entry: [0, 8]
+    cursive_exit: [6, 5]
+    bitmap:
+      - "###  "
+      - "   # "
+      - "    #"
+      - "  ###" #
+      - " #  #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### " #
+
   qsFee.exit-xheight:  # ·Fee
     cursive_exit: [6, 5]
     extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
