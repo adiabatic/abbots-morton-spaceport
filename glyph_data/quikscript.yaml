@@ -1649,6 +1649,7 @@ glyphs:
 
   qsOwe.entry-xheight:  # ·Owe
     cursive_entry: [1, 5]
+    calt_not_after: [qsLow]
     bitmap:
       - "### # " #
       - "  #  #"
@@ -1659,6 +1660,7 @@ glyphs:
 
   qsOwe.exit-xheight:  # ·Owe
     cursive_exit: [7, 5]
+    calt_not_before: [qsLlan]
     extend_exit_before: [qsFee]
     bitmap:
       - " # ###" #
@@ -1671,6 +1673,8 @@ glyphs:
   qsOwe.entry-xheight.exit-xheight:  # ·Owe
     cursive_entry: [1, 5]
     cursive_exit: [8, 5]
+    calt_not_after: [qsLow]
+    calt_not_before: [qsLlan]
     extend_exit_before: [qsFee]
     bitmap:
       - "### ###" #
