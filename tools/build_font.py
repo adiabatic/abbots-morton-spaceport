@@ -517,7 +517,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     fwd_replacements: dict[str, dict[int, str]] = {}
     fwd_exclusions: dict[str, dict[int, list[str]]] = {}
     # Pair-specific forward overrides: variants with calt_before lists
-    fwd_pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
+    # Each entry is (variant_name, before_glyphs, not_after_glyphs)
+    fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str]]]] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or "." not in glyph_name:
             continue
@@ -552,8 +553,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         calt_before = glyph_def.get("calt_before")
         if calt_before:
             resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in calt_before]
+            not_after = glyph_def.get("calt_not_after")
+            resolved_not_after = (
+                [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_after]
+                if not_after else []
+            )
             fwd_pair_overrides.setdefault(base_name, []).append(
-                (glyph_name, resolved)
+                (glyph_name, resolved, resolved_not_after)
             )
         else:
             fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
@@ -823,7 +829,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
-            for variant_name, before_glyphs in fwd_pair_overrides[base_name]:
+            for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
                 expanded_before = set(before_glyphs)
                 for bg in before_glyphs:
                     bg_base = bg.split(".")[0] if "." in bg else bg
@@ -833,7 +839,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         for pv, _ in pair_overrides[bg_base]:
                             expanded_before.add(pv)
                     if bg_base in fwd_pair_overrides:
-                        for pv, _ in fwd_pair_overrides[bg_base]:
+                        for pv, _, _ in fwd_pair_overrides[bg_base]:
                             expanded_before.add(pv)
                 before_list = " ".join(sorted(expanded_before))
 
@@ -864,6 +870,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                 eb_def = glyphs_def.get(eb_var, {}) or {}
                                 if eb_def.get("cursive_exit"):
                                     joso_ignore_variants.append(eb_var)
+
+                expanded_not_after: set[str] = set()
+                for nag in not_after_glyphs:
+                    nag_base = nag.split(".")[0] if "." in nag else nag
+                    expanded_not_after.add(nag_base)
+                    if nag_base in bk_replacements:
+                        expanded_not_after.update(bk_replacements[nag_base].values())
+                    if nag_base in pair_overrides:
+                        for pv, _ in pair_overrides[nag_base]:
+                            expanded_not_after.add(pv)
+                    if nag_base in fwd_pair_overrides:
+                        for pv, _, _ in fwd_pair_overrides[nag_base]:
+                            expanded_not_after.add(pv)
+                    if nag_base in fwd_replacements:
+                        expanded_not_after.update(fwd_replacements[nag_base].values())
 
                 safe = variant_name.replace(".", "_")
                 lines.append("")
@@ -925,6 +946,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         lines.append(
                             f"        ignore sub [{guard_list}] {target}' [{before_list}];"
                         )
+                    if expanded_not_after:
+                        na_list = " ".join(sorted(expanded_not_after))
+                        lines.append(
+                            f"        ignore sub [{na_list}] {target}' [{before_list}];"
+                        )
                     for jv in joso_ignore_variants:
                         lines.append(f"        ignore sub {target}' {jv};")
                     lines.append(
@@ -972,7 +998,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if ag_base in fwd_replacements:
                         expanded_after.update(fwd_replacements[ag_base].values())
                     if ag_base in fwd_pair_overrides:
-                        for pv, _ in fwd_pair_overrides[ag_base]:
+                        for pv, _, _ in fwd_pair_overrides[ag_base]:
                             expanded_after.add(pv)
                     if ag_base in bk_replacements:
                         expanded_after.update(bk_replacements[ag_base].values())
@@ -1258,7 +1284,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     early_fwd_pairs: set[str] = set()
     for base_name, overrides in fwd_pair_overrides.items():
         found = False
-        for variant_name, before_glyphs in overrides:
+        for variant_name, before_glyphs, _ in overrides:
             if base_name in {g.split(".")[0] for g in before_glyphs}:
                 early_fwd_pairs.add(base_name)
                 found = True
@@ -1386,7 +1412,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     for variant_name, _ in pair_overrides[comp]:
                         variants.add(variant_name)
                 if comp in fwd_pair_overrides:
-                    for variant_name, _ in fwd_pair_overrides[comp]:
+                    for variant_name, _, _ in fwd_pair_overrides[comp]:
                         variants.add(variant_name)
                 if i == 0:
                     if comp in fwd_replacements:
