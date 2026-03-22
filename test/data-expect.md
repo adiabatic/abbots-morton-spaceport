@@ -2,6 +2,8 @@
 
 The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in `test/index.html` describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment.
 
+The `data-expect-noncanonically` attribute uses the exact same syntax and test semantics as `data-expect`. It marks noncanonical Senior Quikscript joins that are valuable to test but are not found in Read's manual.
+
 ## Glyph tokens
 
 | Syntax        | Meaning                                          | Example  |

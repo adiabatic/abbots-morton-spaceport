@@ -198,9 +198,10 @@ class _DataExpectCollector(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag in self._TAGS:
             attr_dict = dict(attrs)
-            if "data-expect" in attr_dict:
+            expect = attr_dict.get("data-expect", attr_dict.get("data-expect-noncanonically"))
+            if expect is not None:
                 self._in_td = True
-                self._expect = attr_dict["data-expect"]
+                self._expect = expect
                 self._text_parts = []
                 self._line = self.getpos()[0]
 
