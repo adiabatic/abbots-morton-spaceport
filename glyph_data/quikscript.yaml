@@ -220,6 +220,19 @@ glyphs:
       - " #"
       - " #" #
 
+  qsTea_qsOy.prop:  # ·Tea·Oy ligature
+    cursive_exit: [9, 0]
+    bitmap:
+      - "   #    "
+      - "   #    "
+      - "   #    "
+      - " ####   " #
+      - "#  # #  "
+      - "#  #  # "
+      - " ##    #"
+      - "       #"
+      - "       #" #
+
   qsDay:  # ·Day
     y_offset: -3
     bitmap:
@@ -635,6 +648,7 @@ glyphs:
       - " #   "
       - "#    "
       - "#    " #
+
   qsSee.exit-baseline:  # ·See
     cursive_exit: [4, 0]
     calt_before: [qsLow]
