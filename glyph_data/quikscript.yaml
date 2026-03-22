@@ -542,6 +542,10 @@ glyphs:
     extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
     bitmap: *fee_bitmap
 
+  qsFee.exit-xheight.before-utter:  # ·Fee
+    cursive_exit: [6, 5]
+    calt_before: [qsUtter]
+    bitmap: *fee_bitmap
 
   qsFee_qsMay.prop:  # ·Fee·May ligature
     y_offset: -3
@@ -665,7 +669,7 @@ glyphs:
 
   qsSee.exit-baseline:  # ·See
     cursive_exit: [5, 0]
-    calt_before: [qsLow]
+    calt_before: [qsLow, qsAt]
     calt_not_after: [qsIt]
     bitmap:
 
