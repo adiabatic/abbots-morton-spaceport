@@ -52,6 +52,11 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 2. Update `version` in `pyproject.toml` (e.g., `3.0.0`)
 3. Run `uv sync` to update `uv.lock`
 
+## Tests
+
+- Two tests (elements with a `data-expect` attribute) are duplicates if they have the same `data-expect` value and the same text content inside the element.
+- To remove a duplicate test: remove the `data-expect` attribute. If the element is a `span` with no remaining attributes, unwrap the `span` (remove the tags but keep the text content in place). Never remove the text inside the element — it must remain identical before and after. The text frequently contains invisible PUA code points, so verify with a program (e.g., compare hex dumps of each modified line before and after) that only the attribute and/or tags were removed.
+
 ## Markdown-document style
 
 - Use sentence case for titles, not title case.
