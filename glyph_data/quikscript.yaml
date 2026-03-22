@@ -524,7 +524,7 @@ glyphs:
       - " ###  " #
 
   qsFee.entry-top:  # ·Fee
-    cursive_entry: [0, 8]
+    cursive_entry: [1, 8]
     cursive_exit: [6, 5]
     bitmap:
       - "###  "
