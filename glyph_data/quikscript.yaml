@@ -70,7 +70,7 @@ glyphs:
 
   qsPea.prop.half:  # ·Pea
     cursive_exit: [6, 5]
-    calt_not_before: [qsDay, qsFee]
+    calt_not_before: [qsDay, qsFee, qsTea]
     bitmap:
       - " ##   "
       - "#  #  "
