@@ -672,6 +672,37 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if not variant_def.get("calt_not_before"):
                         fwd_use_exclusive.add((base_name, exit_y))
 
+    # --- preferred_over: two-glyph lookahead for exclusive variants ---
+    # When a variant has preferred_over and uses exclusive matching, add a
+    # two-glyph rule so it also fires when the next glyph is ambiguous but
+    # the glyph after that exclusively enters at the sibling's exit height.
+    fwd_preferred_lookahead: dict[str, list[tuple[str, int, int]]] = {}
+    for base_name in fwd_replacements:
+        for exit_y, variant_name in fwd_replacements[base_name].items():
+            if (base_name, exit_y) not in fwd_use_exclusive:
+                continue
+            variant_def = glyphs_def.get(variant_name, {}) or {}
+            preferred_over = variant_def.get("preferred_over")
+            if not preferred_over:
+                continue
+            base_def = glyphs_def.get(base_name, {}) or {}
+            base_exit = base_def.get("cursive_exit")
+            if base_exit:
+                sibling_exit_y = _normalize_anchors(base_exit)[0][1]
+            else:
+                for sibling in preferred_over:
+                    sibling_def = glyphs_def.get(sibling, {}) or {}
+                    raw = sibling_def.get("cursive_exit")
+                    if raw:
+                        sibling_exit_y = _normalize_anchors(raw)[0][1]
+                        break
+                else:
+                    continue
+            if sibling_exit_y != exit_y:
+                fwd_preferred_lookahead.setdefault(base_name, []).append(
+                    (variant_name, exit_y, sibling_exit_y)
+                )
+
     # --- Topological sort for backward-looking lookups ---
     # Consider exit heights INTRODUCED by both entry (backward) and exit
     # (forward) variants — any variant that changes the base glyph's exit
@@ -743,6 +774,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     for upgrade_list in fwd_upgrades.values():
         for _, _, exit_y, _ in upgrade_list:
             fwd_used_ys.add(exit_y)
+    for entries in fwd_preferred_lookahead.values():
+        for _, exit_y, sibling_y in entries:
+            fwd_used_ys.add(sibling_y)
 
     lines = ["feature calt {"]
 
@@ -755,7 +789,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         if y in entry_classes:
             members = sorted(entry_classes[y])
             lines.append(f"    @entry_y{y} = [{' '.join(members)}];")
-        needs_excl = any(ey == y for _, ey in fwd_use_exclusive)
+        preferred_needs_excl = any(
+            sy == y for entries in fwd_preferred_lookahead.values() for _, _, sy in entries
+        )
+        needs_excl = any(ey == y for _, ey in fwd_use_exclusive) or preferred_needs_excl
         if needs_excl and y in entry_exclusive:
             excl_members = sorted(entry_exclusive[y])
             if excl_members:
@@ -976,6 +1013,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 for eg in sorted(excluded):
                     lines.append(f"        ignore sub {base_name}' {eg};")
                 lines.append(f"        sub {base_name}' {cls} by {variant_name};")
+            if base_name in fwd_preferred_lookahead:
+                for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
+                    if exit_y in entry_classes and sibling_y in entry_exclusive and entry_exclusive[sibling_y]:
+                        lines.append(
+                            f"        sub {base_name}' @entry_y{exit_y} @entry_only_y{sibling_y} by {variant_name};"
+                        )
             lines.append(f"    }} {lookup_name};")
 
     def _emit_fwd(base_name: str):
