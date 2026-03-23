@@ -696,7 +696,7 @@ glyphs:
       - "#    " #
 
   qsSee.exit-baseline:  # ·See
-    cursive_exit: [5, 0]
+    cursive_exit: [3, 0]
     calt_before: [qsLow, qsAt, qsOut]
     calt_not_after: [qsIt]
     bitmap:
@@ -709,7 +709,7 @@ glyphs:
       - "  #  "
       - "   # "
       - "   # "
-      - "  ## " #
+      - "  #  " #
 
   qsZoo:  # ·Zoo
     y_offset: -3
@@ -1499,6 +1499,7 @@ glyphs:
   qsAt.prop:  # ·At
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
+    extend_entry_after: [qsSee]
     bitmap: *at_bitmap
 
   qsAt_qsMay.prop:  # ·At·May ligature
@@ -1691,6 +1692,29 @@ glyphs:
       - "#       "
       - "#       " #
 
+  qsOut.prop.after-see:  # ·Out
+    cursive_entry: [1, 0]
+    calt_after: [qsSee]
+    bitmap:
+      - "     ### " #
+      - "    ##  #"
+      - "   # #  #"
+      - "  #   ## "
+      - " #       "
+      - "#        " #
+
+  qsOut.exit-xheight.after-see:  # ·Out
+    cursive_entry: [1, 0]
+    cursive_exit: [7, 5]
+    calt_after: [qsSee]
+    bitmap:
+      - "     ##" #
+      - "    #  "
+      - "   # # "
+      - "  # #  "
+      - " #     "
+      - "#      " #
+
   qsOut.exit-xheight:  # ·Out
     cursive_entry: [1, 0]
     cursive_exit: [6, 5]
@@ -1702,6 +1726,7 @@ glyphs:
       - "# #  "
       - "#    "
       - "#    " #
+
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
     bitmap:
