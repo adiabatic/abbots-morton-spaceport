@@ -179,7 +179,7 @@ glyphs:
 
   qsTea.half.exit-xheight:  # ·Tea
     cursive_exit: [2, 5]
-    calt_not_before: [qsFee]
+    calt_not_before: [qsFee, qsFoot]
     bitmap:
       - "# "
       - "# "
