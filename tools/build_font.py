@@ -881,6 +881,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if bg_base in fwd_pair_overrides:
                         for pv, _, _ in fwd_pair_overrides[bg_base]:
                             expanded_before.add(pv)
+                    if bg_base in fwd_replacements:
+                        expanded_before.update(fwd_replacements[bg_base].values())
                 before_list = " ".join(sorted(expanded_before))
 
                 targets = {base_name}
