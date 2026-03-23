@@ -668,9 +668,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             min_base_exit = min(base_exit_ys)
             for exit_y, variant_name in fwd_replacements[base_name].items():
                 if exit_y not in base_exit_ys and exit_y < min_base_exit:
-                    variant_def = glyphs_def.get(variant_name, {}) or {}
-                    if not variant_def.get("calt_not_before"):
-                        fwd_use_exclusive.add((base_name, exit_y))
+                    fwd_use_exclusive.add((base_name, exit_y))
 
     # --- preferred_over: two-glyph lookahead for exclusive variants ---
     # When a variant has preferred_over and uses exclusive matching, add a
