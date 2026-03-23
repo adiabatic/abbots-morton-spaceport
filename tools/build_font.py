@@ -668,6 +668,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             if exit_only_var and entry_y_val in entry_classes:
                 entry_classes[entry_y_val].add(exit_only_var)
 
+    # --- Add forward-selected exit-only variants to entry classes ---
+    # When the cycle's forward rules convert a glyph to an exit-only variant
+    # (e.g., qsIt → qsIt.exit-baseline), later overrides still need to
+    # recognise the converted glyph as "entering" at the base's entry height.
+    for base_name, fwd_vars in fwd_replacements.items():
+        base_entry_ys = {y for y, members in entry_classes.items() if base_name in members}
+        if not base_entry_ys:
+            continue
+        for fwd_exit_y, fwd_var in fwd_vars.items():
+            fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
+            if fwd_var_def.get("cursive_entry"):
+                continue
+            for y in base_entry_ys:
+                entry_classes[y].add(fwd_var)
+
     # --- Exclusive entry classes (for restricted forward rules) ---
     # A glyph is in @entry_only_yN when it enters at y=N but at NO other
     # height.  Forward rules use this restricted class when the selected
@@ -1210,6 +1225,68 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
+    def _emit_post_override_bk(bases: list[str]):
+        """Re-run backward rules on exit-only variants after noentry overrides.
+
+        When a noentry override converts a backward variant to a forward
+        variant with a new exit height, the following glyph may already have
+        been converted to an exit-only variant by the cycle.  This lookup
+        re-processes those exit-only variants so they see the new exit.
+
+        Only targets bases whose backward variant at the relevant height has
+        BOTH entry and exit (i.e., is a complete variant), avoiding
+        re-conversion of override targets whose backward variants are
+        entry-only.
+        """
+        override_fwd_exit_ys: set[int] = set()
+        for base_name in bases:
+            if base_name not in bk_replacements or base_name not in fwd_replacements:
+                continue
+            for entry_y, bk_var in sorted(bk_replacements[base_name].items()):
+                bk_def = glyphs_def.get(bk_var, {}) or {}
+                if bk_def.get("cursive_exit"):
+                    continue
+                for fwd_exit_y, fwd_var in fwd_replacements[base_name].items():
+                    fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
+                    raw_exit = fwd_var_def.get("cursive_exit")
+                    if raw_exit:
+                        for a in _normalize_anchors(raw_exit):
+                            override_fwd_exit_ys.add(a[1])
+        if not override_fwd_exit_ys:
+            return
+        for base_name in bases:
+            if base_name not in bk_replacements:
+                continue
+            variants = bk_replacements[base_name]
+            relevant = {}
+            for y, v in variants.items():
+                if y not in override_fwd_exit_ys or y not in exit_classes:
+                    continue
+                v_def = glyphs_def.get(v, {}) or {}
+                if not v_def.get("cursive_exit"):
+                    continue
+                relevant[y] = v
+            if not relevant:
+                continue
+            fwd_exit_only = []
+            for fv_y, fv in fwd_replacements.get(base_name, {}).items():
+                fv_def = glyphs_def.get(fv, {}) or {}
+                if not fv_def.get("cursive_entry"):
+                    fwd_exit_only.append(fv)
+            if not fwd_exit_only:
+                continue
+            safe = f"post_override_{base_name}".replace(".", "_").replace("-", "_")
+            exclusions = bk_exclusions.get(base_name, {})
+            lines.append("")
+            lines.append(f"    lookup calt_{safe} {{")
+            for entry_y in sorted(relevant.keys()):
+                excl = sorted(_expand_exclusions(exclusions.get(entry_y, [])))
+                for fv in sorted(fwd_exit_only):
+                    for eg in excl:
+                        lines.append(f"        ignore sub {eg} {fv}';")
+                    lines.append(f"        sub @exit_y{entry_y} {fv}' by {relevant[entry_y]};")
+            lines.append(f"    }} calt_{safe};")
+
     def _emit_reverse_upgrades():
         """Emit rules that convert exit-only variants to entry+exit variants.
 
@@ -1260,11 +1337,12 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 bk_def = glyphs_def.get(bk_var, {}) or {}
                 if bk_def.get("cursive_exit"):
                     continue
+                valid_overrides = []
                 for fwd_exit_y, fwd_var in sorted(fwd_replacements[base_name].items()):
                     if fwd_exit_y not in entry_classes:
                         continue
-                    fwd_var_ey = {y for y, m in entry_classes.items() if fwd_var in m}
-                    if fwd_var_ey:
+                    fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
+                    if fwd_var_def.get("cursive_entry"):
                         continue
                     has_upgrade = any(
                         entry_only == bk_var and ey == fwd_exit_y
@@ -1272,7 +1350,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     )
                     if has_upgrade:
                         continue
-                    cls = f"@entry_y{fwd_exit_y}"
+                    valid_overrides.append((fwd_exit_y, fwd_var))
+                if not valid_overrides:
+                    continue
+                max_exit_y = max(ey for ey, _ in valid_overrides)
+                for fwd_exit_y, fwd_var in valid_overrides:
+                    use_exclusive = (
+                        len(valid_overrides) > 1
+                        and fwd_exit_y != max_exit_y
+                    )
+                    if use_exclusive:
+                        if fwd_exit_y not in entry_exclusive or not entry_exclusive[fwd_exit_y]:
+                            continue
+                        cls = f"@entry_only_y{fwd_exit_y}"
+                    else:
+                        cls = f"@entry_y{fwd_exit_y}"
                     safe = f"{bk_var}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
                     lines.append("")
                     lines.append(f"    lookup calt_fwd_override_{safe} {{")
@@ -1440,6 +1532,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
+            _emit_post_override_bk(bases)
         for base_name in bases:
             if base_name in all_fwd_bases and base_name not in early_pair_upgrade_bases:
                 if base_name in early_fwd_pairs:
