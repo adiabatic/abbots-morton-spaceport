@@ -165,7 +165,7 @@ glyphs:
 
   qsTea.half.entry-xheight:  # ·Tea
     cursive_entry: [1, 5]
-    calt_not_after: [qsAt, qsNo]
+    calt_not_after: [qsAt, qsFee, qsNo]
     bitmap:
       - " #"
       - " #"
@@ -208,7 +208,7 @@ glyphs:
   qsTea.entry-xheight:  # ·Tea (full height)
     cursive_entry: [1, 5]
     cursive_exit: [2, 0]
-    calt_after: [qsFee, qsI]
+    calt_after: [qsI]
     bitmap:
       - " #"
       - " #"
@@ -538,7 +538,8 @@ glyphs:
 
   qsFee.exit-xheight:  # ·Fee
     cursive_exit: [6, 5]
-    extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe, qsTea]
+    calt_not_before: [qsTea]
+    extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
     bitmap: *fee_bitmap
 
   qsFee.exit-xheight.before-utter:  # ·Fee
