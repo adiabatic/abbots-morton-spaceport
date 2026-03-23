@@ -1499,6 +1499,67 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     _emit_reverse_upgrades()
 
+    def _emit_exit_extended_bk_refinement():
+        """Refine exit-extended variants with backward entry anchors.
+
+        When a forward pair lookup replaces a base glyph with its
+        exit-extended variant (which may lack an entry anchor), and a
+        later lookup changes the preceding glyph to one that exits at a
+        specific Y, this lookup converts the exit-extended variant to a
+        combined entry+exit-extended variant so the connection works.
+        """
+        for base_name in sorted(fwd_pair_overrides):
+            if base_name not in bk_replacements:
+                continue
+            variants = bk_replacements[base_name]
+            exclusions = bk_exclusions.get(base_name, {})
+            for fwd_var, _, _ in fwd_pair_overrides[base_name]:
+                ext_suffix = _extended_exit_suffix(fwd_var)
+                if not ext_suffix:
+                    continue
+                fwd_def = glyphs_def.get(fwd_var, {}) or {}
+                if fwd_def.get("cursive_entry"):
+                    continue
+                emitted_any = False
+                safe = fwd_var.replace(".", "_").replace("-", "_")
+                for entry_y in sorted(variants.keys()):
+                    bk_var = variants[entry_y]
+                    combined = bk_var + ext_suffix
+                    if combined not in glyphs_def:
+                        continue
+                    if entry_y not in exit_classes:
+                        continue
+                    if not emitted_any:
+                        lines.append("")
+                        lines.append(
+                            f"    lookup calt_ext_bk_{safe} {{"
+                        )
+                        emitted_any = True
+                    excluded = set(
+                        _expand_exclusions(exclusions.get(entry_y, []))
+                    )
+                    if excluded:
+                        filtered = sorted(
+                            exit_classes[entry_y] - excluded
+                        )
+                        if filtered:
+                            member_list = " ".join(filtered)
+                            lines.append(
+                                f"        sub [{member_list}]"
+                                f" {fwd_var}' by {combined};"
+                            )
+                    else:
+                        lines.append(
+                            f"        sub @exit_y{entry_y}"
+                            f" {fwd_var}' by {combined};"
+                        )
+                if emitted_any:
+                    lines.append(
+                        f"    }} calt_ext_bk_{safe};"
+                    )
+
+    _emit_exit_extended_bk_refinement()
+
     # Ligature substitutions live in calt (not liga) so that forward
     # rules selecting alternate glyphs can block the ligature.  For
     # example, ·Day·Utter·Low: the forward rule replaces ·Utter with
