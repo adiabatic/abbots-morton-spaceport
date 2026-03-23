@@ -30,6 +30,7 @@ class ShapingFile(pytest.File):
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
             if not slug:
                 slug = re.sub(r"[^a-zA-Z0-9]+", "_", expect).strip("_")[:40]
+            slug = f"{line}:{slug}"
             if slug in seen_ids:
                 seen_ids[slug] += 1
                 slug = f"{slug}_{seen_ids[slug]}"
