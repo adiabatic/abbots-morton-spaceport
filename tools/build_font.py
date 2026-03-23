@@ -152,6 +152,7 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             "calt_after", "calt_before", "calt_not_after", "calt_not_before",
             "extend_entry_after", "extend_exit_before",
             "doubly_extend_entry_after", "doubly_extend_exit_before",
+            "noentry_after",
         )
         scalar_keys = ("base",)
         changed = False
@@ -1557,11 +1558,38 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for variant_name, after_glyphs in pair_overrides[base_name]:
                 if any(g in lig_glyph_names for g in after_glyphs):
                     post_liga_rules.append((base_name, variant_name, after_glyphs))
+
+        # noentry_after: select .noentry variant of ligature glyphs when
+        # preceded by specific glyphs, blocking cursive attachment.
+        for lig_name in sorted(lig_glyph_names):
+            lig_def = glyphs_def.get(lig_name, {}) or {}
+            noentry_after = lig_def.get("noentry_after")
+            if not noentry_after:
+                continue
+            noentry_name = lig_name + ".noentry"
+            if noentry_name not in glyphs_def:
+                continue
+            expanded_after: set[str] = set()
+            for ag in noentry_after:
+                ag_base = ag.split(".")[0] if "." in ag else ag
+                expanded_after.add(ag_base)
+                if ag_base in bk_replacements:
+                    expanded_after.update(bk_replacements[ag_base].values())
+                if ag_base in fwd_replacements:
+                    expanded_after.update(fwd_replacements[ag_base].values())
+                if ag_base in pair_overrides:
+                    for pv, _ in pair_overrides[ag_base]:
+                        expanded_after.add(pv)
+                if ag_base in fwd_pair_overrides:
+                    for pv, _, _ in fwd_pair_overrides[ag_base]:
+                        expanded_after.add(pv)
+            post_liga_rules.append((lig_name, noentry_name, sorted(expanded_after)))
+
         if post_liga_rules:
             lines.append("")
             lines.append("    lookup calt_post_liga {")
             for base_name, variant_name, after_glyphs in post_liga_rules:
-                after_list = " ".join(sorted(after_glyphs))
+                after_list = " ".join(sorted(after_glyphs)) if isinstance(after_glyphs, list) else " ".join(sorted(after_glyphs))
                 targets = {base_name}
                 if base_name in bk_replacements:
                     targets.update(bk_replacements[base_name].values())
@@ -1743,6 +1771,7 @@ _CALT_KEYS = frozenset((
     "calt_after", "calt_before", "calt_not_after", "calt_not_before",
     "calt_word_final", "extend_entry_after", "extend_exit_before",
     "doubly_extend_entry_after", "doubly_extend_exit_before",
+    "noentry_after",
 ))
 
 
