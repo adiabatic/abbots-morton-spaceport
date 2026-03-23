@@ -482,7 +482,7 @@ glyphs:
   qsThey.exit-xheight:  # ·They
     y_offset: -3
     cursive_exit: [4, 5]
-    calt_not_before: [qsDay]
+    calt_not_before: [qsDay, qsTea]
     bitmap:
       - "  #  " #
       - "  #  "
