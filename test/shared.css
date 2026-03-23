@@ -202,7 +202,7 @@ dt.highlighted {
   background: light-dark(#fff3cd, #5a4800);
 }
 
-[data-changeme] {
+[data-highlight] {
   background: light-dark(#e8c4c4, #6b3333);
 }
 
