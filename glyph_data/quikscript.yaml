@@ -898,6 +898,7 @@ glyphs:
       - "#    "
       - "#    "
 
+  # You'd think ·Why and ·Way have identical rules regarding shaping and glyph selection, but they don't — at least if you want to mirror The Quikscript Manual's usage.
   qsWay.prop: &WAY  # ·Way
     y_offset: -3
     cursive_exit: [4, 5]
@@ -1009,7 +1010,7 @@ glyphs:
   qsWhy.half:  # ·Why (exits at baseline)
     y_offset: -3
     cursive_exit: [5, 0]
-    calt_not_before: [qsI]
+    calt_not_before: [qsI, qsIt]
     bitmap:
       - "     " #
       - "     "
