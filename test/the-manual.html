@@ -2157,7 +2157,7 @@
           </div>
           <div>
             <dt>do, did</dt>
-            <dd>, <span data-expect='·Day ~b~ ·Day.half'></span></dd>
+            <dd>, <span data-expect="·Day ~b~ ·Day.half"></span></dd>
           </div>
           <div>
             <dt>don’t, didn’t</dt>
@@ -2169,7 +2169,11 @@
           </div>
           <div>
             <dt>ever, every</dt>
-            <dd>, </dd>
+            <!-- prettier-ignore -->
+            <dd>
+              <span data-expect='·Et ~b~ ·Vie'></span>,
+              <span data-expect='·Et ~b~ ·Vie | ·It'></span>
+            </dd>
           </div>
           <div>
             <dt>from</dt>
@@ -2177,6 +2181,7 @@
           </div>
           <div>
             <dt>go/ing/ne</dt>
+            <!-- prettier-ignore -->
             <dd>
               ,
               <span data-expect="·Gay ~b~ ·-ing"></span>,
@@ -2189,6 +2194,7 @@
           </div>
           <div>
             <dt>have/n’t</dt>
+            <!-- prettier-ignore -->
             <dd>
               <span data-expect="·He ~b~ ·Vie"></span>,
               <span data-expect="·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea"></span>
@@ -2196,6 +2202,7 @@
           </div>
           <div>
             <dt>he, him, his</dt>
+            <!-- prettier-ignore -->
             <dd>
               ,
               <span data-expect="·He.!half ~b~ ·May.entry-extended"></span>,
@@ -2204,20 +2211,22 @@
           </div>
           <div>
             <dt>into</dt>
-            <dd></dd>
+            <dd data-expect="·It ~b~ ·No ~b~ ·Tea"></dd>
           </div>
           <div>
             <dt>its, it’s</dt>
-            <dd></dd>
+            <dd data-expect="·It ~b~ ·See"></dd>
           </div>
           <div>
             <dt>little</dt>
-            <dd></dd>
+            <dd data-expect="·Low ~x~ ·It ~b~ ·Low"></dd>
           </div>
           <div>
             <dt>make/ing, made</dt>
+            <!-- prettier-ignore -->
             <dd>
-              , ,
+              <span data-expect='·May  |  ·Key'></span>,
+              <span data-expect='·May  |  ·Key ~b~ ·-ing'></span>,
               <span data-expect="·May ~x~ ·Day"></span>
             </dd>
           </div>
@@ -2227,15 +2236,15 @@
           </div>
           <div>
             <dt>much</dt>
-            <dd></dd>
+            <dd data-expect="·May ~x~ ·Cheer"></dd>
           </div>
           <div class="word-list__col-break">
             <dt>never</dt>
-            <dd></dd>
+            <dd data-expect="·No ~x~ ·Et ~b~ ·Vie"></dd>
           </div>
           <div>
             <dt>often</dt>
-            <dd></dd>
+            <dd data-expect="·Ox | ·Fee ~x~ ·No"></dd>
           </div>
           <div>
             <dt>on</dt>
@@ -2243,7 +2252,7 @@
           </div>
           <div>
             <dt>only</dt>
-            <dd></dd>
+            <dd data-expect="·Owe ~x~ ·No ~x~ ·It"></dd>
           </div>
           <div>
             <dt>people</dt>
@@ -2255,7 +2264,11 @@
           </div>
           <div>
             <dt>shall, should</dt>
-            <dd>, </dd>
+            <!-- prettier-ignore -->
+            <dd>
+              <span data-expect='·She ~b~ ·Low'></span>,
+              <span data-expect='·She ~b~ ·Day.half'></span>
+            </dd>
           </div>
           <div>
             <dt>she</dt>
@@ -2267,11 +2280,11 @@
           </div>
           <div>
             <dt>than</dt>
-            <dd></dd>
+            <dd data-expect="·They ~x~ ·No"></dd>
           </div>
           <div>
             <dt>that*</dt>
-            <dd></dd>
+            <dd data-expect="·They | ·Tea"></dd>
           </div>
           <div>
             <dt>these</dt>
@@ -2279,19 +2292,22 @@
           </div>
           <div>
             <dt>think/ing, thought</dt>
+            <!-- prettier-ignore -->
             <dd>
               ,
-              <span data-expect="·Thaw ~b~ ·-ing.widebase"></span>, 
+              <span data-expect="·Thaw ~b~ ·-ing.widebase"></span>,
+              <span data-expect='·Thaw  |  ·Tea'></span>
             </dd>
           </div>
           <div>
             <dt>this</dt>
-            <dd></dd>
+            <dd data-expect="·They | ·See"></dd>
           </div>
           <div>
             <dt>time/s</dt>
+            <!-- prettier-ignore -->
             <dd>
-              ,
+              <span data-expect='·Tea ~b~ ·May'></span>,
               <span data-expect="·Tea ~b~ ·May.entry-extended ~x~ ·Zoo"></span>
             </dd>
           </div>
@@ -2305,7 +2321,14 @@
           </div>
           <div>
             <dt>what/ever</dt>
-            <dd>, -</dd>
+            <dd>
+              ,
+              <span
+                data-note="In &lt;https://groups.io/g/QuikScript/message/2835&gt; Moira O’Brien says that she didn’t see Read use the hyphen himself."
+                data-expect="·Why ~x~ ·Et ~b~ ·Vie"
+                ></span
+              >
+            </dd>
           </div>
           <div>
             <dt>which</dt>
@@ -2317,17 +2340,23 @@
           </div>
           <div>
             <dt>with/out</dt>
+            <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect="·Way ·It ·Out+Tea"></span>
+              <span data-expect='·Way ~x~ ·It'></span>,
+              <span data-expect="·Way ~x~ ·It ~b~ ·Out+Tea"></span>
             </dd>
           </div>
           <div>
             <dt>would/n’t</dt>
-            <dd>, </dd>
+            <!-- prettier-ignore -->
+            <dd>
+              <span data-expect='·Way ~x~ ·Day'></span>,
+              <span data-expect='·Way ~x~ ·Day.half ~b~ ·No.alt ~b~ ·Tea'></span>
+            </dd>
           </div>
           <div>
             <dt>you/r/s</dt>
+            <!-- prettier-ignore -->
             <dd>
               ,
               <span data-expect="·Ye ~b~ ·Roe.entry-extended"></span>,
@@ -2336,7 +2365,7 @@
           </div>
           <div>
             <dt>*<u>that</u>, if demonstrative</dt>
-            <dd></dd>
+            <dd data-expect="·They | ·At | ·Tea"></dd>
           </div>
         </dl>
       </div>
