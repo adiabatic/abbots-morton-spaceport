@@ -1729,6 +1729,7 @@ glyphs:
 
   qsOut_qsTea.prop:  # ·Out·Tea ligature
     cursive_entry: [1, 0]
+    noentry_after: [qsSee]
     bitmap:
       - "    #   "
       - "    #   "
