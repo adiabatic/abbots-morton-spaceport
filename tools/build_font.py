@@ -497,6 +497,34 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_after]
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
 
+    # --- Pair override upgrades ---
+    # When two pair overrides share the same base and calt_after list but
+    # differ in having a cursive_exit, register an upgrade: the entry-only
+    # variant is selected by the backward pair rule, and a forward upgrade
+    # rule later converts it to the entry+exit variant when needed.
+    for base_name, overrides in pair_overrides.items():
+        by_after: dict[tuple, list[tuple[str, list[str]]]] = {}
+        for vn, after in overrides:
+            key = tuple(sorted(after))
+            by_after.setdefault(key, []).append((vn, after))
+        for group in by_after.values():
+            with_exit = []
+            without_exit = []
+            for vn, after in group:
+                vdef = glyphs_def.get(vn) or {}
+                if vdef.get("cursive_exit"):
+                    with_exit.append((vn, vdef))
+                else:
+                    without_exit.append((vn, vdef))
+            if with_exit and without_exit:
+                entry_only_var = without_exit[0][0]
+                entry_exit_var = with_exit[0][0]
+                exit_y = _normalize_anchors(with_exit[0][1]["cursive_exit"])[0][1]
+                nb = (with_exit[0][1] or {}).get("calt_not_before", [])
+                fwd_upgrades.setdefault(base_name, []).append(
+                    (entry_exit_var, entry_only_var, exit_y, list(nb))
+                )
+
     # --- Forward-looking: exit variants keyed by exit Y ---
     # Detects any variant with cursive_exit (catches .exit-* names and
     # .half variants alike). Entry variants (entry-* names) are excluded
@@ -1316,11 +1344,29 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         if all(c in glyphs_def for c in components):
             lig_fwd_bases.add(base_name)
 
+    # Pair-only bases whose fwd_upgrades come from pair overrides need their
+    # backward pairs, upgrades, and forward rules emitted early — before the
+    # main block's backward general rules — so other glyphs' backward rules
+    # see the correct exit values.
+    early_pair_upgrade_bases: set[str] = set()
+    for base_name in pair_only:
+        if base_name not in fwd_upgrades or base_name not in all_fwd_bases:
+            continue
+        pair_var_names = {vn for vn, _ in pair_overrides.get(base_name, [])}
+        if any(entry_only in pair_var_names
+               for _, entry_only, _, _ in fwd_upgrades[base_name]):
+            early_pair_upgrade_bases.add(base_name)
+
     for base_name in fwd_only:
         if base_name in lig_fwd_bases:
             continue
         _emit_bk_pairs(base_name)
         _emit_fwd(base_name)
+
+    for base_name in sorted(early_pair_upgrade_bases):
+        _emit_bk_pairs(base_name)
+        _emit_upgrades(base_name)
+        _emit_fwd_general(base_name)
 
     # Split non-cycle bases into those the cycle depends on (emit before
     # the cycle) and the rest (emit after).  The topological order already
@@ -1377,7 +1423,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
-            _emit_bk_pairs(base_name)
+            if base_name not in early_pair_upgrade_bases:
+                _emit_bk_pairs(base_name)
         for base_name in bases:
             if base_name in early_fwd_pairs:
                 _emit_fwd_pairs(base_name)
@@ -1387,12 +1434,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for base_name in bases:
                 _emit_bk_general(base_name)
         for base_name in bases:
-            _emit_upgrades(base_name)
+            if base_name not in early_pair_upgrade_bases:
+                _emit_upgrades(base_name)
         _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
         for base_name in bases:
-            if base_name in all_fwd_bases:
+            if base_name in all_fwd_bases and base_name not in early_pair_upgrade_bases:
                 if base_name in early_fwd_pairs:
                     _emit_fwd_general(base_name)
                 else:
