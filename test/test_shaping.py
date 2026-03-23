@@ -243,7 +243,7 @@ def build_anchor_map():
     for name, gdef in glyphs.items():
         if gdef is None:
             continue
-        entry = _normalize_anchors(gdef.get("cursive_entry"))
+        entry = _normalize_anchors(gdef.get("cursive_entry")) + _normalize_anchors(gdef.get("cursive_entry_curs_only"))
         exit_ = _normalize_anchors(gdef.get("cursive_exit"))
         if entry or exit_:
             result[name] = {"entry": entry, "exit": exit_}

@@ -1653,10 +1653,11 @@ def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> 
         if glyph_def is None:
             continue
         raw_entry = glyph_def.get("cursive_entry")
+        raw_entry_curs = glyph_def.get("cursive_entry_curs_only")
         raw_exit = glyph_def.get("cursive_exit")
-        if raw_entry is None and raw_exit is None:
+        if raw_entry is None and raw_entry_curs is None and raw_exit is None:
             continue
-        entries = _normalize_anchors(raw_entry)
+        entries = _normalize_anchors(raw_entry) + _normalize_anchors(raw_entry_curs)
         exits = _normalize_anchors(raw_exit)
         y_values = {a[1] for a in entries} | {a[1] for a in exits}
         for y in y_values:

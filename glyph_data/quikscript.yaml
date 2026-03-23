@@ -206,6 +206,7 @@ glyphs:
       - "  " #
 
   qsTea.half.exit-xheight:  # ·Tea
+    cursive_entry_curs_only: [1, 8]
     cursive_exit: [2, 5]
     calt_not_before: [qsFee, qsFoot]
     bitmap:
@@ -218,6 +219,7 @@ glyphs:
       - "  "
       - "  "
       - "  " #
+
 
   qsTea.entry-top:  # ·Tea
     cursive_entry: [1, 8]
