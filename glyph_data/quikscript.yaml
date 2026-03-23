@@ -56,6 +56,19 @@ glyphs:
 
   qsPea.entry-y6:  # ·Pea
     cursive_entry: [1, 6]
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "   #" #
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #" #
+
+  qsPea.entry-y6.exit-baseline:  # ·Pea
+    cursive_entry: [1, 6]
     cursive_exit: [5, 0]
     bitmap:
       - " ## "
@@ -67,6 +80,21 @@ glyphs:
       - "   #"
       - "   #"
       - "   #" #
+
+  qsPea.half.entry-y6:  # ·Pea
+    cursive_entry: [1, 6]
+    cursive_exit: [6, 5]
+    calt_not_before: [qsDay, qsFee, qsTea]
+    bitmap:
+      - " ##   "
+      - "#  #  "
+      - "#  #  "
+      - "   ###" #
+      - "      "
+      - "      "
+      - "      "
+      - "      "
+      - "      " #
 
   qsPea.prop.half:  # ·Pea
     cursive_exit: [6, 5]
