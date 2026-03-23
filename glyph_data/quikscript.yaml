@@ -917,6 +917,7 @@ glyphs:
     y_offset: -3
     cursive_exit: [4, 0]
     preferred_over: [qsWay.prop]
+    calt_not_before: [qsIt]
     bitmap:
       - "   " #
       - "   "
