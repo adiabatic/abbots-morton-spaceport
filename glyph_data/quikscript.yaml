@@ -1268,7 +1268,7 @@ glyphs:
     cursive_entry:
       - [1, 5]
     cursive_exit: [6, 0]
-    calt_before: [qsAh, qsAt, qsIng, qsSee, qsVie]
+    calt_before: [qsAh, qsAt, qsIng, qsNo, qsSee, qsVie]
     extend_exit_before: [qsI, qsLow]
     bitmap:
       - "###   " #
