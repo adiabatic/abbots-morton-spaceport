@@ -1424,8 +1424,14 @@ glyphs:
   qsIt.entry-baseline:  # ·It (exits at x-height)
     cursive_entry: [1, 0]
     cursive_exit: [2, 5]
-    calt_not_after: [qsEat, qsIt, qsZoo]
+    calt_not_after: [qsDay, qsEat, qsIt, qsZoo]
     extend_entry_after: [qsKey]
+    bitmap: *it_bitmap
+
+  qsIt.entry-baseline.after-day:  # ·It (enters AND exits at baseline — limited exception)
+    cursive_entry: [1, 0]
+    cursive_exit: [2, 0]
+    calt_after: [qsDay]
     bitmap: *it_bitmap
 
   qsIt.exit-xheight:  # ·It
