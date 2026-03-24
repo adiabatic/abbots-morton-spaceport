@@ -699,7 +699,8 @@ glyphs:
 
   qsSee.exit-baseline:  # ·See
     cursive_exit: [3, 0]
-    calt_before: [qsLow, qsAt, qsOut]
+    calt_before: [qsAt, qsOut]
+    extend_exit_before: [qsLow]
     calt_not_after: [qsIt]
     bitmap:
 
