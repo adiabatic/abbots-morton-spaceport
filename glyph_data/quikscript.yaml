@@ -1366,7 +1366,30 @@ glyphs:
 
   qsExcite.prop:  # ·Excite
     cursive_entry: [1, 0]
-    bitmap: *excite_bitmap
+    bitmap:
+      - " #     "
+      - " #     "
+      - " #     "
+      - "  #  # " #
+      - "  # #  "
+      - "   #   "
+      - "  # #  "
+      - " #   # "
+      - "#     #" #
+
+  qsExcite.exit-baseline.before-vertical:  # ·Excite
+    cursive_entry: [1, 0]
+    cursive_exit: [8, 0]
+    bitmap:
+      - " #     "
+      - " #     "
+      - " #     "
+      - "  #  # " #
+      - "  # #  "
+      - "   #   "
+      - "  # #  "
+      - " #   # "
+      - "#     #" #
 
   qsExam:  # ·Exam
     y_offset: -3
