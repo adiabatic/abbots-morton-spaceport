@@ -231,6 +231,41 @@ def generate_kern_fea(
     return "\n".join(lines)
 
 
+def generate_ccmp_fea(glyphs_def: dict) -> str | None:
+    """Generate OpenType feature code for dotted-base substitutions.
+
+    Rewrites dotted lowercase bases to their dotless forms before top
+    combining marks are attached.
+    """
+    top_marks = [
+        glyph_name
+        for glyph_name, glyph_def in glyphs_def.items()
+        if glyph_def is not None
+        and glyph_def.get("is_mark")
+        and glyph_def.get("y_offset", 0) >= 0
+    ]
+    if not top_marks:
+        return None
+
+    substitutions = [
+        (base_name, dotless_name)
+        for base_name, dotless_name in (("i", "dotlessi"), ("j", "dotlessj"))
+        if base_name in glyphs_def and dotless_name in glyphs_def
+    ]
+    if not substitutions:
+        return None
+
+    lines = ["feature ccmp {"]
+    lines.append(f"    @top_marks = [{' '.join(sorted(top_marks))}];")
+    for base_name, dotless_name in substitutions:
+        lines.append("")
+        lines.append(f"    lookup ccmp_{base_name}_before_top_marks {{")
+        lines.append(f"        sub {base_name}' @top_marks by {dotless_name};")
+        lines.append(f"    }} ccmp_{base_name}_before_top_marks;")
+    lines.append("} ccmp;")
+    return "\n".join(lines)
+
+
 def generate_mark_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
     """Generate OpenType feature code for mark positioning (combining diacriticals).
 
@@ -2681,6 +2716,10 @@ def build_font(
         ))
 
     if is_proportional:
+        ccmp_fea = generate_ccmp_fea(glyphs_def)
+        if ccmp_fea:
+            fea_code_parts.append(ccmp_fea)
+
         mark_fea = generate_mark_fea(glyphs_def, pixel_width, pixel_height)
         if mark_fea:
             fea_code_parts.append(mark_fea)
