@@ -63,6 +63,20 @@ A "join" means the preceding glyph's exit anchor and the following glyph's
 entry anchor share the specified Y coordinate. A "break" means no matching
 anchor pair exists.
 
+## Duplicates
+
+Three levels of duplicate exist between two elements that both carry a `data-expect` attribute:
+
+| Level             | Same text content | Same assertions | Same whitespace |
+| ----------------- | ----------------- | --------------- | --------------- |
+| Content duplicate | yes               | no              | —               |
+| Total duplicate   | yes               | yes             | no              |
+| Exact duplicate   | yes               | yes             | yes             |
+
+"Same assertions" means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
+
+When the same word (text content) appears more than once in the test corpus, only one occurrence should carry the `data-expect` attribute — preferably the earliest. Later occurrences keep their text content but lose the attribute (and bare `<span>` wrappers are unwrapped).
+
 ## Full examples
 
 ```text
