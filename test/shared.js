@@ -99,7 +99,8 @@ export function initToggles(opts = {}) {
       : `${fontFamily}, 'Departure Mono', monospace`;
 
     document.documentElement.style.setProperty('--font-stack', fontStack);
-    document.documentElement.style.setProperty('--font-weight', String(weights[weightIndex]));
+    const fontWeight = isSans ? weights[weightIndex] : 400;
+    document.documentElement.style.setProperty('--font-weight', String(fontWeight));
     if (titleEl) titleEl.textContent = fontTitle;
     if (fontToggle) fontToggle.textContent = isSans ? 'Sans' : 'Mono';
     if (weightToggle) weightToggle.textContent = `Weight ${weights[weightIndex]}`;
