@@ -697,6 +697,19 @@ glyphs:
       - "#    "
       - "#    " #
 
+  qsSee_qsEat.prop:  # ·See·Eat ligature
+    cursive_exit: [8, 0]
+    bitmap:
+      - "   #   "
+      - "  #    "
+      - " #     "
+      - " #    #" #
+      - "  #  ##"
+      - "   ## #"
+      - "   #  #"
+      - "  #   #"
+      - " #    #" #
+
   qsSee.exit-baseline:  # ·See
     cursive_exit: [3, 0]
     calt_before: [qsAt, qsOut]
@@ -704,15 +717,15 @@ glyphs:
     calt_not_after: [qsIt]
     bitmap:
 
-      - "   ##"
-      - "  #  "
-      - " #   "
-      - " #   " #
-      - "  #  "
-      - "  #  "
-      - "   # "
-      - "   # "
-      - "  #  " #
+      - "   #"
+      - "  # "
+      - " #  "
+      - " #  " #
+      - "  # "
+      - "  # "
+      - "   #"
+      - "   #"
+      - "  # " #
 
   qsZoo:  # ·Zoo
     y_offset: -3
