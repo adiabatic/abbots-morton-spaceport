@@ -16,6 +16,7 @@ Outputs:
 """
 
 import sys
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -587,6 +588,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     if not bk_replacements and not fwd_replacements:
         return None
 
+    def _expand_all_variants(glyphs, *, include_base=False):
+        """Expand glyph names to include all known variants from replacement dicts."""
+        expanded = set(glyphs)
+        for g in glyphs:
+            base = g.split(".")[0]
+            if include_base:
+                expanded.add(base)
+            if base in bk_replacements:
+                expanded.update(bk_replacements[base].values())
+            if base in fwd_replacements:
+                expanded.update(fwd_replacements[base].values())
+            if base in pair_overrides:
+                expanded.update(pv for pv, _ in pair_overrides[base])
+            if base in fwd_pair_overrides:
+                expanded.update(pv for pv, _, _ in fwd_pair_overrides[base])
+        return expanded
+
     # --- Build terminal sets ---
     # Entry-only terminal: has cursive_entry but no cursive_exit, and no
     # sibling variant has both entry at the same Y and any exit (i.e., no
@@ -792,10 +810,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         for dep in edges[b]:
             out_edges[dep].add(b)
 
-    queue = sorted(b for b in base_order if in_degree[b] == 0)
+    queue = deque(sorted(b for b in base_order if in_degree[b] == 0))
     sorted_bases: list[str] = []
     while queue:
-        node = queue.pop(0)
+        node = queue.popleft()
         sorted_bases.append(node)
         for neighbor in sorted(out_edges[node]):
             in_degree[neighbor] -= 1
@@ -902,31 +920,21 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # an entry variant.  For bases with both backward and forward rules, the
     # backward lookup runs first (so a preceding exit wins over a following
     # entry), then its forward companion.
+    _base_to_variants: dict[str, set[str]] = {}
+    for _gn in glyphs_def:
+        _base_to_variants.setdefault(_gn.split(".")[0], set()).add(_gn)
+
     def _expand_exclusions(eg_list: list[str]) -> set[str]:
         expanded = set()
         for eg in eg_list:
-            eg_base = eg.split(".")[0] if "." in eg else eg
-            for gname in glyphs_def:
-                if gname.split(".")[0] == eg_base:
-                    expanded.add(gname)
+            eg_base = eg.split(".")[0]
+            expanded.update(_base_to_variants.get(eg_base, ()))
         return expanded
 
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
-                expanded_before = set(before_glyphs)
-                for bg in before_glyphs:
-                    bg_base = bg.split(".")[0] if "." in bg else bg
-                    if bg_base in bk_replacements:
-                        expanded_before.update(bk_replacements[bg_base].values())
-                    if bg_base in pair_overrides:
-                        for pv, _ in pair_overrides[bg_base]:
-                            expanded_before.add(pv)
-                    if bg_base in fwd_pair_overrides:
-                        for pv, _, _ in fwd_pair_overrides[bg_base]:
-                            expanded_before.add(pv)
-                    if bg_base in fwd_replacements:
-                        expanded_before.update(fwd_replacements[bg_base].values())
+                expanded_before = _expand_all_variants(before_glyphs)
                 before_list = " ".join(sorted(expanded_before))
 
                 targets = {base_name}
@@ -945,20 +953,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if variant_raw else None
                 )
 
-                expanded_not_after: set[str] = set()
-                for nag in not_after_glyphs:
-                    nag_base = nag.split(".")[0] if "." in nag else nag
-                    expanded_not_after.add(nag_base)
-                    if nag_base in bk_replacements:
-                        expanded_not_after.update(bk_replacements[nag_base].values())
-                    if nag_base in pair_overrides:
-                        for pv, _ in pair_overrides[nag_base]:
-                            expanded_not_after.add(pv)
-                    if nag_base in fwd_pair_overrides:
-                        for pv, _, _ in fwd_pair_overrides[nag_base]:
-                            expanded_not_after.add(pv)
-                    if nag_base in fwd_replacements:
-                        expanded_not_after.update(fwd_replacements[nag_base].values())
+                expanded_not_after = _expand_all_variants(not_after_glyphs, include_base=True)
 
                 safe = variant_name.replace(".", "_")
                 lines.append("")
@@ -1072,19 +1067,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
             for variant_name, after_glyphs in pair_overrides[base_name]:
-                expanded_after = set(after_glyphs)
-                for ag in after_glyphs:
-                    ag_base = ag.split(".")[0] if "." in ag else ag
-                    if ag_base in fwd_replacements:
-                        expanded_after.update(fwd_replacements[ag_base].values())
-                    if ag_base in fwd_pair_overrides:
-                        for pv, _, _ in fwd_pair_overrides[ag_base]:
-                            expanded_after.add(pv)
-                    if ag_base in bk_replacements:
-                        expanded_after.update(bk_replacements[ag_base].values())
-                    if ag_base in pair_overrides:
-                        for pv, _ in pair_overrides[ag_base]:
-                            expanded_after.add(pv)
+                expanded_after = _expand_all_variants(after_glyphs)
                 suffix = _extended_entry_suffix(variant_name)
                 if suffix:
                     label = suffix.removeprefix(".entry-extended-at-")
@@ -1180,21 +1163,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             lines.append("")
             lines.append(f"    lookup calt_upgrade_{safe} {{")
             if not_before:
-                expanded = set()
-                for nb in not_before:
-                    nb_base = nb.split(".")[0] if "." in nb else nb
-                    expanded.add(nb_base)
-                    if nb_base in bk_replacements:
-                        expanded.update(bk_replacements[nb_base].values())
-                    if nb_base in fwd_replacements:
-                        expanded.update(fwd_replacements[nb_base].values())
-                    if nb_base in pair_overrides:
-                        for pv, _ in pair_overrides[nb_base]:
-                            expanded.add(pv)
-                    if nb_base in fwd_pair_overrides:
-                        for pv, _, _ in fwd_pair_overrides[nb_base]:
-                            expanded.add(pv)
-                nb_list = " ".join(sorted(expanded))
+                nb_list = " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
                 lines.append(f"        ignore sub {entry_only_var}' [{nb_list}];")
             lines.append(f"        sub {entry_only_var}' {cls} by {entry_exit_var};")
             lines.append(f"    }} calt_upgrade_{safe};")
@@ -1309,21 +1278,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append("")
                 lines.append(f"    lookup calt_reverse_upgrade_{safe} {{")
                 if not_before:
-                    expanded = set()
-                    for nb in not_before:
-                        nb_base = nb.split(".")[0] if "." in nb else nb
-                        expanded.add(nb_base)
-                        if nb_base in bk_replacements:
-                            expanded.update(bk_replacements[nb_base].values())
-                        if nb_base in fwd_replacements:
-                            expanded.update(fwd_replacements[nb_base].values())
-                        if nb_base in pair_overrides:
-                            for pv, _ in pair_overrides[nb_base]:
-                                expanded.add(pv)
-                        if nb_base in fwd_pair_overrides:
-                            for pv, _, _ in fwd_pair_overrides[nb_base]:
-                                expanded.add(pv)
-                    nb_list = " ".join(sorted(expanded))
+                    nb_list = " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
                     lines.append(f"        ignore sub {exit_only_var}' [{nb_list}];")
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
@@ -1417,10 +1372,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         for dep in fwd_fwd_edges[b]:
             fwd_out[dep].add(b)
 
-    fwd_queue = sorted(b for b in fwd_only_set if fwd_in_deg[b] == 0)
+    fwd_queue = deque(sorted(b for b in fwd_only_set if fwd_in_deg[b] == 0))
     fwd_only: list[str] = []
     while fwd_queue:
-        node = fwd_queue.pop(0)
+        node = fwd_queue.popleft()
         fwd_only.append(node)
         for neighbor in sorted(fwd_out[node]):
             fwd_in_deg[neighbor] -= 1
@@ -1723,27 +1678,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             noentry_name = lig_name + ".noentry"
             if noentry_name not in glyphs_def:
                 continue
-            expanded_after: set[str] = set()
-            for ag in noentry_after:
-                ag_base = ag.split(".")[0] if "." in ag else ag
-                expanded_after.add(ag_base)
-                if ag_base in bk_replacements:
-                    expanded_after.update(bk_replacements[ag_base].values())
-                if ag_base in fwd_replacements:
-                    expanded_after.update(fwd_replacements[ag_base].values())
-                if ag_base in pair_overrides:
-                    for pv, _ in pair_overrides[ag_base]:
-                        expanded_after.add(pv)
-                if ag_base in fwd_pair_overrides:
-                    for pv, _, _ in fwd_pair_overrides[ag_base]:
-                        expanded_after.add(pv)
-            post_liga_rules.append((lig_name, noentry_name, sorted(expanded_after)))
+            post_liga_rules.append((lig_name, noentry_name, sorted(_expand_all_variants(noentry_after, include_base=True))))
 
         if post_liga_rules:
             lines.append("")
             lines.append("    lookup calt_post_liga {")
             for base_name, variant_name, after_glyphs in post_liga_rules:
-                after_list = " ".join(sorted(after_glyphs)) if isinstance(after_glyphs, list) else " ".join(sorted(after_glyphs))
+                after_list = " ".join(sorted(after_glyphs))
                 targets = {base_name}
                 if base_name in bk_replacements:
                     targets.update(bk_replacements[base_name].values())
@@ -1882,7 +1823,7 @@ def generate_noentry_variants(glyphs_def: dict) -> dict:
     return variants
 
 
-def _shift_entry(entry, dx=-1):
+def _shift_anchor(entry, dx=-1):
     if isinstance(entry[0], list):
         return [[x + dx, y] for x, y in entry]
     return [entry[0] + dx, entry[1]]
@@ -1930,24 +1871,23 @@ _CALT_KEYS = frozenset((
 ))
 
 
-def generate_extended_entry_variants(glyphs_def: dict) -> dict:
-    """Create .entry-extended variants for glyphs with extend_entry_after.
+def _generate_extended_entry_variants(
+    glyphs_def: dict, *, count: int, yaml_key: str, suffix_word: str,
+) -> dict:
+    """Create entry-extended variants for glyphs with the given yaml_key.
 
-    For each glyph with extend_entry_after, creates a copy whose bitmap is widened
-    by 1 pixel on the left with a connecting pixel at the entry y-coordinate.
-    The entry anchor stays unchanged; the exit anchor (if any) shifts right by 1.
-    Uses entry-* naming so _is_entry_variant() recognizes the variant.
+    For each glyph with the yaml_key, creates a copy whose bitmap is widened
+    by `count` pixels on the left with a connecting pixel at the entry y-coordinate.
+    The entry anchor stays unchanged; the exit anchor (if any) shifts right.
 
     Also generates extended versions of related glyphs (exit variants, ligatures)
-    so that forward substitutions and ligatures preserve the extension.  These
-    secondary variants have no calt directives of their own — they are only
-    referenced by the modified forward-pair and ligature emission code.
+    so that forward substitutions and ligatures preserve the extension.
     """
     variants = {}
     for name, gdef in sorted(glyphs_def.items()):
         if gdef is None:
             continue
-        extend_after = gdef.get("extend_entry_after")
+        extend_after = gdef.get(yaml_key)
         if not extend_after:
             continue
         entry = gdef.get("cursive_entry")
@@ -1961,26 +1901,26 @@ def generate_extended_entry_variants(glyphs_def: dict) -> dict:
             for anchor in entries:
                 y = anchor[1]
                 label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-                ext_name = f"{name}.entry-extended-at-{label}"
+                ext_name = f"{name}.entry-{suffix_word}-at-{label}"
                 if ext_name not in glyphs_def:
-                    variant_def = {k: v for k, v in gdef.items() if k != "extend_entry_after"}
+                    variant_def = {k: v for k, v in gdef.items() if k != yaml_key}
                     variant_def["cursive_entry"] = [anchor[0], anchor[1]]
                     variant_def["bitmap"] = _widen_bitmap_with_connector(
-                        variant_def["bitmap"], anchor[1], variant_def.get("y_offset", 0)
+                        variant_def["bitmap"], anchor[1], variant_def.get("y_offset", 0), count=count
                     )
                     if "cursive_exit" in variant_def:
-                        variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
+                        variant_def["cursive_exit"] = _shift_anchor(variant_def["cursive_exit"], dx=count)
                     variant_def["calt_after"] = list(extend_after)
                     variants[ext_name] = variant_def
         else:
-            ext_name = name + ".entry-extended"
+            ext_name = f"{name}.entry-{suffix_word}"
             if ext_name not in glyphs_def:
-                variant_def = {k: v for k, v in gdef.items() if k != "extend_entry_after"}
+                variant_def = {k: v for k, v in gdef.items() if k != yaml_key}
                 variant_def["bitmap"] = _widen_bitmap_with_connector(
-                    variant_def["bitmap"], entries[0][1], variant_def.get("y_offset", 0)
+                    variant_def["bitmap"], entries[0][1], variant_def.get("y_offset", 0), count=count
                 )
                 if "cursive_exit" in variant_def:
-                    variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
+                    variant_def["cursive_exit"] = _shift_anchor(variant_def["cursive_exit"], dx=count)
                 variant_def["calt_after"] = list(extend_after)
                 variants[ext_name] = variant_def
 
@@ -2003,244 +1943,119 @@ def generate_extended_entry_variants(glyphs_def: dict) -> dict:
                 for anchor in other_entries:
                     y = anchor[1]
                     label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-                    sec_name = f"{other_name}.entry-extended-at-{label}"
+                    sec_name = f"{other_name}.entry-{suffix_word}-at-{label}"
                     if sec_name not in glyphs_def:
                         extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
                         extended["cursive_entry"] = [anchor[0], anchor[1]]
                         extended["bitmap"] = _widen_bitmap_with_connector(
-                            extended["bitmap"], anchor[1], extended.get("y_offset", 0)
+                            extended["bitmap"], anchor[1], extended.get("y_offset", 0), count=count
                         )
                         if "cursive_exit" in extended:
-                            extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=1)
+                            extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
                         variants[sec_name] = extended
             else:
-                sec_name = other_name + ".entry-extended"
+                sec_name = f"{other_name}.entry-{suffix_word}"
                 if sec_name not in glyphs_def:
                     extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
                     other_entries_norm = _normalize_anchors(other_entry)
                     extended["bitmap"] = _widen_bitmap_with_connector(
-                        extended["bitmap"], other_entries_norm[0][1], extended.get("y_offset", 0)
+                        extended["bitmap"], other_entries_norm[0][1], extended.get("y_offset", 0), count=count
                     )
                     if "cursive_exit" in extended:
-                        extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=1)
+                        extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
                     variants[sec_name] = extended
 
     return variants
+
+
+def _generate_extended_exit_variants(
+    glyphs_def: dict, *, count: int, yaml_key: str, suffix_word: str,
+) -> dict:
+    """Create exit-extended variants for glyphs with the given yaml_key.
+
+    For each glyph with the yaml_key, creates a copy whose bitmap is widened
+    by `count` pixels on the right with a connecting pixel at the exit y-coordinate.
+    The exit anchor shifts right; the entry anchor stays unchanged.
+
+    Also generates extended versions of related glyphs (entry variants, ligatures)
+    so that substitutions preserve the extension.
+    """
+    variants = {}
+    for name, gdef in sorted(glyphs_def.items()):
+        if gdef is None:
+            continue
+        extend_before = gdef.get(yaml_key)
+        if not extend_before:
+            continue
+        raw_exit = gdef.get("cursive_exit")
+        if not raw_exit:
+            continue
+
+        exits = _normalize_anchors(raw_exit)
+        exit_y = exits[0][1]
+
+        ext_name = f"{name}.exit-{suffix_word}"
+        if ext_name not in glyphs_def:
+            skip_keys = {yaml_key, "extend_exit_no_entry"}
+            variant_def = {k: v for k, v in gdef.items() if k not in skip_keys}
+            variant_def["bitmap"] = _widen_bitmap_right_with_connector(
+                variant_def["bitmap"], exit_y, variant_def.get("y_offset", 0), count=count
+            )
+            variant_def["cursive_exit"] = _shift_anchor(variant_def["cursive_exit"], dx=count)
+            variant_def["calt_before"] = list(extend_before)
+            if gdef.get("extend_exit_no_entry"):
+                variant_def.pop("cursive_entry", None)
+            variants[ext_name] = variant_def
+
+        base_name = name.split(".")[0]
+        for other_name, other_gdef in sorted(glyphs_def.items()):
+            if other_gdef is None or other_name == name:
+                continue
+            if _extended_exit_suffix(other_name) is not None:
+                continue
+            other_base = other_name.split(".")[0]
+            is_variant = other_base == base_name and "." in other_name
+            is_ligature = other_name.startswith(base_name + "_")
+            if not (is_variant or is_ligature):
+                continue
+            other_exit = other_gdef.get("cursive_exit")
+            if not other_exit:
+                continue
+            sec_name = f"{other_name}.exit-{suffix_word}"
+            if sec_name not in glyphs_def:
+                extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
+                other_exits_norm = _normalize_anchors(other_exit)
+                extended["bitmap"] = _widen_bitmap_right_with_connector(
+                    extended["bitmap"], other_exits_norm[0][1], extended.get("y_offset", 0), count=count
+                )
+                extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
+                variants[sec_name] = extended
+
+    return variants
+
+
+def generate_extended_entry_variants(glyphs_def: dict) -> dict:
+    return _generate_extended_entry_variants(
+        glyphs_def, count=1, yaml_key="extend_entry_after", suffix_word="extended",
+    )
 
 
 def generate_extended_exit_variants(glyphs_def: dict) -> dict:
-    """Create .exit-extended variants for glyphs with extend_exit_before.
-
-    For each glyph with extend_exit_before, creates a copy whose bitmap is widened
-    by 1 pixel on the right with a connecting pixel at the exit y-coordinate.
-    The exit anchor shifts right by 1; the entry anchor stays unchanged.
-    Uses exit-* naming so _is_exit_variant() recognizes the variant.
-
-    Also generates extended versions of related glyphs (entry variants, ligatures)
-    so that substitutions preserve the extension.  These secondary variants have
-    no calt directives of their own.
-    """
-    variants = {}
-    for name, gdef in sorted(glyphs_def.items()):
-        if gdef is None:
-            continue
-        extend_before = gdef.get("extend_exit_before")
-        if not extend_before:
-            continue
-        raw_exit = gdef.get("cursive_exit")
-        if not raw_exit:
-            continue
-
-        exits = _normalize_anchors(raw_exit)
-        exit_y = exits[0][1]
-
-        ext_name = name + ".exit-extended"
-        if ext_name not in glyphs_def:
-            skip_keys = {"extend_exit_before", "extend_exit_no_entry"}
-            variant_def = {k: v for k, v in gdef.items() if k not in skip_keys}
-            variant_def["bitmap"] = _widen_bitmap_right_with_connector(
-                variant_def["bitmap"], exit_y, variant_def.get("y_offset", 0)
-            )
-            variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=1)
-            variant_def["calt_before"] = list(extend_before)
-            if gdef.get("extend_exit_no_entry"):
-                variant_def.pop("cursive_entry", None)
-            variants[ext_name] = variant_def
-
-        base_name = name.split(".")[0]
-        for other_name, other_gdef in sorted(glyphs_def.items()):
-            if other_gdef is None or other_name == name:
-                continue
-            if _extended_exit_suffix(other_name) is not None:
-                continue
-            other_base = other_name.split(".")[0]
-            is_variant = other_base == base_name and "." in other_name
-            is_ligature = other_name.startswith(base_name + "_")
-            if not (is_variant or is_ligature):
-                continue
-            other_exit = other_gdef.get("cursive_exit")
-            if not other_exit:
-                continue
-            sec_name = other_name + ".exit-extended"
-            if sec_name not in glyphs_def:
-                extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                other_exits_norm = _normalize_anchors(other_exit)
-                extended["bitmap"] = _widen_bitmap_right_with_connector(
-                    extended["bitmap"], other_exits_norm[0][1], extended.get("y_offset", 0)
-                )
-                extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=1)
-                variants[sec_name] = extended
-
-    return variants
+    return _generate_extended_exit_variants(
+        glyphs_def, count=1, yaml_key="extend_exit_before", suffix_word="extended",
+    )
 
 
 def generate_doubly_extended_entry_variants(glyphs_def: dict) -> dict:
-    """Create .entry-doubly-extended variants for glyphs with doubly_extend_entry_after.
-
-    Same as generate_extended_entry_variants but widens by 2 pixels instead of 1.
-    """
-    variants = {}
-    for name, gdef in sorted(glyphs_def.items()):
-        if gdef is None:
-            continue
-        extend_after = gdef.get("doubly_extend_entry_after")
-        if not extend_after:
-            continue
-        entry = gdef.get("cursive_entry")
-        if not entry:
-            continue
-
-        entries = _normalize_anchors(entry)
-        multi = len(entries) > 1
-
-        if multi:
-            for anchor in entries:
-                y = anchor[1]
-                label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-                ext_name = f"{name}.entry-doubly-extended-at-{label}"
-                if ext_name not in glyphs_def:
-                    variant_def = {k: v for k, v in gdef.items() if k != "doubly_extend_entry_after"}
-                    variant_def["cursive_entry"] = [anchor[0], anchor[1]]
-                    variant_def["bitmap"] = _widen_bitmap_with_connector(
-                        variant_def["bitmap"], anchor[1], variant_def.get("y_offset", 0), count=2
-                    )
-                    if "cursive_exit" in variant_def:
-                        variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=2)
-                    variant_def["calt_after"] = list(extend_after)
-                    variants[ext_name] = variant_def
-        else:
-            ext_name = name + ".entry-doubly-extended"
-            if ext_name not in glyphs_def:
-                variant_def = {k: v for k, v in gdef.items() if k != "doubly_extend_entry_after"}
-                variant_def["bitmap"] = _widen_bitmap_with_connector(
-                    variant_def["bitmap"], entries[0][1], variant_def.get("y_offset", 0), count=2
-                )
-                if "cursive_exit" in variant_def:
-                    variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=2)
-                variant_def["calt_after"] = list(extend_after)
-                variants[ext_name] = variant_def
-
-        base_name = name.split(".")[0]
-        for other_name, other_gdef in sorted(glyphs_def.items()):
-            if other_gdef is None or other_name == name:
-                continue
-            if _extended_entry_suffix(other_name) is not None:
-                continue
-            other_base = other_name.split(".")[0]
-            is_variant = other_base == base_name and "." in other_name
-            is_ligature = other_name.startswith(base_name + "_")
-            if not (is_variant or is_ligature):
-                continue
-            other_entry = other_gdef.get("cursive_entry")
-            if not other_entry:
-                continue
-            if multi:
-                other_entries = _normalize_anchors(other_entry)
-                for anchor in other_entries:
-                    y = anchor[1]
-                    label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-                    sec_name = f"{other_name}.entry-doubly-extended-at-{label}"
-                    if sec_name not in glyphs_def:
-                        extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                        extended["cursive_entry"] = [anchor[0], anchor[1]]
-                        extended["bitmap"] = _widen_bitmap_with_connector(
-                            extended["bitmap"], anchor[1], extended.get("y_offset", 0), count=2
-                        )
-                        if "cursive_exit" in extended:
-                            extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=2)
-                        variants[sec_name] = extended
-            else:
-                sec_name = other_name + ".entry-doubly-extended"
-                if sec_name not in glyphs_def:
-                    extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                    other_entries_norm = _normalize_anchors(other_entry)
-                    extended["bitmap"] = _widen_bitmap_with_connector(
-                        extended["bitmap"], other_entries_norm[0][1], extended.get("y_offset", 0), count=2
-                    )
-                    if "cursive_exit" in extended:
-                        extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=2)
-                    variants[sec_name] = extended
-
-    return variants
+    return _generate_extended_entry_variants(
+        glyphs_def, count=2, yaml_key="doubly_extend_entry_after", suffix_word="doubly-extended",
+    )
 
 
 def generate_doubly_extended_exit_variants(glyphs_def: dict) -> dict:
-    """Create .exit-doubly-extended variants for glyphs with doubly_extend_exit_before.
-
-    Same as generate_extended_exit_variants but widens by 2 pixels instead of 1.
-    """
-    variants = {}
-    for name, gdef in sorted(glyphs_def.items()):
-        if gdef is None:
-            continue
-        extend_before = gdef.get("doubly_extend_exit_before")
-        if not extend_before:
-            continue
-        raw_exit = gdef.get("cursive_exit")
-        if not raw_exit:
-            continue
-
-        exits = _normalize_anchors(raw_exit)
-        exit_y = exits[0][1]
-
-        ext_name = name + ".exit-doubly-extended"
-        if ext_name not in glyphs_def:
-            skip_keys = {"doubly_extend_exit_before", "extend_exit_no_entry"}
-            variant_def = {k: v for k, v in gdef.items() if k not in skip_keys}
-            variant_def["bitmap"] = _widen_bitmap_right_with_connector(
-                variant_def["bitmap"], exit_y, variant_def.get("y_offset", 0), count=2
-            )
-            variant_def["cursive_exit"] = _shift_entry(variant_def["cursive_exit"], dx=2)
-            variant_def["calt_before"] = list(extend_before)
-            if gdef.get("extend_exit_no_entry"):
-                variant_def.pop("cursive_entry", None)
-            variants[ext_name] = variant_def
-
-        base_name = name.split(".")[0]
-        for other_name, other_gdef in sorted(glyphs_def.items()):
-            if other_gdef is None or other_name == name:
-                continue
-            if _extended_exit_suffix(other_name) is not None:
-                continue
-            other_base = other_name.split(".")[0]
-            is_variant = other_base == base_name and "." in other_name
-            is_ligature = other_name.startswith(base_name + "_")
-            if not (is_variant or is_ligature):
-                continue
-            other_exit = other_gdef.get("cursive_exit")
-            if not other_exit:
-                continue
-            sec_name = other_name + ".exit-doubly-extended"
-            if sec_name not in glyphs_def:
-                extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
-                other_exits_norm = _normalize_anchors(other_exit)
-                extended["bitmap"] = _widen_bitmap_right_with_connector(
-                    extended["bitmap"], other_exits_norm[0][1], extended.get("y_offset", 0), count=2
-                )
-                extended["cursive_exit"] = _shift_entry(extended["cursive_exit"], dx=2)
-                variants[sec_name] = extended
-
-    return variants
+    return _generate_extended_exit_variants(
+        glyphs_def, count=2, yaml_key="doubly_extend_exit_before", suffix_word="doubly-extended",
+    )
 
 
 def parse_bitmap(bitmap: list) -> list[list[int]]:
