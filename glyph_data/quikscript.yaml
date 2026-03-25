@@ -235,6 +235,12 @@ glyphs:
     extend_entry_after: [qsKey]
     bitmap: *tea_prop_bitmap
 
+  qsTea.entry-baseline.exit-baseline:  # ·Tea (enters AND exits at baseline — limited exception)
+    cursive_entry: [1, 0]
+    cursive_exit: [2, 0]
+    calt_after: [qsEt]
+    bitmap: *tea_prop_bitmap
+
   qsTea.entry-xheight:  # ·Tea (full height)
     cursive_entry: [1, 5]
     cursive_exit: [2, 0]
