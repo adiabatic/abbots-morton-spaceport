@@ -129,6 +129,7 @@ glyphs:
       - "#####" #
 
   J.prop:  # J U+004A
+    top_mark_y: 9
     bitmap:
       - "#####"
       - "    #"
