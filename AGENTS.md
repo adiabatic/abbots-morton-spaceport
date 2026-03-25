@@ -54,7 +54,10 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 ## Tests
 
-- Two tests (elements with a `data-expect` attribute) are duplicates if they have the same `data-expect` value and the same text content inside the element.
+- Three levels of duplicate exist for elements with a `data-expect` attribute:
+  - **Content duplicate:** two elements whose text content is byte-identical (same code points in the same order).
+  - **Total duplicate:** a content duplicate where the two `data-expect` values also express the same sequence of assertions (identical after collapsing whitespace).
+  - **Exact duplicate:** a total duplicate where the raw `data-expect` strings are character-for-character identical (whitespace and all).
 - To remove a duplicate test: remove the `data-expect` attribute. If the element is a `span` with no remaining attributes, unwrap the `span` (remove the tags but keep the text content in place). Never remove the text inside the element — it must remain identical before and after. The text frequently contains invisible PUA code points, so verify with a program (e.g., compare hex dumps of each modified line before and after) that only the attribute and/or tags were removed.
 
 ## Markdown-document style
