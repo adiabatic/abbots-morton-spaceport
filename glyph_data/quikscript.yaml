@@ -1192,6 +1192,7 @@ glyphs:
   qsNo.alt:  # ·No (upside-down)
     cursive_entry: [1, 0]
     cursive_exit: [6, 0]
+    calt_not_after: [qsZoo]
     bitmap: &no_alt_bitmap
       - "  #  " #
       - " # # "
@@ -1446,6 +1447,7 @@ glyphs:
   qsIt.exit-baseline.before-ing:  # ·It
     cursive_exit: [2, 0]
     calt_before: [qsIng, qsZoo]
+    calt_not_after: [qsBay]
     bitmap: *it_bitmap
 
   qsEat:  # ·Eat
