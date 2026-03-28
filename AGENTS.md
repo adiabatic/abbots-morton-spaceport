@@ -30,7 +30,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - Tall letters have a height of 9 pixels (9 entries in `bitmap`).
 - Short letters have a height of 6 pixels (6 entries in `bitmap`).
 - Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
-- For bitmap data in `glyph_data/quikscript.yaml`, use double-quoted row strings. Add bare trailing `#` comment markers on the rows at y = 5 and y = 0.
+- For bitmap data in `glyph_data/quikscript.yaml`, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
 
 ## Inspiration
 
