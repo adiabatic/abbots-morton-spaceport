@@ -2112,9 +2112,9 @@
             <dt>be/ing/en</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect='·Bay ~b~ ·-ing'></span>,
-              <span data-expect='·Bay ~b~ ·No.alt'></span>
+              <span data-orthodox='be'></span>,
+              <span data-orthodox='being' data-expect='·Bay ~b~ ·-ing'></span>,
+              <span data-orthodox='been' data-expect='·Bay ~b~ ·No.alt'></span>
             </dd>
           </div>
           <div>
@@ -2133,46 +2133,50 @@
             <dt>can/’t/not</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect='·Key ~b~ ·No.alt ~b~ ·Tea'></span>,
-              <span data-expect='·Key ~b~ ·At ~x~ ·No ~x~ ·Ox ~b~ ·Tea'></span>
+              <span data-orthodox='can'></span>,
+              <span data-orthodox='can’t' data-expect='·Key ~b~ ·No.alt ~b~ ·Tea'></span>,
+              <span data-orthodox='cannot' data-expect='·Key ~b~ ·At ~x~ ·No ~x~ ·Ox ~b~ ·Tea'></span>
             </dd>
           </div>
           <div>
             <dt>come/s/ing</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Key ~b~ ·May'></span>,
-              <span data-expect='·Key ~b~ ·May ~x~ ·Zoo'></span>,
-              <span data-expect='·Key ~b~ ·May  | ·-ing'></span>
+              <span data-orthodox="come" data-expect='·Key ~b~ ·May'></span>,
+              <span data-orthodox="comes" data-expect='·Key ~b~ ·May ~x~ ·Zoo'></span>,
+              <span data-orthodox="coming" data-expect='·Key ~b~ ·May  | ·-ing'></span>
             </dd>
           </div>
           <div>
             <dt>could/n’t</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Key ~b~ ·Day.half'></span>,
-              <span data-expect='·Key ~b~ ·Day.half ~b~ ·No.alt ~b~ ·Tea'></span>
+              <span data-orthodox="could" data-expect='·Key ~b~ ·Day.half'></span>,
+              <span data-orthodox="couldn’t" data-expect='·Key ~b~ ·Day.half ~b~ ·No.alt ~b~ ·Tea'></span>
             </dd>
           </div>
           <div>
             <dt>do, did</dt>
-            <dd>, <span data-expect="·Day ~b~ ·Day.half"></span></dd>
+            <!-- prettier-ignore -->
+            <dd>
+              <span data-orthodox='do'></span>,
+              <span data-orthodox="did" data-expect="·Day ~b~ ·Day.half"></span>
+            </dd>
           </div>
           <div>
             <dt>don’t, didn’t</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Day ~b~ ·No.alt ~b~ ·Tea'></span>,
-              <span data-expect='·Day ~b~ ·Day.half ~b~ ·No.alt ~b~ ·Tea'></span>
+              <span data-orthodox="don’t" data-expect='·Day ~b~ ·No.alt ~b~ ·Tea'></span>,
+              <span data-orthodox="didn’t" data-expect='·Day ~b~ ·Day.half ~b~ ·No.alt ~b~ ·Tea'></span>
             </dd>
           </div>
           <div>
             <dt>ever, every</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Et ~b~ ·Vie'></span>,
-              <span data-expect='·Et ~b~ ·Vie | ·It'></span>
+              <span data-orthodox="ever" data-expect='·Et ~b~ ·Vie'></span>,
+              <span data-orthodox="every" data-expect='·Et ~b~ ·Vie | ·It'></span>
             </dd>
           </div>
           <div>
@@ -2183,9 +2187,9 @@
             <dt>go/ing/ne</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect="·Gay ~b~ ·-ing"></span>,
-              <span data-expect="·Gay ~b~ ·No.alt"></span>
+              <span data-orthodox="go"></span>,
+              <span data-orthodox="going" data-expect="·Gay ~b~ ·-ing"></span>,
+              <span data-orthodox="gone" data-expect="·Gay ~b~ ·No.alt"></span>
             </dd>
           </div>
           <div>
@@ -2196,17 +2200,17 @@
             <dt>have/n’t</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect="·He ~b~ ·Vie"></span>,
-              <span data-expect="·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea"></span>
+              <span data-orthodox="have" data-expect="·He ~b~ ·Vie"></span>,
+              <span data-orthodox="haven’t" data-expect="·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea"></span>
             </dd>
           </div>
           <div>
             <dt>he, him, his</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect="·He.!half ~b~ ·May.entry-extended"></span>,
-              <span data-expect="·He.half ~x~ ·Zoo"></span>
+              <span data-orthodox="he"></span>,
+              <span data-orthodox="him" data-expect="·He.!half ~b~ ·May.entry-extended"></span>,
+              <span data-orthodox="his" data-expect="·He.half ~x~ ·Zoo"></span>
             </dd>
           </div>
           <div>
@@ -2225,9 +2229,9 @@
             <dt>make/ing, made</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·May  |  ·Key'></span>,
-              <span data-expect='·May  |  ·Key ~b~ ·-ing'></span>,
-              <span data-expect="·May ~x~ ·Day"></span>
+              <span data-orthodox="make"   data-expect='·May  |  ·Key'></span>,
+              <span data-orthodox="making" data-expect='·May  |  ·Key ~b~ ·-ing'></span>,
+              <span data-orthodox="made"   data-expect="·May ~x~ ·Day"></span>
             </dd>
           </div>
           <div>
@@ -2266,8 +2270,8 @@
             <dt>shall, should</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·She ~b~ ·Low'></span>,
-              <span data-expect='·She ~b~ ·Day.half'></span>
+              <span data-orthodox="shall"  data-expect='·She ~b~ ·Low'></span>,
+              <span data-orthodox="should" data-expect='·She ~b~ ·Day.half'></span>
             </dd>
           </div>
           <div>
@@ -2294,9 +2298,9 @@
             <dt>think/ing, thought</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect="·Thaw ~b~ ·-ing.widebase"></span>,
-              <span data-expect='·Thaw  |  ·Tea'></span>
+              <span data-orthodox="think"></span>,
+              <span data-orthodox="thinking" data-expect="·Thaw ~b~ ·-ing.widebase"></span>,
+              <span data-orthodox="thought"  data-expect='·Thaw  |  ·Tea'></span>
             </dd>
           </div>
           <div>
@@ -2307,8 +2311,8 @@
             <dt>time/s</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Tea ~b~ ·May'></span>,
-              <span data-expect="·Tea ~b~ ·May.entry-extended ~x~ ·Zoo"></span>
+              <span data-orthodox="time"  data-expect='·Tea ~b~ ·May'></span>,
+              <span data-orthodox="times" data-expect="·Tea ~b~ ·May.entry-extended ~x~ ·Zoo"></span>
             </dd>
           </div>
           <div>
@@ -2322,9 +2326,10 @@
           <div>
             <dt>what/ever</dt>
             <dd>
-              ,
+              <span data-orthodox="what"></span>,
               <span
                 data-note="In &lt;https://groups.io/g/QuikScript/message/2835&gt; Moira O’Brien says that she didn’t see Read use the hyphen himself."
+                data-orthodox="whatever"
                 data-expect="·Why ~x~ ·Et ~b~ ·Vie"
                 ></span
               >
@@ -2342,25 +2347,25 @@
             <dt>with/out</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Way ~x~ ·It'></span>,
-              <span data-expect="·Way ~x~ ·It ~b~ ·Out+Tea"></span>
+              <span data-orthodox="with"    data-expect='·Way ~x~ ·It'></span>,
+              <span data-orthodox="without" data-expect="·Way ~x~ ·It ~b~ ·Out+Tea"></span>
             </dd>
           </div>
           <div>
             <dt>would/n’t</dt>
             <!-- prettier-ignore -->
             <dd>
-              <span data-expect='·Way ~x~ ·Day'></span>,
-              <span data-expect='·Way ~x~ ·Day ~b~ ·No.alt ~b~ ·Tea'></span>
+              <span data-orthodox="would"    data-expect='·Way ~x~ ·Day'></span>,
+              <span data-orthodox="wouldn’t" data-expect='·Way ~x~ ·Day ~b~ ·No.alt ~b~ ·Tea'></span>
             </dd>
           </div>
           <div>
             <dt>you/r/s</dt>
             <!-- prettier-ignore -->
             <dd>
-              ,
-              <span data-expect="·Ye ~b~ ·Roe.entry-extended"></span>,
-              <span data-expect="·Ye ~b~ ·Roe.exit-xheight.entry-extended ~x~ ·Zoo"></span>
+              <span data-orthodox="you"></span>,
+              <span data-orthodox="your"  data-expect="·Ye ~b~ ·Roe.entry-extended"></span>,
+              <span data-orthodox="yours" data-expect="·Ye ~b~ ·Roe.exit-xheight.entry-extended ~x~ ·Zoo"></span>
             </dd>
           </div>
           <div>
@@ -3617,7 +3622,7 @@
         <span data-expect='·Roe | ·Eat ~b~ ·Day.half'></span>,
         
         
-        <span data-notes="I can’t tell how the joins are supposed to be in the source PDF"></span>
+        <span data-note="I can’t tell how the joins are supposed to be in the source PDF"></span>
         <span data-expect='·Eat ~b~ ·Zoo.half | ·It ~b~ ·Utter ~x~ ·Roe'></span>
         
         .
