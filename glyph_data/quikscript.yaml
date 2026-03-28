@@ -1255,6 +1255,13 @@ glyphs:
     calt_after: [qsIt, qsVie]
     bitmap: *no_alt_bitmap
 
+  qsNo.alt.after-zoo:  # ·No
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    calt_after: [qsZoo]
+    calt_not_before: [qsEt]
+    bitmap: *no_alt_bitmap
+
   qsLow:  # ·Low
     bitmap: &low_bitmap
       - "    #" #
