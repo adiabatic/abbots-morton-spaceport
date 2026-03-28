@@ -220,6 +220,20 @@ glyphs:
       - "  "
       - "  " #
 
+  qsTea.half.entry-top.exit-xheight:  # ·Tea
+    cursive_entry: [1, 8]
+    cursive_exit: [2, 5]
+    calt_not_before: [qsFee, qsFoot]
+    bitmap:
+      - "# "
+      - "# "
+      - "# "
+      - "##" #
+      - "  "
+      - "  "
+      - "  "
+      - "  "
+      - "  " #
 
   qsTea.entry-top:  # ·Tea
     cursive_entry: [1, 8]
