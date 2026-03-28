@@ -885,7 +885,7 @@ glyphs:
 
   qsJay.prop:  # ·Jay
     y_offset: -3
-    cursive_exit: [6, 0]
+    cursive_exit:  [6, 0]
     bitmap: *jay_bitmap
 
   qsJay.entry-xheight:  # ·Jay
@@ -894,6 +894,20 @@ glyphs:
     cursive_exit: [6, 0]
     extend_entry_after: [qsIt]
     bitmap: *jay_bitmap
+
+  qsJay_qsUtter.prop:  # ·Jay·Utter ligature
+    y_offset: -3
+    cursive_exit: [12, 5]
+    bitmap:
+      - "####     ##" #
+      - "    #   #  "
+      - "    #  #   "
+      - "   #  #    "
+      - "  #  #     "
+      - " #  #      " #
+      - " # #       "
+      - "# #        "
+      - "##         "
 
   qsYe:  # ·Ye
     bitmap:
