@@ -1,0 +1,507 @@
+glyphs:
+  # Shavian letters (U+10450–U+1047F)
+  u10450.prop.unused:  # 𐑐 Peep
+    cursive_exit: [5, 0]
+    bitmap:
+      - " ## "
+      - "#  #"
+      - "#  #"
+      - "   #" #
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #"
+      - "   #" #
+
+  u10451.prop.unused:  # 𐑑 Tot
+    bitmap:
+      - "  #"
+      - " ##"
+      - "# #"
+      - "  #" #
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #" #
+
+  u10452.prop.unused:  # 𐑒 Kick
+    bitmap:
+      - "   # "
+      - "   # "
+      - "   # "
+      - "   # " #
+      - " ### "
+      - "#  # "
+      - "#    "
+      - "#    "
+      - " ### " #
+
+  u10453.prop.unused:  # 𐑓 Fee
+    bitmap:
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "    #"
+      - "   # "
+      - "###  " #
+
+  u10454.prop.unused:  # 𐑔 Thigh
+    bitmap:
+      - "  #  "
+      - "   # "
+      - "    #"
+      - "  ###" #
+      - " #  #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### " #
+
+  u10455.prop.unused:  # 𐑕 So
+    bitmap:
+      - "   ##"
+      - "  #  "
+      - " #   "
+      - " #   " #
+      - "  #  "
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "###  " #
+
+  u10456.prop.unused:  # 𐑖 Sure
+    bitmap:
+      - "     "
+      - "   # "
+      - "  #  "
+      - " #   " #
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#   #"
+      - " ### " #
+
+  u10457.prop.unused:  # 𐑗 Church
+    bitmap:
+      - "     "
+      - "  #  "
+      - "  #  "
+      - "##   " #
+      - " #   "
+      - " #   "
+      - "#    "
+      - "#    "
+      - " ### " #
+
+  u10458.prop.unused:  # 𐑘 Yea
+    bitmap:
+      - "     "
+      - " #   "
+      - " #   "
+      - "  #  " #
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "    #"
+      - "    #" #
+
+  u10459.prop.unused:  # 𐑙 Hung
+    bitmap:
+      - "  #  "
+      - " # # "
+      - " # # "
+      - " # # " #
+      - " # # "
+      - " # # "
+      - "  #  "
+      - " # # "
+      - "#   #" #
+
+  u1045A.prop.unused:  # 𐑚 Bib
+    y_offset: -3
+    bitmap:
+      - "#    " #
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    " #
+      - " #   "
+      - "  #  "
+      - "   ##"
+
+  u1045B.prop.unused:  # 𐑛 Dead
+    y_offset: -3
+    cursive_entry: [1, 5]
+    cursive_exit: [5, 0]
+    bitmap:
+      - "#   " #
+      - "#   "
+      - "#   "
+      - "#   "
+      - "#   "
+      - "#  #" #
+      - "# # "
+      - "##  "
+      - "#   "
+
+  u1045C.prop.unused:  # 𐑜 Gag
+    y_offset: -3
+    bitmap:
+      - "#### " #
+      - "    #"
+      - "    #"
+      - "    #"
+      - "    #"
+      - "#### " #
+      - "#    "
+      - "#    "
+      - "#    "
+
+  u1045D.prop.unused:  # 𐑝 Vow
+    y_offset: -3
+    bitmap:
+      - "  ###" #
+      - " #   "
+      - "#    "
+      - "#    "
+      - "#    "
+      - "#    " #
+      - "#    "
+      - "#    "
+      - "#    "
+
+  u1045E.prop.unused:  # 𐑞 They
+    y_offset: -3
+    bitmap:
+      - " ### " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#  # "
+      - "###  " #
+      - "#    "
+      - "#   #"
+      - " ### "
+
+  u1045F.prop.unused:  # 𐑟 Zoo
+    y_offset: -3
+    bitmap:
+      - "###  " #
+      - "   # "
+      - "   # "
+      - "  #  "
+      - " #   "
+      - " #   " #
+      - "#    "
+      - "#    "
+      - " ##  "
+
+  u10460.prop.unused:  # 𐑠 Measure
+    y_offset: -3
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  u10461.prop.unused:  # 𐑡 Judge
+    y_offset: -3
+    bitmap:
+      - "#### " #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "  #  "
+      - " # ##" #
+      - " ##  "
+      - "##   "
+      - "#    "
+
+  u10462.prop.unused:  # 𐑢 Woe
+    y_offset: -3
+    cursive_exit: [4, 5]
+    bitmap:
+      - "   #" #
+      - "   #"
+      - "  # "
+      - "  # "
+      - " #  "
+      - " #  " #
+      - "#   "
+      - "#   "
+      - "#   "
+
+  u10463.prop.unused:  # 𐑣 Ha-Ha
+    y_offset: -3
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+
+  u10464.prop.unused:  # 𐑤 Loll
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10465.prop.unused:  # 𐑥 Mime
+    bitmap:
+      - "   ##" #
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "##   " #
+
+  u10466.prop.unused:  # 𐑦 If
+    bitmap:
+      - "#" #
+      - "#"
+      - "#"
+      - "#"
+      - "#"
+      - "#" #
+
+  u10467.prop.unused:  # 𐑧 Egg
+    bitmap:
+      - "#    " #
+      - "#    "
+      - "#    "
+      - " #   "
+      - "  #  "
+      - "   ##" #
+
+  u10468.prop.unused:  # 𐑨 Ash
+    bitmap:
+      - "    #" #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "  #  "
+      - "##   " #
+
+  u10469.prop.unused:  # 𐑩 Ado
+    bitmap:
+      - "   ##" #
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "#    "
+      - "#    " #
+
+  u1046A.prop.unused:  # 𐑪 On
+    bitmap:
+      - "##   " #
+      - "  #  "
+      - "   # "
+      - "   # "
+      - "    #"
+      - "    #" #
+
+  u1046B.prop.unused:  # 𐑫 Wool
+    bitmap:
+      - "#   #" #
+      - "#   #"
+      - "#   #"
+      - " # # "
+      - " # # "
+      - "  #  " #
+
+  u1046C.prop.unused:  # 𐑬 Out
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1046D.prop.unused:  # 𐑭 Ah
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1046E.prop.unused:  # 𐑮 Roar
+    bitmap:
+      - "###  " #
+      - "   # "
+      - "    #"
+      - "    #"
+      - "   # "
+      - "###  " #
+
+  u1046F.prop.unused:  # 𐑯 Nun
+    bitmap:
+      - "##   " #
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "  #  "
+      - "   ##" #
+
+  u10470.prop.unused:  # 𐑰 Eat
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10471.prop.unused:  # 𐑱 Age
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10472.prop.unused:  # 𐑲 Ice
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10473.prop.unused:  # 𐑳 Up
+    bitmap:
+      - "#####" #
+      - "  #  "
+      - " #   "
+      - " #   "
+      - "#    "
+      - "#    " #
+
+  u10474.prop.unused:  # 𐑴 Oak
+    bitmap:
+      - " ### " #
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - "#   #"
+      - " ### " #
+
+  u10475.prop.unused:  # 𐑵 Ooze
+    bitmap:
+      - "  #  " #
+      - " # # "
+      - " # # "
+      - "#   #"
+      - "#   #"
+      - "#   #" #
+
+  u10476.prop.unused:  # 𐑶 Oil
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10477.prop.unused:  # 𐑷 Awe
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10478.prop.unused:  # 𐑸 Are
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u10479.prop.unused:  # 𐑹 Or
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1047A.prop.unused:  # 𐑺 Air
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1047B.prop.unused:  # 𐑻 Err
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1047C.prop.unused:  # 𐑼 Array
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1047D.prop.unused:  # 𐑽 Ear
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
+
+  u1047E.prop.unused:  # 𐑾 Ian
+    bitmap:
+      - "#  ##" #
+      - "# #  "
+      - "##   "
+      - "##   "
+      - "#    "
+      - "#    " #
+
+  u1047F.prop.unused:  # 𐑿 Yew
+    bitmap:
+      - "     " #
+      - "     "
+      - "     "
+      - "     "
+      - "     "
+      - "     " #
