@@ -60,13 +60,13 @@ def test_family_form_modifiers_are_seeded_from_authored_form_data():
                         "bitmap": ["#"],
                     },
                     "forms": {
-                        "alt_reaches_way_back": {
+                        "local_form_label": {
                             "shape": "prop",
                             "anchors": {
                                 "exit": [2, 0],
                             },
                             "traits": ["alt"],
-                            "output_name": "qsCustomForm",
+                            "modifiers": ["reaches-way-back"],
                         },
                     },
                 },
@@ -75,9 +75,59 @@ def test_family_form_modifiers_are_seeded_from_authored_form_data():
         "senior",
     )
 
-    form = glyphs["qsCustomForm"]
+    form = glyphs["qsTest.alt.reaches-way-back"]
     assert form["_modifiers"] == ["alt", "reaches-way-back"]
     assert {"alt", "reaches-way-back"} <= set(form["_compat_assertions"])
+
+
+def test_form_keys_are_local_labels():
+    left = compile_glyph_definitions(
+        {
+            "glyph_families": {
+                "qsTest": {
+                    "prop": {
+                        "bitmap": ["#"],
+                    },
+                    "forms": {
+                        "first_label": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [2, 0],
+                            },
+                            "traits": ["alt"],
+                            "modifiers": ["reaches-way-back"],
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+    right = compile_glyph_definitions(
+        {
+            "glyph_families": {
+                "qsTest": {
+                    "prop": {
+                        "bitmap": ["#"],
+                    },
+                    "forms": {
+                        "renamed_local_label": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [2, 0],
+                            },
+                            "traits": ["alt"],
+                            "modifiers": ["reaches-way-back"],
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    assert left.keys() == right.keys()
+    assert left["qsTest.alt.reaches-way-back"]["_modifiers"] == right["qsTest.alt.reaches-way-back"]["_modifiers"]
 
 
 def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
@@ -98,13 +148,12 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
                         },
                     },
                     "forms": {
-                        "alt": {
+                        "local_alt_form": {
                             "shape": "prop",
                             "anchors": {
                                 "entry": [0, 0],
                             },
                             "traits": ["alt"],
-                            "output_name": "qsCustomAlt",
                         },
                     },
                 },
@@ -116,7 +165,61 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
     variants = generate_noentry_variants(glyphs)
 
     assert "qsBase.noentry" in variants
-    assert "qsCustomAlt.noentry" not in variants
+    assert "qsBase.alt.noentry" not in variants
+
+
+def test_structured_family_selectors_resolve_to_compiled_names():
+    glyphs = compile_glyph_definitions(
+        {
+            "glyphs": {
+                "uni200C": {
+                    "bitmap": [],
+                    "advance_width": 0,
+                },
+            },
+            "glyph_families": {
+                "qsLeft": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                            "exit": [1, 0],
+                        },
+                        "derive": {
+                            "extend_exit_before": [
+                                {"family": "qsRight"},
+                            ],
+                        },
+                    },
+                },
+                "qsRight": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                    "forms": {
+                        "baseline_entry_after_extended_left": {
+                            "shape": "prop",
+                            "anchors": {
+                                "entry": [0, 0],
+                            },
+                            "modifiers": ["entry-baseline"],
+                            "select": {
+                                "after": [
+                                    {"family": "qsLeft", "modifiers": ["exit-extended"]},
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
 
 
 def test_alt_and_half_are_semantic_traits():

@@ -20,6 +20,7 @@ from collections import deque
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
+import re
 
 import yaml
 
@@ -221,7 +222,7 @@ def _merge_family_records(base: dict, override: dict) -> dict:
                     merged[key][nested_key] = deepcopy(nested_value)
             if not merged[key]:
                 merged.pop(key, None)
-        elif key == "traits":
+        elif key in {"traits", "modifiers"}:
             merged[key] = list(dict.fromkeys([*merged.get(key, []), *value]))
         elif value is None:
             merged.pop(key, None)
@@ -308,67 +309,195 @@ def _is_contextual_family_form(form_def: dict, *, is_base_record: bool = False) 
     return any(key in form_def for key in ("shape", "bitmap"))
 
 
-def _normalize_family_refs(values: list[str]) -> list[str]:
-    return [get_base_glyph_name(value) for value in values]
+_SOURCE_FAMILY_TRAITS = frozenset({"alt", "half"})
+_ENTRY_EXIT_MODIFIER_RE = re.compile(
+    r"^(?:entry|exit)-[a-z0-9]+(?:-[a-z0-9]+)*(?:-at-[a-z0-9]+)?$"
+)
+_BEFORE_AFTER_MODIFIER_RE = re.compile(r"^(?:before|after)-[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
-def _family_form_modifiers(form_name: str | None, form_def: dict) -> tuple[str, ...]:
-    if not form_name:
-        return tuple(form_def.get("traits", ()))
+def _validate_source_trait(
+    trait: str,
+    *,
+    family_name: str,
+    context: str,
+) -> None:
+    if not isinstance(trait, str) or not trait:
+        raise ValueError(f"{family_name} {context} has an invalid trait {trait!r}")
+    if trait not in _SOURCE_FAMILY_TRAITS:
+        raise ValueError(
+            f"{family_name} {context} uses unsupported trait {trait!r}; "
+            f"expected one of {sorted(_SOURCE_FAMILY_TRAITS)!r}"
+        )
 
-    traits = tuple(form_def.get("traits", ()))
-    modifiers = list(traits)
-    tokens = form_name.split("_")
-    index = 0
-    trait_tokens = set(traits)
 
-    while index < len(tokens):
-        token = tokens[index]
-        if token in trait_tokens:
-            index += 1
-            continue
-        if token in {"entry", "exit"}:
-            if index + 1 >= len(tokens):
-                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
-            next_token = tokens[index + 1]
-            if next_token == "doubly":
-                if index + 2 >= len(tokens) or tokens[index + 2] != "extended":
-                    raise ValueError(f"Invalid Quikscript form name '{form_name}'")
-                modifier = f"{token}-doubly-extended"
-                index += 3
-            else:
-                modifier = f"{token}-{next_token}"
-                index += 2
-            if index + 1 < len(tokens) and tokens[index] == "at":
-                modifier += f"-at-{tokens[index + 1]}"
-                index += 2
-            modifiers.append(modifier)
-            continue
-        if token in {"after", "before"}:
-            remainder = "-".join(tokens[index + 1 :])
-            if not remainder:
-                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
-            modifiers.append(f"{token}-{remainder}")
-            break
-        if token == "reaches":
-            if tokens[index + 1 : index + 3] != ["way", "back"]:
-                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
-            modifiers.append("reaches-way-back")
-            index += 3
-            continue
-        if token == "smaller":
-            if tokens[index + 1 : index + 2] != ["loop"]:
-                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
-            modifiers.append("smaller-loop")
-            index += 2
-            continue
-        if token in {"extended", "widebase"}:
-            modifiers.append(token)
-            index += 1
-            continue
-        raise ValueError(f"Unsupported Quikscript form name '{form_name}'")
+def _validate_source_modifier(
+    modifier: str,
+    *,
+    family_name: str,
+    context: str,
+) -> None:
+    if not isinstance(modifier, str) or not modifier:
+        raise ValueError(f"{family_name} {context} has an invalid modifier {modifier!r}")
+    if modifier in _SOURCE_FAMILY_TRAITS:
+        raise ValueError(
+            f"{family_name} {context} uses trait-like token {modifier!r} in modifiers; "
+            "put it under traits instead"
+        )
+    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry"}:
+        return
+    if _ENTRY_EXIT_MODIFIER_RE.fullmatch(modifier):
+        return
+    if _BEFORE_AFTER_MODIFIER_RE.fullmatch(modifier):
+        return
+    raise ValueError(f"{family_name} {context} uses unsupported modifier {modifier!r}")
 
+
+def _normalize_source_traits(
+    raw_traits,
+    *,
+    family_name: str,
+    context: str,
+) -> tuple[str, ...]:
+    if raw_traits is None:
+        return ()
+    if not isinstance(raw_traits, (list, tuple)):
+        raise ValueError(f"{family_name} {context} traits must be a list")
+
+    seen = set()
+    traits = []
+    for trait in raw_traits:
+        _validate_source_trait(trait, family_name=family_name, context=context)
+        if trait in seen:
+            raise ValueError(f"{family_name} {context} repeats trait {trait!r}")
+        seen.add(trait)
+        traits.append(trait)
+    return tuple(traits)
+
+
+def _normalize_source_modifiers(
+    raw_modifiers,
+    *,
+    family_name: str,
+    context: str,
+) -> tuple[str, ...]:
+    if raw_modifiers is None:
+        return ()
+    if not isinstance(raw_modifiers, (list, tuple)):
+        raise ValueError(f"{family_name} {context} modifiers must be a list")
+
+    seen = set()
+    modifiers = []
+    for modifier in raw_modifiers:
+        _validate_source_modifier(modifier, family_name=family_name, context=context)
+        if modifier in seen:
+            raise ValueError(f"{family_name} {context} repeats modifier {modifier!r}")
+        seen.add(modifier)
+        modifiers.append(modifier)
     return tuple(modifiers)
+
+
+def _compiled_family_glyph_name(
+    family_name: str,
+    traits: tuple[str, ...] | list[str] = (),
+    modifiers: tuple[str, ...] | list[str] = (),
+) -> str:
+    parts = [family_name, *traits, *modifiers]
+    return ".".join(parts)
+
+
+def _split_family_compiled_name(
+    glyph_name: str,
+    family_names: set[str],
+) -> tuple[str, tuple[str, ...], tuple[str, ...]] | None:
+    normalized = get_base_glyph_name(glyph_name)
+    family_name = None
+    for candidate in sorted(family_names, key=len, reverse=True):
+        if normalized == candidate or normalized.startswith(candidate + "."):
+            family_name = candidate
+            break
+    if family_name is None:
+        return None
+
+    suffix = normalized[len(family_name):].removeprefix(".")
+    if not suffix:
+        return family_name, (), ()
+
+    traits = []
+    modifiers = []
+    for token in suffix.split("."):
+        if token in _SOURCE_FAMILY_TRAITS:
+            traits.append(token)
+        else:
+            modifiers.append(token)
+    return family_name, tuple(traits), tuple(modifiers)
+
+
+def _resolve_family_selector_name(
+    value,
+    family_names: set[str],
+    *,
+    context_family: str,
+    context_label: str,
+    field_name: str,
+) -> str:
+    context = f"{context_label} {field_name}"
+    if isinstance(value, str):
+        resolved_family = _split_family_compiled_name(value, family_names)
+        if resolved_family is not None:
+            family_name, traits, modifiers = resolved_family
+            return _compiled_family_glyph_name(family_name, traits, modifiers)
+        return get_base_glyph_name(value)
+
+    if not isinstance(value, dict):
+        raise ValueError(f"{context_family} {context} must contain strings or selector mappings")
+
+    unknown_keys = set(value) - {"family", "traits", "modifiers"}
+    if unknown_keys:
+        keys = ", ".join(sorted(unknown_keys))
+        raise ValueError(f"{context_family} {context} uses unsupported selector keys: {keys}")
+
+    target_family = value.get("family")
+    if not isinstance(target_family, str) or not target_family:
+        raise ValueError(f"{context_family} {context} selector must include a family name")
+    if target_family not in family_names:
+        raise ValueError(
+            f"{context_family} {context} refers to unknown glyph family {target_family!r}"
+        )
+
+    traits = _normalize_source_traits(
+        value.get("traits", ()),
+        family_name=context_family,
+        context=context,
+    )
+    modifiers = _normalize_source_modifiers(
+        value.get("modifiers", ()),
+        family_name=context_family,
+        context=context,
+    )
+    return _compiled_family_glyph_name(target_family, traits, modifiers)
+
+
+def _normalize_family_refs(
+    values,
+    family_names: set[str],
+    *,
+    context_family: str,
+    context_label: str,
+    field_name: str,
+) -> list[str]:
+    if not isinstance(values, list):
+        raise ValueError(f"{context_family} {context_label} {field_name} must be a list")
+    return [
+        _resolve_family_selector_name(
+            value,
+            family_names,
+            context_family=context_family,
+            context_label=context_label,
+            field_name=field_name,
+        )
+        for value in values
+    ]
 
 
 def _family_form_to_glyph_def(
@@ -379,6 +508,7 @@ def _family_form_to_glyph_def(
     form_name: str | None = None,
     output_name: str,
     contextual: bool,
+    family_names: set[str],
 ) -> dict:
     glyph_def: dict = {}
 
@@ -418,7 +548,13 @@ def _family_form_to_glyph_def(
     }
     for source_key, glyph_key in select_map.items():
         if source_key in select:
-            glyph_def[glyph_key] = _normalize_family_refs(select[source_key])
+            glyph_def[glyph_key] = _normalize_family_refs(
+                select[source_key],
+                family_names,
+                context_family=family_name,
+                context_label=f"form {form_name!r}" if form_name else "base record",
+                field_name=source_key,
+            )
 
     derive = form_def.get("derive", {})
     derive_map = {
@@ -432,7 +568,24 @@ def _family_form_to_glyph_def(
     }
     for source_key, glyph_key in derive_map.items():
         if source_key in derive:
-            glyph_def[glyph_key] = _normalize_family_refs(derive[source_key])
+            glyph_def[glyph_key] = _normalize_family_refs(
+                derive[source_key],
+                family_names,
+                context_family=family_name,
+                context_label=f"form {form_name!r}" if form_name else "base record",
+                field_name=source_key,
+            )
+
+    traits = _normalize_source_traits(
+        form_def.get("traits", ()),
+        family_name=family_name,
+        context=f"form {form_name!r}" if form_name else "base record",
+    )
+    modifiers = _normalize_source_modifiers(
+        form_def.get("modifiers", ()),
+        family_name=family_name,
+        context=f"form {form_name!r}" if form_name else "base record",
+    )
 
     _stamp_compiled_glyph_seed(
         glyph_def,
@@ -440,9 +593,9 @@ def _family_form_to_glyph_def(
         base_name=family_name,
         family_name=family_name,
         sequence=family_def.get("sequence"),
-        traits=form_def.get("traits"),
+        traits=traits,
         contextual=contextual,
-        modifiers=_family_form_modifiers(form_name, form_def),
+        modifiers=[*traits, *modifiers],
     )
 
     return glyph_def
@@ -454,6 +607,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
 
     is_senior = variant == "senior"
     compiled: dict[str, dict] = {}
+    family_names = set(glyph_families)
 
     for family_name, family_def in glyph_families.items():
         cache: dict[str, dict] = {}
@@ -466,6 +620,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     _resolve_family_record(family_name, family_def, "mono", cache, []),
                     output_name=family_name,
                     contextual=False,
+                    family_names=family_names,
                 )
         else:
             base_record_name = "prop" if family_def.get("prop") else "mono"
@@ -476,14 +631,25 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     _resolve_family_record(family_name, family_def, base_record_name, cache, []),
                     output_name=family_name,
                     contextual=False,
+                    family_names=family_names,
                 )
 
         for form_name in family_def.get("forms", {}):
             resolved = _resolve_family_record(family_name, family_def, form_name, cache, [])
-            output_name = resolved.get("output_name")
-            if not output_name:
+            traits = _normalize_source_traits(
+                resolved.get("traits", ()),
+                family_name=family_name,
+                context=f"form {form_name!r}",
+            )
+            modifiers = _normalize_source_modifiers(
+                resolved.get("modifiers", ()),
+                family_name=family_name,
+                context=f"form {form_name!r}",
+            )
+            output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
+            if output_name == family_name:
                 raise ValueError(
-                    f"Glyph family '{family_name}' form '{form_name}' is missing output_name"
+                    f"Glyph family '{family_name}' form '{form_name}' must declare traits or modifiers"
                 )
             variants = set(resolved.get("variants", []))
             if variant == "mono":
@@ -493,6 +659,11 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                 continue
             elif not is_senior and _is_contextual_family_form(resolved):
                 continue
+            if output_name in compiled:
+                raise ValueError(
+                    f"Glyph family '{family_name}' form '{form_name}' duplicates compiled glyph "
+                    f"name {output_name!r}"
+                )
             compiled[output_name] = _family_form_to_glyph_def(
                 family_name,
                 family_def,
@@ -500,6 +671,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                 form_name=form_name,
                 output_name=output_name,
                 contextual=_is_contextual_family_form(resolved),
+                family_names=family_names,
             )
 
     return compiled
@@ -546,7 +718,35 @@ def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
         glyphs_def.update(generate_doubly_extended_entry_variants(glyphs_def))
         glyphs_def.update(generate_doubly_extended_exit_variants(glyphs_def))
 
+    if is_senior:
+        _validate_compiled_glyph_references(glyphs_def)
     return glyphs_def
+
+
+def _validate_compiled_glyph_references(glyphs_def: dict) -> None:
+    list_keys = (
+        "calt_after",
+        "calt_before",
+        "calt_not_after",
+        "calt_not_before",
+        "extend_entry_after",
+        "extend_exit_before",
+        "doubly_extend_entry_after",
+        "doubly_extend_exit_before",
+        "noentry_after",
+        "reverse_upgrade_from",
+        "preferred_over",
+    )
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        for key in list_keys:
+            values = glyph_def.get(key, ())
+            for value in values:
+                if value not in glyphs_def:
+                    raise ValueError(
+                        f"Glyph {glyph_name!r} {key} refers to missing glyph {value!r}"
+                    )
 
 
 def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
