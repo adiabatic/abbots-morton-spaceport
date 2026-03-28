@@ -45,6 +45,7 @@ def load_glyph_data(path: Path) -> dict:
         metadata = {}
         glyphs = {}
         glyph_families = {}
+        context_sets = {}
         kerning_defs = {}
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
@@ -55,12 +56,15 @@ def load_glyph_data(path: Path) -> dict:
                 glyphs.update(data["glyphs"])
             if data and "glyph_families" in data:
                 glyph_families.update(data["glyph_families"])
+            if data and "context_sets" in data:
+                context_sets.update(data["context_sets"])
             if data and "kerning" in data:
                 kerning_defs.update(data["kerning"])
         return {
             "metadata": metadata,
             "glyphs": glyphs,
             "glyph_families": glyph_families,
+            "context_sets": context_sets,
             "kerning": kerning_defs,
         }
     else:
@@ -70,6 +74,7 @@ def load_glyph_data(path: Path) -> dict:
             "metadata": data.get("metadata", {}),
             "glyphs": data.get("glyphs", {}),
             "glyph_families": data.get("glyph_families", {}),
+            "context_sets": data.get("context_sets", {}),
             "kerning": data.get("kerning", {}),
         }
 
@@ -482,22 +487,58 @@ def _normalize_family_refs(
     values,
     family_names: set[str],
     *,
+    context_sets: dict[str, list],
     context_family: str,
     context_label: str,
     field_name: str,
 ) -> list[str]:
     if not isinstance(values, list):
         raise ValueError(f"{context_family} {context_label} {field_name} must be a list")
-    return [
-        _resolve_family_selector_name(
-            value,
-            family_names,
-            context_family=context_family,
-            context_label=context_label,
-            field_name=field_name,
-        )
-        for value in values
-    ]
+
+    def _expand_value(value, stack: tuple[str, ...]) -> list[str]:
+        if isinstance(value, dict) and "context_set" in value:
+            if set(value) != {"context_set"}:
+                extra = ", ".join(sorted(set(value) - {"context_set"}))
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} context_set refs "
+                    f"cannot include extra keys: {extra}"
+                )
+            set_name = value["context_set"]
+            if not isinstance(set_name, str) or not set_name:
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} uses an invalid "
+                    "context_set name"
+                )
+            if set_name not in context_sets:
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} refers to unknown "
+                    f"context_set {set_name!r}"
+                )
+            if set_name in stack:
+                cycle = " -> ".join([*stack, set_name])
+                raise ValueError(f"Cyclic context_set expansion in {context_family}: {cycle}")
+            raw_values = context_sets[set_name]
+            if not isinstance(raw_values, list):
+                raise ValueError(f"context_set {set_name!r} must be a list")
+            expanded = []
+            for raw_value in raw_values:
+                expanded.extend(_expand_value(raw_value, (*stack, set_name)))
+            return expanded
+
+        return [
+            _resolve_family_selector_name(
+                value,
+                family_names,
+                context_family=context_family,
+                context_label=context_label,
+                field_name=field_name,
+            )
+        ]
+
+    expanded = []
+    for value in values:
+        expanded.extend(_expand_value(value, ()))
+    return expanded
 
 
 def _family_form_to_glyph_def(
@@ -509,6 +550,7 @@ def _family_form_to_glyph_def(
     output_name: str,
     contextual: bool,
     family_names: set[str],
+    context_sets: dict[str, list],
 ) -> dict:
     glyph_def: dict = {}
 
@@ -551,6 +593,7 @@ def _family_form_to_glyph_def(
             glyph_def[glyph_key] = _normalize_family_refs(
                 select[source_key],
                 family_names,
+                context_sets=context_sets,
                 context_family=family_name,
                 context_label=f"form {form_name!r}" if form_name else "base record",
                 field_name=source_key,
@@ -571,6 +614,7 @@ def _family_form_to_glyph_def(
             glyph_def[glyph_key] = _normalize_family_refs(
                 derive[source_key],
                 family_names,
+                context_sets=context_sets,
                 context_family=family_name,
                 context_label=f"form {form_name!r}" if form_name else "base record",
                 field_name=source_key,
@@ -601,13 +645,18 @@ def _family_form_to_glyph_def(
     return glyph_def
 
 
-def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
+def compile_glyph_families(
+    glyph_families: dict,
+    variant: str,
+    context_sets: dict[str, list] | None = None,
+) -> dict:
     if not glyph_families:
         return {}
 
     is_senior = variant == "senior"
     compiled: dict[str, dict] = {}
     family_names = set(glyph_families)
+    context_sets = context_sets or {}
 
     for family_name, family_def in glyph_families.items():
         cache: dict[str, dict] = {}
@@ -621,6 +670,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     output_name=family_name,
                     contextual=False,
                     family_names=family_names,
+                    context_sets=context_sets,
                 )
         else:
             base_record_name = "prop" if family_def.get("prop") else "mono"
@@ -632,6 +682,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     output_name=family_name,
                     contextual=False,
                     family_names=family_names,
+                    context_sets=context_sets,
                 )
 
         for form_name in family_def.get("forms", {}):
@@ -672,6 +723,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                 output_name=output_name,
                 contextual=_is_contextual_family_form(resolved),
                 family_names=family_names,
+                context_sets=context_sets,
             )
 
     return compiled
@@ -709,7 +761,13 @@ def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
         legacy_glyphs = prepare_proportional_glyphs(legacy_glyphs)
 
     glyphs_def = dict(legacy_glyphs)
-    glyphs_def.update(compile_glyph_families(glyph_data.get("glyph_families", {}), variant))
+    glyphs_def.update(
+        compile_glyph_families(
+            glyph_data.get("glyph_families", {}),
+            variant,
+            context_sets=glyph_data.get("context_sets", {}),
+        )
+    )
 
     if is_senior:
         glyphs_def.update(generate_noentry_variants(glyphs_def))

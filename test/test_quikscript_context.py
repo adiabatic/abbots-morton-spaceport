@@ -222,6 +222,124 @@ def test_structured_family_selectors_resolve_to_compiled_names():
     assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
 
 
+def test_context_sets_expand_and_compose_inside_select_and_derive():
+    glyphs = compile_glyph_definitions(
+        {
+            "context_sets": {
+                "extended_leads": [
+                    {"family": "qsLead", "modifiers": ["exit-extended"]},
+                ],
+                "after_sources": [
+                    {"family": "qsPrimary"},
+                    {"context_set": "extended_leads"},
+                ],
+                "more_extenders": [
+                    {"family": "qsExtTwo"},
+                ],
+                "all_extenders": [
+                    {"family": "qsExtOne"},
+                    {"context_set": "more_extenders"},
+                ],
+            },
+            "glyph_families": {
+                "qsPrimary": {
+                    "prop": {"bitmap": ["#"]},
+                },
+                "qsLead": {
+                    "prop": {"bitmap": ["#"]},
+                    "forms": {
+                        "extended_exit": {
+                            "shape": "prop",
+                            "anchors": {"exit": [1, 0]},
+                            "modifiers": ["exit-extended"],
+                        },
+                    },
+                },
+                "qsExtOne": {
+                    "prop": {"bitmap": ["#"]},
+                },
+                "qsExtTwo": {
+                    "prop": {"bitmap": ["#"]},
+                },
+                "qsTarget": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "derive": {
+                            "extend_entry_after": [{"context_set": "all_extenders"}],
+                        },
+                    },
+                    "forms": {
+                        "baseline_entry": {
+                            "shape": "prop",
+                            "anchors": {"entry": [0, 0]},
+                            "modifiers": ["entry-baseline"],
+                            "select": {
+                                "after": [{"context_set": "after_sources"}],
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    assert glyphs["qsTarget"]["extend_entry_after"] == ["qsExtOne", "qsExtTwo"]
+    assert glyphs["qsTarget.entry-baseline"]["calt_after"] == [
+        "qsPrimary",
+        "qsLead.exit-extended",
+    ]
+
+
+def test_inherits_reuses_and_clears_nested_form_context():
+    glyphs = compile_glyph_definitions(
+        {
+            "glyph_families": {
+                "qsBlocker": {
+                    "prop": {"bitmap": ["#"]},
+                },
+                "qsOther": {
+                    "prop": {"bitmap": ["#"]},
+                },
+                "qsBase": {
+                    "prop": {
+                        "bitmap": ["#"],
+                    },
+                    "forms": {
+                        "half": {
+                            "shape": "prop",
+                            "anchors": {"exit": [1, 0]},
+                            "select": {
+                                "not_before": [{"family": "qsBlocker"}],
+                            },
+                            "traits": ["half"],
+                        },
+                        "half_entry": {
+                            "inherits": "half",
+                            "anchors": {"entry": [0, 0]},
+                            "modifiers": ["entry-baseline"],
+                        },
+                        "half_entry_exit": {
+                            "inherits": "half",
+                            "anchors": {"entry": [0, 0], "exit": [1, 0]},
+                            "select": {
+                                "not_before": None,
+                                "before": [{"family": "qsOther"}],
+                            },
+                            "modifiers": ["entry-baseline", "exit-baseline"],
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    assert glyphs["qsBase.half.entry-baseline"]["calt_not_before"] == ["qsBlocker"]
+    assert "calt_not_before" not in glyphs["qsBase.half.entry-baseline.exit-baseline"]
+    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["calt_before"] == ["qsOther"]
+
+
 def test_alt_and_half_are_semantic_traits():
     meta = _compiled_meta()
 
