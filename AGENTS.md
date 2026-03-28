@@ -52,8 +52,14 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 2. Update `version` in `pyproject.toml` (e.g., `3.0.0`)
 3. Run `uv sync` to update `uv.lock`
 
+## Transcribing passages from the manual
+
+- The two word-list sections in @test/the-manual.html — "Common words to be fully spelt" and "Contractions" — are the source of truth for English → Senior QS spellings. Parse the `<dt>` for the English word and the `<dd>` (or its child `<span>` elements) for the QS text. Multi-form entries (e.g., `time/s`) use `data-orthodox` attributes on each `<span>` to label which English word each QS form represents.
+- The `data-orthodox` attribute on `force-senior` paragraphs provides the English text for each passage.
+
 ## Tests
 
+- See @test/data-expect.md for the `data-expect` attribute syntax (glyph tokens, connection operators, variant assertions, ligature notation, and duplicate rules).
 - Three levels of duplicate exist for elements with a `data-expect` attribute:
   - **Content duplicate:** two elements whose text content is byte-identical (same code points in the same order).
   - **Total duplicate:** a content duplicate where the two `data-expect` values also express the same sequence of assertions (identical after collapsing whitespace).
