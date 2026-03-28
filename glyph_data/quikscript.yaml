@@ -1,1948 +1,2810 @@
-glyphs:
+glyph_families:
   space:
-    advance_width: 7
-    bitmap: []
-
-  # Naming conventions for glyph variants:
-  #
-  # .prop          default proportional form (may or may not have cursive anchors)
-  # .entry-*       contextual variant named by the calt trigger direction (backward-looking),
-  #                not an exhaustive list of anchors — an exit anchor may also be present
-  # .exit-*        contextual variant named by the calt trigger direction (forward-looking),
-  #                not an exhaustive list of anchors — an entry anchor may also be present
-  # .half          Quikscript half-letter (community term): deep letters omit the deep stroke,
-  #                tall letters render only the top or bottom portion
-  # .alt           alternate letterform
-  # .fina          word-final form (OpenType convention)
-  # .before-X      context qualifier: calt triggers before glyph X (build uses calt_before field)
-  # .after-X       context qualifier: calt triggers after glyph X (build uses calt_after field)
-  # .extended      extended connecting stroke (wider bitmap to bridge a gap)
-  #
-  # Height labels: baseline (y=0), y1, xheight (y=5), y6, top (y=8)
-
-  # NB:
-  # width is 5 pixels
-  # x-height is 6 pixels
-  # Talls are 9 pixels
-  # Deeps are 9 pixels
-  # Angled parentheses (qsAngleParenLeft, qsAngleParenRight) are 12 pixels
-  # Add a nothing comment on the bottom inside of the X-height or right on top of the baseline
-
-  # Quikscript letters (CSUR PUA U+E650–U+E67F)
-  qsPea:  # ·Pea
-    bitmap:
-      - " ### "
-      - "#   #"
-      - "#   #"
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "    #"
-      - "    #"
-      - "    #" #
-
-  qsPea.prop:  # ·Pea
-    cursive_exit: [5, 0]
-    bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "   #" #
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #" #
-
-  qsPea.entry-y6:  # ·Pea
-    cursive_entry: [1, 6]
-    bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "   #" #
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #" #
-
-  qsPea.entry-y6.exit-baseline:  # ·Pea
-    cursive_entry: [1, 6]
-    cursive_exit: [5, 0]
-    bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "   #" #
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #" #
-
-  qsPea.half.entry-y6:  # ·Pea
-    cursive_entry: [1, 6]
-    cursive_exit: [6, 5]
-    calt_not_before: [qsDay, qsFee, qsTea]
-    bitmap:
-      - " ##   "
-      - "#  #  "
-      - "#  #  "
-      - "   ###" #
-      - "      "
-      - "      "
-      - "      "
-      - "      "
-      - "      " #
-
-  qsPea.prop.half:  # ·Pea
-    cursive_exit: [6, 5]
-    calt_not_before: [qsDay, qsFee, qsTea]
-    bitmap:
-      - " ##   "
-      - "#  #  "
-      - "#  #  "
-      - "   ###" #
-      - "      "
-      - "      "
-      - "      "
-      - "      "
-      - "      " #
-
-  qsPea.half.entry-xheight.exit-xheight:  # ·Pea
-    cursive_entry: [1, 5]
-    cursive_exit:  [6, 5]
-    reverse_upgrade_from: [qsPea.half]
-    calt_not_before: [qsDay, qsFee, qsTea]
-    bitmap:
-      - " ##   "
-      - "#  #  "
-      - "#  #  "
-      - "   ###" #
-      - "      "
-      - "      "
-      - "      "
-      - "      "
-      - "      " #
-
-  qsPea.half.entry-y6.exit-y6:  # ·Pea
-    cursive_entry: [1, 6]
-    cursive_exit: [4, 6]
-    calt_before: [qsPea]
-    bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "    " #
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "    " #
-
-  qsBay:  # ·Bay
-    y_offset: -3
-    bitmap: &bay_bitmap
-      - "   # " #
-      - "   # "
-      - "   # "
-      - "   # "
-      - "   # "
-      - " ####" #
-      - "#  # "
-      - "#  # "
-      - " ##  "
-
-  qsBay.prop:  # ·Bay
-    y_offset: -3
-    cursive_exit: [6, 0]
-    bitmap: *bay_bitmap
-
-  qsBay.entry-xheight:  # ·Bay
-    y_offset: -3
-    cursive_entry: [4, 5]
-    cursive_exit: [6, 0]
-    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
-    bitmap: *bay_bitmap
-
-  qsTea:  # ·Tea
-    bitmap:
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-
-  qsTea.prop:  # ·Tea
-    bitmap: &tea_prop_bitmap
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-
-  qsTea.exit-baseline:  # ·Tea
-    cursive_exit: [1, 0]
-    doubly_extend_exit_before: [qsSee]
-    bitmap: *tea_prop_bitmap
-
-  qsTea.half:  # ·Tea
-    bitmap:
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-      - " "
-      - " "
-      - " "
-      - " "
-      - " " #
-
-  qsTea.half.entry-xheight:  # ·Tea
-    cursive_entry: [1, 5]
-    calt_not_after: [qsAt, qsFee, qsNo]
-    bitmap:
-      - " #"
-      - " #"
-      - " #"
-      - "##" #
-      - "  "
-      - "  "
-      - "  "
-      - "  "
-      - "  " #
-
-  qsTea.half.exit-xheight:  # ·Tea
-    cursive_entry_curs_only: [1, 8]
-    cursive_exit: [2, 5]
-    calt_not_before: [qsFee, qsFoot]
-    bitmap:
-      - "# "
-      - "# "
-      - "# "
-      - "##" #
-      - "  "
-      - "  "
-      - "  "
-      - "  "
-      - "  " #
-
-  qsTea.half.entry-top.exit-xheight:  # ·Tea
-    cursive_entry: [1, 8]
-    cursive_exit: [2, 5]
-    calt_not_before: [qsFee, qsFoot]
-    bitmap:
-      - "# "
-      - "# "
-      - "# "
-      - "##" #
-      - "  "
-      - "  "
-      - "  "
-      - "  "
-      - "  " #
-
-  qsTea.entry-top:  # ·Tea
-    cursive_entry: [1, 8]
-    bitmap: *tea_prop_bitmap
-
-  qsTea.entry-top.exit-baseline:  # ·Tea
-    cursive_entry: [1, 8]
-    cursive_exit: [2, 0]
-    bitmap: *tea_prop_bitmap
-
-  qsTea.entry-baseline:  # ·Tea (no exit)
-    cursive_entry: [1, 0]
-    extend_entry_after: [qsKey]
-    bitmap: *tea_prop_bitmap
-
-  qsTea.entry-baseline.exit-baseline:  # ·Tea (enters AND exits at baseline — limited exception)
-    cursive_entry: [1, 0]
-    cursive_exit: [2, 0]
-    calt_after: [qsEt]
-    bitmap: *tea_prop_bitmap
-
-  qsTea.entry-xheight:  # ·Tea (full height)
-    cursive_entry: [1, 5]
-    cursive_exit: [2, 0]
-    calt_after: [qsI]
-    bitmap:
-      - " #"
-      - " #"
-      - " #"
-      - "##" #
-      - " #"
-      - " #"
-      - " #"
-      - " #"
-      - " #" #
-
-  qsTea_qsOy.prop:  # ·Tea·Oy ligature
-    cursive_exit: [9, 0]
-    bitmap:
-      - "   #    "
-      - "   #    "
-      - "   #    "
-      - " ####   " #
-      - "#  # #  "
-      - "#  #  # "
-      - " ##    #"
-      - "       #"
-      - "       #" #
-
-  qsDay:  # ·Day
-    y_offset: -3
-    bitmap:
-      - "#    " #
-      - "#    "
-      - "#    "
-      - "#    "
-      - "#    "
-      - "#  # " #
-      - "# #  "
-      - "##   "
-      - "#    "
-
-  qsDay.prop:  # ·Day
-    y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [5, 0]
-    bitmap:
-      - "#   " #
-      - "#   "
-      - "#   "
-      - "#   "
-      - "#   "
-      - "#  #" #
-      - "# # "
-      - "##  "
-      - "#   "
-
-  qsDay.half:  # ·Day (exits at baseline)
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [5, 0]
-    calt_not_after: [qsTea, qsYe]
-    extend_entry_after: [qsTea, qsYe]
-    bitmap:
-      - "    " #
-      - "    "
-      - "    "
-      - "    "
-      - "    "
-      - "#  #" #
-      - "# # "
-      - "##  "
-      - "#   "
-
-  qsDay_qsUtter.prop:  # ·Day·Utter ligature
-    y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [9, 5]
-    bitmap:
-      - "#    ###" #
-      - "#   #   "
-      - "#  #    "
-      - "#  #    "
-      - "# #     "
-      - "# #     " #
-      - "##      "
-      - "##      "
-      - "#       "
-
-  qsDay_qsEat.prop:  # ·Day·Eat ligature
-    y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [7, 0]
-    bitmap:
-      - "#    #" #
-      - "#   ##"
-      - "#  # #"
-      - "#  # #"
-      - "# #  #"
-      - "# #  #" #
-      - "##    "
-      - "##    "
-      - "#     "
-
-  qsKey:  # ·Key
-    bitmap:
-      - "#    "
-      - " #   "
-      - "  #  "
-      - "  #  " #
-      - "  #  "
-      - " #   "
-      - "#    "
-      - "#    "
-      - " ### " #
-
-  qsKey.prop:  # ·Key
-    cursive_entry: [1, 8]
-    cursive_exit: [5, 0]
-    bitmap:
-      - "#   "
-      - " #  "
-      - "  # "
-      - "  # " #
-      - "  # "
-      - " #  "
-      - "#   "
-      - "#   "
-      - " ###" #
-
-  qsGay:  # ·Gay
-    y_offset: -3
-    bitmap: &gay_bitmap
-      - "  ## " #
-      - " #   "
-      - " #   "
-      - "  #  "
-      - "   # "
-      - "  ###" #
-      - " #  #"
-      - " #  #"
-      - "  ## "
-
-  qsGay.prop:  # ·Gay
-    y_offset: -3
-    bitmap: *gay_bitmap
-
-  qsGay.exit-xheight.extended:  # ·Gay
-    y_offset: -3
-    cursive_exit: [6, 5]
-    calt_not_before: [qsEt]
-    bitmap:
-      - "  ###" #
-      - " #   "
-      - " #   "
-      - "  #  "
-      - "   # "
-      - "  ###" #
-      - " #  #"
-      - " #  #"
-      - "  ## "
-
-  qsGay.exit-baseline:  # ·Gay
-    y_offset: -3
-    cursive_exit: [6, 0]
-    calt_not_before: [qsNo]
-    bitmap:
-      - "  ## " #
-      - " #   "
-      - " #   "
-      - "  #  "
-      - "   # "
-      - "  ###" #
-      - " #  #"
-      - " #  #"
-      - "  ## "
-
-  qsGay.exit-baseline.before-deep-or-roe:  # ·Gay
-    y_offset: -3
-    cursive_exit: [6, 0]
-    calt_before: [qsNo, qsRoe]
-    extend_exit_before: [qsDay, qsZoo]
-    bitmap: *gay_bitmap
-
-  qsThaw:  # ·Thaw
-    bitmap: &thaw_bitmap
-      - " ### "
-      - "#   #"
-      - "    #"
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - "  #  " #
-
-  qsThaw.prop:  # ·Thaw
-    cursive_entry: [3, 0]
-    bitmap: *thaw_bitmap
-
-  qsThaw.exit-baseline:  # ·Thaw (before ·-ing)
-    cursive_exit: [5, 0]
-    calt_before: [qsIng]
-    bitmap:
-      - " ### "
-      - "#   #"
-      - "    #"
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - "  ## " #
-
-  qsThaw.entry-y1:  # ·Thaw
-    cursive_entry: [3, 1] 
-    bitmap:
-      - " ### "
-      - "#   #"
-      - "    #"
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - "     " #
-
-  qsThey:  # ·They
-    y_offset: -3
-    bitmap: &they_bitmap
-      - "  #  " #
-      - "  #  "
-      - " #   "
-      - " #   "
-      - " #   "
-      - "#    " #
-      - "#    "
-      - "#   #"
-      - " ### "
-
-  qsThey.entry-xheight:  # ·They
-    y_offset: -3
-    cursive_entry: [3, 5]
-    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
-    bitmap: *they_bitmap
-
-  qsThey.exit-xheight:  # ·They
-    y_offset: -3
-    cursive_exit: [4, 5]
-    calt_not_before: [qsDay, qsTea]
-    bitmap:
-      - "  #  " #
-      - "  #  "
-      - " #   "
-      - " #   "
-      - " #   "
-      - "#    " #
-      - "#    "
-      - "#   #"
-      - " ### "
-
-  qsThey_qsMay.prop:  # ·They·May ligature
-    y_offset: -3
-    cursive_exit: [5, 0]
-    calt_before: [qsMay]
-    bitmap:
-      - "  #      ##" #
-      - "  #     #  "
-      - " #      #  "
-      - " #     #   "
-      - " #     #   "
-      - "#     #### " #
-      - "#    # #  #"
-      - "#   #  #  #"
-      - " ###    ## "
-
-  qsThey_qsZoo.prop:  # ·They·Zoo ligature
-    y_offset: -3
-    bitmap:
-      - "  #      " #
-      - "  #      "
-      - " #       "
-      - " #       "
-      - " #       "
-      - "#        " #
-      - "#   #   #"
-      - "#   #  # "
-      - " ### ##  "
-
-  qsThey_qsUtter.prop:  # ·They·Utter ligature
-    y_offset: -3
-    cursive_entry: [3, 5]
-    cursive_exit: [12, 5]
-    calt_after: [qsUtter.exit-extended, qsAh.exit-extended]
-    bitmap:
-      - "  #      ##" #
-      - "  #     #  "
-      - " #     #   "
-      - " #    #    "
-      - " #   #     "
-      - "#    #     " #
-      - "#   #      "
-      - "#   #      "
-      - " ###       "
-
-  qsFee:  # ·Fee
-    bitmap: &fee_bitmap
-      - "  #  "
-      - "   # "
-      - "    #"
-      - "  ###" #
-      - " #  #"
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - " ### " #
-
-  qsFee.prop:  # ·Fee
-    bitmap: *fee_bitmap
-
-  qsFee.entry-xheight:  # ·Fee
-    cursive_entry: [2, 5]
-    calt_after: [qsI, qsOwe, qsUtter, qsUtter.exit-extended, qsAh.exit-extended, qsLow.exit-extended, qsNo.exit-extended, qsMay.exit-extended, qsOut.exit-xheight.exit-extended]
-    bitmap:
-      - "  #  "
-      - "   # "
-      - "    #"
-      - " #  #" #
-      - " #  #"
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - " ### " #
-
-  qsFee.entry-top:  # ·Fee
-    cursive_entry: [1, 8]
-    cursive_exit: [6, 5]
-    bitmap:
-      - "###  "
-      - "   # "
-      - "    #"
-      - "  ###" #
-      - " #  #"
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - " ### " #
-
-  qsFee.exit-xheight:  # ·Fee
-    cursive_exit: [6, 5]
-    calt_not_before: [qsTea]
-    extend_exit_before: [qsCheer, qsDay, qsEight, qsEt, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
-    bitmap: *fee_bitmap
-
-  qsFee.exit-xheight.before-utter:  # ·Fee
-    cursive_exit: [6, 5]
-    calt_before: [qsUtter]
-    bitmap: *fee_bitmap
-
-  qsFee_qsMay.prop:  # ·Fee·May ligature
-    y_offset: -3
-    bitmap:
-      - "  #       "
-      - "   #      "
-      - "    #     "
-      - "  ########" #
-      - " #  #  #  "
-      - "#   #  #  "
-      - "#   # #   "
-      - "#   # #   "
-      - " ###  ### " #
-      - "      #  #"
-      - "      #  #"
-      - "       ## "
-
-  qsVie:  # ·Vie
-    y_offset: -3
-    bitmap:
-      - " ### " #
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - "#  # "
-      - "###  " #
-      - "#    "
-      - "#   #"
-      - " ### "
-
-  qsVie.prop:  # ·Vie
-    y_offset: -3
-    cursive_entry: [1, 0]
-    extend_entry_after: &vertical_exit_letters [qsHe, qsPea, qsTea, qsIt, qsYe]
-    bitmap:
-      - "  ### " #
-      - " #   #"
-      - " #   #"
-      - " #   #"
-      - " #  # "
-      - "####  " #
-      - " #    "
-      - " #   #"
-      - "  ### "
-
-  qsVie.exit-baseline:  # ·Vie (before ·No)
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [8, 0]
-    calt_before: [qsNo, qsRoe, qsIng]
-    bitmap:
-      - "  ###   " #
-      - " #   #  "
-      - " #   #  "
-      - " #   #  "
-      - " #  #   "
-      - "####   #" #
-      - " #    # "
-      - " #   #  "
-      - "  ###   "
-
-  qsVie_qsUtter.prop:  # ·Vie·Utter ligature
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [13, 5]
-    bitmap:
-      - "  ###     ##" #
-      - " #   #   #  "
-      - " #   #  #   "
-      - " #   #  #   "
-      - " #  #  #    "
-      - "####   #    " #
-      - " #    #     "
-      - " #   #      "
-      - "  ###       "
-
-  qsSee:  # ·See
-    bitmap: &see_bitmap
-      - "   ##"
-      - "  #  "
-      - " #   "
-      - " #   " #
-      - "  #  "
-      - "  #  "
-      - "   # "
-      - "   # "
-      - "###  " #
-
-  qsSee.prop:  # ·See
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 8]
-    bitmap: *see_bitmap
-
-  qsSee.exit-y6:  # ·See
-    cursive_entry: [1, 0]
-    cursive_exit: [7, 6]
-    bitmap:
-      - "   ## "
-      - "  #  #"
-      - " #   #"
-      - " #    " #
-      - "  #   "
-      - "  #   "
-      - "   #  "
-      - "   #  "
-      - "###   " #
-
-  qsSee_qsUtter.prop:  # ·See·Utter ligature
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsMay]
-    bitmap:
-      - "  #  "
-      - " #   "
-      - "#    "
-      - "#  ##" #
-      - "# #  "
-      - " #   "
-      - " #   "
-      - "#    "
-      - "#    " #
-
-  qsSee_qsEat.prop:  # ·See·Eat ligature
-    cursive_exit: [8, 0]
-    bitmap:
-      - "   #   "
-      - "  #    "
-      - " #     "
-      - " #    #" #
-      - "  #  ##"
-      - "   ## #"
-      - "   #  #"
-      - "  #   #"
-      - " #    #" #
-
-  qsSee.exit-baseline:  # ·See
-    cursive_exit: [3, 0]
-    calt_before: [qsAt, qsOoze, qsOut]
-    extend_exit_before: [qsLow, qsOoze]
-    calt_not_after: [qsIt]
-    bitmap:
-
-      - "   #"
-      - "  # "
-      - " #  "
-      - " #  " #
-      - "  # "
-      - "  # "
-      - "   #"
-      - "   #"
-      - "  # " #
-
-  qsZoo:  # ·Zoo
-    y_offset: -3
-    bitmap: &zoo_bitmap
-      - "###  " #
-      - "   # "
-      - "   # "
-      - "  #  "
-      - " #   "
-      - " #   " #
-      - "#   #"
-      - "#  # "
-      - " ##  "
-
-  qsZoo.prop:  # ·Zoo
-    y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    extend_entry_after: [qsMay]
-    bitmap: *zoo_bitmap
-
-  qsZoo.half:  # ·Zoo
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "#    " #
-      - "#   #"
-      - "#  # "
-      - " ##  "
-
-  qsShe:  # ·She
-    bitmap: &she_bitmap
-      - "     "
-      - "   # "
-      - "  #  "
-      - " #   " #
-      - " #   "
-      - "#    "
-      - "#    "
-      - "#   #"
-      - " ### " #
-
-  qsShe.prop:  # ·She
-    bitmap: *she_bitmap
-
-  qsShe.exit-baseline:  # ·She
-    cursive_exit: [6, 0]
-    bitmap:
-      - "     "
-      - "   # "
-      - "  #  "
-      - " #   " #
-      - " #   "
-      - "#    "
-      - "#    "
-      - "#    "
-      - " ####" #
-
-  qsJai:  # ·J'ai
-    y_offset: -3
-    bitmap:
-      - "#### " #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - " ####" #
-      - "# #  "
-      - "# #  "
-      - " #   "
-
-  qsJai.prop:  # ·J'ai
-    y_offset: -3
-    bitmap: &jai_prop_bitmap
-      - " #### " #
-      - "     #"
-      - "     #"
-      - "    # "
-      - "    # "
-      - "  ####" #
-      - " # #  "
-      - "# #   "
-      - " #    "
-
-  qsJai.exit-baseline:  # ·J'ai
-    y_offset: -3
-    cursive_exit: [7, 0]
-    extend_exit_before: [qsIng, qsLow, qsNo, qsRoe, qsSee, qsTea, qsThaw, qsVie]
-    calt_not_before: [qsAt, qsExam, qsIt, qsEat]
-    bitmap: *jai_prop_bitmap
-
-  qsJai_qsUtter.prop:  # ·J'ai
-    y_offset: -3
-    cursive_entry: [0, 6]
-    cursive_exit: [11, 5]
-    bitmap:
-      - "#####   ##" #
-      - "     # #  "
-      - "     ##   "
-      - "    ##    "
-      - "   ##     "
-      - "  # #     " #
-      - " #  #     "
-      - "#  #      "
-      - " ##       "
-
-  qsCheer:  # ·Cheer
-    bitmap: &cheer_bitmap
-      - "     "
-      - "  #  "
-      - "  #  "
-      - "##   " #
-      - " #   "
-      - " #   "
-      - "#    "
-      - "#    "
-      - " ### " #
-
-  qsCheer.prop:  # ·Cheer
-    cursive_entry: [1, 5]
-    cursive_exit: [5, 0]
-    bitmap:
-      - "    "
-      - "  # "
-      - "  # "
-      - "##  " #
-      - " #  "
-      - " #  "
-      - "#   "
-      - "#   "
-      - " ###" #
-
-  qsJay:  # ·Jay
-    y_offset: -3
-    bitmap: &jay_bitmap
-      - "#### " #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "  #  "
-      - " # ##" #
-      - " ##  "
-      - "##   "
-      - "#    "
-
-  qsJay.prop:  # ·Jay
-    y_offset: -3
-    cursive_exit:  [6, 0]
-    bitmap: *jay_bitmap
-
-  qsJay.entry-xheight:  # ·Jay
-    y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    extend_entry_after: [qsIt]
-    bitmap: *jay_bitmap
-
-  qsJay_qsUtter.prop:  # ·Jay·Utter ligature
-    y_offset: -3
-    cursive_exit: [12, 5]
-    bitmap:
-      - "####     ##" #
-      - "    #   #  "
-      - "    #  #   "
-      - "   #  #    "
-      - "  #  #     "
-      - " #  #      " #
-      - " # #       "
-      - "# #        "
-      - "##         "
-
-  qsYe:  # ·Ye
-    bitmap:
-      - "  #  "
-      - " # # "
-      - " # # "
-      - "###  " #
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   " #
-
-  qsYe.prop:  # ·Ye
-    cursive_exit: [3, 0]
-    bitmap:
-      - "  # "
-      - " # #"
-      - "### "
-      - " #  " #
-      - " #  "
-      - " #  "
-      - " #  "
-      - " #  "
-      - " #  " #
-
-  qsYe.entry-xheight.exit-baseline:  # ·Ye
-    cursive_entry: [1, 5]
-    cursive_exit:  [3, 0]
-    calt_after: [qsNo]
-    bitmap:
-      - "  ## "
-      - " #  #"
-      - " ### "
-      - "##   " #
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   " #
-
-  qsWay:  # ·Way
-    y_offset: -3
-    # idea: extend the bitmap up by one column so there's no final curve at the top
-    bitmap:
-      - "    #" #
-      - "   # "
-      - "   # "
-      - "  #  "
-      - "  #  "
-      - " #   " #
-      - " #   "
-      - "#    "
-      - "#    "
-
-  # You'd think ·Why and ·Way have identical rules regarding shaping and glyph selection, but they don't — at least if you want to mirror The Quikscript Manual's usage.
-  qsWay.prop:  # ·Way
-    y_offset: -3
-    cursive_exit: [4, 5]
-    bitmap:
-      - "   #" #
-      - "   #"
-      - "  # "
-      - "  # "
-      - " #  "
-      - " #  " #
-      - "#   "
-      - "#   "
-      - "#   "
-
-  qsWay.half:  # ·Way (exits at baseline)
-    y_offset: -3
-    cursive_exit: [4, 0]
-    preferred_over: [qsWay.prop]
-    calt_not_before: [qsIt]
-    bitmap:
-      - "   " #
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   " #
-      - "  #"
-      - " # "
-      - "#  "
-
-  qsWay_qsUtter.prop:  # ·Way·Utter ligature
-    y_offset: -3
-    cursive_exit: [7, 5]
-    bitmap:
-      - "    ##" #
-      - "   #  "
-      - "  #   "
-      - "  #   "
-      - " #    "
-      - " #    " #
-      - "#     "
-      - "#     "
-      - "#     "
-
-  qsHe:  # ·He
-    bitmap:
-      - "  ## "
-      - " #   "
-      - " #   "
-      - " #   " #
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   "
-      - " #   " #
-
-  qsHe.prop:  # ·He
-    bitmap: &he_prop_bitmap
-      - " ##"
-      - "#  "
-      - "#  "
-      - "#  " #
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  "
-      - "#  " #
-
-  qsHe.half:  # ·He (exits at x-height)
-    cursive_exit: [3, 5]
-    calt_not_before: [qsFee]
-    bitmap:
-      - " ##"
-      - "#  "
-      - "#  "
-      - "## " #
-      - "   "
-      - "   "
-      - "   "
-      - "   "
-      - "   " #
-
-  qsHe.exit-baseline:  # ·He
-    cursive_exit: [2, 0]
-    calt_not_before: [qsSee, qsThaw]
-    bitmap: *he_prop_bitmap
-
-  qsHe.exit-baseline.before-may:  # ·He
-    cursive_exit: [2, 0]
-    calt_before: [qsMay]
-    bitmap: *he_prop_bitmap
-
-  qsWhy:  # ·Why
-    y_offset: -3
-    bitmap: &why_bitmap
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "   # "
-      - "   # " #
-      - "# #  "
-      - " ##  "
-      - "  #  "
-
-  qsWhy.prop:  # ·Why
-    y_offset: -3
-    bitmap: *why_bitmap
-
-  qsWhy.exit-xheight:  # ·Why
-    y_offset: -3
-    cursive_exit: [6, 5]
-    bitmap:
-      - "     #" #
-      - "    # "
-      - "    # "
-      - "   #  "
-      - "   #  "
-      - "   #  " #
-      - "# #   "
-      - " ##   "
-      - "  #   "
-
-  qsWhy.half:  # ·Why (exits at baseline)
-    y_offset: -3
-    cursive_exit: [5, 0]
-    calt_not_before: [qsI, qsIt]
-    bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "#   #"
-      - " # # "
-      - "  #  "
-
-  qsWhy_qsUtter.prop:  # ·Why·Utter ligature
-    y_offset: -3
-    cursive_exit: [10, 5]
-    bitmap:
-      - "       ##" #
-      - "      #  "
-      - "     #   "
-      - "     #   "
-      - "    #    "
-      - "    #    " #
-      - "#  #     "
-      - " # #     "
-      - "  #      "
-
-  qsIng:  # ·-ing
-    bitmap: &ing_bitmap
-      - "  #  "
-      - " # # "
-      - " # # "
-      - " # # " #
-      - " # # "
-      - " # # "
-      - "  #  "
-      - " # # "
-      - "#   #" #
-
-  qsIng.prop:  # ·-ing
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    extend_entry_after: [qsTea]
-    bitmap: *ing_bitmap
-
-  qsIng.prop.widebase:  # ·-ing (after ·Thaw)
-    cursive_entry: [1, 0]
-    cursive_exit: [8, 0]
-    calt_after: [qsThaw]
-    bitmap:
-      - "   #   "
-      - "  # #  "
-      - "  # #  "
-      - "  # #  " #
-      - "  # #  "
-      - "  # #  "
-      - "   #   "
-      - "  # #  "
-      - "##   ##" #
-
-  qsMay:  # ·May
-    y_offset: -3
-    bitmap: &may_bitmap
-      - "   ##" #
-      - "  #  "
-      - "  #  "
-      - " #   "
-      - " #   "
-      - "#### " #
-      - " #  #"
-      - " #  #"
-      - "  ## "
-
-  qsMay.prop:  # ·May
-    y_offset: -3
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsDay, qsFee, qsIt, qsRoe]
-    bitmap: *may_bitmap
-
-  qsMay.entry-xheight:  # ·May
-    y_offset: -3
-    cursive_entry: [4, 5]
-    calt_after: [qsSee_qsUtter.prop, qsUtter.exit-extended, qsAh.exit-extended]
-    bitmap:
-      - "   # " #
-      - "  #  "
-      - "  #  "
-      - " #   "
-      - " #   "
-      - "#### " #
-      - " #  #"
-      - " #  #"
-      - "  ## "
-
-  qsMay.entry-baseline:  # ·May
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    calt_not_after: [qsOx]
-    extend_entry_after: *vertical_exit_letters
-    bitmap: *may_bitmap
-
-  qsMay.exit-baseline:  # ·May
-    y_offset: -3
-    cursive_exit: [6, 0]
-    calt_not_before: [qsDay, qsEat, qsIt, qsNo, qsOoze, qsRoe, qsUtter, qsZoo]
-    bitmap:
-      - "  ## " #
-      - " #   "
-      - " #   "
-      - "#    "
-      - "#    "
-      - "# ###" #
-      - "#  # "
-      - "#  # "
-      - " ##  "
-
-
-  qsNo:  # ·No
-    bitmap: &no_bitmap
-      - "#   #" #
-      - " # # "
-      - "  #  "
-      - " # # "
-      - " # # "
-      - "  #  " #
-
-  qsNo.prop:  # ·No
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsFee]
-    bitmap: *no_bitmap
-
-  qsNo.alt:  # ·No (upside-down)
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    calt_not_after: [qsZoo]
-    bitmap: &no_alt_bitmap
-      - "  #  " #
-      - " # # "
-      - " # # "
-      - "  #  "
-      - " # # "
-      - "#   #" #
-
-  qsNo.alt.after-it-and-vie:  # ·No
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    calt_after: [qsIt, qsVie]
-    bitmap: *no_alt_bitmap
-
-  qsNo.alt.after-zoo:  # ·No
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    calt_after: [qsZoo]
-    calt_not_before: [qsEt]
-    bitmap: *no_alt_bitmap
-
-  qsLow:  # ·Low
-    bitmap: &low_bitmap
-      - "    #" #
-      - "  ## "
-      - " #   "
-      - " ##  "
-      - "   # "
-      - "###  " #
-
-  qsLow.prop:  # ·Low
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    extend_entry_after: [qsSee]
-    extend_exit_before: [qsFee]
-    bitmap: *low_bitmap
-
-  qsRoe:  # ·Roe
-    bitmap: &roe_bitmap
-      - "###  " #
-      - "   # "
-      - "    #"
-      - "    #"
-      - "   # "
-      - "###  " #
-
-  qsRoe.prop:  # ·Roe
-    cursive_entry:
-      - [1, 0]
-      - [1, 5]
-    extend_entry_after: [qsEight, qsIt, qsYe]
-    bitmap: *roe_bitmap
-
-  qsRoe.entry-extended-at-baseline:  # ·Roe
-    cursive_entry: [1, 0]
-    calt_after: [qsEight, qsIt, qsYe]
-    bitmap:
-      - "  ##  " #
-      - "    # "
-      - "     #"
-      - "     #"
-      - "    # "
-      - "####  " #
-
-  qsRoe.entry-extended-at-xheight:  # ·Roe
-    cursive_entry: [1, 5]
-    calt_after: [qsIt, qsMay, qsYe]
-    bitmap:
-      - "####  " #
-      - "    # "
-      - "     #"
-      - "     #"
-      - "    # "
-      - "  ##  " #
-
-  qsRoe.entry-xheight:  # ·Roe (non-extended, after half-·Pea)
-    cursive_entry: [1, 5]
-    calt_after: [qsPea.prop.half]
-    bitmap: *roe_bitmap
-
-  qsRoe.exit-baseline:  # ·Roe
-    cursive_entry:
-      - [1, 5]
-    cursive_exit: [6, 0]
-    calt_before: [qsAh, qsAt, qsIng, qsNo, qsSee, qsVie]
-    extend_exit_before: [qsI, qsLow]
-    bitmap:
-      - "###   " #
-      - "   #  "
-      - "    # "
-      - "    # "
-      - "   #  "
-      - "######" #
-
-  qsRoe.exit-xheight:  # ·Roe
-    cursive_entry: [1, 0]
-    cursive_exit:  [7, 5]
-    calt_before: [qsZoo, qsOx]
-    bitmap:
-      - "  #####" #
-      - "    #  "
-      - "     # "
-      - "     # "
-      - "    #  "
-      - "####   " #
-
-  qsRoe.exit-y1:  # ·Roe
-    cursive_entry:
-      - [1, 0]
-      - [1, 5]
-    cursive_exit: [6, 1]
-    calt_before: [qsThaw]
-    bitmap:
-      - "###   " #
-      - "   #  "
-      - "    # "
-      - "    # "
-      - "   # #"
-      - "##### " #
-
-  qsLoch:  # ·Loch
-    bitmap:
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - " ### " #
-      - "# # #"
-      - "# # #"
-      - "# # #"
-      - "# # #"
-      - " ## #" #
-
-  qsLlan:  # ·Llan
-    bitmap: &llan_bitmap
-      - "#    " #
-      - " ##  "
-      - "   # "
-      - "  ## "
-      - " #   "
-      - "  ###" #
-
-  qsLlan.prop:  # ·Llan
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    bitmap: *llan_bitmap
-
-  qsExcite:  # ·Excite
-    bitmap: &excite_bitmap
-      - "#    "
-      - "#    "
-      - "#    "
-      - " #  #" #
-      - " # # "
-      - "  #  "
-      - " # # "
-      - "#   #"
-      - "#   #" #
-
-  qsExcite.prop:  # ·Excite
-    cursive_entry: [1, 0]
-    bitmap:
-      - " #     "
-      - " #     "
-      - " #     "
-      - "  #  # " #
-      - "  # #  "
-      - "   #   "
-      - "  # #  "
-      - " #   # "
-      - "#     #" #
-
-  qsExcite.exit-baseline.before-vertical:  # ·Excite
-    cursive_entry: [1, 0]
-    cursive_exit: [8, 0]
-    bitmap:
-      - " #     "
-      - " #     "
-      - " #     "
-      - "  #  # " #
-      - "  # #  "
-      - "   #   "
-      - "  # #  "
-      - " #   # "
-      - "#     #" #
-
-  qsExam:  # ·Exam
-    y_offset: -3
-    bitmap: &exam_bitmap
-      - "#   #" #
-      - "#   #"
-      - " # # "
-      - "  #  "
-      - " # # "
-      - "#  # " #
-      - "    #"
-      - "    #"
-      - "    #"
-
-  qsExam.prop:  # ·Exam
-    y_offset: -3
-    cursive_entry: [1, 0]
-    bitmap: *exam_bitmap
-
-  qsAngleParenLeft:  # Quikscript left angled parenthesis
-    y_offset: -3
-    bitmap:
-      - "    #"
-      - "    #"
-      - "   ##"
-      - "   # " #
-      - "  ## "
-      - "  #  "
-      - " ##  "
-      - " #   "
-      - "##   " #
-      - "#    "
-      - "#    "
-      - "#####"
-
-  qsAngleParenRight:  # Quikscript right angled parenthesis
-    y_offset: -3
-    bitmap:
-      - "#####"
-      - "    #"
-      - "    #"
-      - "   ##" #
-      - "   # "
-      - "  ## "
-      - "  #  "
-      - " ##  "
-      - " #   " #
-      - "##   "
-      - "#    "
-      - "#    "
-
-  qsIt:  # ·It
-    bitmap:
-      - "  #  " #
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  " #
-
-  qsIt.prop:  # ·It
-    bitmap: &it_bitmap
-      - "#" #
-      - "#"
-      - "#"
-      - "#"
-      - "#"
-      - "#" #
-
-  qsIt.entry-xheight:  # ·It (exits at baseline)
-    cursive_entry: [1, 5]
-    cursive_exit: [2, 0]
-    calt_not_after: [qsIt]
-    bitmap: *it_bitmap
-
-  qsIt.entry-baseline:  # ·It (exits at x-height)
-    cursive_entry: [1, 0]
-    cursive_exit: [2, 5]
-    calt_not_after: [qsDay, qsEat, qsIt, qsZoo]
-    extend_entry_after: [qsKey]
-    bitmap: *it_bitmap
-
-  qsIt.entry-baseline.after-day:  # ·It (enters AND exits at baseline — limited exception)
-    cursive_entry: [1, 0]
-    cursive_exit: [2, 0]
-    calt_after: [qsDay]
-    bitmap: *it_bitmap
-
-  qsIt.exit-xheight:  # ·It
-    cursive_exit: [2, 5]
-    bitmap: *it_bitmap
-
-  qsIt.exit-baseline:  # ·It
-    cursive_exit: [2, 0]
-    bitmap: *it_bitmap
-
-  qsIt.exit-baseline.before-ing:  # ·It
-    cursive_exit: [2, 0]
-    calt_before: [qsIng, qsZoo]
-    calt_not_after: [qsBay]
-    bitmap: *it_bitmap
-
-  qsEat:  # ·Eat
-    bitmap:
-      - "   # " #
-      - "  ## "
-      - " # # "
-      - " # # "
-      - "#  # "
-      - "#  # " #
-
-  qsEat.prop:  # ·Eat
-    cursive_entry: [1, 0]
-    cursive_exit: [5, 0]
-    bitmap:
-      - "   #" #
-      - "  ##"
-      - " # #"
-      - " # #"
-      - "#  #"
-      - "#  #" #
-
-  qsEt:  # ·Et
-    bitmap: &et_bitmap
-      - "#    " #
-      - "#    "
-      - "#    "
-      - " #   "
-      - "  #  "
-      - "   ##" #
-
-  qsEt.prop:  # ·Et
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    bitmap: *et_bitmap
-
-  qsEight:  # ·Eight
-    bitmap: &eight_bitmap
-      - "# ## " #
-      - " #  #"
-      - " ### "
-      - "  #  "
-      - "   # "
-      - "    #" #
-
-  qsEight.prop:  # ·Eight
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    bitmap: *eight_bitmap
-
-  qsAt:  # ·At
-    bitmap: &at_bitmap
-      - "    #" #
-      - "    #"
-      - "    #"
-      - "   # "
-      - "  #  "
-      - "##   " #
-
-  qsAt.prop:  # ·At
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    extend_entry_after: [qsSee]
-    bitmap: *at_bitmap
-
-  qsAt_qsMay.prop:  # ·At·May ligature
-    y_offset: -3
-    cursive_entry: [1, 0]
-    cursive_exit: [11, 5]
-    bitmap:
-      - "    #   ##" #
-      - "    #  #  "
-      - "    #  #  "
-      - "   #  #   "
-      - "  #   #   "
-      - "######### " #
-      - "      #  #"
-      - "      #  #"
-      - "       ## "
-
-  qsI:  # ·I
-    bitmap: &i_bitmap
-      - " ## #" #
-      - "#  # "
-      - " ### "
-      - "  #  "
-      - " #   "
-      - "#    " #
-
-  qsI.prop:  # ·I
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsDay, qsEight, qsEt, qsFee, qsFoot, qsIt, qsLlan, qsNo, qsRoe]
-    bitmap: *i_bitmap
-
-  qsI.entry-baseline.smaller-loop:  # ·I
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    calt_after: [qsRoe.exit-baseline]
-    bitmap:
-      - "  # #" #
-      - " # # "
-      - "  ## "
-      - "  #  "
-      - " #   "
-      - "#    " #
-
-  qsAh:  # ·Ah
-    bitmap: &ah_bitmap
-      - "   ##" #
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "##   " #
-
-  qsAh.prop:  # ·Ah
-    cursive_entry: [1, 0]
-    cursive_exit: [8, 5]
-    extend_exit_before: [qsBay, qsFee, qsThey, qsMay]
-    bitmap:
-      - "     ##" #
-      - "    #  "
-      - "   #   "
-      - "   #   "
-      - "  #    "
-      - "##     " #
-
-  qsAwe:  # ·Awe
-    bitmap: &awe_bitmap
-      - "##   " #
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "  #  "
-      - "   ##" #
-
-  qsAwe.prop:  # ·Awe
-    cursive_entry: [1, 5]
-    cursive_exit: [7, 0]
-    bitmap:
-      - "##     " #
-      - "  #    "
-      - "   #   "
-      - "   #   "
-      - "    #  "
-      - "     ##" #
-
-  qsOx:  # ·Ox
-    bitmap: &ox_bitmap
-      - "##   " #
-      - "  #  "
-      - "   # "
-      - "   # "
-      - "    #"
-      - "    #" #
-
-  qsOx.prop:  # ·Ox
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    bitmap: *ox_bitmap
-
-  qsOy:  # ·Oy
-    bitmap: &oy_bitmap
-      - " #   " #
-      - "# #  "
-      - " # # "
-      - "    #"
-      - "    #"
-      - "    #" #
-
-  qsOy.prop:  # ·Oy
-    cursive_exit: [8, 0]
-    bitmap:
-      - " ###    " #
-      - "#  ##   "
-      - "#  # #  "
-      - " ##   # "
-      - "       #"
-      - "       #" #
-
-  qsOy.entry-xheight:  # ·Oy
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 0]
-    calt_after: [qsNo]
-    bitmap:
-      - "##   " #
-      - "  #  "
-      - " # # "
-      - "  # #"
-      - "    #"
-      - "    #" #
-
-  qsUtter:  # ·Utter
-    bitmap: &utter_bitmap
-      - "   ##" #
-      - "  #  "
-      - " #   "
-      - " #   "
-      - "#    "
-      - "#    " #
-
-  qsUtter.prop:  # ·Utter
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsBay, qsFee, qsThey]
-    bitmap: *utter_bitmap
-
-  qsUtter.alt:  # ·Utter
-    cursive_exit: [6, 0]
-    bitmap: &utter_alt_bitmap
-      - "  ## " #
-      - " #   "
-      - "#    "
-      - "#    "
-      - " #   "
-      - "  ###" #
-
-  qsUtter.alt.prop.reaches-way-back:  # ·Utter
-    cursive_entry: [1, 5]
-    cursive_exit: [7, 0]
-    calt_after: [qsFee, qsMay]
-    calt_not_before: [qsRoe]
-    bitmap:
-      - "##### " #
-      - "  #   "
-      - " #    "
-      - " #    "
-      - "  #   "
-      - "   ###" #
-
-  qsUtter.alt.before-may:  # ·Utter
-    cursive_exit: [6, 0]
-    calt_before: [qsMay]
-    bitmap: *utter_alt_bitmap
-
-  qsOut:  # ·Out
-    bitmap: &out_bitmap
-      - "   # " #
-      - "  # #"
-      - " # # "
-      - "#    "
-      - "#    "
-      - "#    " #
-
-  qsOut.prop:  # ·Out
-    cursive_entry: [1, 0]
-    bitmap:
-      - "    ### " #
-      - "   ##  #"
-      - "  # #  #"
-      - " #   ## "
-      - "#       "
-      - "#       " #
-
-  qsOut.prop.after-see:  # ·Out
-    cursive_entry: [1, 0]
-    calt_after: [qsSee]
-    bitmap:
-      - "     ### " #
-      - "    ##  #"
-      - "   # #  #"
-      - "  #   ## "
-      - " #       "
-      - "#        " #
-
-  qsOut.exit-xheight.after-see:  # ·Out
-    cursive_entry: [1, 0]
-    cursive_exit: [7, 5]
-    calt_after: [qsSee]
-    bitmap:
-      - "     ##" #
-      - "    #  "
-      - "   # # "
-      - "  # #  "
-      - " #     "
-      - "#      " #
-
-  qsOut.exit-xheight:  # ·Out
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 5]
-    extend_exit_before: [qsFee]
-    bitmap:
-      - "   ##" #
-      - "  #  "
-      - " # # "
-      - "# #  "
-      - "#    "
-      - "#    " #
-
-  qsOut_qsTea.prop:  # ·Out·Tea ligature
-    cursive_entry: [1, 0]
-    noentry_after: [qsSee]
-    bitmap:
-      - "    #   "
-      - "    #   "
-      - "    #   "
-      - "   #### " #
-      - "  # #  #"
-      - " #  #  #"
-      - "#    ## "
-      - "#       "
-      - "#       " #
-
-  qsOwe:  # ·Owe
-    bitmap:
-      - " ### " #
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - "#   #"
-      - " ### " #
-
-  qsOwe.entry-xheight:  # ·Owe
-    cursive_entry: [1, 5]
-    calt_not_after: [qsLow]
-    bitmap:
-      - "### # " #
-      - "  #  #"
-      - " #   #"
-      - " #   #"
-      - " #   #"
-      - "  ### " #
-
-  qsOwe.exit-xheight:  # ·Owe
-    cursive_exit: [7, 5]
-    calt_not_before: [qsLlan]
-    extend_exit_before: [qsFee]
-    bitmap:
-      - " # ###" #
-      - "#  #  "
-      - "#   # "
-      - "#   # "
-      - "#   # "
-      - " ###  " #
-
-  qsOwe.entry-xheight.exit-xheight:  # ·Owe
-    cursive_entry: [1, 5]
-    cursive_exit: [8, 5]
-    calt_not_after: [qsLow]
-    calt_not_before: [qsLlan]
-    extend_exit_before: [qsFee]
-    bitmap:
-      - "### ###" #
-      - "  # #  " 
-      - " #   # "
-      - " #   # "
-      - " #   # "
-      - "  ###  " #
-
-  qsFoot:  # ·Foot
-    bitmap: &foot_bitmap
-      - "#   #" #
-      - "#   #"
-      - "#   #"
-      - " # # "
-      - " # # "
-      - "  #  " #
-
-  qsFoot.prop:  # ·Foot
-    cursive_entry: [1, 5]
-    cursive_exit: [6, 5]
-    bitmap: *foot_bitmap
-
-  qsOoze:  # ·Ooze
-    bitmap: &ooze_bitmap
-      - "  #  " #
-      - " # # "
-      - " # # "
-      - "#   #"
-      - "#   #"
-      - "#   #" #
-
-  qsOoze.prop:  # ·Ooze
-    cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    extend_entry_after: *vertical_exit_letters
-    bitmap: *ooze_bitmap
-
-  qsOoze.entry-extended-at-baseline:  # ·Ooze
-    cursive_entry: [0, 0]
-    cursive_exit: [12, 0]
-    calt_after: [qsSee.exit-baseline]
-    bitmap:
-      - "     #     " #
-      - "   ## ##   "
-      - "  #     #  "
-      - " #       # "
-      - "#         #"
-      - "#         #" #
+    mono:
+      bitmap: []
+      advance_width: 7
+  qsPea:
+    mono:
+      bitmap:
+      - ' ### '
+      - '#   #'
+      - '#   #'
+      - '    #'
+      - '    #'
+      - '    #'
+      - '    #'
+      - '    #'
+      - '    #'
+    prop:
+      bitmap:
+      - ' ## '
+      - '#  #'
+      - '#  #'
+      - '   #'
+      - '   #'
+      - '   #'
+      - '   #'
+      - '   #'
+      - '   #'
+      anchors:
+        exit:
+        - 5
+        - 0
+    shapes:
+      half:
+        bitmap:
+        - ' ##   '
+        - '#  #  '
+        - '#  #  '
+        - '   ###'
+        - '      '
+        - '      '
+        - '      '
+        - '      '
+        - '      '
+      half_2:
+        bitmap:
+        - ' ## '
+        - '#  #'
+        - '#  #'
+        - '    '
+        - '    '
+        - '    '
+        - '    '
+        - '    '
+        - '    '
+    forms:
+      entry_y6:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 6
+        output_name: qsPea.entry-y6
+      entry_y6_exit_baseline:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 6
+          exit:
+          - 5
+          - 0
+        output_name: qsPea.entry-y6.exit-baseline
+      half_entry_y6:
+        shape: half
+        anchors:
+          entry:
+          - 1
+          - 6
+          exit:
+          - 6
+          - 5
+        select:
+          not_before:
+          - qsDay
+          - qsFee
+          - qsTea
+        traits:
+        - half
+        output_name: qsPea.half.entry-y6
+      half:
+        shape: half
+        anchors:
+          exit:
+          - 6
+          - 5
+        select:
+          not_before:
+          - qsDay
+          - qsFee
+          - qsTea
+        traits:
+        - half
+        output_name: qsPea.half
+      half_entry_xheight_exit_xheight:
+        shape: half
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 6
+          - 5
+        select:
+          not_before:
+          - qsDay
+          - qsFee
+          - qsTea
+        derive:
+          reverse_upgrade_from:
+          - qsPea.half
+        traits:
+        - half
+        output_name: qsPea.half.entry-xheight.exit-xheight
+      half_entry_y6_exit_y6:
+        shape: half_2
+        anchors:
+          entry:
+          - 1
+          - 6
+          exit:
+          - 4
+          - 6
+        select:
+          before:
+          - qsPea
+        traits:
+        - half
+        output_name: qsPea.half.entry-y6.exit-y6
+  qsBay:
+    mono:
+      bitmap:
+      - '   # '
+      - '   # '
+      - '   # '
+      - '   # '
+      - '   # '
+      - ' ####'
+      - '#  # '
+      - '#  # '
+      - ' ##  '
+      y_offset: -3
+    prop:
+      shape: mono
+      anchors:
+        exit:
+        - 6
+        - 0
+    forms:
+      entry_xheight:
+        shape: mono
+        anchors:
+          entry:
+          - 4
+          - 5
+          exit:
+          - 6
+          - 0
+        select:
+          after:
+          - qsUtter.exit-extended
+          - qsAh.exit-extended
+        output_name: qsBay.entry-xheight
+  qsTea:
+    mono:
+      bitmap:
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+    prop:
+      bitmap:
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+    shapes:
+      half:
+        bitmap:
+        - '#'
+        - '#'
+        - '#'
+        - '#'
+        - ' '
+        - ' '
+        - ' '
+        - ' '
+        - ' '
+      half_2:
+        bitmap:
+        - ' #'
+        - ' #'
+        - ' #'
+        - '##'
+        - '  '
+        - '  '
+        - '  '
+        - '  '
+        - '  '
+      half_3:
+        bitmap:
+        - '# '
+        - '# '
+        - '# '
+        - '##'
+        - '  '
+        - '  '
+        - '  '
+        - '  '
+        - '  '
+      shape_1:
+        bitmap:
+        - ' #'
+        - ' #'
+        - ' #'
+        - '##'
+        - ' #'
+        - ' #'
+        - ' #'
+        - ' #'
+        - ' #'
+    forms:
+      exit_baseline:
+        shape: prop
+        anchors:
+          exit:
+          - 1
+          - 0
+        derive:
+          doubly_extend_exit_before:
+          - qsSee
+        output_name: qsTea.exit-baseline
+      half:
+        shape: half
+        traits:
+        - half
+        output_name: qsTea.half
+      half_entry_xheight:
+        shape: half_2
+        anchors:
+          entry:
+          - 1
+          - 5
+        select:
+          not_after:
+          - qsAt
+          - qsFee
+          - qsNo
+        traits:
+        - half
+        output_name: qsTea.half.entry-xheight
+      half_exit_xheight:
+        shape: half_3
+        anchors:
+          entry_curs_only:
+          - 1
+          - 8
+          exit:
+          - 2
+          - 5
+        select:
+          not_before:
+          - qsFee
+          - qsFoot
+        traits:
+        - half
+        output_name: qsTea.half.exit-xheight
+      half_entry_top_exit_xheight:
+        shape: half_3
+        anchors:
+          entry:
+          - 1
+          - 8
+          exit:
+          - 2
+          - 5
+        select:
+          not_before:
+          - qsFee
+          - qsFoot
+        traits:
+        - half
+        output_name: qsTea.half.entry-top.exit-xheight
+      entry_top:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 8
+        output_name: qsTea.entry-top
+      entry_top_exit_baseline:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 8
+          exit:
+          - 2
+          - 0
+        output_name: qsTea.entry-top.exit-baseline
+      entry_baseline:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 0
+        derive:
+          extend_entry_after:
+          - qsKey
+        output_name: qsTea.entry-baseline
+      entry_baseline_exit_baseline:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 2
+          - 0
+        select:
+          after:
+          - qsEt
+        output_name: qsTea.entry-baseline.exit-baseline
+      entry_xheight:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 2
+          - 0
+        select:
+          after:
+          - qsI
+        output_name: qsTea.entry-xheight
+  qsTea_qsOy:
+    sequence:
+    - qsTea
+    - qsOy
+    prop:
+      bitmap:
+      - '   #    '
+      - '   #    '
+      - '   #    '
+      - ' ####   '
+      - '#  # #  '
+      - '#  #  # '
+      - ' ##    #'
+      - '       #'
+      - '       #'
+      anchors:
+        exit:
+        - 9
+        - 0
+  qsDay:
+    mono:
+      bitmap:
+      - '#    '
+      - '#    '
+      - '#    '
+      - '#    '
+      - '#    '
+      - '#  # '
+      - '# #  '
+      - '##   '
+      - '#    '
+      y_offset: -3
+    prop:
+      bitmap:
+      - '#   '
+      - '#   '
+      - '#   '
+      - '#   '
+      - '#   '
+      - '#  #'
+      - '# # '
+      - '##  '
+      - '#   '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 5
+        - 0
+    shapes:
+      half:
+        bitmap:
+        - '    '
+        - '    '
+        - '    '
+        - '    '
+        - '    '
+        - '#  #'
+        - '# # '
+        - '##  '
+        - '#   '
+        y_offset: -3
+    forms:
+      half:
+        shape: half
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 5
+          - 0
+        select:
+          not_after:
+          - qsTea
+          - qsYe
+        derive:
+          extend_entry_after:
+          - qsTea
+          - qsYe
+        traits:
+        - half
+        output_name: qsDay.half
+  qsDay_qsUtter:
+    sequence:
+    - qsDay
+    - qsUtter
+    prop:
+      bitmap:
+      - '#    ###'
+      - '#   #   '
+      - '#  #    '
+      - '#  #    '
+      - '# #     '
+      - '# #     '
+      - '##      '
+      - '##      '
+      - '#       '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 9
+        - 5
+  qsDay_qsEat:
+    sequence:
+    - qsDay
+    - qsEat
+    prop:
+      bitmap:
+      - '#    #'
+      - '#   ##'
+      - '#  # #'
+      - '#  # #'
+      - '# #  #'
+      - '# #  #'
+      - '##    '
+      - '##    '
+      - '#     '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 7
+        - 0
+  qsKey:
+    mono:
+      bitmap:
+      - '#    '
+      - ' #   '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - ' #   '
+      - '#    '
+      - '#    '
+      - ' ### '
+    prop:
+      bitmap:
+      - '#   '
+      - ' #  '
+      - '  # '
+      - '  # '
+      - '  # '
+      - ' #  '
+      - '#   '
+      - '#   '
+      - ' ###'
+      anchors:
+        entry:
+        - 1
+        - 8
+        exit:
+        - 5
+        - 0
+  qsGay:
+    mono:
+      bitmap:
+      - '  ## '
+      - ' #   '
+      - ' #   '
+      - '  #  '
+      - '   # '
+      - '  ###'
+      - ' #  #'
+      - ' #  #'
+      - '  ## '
+      y_offset: -3
+    prop:
+      shape: mono
+    shapes:
+      shape_1:
+        bitmap:
+        - '  ###'
+        - ' #   '
+        - ' #   '
+        - '  #  '
+        - '   # '
+        - '  ###'
+        - ' #  #'
+        - ' #  #'
+        - '  ## '
+        y_offset: -3
+    forms:
+      exit_xheight_extended:
+        shape: shape_1
+        anchors:
+          exit:
+          - 6
+          - 5
+        select:
+          not_before:
+          - qsEt
+        output_name: qsGay.exit-xheight.extended
+      exit_baseline:
+        shape: mono
+        anchors:
+          exit:
+          - 6
+          - 0
+        select:
+          not_before:
+          - qsNo
+        output_name: qsGay.exit-baseline
+      exit_baseline_before_deep_or_roe:
+        shape: mono
+        anchors:
+          exit:
+          - 6
+          - 0
+        select:
+          before:
+          - qsNo
+          - qsRoe
+        derive:
+          extend_exit_before:
+          - qsDay
+          - qsZoo
+        output_name: qsGay.exit-baseline.before-deep-or-roe
+  qsThaw:
+    mono:
+      bitmap:
+      - ' ### '
+      - '#   #'
+      - '    #'
+      - '    #'
+      - '    #'
+      - '    #'
+      - '   # '
+      - '   # '
+      - '  #  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 3
+        - 0
+    shapes:
+      shape_1:
+        bitmap:
+        - ' ### '
+        - '#   #'
+        - '    #'
+        - '    #'
+        - '    #'
+        - '    #'
+        - '   # '
+        - '   # '
+        - '  ## '
+      shape_2:
+        bitmap:
+        - ' ### '
+        - '#   #'
+        - '    #'
+        - '    #'
+        - '    #'
+        - '    #'
+        - '   # '
+        - '   # '
+        - '     '
+    forms:
+      exit_baseline:
+        shape: shape_1
+        anchors:
+          exit:
+          - 5
+          - 0
+        select:
+          before:
+          - qsIng
+        output_name: qsThaw.exit-baseline
+      entry_y1:
+        shape: shape_2
+        anchors:
+          entry:
+          - 3
+          - 1
+        output_name: qsThaw.entry-y1
+  qsThey:
+    mono:
+      bitmap:
+      - '  #  '
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+      - '#   #'
+      - ' ### '
+      y_offset: -3
+    forms:
+      entry_xheight:
+        shape: mono
+        anchors:
+          entry:
+          - 3
+          - 5
+        select:
+          after:
+          - qsUtter.exit-extended
+          - qsAh.exit-extended
+        output_name: qsThey.entry-xheight
+      exit_xheight:
+        shape: mono
+        anchors:
+          exit:
+          - 4
+          - 5
+        select:
+          not_before:
+          - qsDay
+          - qsTea
+        output_name: qsThey.exit-xheight
+  qsThey_qsMay:
+    sequence:
+    - qsThey
+    - qsMay
+    prop:
+      bitmap:
+      - '  #      ##'
+      - '  #     #  '
+      - ' #      #  '
+      - ' #     #   '
+      - ' #     #   '
+      - '#     #### '
+      - '#    # #  #'
+      - '#   #  #  #'
+      - ' ###    ## '
+      y_offset: -3
+      anchors:
+        exit:
+        - 5
+        - 0
+      select:
+        before:
+        - qsMay
+  qsThey_qsZoo:
+    sequence:
+    - qsThey
+    - qsZoo
+    prop:
+      bitmap:
+      - '  #      '
+      - '  #      '
+      - ' #       '
+      - ' #       '
+      - ' #       '
+      - '#        '
+      - '#   #   #'
+      - '#   #  # '
+      - ' ### ##  '
+      y_offset: -3
+  qsThey_qsUtter:
+    sequence:
+    - qsThey
+    - qsUtter
+    prop:
+      bitmap:
+      - '  #      ##'
+      - '  #     #  '
+      - ' #     #   '
+      - ' #    #    '
+      - ' #   #     '
+      - '#    #     '
+      - '#   #      '
+      - '#   #      '
+      - ' ###       '
+      y_offset: -3
+      anchors:
+        entry:
+        - 3
+        - 5
+        exit:
+        - 12
+        - 5
+      select:
+        after:
+        - qsUtter.exit-extended
+        - qsAh.exit-extended
+  qsFee:
+    mono:
+      bitmap:
+      - '  #  '
+      - '   # '
+      - '    #'
+      - '  ###'
+      - ' #  #'
+      - '#   #'
+      - '#   #'
+      - '#   #'
+      - ' ### '
+    prop:
+      shape: mono
+    shapes:
+      shape_1:
+        bitmap:
+        - '  #  '
+        - '   # '
+        - '    #'
+        - ' #  #'
+        - ' #  #'
+        - '#   #'
+        - '#   #'
+        - '#   #'
+        - ' ### '
+      shape_2:
+        bitmap:
+        - '###  '
+        - '   # '
+        - '    #'
+        - '  ###'
+        - ' #  #'
+        - '#   #'
+        - '#   #'
+        - '#   #'
+        - ' ### '
+    forms:
+      entry_xheight:
+        shape: shape_1
+        anchors:
+          entry:
+          - 2
+          - 5
+        select:
+          after:
+          - qsI
+          - qsOwe
+          - qsUtter
+          - qsUtter.exit-extended
+          - qsAh.exit-extended
+          - qsLow.exit-extended
+          - qsNo.exit-extended
+          - qsMay.exit-extended
+          - qsOut.exit-xheight.exit-extended
+        output_name: qsFee.entry-xheight
+      entry_top:
+        shape: shape_2
+        anchors:
+          entry:
+          - 1
+          - 8
+          exit:
+          - 6
+          - 5
+        output_name: qsFee.entry-top
+      exit_xheight:
+        shape: mono
+        anchors:
+          exit:
+          - 6
+          - 5
+        select:
+          not_before:
+          - qsTea
+        derive:
+          extend_exit_before:
+          - qsCheer
+          - qsDay
+          - qsEight
+          - qsEt
+          - qsFoot
+          - qsIt
+          - qsLlan
+          - qsNo
+          - qsRoe
+        output_name: qsFee.exit-xheight
+      exit_xheight_before_utter:
+        shape: mono
+        anchors:
+          exit:
+          - 6
+          - 5
+        select:
+          before:
+          - qsUtter
+        output_name: qsFee.exit-xheight.before-utter
+  qsFee_qsMay:
+    sequence:
+    - qsFee
+    - qsMay
+    prop:
+      bitmap:
+      - '  #       '
+      - '   #      '
+      - '    #     '
+      - '  ########'
+      - ' #  #  #  '
+      - '#   #  #  '
+      - '#   # #   '
+      - '#   # #   '
+      - ' ###  ### '
+      - '      #  #'
+      - '      #  #'
+      - '       ## '
+      y_offset: -3
+  qsVie:
+    mono:
+      bitmap:
+      - ' ### '
+      - '#   #'
+      - '#   #'
+      - '#   #'
+      - '#  # '
+      - '###  '
+      - '#    '
+      - '#   #'
+      - ' ### '
+      y_offset: -3
+    prop:
+      bitmap:
+      - '  ### '
+      - ' #   #'
+      - ' #   #'
+      - ' #   #'
+      - ' #  # '
+      - '####  '
+      - ' #    '
+      - ' #   #'
+      - '  ### '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 0
+      derive:
+        extend_entry_after:
+        - qsHe
+        - qsPea
+        - qsTea
+        - qsIt
+        - qsYe
+    shapes:
+      shape_1:
+        bitmap:
+        - '  ###   '
+        - ' #   #  '
+        - ' #   #  '
+        - ' #   #  '
+        - ' #  #   '
+        - '####   #'
+        - ' #    # '
+        - ' #   #  '
+        - '  ###   '
+        y_offset: -3
+    forms:
+      exit_baseline:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 8
+          - 0
+        select:
+          before:
+          - qsNo
+          - qsRoe
+          - qsIng
+        output_name: qsVie.exit-baseline
+  qsVie_qsUtter:
+    sequence:
+    - qsVie
+    - qsUtter
+    prop:
+      bitmap:
+      - '  ###     ##'
+      - ' #   #   #  '
+      - ' #   #  #   '
+      - ' #   #  #   '
+      - ' #  #  #    '
+      - '####   #    '
+      - ' #    #     '
+      - ' #   #      '
+      - '  ###       '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 13
+        - 5
+  qsSee:
+    mono:
+      bitmap:
+      - '   ##'
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '  #  '
+      - '  #  '
+      - '   # '
+      - '   # '
+      - '###  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 8
+    shapes:
+      shape_1:
+        bitmap:
+        - '   ## '
+        - '  #  #'
+        - ' #   #'
+        - ' #    '
+        - '  #   '
+        - '  #   '
+        - '   #  '
+        - '   #  '
+        - '###   '
+      shape_2:
+        bitmap:
+        - '   #'
+        - '  # '
+        - ' #  '
+        - ' #  '
+        - '  # '
+        - '  # '
+        - '   #'
+        - '   #'
+        - '  # '
+    forms:
+      exit_y6:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 7
+          - 6
+        output_name: qsSee.exit-y6
+      exit_baseline:
+        shape: shape_2
+        anchors:
+          exit:
+          - 3
+          - 0
+        select:
+          before:
+          - qsAt
+          - qsOoze
+          - qsOut
+          not_after:
+          - qsIt
+        derive:
+          extend_exit_before:
+          - qsLow
+          - qsOoze
+        output_name: qsSee.exit-baseline
+  qsSee_qsUtter:
+    sequence:
+    - qsSee
+    - qsUtter
+    prop:
+      bitmap:
+      - '  #  '
+      - ' #   '
+      - '#    '
+      - '#  ##'
+      - '# #  '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+      anchors:
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_exit_before:
+        - qsMay
+  qsSee_qsEat:
+    sequence:
+    - qsSee
+    - qsEat
+    prop:
+      bitmap:
+      - '   #   '
+      - '  #    '
+      - ' #     '
+      - ' #    #'
+      - '  #  ##'
+      - '   ## #'
+      - '   #  #'
+      - '  #   #'
+      - ' #    #'
+      anchors:
+        exit:
+        - 8
+        - 0
+  qsZoo:
+    mono:
+      bitmap:
+      - '###  '
+      - '   # '
+      - '   # '
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '#   #'
+      - '#  # '
+      - ' ##  '
+      y_offset: -3
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 0
+      derive:
+        extend_entry_after:
+        - qsMay
+    shapes:
+      half:
+        bitmap:
+        - '     '
+        - '     '
+        - '     '
+        - '     '
+        - '     '
+        - '#    '
+        - '#   #'
+        - '#  # '
+        - ' ##  '
+        y_offset: -3
+    forms:
+      half:
+        shape: half
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 0
+        traits:
+        - half
+        output_name: qsZoo.half
+  qsShe:
+    mono:
+      bitmap:
+      - '     '
+      - '   # '
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+      - '#   #'
+      - ' ### '
+    prop:
+      shape: mono
+    shapes:
+      shape_1:
+        bitmap:
+        - '     '
+        - '   # '
+        - '  #  '
+        - ' #   '
+        - ' #   '
+        - '#    '
+        - '#    '
+        - '#    '
+        - ' ####'
+    forms:
+      exit_baseline:
+        shape: shape_1
+        anchors:
+          exit:
+          - 6
+          - 0
+        output_name: qsShe.exit-baseline
+  qsJai:
+    mono:
+      bitmap:
+      - '#### '
+      - '    #'
+      - '    #'
+      - '   # '
+      - '   # '
+      - ' ####'
+      - '# #  '
+      - '# #  '
+      - ' #   '
+      y_offset: -3
+    prop:
+      bitmap:
+      - ' #### '
+      - '     #'
+      - '     #'
+      - '    # '
+      - '    # '
+      - '  ####'
+      - ' # #  '
+      - '# #   '
+      - ' #    '
+      y_offset: -3
+    forms:
+      exit_baseline:
+        shape: prop
+        anchors:
+          exit:
+          - 7
+          - 0
+        select:
+          not_before:
+          - qsAt
+          - qsExam
+          - qsIt
+          - qsEat
+        derive:
+          extend_exit_before:
+          - qsIng
+          - qsLow
+          - qsNo
+          - qsRoe
+          - qsSee
+          - qsTea
+          - qsThaw
+          - qsVie
+        output_name: qsJai.exit-baseline
+  qsJai_qsUtter:
+    sequence:
+    - qsJai
+    - qsUtter
+    prop:
+      bitmap:
+      - '#####   ##'
+      - '     # #  '
+      - '     ##   '
+      - '    ##    '
+      - '   ##     '
+      - '  # #     '
+      - ' #  #     '
+      - '#  #      '
+      - ' ##       '
+      y_offset: -3
+      anchors:
+        entry:
+        - 0
+        - 6
+        exit:
+        - 11
+        - 5
+  qsCheer:
+    mono:
+      bitmap:
+      - '     '
+      - '  #  '
+      - '  #  '
+      - '##   '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+      - ' ### '
+    prop:
+      bitmap:
+      - '    '
+      - '  # '
+      - '  # '
+      - '##  '
+      - ' #  '
+      - ' #  '
+      - '#   '
+      - '#   '
+      - ' ###'
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 5
+        - 0
+  qsJay:
+    mono:
+      bitmap:
+      - '#### '
+      - '    #'
+      - '    #'
+      - '   # '
+      - '  #  '
+      - ' # ##'
+      - ' ##  '
+      - '##   '
+      - '#    '
+      y_offset: -3
+    prop:
+      shape: mono
+      anchors:
+        exit:
+        - 6
+        - 0
+    forms:
+      entry_xheight:
+        shape: mono
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 6
+          - 0
+        derive:
+          extend_entry_after:
+          - qsIt
+        output_name: qsJay.entry-xheight
+  qsJay_qsUtter:
+    sequence:
+    - qsJay
+    - qsUtter
+    prop:
+      bitmap:
+      - '####     ##'
+      - '    #   #  '
+      - '    #  #   '
+      - '   #  #    '
+      - '  #  #     '
+      - ' #  #      '
+      - ' # #       '
+      - '# #        '
+      - '##         '
+      y_offset: -3
+      anchors:
+        exit:
+        - 12
+        - 5
+  qsYe:
+    mono:
+      bitmap:
+      - '  #  '
+      - ' # # '
+      - ' # # '
+      - '###  '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+    prop:
+      bitmap:
+      - '  # '
+      - ' # #'
+      - '### '
+      - ' #  '
+      - ' #  '
+      - ' #  '
+      - ' #  '
+      - ' #  '
+      - ' #  '
+      anchors:
+        exit:
+        - 3
+        - 0
+    shapes:
+      shape_1:
+        bitmap:
+        - '  ## '
+        - ' #  #'
+        - ' ### '
+        - '##   '
+        - ' #   '
+        - ' #   '
+        - ' #   '
+        - ' #   '
+        - ' #   '
+    forms:
+      entry_xheight_exit_baseline:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 3
+          - 0
+        select:
+          after:
+          - qsNo
+        output_name: qsYe.entry-xheight.exit-baseline
+  qsWay:
+    mono:
+      bitmap:
+      - '    #'
+      - '   # '
+      - '   # '
+      - '  #  '
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+      y_offset: -3
+    prop:
+      bitmap:
+      - '   #'
+      - '   #'
+      - '  # '
+      - '  # '
+      - ' #  '
+      - ' #  '
+      - '#   '
+      - '#   '
+      - '#   '
+      y_offset: -3
+      anchors:
+        exit:
+        - 4
+        - 5
+    shapes:
+      half:
+        bitmap:
+        - '   '
+        - '   '
+        - '   '
+        - '   '
+        - '   '
+        - '   '
+        - '  #'
+        - ' # '
+        - '#  '
+        y_offset: -3
+    forms:
+      half:
+        shape: half
+        anchors:
+          exit:
+          - 4
+          - 0
+        select:
+          not_before:
+          - qsIt
+        derive:
+          preferred_over:
+          - qsWay
+        traits:
+        - half
+        output_name: qsWay.half
+  qsWay_qsUtter:
+    sequence:
+    - qsWay
+    - qsUtter
+    prop:
+      bitmap:
+      - '    ##'
+      - '   #  '
+      - '  #   '
+      - '  #   '
+      - ' #    '
+      - ' #    '
+      - '#     '
+      - '#     '
+      - '#     '
+      y_offset: -3
+      anchors:
+        exit:
+        - 7
+        - 5
+  qsHe:
+    mono:
+      bitmap:
+      - '  ## '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+      - ' #   '
+    prop:
+      bitmap:
+      - ' ##'
+      - '#  '
+      - '#  '
+      - '#  '
+      - '#  '
+      - '#  '
+      - '#  '
+      - '#  '
+      - '#  '
+    shapes:
+      half:
+        bitmap:
+        - ' ##'
+        - '#  '
+        - '#  '
+        - '## '
+        - '   '
+        - '   '
+        - '   '
+        - '   '
+        - '   '
+    forms:
+      half:
+        shape: half
+        anchors:
+          exit:
+          - 3
+          - 5
+        select:
+          not_before:
+          - qsFee
+        traits:
+        - half
+        output_name: qsHe.half
+      exit_baseline:
+        shape: prop
+        anchors:
+          exit:
+          - 2
+          - 0
+        select:
+          not_before:
+          - qsSee
+          - qsThaw
+        output_name: qsHe.exit-baseline
+      exit_baseline_before_may:
+        shape: prop
+        anchors:
+          exit:
+          - 2
+          - 0
+        select:
+          before:
+          - qsMay
+        output_name: qsHe.exit-baseline.before-may
+  qsWhy:
+    mono:
+      bitmap:
+      - '    #'
+      - '    #'
+      - '    #'
+      - '   # '
+      - '   # '
+      - '   # '
+      - '# #  '
+      - ' ##  '
+      - '  #  '
+      y_offset: -3
+    prop:
+      shape: mono
+    shapes:
+      shape_1:
+        bitmap:
+        - '     #'
+        - '    # '
+        - '    # '
+        - '   #  '
+        - '   #  '
+        - '   #  '
+        - '# #   '
+        - ' ##   '
+        - '  #   '
+        y_offset: -3
+      half:
+        bitmap:
+        - '     '
+        - '     '
+        - '     '
+        - '     '
+        - '     '
+        - '     '
+        - '#   #'
+        - ' # # '
+        - '  #  '
+        y_offset: -3
+    forms:
+      exit_xheight:
+        shape: shape_1
+        anchors:
+          exit:
+          - 6
+          - 5
+        output_name: qsWhy.exit-xheight
+      half:
+        shape: half
+        anchors:
+          exit:
+          - 5
+          - 0
+        select:
+          not_before:
+          - qsI
+          - qsIt
+        traits:
+        - half
+        output_name: qsWhy.half
+  qsWhy_qsUtter:
+    sequence:
+    - qsWhy
+    - qsUtter
+    prop:
+      bitmap:
+      - '       ##'
+      - '      #  '
+      - '     #   '
+      - '     #   '
+      - '    #    '
+      - '    #    '
+      - '#  #     '
+      - ' # #     '
+      - '  #      '
+      y_offset: -3
+      anchors:
+        exit:
+        - 10
+        - 5
+  qsIng:
+    mono:
+      bitmap:
+      - '  #  '
+      - ' # # '
+      - ' # # '
+      - ' # # '
+      - ' # # '
+      - ' # # '
+      - '  #  '
+      - ' # # '
+      - '#   #'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 0
+      derive:
+        extend_entry_after:
+        - qsTea
+    shapes:
+      shape_1:
+        bitmap:
+        - '   #   '
+        - '  # #  '
+        - '  # #  '
+        - '  # #  '
+        - '  # #  '
+        - '  # #  '
+        - '   #   '
+        - '  # #  '
+        - '##   ##'
+    forms:
+      widebase:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 8
+          - 0
+        select:
+          after:
+          - qsThaw
+        output_name: qsIng.widebase
+  qsMay:
+    mono:
+      bitmap:
+      - '   ##'
+      - '  #  '
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '#### '
+      - ' #  #'
+      - ' #  #'
+      - '  ## '
+      y_offset: -3
+    prop:
+      shape: mono
+      anchors:
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_exit_before:
+        - qsDay
+        - qsFee
+        - qsIt
+        - qsRoe
+    shapes:
+      shape_1:
+        bitmap:
+        - '   # '
+        - '  #  '
+        - '  #  '
+        - ' #   '
+        - ' #   '
+        - '#### '
+        - ' #  #'
+        - ' #  #'
+        - '  ## '
+        y_offset: -3
+      shape_2:
+        bitmap:
+        - '  ## '
+        - ' #   '
+        - ' #   '
+        - '#    '
+        - '#    '
+        - '# ###'
+        - '#  # '
+        - '#  # '
+        - ' ##  '
+        y_offset: -3
+    forms:
+      entry_xheight:
+        shape: shape_1
+        anchors:
+          entry:
+          - 4
+          - 5
+        select:
+          after:
+          - qsSee_qsUtter.prop
+          - qsUtter.exit-extended
+          - qsAh.exit-extended
+        output_name: qsMay.entry-xheight
+      entry_baseline:
+        shape: mono
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 5
+        select:
+          not_after:
+          - qsOx
+        derive:
+          extend_entry_after:
+          - qsHe
+          - qsPea
+          - qsTea
+          - qsIt
+          - qsYe
+        output_name: qsMay.entry-baseline
+      exit_baseline:
+        shape: shape_2
+        anchors:
+          exit:
+          - 6
+          - 0
+        select:
+          not_before:
+          - qsDay
+          - qsEat
+          - qsIt
+          - qsNo
+          - qsOoze
+          - qsRoe
+          - qsUtter
+          - qsZoo
+        output_name: qsMay.exit-baseline
+  qsNo:
+    mono:
+      bitmap:
+      - '#   #'
+      - ' # # '
+      - '  #  '
+      - ' # # '
+      - ' # # '
+      - '  #  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_exit_before:
+        - qsFee
+    shapes:
+      alt:
+        bitmap:
+        - '  #  '
+        - ' # # '
+        - ' # # '
+        - '  #  '
+        - ' # # '
+        - '#   #'
+    forms:
+      alt:
+        shape: alt
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 0
+        select:
+          not_after:
+          - qsZoo
+        traits:
+        - alt
+        variants:
+        - mono
+        - junior
+        - senior
+        output_name: qsNo.alt
+      alt_after_it_and_vie:
+        shape: alt
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 0
+        select:
+          after:
+          - qsIt
+          - qsVie
+        traits:
+        - alt
+        variants:
+        - mono
+        - junior
+        - senior
+        output_name: qsNo.alt.after-it-and-vie
+      alt_after_zoo:
+        shape: alt
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 0
+        select:
+          after:
+          - qsZoo
+          not_before:
+          - qsEt
+        traits:
+        - alt
+        variants:
+        - mono
+        - junior
+        - senior
+        output_name: qsNo.alt.after-zoo
+  qsLow:
+    mono:
+      bitmap:
+      - '    #'
+      - '  ## '
+      - ' #   '
+      - ' ##  '
+      - '   # '
+      - '###  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_entry_after:
+        - qsSee
+        extend_exit_before:
+        - qsFee
+  qsRoe:
+    mono:
+      bitmap:
+      - '###  '
+      - '   # '
+      - '    #'
+      - '    #'
+      - '   # '
+      - '###  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - - 1
+          - 0
+        - - 1
+          - 5
+      derive:
+        extend_entry_after:
+        - qsEight
+        - qsIt
+        - qsYe
+    shapes:
+      shape_1:
+        bitmap:
+        - '  ##  '
+        - '    # '
+        - '     #'
+        - '     #'
+        - '    # '
+        - '####  '
+      shape_2:
+        bitmap:
+        - '####  '
+        - '    # '
+        - '     #'
+        - '     #'
+        - '    # '
+        - '  ##  '
+      shape_3:
+        bitmap:
+        - '###   '
+        - '   #  '
+        - '    # '
+        - '    # '
+        - '   #  '
+        - '######'
+      shape_4:
+        bitmap:
+        - '  #####'
+        - '    #  '
+        - '     # '
+        - '     # '
+        - '    #  '
+        - '####   '
+      shape_5:
+        bitmap:
+        - '###   '
+        - '   #  '
+        - '    # '
+        - '    # '
+        - '   # #'
+        - '##### '
+    forms:
+      entry_extended_at_baseline:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+        select:
+          after:
+          - qsEight
+          - qsIt
+          - qsYe
+        output_name: qsRoe.entry-extended-at-baseline
+      entry_extended_at_xheight:
+        shape: shape_2
+        anchors:
+          entry:
+          - 1
+          - 5
+        select:
+          after:
+          - qsIt
+          - qsMay
+          - qsYe
+        output_name: qsRoe.entry-extended-at-xheight
+      entry_xheight:
+        shape: mono
+        anchors:
+          entry:
+          - 1
+          - 5
+        select:
+          after:
+          - qsPea.prop.half
+        output_name: qsRoe.entry-xheight
+      exit_baseline:
+        shape: shape_3
+        anchors:
+          entry:
+          - - 1
+            - 5
+          exit:
+          - 6
+          - 0
+        select:
+          before:
+          - qsAh
+          - qsAt
+          - qsIng
+          - qsNo
+          - qsSee
+          - qsVie
+        derive:
+          extend_exit_before:
+          - qsI
+          - qsLow
+        output_name: qsRoe.exit-baseline
+      exit_xheight:
+        shape: shape_4
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 7
+          - 5
+        select:
+          before:
+          - qsZoo
+          - qsOx
+        output_name: qsRoe.exit-xheight
+      exit_y1:
+        shape: shape_5
+        anchors:
+          entry:
+          - - 1
+            - 0
+          - - 1
+            - 5
+          exit:
+          - 6
+          - 1
+        select:
+          before:
+          - qsThaw
+        output_name: qsRoe.exit-y1
+  qsLoch:
+    mono:
+      bitmap:
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - ' ### '
+      - '# # #'
+      - '# # #'
+      - '# # #'
+      - '# # #'
+      - ' ## #'
+  qsLlan:
+    mono:
+      bitmap:
+      - '#    '
+      - ' ##  '
+      - '   # '
+      - '  ## '
+      - ' #   '
+      - '  ###'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 0
+  qsExcite:
+    mono:
+      bitmap:
+      - '#    '
+      - '#    '
+      - '#    '
+      - ' #  #'
+      - ' # # '
+      - '  #  '
+      - ' # # '
+      - '#   #'
+      - '#   #'
+    prop:
+      bitmap:
+      - ' #     '
+      - ' #     '
+      - ' #     '
+      - '  #  # '
+      - '  # #  '
+      - '   #   '
+      - '  # #  '
+      - ' #   # '
+      - '#     #'
+      anchors:
+        entry:
+        - 1
+        - 0
+    forms:
+      exit_baseline_before_vertical:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 8
+          - 0
+        output_name: qsExcite.exit-baseline.before-vertical
+  qsExam:
+    mono:
+      bitmap:
+      - '#   #'
+      - '#   #'
+      - ' # # '
+      - '  #  '
+      - ' # # '
+      - '#  # '
+      - '    #'
+      - '    #'
+      - '    #'
+      y_offset: -3
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+  qsAngleParenLeft:
+    mono:
+      bitmap:
+      - '    #'
+      - '    #'
+      - '   ##'
+      - '   # '
+      - '  ## '
+      - '  #  '
+      - ' ##  '
+      - ' #   '
+      - '##   '
+      - '#    '
+      - '#    '
+      - '#####'
+      y_offset: -3
+  qsAngleParenRight:
+    mono:
+      bitmap:
+      - '#####'
+      - '    #'
+      - '    #'
+      - '   ##'
+      - '   # '
+      - '  ## '
+      - '  #  '
+      - ' ##  '
+      - ' #   '
+      - '##   '
+      - '#    '
+      - '#    '
+      y_offset: -3
+  qsIt:
+    mono:
+      bitmap:
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+    prop:
+      bitmap:
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+      - '#'
+    forms:
+      entry_xheight:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 2
+          - 0
+        select:
+          not_after:
+          - qsIt
+        output_name: qsIt.entry-xheight
+      entry_baseline:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 2
+          - 5
+        select:
+          not_after:
+          - qsDay
+          - qsEat
+          - qsIt
+          - qsZoo
+        derive:
+          extend_entry_after:
+          - qsKey
+        output_name: qsIt.entry-baseline
+      entry_baseline_after_day:
+        shape: prop
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 2
+          - 0
+        select:
+          after:
+          - qsDay
+        output_name: qsIt.entry-baseline.after-day
+      exit_xheight:
+        shape: prop
+        anchors:
+          exit:
+          - 2
+          - 5
+        output_name: qsIt.exit-xheight
+      exit_baseline:
+        shape: prop
+        anchors:
+          exit:
+          - 2
+          - 0
+        output_name: qsIt.exit-baseline
+      exit_baseline_before_ing:
+        shape: prop
+        anchors:
+          exit:
+          - 2
+          - 0
+        select:
+          before:
+          - qsIng
+          - qsZoo
+          not_after:
+          - qsBay
+        output_name: qsIt.exit-baseline.before-ing
+  qsEat:
+    mono:
+      bitmap:
+      - '   # '
+      - '  ## '
+      - ' # # '
+      - ' # # '
+      - '#  # '
+      - '#  # '
+    prop:
+      bitmap:
+      - '   #'
+      - '  ##'
+      - ' # #'
+      - ' # #'
+      - '#  #'
+      - '#  #'
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 5
+        - 0
+  qsEt:
+    mono:
+      bitmap:
+      - '#    '
+      - '#    '
+      - '#    '
+      - ' #   '
+      - '  #  '
+      - '   ##'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 0
+  qsEight:
+    mono:
+      bitmap:
+      - '# ## '
+      - ' #  #'
+      - ' ### '
+      - '  #  '
+      - '   # '
+      - '    #'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 0
+  qsAt:
+    mono:
+      bitmap:
+      - '    #'
+      - '    #'
+      - '    #'
+      - '   # '
+      - '  #  '
+      - '##   '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_entry_after:
+        - qsSee
+  qsAt_qsMay:
+    sequence:
+    - qsAt
+    - qsMay
+    prop:
+      bitmap:
+      - '    #   ##'
+      - '    #  #  '
+      - '    #  #  '
+      - '   #  #   '
+      - '  #   #   '
+      - '######### '
+      - '      #  #'
+      - '      #  #'
+      - '       ## '
+      y_offset: -3
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 11
+        - 5
+  qsI:
+    mono:
+      bitmap:
+      - ' ## #'
+      - '#  # '
+      - ' ### '
+      - '  #  '
+      - ' #   '
+      - '#    '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_exit_before:
+        - qsDay
+        - qsEight
+        - qsEt
+        - qsFee
+        - qsFoot
+        - qsIt
+        - qsLlan
+        - qsNo
+        - qsRoe
+    shapes:
+      shape_1:
+        bitmap:
+        - '  # #'
+        - ' # # '
+        - '  ## '
+        - '  #  '
+        - ' #   '
+        - '#    '
+    forms:
+      entry_baseline_smaller_loop:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 5
+        select:
+          after:
+          - qsRoe.exit-baseline
+        output_name: qsI.entry-baseline.smaller-loop
+  qsAh:
+    mono:
+      bitmap:
+      - '   ##'
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '##   '
+    prop:
+      bitmap:
+      - '     ##'
+      - '    #  '
+      - '   #   '
+      - '   #   '
+      - '  #    '
+      - '##     '
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 8
+        - 5
+      derive:
+        extend_exit_before:
+        - qsBay
+        - qsFee
+        - qsThey
+        - qsMay
+  qsAwe:
+    mono:
+      bitmap:
+      - '##   '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '  #  '
+      - '   ##'
+    prop:
+      bitmap:
+      - '##     '
+      - '  #    '
+      - '   #   '
+      - '   #   '
+      - '    #  '
+      - '     ##'
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 7
+        - 0
+  qsOx:
+    mono:
+      bitmap:
+      - '##   '
+      - '  #  '
+      - '   # '
+      - '   # '
+      - '    #'
+      - '    #'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 0
+  qsOy:
+    mono:
+      bitmap:
+      - ' #   '
+      - '# #  '
+      - ' # # '
+      - '    #'
+      - '    #'
+      - '    #'
+    prop:
+      bitmap:
+      - ' ###    '
+      - '#  ##   '
+      - '#  # #  '
+      - ' ##   # '
+      - '       #'
+      - '       #'
+      anchors:
+        exit:
+        - 8
+        - 0
+    shapes:
+      shape_1:
+        bitmap:
+        - '##   '
+        - '  #  '
+        - ' # # '
+        - '  # #'
+        - '    #'
+        - '    #'
+    forms:
+      entry_xheight:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 6
+          - 0
+        select:
+          after:
+          - qsNo
+        output_name: qsOy.entry-xheight
+  qsUtter:
+    mono:
+      bitmap:
+      - '   ##'
+      - '  #  '
+      - ' #   '
+      - ' #   '
+      - '#    '
+      - '#    '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 5
+      derive:
+        extend_exit_before:
+        - qsBay
+        - qsFee
+        - qsThey
+    shapes:
+      alt:
+        bitmap:
+        - '  ## '
+        - ' #   '
+        - '#    '
+        - '#    '
+        - ' #   '
+        - '  ###'
+      alt_2:
+        bitmap:
+        - '##### '
+        - '  #   '
+        - ' #    '
+        - ' #    '
+        - '  #   '
+        - '   ###'
+    forms:
+      alt:
+        shape: alt
+        anchors:
+          exit:
+          - 6
+          - 0
+        traits:
+        - alt
+        variants:
+        - mono
+        - junior
+        - senior
+        output_name: qsUtter.alt
+      alt_reaches_way_back:
+        shape: alt_2
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 7
+          - 0
+        select:
+          after:
+          - qsFee
+          - qsMay
+          not_before:
+          - qsRoe
+        traits:
+        - alt
+        output_name: qsUtter.alt.reaches-way-back
+      alt_before_may:
+        shape: alt
+        anchors:
+          exit:
+          - 6
+          - 0
+        select:
+          before:
+          - qsMay
+        traits:
+        - alt
+        variants:
+        - mono
+        - junior
+        - senior
+        output_name: qsUtter.alt.before-may
+  qsOut:
+    mono:
+      bitmap:
+      - '   # '
+      - '  # #'
+      - ' # # '
+      - '#    '
+      - '#    '
+      - '#    '
+    prop:
+      bitmap:
+      - '    ### '
+      - '   ##  #'
+      - '  # #  #'
+      - ' #   ## '
+      - '#       '
+      - '#       '
+      anchors:
+        entry:
+        - 1
+        - 0
+    shapes:
+      shape_1:
+        bitmap:
+        - '     ### '
+        - '    ##  #'
+        - '   # #  #'
+        - '  #   ## '
+        - ' #       '
+        - '#        '
+      shape_2:
+        bitmap:
+        - '     ##'
+        - '    #  '
+        - '   # # '
+        - '  # #  '
+        - ' #     '
+        - '#      '
+      shape_3:
+        bitmap:
+        - '   ##'
+        - '  #  '
+        - ' # # '
+        - '# #  '
+        - '#    '
+        - '#    '
+    forms:
+      after_see:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 0
+        select:
+          after:
+          - qsSee
+        output_name: qsOut.after-see
+      exit_xheight_after_see:
+        shape: shape_2
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 7
+          - 5
+        select:
+          after:
+          - qsSee
+        output_name: qsOut.exit-xheight.after-see
+      exit_xheight:
+        shape: shape_3
+        anchors:
+          entry:
+          - 1
+          - 0
+          exit:
+          - 6
+          - 5
+        derive:
+          extend_exit_before:
+          - qsFee
+        output_name: qsOut.exit-xheight
+  qsOut_qsTea:
+    sequence:
+    - qsOut
+    - qsTea
+    prop:
+      bitmap:
+      - '    #   '
+      - '    #   '
+      - '    #   '
+      - '   #### '
+      - '  # #  #'
+      - ' #  #  #'
+      - '#    ## '
+      - '#       '
+      - '#       '
+      anchors:
+        entry:
+        - 1
+        - 0
+      derive:
+        noentry_after:
+        - qsSee
+  qsOwe:
+    mono:
+      bitmap:
+      - ' ### '
+      - '#   #'
+      - '#   #'
+      - '#   #'
+      - '#   #'
+      - ' ### '
+    shapes:
+      shape_1:
+        bitmap:
+        - '### # '
+        - '  #  #'
+        - ' #   #'
+        - ' #   #'
+        - ' #   #'
+        - '  ### '
+      shape_2:
+        bitmap:
+        - ' # ###'
+        - '#  #  '
+        - '#   # '
+        - '#   # '
+        - '#   # '
+        - ' ###  '
+      shape_3:
+        bitmap:
+        - '### ###'
+        - '  # #  '
+        - ' #   # '
+        - ' #   # '
+        - ' #   # '
+        - '  ###  '
+    forms:
+      entry_xheight:
+        shape: shape_1
+        anchors:
+          entry:
+          - 1
+          - 5
+        select:
+          not_after:
+          - qsLow
+        output_name: qsOwe.entry-xheight
+      exit_xheight:
+        shape: shape_2
+        anchors:
+          exit:
+          - 7
+          - 5
+        select:
+          not_before:
+          - qsLlan
+        derive:
+          extend_exit_before:
+          - qsFee
+        output_name: qsOwe.exit-xheight
+      entry_xheight_exit_xheight:
+        shape: shape_3
+        anchors:
+          entry:
+          - 1
+          - 5
+          exit:
+          - 8
+          - 5
+        select:
+          not_after:
+          - qsLow
+          not_before:
+          - qsLlan
+        derive:
+          extend_exit_before:
+          - qsFee
+        output_name: qsOwe.entry-xheight.exit-xheight
+  qsFoot:
+    mono:
+      bitmap:
+      - '#   #'
+      - '#   #'
+      - '#   #'
+      - ' # # '
+      - ' # # '
+      - '  #  '
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 5
+        exit:
+        - 6
+        - 5
+  qsOoze:
+    mono:
+      bitmap:
+      - '  #  '
+      - ' # # '
+      - ' # # '
+      - '#   #'
+      - '#   #'
+      - '#   #'
+    prop:
+      shape: mono
+      anchors:
+        entry:
+        - 1
+        - 0
+        exit:
+        - 6
+        - 0
+      derive:
+        extend_entry_after:
+        - qsHe
+        - qsPea
+        - qsTea
+        - qsIt
+        - qsYe
+    shapes:
+      shape_1:
+        bitmap:
+        - '     #     '
+        - '   ## ##   '
+        - '  #     #  '
+        - ' #       # '
+        - '#         #'
+        - '#         #'
+    forms:
+      entry_extended_at_baseline:
+        shape: shape_1
+        anchors:
+          entry:
+          - 0
+          - 0
+          exit:
+          - 12
+          - 0
+        select:
+          after:
+          - qsSee.exit-baseline
+        output_name: qsOoze.entry-extended-at-baseline
