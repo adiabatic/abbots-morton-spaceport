@@ -515,6 +515,21 @@ glyphs:
       - "#   #"
       - " ### "
 
+  qsThey_qsMay.prop:  # ·They·May ligature
+    y_offset: -3
+    cursive_exit: [5, 0]
+    calt_before: [qsMay]
+    bitmap:
+      - "  #      ##" #
+      - "  #     #  "
+      - " #      #  "
+      - " #     #   "
+      - " #     #   "
+      - "#     #### " #
+      - "#    # #  #"
+      - "#   #  #  #"
+      - " ###    ## "
+
   qsThey_qsZoo.prop:  # ·They·Zoo ligature
     y_offset: -3
     bitmap:
