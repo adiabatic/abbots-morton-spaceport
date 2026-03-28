@@ -1920,13 +1920,13 @@ glyphs:
     bitmap: *ooze_bitmap
 
   qsOoze.entry-extended-at-baseline:  # ·Ooze
-    cursive_entry: [1, 0]
-    cursive_exit: [16, 0]
+    cursive_entry: [0, 0]
+    cursive_exit: [12, 0]
     calt_after: [qsSee.exit-baseline]
     bitmap:
-      - "    #     " #
-      - "  ## ##   "
-      - " #     #  "
-      - " #     #  "
-      - "#       # "
-      - "#       # " #
+      - "     #     " #
+      - "   ## ##   "
+      - "  #     #  "
+      - " #       # "
+      - "#         #"
+      - "#         #" #
