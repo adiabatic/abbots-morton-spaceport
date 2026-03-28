@@ -1,0 +1,414 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Abbots Morton Spaceport Quikscript source schema",
+  "description": "Schema for glyph_data/quikscript.yaml. This drives hover text, completion, and structural validation in VS Code via the Red Hat YAML extension.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["glyph_families"],
+  "properties": {
+    "context_sets": {
+      "type": "object",
+      "description": "Reusable selector lists for select/derive rules. Reference them inline as {context_set: name}. Context sets may include other context_set references to compose larger lists from smaller ones.",
+      "patternProperties": {
+        "^[A-Za-z0-9_-]+$": {
+          "$ref": "#/definitions/selectorList"
+        }
+      },
+      "additionalProperties": false
+    },
+    "glyph_families": {
+      "type": "object",
+      "description": "Quikscript glyph families keyed by compiled base glyph name such as qsPea or qsDay_qsUtter.",
+      "patternProperties": {
+        "^[A-Za-z0-9_]+$": {
+          "$ref": "#/definitions/glyphFamily"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "definitions": {
+    "glyphReference": {
+      "type": "string",
+      "description": "Glyph or family reference. Structured selector mappings are preferred over bare strings for new authoring."
+    },
+    "contextSetRef": {
+      "type": "object",
+      "description": "Reference a top-level context_set by name.",
+      "required": ["context_set"],
+      "additionalProperties": false,
+      "properties": {
+        "context_set": {
+          "type": "string",
+          "description": "Name of a top-level context_set."
+        }
+      }
+    },
+    "traitList": {
+      "type": "array",
+      "description": "Semantic Quikscript traits. Use traits for real concepts like alt and half; use modifiers for implementation-level suffixes.",
+      "items": {
+        "type": "string",
+        "enum": ["alt", "half"]
+      },
+      "uniqueItems": true
+    },
+    "modifierList": {
+      "type": "array",
+      "description": "Ordered modifier tokens that define compiled variant identity and compatibility metadata.",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "variantList": {
+      "type": "array",
+      "description": "Build variants that should compile this form.",
+      "items": {
+        "type": "string",
+        "enum": ["mono", "junior", "senior"]
+      },
+      "uniqueItems": true
+    },
+    "familySelector": {
+      "type": "object",
+      "description": "Structured family selector. family names the base family; traits and modifiers refine the compiled target glyph.",
+      "required": ["family"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "description": "Target glyph family name."
+        },
+        "traits": {
+          "$ref": "#/definitions/traitList"
+        },
+        "modifiers": {
+          "$ref": "#/definitions/modifierList"
+        }
+      }
+    },
+    "selectorItem": {
+      "description": "A single selector/reference item in a select or derive list.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/glyphReference"
+        },
+        {
+          "$ref": "#/definitions/familySelector"
+        },
+        {
+          "$ref": "#/definitions/contextSetRef"
+        }
+      ]
+    },
+    "selectorList": {
+      "type": "array",
+      "description": "Ordered list of glyph/family references for select or derive rules.",
+      "items": {
+        "$ref": "#/definitions/selectorItem"
+      }
+    },
+    "selectorListOrNull": {
+      "description": "Selector list, or null to clear an inherited nested key from a parent form.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/selectorList"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bitmapRow": {
+      "type": "string",
+      "description": "One bitmap row using spaces and # characters. In source YAML, Quikscript rows should stay double-quoted and keep the bare trailing # comments marking y=5 and y=0 where applicable.",
+      "pattern": "^[ #]*$"
+    },
+    "bitmap": {
+      "type": "array",
+      "description": "Top-to-bottom bitmap rows for the glyph shape.",
+      "items": {
+        "$ref": "#/definitions/bitmapRow"
+      }
+    },
+    "coordinatePair": {
+      "type": "array",
+      "description": "Anchor coordinate pair as [x, y] in glyph pixel space.",
+      "items": [
+        {
+          "type": "integer",
+          "description": "Horizontal coordinate in pixels."
+        },
+        {
+          "type": "integer",
+          "description": "Vertical coordinate in pixels above the baseline."
+        }
+      ],
+      "additionalItems": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "anchorValue": {
+      "description": "Either a single [x, y] anchor or a list of [x, y] anchors.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/coordinatePair"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/coordinatePair"
+          }
+        }
+      ]
+    },
+    "anchorValueOrNull": {
+      "description": "Anchor value, or null to clear an inherited anchor from a parent form.",
+      "oneOf": [
+        {
+          "$ref": "#/definitions/anchorValue"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "anchors": {
+      "type": "object",
+      "description": "Cursive attachment anchors. entry and exit compile into curs; entry_curs_only participates only in curs grouping, not normal entry matching.",
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/anchorValueOrNull"
+        },
+        "entry_curs_only": {
+          "$ref": "#/definitions/anchorValueOrNull"
+        },
+        "exit": {
+          "$ref": "#/definitions/anchorValueOrNull"
+        }
+      }
+    },
+    "selectRules": {
+      "type": "object",
+      "description": "Context selection rules. These compile into calt conditions such as after, before, not_after, and not_before.",
+      "additionalProperties": false,
+      "properties": {
+        "after": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "before": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "not_after": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "not_before": {
+          "$ref": "#/definitions/selectorListOrNull"
+        }
+      }
+    },
+    "deriveRules": {
+      "type": "object",
+      "description": "Derived-variant relationships and generated extension rules.",
+      "additionalProperties": false,
+      "properties": {
+        "extend_entry_after": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "extend_exit_before": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "doubly_extend_entry_after": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "doubly_extend_exit_before": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "noentry_after": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "reverse_upgrade_from": {
+          "$ref": "#/definitions/selectorListOrNull"
+        },
+        "preferred_over": {
+          "$ref": "#/definitions/selectorListOrNull"
+        }
+      }
+    },
+    "adjustmentMap": {
+      "type": "object",
+      "description": "Per-base adjustment overrides keyed by glyph name.",
+      "additionalProperties": {
+        "type": "integer"
+      }
+    },
+    "familyRecord": {
+      "type": "object",
+      "description": "A mono/prop/form record. Forms may use inherits to reuse scaffolding from mono, prop, or sibling forms. Set nested select/derive/anchors entries to null when a child form needs to clear an inherited value.",
+      "additionalProperties": false,
+      "properties": {
+        "inherits": {
+          "description": "Parent record name or names to merge before applying this record.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          ]
+        },
+        "shape": {
+          "type": "string",
+          "description": "Shape source to merge in first. Usually the name of a reusable shape, or mono/prop to reuse the base record bitmap."
+        },
+        "bitmap": {
+          "$ref": "#/definitions/bitmap"
+        },
+        "y_offset": {
+          "type": "integer",
+          "description": "Vertical offset in pixels. Deep letters typically use -3."
+        },
+        "advance_width": {
+          "type": "integer",
+          "description": "Explicit glyph advance width in pixels."
+        },
+        "anchors": {
+          "$ref": "#/definitions/anchors"
+        },
+        "select": {
+          "$ref": "#/definitions/selectRules"
+        },
+        "derive": {
+          "$ref": "#/definitions/deriveRules"
+        },
+        "traits": {
+          "$ref": "#/definitions/traitList"
+        },
+        "modifiers": {
+          "$ref": "#/definitions/modifierList"
+        },
+        "variants": {
+          "$ref": "#/definitions/variantList"
+        },
+        "contextual": {
+          "type": "boolean",
+          "description": "Override the build's default contextual/non-contextual classification for this record."
+        },
+        "kerning": {
+          "type": "array",
+          "description": "Kerning group tags attached to this glyph.",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "top_mark_y": {
+          "type": "integer",
+          "description": "Top combining-mark anchor height in pixels."
+        },
+        "bottom_mark_y": {
+          "type": "integer",
+          "description": "Bottom combining-mark anchor height in pixels."
+        },
+        "is_mark": {
+          "type": "boolean",
+          "description": "Marks the glyph as a combining mark."
+        },
+        "base_x_adjust": {
+          "$ref": "#/definitions/adjustmentMap"
+        },
+        "base_y_adjust": {
+          "$ref": "#/definitions/adjustmentMap"
+        },
+        "base": {
+          "type": "string",
+          "description": "Base glyph name for composite glyph assembly."
+        },
+        "top": {
+          "type": "string",
+          "description": "Top combining-mark glyph name for composite glyph assembly."
+        },
+        "bottom": {
+          "type": "string",
+          "description": "Bottom combining-mark glyph name for composite glyph assembly."
+        }
+      }
+    },
+    "shapeRecord": {
+      "type": "object",
+      "description": "Reusable bitmap-only shape data shared by one or more forms.",
+      "additionalProperties": false,
+      "properties": {
+        "bitmap": {
+          "$ref": "#/definitions/bitmap"
+        },
+        "y_offset": {
+          "type": "integer",
+          "description": "Vertical offset in pixels. Deep letters typically use -3."
+        },
+        "advance_width": {
+          "type": "integer",
+          "description": "Explicit glyph advance width in pixels."
+        }
+      }
+    },
+    "glyphFamily": {
+      "type": "object",
+      "description": "A Quikscript glyph family with mono and/or proportional base records, reusable shapes, and local form labels.",
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "type": "array",
+          "description": "Ligature source sequence. When present, this family compiles to a ligature glyph built from the listed component families.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2
+        },
+        "mono": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/familyRecord"
+            }
+          ],
+          "description": "Monospace/base source record for this family."
+        },
+        "prop": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/familyRecord"
+            }
+          ],
+          "description": "Proportional/base source record for this family."
+        },
+        "shapes": {
+          "type": "object",
+          "description": "Reusable shape snippets shared by forms in this family.",
+          "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+              "$ref": "#/definitions/shapeRecord"
+            }
+          },
+          "additionalProperties": false
+        },
+        "forms": {
+          "type": "object",
+          "description": "Additional forms keyed by local labels. These keys are local authoring labels, not the compiled glyph naming API.",
+          "patternProperties": {
+            "^[A-Za-z0-9_]+$": {
+              "$ref": "#/definitions/familyRecord"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}
