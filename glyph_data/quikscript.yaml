@@ -1918,3 +1918,15 @@ glyphs:
     cursive_exit: [6, 0]
     extend_entry_after: *vertical_exit_letters
     bitmap: *ooze_bitmap
+
+  qsOoze.entry-extended-at-baseline:  # ·Ooze
+    cursive_entry: [1, 0]
+    cursive_exit: [6, 0]
+    calt_after: [qsSee]
+    bitmap:
+      - "        #                 " #
+      - "      ## ##               "
+      - "     #     #              "
+      - "    #       #             "
+      - "   #         #            "
+      - "  #           #           " #
