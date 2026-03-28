@@ -748,8 +748,8 @@ glyphs:
 
   qsSee.exit-baseline:  # ·See
     cursive_exit: [3, 0]
-    calt_before: [qsAt, qsOut]
-    extend_exit_before: [qsLow]
+    calt_before: [qsAt, qsOoze, qsOut]
+    extend_exit_before: [qsLow, qsOoze]
     calt_not_after: [qsIt]
     bitmap:
 
@@ -1921,12 +1921,12 @@ glyphs:
 
   qsOoze.entry-extended-at-baseline:  # ·Ooze
     cursive_entry: [1, 0]
-    cursive_exit: [6, 0]
-    calt_after: [qsSee]
+    cursive_exit: [16, 0]
+    calt_after: [qsSee.exit-baseline]
     bitmap:
-      - "        #                 " #
-      - "      ## ##               "
-      - "     #     #              "
-      - "    #       #             "
-      - "   #         #            "
-      - "  #           #           " #
+      - "    #     " #
+      - "  ## ##   "
+      - " #     #  "
+      - " #     #  "
+      - "#       # "
+      - "#       # " #
