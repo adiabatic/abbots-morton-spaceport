@@ -19,7 +19,7 @@ PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 import sys
 sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
-    _normalize_anchors,
+    build_compiled_glyph_metadata,
     compile_glyph_definitions,
     load_glyph_data,
 )
@@ -33,6 +33,7 @@ def _build_char_to_glyph_name():
     return result
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
+_COMPILED_GLYPH_META = None
 
 
 # ---------------------------------------------------------------------------
@@ -223,23 +224,51 @@ def load_font():
 
 
 def build_anchor_map():
+    global _COMPILED_GLYPH_META
     data = load_glyph_data(GLYPH_DATA_DIR)
     glyphs = compile_glyph_definitions(data, "senior")
+    _COMPILED_GLYPH_META = build_compiled_glyph_metadata(glyphs)
 
     result = {}
     base_potential_entries = {}
-    for name, gdef in glyphs.items():
-        if gdef is None:
-            continue
-        entry = _normalize_anchors(gdef.get("cursive_entry")) + _normalize_anchors(gdef.get("cursive_entry_curs_only"))
-        exit_ = _normalize_anchors(gdef.get("cursive_exit"))
+    for name, meta in _COMPILED_GLYPH_META.items():
+        entry = list(meta.entry) + list(meta.entry_curs_only)
+        exit_ = list(meta.exit)
         if entry or exit_:
             result[name] = {"entry": entry, "exit": exit_}
         if entry:
-            base = name.split(".")[0]
             for _, y in entry:
-                base_potential_entries.setdefault(base, set()).add(y)
+                base_potential_entries.setdefault(meta.base_name, set()).add(y)
     return result, base_potential_entries
+
+
+def _compiled_glyph_meta(name):
+    if _COMPILED_GLYPH_META is None:
+        build_anchor_map()
+    meta = _COMPILED_GLYPH_META.get(name)
+    if meta is None:
+        raise AssertionError(f"Missing compiled glyph metadata for {name!r}")
+    return meta
+
+
+def _modifier_matches(meta, modifier):
+    if modifier in {"alt", "half"}:
+        return modifier in meta.traits
+    return modifier in meta.compat_assertions
+
+
+def _modifier_not_matches(meta, modifier):
+    if modifier in {"alt", "half"}:
+        return modifier not in meta.traits
+    return modifier not in meta.compat_assertions
+
+
+def _glyph_base_name(meta):
+    return meta.base_name
+
+
+def _is_ligature_match(meta, base, lig):
+    return meta.sequence == (base, lig)
 
 
 # ---------------------------------------------------------------------------
@@ -266,32 +295,34 @@ def run_shaping_test(font, anchor_map, text, expect_str,
     )
 
     for i, (gname, tok) in enumerate(zip(glyph_names, tokens)):
+        meta = _compiled_glyph_meta(gname)
         base = tok["base"]
         lig = tok["lig_base"]
 
         if lig:
-            assert base in gname and lig in gname, (
+            assert _is_ligature_match(meta, base, lig), (
                 f"Glyph {i}: expected ligature {base}+{lig}, got {gname!r}"
             )
         else:
-            glyph_base = gname.split(".")[0].split("_")[0]
-            assert glyph_base == base, (
+            assert _glyph_base_name(meta) == base, (
                 f"Glyph {i}: expected base {base}, got {gname!r}"
             )
 
         for v in tok["variants"]:
-            assert v in gname, (
+            assert _modifier_matches(meta, v), (
                 f"Glyph {i}: expected variant '{v}' in {gname!r}"
             )
 
         for v in tok.get("neg_variants", []):
-            assert v not in gname, (
+            assert _modifier_not_matches(meta, v), (
                 f"Glyph {i}: variant '{v}' must NOT appear in {gname!r}"
             )
 
     for i, conn in enumerate(connections):
         left = glyph_names[i]
         right = glyph_names[i + 1]
+        left_meta = _compiled_glyph_meta(left)
+        right_meta = _compiled_glyph_meta(right)
         left_anchors = anchor_map.get(left, {})
         right_anchors = anchor_map.get(right, {})
         left_exits = {a[1] for a in left_anchors.get("exit", [])}
@@ -303,13 +334,13 @@ def run_shaping_test(font, anchor_map, text, expect_str,
                 f"Connection {i}: expected break between {left} and {right}, "
                 f"but found common Y values {common_ys}"
             )
-            if base_potential_entries and left_exits and "half" in left:
-                left_base = left.split(".")[0]
+            if base_potential_entries and left_exits and "half" in left_meta.traits:
+                left_base = left_meta.base_name
                 base_key = left_base if left_base in anchor_map else f"{left_base}.prop"
                 base_exits = {a[1] for a in anchor_map.get(base_key, {}).get("exit", [])}
                 extra_exits = left_exits - base_exits
                 if extra_exits:
-                    right_base = right.split(".")[0]
+                    right_base = right_meta.base_name
                     potential = base_potential_entries.get(right_base, set())
                     suspect_ys = extra_exits & potential
                     assert not suspect_ys, (

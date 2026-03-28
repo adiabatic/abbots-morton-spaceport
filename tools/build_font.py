@@ -28,6 +28,7 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
+from quikscript_context import CaltPlan, CompiledGlyphMeta
 
 
 def load_postscript_glyph_names() -> dict:
@@ -302,7 +303,13 @@ def _normalize_family_refs(values: list[str]) -> list[str]:
     return [get_base_glyph_name(value) for value in values]
 
 
-def _family_form_to_glyph_def(family_name: str, family_def: dict, form_def: dict) -> dict:
+def _family_form_to_glyph_def(
+    family_name: str,
+    family_def: dict,
+    form_def: dict,
+    *,
+    output_name: str,
+) -> dict:
     glyph_def: dict = {}
 
     if "bitmap" in form_def:
@@ -357,7 +364,9 @@ def _family_form_to_glyph_def(family_name: str, family_def: dict, form_def: dict
         if source_key in derive:
             glyph_def[glyph_key] = _normalize_family_refs(derive[source_key])
 
+    glyph_def["_base_name"] = family_name
     glyph_def["_family"] = family_name
+    glyph_def["_contextual"] = _is_contextual_family_form(output_name, form_def)
     if family_def.get("sequence"):
         glyph_def["_sequence"] = deepcopy(family_def["sequence"])
     traits = form_def.get("traits")
@@ -383,6 +392,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     family_name,
                     family_def,
                     _resolve_family_record(family_name, family_def, "mono", cache, []),
+                    output_name=family_name,
                 )
         else:
             base_record_name = "prop" if family_def.get("prop") else "mono"
@@ -391,6 +401,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     family_name,
                     family_def,
                     _resolve_family_record(family_name, family_def, base_record_name, cache, []),
+                    output_name=family_name,
                 )
 
         for form_name in family_def.get("forms", {}):
@@ -408,9 +419,24 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                 continue
             elif not is_senior and _is_contextual_family_form(output_name, resolved):
                 continue
-            compiled[output_name] = _family_form_to_glyph_def(family_name, family_def, resolved)
+            compiled[output_name] = _family_form_to_glyph_def(
+                family_name,
+                family_def,
+                resolved,
+                output_name=output_name,
+            )
 
     return compiled
+
+
+def _prepare_legacy_glyph_def(name: str, glyph_def: dict | None) -> dict | None:
+    if glyph_def is None:
+        return None
+
+    prepared = dict(glyph_def)
+    prepared.setdefault("_base_name", get_base_glyph_name(name).split(".")[0])
+    prepared.setdefault("_contextual", _is_contextual_variant(name))
+    return prepared
 
 
 def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
@@ -419,7 +445,7 @@ def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
     is_senior = variant == "senior"
 
     legacy_glyphs = {
-        name: glyph_def
+        name: _prepare_legacy_glyph_def(name, glyph_def)
         for name, glyph_def in glyph_data.get("glyphs", {}).items()
         if ".unused" not in name
     }
@@ -701,6 +727,132 @@ def _is_contextual_variant(glyph_name: str) -> bool:
     )
 
 
+def _glyph_name_modifiers(glyph_name: str) -> list[str]:
+    return glyph_name.split(".")[1:]
+
+
+def _compat_assertions_from_modifiers(
+    modifiers: list[str],
+    traits: frozenset[str],
+) -> frozenset[str]:
+    compat = set(modifiers) | set(traits)
+    for modifier in modifiers:
+        if modifier.startswith("entry-"):
+            compat.update({"entry", modifier.removeprefix("entry-")})
+        elif modifier.startswith("exit-"):
+            compat.update({"exit", modifier.removeprefix("exit-")})
+        if modifier.startswith("entry-doubly-extended"):
+            compat.update({"entry", "extended", "doubly-extended", "entry-doubly-extended"})
+            continue
+        if modifier.startswith("exit-doubly-extended"):
+            compat.update({"exit", "extended", "doubly-extended", "exit-doubly-extended"})
+            continue
+        if modifier.startswith("entry-extended"):
+            compat.update({"entry", "extended", "entry-extended"})
+            continue
+        if modifier.startswith("exit-extended"):
+            compat.update({"exit", "extended", "exit-extended"})
+            continue
+    return frozenset(compat)
+
+
+def _base_name_for_compiled_glyph(glyph_name: str, glyph_def: dict) -> str:
+    if glyph_def.get("_base_name"):
+        return glyph_def["_base_name"]
+    if glyph_def.get("_family"):
+        return glyph_def["_family"]
+    return get_base_glyph_name(glyph_name).split(".")[0]
+
+
+def _entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith("entry-"):
+            return "." + modifier
+    return None
+
+
+def _exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith("exit-"):
+            return "." + modifier
+    return None
+
+
+def _extended_entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith("entry-extended") or modifier.startswith("entry-doubly-extended"):
+            return "." + modifier
+    return None
+
+
+def _extended_exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith("exit-extended") or modifier.startswith("exit-doubly-extended"):
+            return "." + modifier
+    return None
+
+
+def _entry_restriction_y_from_modifiers(modifiers: list[str]) -> int | None:
+    for modifier in modifiers:
+        if not modifier.startswith("entry-extended-at-"):
+            continue
+        label = modifier.removeprefix("entry-extended-at-")
+        return next(
+            (y for y, known_label in _EXTENDED_HEIGHT_LABELS.items() if known_label == label),
+            None,
+        )
+    return None
+
+
+def build_compiled_glyph_metadata(glyphs_def: dict) -> dict[str, CompiledGlyphMeta]:
+    metadata: dict[str, CompiledGlyphMeta] = {}
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+
+        modifiers = _glyph_name_modifiers(glyph_name)
+        traits = frozenset(glyph_def.get("_traits", []))
+        metadata[glyph_name] = CompiledGlyphMeta(
+            name=glyph_name,
+            base_name=_base_name_for_compiled_glyph(glyph_name, glyph_def),
+            family=glyph_def.get("_family"),
+            sequence=tuple(glyph_def.get("_sequence", ())),
+            traits=traits,
+            modifiers=frozenset(modifiers),
+            compat_assertions=_compat_assertions_from_modifiers(modifiers, traits),
+            entry=tuple(tuple(anchor) for anchor in _normalize_anchors(glyph_def.get("cursive_entry"))),
+            entry_curs_only=tuple(
+                tuple(anchor)
+                for anchor in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
+            ),
+            exit=tuple(tuple(anchor) for anchor in _normalize_anchors(glyph_def.get("cursive_exit"))),
+            after=tuple(glyph_def.get("calt_after", ())),
+            before=tuple(glyph_def.get("calt_before", ())),
+            not_after=tuple(glyph_def.get("calt_not_after", ())),
+            not_before=tuple(glyph_def.get("calt_not_before", ())),
+            reverse_upgrade_from=tuple(glyph_def.get("reverse_upgrade_from", ())),
+            preferred_over=tuple(glyph_def.get("preferred_over", ())),
+            word_final=bool(glyph_def.get("calt_word_final")),
+            is_contextual=bool(glyph_def.get("_contextual", _is_contextual_variant(glyph_name))),
+            is_entry_variant=any(modifier.startswith("entry-") for modifier in modifiers),
+            is_exit_variant=any(modifier.startswith("exit-") for modifier in modifiers),
+            entry_suffix=_entry_suffix_from_modifiers(modifiers),
+            exit_suffix=_exit_suffix_from_modifiers(modifiers),
+            extended_entry_suffix=_extended_entry_suffix_from_modifiers(modifiers),
+            extended_exit_suffix=_extended_exit_suffix_from_modifiers(modifiers),
+            entry_restriction_y=_entry_restriction_y_from_modifiers(modifiers),
+            is_noentry="noentry" in modifiers,
+        )
+    return metadata
+
+
+def _resolve_known_glyph_names(values: tuple[str, ...] | list[str], glyphs_def: dict) -> list[str]:
+    resolved = []
+    for value in values:
+        resolved.append(value if value in glyphs_def else get_base_glyph_name(value))
+    return resolved
+
+
 def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     """Generate OpenType feature code for contextual alternates (calt).
 
@@ -714,69 +866,73 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     Returns the FEA string, or None if no contextual variants are found.
     """
+    glyph_meta = build_compiled_glyph_metadata(glyphs_def)
+
+    def _meta(name: str) -> CompiledGlyphMeta:
+        return glyph_meta[name]
+
+    def _base_name(name: str) -> str:
+        return _meta(name).base_name
+
+    plan = CaltPlan(glyph_meta=glyph_meta)
+
     # --- Backward-looking: entry variants keyed by entry Y ---
-    bk_replacements: dict[str, dict[int, str]] = {}
-    bk_exclusions: dict[str, dict[int, list[str]]] = {}
+    bk_replacements = plan.bk_replacements
+    bk_exclusions = plan.bk_exclusions
     # Pair-specific overrides: entry variants with calt_after lists
-    pair_overrides: dict[str, list[tuple[str, list[str]]]] = {}
+    pair_overrides = plan.pair_overrides
     # Each entry is (entry_exit_var, entry_only_var, exit_y, not_before_glyphs)
-    fwd_upgrades: dict[str, list[tuple[str, str, int, list[str]]]] = {}
+    fwd_upgrades = plan.fwd_upgrades
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
-        if glyph_def.get("calt_word_final"):
+        meta = _meta(glyph_name)
+        if meta.word_final:
             continue
-        if not _is_entry_variant(glyph_name):
-            if not glyph_def.get("cursive_entry"):
+        if not meta.is_entry_variant:
+            if not meta.entry:
                 continue
-            parts = glyph_name.split(".")[1:]
-            if "half" not in parts and "alt" not in parts and not glyph_def.get("calt_after"):
+            if "half" not in meta.traits and "alt" not in meta.traits and not meta.after:
                 continue
-        raw_entry = glyph_def.get("cursive_entry")
-        if raw_entry is None:
+        if not meta.entry:
             continue
-        entries = _normalize_anchors(raw_entry)
-        if not entries:
+        if meta.reverse_upgrade_from:
             continue
-        if glyph_def.get("reverse_upgrade_from"):
-            continue
-        entry_y = entries[0][1]
-        base_name = glyph_name.split(".")[0]
+        entry_y = meta.entry[0][1]
+        base_name = meta.base_name
         if base_name not in glyphs_def:
             continue
-        if "alt" in glyph_name.split(".")[1:]:
-            base_def = glyphs_def.get(base_name)
-            if base_def:
-                raw = base_def.get("cursive_entry")
-                if raw and entry_y in {a[1] for a in _normalize_anchors(raw)}:
-                    continue
-        if glyph_def.get("calt_before"):
+        if "alt" in meta.traits:
+            base_meta = glyph_meta.get(base_name)
+            if base_meta and entry_y in base_meta.entry_ys:
+                continue
+        if meta.before:
             continue
-        calt_after = glyph_def.get("calt_after")
+        calt_after = meta.after
         if calt_after:
             pair_overrides.setdefault(base_name, []).append(
                 (glyph_name, list(calt_after))
             )
-        elif _extended_entry_suffix(glyph_name) is not None:
+        elif meta.extended_entry_suffix is not None:
             pass
-        elif _extended_exit_suffix(glyph_name) is not None:
+        elif meta.extended_exit_suffix is not None:
             pass
         else:
             existing = bk_replacements.get(base_name, {}).get(entry_y)
             if existing is not None:
-                existing_def = glyphs_def.get(existing, {}) or {}
-                existing_has_exit = existing_def.get("cursive_exit") is not None
-                new_has_exit = glyph_def.get("cursive_exit") is not None
+                existing_meta = _meta(existing)
+                existing_has_exit = bool(existing_meta.exit)
+                new_has_exit = bool(meta.exit)
                 if existing_has_exit != new_has_exit:
                     if new_has_exit:
-                        exit_y_val = _normalize_anchors(glyph_def["cursive_exit"])[0][1]
-                        nb = glyph_def.get("calt_not_before", [])
+                        exit_y_val = meta.exit[0][1]
+                        nb = list(meta.not_before)
                         fwd_upgrades.setdefault(base_name, []).append(
                             (glyph_name, existing, exit_y_val, list(nb))
                         )
                     else:
-                        exit_y_val = _normalize_anchors(existing_def["cursive_exit"])[0][1]
-                        nb = existing_def.get("calt_not_before", [])
+                        exit_y_val = existing_meta.exit[0][1]
+                        nb = list(existing_meta.not_before)
                         fwd_upgrades.setdefault(base_name, []).append(
                             (existing, glyph_name, exit_y_val, list(nb))
                         )
@@ -785,9 +941,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
             else:
                 bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
-            not_after = glyph_def.get("calt_not_after")
+            not_after = meta.not_after
             if not_after:
-                resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_after]
+                resolved = _resolve_known_glyph_names(not_after, glyphs_def)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
 
     # --- Pair override upgrades ---
@@ -804,16 +960,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             with_exit = []
             without_exit = []
             for vn, after in group:
-                vdef = glyphs_def.get(vn) or {}
-                if vdef.get("cursive_exit"):
-                    with_exit.append((vn, vdef))
+                vmeta = _meta(vn)
+                if vmeta.exit:
+                    with_exit.append((vn, vmeta))
                 else:
-                    without_exit.append((vn, vdef))
+                    without_exit.append((vn, vmeta))
             if with_exit and without_exit:
                 entry_only_var = without_exit[0][0]
                 entry_exit_var = with_exit[0][0]
-                exit_y = _normalize_anchors(with_exit[0][1]["cursive_exit"])[0][1]
-                nb = (with_exit[0][1] or {}).get("calt_not_before", [])
+                exit_y = with_exit[0][1].exit[0][1]
+                nb = list(with_exit[0][1].not_before)
                 fwd_upgrades.setdefault(base_name, []).append(
                     (entry_exit_var, entry_only_var, exit_y, list(nb))
                 )
@@ -822,48 +978,46 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # Detects any variant with cursive_exit (catches .exit-* names and
     # .half variants alike). Entry variants (entry-* names) are excluded
     # since they are handled by the backward-looking rules.
-    fwd_replacements: dict[str, dict[int, str]] = {}
-    fwd_exclusions: dict[str, dict[int, list[str]]] = {}
+    fwd_replacements = plan.fwd_replacements
+    fwd_exclusions = plan.fwd_exclusions
     # Pair-specific forward overrides: variants with calt_before lists
     # Each entry is (variant_name, before_glyphs, not_after_glyphs)
-    fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str]]]] = {}
+    fwd_pair_overrides = plan.fwd_pair_overrides
     for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or "." not in glyph_name:
+        if glyph_def is None:
             continue
-        if glyph_name.endswith(".noentry"):
+        meta = _meta(glyph_name)
+        if not meta.modifiers:
             continue
-        if _extended_entry_suffix(glyph_name) is not None:
+        if meta.is_noentry:
             continue
-        if _extended_exit_suffix(glyph_name) is not None and not glyph_def.get("calt_before"):
+        if meta.extended_entry_suffix is not None:
             continue
-        if _is_entry_variant(glyph_name) and not glyph_def.get("calt_before"):
+        if meta.extended_exit_suffix is not None and not meta.before:
             continue
-        if glyph_def.get("calt_word_final"):
+        if meta.is_entry_variant and not meta.before:
             continue
-        if glyph_def.get("calt_after"):
+        if meta.word_final:
             continue
-        parts = glyph_name.split(".")[1:]
-        if "half" in parts and glyph_def.get("cursive_entry") and not glyph_def.get("calt_before"):
+        if meta.after:
             continue
-        extra_parts = [p for p in parts if p not in ("alt", "prop")]
-        if extra_parts and "alt" in parts and glyph_def.get("cursive_entry") and not glyph_def.get("calt_before"):
+        if "half" in meta.traits and meta.entry and not meta.before:
             continue
-        raw_exit = glyph_def.get("cursive_exit")
-        if raw_exit is None:
+        extra_parts = meta.modifiers - {"alt", "prop"}
+        if extra_parts and "alt" in meta.traits and meta.entry and not meta.before:
             continue
-        exits = _normalize_anchors(raw_exit)
-        if not exits:
+        if not meta.exit:
             continue
-        exit_y = exits[0][1]
-        base_name = glyph_name.split(".")[0]
+        exit_y = meta.exit[0][1]
+        base_name = meta.base_name
         if base_name not in glyphs_def:
             continue
-        calt_before = glyph_def.get("calt_before")
+        calt_before = meta.before
         if calt_before:
-            resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in calt_before]
-            not_after = glyph_def.get("calt_not_after")
+            resolved = _resolve_known_glyph_names(calt_before, glyphs_def)
+            not_after = meta.not_after
             resolved_not_after = (
-                [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_after]
+                _resolve_known_glyph_names(not_after, glyphs_def)
                 if not_after else []
             )
             fwd_pair_overrides.setdefault(base_name, []).append(
@@ -871,33 +1025,30 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             )
         else:
             fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
-            not_before = glyph_def.get("calt_not_before")
+            not_before = meta.not_before
             if not_before:
-                resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                resolved = _resolve_known_glyph_names(not_before, glyphs_def)
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
 
     # Variants that should only gain an entry anchor after a forward rule
     # has already selected an exit-only form.
-    reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str]]] = []
+    reverse_only_upgrades = plan.reverse_only_upgrades
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
-        reverse_from = glyph_def.get("reverse_upgrade_from")
+        meta = _meta(glyph_name)
+        reverse_from = meta.reverse_upgrade_from
         if not reverse_from:
             continue
-        entries = _normalize_anchors(glyph_def.get("cursive_entry"))
-        exits = _normalize_anchors(glyph_def.get("cursive_exit"))
+        entries = list(meta.entry)
+        exits = list(meta.exit)
         if not entries or not exits:
             continue
         exit_ys = {a[1] for a in exits}
-        resolved_sources = [
-            get_base_glyph_name(g) if g not in glyphs_def else g
-            for g in reverse_from
-        ]
+        resolved_sources = _resolve_known_glyph_names(reverse_from, glyphs_def)
         matching_sources = []
         for source_name in resolved_sources:
-            source_def = glyphs_def.get(source_name) or {}
-            source_exits = _normalize_anchors(source_def.get("cursive_exit"))
+            source_exits = list(_meta(source_name).exit)
             if source_exits and exit_ys & {a[1] for a in source_exits}:
                 matching_sources.append(source_name)
         if matching_sources:
@@ -917,7 +1068,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         """Expand glyph names to include all known variants from replacement dicts."""
         expanded = set(glyphs)
         for g in glyphs:
-            base = g.split(".")[0]
+            base = _base_name(g)
             if include_base:
                 expanded.add(base)
             if base in bk_replacements:
@@ -936,14 +1087,15 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # upgrade path exists).  Exit-only terminal: the reverse.
     _base_anchors: dict[str, list[tuple[str, set[int], set[int]]]] = {}
     for gn, gd in glyphs_def.items():
-        if gd is None or gn.endswith(".noentry"):
+        if gd is None or _meta(gn).is_noentry:
             continue
-        eys = {a[1] for a in _normalize_anchors(gd.get("cursive_entry"))}
-        exs = {a[1] for a in _normalize_anchors(gd.get("cursive_exit"))}
-        _base_anchors.setdefault(gn.split(".")[0], []).append((gn, eys, exs))
+        meta = _meta(gn)
+        eys = set(meta.entry_ys)
+        exs = set(meta.exit_ys)
+        _base_anchors.setdefault(meta.base_name, []).append((gn, eys, exs))
 
-    terminal_entry_only: set[str] = set()
-    terminal_exit_only: set[str] = set()
+    terminal_entry_only = plan.terminal_entry_only
+    terminal_exit_only = plan.terminal_exit_only
     for base, siblings in _base_anchors.items():
         for gn, eys, exs in siblings:
             if eys and not exs:
@@ -964,35 +1116,34 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                         break
 
     # --- Build exit classes (for backward rules) ---
-    exit_classes: dict[int, set[str]] = {}
+    exit_classes = plan.exit_classes
     for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or glyph_name.endswith(".noentry"):
+        if glyph_def is None or _meta(glyph_name).is_noentry:
             continue
-        raw_exit = glyph_def.get("cursive_exit")
-        if raw_exit is None:
+        meta = _meta(glyph_name)
+        if not meta.exit:
             continue
-        for anchor in _normalize_anchors(raw_exit):
+        for anchor in meta.exit:
             exit_classes.setdefault(anchor[1], set()).add(glyph_name)
 
     # --- Build entry classes (for forward rules) ---
     # Includes both glyphs with explicit cursive_entry anchors and base
     # glyphs that have entry-* variants (so forward rules can match the
     # base glyph before the backward rule substitutes it).
-    entry_classes: dict[int, set[str]] = {}
+    entry_classes = plan.entry_classes
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
-        raw_entry = glyph_def.get("cursive_entry")
-        if raw_entry is None:
+        meta = _meta(glyph_name)
+        if not meta.entry:
             continue
-        for anchor in _normalize_anchors(raw_entry):
+        for anchor in meta.entry:
             entry_classes.setdefault(anchor[1], set()).add(glyph_name)
-            is_bk = _is_entry_variant(glyph_name)
+            is_bk = meta.is_entry_variant
             if not is_bk:
-                parts = glyph_name.split(".")[1:]
-                is_bk = ("half" in parts or "alt" in parts) and glyph_def.get("cursive_entry") is not None
+                is_bk = ("half" in meta.traits or "alt" in meta.traits) and bool(meta.entry)
             if is_bk:
-                base_name = glyph_name.split(".")[0]
+                base_name = meta.base_name
                 if base_name in glyphs_def and anchor[1] in bk_replacements.get(base_name, {}):
                     entry_classes[anchor[1]].add(base_name)
 
@@ -1002,11 +1153,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # reverse-upgraded to entry+exit variants by a later backward rule.
     for base_name in fwd_upgrades:
         for entry_exit_var, entry_only_var, exit_y, _ in fwd_upgrades[base_name]:
-            entry_def = glyphs_def.get(entry_only_var, {}) or {}
-            raw_entry = entry_def.get("cursive_entry")
-            if not raw_entry:
+            entry_meta = _meta(entry_only_var)
+            if not entry_meta.entry:
                 continue
-            entry_y_val = _normalize_anchors(raw_entry)[0][1]
+            entry_y_val = entry_meta.entry[0][1]
             exit_only_var = fwd_replacements.get(base_name, {}).get(exit_y)
             if exit_only_var and entry_y_val in entry_classes:
                 entry_classes[entry_y_val].add(exit_only_var)
@@ -1020,8 +1170,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         if not base_entry_ys:
             continue
         for fwd_exit_y, fwd_var in fwd_vars.items():
-            fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
-            if fwd_var_def.get("cursive_entry"):
+            if _meta(fwd_var).entry:
                 continue
             for y in base_entry_ys:
                 entry_classes[y].add(fwd_var)
@@ -1032,7 +1181,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # variant is also a backward variant — preventing the forward rule from
     # firing when the next glyph could enter at a different height that
     # the backward rule would prefer.
-    entry_exclusive: dict[int, set[str]] = {}
+    entry_exclusive = plan.entry_exclusive
     all_entry_ys = set(entry_classes.keys())
     for y in all_entry_ys:
         exclusive = set(entry_classes[y])
@@ -1041,17 +1190,16 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 exclusive -= entry_classes[other_y]
         entry_exclusive[y] = exclusive
 
-    fwd_use_exclusive: set[tuple[str, int]] = set()
+    fwd_use_exclusive = plan.fwd_use_exclusive
     for base_name in fwd_replacements:
         if base_name in bk_replacements:
             bk_variant_names = set(bk_replacements[base_name].values())
             for exit_y, variant_name in fwd_replacements[base_name].items():
                 if variant_name in bk_variant_names:
                     fwd_use_exclusive.add((base_name, exit_y))
-        base_def = glyphs_def.get(base_name, {}) or {}
-        raw = base_def.get("cursive_exit")
-        if raw:
-            base_exit_ys = {a[1] for a in _normalize_anchors(raw)}
+        base_meta = glyph_meta.get(base_name)
+        if base_meta and base_meta.exit:
+            base_exit_ys = set(base_meta.exit_ys)
             min_base_exit = min(base_exit_ys)
             for exit_y, variant_name in fwd_replacements[base_name].items():
                 if exit_y not in base_exit_ys and exit_y < min_base_exit:
@@ -1061,25 +1209,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # When a variant has preferred_over and uses exclusive matching, add a
     # two-glyph rule so it also fires when the next glyph is ambiguous but
     # the glyph after that exclusively enters at the sibling's exit height.
-    fwd_preferred_lookahead: dict[str, list[tuple[str, int, int]]] = {}
+    fwd_preferred_lookahead = plan.fwd_preferred_lookahead
     for base_name in fwd_replacements:
         for exit_y, variant_name in fwd_replacements[base_name].items():
             if (base_name, exit_y) not in fwd_use_exclusive:
                 continue
-            variant_def = glyphs_def.get(variant_name, {}) or {}
-            preferred_over = variant_def.get("preferred_over")
+            variant_meta = _meta(variant_name)
+            preferred_over = variant_meta.preferred_over
             if not preferred_over:
                 continue
-            base_def = glyphs_def.get(base_name, {}) or {}
-            base_exit = base_def.get("cursive_exit")
-            if base_exit:
-                sibling_exit_y = _normalize_anchors(base_exit)[0][1]
+            base_meta = glyph_meta.get(base_name)
+            if base_meta and base_meta.exit:
+                sibling_exit_y = base_meta.exit[0][1]
             else:
                 for sibling in preferred_over:
-                    sibling_def = glyphs_def.get(sibling, {}) or {}
-                    raw = sibling_def.get("cursive_exit")
-                    if raw:
-                        sibling_exit_y = _normalize_anchors(raw)[0][1]
+                    sibling_meta = glyph_meta.get(sibling)
+                    if sibling_meta and sibling_meta.exit:
+                        sibling_exit_y = sibling_meta.exit[0][1]
                         break
                 else:
                     continue
@@ -1095,25 +1241,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # that height.
     base_exit_ys: dict[str, set[int]] = {}
     for base_name in bk_replacements:
-        base_def = glyphs_def.get(base_name, {})
         base_ys = set()
-        if base_def:
-            raw_exit = base_def.get("cursive_exit")
-            if raw_exit:
-                for anchor in _normalize_anchors(raw_exit):
-                    base_ys.add(anchor[1])
+        base_meta = glyph_meta.get(base_name)
+        if base_meta:
+            base_ys.update(base_meta.exit_ys)
         new_exit_ys = set()
         all_variants = list(bk_replacements[base_name].values())
         if base_name in fwd_replacements:
             all_variants.extend(fwd_replacements[base_name].values())
         for variant_name in all_variants:
-            variant_def = glyphs_def.get(variant_name, {})
-            if variant_def:
-                raw_exit = variant_def.get("cursive_exit")
-                if raw_exit:
-                    for anchor in _normalize_anchors(raw_exit):
-                        if anchor[1] not in base_ys:
-                            new_exit_ys.add(anchor[1])
+            variant_meta = glyph_meta.get(variant_name)
+            if variant_meta:
+                for exit_y in variant_meta.exit_ys:
+                    if exit_y not in base_ys:
+                        new_exit_ys.add(exit_y)
         base_exit_ys[base_name] = new_exit_ys
 
     base_order = list(bk_replacements.keys())
@@ -1165,9 +1306,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     lines = ["feature calt {"]
 
-    for y in sorted(bk_used_ys):
-        if y in exit_classes:
-            members = sorted(exit_classes[y])
+    for y in sorted(exit_classes):
+        members = sorted(exit_classes[y])
+        if members:
             lines.append(f"    @exit_y{y} = [{' '.join(members)}];")
 
     for y in sorted(fwd_used_ys):
@@ -1188,8 +1329,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     zwnj = "uni200C"
     noentry_pairs = []
     for name in sorted(glyphs_def):
-        if name.endswith(".noentry"):
-            base = name[:-len(".noentry")]
+        meta = _meta(name)
+        if meta.is_noentry:
+            base = meta.base_name
             if base in glyphs_def:
                 noentry_pairs.append((base, name))
     if zwnj in glyphs_def and noentry_pairs:
@@ -1207,8 +1349,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # variants only survive at end-of-word (before space/punctuation/EOT).
     word_final_pairs = {}
     for name, gdef in glyphs_def.items():
-        if gdef and gdef.get("calt_word_final"):
-            base = name.split(".")[0]
+        if gdef and _meta(name).word_final:
+            base = _base_name(name)
             if base in glyphs_def:
                 word_final_pairs[base] = name
 
@@ -1218,10 +1360,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         for name in glyphs_def:
             if not name.startswith("qs"):
                 continue
-            base = name.split(".")[0]
+            meta = _meta(name)
+            base = meta.base_name
             if base in excluded_bases:
                 continue
-            if "." not in name and "_" not in name:
+            if name == base and not meta.sequence:
                 qs_letter_names.add(name)
         qs_letter_names.update(word_final_pairs.values())
         qs_letters_sorted = " ".join(sorted(qs_letter_names))
@@ -1247,12 +1390,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # entry), then its forward companion.
     _base_to_variants: dict[str, set[str]] = {}
     for _gn in glyphs_def:
-        _base_to_variants.setdefault(_gn.split(".")[0], set()).add(_gn)
+        _base_to_variants.setdefault(_base_name(_gn), set()).add(_gn)
+
+    def _can_match_pair_exit(name: str, exit_y: int) -> bool:
+        meta = _meta(name)
+        if exit_y in meta.exit_ys:
+            return True
+        if meta.exit:
+            return False
+        return any(
+            exit_y in _meta(candidate).exit_ys
+            for candidate in _base_to_variants.get(meta.base_name, ())
+        )
 
     def _expand_exclusions(eg_list: list[str]) -> set[str]:
         expanded = set()
         for eg in eg_list:
-            eg_base = eg.split(".")[0]
+            eg_base = _base_name(eg)
             expanded.update(_base_to_variants.get(eg_base, ()))
         return expanded
 
@@ -1271,12 +1425,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     for pv, _ in pair_overrides[base_name]:
                         targets.add(pv)
 
-                variant_def = glyphs_def.get(variant_name, {}) or {}
-                variant_raw = variant_def.get("cursive_entry")
-                variant_entry_ys = (
-                    {a[1] for a in _normalize_anchors(variant_raw)}
-                    if variant_raw else None
-                )
+                variant_meta = _meta(variant_name)
+                variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
 
                 expanded_not_after = _expand_all_variants(not_after_glyphs, include_base=True)
 
@@ -1285,11 +1435,11 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
                 for target in sorted(targets):
                     guard_list = None
-                    target_def = glyphs_def.get(target, {}) or {}
-                    target_raw = target_def.get("cursive_entry")
+                    target_meta = _meta(target)
+                    target_has_entry = bool(target_meta.entry)
                     if variant_entry_ys is not None:
-                        if target_raw:
-                            target_entry_ys = {a[1] for a in _normalize_anchors(target_raw)}
+                        if target_has_entry:
+                            target_entry_ys = set(target_meta.entry_ys)
                             if not target_entry_ys.issubset(variant_entry_ys):
                                 incompatible_ys = target_entry_ys - variant_entry_ys
                                 if incompatible_ys == target_entry_ys:
@@ -1300,26 +1450,23 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                 if guard_glyphs:
                                     guard_list = " ".join(sorted(guard_glyphs))
                     else:
-                        if target_raw and _is_entry_variant(target):
-                            target_exit_raw = target_def.get("cursive_exit")
-                            if target_exit_raw:
-                                target_exit_ys = {a[1] for a in _normalize_anchors(target_exit_raw)}
-                                variant_exit_ys = {a[1] for a in _normalize_anchors(variant_def.get("cursive_exit", []))}
+                        if target_has_entry and target_meta.is_entry_variant:
+                            if target_meta.exit:
+                                target_exit_ys = set(target_meta.exit_ys)
+                                variant_exit_ys = set(variant_meta.exit_ys)
                                 if variant_exit_ys <= target_exit_ys:
                                     continue
-                            elif target_def.get("calt_after"):
+                            elif target_meta.after:
                                 continue
-                        elif not target_raw:
-                            variant_exit_raw = variant_def.get("cursive_exit")
-                            if variant_exit_raw:
-                                variant_exit_ys = {a[1] for a in _normalize_anchors(variant_exit_raw)}
-                                base_for_target = target.split(".")[0]
+                        elif not target_has_entry:
+                            if variant_meta.exit:
+                                variant_exit_ys = set(variant_meta.exit_ys)
+                                base_for_target = target_meta.base_name
                                 protect_ys = set()
                                 for bk_y, bk_var in bk_replacements.get(base_for_target, {}).items():
-                                    bk_def = glyphs_def.get(bk_var, {}) or {}
-                                    bk_exit_raw = bk_def.get("cursive_exit")
-                                    if bk_exit_raw:
-                                        bk_exit_ys = {a[1] for a in _normalize_anchors(bk_exit_raw)}
+                                    bk_meta = _meta(bk_var)
+                                    if bk_meta.exit:
+                                        bk_exit_ys = set(bk_meta.exit_ys)
                                         if variant_exit_ys <= bk_exit_ys:
                                             protect_ys.add(bk_y)
                                 if protect_ys:
@@ -1329,7 +1476,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                                     if guard_glyphs:
                                         guard_list = " ".join(sorted(guard_glyphs))
                     actual_variant = variant_name
-                    suffix = _extended_entry_suffix(target)
+                    suffix = target_meta.extended_entry_suffix
                     if suffix:
                         extended = variant_name + suffix
                         if extended not in glyphs_def:
@@ -1393,23 +1540,20 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         if base_name in pair_overrides:
             for variant_name, after_glyphs in pair_overrides[base_name]:
                 expanded_after = _expand_all_variants(after_glyphs)
-                suffix = _extended_entry_suffix(variant_name)
-                if suffix:
-                    label = suffix.removeprefix(".entry-extended-at-")
-                    entry_y = next(
-                        (y for y, lbl in _EXTENDED_HEIGHT_LABELS.items() if lbl == label),
-                        None,
-                    )
-                    if entry_y is not None and entry_y in exit_classes:
-                        expanded_after &= exit_classes[entry_y]
+                variant_meta = _meta(variant_name)
+                if variant_meta.entry_restriction_y is not None:
+                    entry_y = variant_meta.entry_restriction_y
+                    expanded_after = {
+                        name for name in expanded_after
+                        if _can_match_pair_exit(name, entry_y)
+                    }
                 after_list = " ".join(sorted(expanded_after))
                 safe = variant_name.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_pair_{safe} {{")
-                variant_def = glyphs_def.get(variant_name, {}) or {}
-                not_before = variant_def.get("calt_not_before", [])
+                not_before = list(variant_meta.not_before)
                 if not_before:
-                    resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                    resolved = _resolve_known_glyph_names(not_before, glyphs_def)
                     for nb in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {nb};")
                 for tei in sorted(expanded_after & terminal_entry_only):
@@ -1537,15 +1681,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             if base_name not in bk_replacements or base_name not in fwd_replacements:
                 continue
             for entry_y, bk_var in sorted(bk_replacements[base_name].items()):
-                bk_def = glyphs_def.get(bk_var, {}) or {}
-                if bk_def.get("cursive_exit"):
+                if _meta(bk_var).exit:
                     continue
                 for fwd_exit_y, fwd_var in fwd_replacements[base_name].items():
-                    fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
-                    raw_exit = fwd_var_def.get("cursive_exit")
-                    if raw_exit:
-                        for a in _normalize_anchors(raw_exit):
-                            override_fwd_exit_ys.add(a[1])
+                    override_fwd_exit_ys.update(_meta(fwd_var).exit_ys)
         if not override_fwd_exit_ys:
             return
         for base_name in bases:
@@ -1556,16 +1695,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for y, v in variants.items():
                 if y not in override_fwd_exit_ys or y not in exit_classes:
                     continue
-                v_def = glyphs_def.get(v, {}) or {}
-                if not v_def.get("cursive_exit"):
+                if not _meta(v).exit:
                     continue
                 relevant[y] = v
             if not relevant:
                 continue
             fwd_exit_only = []
             for fv_y, fv in fwd_replacements.get(base_name, {}).items():
-                fv_def = glyphs_def.get(fv, {}) or {}
-                if not fv_def.get("cursive_entry"):
+                if not _meta(fv).entry:
                     fwd_exit_only.append(fv)
             if not fwd_exit_only:
                 continue
@@ -1591,11 +1728,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         """
         for base_name in sorted(fwd_upgrades):
             for entry_exit_var, entry_only_var, exit_y, not_before in fwd_upgrades[base_name]:
-                entry_def = glyphs_def.get(entry_only_var, {}) or {}
-                raw_entry = entry_def.get("cursive_entry")
-                if not raw_entry:
+                entry_meta = _meta(entry_only_var)
+                if not entry_meta.entry:
                     continue
-                entry_y_val = _normalize_anchors(raw_entry)[0][1]
+                entry_y_val = entry_meta.entry[0][1]
                 exit_only_var = fwd_replacements.get(base_name, {}).get(exit_y)
                 if not exit_only_var or entry_y_val not in exit_classes:
                     continue
@@ -1630,15 +1766,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             if base_name not in bk_replacements or base_name not in fwd_replacements:
                 continue
             for entry_y, bk_var in sorted(bk_replacements[base_name].items()):
-                bk_def = glyphs_def.get(bk_var, {}) or {}
-                if bk_def.get("cursive_exit"):
+                if _meta(bk_var).exit:
                     continue
                 valid_overrides = []
                 for fwd_exit_y, fwd_var in sorted(fwd_replacements[base_name].items()):
                     if fwd_exit_y not in entry_classes:
                         continue
-                    fwd_var_def = glyphs_def.get(fwd_var, {}) or {}
-                    if fwd_var_def.get("cursive_entry"):
+                    if _meta(fwd_var).entry:
                         continue
                     has_upgrade = any(
                         entry_only == bk_var and ey == fwd_exit_y
@@ -1664,10 +1798,9 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     safe = f"{bk_var}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
                     lines.append("")
                     lines.append(f"    lookup calt_fwd_override_{safe} {{")
-                    fwd_def = glyphs_def.get(fwd_var, {}) or {}
-                    not_before = fwd_def.get("calt_not_before", [])
+                    not_before = list(_meta(fwd_var).not_before)
                     if not_before:
-                        resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
+                        resolved = _resolve_known_glyph_names(not_before, glyphs_def)
                         for nb in sorted(_expand_exclusions(resolved)):
                             lines.append(f"        ignore sub {bk_var}' {nb};")
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
@@ -1680,7 +1813,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # backward pair lookups emitted.
     entry_ext_pair_only: set[str] = set()
     for base_name, overrides in pair_overrides.items():
-        if all(_extended_entry_suffix(vn) is not None for vn, _ in overrides):
+        if all(_meta(vn).extended_entry_suffix is not None for vn, _ in overrides):
             entry_ext_pair_only.add(base_name)
 
     all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
@@ -1720,7 +1853,7 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             continue
         for _, after_glyphs in pair_overrides[base_a]:
             for ag in after_glyphs:
-                base_b = ag.split(".")[0]
+                base_b = _base_name(ag)
                 if base_b != base_a and base_b in fwd_only_set:
                     fwd_fwd_edges[base_a].add(base_b)
 
@@ -1744,10 +1877,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
 
     lig_fwd_bases: set[str] = set()
     for base_name in fwd_only:
-        if "_" not in base_name:
-            continue
-        components = base_name.split("_")
-        if all(c in glyphs_def for c in components):
+        base_meta = glyph_meta.get(base_name)
+        if base_meta and base_meta.sequence and all(c in glyphs_def for c in base_meta.sequence):
             lig_fwd_bases.add(base_name)
 
     # Pair-only bases whose fwd_upgrades come from pair overrides need their
@@ -1804,22 +1935,18 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     for base_name, overrides in fwd_pair_overrides.items():
         found = False
         for variant_name, before_glyphs, _ in overrides:
-            if base_name in {g.split(".")[0] for g in before_glyphs}:
+            if base_name in {_base_name(g) for g in before_glyphs}:
                 early_fwd_pairs.add(base_name)
                 found = True
                 break
-            variant_def = glyphs_def.get(variant_name, {}) or {}
-            raw_exit = variant_def.get("cursive_exit")
-            if raw_exit:
-                exit_ys = {a[1] for a in _normalize_anchors(raw_exit)}
+            variant_meta = _meta(variant_name)
+            if variant_meta.exit:
+                exit_ys = set(variant_meta.exit_ys)
                 for bg in before_glyphs:
-                    bg_base = bg.split(".")[0] if "." in bg else bg
+                    bg_base = _base_name(bg)
                     bk_ys = set(bk_replacements.get(bg_base, {}))
                     for pv, _ in pair_overrides.get(bg_base, []):
-                        pv_def = glyphs_def.get(pv, {}) or {}
-                        pv_entry = pv_def.get("cursive_entry")
-                        if pv_entry:
-                            bk_ys.update(a[1] for a in _normalize_anchors(pv_entry))
+                        bk_ys.update(_meta(pv).entry_ys)
                     if exit_ys & bk_ys:
                         early_fwd_pairs.add(base_name)
                         found = True
@@ -1867,21 +1994,13 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     if cycle_bases:
         pair_only_new_exit_ys: set[int] = set()
         for po_base in pair_only:
-            base_def = glyphs_def.get(po_base, {})
             base_ys = set()
-            if base_def:
-                raw_exit = base_def.get("cursive_exit")
-                if raw_exit:
-                    for anchor in _normalize_anchors(raw_exit):
-                        base_ys.add(anchor[1])
+            if po_base in glyph_meta:
+                base_ys.update(glyph_meta[po_base].exit_ys)
             for variant_name, _ in pair_overrides[po_base]:
-                variant_def = glyphs_def.get(variant_name, {})
-                if variant_def:
-                    raw_exit = variant_def.get("cursive_exit")
-                    if raw_exit:
-                        for anchor in _normalize_anchors(raw_exit):
-                            if anchor[1] not in base_ys:
-                                pair_only_new_exit_ys.add(anchor[1])
+                for exit_y in _meta(variant_name).exit_ys:
+                    if exit_y not in base_ys:
+                        pair_only_new_exit_ys.add(exit_y)
         for cb in sorted(cycle_bases):
             if cb not in bk_replacements:
                 continue
@@ -1920,11 +2039,10 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             variants = bk_replacements[base_name]
             exclusions = bk_exclusions.get(base_name, {})
             for fwd_var, _, _ in fwd_pair_overrides[base_name]:
-                ext_suffix = _extended_exit_suffix(fwd_var)
+                ext_suffix = _meta(fwd_var).extended_exit_suffix
                 if not ext_suffix:
                     continue
-                fwd_def = glyphs_def.get(fwd_var, {}) or {}
-                if fwd_def.get("cursive_entry"):
+                if _meta(fwd_var).entry:
                     continue
                 emitted_any = False
                 safe = fwd_var.replace(".", "_").replace("-", "_")
@@ -1973,13 +2091,17 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
     # matches.
     ligatures = []
     for glyph_name in glyphs_def:
-        if "_" not in glyph_name:
+        meta = _meta(glyph_name)
+        if not meta.sequence:
             continue
-        if _extended_exit_suffix(glyph_name) is not None:
+        if glyph_name != meta.base_name:
             continue
-        components = glyph_name.split("_")
-        if all(c in glyphs_def for c in components):
-            ligatures.append((glyph_name, components))
+        if meta.is_noentry or meta.extended_entry_suffix is not None:
+            continue
+        if meta.extended_exit_suffix is not None:
+            continue
+        if all(component in glyphs_def for component in meta.sequence):
+            ligatures.append((glyph_name, meta.sequence))
     if ligatures:
         from itertools import product as _product
 
@@ -2004,14 +2126,14 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             for combo in _product(*variant_sets):
                 component_str = " ".join(combo)
                 actual_lig = lig_name
-                suffix = _extended_entry_suffix(combo[0])
+                suffix = _meta(combo[0]).extended_entry_suffix
                 if suffix:
                     ext_lig = lig_name + suffix
                     if ext_lig not in glyphs_def:
                         ext_lig = lig_name + ".entry-extended"
                     if ext_lig in glyphs_def:
                         actual_lig = ext_lig
-                exit_suffix = _extended_exit_suffix(combo[-1])
+                exit_suffix = _meta(combo[-1]).extended_exit_suffix
                 if exit_suffix:
                     ext_lig = actual_lig + ".exit-extended"
                     if ext_lig in glyphs_def:
