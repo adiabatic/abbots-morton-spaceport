@@ -1314,10 +1314,9 @@ glyphs:
       - "######" #
 
   qsRoe.exit-xheight:  # ·Roe
-    cursive_entry:
-      - [1, 0]
-    cursive_exit: [7, 5]
-    calt_before: [qsZoo]
+    cursive_entry: [1, 0]
+    cursive_exit:  [7, 5]
+    calt_before: [qsZoo, qsOx]
     bitmap:
       - "  #####" #
       - "    #  "
