@@ -6,13 +6,117 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from build_font import build_compiled_glyph_metadata, compile_glyph_definitions, load_glyph_data
+from build_font import (
+    build_compiled_glyph_metadata,
+    compile_glyph_definitions,
+    generate_noentry_variants,
+    load_glyph_data,
+)
+
+
+def _compiled_glyphs():
+    data = load_glyph_data(ROOT / "glyph_data")
+    return compile_glyph_definitions(data, "senior")
 
 
 def _compiled_meta():
-    data = load_glyph_data(ROOT / "glyph_data")
-    glyphs = compile_glyph_definitions(data, "senior")
-    return build_compiled_glyph_metadata(glyphs)
+    return build_compiled_glyph_metadata(_compiled_glyphs())
+
+
+def test_quikscript_family_and_generated_variants_stamp_metadata_seed():
+    glyphs = _compiled_glyphs()
+
+    tea = glyphs["qsTea"]
+    assert tea["_base_name"] == "qsTea"
+    assert tea["_modifiers"] == []
+    assert not tea["_contextual"]
+
+    utter = glyphs["qsUtter.alt.reaches-way-back"]
+    assert utter["_modifiers"] == ["alt", "reaches-way-back"]
+    assert utter["_contextual"]
+    assert "reaches-way-back" in utter["_compat_assertions"]
+
+    may = glyphs["qsMay.entry-baseline.entry-extended"]
+    assert may["_modifiers"] == ["entry-baseline", "entry-extended"]
+    assert may["_entry_suffix"] == ".entry-baseline"
+    assert may["_extended_entry_suffix"] == ".entry-extended"
+    assert may["_is_entry_variant"]
+
+    day_lig = glyphs["qsDay_qsUtter.entry-extended"]
+    assert day_lig["_base_name"] == "qsDay_qsUtter"
+    assert day_lig["_sequence"] == ["qsDay", "qsUtter"]
+
+    noentry = glyphs["qsDay_qsUtter.noentry"]
+    assert noentry["_is_noentry"]
+    assert noentry["_contextual"]
+
+
+def test_family_form_modifiers_are_seeded_from_authored_form_data():
+    glyphs = compile_glyph_definitions(
+        {
+            "glyph_families": {
+                "qsTest": {
+                    "prop": {
+                        "bitmap": ["#"],
+                    },
+                    "forms": {
+                        "alt_reaches_way_back": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [2, 0],
+                            },
+                            "traits": ["alt"],
+                            "output_name": "qsCustomForm",
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    form = glyphs["qsCustomForm"]
+    assert form["_modifiers"] == ["alt", "reaches-way-back"]
+    assert {"alt", "reaches-way-back"} <= set(form["_compat_assertions"])
+
+
+def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
+    glyphs = compile_glyph_definitions(
+        {
+            "glyphs": {
+                "uni200C": {
+                    "bitmap": [],
+                    "advance_width": 0,
+                },
+            },
+            "glyph_families": {
+                "qsBase": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                    "forms": {
+                        "alt": {
+                            "shape": "prop",
+                            "anchors": {
+                                "entry": [0, 0],
+                            },
+                            "traits": ["alt"],
+                            "output_name": "qsCustomAlt",
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    variants = generate_noentry_variants(glyphs)
+
+    assert "qsBase.noentry" in variants
+    assert "qsCustomAlt.noentry" not in variants
 
 
 def test_alt_and_half_are_semantic_traits():
