@@ -399,12 +399,12 @@ glyphs:
 
   qsGay.prop:  # ·Gay
     y_offset: -3
-    cursive_exit: [6, 5]
     bitmap: *gay_bitmap
 
   qsGay.exit-xheight.extended:  # ·Gay
     y_offset: -3
     cursive_exit: [6, 5]
+    calt_not_before: [qsEt]
     bitmap:
       - "  ###" #
       - " #   "
