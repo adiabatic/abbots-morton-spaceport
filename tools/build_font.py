@@ -1368,18 +1368,22 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     lines.append(f"    }} calt_fwd_override_{safe};")
 
     # Bases whose pair_overrides come entirely from entry-extended variants
-    # should remain forward-only — entry-extended pairs are about the entry
-    # side and don't affect the base's forward exit behaviour.
+    # and also have forward behaviour should remain forward-only —
+    # entry-extended pairs are about the entry side and don't affect the
+    # base's forward exit behaviour. Pair-only bases still need their
+    # backward pair lookups emitted.
     entry_ext_pair_only: set[str] = set()
     for base_name, overrides in pair_overrides.items():
         if all(_extended_entry_suffix(vn) is not None for vn, _ in overrides):
             entry_ext_pair_only.add(base_name)
 
+    all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
+    entry_ext_fwd_only = entry_ext_pair_only & all_fwd_bases
+
     # Add pair-override-only bases to sorted_bases (after the topo-sorted ones)
-    pair_only = sorted(set(pair_overrides) - set(bk_replacements) - entry_ext_pair_only)
+    pair_only = sorted(set(pair_overrides) - set(bk_replacements) - entry_ext_fwd_only)
     all_bk_bases = sorted_bases + pair_only
 
-    all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
     fwd_only_set = all_fwd_bases - set(bk_replacements) - (set(pair_overrides) - entry_ext_pair_only)
 
     # --- Topological sort for forward-only lookups ---
@@ -1400,6 +1404,19 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                     if b_variant not in cls:
                         fwd_fwd_edges[base_a].add(base_b)
                         break
+
+    # If base A has a backward pair whose calt_after references glyphs
+    # belonging to base B (which has forward rules that substitute B into a
+    # different variant), then B's forward rules must fire first so A's
+    # backward pair sees the substituted form.
+    for base_a in fwd_only_set:
+        if base_a not in pair_overrides:
+            continue
+        for _, after_glyphs in pair_overrides[base_a]:
+            for ag in after_glyphs:
+                base_b = ag.split(".")[0]
+                if base_b != base_a and base_b in fwd_only_set:
+                    fwd_fwd_edges[base_a].add(base_b)
 
     fwd_out: dict[str, set[str]] = {b: set() for b in fwd_only_set}
     fwd_in_deg: dict[str, int] = {b: len(fwd_fwd_edges[b]) for b in fwd_only_set}
