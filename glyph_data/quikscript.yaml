@@ -110,6 +110,22 @@ glyphs:
       - "      "
       - "      " #
 
+  qsPea.half.entry-xheight.exit-xheight:  # ·Pea
+    cursive_entry: [1, 5]
+    cursive_exit:  [6, 5]
+    reverse_upgrade_from: [qsPea.half]
+    calt_not_before: [qsDay, qsFee, qsTea]
+    bitmap:
+      - " ##   "
+      - "#  #  "
+      - "#  #  "
+      - "   ###" #
+      - "      "
+      - "      "
+      - "      "
+      - "      "
+      - "      " #
+
   qsPea.half.entry-y6.exit-y6:  # ·Pea
     cursive_entry: [1, 6]
     cursive_exit: [4, 6]

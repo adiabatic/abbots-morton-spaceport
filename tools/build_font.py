@@ -153,7 +153,7 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             "calt_after", "calt_before", "calt_not_after", "calt_not_before",
             "extend_entry_after", "extend_exit_before",
             "doubly_extend_entry_after", "doubly_extend_exit_before",
-            "noentry_after",
+            "noentry_after", "reverse_upgrade_from",
         )
         scalar_keys = ("base",)
         changed = False
@@ -484,6 +484,8 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
         entries = _normalize_anchors(raw_entry)
         if not entries:
             continue
+        if glyph_def.get("reverse_upgrade_from"):
+            continue
         entry_y = entries[0][1]
         base_name = glyph_name.split(".")[0]
         if base_name not in glyphs_def:
@@ -619,6 +621,40 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
             if not_before:
                 resolved = [get_base_glyph_name(g) if g not in glyphs_def else g for g in not_before]
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
+
+    # Variants that should only gain an entry anchor after a forward rule
+    # has already selected an exit-only form.
+    reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str]]] = []
+    for glyph_name, glyph_def in glyphs_def.items():
+        if glyph_def is None:
+            continue
+        reverse_from = glyph_def.get("reverse_upgrade_from")
+        if not reverse_from:
+            continue
+        entries = _normalize_anchors(glyph_def.get("cursive_entry"))
+        exits = _normalize_anchors(glyph_def.get("cursive_exit"))
+        if not entries or not exits:
+            continue
+        exit_ys = {a[1] for a in exits}
+        resolved_sources = [
+            get_base_glyph_name(g) if g not in glyphs_def else g
+            for g in reverse_from
+        ]
+        matching_sources = []
+        for source_name in resolved_sources:
+            source_def = glyphs_def.get(source_name) or {}
+            source_exits = _normalize_anchors(source_def.get("cursive_exit"))
+            if source_exits and exit_ys & {a[1] for a in source_exits}:
+                matching_sources.append(source_name)
+        if matching_sources:
+            reverse_only_upgrades.append(
+                (
+                    glyph_name,
+                    matching_sources,
+                    [a[1] for a in entries],
+                    list(glyph_def.get("calt_not_before", [])),
+                )
+            )
 
     if not bk_replacements and not fwd_replacements:
         return None
@@ -1318,6 +1354,22 @@ def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
+        for variant_name, source_variants, entry_ys, not_before in reverse_only_upgrades:
+            valid_entry_ys = [y for y in sorted(set(entry_ys)) if y in exit_classes]
+            if not valid_entry_ys:
+                continue
+            safe = variant_name.replace(".", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_reverse_upgrade_explicit_{safe} {{")
+            if not_before:
+                nb_list = " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
+                for source_variant in source_variants:
+                    lines.append(f"        ignore sub {source_variant}' [{nb_list}];")
+            for entry_y in valid_entry_ys:
+                for source_variant in source_variants:
+                    lines.append(f"        sub @exit_y{entry_y} {source_variant}' by {variant_name};")
+            lines.append(f"    }} calt_reverse_upgrade_explicit_{safe};")
+
     def _emit_noentry_fwd_overrides(bases: list[str]):
         """Replace no-exit backward variants with forward-only variants."""
         for base_name in bases:
@@ -1919,7 +1971,7 @@ _CALT_KEYS = frozenset((
     "calt_after", "calt_before", "calt_not_after", "calt_not_before",
     "calt_word_final", "extend_entry_after", "extend_exit_before",
     "doubly_extend_entry_after", "doubly_extend_exit_before",
-    "noentry_after",
+    "noentry_after", "reverse_upgrade_from",
 ))
 
 
