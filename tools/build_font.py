@@ -292,15 +292,83 @@ def _resolve_family_record(
     return resolved
 
 
-def _is_contextual_family_form(output_name: str, form_def: dict) -> bool:
+def _is_contextual_family_form(form_def: dict, *, is_base_record: bool = False) -> bool:
     contextual = form_def.get("contextual")
     if contextual is not None:
         return bool(contextual)
-    return _is_contextual_variant(output_name)
+    if is_base_record:
+        return False
+    if form_def.get("traits"):
+        return True
+    if form_def.get("select") or form_def.get("derive"):
+        return True
+    anchors = form_def.get("anchors", {})
+    if any(key in anchors for key in ("entry", "entry_curs_only", "exit")):
+        return True
+    return any(key in form_def for key in ("shape", "bitmap"))
 
 
 def _normalize_family_refs(values: list[str]) -> list[str]:
     return [get_base_glyph_name(value) for value in values]
+
+
+def _family_form_modifiers(form_name: str | None, form_def: dict) -> tuple[str, ...]:
+    if not form_name:
+        return tuple(form_def.get("traits", ()))
+
+    traits = tuple(form_def.get("traits", ()))
+    modifiers = list(traits)
+    tokens = form_name.split("_")
+    index = 0
+    trait_tokens = set(traits)
+
+    while index < len(tokens):
+        token = tokens[index]
+        if token in trait_tokens:
+            index += 1
+            continue
+        if token in {"entry", "exit"}:
+            if index + 1 >= len(tokens):
+                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
+            next_token = tokens[index + 1]
+            if next_token == "doubly":
+                if index + 2 >= len(tokens) or tokens[index + 2] != "extended":
+                    raise ValueError(f"Invalid Quikscript form name '{form_name}'")
+                modifier = f"{token}-doubly-extended"
+                index += 3
+            else:
+                modifier = f"{token}-{next_token}"
+                index += 2
+            if index + 1 < len(tokens) and tokens[index] == "at":
+                modifier += f"-at-{tokens[index + 1]}"
+                index += 2
+            modifiers.append(modifier)
+            continue
+        if token in {"after", "before"}:
+            remainder = "-".join(tokens[index + 1 :])
+            if not remainder:
+                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
+            modifiers.append(f"{token}-{remainder}")
+            break
+        if token == "reaches":
+            if tokens[index + 1 : index + 3] != ["way", "back"]:
+                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
+            modifiers.append("reaches-way-back")
+            index += 3
+            continue
+        if token == "smaller":
+            if tokens[index + 1 : index + 2] != ["loop"]:
+                raise ValueError(f"Invalid Quikscript form name '{form_name}'")
+            modifiers.append("smaller-loop")
+            index += 2
+            continue
+        if token in {"extended", "widebase"}:
+            modifiers.append(token)
+            index += 1
+            continue
+        raise ValueError(f"Unsupported Quikscript form name '{form_name}'")
+
+    return tuple(modifiers)
 
 
 def _family_form_to_glyph_def(
@@ -308,7 +376,9 @@ def _family_form_to_glyph_def(
     family_def: dict,
     form_def: dict,
     *,
+    form_name: str | None = None,
     output_name: str,
+    contextual: bool,
 ) -> dict:
     glyph_def: dict = {}
 
@@ -364,14 +434,16 @@ def _family_form_to_glyph_def(
         if source_key in derive:
             glyph_def[glyph_key] = _normalize_family_refs(derive[source_key])
 
-    glyph_def["_base_name"] = family_name
-    glyph_def["_family"] = family_name
-    glyph_def["_contextual"] = _is_contextual_family_form(output_name, form_def)
-    if family_def.get("sequence"):
-        glyph_def["_sequence"] = deepcopy(family_def["sequence"])
-    traits = form_def.get("traits")
-    if traits:
-        glyph_def["_traits"] = list(traits)
+    _stamp_compiled_glyph_seed(
+        glyph_def,
+        output_name=output_name,
+        base_name=family_name,
+        family_name=family_name,
+        sequence=family_def.get("sequence"),
+        traits=form_def.get("traits"),
+        contextual=contextual,
+        modifiers=_family_form_modifiers(form_name, form_def),
+    )
 
     return glyph_def
 
@@ -393,6 +465,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     family_def,
                     _resolve_family_record(family_name, family_def, "mono", cache, []),
                     output_name=family_name,
+                    contextual=False,
                 )
         else:
             base_record_name = "prop" if family_def.get("prop") else "mono"
@@ -402,6 +475,7 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     family_def,
                     _resolve_family_record(family_name, family_def, base_record_name, cache, []),
                     output_name=family_name,
+                    contextual=False,
                 )
 
         for form_name in family_def.get("forms", {}):
@@ -417,13 +491,15 @@ def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
                     continue
             elif variants and variant not in variants:
                 continue
-            elif not is_senior and _is_contextual_family_form(output_name, resolved):
+            elif not is_senior and _is_contextual_family_form(resolved):
                 continue
             compiled[output_name] = _family_form_to_glyph_def(
                 family_name,
                 family_def,
                 resolved,
+                form_name=form_name,
                 output_name=output_name,
+                contextual=_is_contextual_family_form(resolved),
             )
 
     return compiled
@@ -804,22 +880,107 @@ def _entry_restriction_y_from_modifiers(modifiers: list[str]) -> int | None:
     return None
 
 
+def _seeded_base_name(glyph_name: str, glyph_def: dict) -> str:
+    return glyph_def.get("_base_name", get_base_glyph_name(glyph_name).split(".")[0])
+
+
+def _seeded_modifiers(glyph_name: str, glyph_def: dict) -> tuple[str, ...]:
+    modifiers = glyph_def.get("_modifiers")
+    if modifiers is not None:
+        return tuple(modifiers)
+    return tuple(_glyph_name_modifiers(glyph_name))
+
+
+def _seeded_extended_entry_suffix(glyph_name: str, glyph_def: dict) -> str | None:
+    return glyph_def.get("_extended_entry_suffix", _extended_entry_suffix(glyph_name))
+
+
+def _seeded_extended_exit_suffix(glyph_name: str, glyph_def: dict) -> str | None:
+    return glyph_def.get("_extended_exit_suffix", _extended_exit_suffix(glyph_name))
+
+
+def _stamp_compiled_glyph_seed(
+    glyph_def: dict,
+    *,
+    output_name: str,
+    base_name: str,
+    family_name: str | None = None,
+    sequence: list[str] | tuple[str, ...] | None = None,
+    traits: list[str] | tuple[str, ...] | frozenset[str] | None = None,
+    contextual: bool,
+    modifiers: tuple[str, ...] | list[str] | None = None,
+    is_noentry: bool | None = None,
+) -> None:
+    glyph_def["_base_name"] = base_name
+    if family_name is not None:
+        glyph_def["_family"] = family_name
+    if sequence is not None:
+        if sequence:
+            glyph_def["_sequence"] = deepcopy(sequence)
+        else:
+            glyph_def.pop("_sequence", None)
+
+    if traits is None:
+        resolved_traits = tuple(glyph_def.get("_traits", ()))
+    else:
+        resolved_traits = tuple(traits)
+    if resolved_traits:
+        glyph_def["_traits"] = list(resolved_traits)
+    else:
+        glyph_def.pop("_traits", None)
+
+    glyph_def["_contextual"] = bool(contextual)
+
+    resolved_modifiers = tuple(modifiers) if modifiers is not None else tuple(_glyph_name_modifiers(output_name))
+    glyph_def["_modifiers"] = list(resolved_modifiers)
+
+    trait_set = frozenset(resolved_traits)
+    glyph_def["_compat_assertions"] = sorted(
+        _compat_assertions_from_modifiers(list(resolved_modifiers), trait_set)
+    )
+    glyph_def["_is_entry_variant"] = any(
+        modifier.startswith("entry-") for modifier in resolved_modifiers
+    )
+    glyph_def["_is_exit_variant"] = any(
+        modifier.startswith("exit-") for modifier in resolved_modifiers
+    )
+    glyph_def["_entry_suffix"] = _entry_suffix_from_modifiers(list(resolved_modifiers))
+    glyph_def["_exit_suffix"] = _exit_suffix_from_modifiers(list(resolved_modifiers))
+    glyph_def["_extended_entry_suffix"] = _extended_entry_suffix_from_modifiers(
+        list(resolved_modifiers)
+    )
+    glyph_def["_extended_exit_suffix"] = _extended_exit_suffix_from_modifiers(
+        list(resolved_modifiers)
+    )
+    glyph_def["_entry_restriction_y"] = _entry_restriction_y_from_modifiers(
+        list(resolved_modifiers)
+    )
+    glyph_def["_is_noentry"] = bool(
+        ("noentry" in resolved_modifiers) if is_noentry is None else is_noentry
+    )
+
+
 def build_compiled_glyph_metadata(glyphs_def: dict) -> dict[str, CompiledGlyphMeta]:
     metadata: dict[str, CompiledGlyphMeta] = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
             continue
 
-        modifiers = _glyph_name_modifiers(glyph_name)
+        modifiers = _seeded_modifiers(glyph_name, glyph_def)
         traits = frozenset(glyph_def.get("_traits", []))
         metadata[glyph_name] = CompiledGlyphMeta(
             name=glyph_name,
-            base_name=_base_name_for_compiled_glyph(glyph_name, glyph_def),
+            base_name=_seeded_base_name(glyph_name, glyph_def),
             family=glyph_def.get("_family"),
             sequence=tuple(glyph_def.get("_sequence", ())),
             traits=traits,
             modifiers=frozenset(modifiers),
-            compat_assertions=_compat_assertions_from_modifiers(modifiers, traits),
+            compat_assertions=frozenset(
+                glyph_def.get(
+                    "_compat_assertions",
+                    _compat_assertions_from_modifiers(list(modifiers), traits),
+                )
+            ),
             entry=tuple(tuple(anchor) for anchor in _normalize_anchors(glyph_def.get("cursive_entry"))),
             entry_curs_only=tuple(
                 tuple(anchor)
@@ -834,14 +995,33 @@ def build_compiled_glyph_metadata(glyphs_def: dict) -> dict[str, CompiledGlyphMe
             preferred_over=tuple(glyph_def.get("preferred_over", ())),
             word_final=bool(glyph_def.get("calt_word_final")),
             is_contextual=bool(glyph_def.get("_contextual", _is_contextual_variant(glyph_name))),
-            is_entry_variant=any(modifier.startswith("entry-") for modifier in modifiers),
-            is_exit_variant=any(modifier.startswith("exit-") for modifier in modifiers),
-            entry_suffix=_entry_suffix_from_modifiers(modifiers),
-            exit_suffix=_exit_suffix_from_modifiers(modifiers),
-            extended_entry_suffix=_extended_entry_suffix_from_modifiers(modifiers),
-            extended_exit_suffix=_extended_exit_suffix_from_modifiers(modifiers),
-            entry_restriction_y=_entry_restriction_y_from_modifiers(modifiers),
-            is_noentry="noentry" in modifiers,
+            is_entry_variant=bool(
+                glyph_def.get(
+                    "_is_entry_variant",
+                    any(modifier.startswith("entry-") for modifier in modifiers),
+                )
+            ),
+            is_exit_variant=bool(
+                glyph_def.get(
+                    "_is_exit_variant",
+                    any(modifier.startswith("exit-") for modifier in modifiers),
+                )
+            ),
+            entry_suffix=glyph_def.get("_entry_suffix", _entry_suffix_from_modifiers(list(modifiers))),
+            exit_suffix=glyph_def.get("_exit_suffix", _exit_suffix_from_modifiers(list(modifiers))),
+            extended_entry_suffix=glyph_def.get(
+                "_extended_entry_suffix",
+                _extended_entry_suffix_from_modifiers(list(modifiers)),
+            ),
+            extended_exit_suffix=glyph_def.get(
+                "_extended_exit_suffix",
+                _extended_exit_suffix_from_modifiers(list(modifiers)),
+            ),
+            entry_restriction_y=glyph_def.get(
+                "_entry_restriction_y",
+                _entry_restriction_y_from_modifiers(list(modifiers)),
+            ),
+            is_noentry=bool(glyph_def.get("_is_noentry", "noentry" in modifiers)),
         )
     return metadata
 
@@ -2255,7 +2435,9 @@ def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> 
     # appear in so they break the cursive chain.  .noentry glyphs WITH
     # cursive_exit are already picked up by the normal scan above.
     for glyph_name, glyph_def in glyphs_def.items():
-        if not glyph_name.endswith(".noentry") or glyph_def is None:
+        if glyph_def is None:
+            continue
+        if not glyph_def.get("_is_noentry", glyph_name.endswith(".noentry")):
             continue
         if glyph_def.get("cursive_exit"):
             continue
@@ -2293,13 +2475,28 @@ def generate_noentry_variants(glyphs_def: dict) -> dict:
 
     variants = {}
     for name, gdef in sorted(glyphs_def.items()):
-        if gdef is None or "." in name:
+        if gdef is None:
+            continue
+        if _seeded_modifiers(name, gdef):
             continue
         if not gdef.get("cursive_entry"):
             continue
+        seed_context = _generated_variant_seed_context(name, gdef)
         noentry_def = {k: v for k, v in gdef.items() if k not in ("cursive_entry", "extend_entry_after", "extend_exit_before")}
         noentry_def["_noentry_for"] = name
-        variants[name + ".noentry"] = noentry_def
+        variant_name = name + ".noentry"
+        _stamp_compiled_glyph_seed(
+            noentry_def,
+            output_name=variant_name,
+            base_name=seed_context["base_name"],
+            family_name=seed_context["family_name"],
+            sequence=seed_context["sequence"],
+            traits=seed_context["traits"],
+            contextual=True,
+            modifiers=seed_context["modifiers"] + ("noentry",),
+            is_noentry=True,
+        )
+        variants[variant_name] = noentry_def
     return variants
 
 
@@ -2351,6 +2548,16 @@ _CALT_KEYS = frozenset((
 ))
 
 
+def _generated_variant_seed_context(glyph_name: str, glyph_def: dict) -> dict:
+    return {
+        "base_name": _seeded_base_name(glyph_name, glyph_def),
+        "family_name": glyph_def.get("_family"),
+        "sequence": glyph_def.get("_sequence"),
+        "traits": tuple(glyph_def.get("_traits", ())),
+        "modifiers": _seeded_modifiers(glyph_name, glyph_def),
+    }
+
+
 def _generate_extended_entry_variants(
     glyphs_def: dict, *, count: int, yaml_key: str, suffix_word: str,
 ) -> dict:
@@ -2373,6 +2580,7 @@ def _generate_extended_entry_variants(
         entry = gdef.get("cursive_entry")
         if not entry:
             continue
+        seed_context = _generated_variant_seed_context(name, gdef)
 
         entries = _normalize_anchors(entry)
         multi = len(entries) > 1
@@ -2381,6 +2589,7 @@ def _generate_extended_entry_variants(
             for anchor in entries:
                 y = anchor[1]
                 label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
+                modifier = f"entry-{suffix_word}-at-{label}"
                 ext_name = f"{name}.entry-{suffix_word}-at-{label}"
                 if ext_name not in glyphs_def:
                     variant_def = {k: v for k, v in gdef.items() if k != yaml_key}
@@ -2391,8 +2600,19 @@ def _generate_extended_entry_variants(
                     if "cursive_exit" in variant_def:
                         variant_def["cursive_exit"] = _shift_anchor(variant_def["cursive_exit"], dx=count)
                     variant_def["calt_after"] = list(extend_after)
+                    _stamp_compiled_glyph_seed(
+                        variant_def,
+                        output_name=ext_name,
+                        base_name=seed_context["base_name"],
+                        family_name=seed_context["family_name"],
+                        sequence=seed_context["sequence"],
+                        traits=seed_context["traits"],
+                        contextual=True,
+                        modifiers=seed_context["modifiers"] + (modifier,),
+                    )
                     variants[ext_name] = variant_def
         else:
+            modifier = f"entry-{suffix_word}"
             ext_name = f"{name}.entry-{suffix_word}"
             if ext_name not in glyphs_def:
                 variant_def = {k: v for k, v in gdef.items() if k != yaml_key}
@@ -2402,17 +2622,29 @@ def _generate_extended_entry_variants(
                 if "cursive_exit" in variant_def:
                     variant_def["cursive_exit"] = _shift_anchor(variant_def["cursive_exit"], dx=count)
                 variant_def["calt_after"] = list(extend_after)
+                _stamp_compiled_glyph_seed(
+                    variant_def,
+                    output_name=ext_name,
+                    base_name=seed_context["base_name"],
+                    family_name=seed_context["family_name"],
+                    sequence=seed_context["sequence"],
+                    traits=seed_context["traits"],
+                    contextual=True,
+                    modifiers=seed_context["modifiers"] + (modifier,),
+                )
                 variants[ext_name] = variant_def
 
-        base_name = name.split(".")[0]
+        base_name = seed_context["base_name"]
         for other_name, other_gdef in sorted(glyphs_def.items()):
             if other_gdef is None or other_name == name:
                 continue
-            if _extended_entry_suffix(other_name) is not None:
+            if _seeded_extended_entry_suffix(other_name, other_gdef) is not None:
                 continue
-            other_base = other_name.split(".")[0]
-            is_variant = other_base == base_name and "." in other_name
-            is_ligature = other_name.startswith(base_name + "_")
+            other_seed_context = _generated_variant_seed_context(other_name, other_gdef)
+            other_base = other_seed_context["base_name"]
+            other_sequence = tuple(other_seed_context["sequence"] or ())
+            is_variant = other_base == base_name and bool(other_seed_context["modifiers"])
+            is_ligature = bool(other_sequence) and other_sequence[0] == base_name
             if not (is_variant or is_ligature):
                 continue
             other_entry = other_gdef.get("cursive_entry")
@@ -2423,6 +2655,7 @@ def _generate_extended_entry_variants(
                 for anchor in other_entries:
                     y = anchor[1]
                     label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
+                    modifier = f"entry-{suffix_word}-at-{label}"
                     sec_name = f"{other_name}.entry-{suffix_word}-at-{label}"
                     if sec_name not in glyphs_def:
                         extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
@@ -2432,8 +2665,19 @@ def _generate_extended_entry_variants(
                         )
                         if "cursive_exit" in extended:
                             extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
+                        _stamp_compiled_glyph_seed(
+                            extended,
+                            output_name=sec_name,
+                            base_name=other_base,
+                            family_name=other_seed_context["family_name"],
+                            sequence=other_seed_context["sequence"],
+                            traits=other_seed_context["traits"],
+                            contextual=True,
+                            modifiers=other_seed_context["modifiers"] + (modifier,),
+                        )
                         variants[sec_name] = extended
             else:
+                modifier = f"entry-{suffix_word}"
                 sec_name = f"{other_name}.entry-{suffix_word}"
                 if sec_name not in glyphs_def:
                     extended = {k: v for k, v in other_gdef.items() if k not in _CALT_KEYS}
@@ -2443,6 +2687,16 @@ def _generate_extended_entry_variants(
                     )
                     if "cursive_exit" in extended:
                         extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
+                    _stamp_compiled_glyph_seed(
+                        extended,
+                        output_name=sec_name,
+                        base_name=other_base,
+                        family_name=other_seed_context["family_name"],
+                        sequence=other_seed_context["sequence"],
+                        traits=other_seed_context["traits"],
+                        contextual=True,
+                        modifiers=other_seed_context["modifiers"] + (modifier,),
+                    )
                     variants[sec_name] = extended
 
     return variants
@@ -2470,10 +2724,12 @@ def _generate_extended_exit_variants(
         raw_exit = gdef.get("cursive_exit")
         if not raw_exit:
             continue
+        seed_context = _generated_variant_seed_context(name, gdef)
 
         exits = _normalize_anchors(raw_exit)
         exit_y = exits[0][1]
 
+        modifier = f"exit-{suffix_word}"
         ext_name = f"{name}.exit-{suffix_word}"
         if ext_name not in glyphs_def:
             skip_keys = {yaml_key, "extend_exit_no_entry"}
@@ -2485,17 +2741,29 @@ def _generate_extended_exit_variants(
             variant_def["calt_before"] = list(extend_before)
             if gdef.get("extend_exit_no_entry"):
                 variant_def.pop("cursive_entry", None)
+            _stamp_compiled_glyph_seed(
+                variant_def,
+                output_name=ext_name,
+                base_name=seed_context["base_name"],
+                family_name=seed_context["family_name"],
+                sequence=seed_context["sequence"],
+                traits=seed_context["traits"],
+                contextual=True,
+                modifiers=seed_context["modifiers"] + (modifier,),
+            )
             variants[ext_name] = variant_def
 
-        base_name = name.split(".")[0]
+        base_name = seed_context["base_name"]
         for other_name, other_gdef in sorted(glyphs_def.items()):
             if other_gdef is None or other_name == name:
                 continue
-            if _extended_exit_suffix(other_name) is not None:
+            if _seeded_extended_exit_suffix(other_name, other_gdef) is not None:
                 continue
-            other_base = other_name.split(".")[0]
-            is_variant = other_base == base_name and "." in other_name
-            is_ligature = other_name.startswith(base_name + "_")
+            other_seed_context = _generated_variant_seed_context(other_name, other_gdef)
+            other_base = other_seed_context["base_name"]
+            other_sequence = tuple(other_seed_context["sequence"] or ())
+            is_variant = other_base == base_name and bool(other_seed_context["modifiers"])
+            is_ligature = bool(other_sequence) and other_sequence[0] == base_name
             if not (is_variant or is_ligature):
                 continue
             other_exit = other_gdef.get("cursive_exit")
@@ -2509,6 +2777,16 @@ def _generate_extended_exit_variants(
                     extended["bitmap"], other_exits_norm[0][1], extended.get("y_offset", 0), count=count
                 )
                 extended["cursive_exit"] = _shift_anchor(extended["cursive_exit"], dx=count)
+                _stamp_compiled_glyph_seed(
+                    extended,
+                    output_name=sec_name,
+                    base_name=other_base,
+                    family_name=other_seed_context["family_name"],
+                    sequence=other_seed_context["sequence"],
+                    traits=other_seed_context["traits"],
+                    contextual=True,
+                    modifiers=other_seed_context["modifiers"] + (modifier,),
+                )
                 variants[sec_name] = extended
 
     return variants
