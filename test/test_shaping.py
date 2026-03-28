@@ -20,13 +20,8 @@ import sys
 sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
     _normalize_anchors,
-    generate_noentry_variants,
-    generate_extended_entry_variants,
-    generate_extended_exit_variants,
-    generate_doubly_extended_entry_variants,
-    generate_doubly_extended_exit_variants,
+    compile_glyph_definitions,
     load_glyph_data,
-    prepare_proportional_glyphs,
 )
 
 def _build_char_to_glyph_name():
@@ -229,14 +224,7 @@ def load_font():
 
 def build_anchor_map():
     data = load_glyph_data(GLYPH_DATA_DIR)
-    glyphs = data["glyphs"]
-    glyphs = {k: v for k, v in glyphs.items() if ".unused" not in k}
-    glyphs = prepare_proportional_glyphs(glyphs)
-    glyphs.update(generate_noentry_variants(glyphs))
-    glyphs.update(generate_extended_entry_variants(glyphs))
-    glyphs.update(generate_extended_exit_variants(glyphs))
-    glyphs.update(generate_doubly_extended_entry_variants(glyphs))
-    glyphs.update(generate_doubly_extended_exit_variants(glyphs))
+    glyphs = compile_glyph_definitions(data, "senior")
 
     result = {}
     base_potential_entries = {}

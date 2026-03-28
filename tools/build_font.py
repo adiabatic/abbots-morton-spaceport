@@ -17,6 +17,7 @@ Outputs:
 
 import sys
 from collections import deque
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -41,6 +42,7 @@ def load_glyph_data(path: Path) -> dict:
     if path.is_dir():
         metadata = {}
         glyphs = {}
+        glyph_families = {}
         kerning_defs = {}
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
@@ -49,12 +51,25 @@ def load_glyph_data(path: Path) -> dict:
                 metadata = data["metadata"]
             if data and "glyphs" in data:
                 glyphs.update(data["glyphs"])
+            if data and "glyph_families" in data:
+                glyph_families.update(data["glyph_families"])
             if data and "kerning" in data:
                 kerning_defs.update(data["kerning"])
-        return {"metadata": metadata, "glyphs": glyphs, "kerning": kerning_defs}
+        return {
+            "metadata": metadata,
+            "glyphs": glyphs,
+            "glyph_families": glyph_families,
+            "kerning": kerning_defs,
+        }
     else:
         with open(path) as f:
-            return yaml.safe_load(f)
+            data = yaml.safe_load(f) or {}
+        return {
+            "metadata": data.get("metadata", {}),
+            "glyphs": data.get("glyphs", {}),
+            "glyph_families": data.get("glyph_families", {}),
+            "kerning": data.get("kerning", {}),
+        }
 
 
 def _resolve_codepoint(glyph_name: str, postscript_names: dict) -> int | None:
@@ -191,6 +206,245 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             new_glyphs[glyph_name] = _rename_refs(glyph_def)
 
     return new_glyphs
+
+
+def _merge_family_records(base: dict, override: dict) -> dict:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if key in {"anchors", "select", "derive"}:
+            merged.setdefault(key, {})
+            for nested_key, nested_value in value.items():
+                if nested_value is None:
+                    merged[key].pop(nested_key, None)
+                else:
+                    merged[key][nested_key] = deepcopy(nested_value)
+            if not merged[key]:
+                merged.pop(key, None)
+        elif key == "traits":
+            merged[key] = list(dict.fromkeys([*merged.get(key, []), *value]))
+        elif value is None:
+            merged.pop(key, None)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def _resolve_family_record(
+    family_name: str,
+    family_def: dict,
+    record_name: str,
+    cache: dict[str, dict],
+    stack: list[str],
+) -> dict:
+    if record_name in cache:
+        return cache[record_name]
+    if record_name in stack:
+        cycle = " -> ".join([*stack, record_name])
+        raise ValueError(f"Cyclic form inheritance in {family_name}: {cycle}")
+
+    records = {}
+    if family_def.get("mono"):
+        records["mono"] = family_def["mono"]
+    if family_def.get("prop"):
+        records["prop"] = family_def["prop"]
+    records.update(family_def.get("forms", {}))
+
+    raw = records.get(record_name)
+    if raw is None:
+        raise ValueError(f"Unknown form '{record_name}' in glyph family '{family_name}'")
+
+    stack.append(record_name)
+    resolved: dict = {}
+    inherits = raw.get("inherits")
+    if inherits:
+        parents = [inherits] if isinstance(inherits, str) else inherits
+        for parent_name in parents:
+            parent = _resolve_family_record(family_name, family_def, parent_name, cache, stack)
+            resolved = _merge_family_records(resolved, parent)
+
+    own = {k: v for k, v in raw.items() if k != "inherits"}
+    resolved = _merge_family_records(resolved, own)
+
+    shape_name = resolved.pop("shape", None)
+    if shape_name:
+        if shape_name in family_def.get("shapes", {}):
+            shape_def = family_def["shapes"][shape_name]
+        elif shape_name in {"mono", "prop"} and family_def.get(shape_name):
+            source_record = _resolve_family_record(
+                family_name,
+                family_def,
+                shape_name,
+                cache,
+                stack,
+            )
+            shape_def = {
+                key: deepcopy(source_record[key])
+                for key in ("bitmap", "y_offset", "advance_width")
+                if key in source_record
+            }
+        else:
+            raise ValueError(f"Unknown shape '{shape_name}' in glyph family '{family_name}'")
+        resolved = _merge_family_records(shape_def, resolved)
+
+    cache[record_name] = resolved
+    stack.pop()
+    return resolved
+
+
+def _is_contextual_family_form(output_name: str, form_def: dict) -> bool:
+    contextual = form_def.get("contextual")
+    if contextual is not None:
+        return bool(contextual)
+    return _is_contextual_variant(output_name)
+
+
+def _normalize_family_refs(values: list[str]) -> list[str]:
+    return [get_base_glyph_name(value) for value in values]
+
+
+def _family_form_to_glyph_def(family_name: str, family_def: dict, form_def: dict) -> dict:
+    glyph_def: dict = {}
+
+    if "bitmap" in form_def:
+        glyph_def["bitmap"] = deepcopy(form_def["bitmap"])
+
+    for key in (
+        "y_offset",
+        "advance_width",
+        "kerning",
+        "top_mark_y",
+        "bottom_mark_y",
+        "is_mark",
+        "base_x_adjust",
+        "base_y_adjust",
+        "base",
+        "top",
+        "bottom",
+    ):
+        if key in form_def:
+            glyph_def[key] = deepcopy(form_def[key])
+
+    anchors = form_def.get("anchors", {})
+    if "entry" in anchors:
+        glyph_def["cursive_entry"] = deepcopy(anchors["entry"])
+    if "entry_curs_only" in anchors:
+        glyph_def["cursive_entry_curs_only"] = deepcopy(anchors["entry_curs_only"])
+    if "exit" in anchors:
+        glyph_def["cursive_exit"] = deepcopy(anchors["exit"])
+
+    select = form_def.get("select", {})
+    select_map = {
+        "after": "calt_after",
+        "before": "calt_before",
+        "not_after": "calt_not_after",
+        "not_before": "calt_not_before",
+    }
+    for source_key, glyph_key in select_map.items():
+        if source_key in select:
+            glyph_def[glyph_key] = _normalize_family_refs(select[source_key])
+
+    derive = form_def.get("derive", {})
+    derive_map = {
+        "extend_entry_after": "extend_entry_after",
+        "extend_exit_before": "extend_exit_before",
+        "doubly_extend_entry_after": "doubly_extend_entry_after",
+        "doubly_extend_exit_before": "doubly_extend_exit_before",
+        "noentry_after": "noentry_after",
+        "reverse_upgrade_from": "reverse_upgrade_from",
+        "preferred_over": "preferred_over",
+    }
+    for source_key, glyph_key in derive_map.items():
+        if source_key in derive:
+            glyph_def[glyph_key] = _normalize_family_refs(derive[source_key])
+
+    glyph_def["_family"] = family_name
+    if family_def.get("sequence"):
+        glyph_def["_sequence"] = deepcopy(family_def["sequence"])
+    traits = form_def.get("traits")
+    if traits:
+        glyph_def["_traits"] = list(traits)
+
+    return glyph_def
+
+
+def compile_glyph_families(glyph_families: dict, variant: str) -> dict:
+    if not glyph_families:
+        return {}
+
+    is_senior = variant == "senior"
+    compiled: dict[str, dict] = {}
+
+    for family_name, family_def in glyph_families.items():
+        cache: dict[str, dict] = {}
+
+        if variant == "mono":
+            if family_def.get("mono"):
+                compiled[family_name] = _family_form_to_glyph_def(
+                    family_name,
+                    family_def,
+                    _resolve_family_record(family_name, family_def, "mono", cache, []),
+                )
+        else:
+            base_record_name = "prop" if family_def.get("prop") else "mono"
+            if family_def.get(base_record_name):
+                compiled[family_name] = _family_form_to_glyph_def(
+                    family_name,
+                    family_def,
+                    _resolve_family_record(family_name, family_def, base_record_name, cache, []),
+                )
+
+        for form_name in family_def.get("forms", {}):
+            resolved = _resolve_family_record(family_name, family_def, form_name, cache, [])
+            output_name = resolved.get("output_name")
+            if not output_name:
+                raise ValueError(
+                    f"Glyph family '{family_name}' form '{form_name}' is missing output_name"
+                )
+            variants = set(resolved.get("variants", []))
+            if variant == "mono":
+                if "mono" not in variants:
+                    continue
+            elif variants and variant not in variants:
+                continue
+            elif not is_senior and _is_contextual_family_form(output_name, resolved):
+                continue
+            compiled[output_name] = _family_form_to_glyph_def(family_name, family_def, resolved)
+
+    return compiled
+
+
+def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
+    """Compile source glyph data into the flat glyph map used by the build."""
+    is_proportional = variant != "mono"
+    is_senior = variant == "senior"
+
+    legacy_glyphs = {
+        name: glyph_def
+        for name, glyph_def in glyph_data.get("glyphs", {}).items()
+        if ".unused" not in name
+    }
+
+    if not is_senior:
+        legacy_glyphs = {
+            name: glyph_def
+            for name, glyph_def in legacy_glyphs.items()
+            if not _is_contextual_variant(name)
+        }
+
+    if is_proportional:
+        legacy_glyphs = prepare_proportional_glyphs(legacy_glyphs)
+
+    glyphs_def = dict(legacy_glyphs)
+    glyphs_def.update(compile_glyph_families(glyph_data.get("glyph_families", {}), variant))
+
+    if is_senior:
+        glyphs_def.update(generate_noentry_variants(glyphs_def))
+        glyphs_def.update(generate_extended_entry_variants(glyphs_def))
+        glyphs_def.update(generate_extended_exit_variants(glyphs_def))
+        glyphs_def.update(generate_doubly_extended_entry_variants(glyphs_def))
+        glyphs_def.update(generate_doubly_extended_exit_variants(glyphs_def))
+
+    return glyphs_def
 
 
 def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
@@ -2430,30 +2684,10 @@ def build_font(
     Returns:
         The built TTFont object.
     """
+    metadata = glyph_data.get("metadata", {})
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
-
-    metadata = glyph_data.get("metadata", {})
-    glyphs_def = glyph_data["glyphs"]
-
-    # Filter out .unused glyphs — they're stubs not yet ready for compilation
-    glyphs_def = {k: v for k, v in glyphs_def.items() if ".unused" not in k}
-
-    # For non-senior proportional fonts, exclude contextual variants
-    if not is_senior:
-        glyphs_def = {k: v for k, v in glyphs_def.items() if not _is_contextual_variant(k)}
-
-    # For proportional font, transform glyphs: .prop becomes default
-    if is_proportional:
-        glyphs_def = prepare_proportional_glyphs(glyphs_def)
-
-    # For senior font, create .noentry variants for ZWNJ chain-breaking
-    if is_senior:
-        glyphs_def.update(generate_noentry_variants(glyphs_def))
-        glyphs_def.update(generate_extended_entry_variants(glyphs_def))
-        glyphs_def.update(generate_extended_exit_variants(glyphs_def))
-        glyphs_def.update(generate_doubly_extended_entry_variants(glyphs_def))
-        glyphs_def.update(generate_doubly_extended_exit_variants(glyphs_def))
+    glyphs_def = compile_glyph_definitions(glyph_data, variant)
 
     # Font name differs per variant
     base_font_name = metadata["font_name"]

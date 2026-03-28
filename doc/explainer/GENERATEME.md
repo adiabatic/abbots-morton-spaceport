@@ -72,11 +72,11 @@ Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea
 
 Explain that a single Quikscript letter may need different shapes depending on context:
 
-a. **Monospace vs. proportional** — the Mono font uses fixed-width base glyphs; the proportional Sans fonts use `.prop` variants that may be narrower
+a. **Monospace vs. proportional** — the Quikscript source data defines separate `mono` and `prop` records inside each glyph family, and the Sans builds compile from the proportional side of that family
 b. **Entry/exit variants** — a letter like ·Tea might need forms that enter at the top, at the x-height, at the baseline, or not at all. Each is a separate glyph in the font.
 c. **Half-letter variants** — some Tall/Deep letters have a half-height form used when connecting to certain neighbors (e.g., ·Pea half). Explain with an example.
 d. **Alternate forms** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
-e. **Naming convention** — explain the dot-separated naming scheme: `qsTea.entry-xheight.exit-baseline`, `qsPea.prop.half`, etc.
+e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Quikscript concepts preserved in the source model, while other compiled names like `qsTea.entry-xheight.exit-baseline` are generated implementation detail from family `forms` and build-time variant expansion
 
 ### 4. Feature files and the OpenType pipeline
 
@@ -93,11 +93,11 @@ Explain glyph substitution (GSUB) features used in this font:
 a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs and swaps in the right variant. This is the heart of making joins work.
    - **Backward-looking rules** — "if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y." Walk through a concrete example.
    - **Forward-looking rules** — "if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y." Walk through a concrete example.
-   - **Explicit overrides** — `calt_before`, `calt_after`, `calt_not_before`, `calt_not_after` in the YAML, and how they produce specific substitution rules that override the height-based defaults.
+   - **Explicit overrides** — the Quikscript family data stores context overrides under `select.before`, `select.after`, `select.not_before`, and `select.not_after`; explain how the build expands those into the specific substitution rules that override the height-based defaults.
    - **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
    - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
 
-b. **`liga` (standard ligatures)** — when two specific letters appear in sequence, replace them with a single pre-drawn combined glyph. Explain the underscore naming convention (`qsDay_qsUtter.prop`). Mention that ligatures can themselves have cursive anchors.
+b. **`liga` (standard ligatures)** — when two specific letters appear in sequence, replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). Mention that ligatures can themselves have cursive anchors.
 
 ### 6. GPOS: positioning the joined glyphs
 
@@ -113,7 +113,7 @@ b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pa
 
 ### 7. Padding and spacing refinements
 
-a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. The build script generates `.entry-extended` variants with a shifted entry anchor. Walk through an example (e.g., ·Ye followed by ·Roe).
+a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a form's `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
 b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the "escape hatch" for when automatic joining is wrong.
 
 ### 8. The three font variants
@@ -121,8 +121,8 @@ b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-genera
 Tie it all together by explaining the three output fonts:
 
 a. **Mono** — fixed-width, no joining, no contextual features. Uses base glyphs only. Good for code editors and tabular display.
-b. **Junior (Sans)** — proportional, no joining. Uses `.prop` glyphs (renamed to base names). Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
-c. **Senior (Sans)** — proportional with full joining. Uses `.prop` glyphs plus all contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
+b. **Junior (Sans)** — proportional, no joining. Compiles each Quikscript family's `prop` form plus any non-contextual alternates. Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
+c. **Senior (Sans)** — proportional with full joining. Compiles each Quikscript family's `prop` form plus contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
 
 ### 9. Putting it all together: a worked example
 
