@@ -42,8 +42,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 ## Cursive attachment (`curs`)
 
 - Quikscript source data now lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `forms` records. Put `cursive_entry` / `cursive_exit` anchors in the proportional record or form that should compile into the proportional font; mono-only records do not carry `curs` anchors.
-- Shared Quikscript bitmaps belong under a family's `shapes`, and contextual/alternate forms belong under `forms` with `output_name`, `anchors`, `select`, `derive`, and `traits`. Preserve `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes are generated naming detail rather than source-level API.
-- Quikscript form keys are not arbitrary labels. Use underscore-separated semantic names such as `entry_xheight`, `exit_baseline_before_ing`, `alt_reaches_way_back`, and `entry_extended_at_baseline`; the build now seeds internal compatibility metadata from the form key plus `traits`, rather than re-parsing `output_name`.
+- Shared Quikscript bitmaps belong under a family's `shapes`, and contextual/alternate forms belong under `forms` with `anchors`, `select`, `derive`, `traits`, and `modifiers`. Preserve `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes belong under ordered `modifiers`.
+- Quikscript form keys are local labels, not the compiled glyph naming API. The build now seeds compiled glyph identity and compatibility metadata from each form's explicit `traits` and `modifiers`, while `select` / `derive` family references use structured selectors like `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
 - The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 

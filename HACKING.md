@@ -14,7 +14,7 @@ Open `test/index.html` in a browser to test the font interactively.
 
 ## Quikscript data
 
-Quikscript now uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `forms`; `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests.
+Quikscript now uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `forms`; forms declare explicit `traits` / `modifiers`, and `select` / `derive` rules use structured family selectors instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests.
 
 ## Understanding
 
