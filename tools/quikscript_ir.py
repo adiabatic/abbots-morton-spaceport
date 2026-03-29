@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 import re
 from typing import Any
 
@@ -39,6 +39,7 @@ class JoinGlyph:
     is_noentry: bool
     bitmap: tuple[BitmapRow, ...]
     y_offset: int
+    advance_width: int | None
     extend_entry_after: tuple[str, ...]
     extend_exit_before: tuple[str, ...]
     doubly_extend_entry_after: tuple[str, ...]
@@ -48,7 +49,6 @@ class JoinGlyph:
     noentry_for: str | None = None
     generated_from: str | None = None
     transform_kind: str | None = None
-    glyph_def: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -904,6 +904,7 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
             is_noentry=bool(glyph_def.get("_is_noentry", "noentry" in modifiers)),
             bitmap=_normalize_bitmap(glyph_def.get("bitmap", ())),
             y_offset=int(glyph_def.get("y_offset", 0)),
+            advance_width=glyph_def.get("advance_width"),
             extend_entry_after=tuple(glyph_def.get("extend_entry_after", ())),
             extend_exit_before=tuple(glyph_def.get("extend_exit_before", ())),
             doubly_extend_entry_after=tuple(
@@ -917,7 +918,6 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
             noentry_for=glyph_def.get("_noentry_for"),
             generated_from=glyph_def.get("_generated_from"),
             transform_kind=glyph_def.get("_transform_kind"),
-            glyph_def=deepcopy(glyph_def),
         )
     return metadata
 
@@ -1003,6 +1003,77 @@ def _set_optional_anchor(
         glyph_def[key] = value
 
 
+def _materialize_join_glyph(join_glyph: JoinGlyph) -> dict[str, Any]:
+    glyph_def: dict[str, Any] = {
+        "bitmap": _materialize_bitmap(join_glyph.bitmap),
+    }
+    if join_glyph.y_offset:
+        glyph_def["y_offset"] = join_glyph.y_offset
+    if join_glyph.advance_width is not None:
+        glyph_def["advance_width"] = join_glyph.advance_width
+
+    _set_optional_anchor(glyph_def, "cursive_entry", join_glyph.entry)
+    _set_optional_anchor(
+        glyph_def,
+        "cursive_entry_curs_only",
+        join_glyph.entry_curs_only,
+    )
+    _set_optional_anchor(glyph_def, "cursive_exit", join_glyph.exit)
+    _set_optional_list(glyph_def, "calt_after", join_glyph.after)
+    _set_optional_list(glyph_def, "calt_before", join_glyph.before)
+    _set_optional_list(glyph_def, "calt_not_after", join_glyph.not_after)
+    _set_optional_list(glyph_def, "calt_not_before", join_glyph.not_before)
+    _set_optional_list(
+        glyph_def,
+        "reverse_upgrade_from",
+        join_glyph.reverse_upgrade_from,
+    )
+    _set_optional_list(glyph_def, "preferred_over", join_glyph.preferred_over)
+    _set_optional_list(
+        glyph_def,
+        "extend_entry_after",
+        join_glyph.extend_entry_after,
+    )
+    _set_optional_list(
+        glyph_def,
+        "extend_exit_before",
+        join_glyph.extend_exit_before,
+    )
+    _set_optional_list(
+        glyph_def,
+        "doubly_extend_entry_after",
+        join_glyph.doubly_extend_entry_after,
+    )
+    _set_optional_list(
+        glyph_def,
+        "doubly_extend_exit_before",
+        join_glyph.doubly_extend_exit_before,
+    )
+    _set_optional_list(glyph_def, "noentry_after", join_glyph.noentry_after)
+
+    if join_glyph.word_final:
+        glyph_def["calt_word_final"] = True
+    if join_glyph.extend_exit_no_entry:
+        glyph_def["extend_exit_no_entry"] = True
+    if join_glyph.noentry_for is not None:
+        glyph_def["_noentry_for"] = join_glyph.noentry_for
+
+    _stamp_compiled_glyph_seed(
+        glyph_def,
+        output_name=join_glyph.name,
+        base_name=join_glyph.base_name,
+        family_name=join_glyph.family,
+        sequence=join_glyph.sequence,
+        traits=join_glyph.traits,
+        contextual=join_glyph.is_contextual,
+        modifiers=join_glyph.modifiers,
+        is_noentry=join_glyph.is_noentry,
+        generated_from=join_glyph.generated_from,
+        transform_kind=join_glyph.transform_kind,
+    )
+    return glyph_def
+
+
 def derive_join_glyph(
     source: JoinGlyph,
     *,
@@ -1031,10 +1102,10 @@ def derive_join_glyph(
     generated_from: str | None = None,
     transform_kind: str | None = None,
     noentry_for: str | None | object = _UNSET,
-    remove_keys: Sequence[str] = (),
 ) -> JoinGlyph:
     resolved_bitmap = source.bitmap if bitmap is _UNSET else bitmap
     resolved_y_offset = source.y_offset if y_offset is _UNSET else y_offset
+    resolved_advance_width = source.advance_width
     resolved_entry = source.entry if entry is _UNSET else entry
     resolved_entry_curs_only = (
         source.entry_curs_only if entry_curs_only is _UNSET else entry_curs_only
@@ -1084,61 +1155,6 @@ def derive_join_glyph(
         source.traits,
     )
 
-    glyph_def = deepcopy(source.glyph_def)
-    for key in remove_keys:
-        glyph_def.pop(key, None)
-
-    glyph_def["bitmap"] = _materialize_bitmap(resolved_bitmap)
-    glyph_def["y_offset"] = resolved_y_offset
-    _set_optional_anchor(glyph_def, "cursive_entry", resolved_entry)
-    _set_optional_anchor(glyph_def, "cursive_entry_curs_only", resolved_entry_curs_only)
-    _set_optional_anchor(glyph_def, "cursive_exit", resolved_exit)
-    _set_optional_list(glyph_def, "calt_after", resolved_after)
-    _set_optional_list(glyph_def, "calt_before", resolved_before)
-    _set_optional_list(glyph_def, "calt_not_after", resolved_not_after)
-    _set_optional_list(glyph_def, "calt_not_before", resolved_not_before)
-    _set_optional_list(glyph_def, "reverse_upgrade_from", resolved_reverse_upgrade_from)
-    _set_optional_list(glyph_def, "preferred_over", resolved_preferred_over)
-    _set_optional_list(glyph_def, "extend_entry_after", resolved_extend_entry_after)
-    _set_optional_list(glyph_def, "extend_exit_before", resolved_extend_exit_before)
-    _set_optional_list(
-        glyph_def,
-        "doubly_extend_entry_after",
-        resolved_doubly_extend_entry_after,
-    )
-    _set_optional_list(
-        glyph_def,
-        "doubly_extend_exit_before",
-        resolved_doubly_extend_exit_before,
-    )
-    _set_optional_list(glyph_def, "noentry_after", resolved_noentry_after)
-    if resolved_word_final:
-        glyph_def["calt_word_final"] = True
-    else:
-        glyph_def.pop("calt_word_final", None)
-    if resolved_extend_exit_no_entry:
-        glyph_def["extend_exit_no_entry"] = True
-    else:
-        glyph_def.pop("extend_exit_no_entry", None)
-    if resolved_noentry_for is not None:
-        glyph_def["_noentry_for"] = resolved_noentry_for
-    else:
-        glyph_def.pop("_noentry_for", None)
-
-    _stamp_compiled_glyph_seed(
-        glyph_def,
-        output_name=name,
-        base_name=source.base_name,
-        family_name=source.family,
-        sequence=source.sequence,
-        traits=source.traits,
-        contextual=contextual,
-        modifiers=resolved_modifiers,
-        is_noentry=resolved_is_noentry,
-        generated_from=generated_from,
-        transform_kind=transform_kind,
-    )
-
     return replace(
         source,
         name=name,
@@ -1169,6 +1185,7 @@ def derive_join_glyph(
         is_noentry=resolved_is_noentry,
         bitmap=resolved_bitmap,
         y_offset=resolved_y_offset,
+        advance_width=resolved_advance_width,
         extend_entry_after=resolved_extend_entry_after,
         extend_exit_before=resolved_extend_exit_before,
         doubly_extend_entry_after=resolved_doubly_extend_entry_after,
@@ -1178,7 +1195,6 @@ def derive_join_glyph(
         noentry_for=resolved_noentry_for,
         generated_from=generated_from,
         transform_kind=transform_kind,
-        glyph_def=glyph_def,
     )
 
 
@@ -1228,12 +1244,13 @@ def generate_noentry_variants(
             join_glyph,
             name=variant_name,
             entry=(),
+            extend_entry_after=(),
+            extend_exit_before=(),
             add_modifiers=("noentry",),
             is_noentry=True,
             generated_from=name,
             transform_kind="noentry",
             noentry_for=name,
-            remove_keys=("extend_entry_after", "extend_exit_before"),
         )
         _record_transform(
             transforms,
@@ -1286,7 +1303,6 @@ def _generate_extended_entry_variants(
                         add_modifiers=(modifier,),
                         generated_from=name,
                         transform_kind=f"entry-{suffix_word}",
-                        remove_keys=(yaml_key,),
                     )
                     _record_transform(
                         transforms,
@@ -1316,7 +1332,6 @@ def _generate_extended_entry_variants(
                     add_modifiers=(modifier,),
                     generated_from=name,
                     transform_kind=f"entry-{suffix_word}",
-                    remove_keys=(yaml_key,),
                 )
                 _record_transform(
                     transforms,
@@ -1373,7 +1388,6 @@ def _generate_extended_entry_variants(
                             add_modifiers=(modifier,),
                             generated_from=other_name,
                             transform_kind=f"entry-{suffix_word}",
-                            remove_keys=_CALT_KEYS,
                         )
                         _record_transform(
                             transforms,
@@ -1412,7 +1426,6 @@ def _generate_extended_entry_variants(
                         add_modifiers=(modifier,),
                         generated_from=other_name,
                         transform_kind=f"entry-{suffix_word}",
-                        remove_keys=_CALT_KEYS,
                     )
                     _record_transform(
                         transforms,
@@ -1463,7 +1476,6 @@ def _generate_extended_exit_variants(
                 add_modifiers=(modifier,),
                 generated_from=name,
                 transform_kind=f"exit-{suffix_word}",
-                remove_keys=(yaml_key, "extend_exit_no_entry"),
             )
             _record_transform(
                 transforms,
@@ -1516,7 +1528,6 @@ def _generate_extended_exit_variants(
                     add_modifiers=(modifier,),
                     generated_from=other_name,
                     transform_kind=f"exit-{suffix_word}",
-                    remove_keys=_CALT_KEYS,
                 )
                 _record_transform(
                     transforms,
@@ -1607,7 +1618,7 @@ def expand_join_transforms(
 
 def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, dict]:
     return {
-        glyph_name: deepcopy(join_glyph.glyph_def)
+        glyph_name: _materialize_join_glyph(join_glyph)
         for glyph_name, join_glyph in join_glyphs.items()
     }
 
