@@ -1,7 +1,7 @@
 from collections import deque
 from dataclasses import dataclass, field
 
-from quikscript_ir import JoinGlyph, get_base_glyph_name
+from quikscript_ir import JoinGlyph, resolve_known_glyph_names
 
 
 @dataclass(frozen=True)
@@ -52,16 +52,6 @@ class JoinPlan:
     ligatures: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     rules: list[JoinRule] = field(default_factory=list)
-
-def _resolve_known_glyph_names(
-    values: tuple[str, ...] | list[str],
-    glyph_names: set[str],
-) -> list[str]:
-    resolved = []
-    for value in values:
-        resolved.append(value if value in glyph_names else get_base_glyph_name(value))
-    return resolved
-
 
 def _record_rule(plan: JoinPlan, rule: JoinRule) -> None:
     plan.rules.append(rule)
@@ -183,7 +173,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             )
             not_after = meta.not_after
             if not_after:
-                resolved = _resolve_known_glyph_names(not_after, plan.glyph_names)
+                resolved = resolve_known_glyph_names(not_after, plan.glyph_names)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
 
     for base_name, overrides in pair_overrides.items():
@@ -252,10 +242,10 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             continue
         calt_before = meta.before
         if calt_before:
-            resolved = _resolve_known_glyph_names(calt_before, plan.glyph_names)
+            resolved = resolve_known_glyph_names(calt_before, plan.glyph_names)
             not_after = meta.not_after
             resolved_not_after = (
-                _resolve_known_glyph_names(not_after, plan.glyph_names) if not_after else []
+                resolve_known_glyph_names(not_after, plan.glyph_names) if not_after else []
             )
             fwd_pair_overrides.setdefault(base_name, []).append(
                 (glyph_name, resolved, resolved_not_after)
@@ -286,7 +276,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             )
             not_before = meta.not_before
             if not_before:
-                resolved = _resolve_known_glyph_names(not_before, plan.glyph_names)
+                resolved = resolve_known_glyph_names(not_before, plan.glyph_names)
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
 
     reverse_only_upgrades = plan.reverse_only_upgrades
@@ -299,7 +289,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
         if not entries or not exits:
             continue
         exit_ys = {anchor[1] for anchor in exits}
-        resolved_sources = _resolve_known_glyph_names(reverse_from, plan.glyph_names)
+        resolved_sources = resolve_known_glyph_names(reverse_from, plan.glyph_names)
         matching_sources = []
         for source_name in resolved_sources:
             source_exits = list(_meta(source_name).exit)
