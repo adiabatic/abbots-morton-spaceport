@@ -6,6 +6,7 @@
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
 - In this repository only, it’s OK to have multiline commit messages, although by no means mandatory.
+- “Orthodox” is Quikscript-speak for “English written in the Latin script”.
 
 ## HTML/CSS/JS
 
@@ -23,7 +24,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 - Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
 
-## Generating glyphs for the first time in @glyph_data/quikscript.yaml
+## Generating glyphs for the first time in `glyph_data/quikscript.yaml`
 
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - When looking at @inspo/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
@@ -59,8 +60,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 ## Transcribing passages from the manual
 
-- The two word-list sections in @test/the-manual.html — "Common words to be fully spelt" and "Contractions" — are the source of truth for English → Senior QS spellings. Parse the `<dt>` for the English word and the `<dd>` (or its child `<span>` elements) for the QS text. Multi-form entries (e.g., `time/s`) use `data-orthodox` attributes on each `<span>` to label which English word each QS form represents.
-- The `data-orthodox` attribute on `force-senior` paragraphs provides the English text for each passage.
+- The two word-list sections in `test/the-manual.html` — "Common words to be fully spelt" and "Contractions" — are the source of truth for how to spell things in Senior QS. Parse the `<dt>` for the English word and the `<dd>` (or its child `<span>` elements) for the QS text. Multi-form entries (e.g., `time/s`) use `data-orthodox` attributes on each `<span>` to label which English word each QS form represents.
+- The `data-orthodox` attribute provides the English text for each passage.
 
 ## Tests
 
@@ -75,4 +76,5 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 - Use sentence case for titles, not title case.
 - Do not hard-wrap lines. Let each paragraph or list item be a single long line.
+- Ensure that Markdown tables are nicely formatted for humans and have nicely lined-up columns.
 - Make sure `markdownlint-cli2` doesn’t have anything to complain about.
