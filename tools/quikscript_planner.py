@@ -53,10 +53,6 @@ class JoinPlan:
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     rules: list[JoinRule] = field(default_factory=list)
 
-
-CaltPlan = JoinPlan
-
-
 def _resolve_known_glyph_names(
     values: tuple[str, ...] | list[str],
     glyph_names: set[str],
@@ -637,7 +633,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
 
 
 __all__ = [
-    "CaltPlan",
     "JoinPlan",
     "JoinRule",
     "plan_quikscript_joins",

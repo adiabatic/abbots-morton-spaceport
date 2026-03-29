@@ -7,7 +7,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import (
-    build_compiled_glyph_metadata,
     compile_glyph_definitions,
     load_glyph_data,
 )
@@ -20,7 +19,7 @@ def _compiled_glyphs():
 
 
 def _compiled_meta():
-    return build_compiled_glyph_metadata(_compiled_glyphs())
+    return build_join_glyphs(_compiled_glyphs())
 
 
 def test_quikscript_family_and_generated_variants_stamp_metadata_seed():

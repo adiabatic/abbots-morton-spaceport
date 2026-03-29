@@ -19,10 +19,10 @@ PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 import sys
 sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
-    build_compiled_glyph_metadata,
     compile_glyph_definitions,
     load_glyph_data,
 )
+from quikscript_ir import build_join_glyphs
 
 def _build_char_to_glyph_name():
     with open(PS_NAMES_PATH) as f:
@@ -227,7 +227,7 @@ def build_anchor_map():
     global _COMPILED_GLYPH_META
     data = load_glyph_data(GLYPH_DATA_DIR)
     glyphs = compile_glyph_definitions(data, "senior")
-    _COMPILED_GLYPH_META = build_compiled_glyph_metadata(glyphs)
+    _COMPILED_GLYPH_META = build_join_glyphs(glyphs)
 
     result = {}
     base_potential_entries = {}
