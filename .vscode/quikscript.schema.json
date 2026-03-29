@@ -1,7 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Abbots Morton Spaceport Quikscript source schema",
-  "description": "Schema for glyph_data/quikscript.yaml. This drives hover text, completion, and structural validation in VS Code via the Red Hat YAML extension.",
   "type": "object",
   "additionalProperties": false,
   "required": ["glyph_families"],
