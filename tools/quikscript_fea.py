@@ -1,17 +1,7 @@
 from itertools import product
 
-from quikscript_ir import JoinGlyph
+from quikscript_ir import JoinGlyph, resolve_known_glyph_names
 from quikscript_planner import JoinPlan, plan_quikscript_joins
-
-
-def _resolve_known_glyph_names(
-    values: tuple[str, ...] | list[str],
-    glyph_names: set[str],
-) -> list[str]:
-    resolved = []
-    for value in values:
-        resolved.append(value if value in glyph_names else value.split(".prop", 1)[0])
-    return resolved
 
 
 def emit_quikscript_calt(plan: JoinPlan) -> str | None:
@@ -309,7 +299,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                 lines.append(f"    lookup calt_pair_{safe} {{")
                 not_before = list(variant_meta.not_before)
                 if not_before:
-                    resolved = _resolve_known_glyph_names(not_before, glyph_names)
+                    resolved = resolve_known_glyph_names(not_before, glyph_names)
                     for not_before_glyph in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {not_before_glyph};")
                 for terminal in sorted(expanded_after & terminal_entry_only):
@@ -534,7 +524,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     lines.append(f"    lookup calt_fwd_override_{safe} {{")
                     not_before = list(_meta(fwd_var).not_before)
                     if not_before:
-                        resolved = _resolve_known_glyph_names(not_before, glyph_names)
+                        resolved = resolve_known_glyph_names(not_before, glyph_names)
                         for not_before_glyph in sorted(_expand_exclusions(resolved)):
                             lines.append(f"        ignore sub {bk_var}' {not_before_glyph};")
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")

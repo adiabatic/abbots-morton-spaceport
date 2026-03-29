@@ -109,6 +109,13 @@ def get_base_glyph_name(prop_glyph_name: str) -> str:
     return prop_glyph_name
 
 
+def resolve_known_glyph_names(
+    values: tuple[str, ...] | list[str],
+    glyph_names: set[str],
+) -> list[str]:
+    return [value if value in glyph_names else get_base_glyph_name(value) for value in values]
+
+
 def _merge_family_records(base: dict, override: dict) -> dict:
     merged = deepcopy(base)
     for key, value in override.items():
@@ -1649,4 +1656,5 @@ __all__ = [
     "generate_extended_exit_variants",
     "generate_noentry_variants",
     "get_base_glyph_name",
+    "resolve_known_glyph_names",
 ]

@@ -13,6 +13,8 @@ from quikscript_ir import (
     compile_quikscript_ir,
     expand_join_transforms,
     flatten_join_glyphs,
+    get_base_glyph_name,
+    resolve_known_glyph_names,
 )
 from quikscript_planner import plan_quikscript_joins
 
@@ -32,6 +34,11 @@ def test_compile_quikscript_ir_matches_family_inventory_in_senior_build():
     assert flattened.keys() == compiled_family.keys()
     assert transforms
     assert flattened == compiled_family
+
+
+def test_glyph_name_normalization_handles_middle_embedded_prop_suffix():
+    assert get_base_glyph_name("U.prop.narrow") == "U.narrow"
+    assert resolve_known_glyph_names(("U.prop.narrow",), {"U.narrow"}) == ["U.narrow"]
 
 
 def test_expand_join_transforms_tracks_generated_sources_and_kinds():

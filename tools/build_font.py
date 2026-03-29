@@ -31,6 +31,7 @@ from quikscript_ir import (
     compile_quikscript_ir,
     flatten_join_glyphs,
     _is_contextual_variant,
+    get_base_glyph_name,
 )
 
 
@@ -134,21 +135,6 @@ def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint:
 def is_proportional_glyph(glyph_name: str) -> bool:
     """Check if a glyph is a proportional variant."""
     return glyph_name.endswith(".prop") or ".prop." in glyph_name or ".fina" in glyph_name
-
-
-def get_base_glyph_name(prop_glyph_name: str) -> str:
-    """Get the base glyph name from a proportional glyph name.
-
-    Strips .prop from the end or middle of the name:
-      qsPea.prop       → qsPea
-      qsFee_qsMay.prop → qsFee_qsMay
-      U.prop.narrow    → U.narrow
-    """
-    if prop_glyph_name.endswith(".prop"):
-        return prop_glyph_name[:-5]
-    if ".prop." in prop_glyph_name:
-        return prop_glyph_name.replace(".prop.", ".", 1)
-    return prop_glyph_name
 
 
 def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
