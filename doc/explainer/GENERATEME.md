@@ -173,7 +173,7 @@ A reference section listing every key that can appear in a glyph definition in t
 - Read `tools/build_font.py`, `tools/quikscript_fea.py`, and `tools/quikscript_ir.py` for the actual implementation. The live entry points are `plan_quikscript_joins()`, `emit_quikscript_calt()`, `emit_quikscript_curs()`, and the transform-expansion helpers in `tools/quikscript_ir.py` such as `generate_extended_entry_variants()`.
 - Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
-- Read `inspo/csur/index.html` for the code-point chart and character property descriptions.
+- Read `reference/csur/index.html` for the code-point chart and character property descriptions.
 - When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
 - The audience-appropriate depth level is: explain *what* the OpenType engine does at each step, not *how* the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
 - For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.

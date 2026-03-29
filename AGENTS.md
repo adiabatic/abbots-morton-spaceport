@@ -27,7 +27,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 ## Generating glyphs for the first time in `glyph_data/quikscript.yaml`
 
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
-- When looking at @inspo/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
+- When looking at @reference/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
 - Tall letters have a height of 9 pixels (9 entries in `bitmap`).
 - Short letters have a height of 6 pixels (6 entries in `bitmap`).
 - Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
@@ -38,8 +38,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - This is a font that’s supposed to match Departure Mono’s metrics.
 - When in doubt, look at @test/DepartureMono-Regular.otf to check metrics.
 - When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
-- Use @inspo/csur/index.html to find out what Quikscript letters go with what code points.
-- To understand a Quikscript letter shape, zoom/crop @inspo/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @inspo/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
+- Use @reference/csur/index.html to find out what Quikscript letters go with what code points.
+- To understand a Quikscript letter shape, zoom/crop @reference/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @reference/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
 
 ## Cursive attachment (`curs`)
 
