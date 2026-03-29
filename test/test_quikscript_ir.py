@@ -31,12 +31,7 @@ def test_compile_quikscript_ir_matches_family_inventory_in_senior_build():
 
     assert flattened.keys() == compiled_family.keys()
     assert transforms
-    for glyph_name, glyph_def in flattened.items():
-        compiled_glyph = compiled_family[glyph_name]
-        assert glyph_def.get("_base_name") == compiled_glyph.get("_base_name")
-        assert glyph_def.get("_modifiers") == compiled_glyph.get("_modifiers")
-        assert glyph_def.get("_generated_from") == compiled_glyph.get("_generated_from")
-        assert glyph_def.get("_transform_kind") == compiled_glyph.get("_transform_kind")
+    assert flattened == compiled_family
 
 
 def test_expand_join_transforms_tracks_generated_sources_and_kinds():
