@@ -26,7 +26,7 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
-from quikscript_fea import generate_calt_fea, generate_curs_fea, generate_liga_fea
+from quikscript_fea import generate_calt_fea, generate_curs_fea
 from quikscript_ir import (
     compile_quikscript_ir,
     flatten_join_glyphs,

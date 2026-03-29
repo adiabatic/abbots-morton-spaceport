@@ -761,26 +761,6 @@ def generate_calt_fea(join_glyphs: dict[str, JoinGlyph], pixel_width: int) -> st
     return emit_quikscript_calt(plan)
 
 
-def generate_liga_fea(glyphs_def: dict) -> str | None:
-    ligatures = []
-    for glyph_name in glyphs_def:
-        if "_" not in glyph_name:
-            continue
-        components = glyph_name.split("_")
-        if all(component in glyphs_def for component in components):
-            ligatures.append((glyph_name, components))
-
-    if not ligatures:
-        return None
-
-    lines = ["feature liga {"]
-    for lig_name, components in sorted(ligatures):
-        component_str = " ".join(components)
-        lines.append(f"    sub {component_str} by {lig_name};")
-    lines.append("} liga;")
-    return "\n".join(lines)
-
-
 def generate_curs_fea(
     join_glyphs: dict[str, JoinGlyph],
     pixel_width: int,
@@ -843,15 +823,9 @@ def emit_quikscript_curs(
     return generate_curs_fea(join_glyphs, pixel_width, pixel_height)
 
 
-def emit_quikscript_liga(glyphs_def: dict) -> str | None:
-    return generate_liga_fea(glyphs_def)
-
-
 __all__ = [
     "emit_quikscript_calt",
     "emit_quikscript_curs",
-    "emit_quikscript_liga",
     "generate_calt_fea",
     "generate_curs_fea",
-    "generate_liga_fea",
 ]
