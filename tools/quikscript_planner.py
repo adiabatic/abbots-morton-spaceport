@@ -1,7 +1,7 @@
 from collections import deque
 from dataclasses import dataclass, field
 
-from quikscript_ir import CompiledGlyphMeta, JoinGlyph, build_compiled_glyph_metadata, get_base_glyph_name
+from quikscript_ir import JoinGlyph, get_base_glyph_name
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,8 @@ class JoinRule:
 @dataclass
 class JoinPlan:
     glyph_meta: dict[str, JoinGlyph]
+    glyph_names: set[str] = field(default_factory=set)
+    base_to_variants: dict[str, set[str]] = field(default_factory=dict)
     bk_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     bk_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = field(default_factory=dict)
@@ -55,10 +57,13 @@ class JoinPlan:
 CaltPlan = JoinPlan
 
 
-def _resolve_known_glyph_names(values: tuple[str, ...] | list[str], glyphs_def: dict) -> list[str]:
+def _resolve_known_glyph_names(
+    values: tuple[str, ...] | list[str],
+    glyph_names: set[str],
+) -> list[str]:
     resolved = []
     for value in values:
-        resolved.append(value if value in glyphs_def else get_base_glyph_name(value))
+        resolved.append(value if value in glyph_names else get_base_glyph_name(value))
     return resolved
 
 
@@ -66,23 +71,22 @@ def _record_rule(plan: JoinPlan, rule: JoinRule) -> None:
     plan.rules.append(rule)
 
 
-def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
-    glyph_meta = build_compiled_glyph_metadata(glyphs_def)
+def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
+    glyph_meta = join_glyphs
 
-    def _meta(name: str) -> CompiledGlyphMeta:
+    def _meta(name: str) -> JoinGlyph:
         return glyph_meta[name]
 
-    plan = JoinPlan(glyph_meta=glyph_meta)
+    plan = JoinPlan(glyph_meta=glyph_meta, glyph_names=set(glyph_meta))
+    for glyph_name, glyph_meta_entry in glyph_meta.items():
+        plan.base_to_variants.setdefault(glyph_meta_entry.base_name, set()).add(glyph_name)
 
     bk_replacements = plan.bk_replacements
     bk_exclusions = plan.bk_exclusions
     pair_overrides = plan.pair_overrides
     fwd_upgrades = plan.fwd_upgrades
 
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
-            continue
-        meta = _meta(glyph_name)
+    for glyph_name, meta in glyph_meta.items():
         if meta.word_final:
             continue
         if not meta.is_entry_variant:
@@ -96,7 +100,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
             continue
         entry_y = meta.entry[0][1]
         base_name = meta.base_name
-        if base_name not in glyphs_def:
+        if base_name not in glyph_meta:
             continue
         if "alt" in meta.traits:
             base_meta = glyph_meta.get(base_name)
@@ -183,7 +187,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
             )
             not_after = meta.not_after
             if not_after:
-                resolved = _resolve_known_glyph_names(not_after, glyphs_def)
+                resolved = _resolve_known_glyph_names(not_after, plan.glyph_names)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
 
     for base_name, overrides in pair_overrides.items():
@@ -224,10 +228,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
     fwd_replacements = plan.fwd_replacements
     fwd_exclusions = plan.fwd_exclusions
     fwd_pair_overrides = plan.fwd_pair_overrides
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
-            continue
-        meta = _meta(glyph_name)
+    for glyph_name, meta in glyph_meta.items():
         if not meta.modifiers:
             continue
         if meta.is_noentry:
@@ -244,21 +245,21 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
             continue
         if "half" in meta.traits and meta.entry and not meta.before:
             continue
-        extra_parts = meta.modifiers - {"alt", "prop"}
+        extra_parts = meta.modifier_set - {"alt", "prop"}
         if extra_parts and "alt" in meta.traits and meta.entry and not meta.before:
             continue
         if not meta.exit:
             continue
         exit_y = meta.exit[0][1]
         base_name = meta.base_name
-        if base_name not in glyphs_def:
+        if base_name not in glyph_meta:
             continue
         calt_before = meta.before
         if calt_before:
-            resolved = _resolve_known_glyph_names(calt_before, glyphs_def)
+            resolved = _resolve_known_glyph_names(calt_before, plan.glyph_names)
             not_after = meta.not_after
             resolved_not_after = (
-                _resolve_known_glyph_names(not_after, glyphs_def) if not_after else []
+                _resolve_known_glyph_names(not_after, plan.glyph_names) if not_after else []
             )
             fwd_pair_overrides.setdefault(base_name, []).append(
                 (glyph_name, resolved, resolved_not_after)
@@ -289,14 +290,11 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
             )
             not_before = meta.not_before
             if not_before:
-                resolved = _resolve_known_glyph_names(not_before, glyphs_def)
+                resolved = _resolve_known_glyph_names(not_before, plan.glyph_names)
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
 
     reverse_only_upgrades = plan.reverse_only_upgrades
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
-            continue
-        meta = _meta(glyph_name)
+    for glyph_name, meta in glyph_meta.items():
         reverse_from = meta.reverse_upgrade_from
         if not reverse_from:
             continue
@@ -305,7 +303,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
         if not entries or not exits:
             continue
         exit_ys = {anchor[1] for anchor in exits}
-        resolved_sources = _resolve_known_glyph_names(reverse_from, glyphs_def)
+        resolved_sources = _resolve_known_glyph_names(reverse_from, plan.glyph_names)
         matching_sources = []
         for source_name in resolved_sources:
             source_exits = list(_meta(source_name).exit)
@@ -317,7 +315,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                     glyph_name,
                     matching_sources,
                     [anchor[1] for anchor in entries],
-                    list(glyph_def.get("calt_not_before", [])),
+                    list(meta.not_before),
                 )
             )
             _record_rule(
@@ -327,16 +325,15 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                     kind="explicit_reverse_upgrade",
                     target_base=meta.base_name,
                     replacement=glyph_name,
-                    not_before=tuple(glyph_def.get("calt_not_before", [])),
+                    not_before=tuple(meta.not_before),
                     source_variants=tuple(matching_sources),
                 ),
             )
 
     _base_anchors: dict[str, list[tuple[str, set[int], set[int]]]] = {}
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or _meta(glyph_name).is_noentry:
+    for glyph_name, meta in glyph_meta.items():
+        if meta.is_noentry:
             continue
-        meta = _meta(glyph_name)
         entry_ys = set(meta.entry_ys)
         exit_ys = set(meta.exit_ys)
         _base_anchors.setdefault(meta.base_name, []).append((glyph_name, entry_ys, exit_ys))
@@ -363,20 +360,16 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                         break
 
     exit_classes = plan.exit_classes
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None or _meta(glyph_name).is_noentry:
+    for glyph_name, meta in glyph_meta.items():
+        if meta.is_noentry:
             continue
-        meta = _meta(glyph_name)
         if not meta.exit:
             continue
         for anchor in meta.exit:
             exit_classes.setdefault(anchor[1], set()).add(glyph_name)
 
     entry_classes = plan.entry_classes
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
-            continue
-        meta = _meta(glyph_name)
+    for glyph_name, meta in glyph_meta.items():
         if not meta.entry:
             continue
         for anchor in meta.entry:
@@ -386,7 +379,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                 is_bk = ("half" in meta.traits or "alt" in meta.traits) and bool(meta.entry)
             if is_bk:
                 base_name = meta.base_name
-                if base_name in glyphs_def and anchor[1] in bk_replacements.get(base_name, {}):
+                if base_name in glyph_meta and anchor[1] in bk_replacements.get(base_name, {}):
                     entry_classes[anchor[1]].add(base_name)
 
     for base_name in fwd_upgrades:
@@ -563,7 +556,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
     lig_fwd_bases: set[str] = set()
     for base_name in fwd_only:
         base_meta = glyph_meta.get(base_name)
-        if base_meta and base_meta.sequence and all(component in glyphs_def for component in base_meta.sequence):
+        if base_meta and base_meta.sequence and all(component in glyph_meta for component in base_meta.sequence):
             lig_fwd_bases.add(base_name)
 
     early_pair_upgrade_bases: set[str] = set()
@@ -598,10 +591,10 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                 break
 
     word_final_pairs = {}
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def and _meta(glyph_name).word_final:
-            base_name = _meta(glyph_name).base_name
-            if base_name in glyphs_def:
+    for glyph_name, meta in glyph_meta.items():
+        if meta.word_final:
+            base_name = meta.base_name
+            if base_name in glyph_meta:
                 word_final_pairs[base_name] = glyph_name
                 _record_rule(
                     plan,
@@ -614,7 +607,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
                 )
 
     ligatures = []
-    for glyph_name in glyphs_def:
+    for glyph_name in glyph_meta:
         meta = _meta(glyph_name)
         if not meta.sequence:
             continue
@@ -624,7 +617,7 @@ def plan_quikscript_joins(glyphs_def: dict) -> JoinPlan:
             continue
         if meta.extended_exit_suffix is not None:
             continue
-        if all(component in glyphs_def for component in meta.sequence):
+        if all(component in glyph_meta for component in meta.sequence):
             ligatures.append((glyph_name, meta.sequence))
 
     plan.sorted_bases = sorted_bases

@@ -9,9 +9,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 from build_font import (
     build_compiled_glyph_metadata,
     compile_glyph_definitions,
-    generate_noentry_variants,
     load_glyph_data,
 )
+from quikscript_ir import build_join_glyphs, generate_noentry_variants
 
 
 def _compiled_glyphs():
@@ -162,7 +162,7 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
         "senior",
     )
 
-    variants = generate_noentry_variants(glyphs)
+    variants = generate_noentry_variants(build_join_glyphs(glyphs), has_zwnj=True)
 
     assert "qsBase.noentry" in variants
     assert "qsBase.alt.noentry" not in variants

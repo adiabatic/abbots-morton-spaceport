@@ -1,18 +1,25 @@
-from quikscript_ir import _normalize_anchors
+from itertools import product
+
+from quikscript_ir import JoinGlyph
 from quikscript_planner import JoinPlan, plan_quikscript_joins
 
 
-def _resolve_known_glyph_names(values: tuple[str, ...] | list[str], glyphs_def: dict) -> list[str]:
+def _resolve_known_glyph_names(
+    values: tuple[str, ...] | list[str],
+    glyph_names: set[str],
+) -> list[str]:
     resolved = []
     for value in values:
-        resolved.append(value if value in glyphs_def else value.split(".prop", 1)[0])
+        resolved.append(value if value in glyph_names else value.split(".prop", 1)[0])
     return resolved
 
 
-def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
+def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     glyph_meta = plan.glyph_meta
+    glyph_names = plan.glyph_names
+    base_to_variants = plan.base_to_variants
 
-    def _meta(name: str):
+    def _meta(name: str) -> JoinGlyph:
         return glyph_meta[name]
 
     def _base_name(name: str) -> str:
@@ -103,13 +110,13 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
 
     zwnj = "uni200C"
     noentry_pairs = []
-    for name in sorted(glyphs_def):
+    for name in sorted(glyph_names):
         meta = _meta(name)
         if meta.is_noentry:
             base = meta.base_name
-            if base in glyphs_def:
+            if base in glyph_names:
                 noentry_pairs.append((base, name))
-    if zwnj in glyphs_def and noentry_pairs:
+    if noentry_pairs:
         cursive_names = [base for base, _ in noentry_pairs]
         noentry_names = [name for _, name in noentry_pairs]
         lines.append(f"    @qs_has_entry = [{' '.join(cursive_names)}];")
@@ -122,7 +129,7 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
     if word_final_pairs:
         excluded_bases = {"qsAngleParenLeft", "qsAngleParenRight"}
         qs_letter_names = set()
-        for name in glyphs_def:
+        for name in glyph_names:
             if not name.startswith("qs"):
                 continue
             meta = _meta(name)
@@ -148,10 +155,6 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
             lines.append(f"        sub {variant}' @qs_letters by {base};")
             lines.append(f"    }} calt_word_final_revert_{safe};")
 
-    _base_to_variants: dict[str, set[str]] = {}
-    for glyph_name in glyphs_def:
-        _base_to_variants.setdefault(_base_name(glyph_name), set()).add(glyph_name)
-
     def _can_match_pair_exit(name: str, exit_y: int) -> bool:
         meta = _meta(name)
         if exit_y in meta.exit_ys:
@@ -160,14 +163,14 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
             return False
         return any(
             exit_y in _meta(candidate).exit_ys
-            for candidate in _base_to_variants.get(meta.base_name, ())
+            for candidate in base_to_variants.get(meta.base_name, ())
         )
 
     def _expand_exclusions(excluded_glyphs: list[str]) -> set[str]:
         expanded = set()
         for excluded_glyph in excluded_glyphs:
             excluded_base = _base_name(excluded_glyph)
-            expanded.update(_base_to_variants.get(excluded_base, ()))
+            expanded.update(base_to_variants.get(excluded_base, ()))
         return expanded
 
     def _emit_fwd_pairs(base_name: str):
@@ -239,9 +242,9 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                     suffix = target_meta.extended_entry_suffix
                     if suffix:
                         extended = variant_name + suffix
-                        if extended not in glyphs_def:
+                        if extended not in glyph_names:
                             extended = variant_name + ".entry-extended"
-                        if extended in glyphs_def:
+                        if extended in glyph_names:
                             actual_variant = extended
                     if guard_list:
                         lines.append(f"        ignore sub [{guard_list}] {target}' [{before_list}];")
@@ -306,7 +309,7 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                 lines.append(f"    lookup calt_pair_{safe} {{")
                 not_before = list(variant_meta.not_before)
                 if not_before:
-                    resolved = _resolve_known_glyph_names(not_before, glyphs_def)
+                    resolved = _resolve_known_glyph_names(not_before, glyph_names)
                     for not_before_glyph in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {not_before_glyph};")
                 for terminal in sorted(expanded_after & terminal_entry_only):
@@ -531,7 +534,7 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                     lines.append(f"    lookup calt_fwd_override_{safe} {{")
                     not_before = list(_meta(fwd_var).not_before)
                     if not_before:
-                        resolved = _resolve_known_glyph_names(not_before, glyphs_def)
+                        resolved = _resolve_known_glyph_names(not_before, glyph_names)
                         for not_before_glyph in sorted(_expand_exclusions(resolved)):
                             lines.append(f"        ignore sub {bk_var}' {not_before_glyph};")
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
@@ -652,7 +655,7 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                 for entry_y in sorted(variants.keys()):
                     bk_var = variants[entry_y]
                     combined = bk_var + ext_suffix
-                    if combined not in glyphs_def:
+                    if combined not in glyph_names:
                         continue
                     if entry_y not in exit_classes:
                         continue
@@ -699,14 +702,14 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                 suffix = _meta(combo[0]).extended_entry_suffix
                 if suffix:
                     ext_lig = lig_name + suffix
-                    if ext_lig not in glyphs_def:
+                    if ext_lig not in glyph_names:
                         ext_lig = lig_name + ".entry-extended"
-                    if ext_lig in glyphs_def:
+                    if ext_lig in glyph_names:
                         actual_lig = ext_lig
                 exit_suffix = _meta(combo[-1]).extended_exit_suffix
                 if exit_suffix:
                     ext_lig = actual_lig + ".exit-extended"
-                    if ext_lig in glyphs_def:
+                    if ext_lig in glyph_names:
                         actual_lig = ext_lig
                 lines.append(f"        sub {component_str} by {actual_lig};")
         lines.append("    } calt_liga;")
@@ -719,12 +722,11 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
                     post_liga_rules.append((base_name, variant_name, after_glyphs))
 
         for lig_name in sorted(lig_glyph_names):
-            lig_def = glyphs_def.get(lig_name, {}) or {}
-            noentry_after = lig_def.get("noentry_after")
+            noentry_after = _meta(lig_name).noentry_after
             if not noentry_after:
                 continue
             noentry_name = lig_name + ".noentry"
-            if noentry_name not in glyphs_def:
+            if noentry_name not in glyph_names:
                 continue
             post_liga_rules.append(
                 (
@@ -753,10 +755,10 @@ def emit_quikscript_calt(plan: JoinPlan, glyphs_def: dict) -> str | None:
     return "\n".join(lines)
 
 
-def generate_calt_fea(glyphs_def: dict, pixel_width: int) -> str | None:
+def generate_calt_fea(join_glyphs: dict[str, JoinGlyph], pixel_width: int) -> str | None:
     del pixel_width
-    plan = plan_quikscript_joins(glyphs_def)
-    return emit_quikscript_calt(plan, glyphs_def)
+    plan = plan_quikscript_joins(join_glyphs)
+    return emit_quikscript_calt(plan)
 
 
 def generate_liga_fea(glyphs_def: dict) -> str | None:
@@ -779,19 +781,18 @@ def generate_liga_fea(glyphs_def: dict) -> str | None:
     return "\n".join(lines)
 
 
-def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
+def generate_curs_fea(
+    join_glyphs: dict[str, JoinGlyph],
+    pixel_width: int,
+    pixel_height: int,
+) -> str | None:
     y_groups: dict[int, list[tuple[str, str, str]]] = {}
 
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
+    for glyph_name, join_glyph in join_glyphs.items():
+        entries = (*join_glyph.entry, *join_glyph.entry_curs_only)
+        exits = join_glyph.exit
+        if not entries and not exits:
             continue
-        raw_entry = glyph_def.get("cursive_entry")
-        raw_entry_curs = glyph_def.get("cursive_entry_curs_only")
-        raw_exit = glyph_def.get("cursive_exit")
-        if raw_entry is None and raw_entry_curs is None and raw_exit is None:
-            continue
-        entries = _normalize_anchors(raw_entry) + _normalize_anchors(raw_entry_curs)
-        exits = _normalize_anchors(raw_exit)
         y_values = {anchor[1] for anchor in entries} | {anchor[1] for anchor in exits}
         for y in y_values:
             entry_anchor = "<anchor NULL>"
@@ -809,20 +810,18 @@ def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> 
     if not y_groups:
         return None
 
-    for glyph_name, glyph_def in glyphs_def.items():
-        if glyph_def is None:
+    for glyph_name, join_glyph in join_glyphs.items():
+        if not join_glyph.is_noentry:
             continue
-        if not glyph_def.get("_is_noentry", glyph_name.endswith(".noentry")):
+        if join_glyph.exit:
             continue
-        if glyph_def.get("cursive_exit"):
-            continue
-        original_name = glyph_def.get("_noentry_for")
+        original_name = join_glyph.noentry_for or join_glyph.generated_from
         if not original_name:
             continue
-        original_def = glyphs_def.get(original_name)
-        if not original_def:
+        original_glyph = join_glyphs.get(original_name)
+        if not original_glyph:
             continue
-        for anchor in _normalize_anchors(original_def.get("cursive_entry")):
+        for anchor in original_glyph.entry:
             y = anchor[1]
             y_groups.setdefault(y, []).append((glyph_name, "<anchor NULL>", "<anchor NULL>"))
 
@@ -836,8 +835,12 @@ def generate_curs_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> 
     return "\n".join(lines)
 
 
-def emit_quikscript_curs(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
-    return generate_curs_fea(glyphs_def, pixel_width, pixel_height)
+def emit_quikscript_curs(
+    join_glyphs: dict[str, JoinGlyph],
+    pixel_width: int,
+    pixel_height: int,
+) -> str | None:
+    return generate_curs_fea(join_glyphs, pixel_width, pixel_height)
 
 
 def emit_quikscript_liga(glyphs_def: dict) -> str | None:
