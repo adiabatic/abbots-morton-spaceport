@@ -339,6 +339,53 @@ def test_inherits_reuses_and_clears_nested_form_context():
     assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["calt_before"] == ["qsOther"]
 
 
+def test_inherited_form_shape_override_replaces_visual_fields():
+    glyphs = compile_glyph_definitions(
+        {
+            "glyph_families": {
+                "qsBase": {
+                    "prop": {"bitmap": ["#"]},
+                    "shapes": {
+                        "first": {
+                            "bitmap": ["11"],
+                            "y_offset": -2,
+                            "advance_width": 4,
+                        },
+                        "second": {
+                            "bitmap": ["22", " 2"],
+                            "y_offset": 3,
+                            "advance_width": 7,
+                        },
+                    },
+                    "forms": {
+                        "half": {
+                            "shape": "first",
+                            "anchors": {"exit": [1, 0]},
+                            "traits": ["half"],
+                        },
+                        "half_entry": {
+                            "inherits": "half",
+                            "shape": "second",
+                            "anchors": {"entry": [0, 0]},
+                            "modifiers": ["entry-baseline"],
+                        },
+                    },
+                },
+            },
+        },
+        "senior",
+    )
+
+    assert glyphs["qsBase.half"]["bitmap"] == ["11"]
+    assert glyphs["qsBase.half"]["y_offset"] == -2
+    assert glyphs["qsBase.half"]["advance_width"] == 4
+
+    assert glyphs["qsBase.half.entry-baseline"]["bitmap"] == ["22", " 2"]
+    assert glyphs["qsBase.half.entry-baseline"]["y_offset"] == 3
+    assert glyphs["qsBase.half.entry-baseline"]["advance_width"] == 7
+    assert glyphs["qsBase.half.entry-baseline"]["_modifiers"] == ["half", "entry-baseline"]
+
+
 def test_alt_and_half_are_semantic_traits():
     meta = _compiled_meta()
 
