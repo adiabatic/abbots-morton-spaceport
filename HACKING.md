@@ -12,6 +12,8 @@ Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
 Open `test/index.html` in a browser to test the font interactively.
 
+For the repeatable workflow for finding Quikscript words in `test/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
+
 ## Quikscript data
 
 Quikscript now uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `forms`; forms declare explicit `traits` / `modifiers`, can reuse scaffolding with `inherits`, and `select` / `derive` rules use structured family selectors plus top-level `context_sets` instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests. In VS Code, `.vscode/quikscript.schema.json` is associated with that file for hover docs and structural validation when the Red Hat YAML extension is installed.
