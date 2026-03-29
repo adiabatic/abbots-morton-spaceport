@@ -97,7 +97,7 @@ a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs
    - **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
    - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
 
-b. **`liga` (standard ligatures)** — when two specific letters appear in sequence, replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). Mention that ligatures can themselves have cursive anchors.
+b. **Ligature substitutions inside `calt`** — when two specific letters appear in sequence, the join machinery can replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). In the current build these substitutions are emitted from the Quikscript `calt` path (`calt_liga`), not from a separate standalone `liga` feature. Mention that ligatures can themselves have cursive anchors.
 
 ### 6. GPOS: positioning the joined glyphs
 
@@ -132,7 +132,7 @@ Walk through a complete word being shaped, step by step:
 2. The character map resolves them to base glyphs
 3. `calt` backward rules fire, substituting entry variants based on the preceding glyph's exit height
 4. `calt` forward rules fire, substituting exit variants based on the following glyph's entry height
-5. `liga` fires, combining adjacent glyphs into ligatures where applicable
+5. A later `calt` ligature lookup fires, combining adjacent glyphs into ligatures where applicable
 6. `curs` fires, positioning the cursive chain by aligning anchors
 7. The final positioned glyph stream is rendered
 
@@ -170,7 +170,7 @@ A reference section listing every key that can appear in a glyph definition in t
 
 ## Notes for the generator
 
-- Read `tools/build_font.py` for the actual implementation. The functions `generate_calt_fea()`, `generate_curs_fea()`, `generate_liga_fea()`, and `generate_extended_entry_variants()` are the key ones.
+- Read `tools/build_font.py`, `tools/quikscript_fea.py`, and `tools/quikscript_ir.py` for the actual implementation. The key entry points are `generate_calt_fea()`, `generate_curs_fea()`, `emit_quikscript_calt()`, and `generate_extended_entry_variants()`.
 - Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
 - Read `inspo/csur/index.html` for the code-point chart and character property descriptions.
