@@ -29,7 +29,8 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
-from quikscript_context import CaltPlan, CompiledGlyphMeta
+from quikscript_ir import CompiledGlyphMeta
+from quikscript_planner import CaltPlan
 
 
 def load_postscript_glyph_names() -> dict:
@@ -3791,6 +3792,33 @@ def build_variable_font(glyph_data: dict, output_path: Path, variant: str):
 
     vf.save(str(output_path))
     print(f"Variable font saved to: {output_path}")
+
+
+from quikscript_fea import (
+    generate_calt_fea as _generate_calt_fea,
+    generate_curs_fea as _generate_curs_fea,
+    generate_liga_fea as _generate_liga_fea,
+)
+from quikscript_ir import (
+    build_compiled_glyph_metadata as _build_compiled_glyph_metadata,
+    compile_glyph_families as _compile_glyph_families,
+    generate_doubly_extended_entry_variants as _generate_doubly_extended_entry_variants,
+    generate_doubly_extended_exit_variants as _generate_doubly_extended_exit_variants,
+    generate_extended_entry_variants as _generate_extended_entry_variants,
+    generate_extended_exit_variants as _generate_extended_exit_variants,
+    generate_noentry_variants as _generate_noentry_variants,
+)
+
+build_compiled_glyph_metadata = _build_compiled_glyph_metadata
+compile_glyph_families = _compile_glyph_families
+generate_noentry_variants = _generate_noentry_variants
+generate_extended_entry_variants = _generate_extended_entry_variants
+generate_extended_exit_variants = _generate_extended_exit_variants
+generate_doubly_extended_entry_variants = _generate_doubly_extended_entry_variants
+generate_doubly_extended_exit_variants = _generate_doubly_extended_exit_variants
+generate_calt_fea = _generate_calt_fea
+generate_curs_fea = _generate_curs_fea
+generate_liga_fea = _generate_liga_fea
 
 
 def main():
