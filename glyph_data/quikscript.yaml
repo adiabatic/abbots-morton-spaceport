@@ -257,6 +257,8 @@ glyph_families:
         shape: prop
         anchors:
           entry: [1, 0]
+        select:
+          not_after: [{family: qsPea}]
         derive:
           extend_entry_after: [{family: qsKey}]
         modifiers: [entry-baseline]
