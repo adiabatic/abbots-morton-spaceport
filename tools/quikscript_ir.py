@@ -67,9 +67,6 @@ class JoinGlyph:
         return frozenset(self.modifiers)
 
 
-CompiledGlyphMeta = JoinGlyph
-
-
 @dataclass(frozen=True)
 class JoinTransform:
     kind: str
@@ -922,10 +919,6 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
     return metadata
 
 
-def build_compiled_glyph_metadata(glyphs_def: dict) -> dict[str, CompiledGlyphMeta]:
-    return build_join_glyphs(glyphs_def)
-
-
 def _shift_anchors(anchors: tuple[Anchor, ...], *, dx: int = -1) -> tuple[Anchor, ...]:
     return tuple((x + dx, y) for x, y in anchors)
 
@@ -1643,10 +1636,8 @@ def compile_quikscript_ir(
 
 
 __all__ = [
-    "CompiledGlyphMeta",
     "JoinGlyph",
     "JoinTransform",
-    "build_compiled_glyph_metadata",
     "build_join_glyphs",
     "compile_glyph_families",
     "compile_quikscript_ir",
