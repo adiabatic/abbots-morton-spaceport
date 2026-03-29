@@ -175,6 +175,8 @@ def _resolve_family_record(
 
     shape_name = resolved.pop("shape", None)
     if shape_name:
+        for k in ("bitmap", "y_offset", "advance_width"):
+            resolved.pop(k, None)
         if shape_name in family_def.get("shapes", {}):
             shape_def = family_def["shapes"][shape_name]
         elif shape_name in {"mono", "prop"} and family_def.get(shape_name):
