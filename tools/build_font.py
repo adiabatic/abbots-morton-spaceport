@@ -26,13 +26,14 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
-from quikscript_fea import generate_calt_fea, generate_curs_fea
+from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs
 from quikscript_ir import (
     compile_quikscript_ir,
     flatten_join_glyphs,
     _is_contextual_variant,
     get_base_glyph_name,
 )
+from quikscript_planner import plan_quikscript_joins
 
 
 def load_postscript_glyph_names() -> dict:
@@ -1094,12 +1095,13 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        curs_fea = generate_curs_fea(join_glyphs, pixel_width, pixel_height)
+        curs_fea = emit_quikscript_curs(join_glyphs, pixel_width, pixel_height)
         if curs_fea:
             fea_code_parts.append(curs_fea)
 
     if is_senior:
-        calt_fea = generate_calt_fea(join_glyphs, pixel_width)
+        plan = plan_quikscript_joins(join_glyphs)
+        calt_fea = emit_quikscript_calt(plan)
         if calt_fea:
             fea_code_parts.append(calt_fea)
 

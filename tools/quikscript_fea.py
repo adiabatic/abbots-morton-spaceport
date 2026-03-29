@@ -1,7 +1,7 @@
 from itertools import product
 
 from quikscript_ir import JoinGlyph, resolve_known_glyph_names
-from quikscript_planner import JoinPlan, plan_quikscript_joins
+from quikscript_planner import JoinPlan
 
 
 def emit_quikscript_calt(plan: JoinPlan) -> str | None:
@@ -745,13 +745,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     return "\n".join(lines)
 
 
-def generate_calt_fea(join_glyphs: dict[str, JoinGlyph], pixel_width: int) -> str | None:
-    del pixel_width
-    plan = plan_quikscript_joins(join_glyphs)
-    return emit_quikscript_calt(plan)
-
-
-def generate_curs_fea(
+def emit_quikscript_curs(
     join_glyphs: dict[str, JoinGlyph],
     pixel_width: int,
     pixel_height: int,
@@ -805,17 +799,7 @@ def generate_curs_fea(
     return "\n".join(lines)
 
 
-def emit_quikscript_curs(
-    join_glyphs: dict[str, JoinGlyph],
-    pixel_width: int,
-    pixel_height: int,
-) -> str | None:
-    return generate_curs_fea(join_glyphs, pixel_width, pixel_height)
-
-
 __all__ = [
     "emit_quikscript_calt",
     "emit_quikscript_curs",
-    "generate_calt_fea",
-    "generate_curs_fea",
 ]
