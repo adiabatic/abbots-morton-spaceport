@@ -6,6 +6,21 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 10.000
 
+#### Quikscript Senior
+
+- Lots of joining improvements and fixes: ·See·Ooze, ·Pea·Pea, ·Tea·See, ·See·Low, ·See·Out, ·May·Zoo, ·May·It, ·Why·It, ·Fee+·Utter, ·See+·At, ·Utter·Fee, and many more
+- New glyph variants: joinable ·Jay and ·Why, top-entry ·Fee, wide-stance ·Excite, connects-at-the-baseline-on-both-sides ·It, and ·Jay+Utter ligature
+- New joining combinations: ·Tea·Oy, ·See·Low
+- Redesign ·Out (big-loop form is now the default proportional form) and ·Oy to match
+- Smarter half-letter selection: don't use half-·Tea before ·Foot or after ·No, don't use half-·Way before ·It
+- Add VS01/VS02 variation selectors for forcing alternate (·Utter, ·No) and half forms (·Pea, ·Tea, etc.), respectively
+
+#### Non-Quikscript glyphs
+
+- Add ⌤ (a proper Enter-key glyph)
+- Narrow ⇞ and ⇟
+- Fix accented Latin mark shaping
+
 ### 9.001
 
 - Move 🌐︎ up by one pixel
