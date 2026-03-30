@@ -2253,7 +2253,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_he_pea_tea_it_ye}]
+        extend_entry_after: [{family: qsTea}]
     shapes:
       shape_1:
         bitmap:
