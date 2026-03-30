@@ -209,7 +209,7 @@ glyph_families:
       exit_baseline:
         shape: prop
         anchors:
-          exit: [1, 0]
+          exit: [2, 0]
         derive:
           doubly_extend_exit_before: [{family: qsSee}]
         modifiers: [exit-baseline]
@@ -2252,8 +2252,6 @@ glyph_families:
       anchors:
         entry: [1, 0]
         exit: [6, 0]
-      derive:
-        extend_entry_after: [{family: qsTea}]
     shapes:
       shape_1:
         bitmap:
