@@ -128,6 +128,13 @@ Double-wide pixels are ugly, but they are definitely _bold_. On the other hand, 
 
 Your ability to get not-horrible results from weights other than 400 and 800 depends on your font size and display device. If you’re targeting screens at 100% text zoom (@1x in Apple-speak), then if you want to use half-size pixels or 1½-size pixels, you’ll need to have a font size of 22/44/66…px. If you’re assuming everyone who reads your stuff has a Retina-class display (200% text zoom, @2x) then you’re only going to need to limit yourself to font sizes like 22/44/66px for (and-a-)quarter-pixel weights. Of course, if you’re targeting print with, say, a 600 or a 1200 DPI resolution, then you can probably pick a weight outside these multiples of 100, like `451`, and still be OK.
 
+## Variation selectors
+
+In order to properly transcribe [The Manual][tm], I needed a way to force the display of alternate ·Utter and ·No. I also needed a way to force the display of a half-·Way. I settled on using [variation selectors][vs] instead of dedicating extra code points to get this sort of behavior in a vacuum. If you put VS1 (U+FE00) after an ·Utter or ·No, you’ll get the alternate look. If you put VS2 (U+FE01) after ·Way (at least), you’ll get a half-·Way instead.
+
+[tm]: ./reference/Quikscript%20Manual.pdf
+[vs]: https://en.wikipedia.org/wiki/Variant_form_(Unicode)
+
 ## Known issues
 
 Abbots Morton Spaceport Sans **Senior** uses OpenType’s `curs` feature. While this is very much the obviously correct OpenType feature to use to join letters to one another as done in Quikscript, support for it in LTRTTB scripts like Latin and Quikscript isn’t universal because so far, `curs` is only used in RTLTTB scripts like Arabic and the one naturally-occurring TTBLTR script, [Mongolian](https://en.wikipedia.org/wiki/Mongolian_script).
