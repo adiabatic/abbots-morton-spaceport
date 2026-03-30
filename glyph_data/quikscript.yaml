@@ -210,8 +210,6 @@ glyph_families:
         shape: prop
         anchors:
           exit: [2, 0]
-        derive:
-          doubly_extend_exit_before: [{family: qsSee}]
         modifiers: [exit-baseline]
       half:
         shape: half
