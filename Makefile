@@ -14,4 +14,4 @@ explainer:
 	cd doc/explainer && typst compile main.typ
 
 watch:
-	browser-sync start --server test/ --port 7293 --files "test/*.html, test/*.css, *.otf"
+	uv run python tools/watch.py
