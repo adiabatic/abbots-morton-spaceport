@@ -66,6 +66,8 @@ jobs:
           cp test/glyph-editor.html site/
           cp test/specimen.html site/
           cp test/tables.html site/
+          cp test/extra-senior-words.html site/
+          cp test/the-manual.html site/
           cp test/shared.css site/
           cp test/shared.js site/
 
