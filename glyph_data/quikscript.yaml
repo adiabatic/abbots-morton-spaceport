@@ -820,6 +820,17 @@ glyph_families:
         - "   #"
         - "   #"
         - "  # "  #
+      shape_3:
+        bitmap:
+        - "   #"
+        - "  # "
+        - " #  "
+        - " #  "  #
+        - "  # "
+        - "  # "
+        - "   #"
+        - "   #"
+        - "   #"  #
     forms:
       exit_y6:
         shape: shape_1
@@ -832,11 +843,19 @@ glyph_families:
         anchors:
           exit: [3, 0]
         select:
-          before: [{family: qsAt}, {family: qsOoze}, {family: qsOut}]
+          before: [{family: qsAt}, {family: qsOut}]
           not_after: [{family: qsIt}]
         derive:
-          extend_exit_before: [{family: qsLow}, {family: qsOoze}]
+          extend_exit_before: [{family: qsLow}]
         modifiers: [exit-baseline]
+      exit_baseline_right:
+        shape: shape_3
+        anchors:
+          exit: [4, 0]
+        select:
+          before: [{family: qsOoze}]
+          not_after: [{family: qsIt}]
+        modifiers: [exit-baseline-right]
   qsSee_qsUtter:
     sequence:
     - qsSee
@@ -2252,21 +2271,3 @@ glyph_families:
       anchors:
         entry: [1, 0]
         exit: [6, 0]
-    shapes:
-      shape_1:
-        bitmap:
-        - "     #     "  #
-        - "   ## ##   "
-        - "  #     #  "
-        - " #       # "
-        - "#         #"
-        - "#         #"  #
-    forms:
-      entry_extended_at_baseline:
-        shape: shape_1
-        anchors:
-          entry: [0, 0]
-          exit: [12, 0]
-        select:
-          after: [{family: qsSee, modifiers: [exit-baseline]}]
-        modifiers: [entry-extended-at-baseline]

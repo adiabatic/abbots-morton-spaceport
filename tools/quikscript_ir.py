@@ -1504,7 +1504,7 @@ def _generate_extended_exit_variants(
             if not other_join_glyph.exit:
                 continue
             sec_name = f"{other_name}.exit-{suffix_word}"
-            if sec_name not in join_glyphs:
+            if sec_name not in join_glyphs and sec_name not in variants:
                 variants[sec_name] = derive_join_glyph(
                     other_join_glyph,
                     name=sec_name,
