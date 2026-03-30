@@ -1,6 +1,6 @@
 # TODO
 
-- Leave a column on the right of the page to show page-number markers (and also to leave space for the buttons)
+- Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
 
 - Kern:
   - ·No·Tea
