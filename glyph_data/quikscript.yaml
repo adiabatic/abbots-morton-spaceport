@@ -2079,7 +2079,7 @@ glyph_families:
           exit: [7, 0]
         select:
           after: [{family: qsFee}, {family: qsMay}]
-          not_before: [{family: qsRoe}]
+          not_before: [{family: qsRoe}, {family: qsThey}]
         traits: [alt]
         modifiers: [reaches-way-back]
       alt_before_may:
