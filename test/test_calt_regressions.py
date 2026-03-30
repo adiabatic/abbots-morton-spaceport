@@ -18,8 +18,8 @@ def _shape(text: str) -> list[str]:
     return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
 
 
-def test_qs_see_exit_baseline_selects_qs_ooze_entry_extended_at_baseline():
+def test_qs_see_exit_baseline_right_before_qs_ooze():
     assert _shape("\uE65A\uE67E") == [
-        "qsSee.exit-baseline",
-        "qsOoze.entry-extended-at-baseline",
+        "qsSee.exit-baseline-right",
+        "qsOoze",
     ]

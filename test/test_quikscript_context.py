@@ -398,12 +398,6 @@ def test_alt_and_half_are_semantic_traits():
 def test_generated_entry_and_ligature_metadata_keep_logical_identity():
     meta = _compiled_meta()
 
-    ooze = meta["qsOoze.entry-extended-at-baseline"]
-    assert ooze.base_name == "qsOoze"
-    assert ooze.entry_suffix == ".entry-extended-at-baseline"
-    assert ooze.entry_restriction_y == 0
-    assert {"entry", "entry-extended", "extended"} <= ooze.compat_assertions
-
     ligature = meta["qsDay_qsUtter.noentry"]
     assert ligature.base_name == "qsDay_qsUtter"
     assert ligature.sequence == ("qsDay", "qsUtter")
