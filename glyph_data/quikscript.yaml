@@ -1678,21 +1678,24 @@ glyph_families:
       - "#   #"
       - "#   #"  #
     prop:
-      bitmap:
-      - " #     "
-      - " #     "
-      - " #     "
-      - "  #  # "  #
-      - "  # #  "
-      - "   #   "
-      - "  # #  "
-      - " #   # "
-      - "#     #"  #
+      shape: mono
       anchors:
         entry: [1, 0]
+    shapes:
+      wide:
+        bitmap:
+        - " #     "
+        - " #     "
+        - " #     "
+        - "  #  # "  #
+        - "  # #  "
+        - "   #   "
+        - "  # #  "
+        - " #   # "
+        - "#     #"  #
     forms:
       exit_baseline_before_vertical:
-        shape: prop
+        shape: wide
         anchors:
           entry: [1, 0]
           exit: [8, 0]
