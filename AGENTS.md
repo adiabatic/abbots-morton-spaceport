@@ -66,6 +66,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 ## Tests
 
 - See @test/data-expect.md for the `data-expect` attribute syntax (glyph tokens, connection operators, variant assertions, ligature notation, and duplicate rules).
+- See @test/span-wrapping.md for how to wrap QS words in `data-expect` spans in passage blockquotes.
 - Three levels of duplicate exist for elements with a `data-expect` attribute:
   - **Content duplicate:** two elements whose text content is byte-identical (same code points in the same order).
   - **Total duplicate:** a content duplicate where the two `data-expect` values also express the same sequence of assertions (identical after collapsing whitespace).
