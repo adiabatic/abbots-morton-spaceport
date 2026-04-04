@@ -461,6 +461,13 @@ glyph_families:
         derive:
           extend_exit_before: [{family: qsDay}, {family: qsZoo}]
         modifiers: [exit-baseline, before-deep-or-roe]
+      entry_xheight:
+        shape: mono
+        anchors:
+          entry: [4, 5]
+        select:
+          after: [{family: qsUtter}]
+        modifiers: [entry-xheight]
   qsThaw:
     mono:
       bitmap:
@@ -2045,7 +2052,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 5]
       derive:
-        extend_exit_before: [{family: qsBay}, {family: qsFee}, {family: qsThey}]
+        extend_exit_before: [{family: qsBay}, {family: qsFee}, {family: qsGay}, {family: qsThey}]
     shapes:
       alt:
         bitmap:
