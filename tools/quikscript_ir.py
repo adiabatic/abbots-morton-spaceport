@@ -1376,7 +1376,7 @@ def _generate_extended_entry_variants(
                     label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
                     modifier = f"entry-{suffix_word}-at-{label}"
                     sec_name = f"{other_name}.entry-{suffix_word}-at-{label}"
-                    if sec_name not in join_glyphs:
+                    if sec_name not in join_glyphs and sec_name not in variants:
                         variants[sec_name] = derive_join_glyph(
                             other_join_glyph,
                             name=sec_name,
@@ -1415,7 +1415,7 @@ def _generate_extended_entry_variants(
             else:
                 modifier = f"entry-{suffix_word}"
                 sec_name = f"{other_name}.entry-{suffix_word}"
-                if sec_name not in join_glyphs:
+                if sec_name not in join_glyphs and sec_name not in variants:
                     variants[sec_name] = derive_join_glyph(
                         other_join_glyph,
                         name=sec_name,

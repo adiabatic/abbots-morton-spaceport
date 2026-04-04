@@ -50,16 +50,23 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
         expanded = set(glyphs)
         for glyph in glyphs:
             base = _base_name(glyph)
+            form_specific = glyph != base
             if include_base:
                 expanded.add(base)
+            all_variants: set[str] = set()
             if base in bk_replacements:
-                expanded.update(bk_replacements[base].values())
+                all_variants.update(bk_replacements[base].values())
             if base in fwd_replacements:
-                expanded.update(fwd_replacements[base].values())
+                all_variants.update(fwd_replacements[base].values())
             if base in pair_overrides:
-                expanded.update(variant_name for variant_name, _ in pair_overrides[base])
+                all_variants.update(variant_name for variant_name, _ in pair_overrides[base])
             if base in fwd_pair_overrides:
-                expanded.update(variant_name for variant_name, _, _ in fwd_pair_overrides[base])
+                all_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[base])
+            if form_specific:
+                prefix = glyph + "."
+                expanded.update(v for v in all_variants if v == glyph or v.startswith(prefix))
+            else:
+                expanded.update(all_variants)
         return expanded
 
     bk_used_ys = set()
