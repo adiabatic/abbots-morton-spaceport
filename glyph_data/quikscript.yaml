@@ -214,17 +214,6 @@ glyph_families:
         - "  "
         - "  "
         - "  "  #
-      shape_1:
-        bitmap:
-        - " #"
-        - " #"
-        - " #"
-        - "##"  #
-        - " #"
-        - " #"
-        - " #"
-        - " #"
-        - " #"  #
     forms:
       exit_baseline:
         shape: prop
@@ -242,6 +231,14 @@ glyph_families:
           not_after: [{family: qsAt}, {family: qsFee}, {family: qsNo}]
         traits: [half]
         modifiers: [entry-xheight]
+      half_entry_xheight_no_bridge:
+        shape: half
+        anchors:
+          entry: [1, 5]
+        select:
+          after: [{family: qsI}]
+        traits: [half]
+        modifiers: [entry-xheight, no-bridge]
       half_exit_xheight:
         shape: half_3
         anchors:
@@ -289,7 +286,7 @@ glyph_families:
           after: [{family: qsEt}]
         modifiers: [entry-baseline, exit-baseline]
       entry_xheight:
-        shape: shape_1
+        shape: prop
         anchors:
           entry: [1, 5]
           exit: [2, 0]
@@ -1947,6 +1944,7 @@ glyph_families:
         - family: qsLlan
         - family: qsNo
         - family: qsRoe
+        - family: qsTea
     shapes:
       shape_1:
         bitmap:
