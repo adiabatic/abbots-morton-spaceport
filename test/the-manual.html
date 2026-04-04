@@ -70,6 +70,10 @@
         font-feature-settings: "ss01" 1;
       }
 
+      [data-stylistic-set~="02"] {
+        font-feature-settings: "ss02" 1;
+      }
+
       /*
      * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
      *
@@ -1884,7 +1888,7 @@
           </div>
           <div>
             <dt>might</dt>
-            <dd data-expect="·May ~b~ ·I ~x~ ·Tea.!half"></dd>
+            <dd data-expect="·May ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="02"></dd>
           </div>
           <div>
             <dt>more</dt>
@@ -2528,7 +2532,7 @@
         <tr>
           <td data-expect="·Key | ·Awe ~b~ ·Low | ·-ing"></td>
           <td>.</td>
-          <td data-expect="·Roe ~b~ ·I ~x~ ·Tea ~b~ ·-ing ~b~ ·Zoo.half"></td>
+          <td data-expect="·Roe ~b~ ·I ~x~ ·Tea ~b~ ·-ing ~b~ ·Zoo.half" data-stylistic-set="02"></td>
           <td>.</td>
           <td data-expect="·Low | ·Utter.alt ~b~ ·Vie ~b~ ·-ing ~b~ ·Low ~x~ ·It"></td>
           <td>.</td>
@@ -3811,7 +3815,7 @@
         
         
         
-        <span data-expect="·Roe ~b~ ·I ~x~ ·Tea.!half"></span>!
+        <span data-expect="·Roe ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="02"></span>!
       </p>
 
       <h3>Gown shop</h3>

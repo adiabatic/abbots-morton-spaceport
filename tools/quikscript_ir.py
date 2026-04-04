@@ -50,6 +50,7 @@ class JoinGlyph:
     generated_from: str | None = None
     transform_kind: str | None = None
     revert_feature: str | None = None
+    gate_feature: str | None = None
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -532,6 +533,10 @@ def _family_form_to_glyph_def(
     if revert_feature is not None:
         glyph_def["revert_feature"] = revert_feature
 
+    gate_feature = form_def.get("gate_feature_behind")
+    if gate_feature is not None:
+        glyph_def["gate_feature"] = gate_feature
+
     _stamp_compiled_glyph_seed(
         glyph_def,
         output_name=output_name,
@@ -930,6 +935,7 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
             generated_from=glyph_def.get("_generated_from"),
             transform_kind=glyph_def.get("_transform_kind"),
             revert_feature=glyph_def.get("revert_feature"),
+            gate_feature=glyph_def.get("gate_feature"),
         )
     return metadata
 
