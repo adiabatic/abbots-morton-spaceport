@@ -51,6 +51,7 @@ class JoinPlan:
     early_fwd_pairs: set[str] = field(default_factory=set)
     ligatures: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     word_final_pairs: dict[str, str] = field(default_factory=dict)
+    gated_pair_overrides: dict[str, list[tuple[str, list[str], str]]] = field(default_factory=dict)
     rules: list[JoinRule] = field(default_factory=list)
 
 def _record_rule(plan: JoinPlan, rule: JoinRule) -> None:
@@ -96,7 +97,12 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             continue
         calt_after = meta.after
         if calt_after:
-            pair_overrides.setdefault(base_name, []).append((glyph_name, list(calt_after)))
+            if meta.gate_feature:
+                plan.gated_pair_overrides.setdefault(base_name, []).append(
+                    (glyph_name, list(calt_after), meta.gate_feature)
+                )
+            else:
+                pair_overrides.setdefault(base_name, []).append((glyph_name, list(calt_after)))
             _record_rule(
                 plan,
                 JoinRule(

@@ -26,7 +26,7 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
-from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs, emit_quikscript_ss
+from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs, emit_quikscript_ss, emit_quikscript_ss_gate
 from quikscript_ir import (
     compile_quikscript_ir,
     flatten_join_glyphs,
@@ -1101,6 +1101,11 @@ def build_font(
 
     if is_senior:
         plan = plan_quikscript_joins(join_glyphs)
+
+        ss_gate_fea = emit_quikscript_ss_gate(plan)
+        if ss_gate_fea:
+            fea_code_parts.append(ss_gate_fea)
+
         calt_fea = emit_quikscript_calt(plan)
         if calt_fea:
             fea_code_parts.append(calt_fea)

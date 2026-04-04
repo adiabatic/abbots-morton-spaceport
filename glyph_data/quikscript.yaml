@@ -295,6 +295,7 @@ glyph_families:
           exit: [2, 0]
         select:
           after: [{family: qsI}]
+        gate_feature_behind: ss02
         modifiers: [entry-xheight]
   qsTea_qsOy:
     sequence:
