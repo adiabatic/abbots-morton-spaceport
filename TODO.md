@@ -1,6 +1,7 @@
 # TODO
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
+- Document stylistic sets (ss01 = suppress ·Utter ~x~ ·Tea join)
 
 - Kern:
   - ·No·Tea

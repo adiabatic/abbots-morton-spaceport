@@ -66,6 +66,10 @@
         text-transform: uppercase;
       }
 
+      [data-stylistic-set~="01"] {
+        font-feature-settings: "ss01" 1;
+      }
+
       /*
      * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
      *
@@ -2466,7 +2470,7 @@
         <tr>
           <td data-expect="·Key ~b~ ·Utter ~x~ ·Bay ~b~ ·Zoo.half"></td>
           <td>.</td>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·See"></td>
+          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·See" data-stylistic-set="01"></td>
           <td>.</td>
           <td data-expect="·May ~x~ ·Eight ~b~ ·Day.half ~b~ ·Zoo.half"></td>
           <td>.</td>
@@ -2691,7 +2695,7 @@
           <td>.</td>
           <td data-expect="·Roe ~b~ ·I ~x~ ·Fee | ·Low"></td>
           <td>.</td>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low"></td>
+          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low" data-stylistic-set="01"></td>
         </tr>
       </table>
 
@@ -2835,8 +2839,8 @@
           <td>loyal</td>
         </tr>
         <tr>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·Et ~b~ ·Low"></td>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·It ~b~ ·-ing"></td>
+          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·Et ~b~ ·Low" data-stylistic-set="01"></td>
+          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·It ~b~ ·-ing" data-stylistic-set="01"></td>
           <td data-expect="·See ~6~ ·Pea ~b~ ·At ~x~ ·No ~x~ ·Ye ~b~ ·Low"></td>
           <td data-expect="·Bay | ·Et ~b~ ·Roe | ·It | ·Utter.alt ~b~ ·Low"></td>
           <td data-expect="·Vie | ·It ~b~ ·Zoo.half | ·Ye ~b~ ·Ooze | ·Utter.alt ~b~ ·Low"></td>
@@ -3991,7 +3995,7 @@
           
           <span data-expect="·See | ·Way ~x~ ·Ox | ·May | ·Pea ~b~ ·See"></span>,
           
-          <span data-expect="·Utter | ·Pea"></span>
+          <span data-expect="·Utter ~x~ ·Pea"></span>
           
           
           <span data-expect="·Day ~b~ ·Out ~x~ ·No"></span>

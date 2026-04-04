@@ -196,6 +196,7 @@ class _DataExpectCollector(HTMLParser):
         self.cells = []
         self._in_td = False
         self._expect = None
+        self._stylistic_set = None
         self._text_parts = []
         self._line = None
 
@@ -208,15 +209,17 @@ class _DataExpectCollector(HTMLParser):
             if expect is not None:
                 self._in_td = True
                 self._expect = expect
+                self._stylistic_set = attr_dict.get("data-stylistic-set")
                 self._text_parts = []
                 self._line = self.getpos()[0]
 
     def handle_endtag(self, tag):
         if tag in self._TAGS and self._in_td:
             text = "".join(self._text_parts).strip()
-            self.cells.append((text, self._expect, self._line))
+            self.cells.append((text, self._expect, self._line, self._stylistic_set))
             self._in_td = False
             self._expect = None
+            self._stylistic_set = None
 
     def handle_data(self, data):
         if self._in_td:
@@ -411,13 +414,16 @@ def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
 
 
 def run_shaping_test(font, anchor_map, text, expect_str,
-                     base_potential_entries=None):
+                     base_potential_entries=None, features=None):
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
-    hb.shape(font, buf)
+    if features:
+        hb.shape(font, buf, features)
+    else:
+        hb.shape(font, buf)
 
     infos = buf.glyph_infos
     glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
