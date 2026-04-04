@@ -53,7 +53,7 @@ glyph_families:
       anchors:
         exit: [5, 0]
     shapes:
-      half_2:
+      half:
         bitmap:
         - " ## "
         - "#  #"
@@ -104,7 +104,7 @@ glyph_families:
           entry: [1, 6]
         modifiers: [entry-y6]
       half:
-        shape: half_2
+        shape: half
         anchors:
           exit: [4, 5]
         select:
@@ -120,7 +120,7 @@ glyph_families:
         modifiers: [entry-xheight, exit-xheight]
       half_entry_y6_exit_y6:
         inherits: half
-        shape: half_2
+        shape: half
         anchors:
           entry: [1, 6]
           exit: [4, 6]
