@@ -24,7 +24,7 @@ class ShapingFile(pytest.File):
         collector.feed(raw)
 
         seen_ids = {}
-        for text, expect, line in collector.cells:
+        for text, expect, line, stylistic_set in collector.cells:
             if not expect.strip():
                 continue
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
@@ -37,16 +37,19 @@ class ShapingFile(pytest.File):
             else:
                 seen_ids[slug] = 0
             yield ShapingItem.from_parent(
-                self, name=slug, text=text, expect_str=expect, html_line=line
+                self, name=slug, text=text, expect_str=expect,
+                html_line=line, stylistic_set=stylistic_set,
             )
 
 
 class ShapingItem(pytest.Item):
-    def __init__(self, name, parent, text, expect_str, html_line):
+    def __init__(self, name, parent, text, expect_str, html_line,
+                 stylistic_set=None):
         super().__init__(name, parent)
         self.text = text
         self.expect_str = expect_str
         self.html_line = html_line
+        self.stylistic_set = stylistic_set
 
     def setup(self):
         if not hasattr(self.session, "_shaping_font"):
@@ -61,12 +64,18 @@ class ShapingItem(pytest.Item):
     def runtest(self):
         from test_shaping import run_shaping_test
 
+        features = None
+        if self.stylistic_set:
+            features = {f"ss{ss.zfill(2)}": True
+                        for ss in self.stylistic_set.split()}
+
         run_shaping_test(
             self.session._shaping_font,
             self.session._shaping_anchors,
             self.text,
             self.expect_str,
             base_potential_entries=self.session._shaping_potential_entries,
+            features=features,
         )
 
     def reportinfo(self):

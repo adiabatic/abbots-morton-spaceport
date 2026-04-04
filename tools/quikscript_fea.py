@@ -799,7 +799,29 @@ def emit_quikscript_curs(
     return "\n".join(lines)
 
 
+def emit_quikscript_ss(glyph_meta: dict) -> str | None:
+    from collections import defaultdict
+
+    groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for name, meta in glyph_meta.items():
+        if meta.revert_feature:
+            groups[meta.revert_feature].append((name, meta.base_name))
+
+    if not groups:
+        return None
+
+    lines = []
+    for feature_tag in sorted(groups):
+        lines.append(f"feature {feature_tag} {{")
+        for variant, base in sorted(groups[feature_tag]):
+            lines.append(f"    sub {variant} by {base};")
+        lines.append(f"}} {feature_tag};")
+
+    return "\n".join(lines)
+
+
 __all__ = [
     "emit_quikscript_calt",
     "emit_quikscript_curs",
+    "emit_quikscript_ss",
 ]
