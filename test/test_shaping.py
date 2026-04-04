@@ -43,8 +43,8 @@ _COMPILED_GLYPH_META = None
 TOKEN_RE = re.compile(
     r"""
     ·(-ing|J['\u2019]?ai|[A-Z][a-z]*)  # letter name (·Bay, ·-ing, ·J'ai)
-    (?:\+([A-Z][a-z]*))?       # optional ligature partner (+Utter)
-    ((?:\.!?[a-z][-a-z0-9]*)*)  # optional variant assertions (.half.extended, .!exit, .entry-extended, .exit.y1)
+    (?:\+([?|]?)([A-Z][a-z]*))?         # optional ligature partner (+Utter, +?Utter, +|Utter)
+    ((?:\.!?[a-z][-a-z0-9]*)*)          # optional variant assertions (.half.extended, .!exit, .entry-extended, .exit.y1)
     """,
     re.VERBOSE,
 )
@@ -57,7 +57,7 @@ LOZENGE_MAP = {
     "ZWNJ": "space",
 }
 
-CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*\|\s*")
+CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*(\?)\s*|\s*\|\s*")
 
 
 def _letter_to_qs(name):
@@ -73,9 +73,10 @@ def parse_expect(raw):
     tokens:  list of dicts with keys:
         base      – e.g. "qsBay"
         lig_base  – e.g. "qsUtter" if ligature, else None
+        lig_mode  – None (must-ligate), "maybe" (+?), or "maybe_break" (+|)
         variants  – list of variant assertion strings, e.g. ["half"]
     connections: list of dicts (len = len(tokens) - 1) with keys:
-        kind      – "join", "break", or "height"
+        kind      – "join", "break", "height", or "maybe"
         y         – int or None (only for "height")
     """
     HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
@@ -108,6 +109,8 @@ def parse_expect(raw):
                 if conn_m.group(1):
                     h = conn_m.group(1)
                     connections.append({"kind": "height", "y": HEIGHT_MAP[h]})
+                elif conn_m.group(2):
+                    connections.append({"kind": "maybe", "y": None})
                 else:
                     connections.append({"kind": "break", "y": None})
                 pos += conn_m.end()
@@ -149,8 +152,14 @@ def parse_expect(raw):
             raise ValueError(f"Expected glyph token at pos {pos}: {remaining!r}")
 
         letter = tok_m.group(1)
-        lig_partner = tok_m.group(2)
-        variant_str = tok_m.group(3)
+        lig_mode_char = tok_m.group(2)
+        lig_partner = tok_m.group(3)
+        variant_str = tok_m.group(4)
+
+        if lig_partner:
+            lig_mode = {"": None, "?": "maybe", "|": "maybe_break"}[lig_mode_char or ""]
+        else:
+            lig_mode = None
 
         pos_variants = []
         neg_variants = []
@@ -166,6 +175,7 @@ def parse_expect(raw):
         tokens.append({
             "base": _letter_to_qs(letter),
             "lig_base": _letter_to_qs(lig_partner) if lig_partner else None,
+            "lig_mode": lig_mode,
             "variants": pos_variants,
             "neg_variants": neg_variants,
         })
@@ -272,27 +282,61 @@ def _is_ligature_match(meta, base, lig):
 
 
 # ---------------------------------------------------------------------------
+# Maybe-ligature expansion
+# ---------------------------------------------------------------------------
+
+def _expand_maybe_ligatures(tokens, connections):
+    maybe_indices = [
+        i for i, tok in enumerate(tokens)
+        if tok.get("lig_mode") in ("maybe", "maybe_break")
+    ]
+    if not maybe_indices:
+        return [(tokens, connections)]
+
+    from itertools import product
+
+    interpretations = []
+    for combo in product([True, False], repeat=len(maybe_indices)):
+        maybe_map = dict(zip(maybe_indices, combo))
+        new_tokens = []
+        new_connections = []
+        for i, tok in enumerate(tokens):
+            if i > 0:
+                new_connections.append(connections[i - 1])
+            if i in maybe_map and not maybe_map[i]:
+                conn_kind = "maybe" if tok["lig_mode"] == "maybe" else "break"
+                new_tokens.append({
+                    "base": tok["base"],
+                    "lig_base": None,
+                    "lig_mode": None,
+                    "variants": [],
+                    "neg_variants": [],
+                })
+                new_connections.append({"kind": conn_kind, "y": None})
+                new_tokens.append({
+                    "base": tok["lig_base"],
+                    "lig_base": None,
+                    "lig_mode": None,
+                    "variants": [],
+                    "neg_variants": [],
+                })
+            else:
+                new_tokens.append({**tok, "lig_mode": None})
+        interpretations.append((new_tokens, new_connections))
+    return interpretations
+
+
+# ---------------------------------------------------------------------------
 # Test runner
 # ---------------------------------------------------------------------------
 
-def run_shaping_test(font, anchor_map, text, expect_str,
-                     base_potential_entries=None):
-    tokens, connections = parse_expect(expect_str)
-
-    buf = hb.Buffer()
-    buf.add_str(text)
-    buf.guess_segment_properties()
-    hb.shape(font, buf)
-
-    infos = buf.glyph_infos
-    glyph_names = []
-    for info in infos:
-        name = font.glyph_to_string(info.codepoint)
-        glyph_names.append(name)
-
-    assert len(glyph_names) == len(tokens), (
-        f"Glyph count mismatch: got {glyph_names}, expected {len(tokens)} tokens"
-    )
+def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
+                        base_potential_entries=None):
+    if len(glyph_names) != len(tokens):
+        return (
+            f"Glyph count mismatch: got {glyph_names}, "
+            f"expected {len(tokens)} tokens"
+        )
 
     for i, (gname, tok) in enumerate(zip(glyph_names, tokens)):
         meta = _compiled_glyph_meta(gname)
@@ -300,23 +344,19 @@ def run_shaping_test(font, anchor_map, text, expect_str,
         lig = tok["lig_base"]
 
         if lig:
-            assert _is_ligature_match(meta, base, lig), (
-                f"Glyph {i}: expected ligature {base}+{lig}, got {gname!r}"
-            )
+            if not _is_ligature_match(meta, base, lig):
+                return f"Glyph {i}: expected ligature {base}+{lig}, got {gname!r}"
         else:
-            assert _glyph_base_name(meta) == base, (
-                f"Glyph {i}: expected base {base}, got {gname!r}"
-            )
+            if _glyph_base_name(meta) != base:
+                return f"Glyph {i}: expected base {base}, got {gname!r}"
 
         for v in tok["variants"]:
-            assert _modifier_matches(meta, v), (
-                f"Glyph {i}: expected variant '{v}' in {gname!r}"
-            )
+            if not _modifier_matches(meta, v):
+                return f"Glyph {i}: expected variant '{v}' in {gname!r}"
 
         for v in tok.get("neg_variants", []):
-            assert _modifier_not_matches(meta, v), (
-                f"Glyph {i}: variant '{v}' must NOT appear in {gname!r}"
-            )
+            if not _modifier_not_matches(meta, v):
+                return f"Glyph {i}: variant '{v}' must NOT appear in {gname!r}"
 
     for i, conn in enumerate(connections):
         left = glyph_names[i]
@@ -329,11 +369,14 @@ def run_shaping_test(font, anchor_map, text, expect_str,
         right_entries = {a[1] for a in right_anchors.get("entry", [])}
         common_ys = left_exits & right_entries
 
+        if conn["kind"] == "maybe":
+            continue
         if conn["kind"] == "break":
-            assert not common_ys, (
-                f"Connection {i}: expected break between {left} and {right}, "
-                f"but found common Y values {common_ys}"
-            )
+            if common_ys:
+                return (
+                    f"Connection {i}: expected break between {left} and {right}, "
+                    f"but found common Y values {common_ys}"
+                )
             if base_potential_entries and left_exits and "half" in left_meta.traits:
                 left_base = left_meta.base_name
                 base_key = left_base if left_base in anchor_map else f"{left_base}.prop"
@@ -343,20 +386,67 @@ def run_shaping_test(font, anchor_map, text, expect_str,
                     right_base = right_meta.base_name
                     potential = base_potential_entries.get(right_base, set())
                     suspect_ys = extra_exits & potential
-                    assert not suspect_ys, (
-                        f"Connection {i}: break between {left} and {right}, "
-                        f"but {left} exits at Y={suspect_ys} (not on base form) "
-                        f"matching potential entries for {right_base} — forward "
-                        f"calt may have selected the half form across a break"
-                    )
+                    if suspect_ys:
+                        return (
+                            f"Connection {i}: break between {left} and {right}, "
+                            f"but {left} exits at Y={suspect_ys} (not on base form) "
+                            f"matching potential entries for {right_base} — forward "
+                            f"calt may have selected the half form across a break"
+                        )
         elif conn["kind"] == "join":
-            assert common_ys, (
-                f"Connection {i}: expected join between {left} and {right}, "
-                f"but no common Y values (exits={left_exits}, entries={right_entries})"
-            )
+            if not common_ys:
+                return (
+                    f"Connection {i}: expected join between {left} and {right}, "
+                    f"but no common Y values (exits={left_exits}, entries={right_entries})"
+                )
         elif conn["kind"] == "height":
             expected_y = conn["y"]
-            assert expected_y in common_ys, (
-                f"Connection {i}: expected join at y={expected_y} between "
-                f"{left} and {right}, common Ys={common_ys}"
-            )
+            if expected_y not in common_ys:
+                return (
+                    f"Connection {i}: expected join at y={expected_y} between "
+                    f"{left} and {right}, common Ys={common_ys}"
+                )
+
+    return None
+
+
+def run_shaping_test(font, anchor_map, text, expect_str,
+                     base_potential_entries=None):
+    tokens, connections = parse_expect(expect_str)
+
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+
+    infos = buf.glyph_infos
+    glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
+
+    interpretations = _expand_maybe_ligatures(tokens, connections)
+
+    if len(interpretations) == 1:
+        error = _try_interpretation(
+            font, anchor_map, glyph_names,
+            interpretations[0][0], interpretations[0][1],
+            base_potential_entries,
+        )
+        if error:
+            raise AssertionError(error)
+        return
+
+    errors = []
+    for interp_tokens, interp_connections in interpretations:
+        error = _try_interpretation(
+            font, anchor_map, glyph_names,
+            interp_tokens, interp_connections,
+            base_potential_entries,
+        )
+        if error is None:
+            return
+        errors.append(error)
+
+    raise AssertionError(
+        f"No interpretation matched for {expect_str!r} "
+        f"(shaped: {glyph_names}).\n"
+        + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
+    )
