@@ -22,6 +22,7 @@ class NoCacheStaticHandler(StaticFileHandler):
 
 
 server = Server()
+server.SFH = NoCacheStaticHandler
 server.watch(str(TEST_DIR / "*.html"))
 server.watch(str(TEST_DIR / "*.css"))
 server.watch(str(TEST_DIR / "*.otf"))
@@ -31,5 +32,4 @@ server.serve(
     port=PORT,
     open_url_delay=None,
     live_css=False,
-    handler=NoCacheStaticHandler,
 )
