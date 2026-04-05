@@ -328,7 +328,7 @@ def generate_kern_fea(
                 preamble.append(f"    pos {g} <0 0 {value} 0>;")
             preamble.append(f"}} {val_lookup};")
             lines.append(f"    lookup kern_{tag_name} {{")
-            lines.append(f"        pos [{left}]' lookup {val_lookup} uni200C [{right}];")
+            lines.append(f"        pos [{left}]' lookup {val_lookup} uni200C;")
             lines.append(f"    }} kern_{tag_name};")
         else:
             lines.append(f"    lookup kern_{tag_name} {{")
