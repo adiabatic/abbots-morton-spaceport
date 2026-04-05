@@ -225,7 +225,7 @@ glyph_families:
           entry: [1, 8]
           exit: [1, 5]
         select:
-          not_before: [{family: qsFee}, {family: qsFoot}]
+          not_before: [{family: qsFee}, {family: qsFoot}, {family: qsOwe}]
         traits: [half]
         modifiers: [entry-top, exit-xheight]
       entry_top:
