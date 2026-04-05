@@ -109,7 +109,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     noentry_pairs = []
     for name in sorted(glyph_names):
         meta = _meta(name)
-        if meta.is_noentry:
+        if meta.is_noentry and name == f"{meta.base_name}.noentry":
             base = meta.base_name
             if base in glyph_names:
                 noentry_pairs.append((base, name))
