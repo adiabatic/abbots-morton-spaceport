@@ -24,7 +24,7 @@ class ShapingFile(pytest.File):
         collector.feed(raw)
 
         seen_ids = {}
-        for text, expect, line, stylistic_set in collector.cells:
+        for text, expect, line, stylistic_set, runs in collector.cells:
             if not expect.strip():
                 continue
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
@@ -39,42 +39,51 @@ class ShapingFile(pytest.File):
             yield ShapingItem.from_parent(
                 self, name=slug, text=text, expect_str=expect,
                 html_line=line, stylistic_set=stylistic_set,
+                runs=runs,
             )
 
 
 class ShapingItem(pytest.Item):
     def __init__(self, name, parent, text, expect_str, html_line,
-                 stylistic_set=None):
+                 stylistic_set=None, runs=None):
         super().__init__(name, parent)
         self.text = text
         self.expect_str = expect_str
         self.html_line = html_line
         self.stylistic_set = stylistic_set
+        self.runs = runs or [{"font": "senior", "text": text}]
 
     def setup(self):
-        if not hasattr(self.session, "_shaping_font"):
+        if not hasattr(self.session, "_shaping_fonts"):
             subprocess.run(["make", "all"], cwd=ROOT, check=True)
             from test_shaping import load_font, build_anchor_map
 
-            self.session._shaping_font = load_font()
-            anchors, potential = build_anchor_map()
-            self.session._shaping_anchors = anchors
-            self.session._shaping_potential_entries = potential
+            fonts = {}
+            anchor_maps = {}
+            potentials = {}
+            for variant in ("senior", "junior"):
+                fonts[variant] = load_font(variant)
+                anchors, potential = build_anchor_map(variant)
+                anchor_maps[variant] = anchors
+                potentials[variant] = potential
+            self.session._shaping_fonts = fonts
+            self.session._shaping_anchor_maps = anchor_maps
+            self.session._shaping_potentials = potentials
 
     def runtest(self):
-        from test_shaping import run_shaping_test
+        from test_shaping import run_shaping_test_runs
 
         features = None
         if self.stylistic_set:
             features = {f"ss{ss.zfill(2)}": True
                         for ss in self.stylistic_set.split()}
 
-        run_shaping_test(
-            self.session._shaping_font,
-            self.session._shaping_anchors,
-            self.text,
+        run_shaping_test_runs(
+            self.session._shaping_fonts,
+            self.session._shaping_anchor_maps,
+            self.runs,
             self.expect_str,
-            base_potential_entries=self.session._shaping_potential_entries,
+            base_potential_entries=self.session._shaping_potentials,
             features=features,
         )
 

@@ -12,7 +12,11 @@ import uharfbuzz as hb
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf"
+FONT_PATHS = {
+    "senior": ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf",
+    "junior": ROOT / "test" / "AbbotsMortonSpaceportSansJunior.otf",
+}
+FONT_PATH = FONT_PATHS["senior"]  # legacy alias
 GLYPH_DATA_DIR = ROOT / "glyph_data"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
@@ -33,7 +37,7 @@ def _build_char_to_glyph_name():
     return result
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
-_COMPILED_GLYPH_META = None
+_COMPILED_GLYPH_META: dict = {}  # variant -> {glyph_name: JoinGlyph}
 
 
 # ---------------------------------------------------------------------------
@@ -189,62 +193,113 @@ def parse_expect(raw):
 # ---------------------------------------------------------------------------
 
 class _DataExpectCollector(HTMLParser):
-    """Collect data-expect="..." from <td> and <span> elements in HTML."""
+    """Collect data-expect="..." from <td>, <span>, and <dd> elements in HTML.
+
+    Each collected cell records a list of ``runs`` — one per contiguous font
+    context inside the cell. A ``<span class="force-junior">`` descendant
+    switches the enclosed text to the Junior font; anything else stays in
+    Senior (the cell's default).
+    """
+
+    _TAGS = {"td", "span", "dd"}
 
     def __init__(self):
         super().__init__()
         self.cells = []
-        self._in_td = False
-        self._expect = None
-        self._stylistic_set = None
-        self._text_parts = []
-        self._line = None
+        # Stack of (tag, is_cell_start, is_force_junior) for each open _TAGS
+        # element we are currently inside.
+        self._open_tags = []
+        self._cell_active = False
+        self._cell_info = None  # dict: expect, line, stylistic_set
+        self._runs = []  # list of {"font": str, "text": str}
 
-    _TAGS = {"td", "span", "dd"}
+    def _current_font(self):
+        for _tag, _is_cell, is_junior in reversed(self._open_tags):
+            if is_junior:
+                return "junior"
+        return "senior"
 
     def handle_starttag(self, tag, attrs):
-        if tag in self._TAGS:
-            attr_dict = dict(attrs)
-            expect = attr_dict.get("data-expect", attr_dict.get("data-expect-noncanonically"))
-            if expect is not None:
-                self._in_td = True
-                self._expect = expect
-                self._stylistic_set = attr_dict.get("data-stylistic-set")
-                self._text_parts = []
-                self._line = self.getpos()[0]
+        if tag not in self._TAGS:
+            return
+        attr_dict = dict(attrs)
+        expect = attr_dict.get("data-expect", attr_dict.get("data-expect-noncanonically"))
+        css_class = attr_dict.get("class", "") or ""
+        is_force_junior = "force-junior" in css_class.split()
+
+        if expect is not None and not self._cell_active:
+            self._cell_active = True
+            self._cell_info = {
+                "expect": expect,
+                "line": self.getpos()[0],
+                "stylistic_set": attr_dict.get("data-stylistic-set"),
+            }
+            self._runs = [{"font": "senior", "text": ""}]
+            self._open_tags.append((tag, True, False))
+            return
+
+        if self._cell_active:
+            self._open_tags.append((tag, False, is_force_junior))
+            if is_force_junior:
+                self._runs.append({"font": "junior", "text": ""})
 
     def handle_endtag(self, tag):
-        if tag in self._TAGS and self._in_td:
-            text = "".join(self._text_parts).strip()
-            self.cells.append((text, self._expect, self._line, self._stylistic_set))
-            self._in_td = False
-            self._expect = None
-            self._stylistic_set = None
+        if tag not in self._TAGS or not self._open_tags:
+            return
+        open_tag, is_cell_start, was_force_junior = self._open_tags[-1]
+        if open_tag != tag:
+            return
+        self._open_tags.pop()
+
+        if not self._cell_active:
+            return
+
+        if is_cell_start:
+            non_empty = [
+                {"font": r["font"], "text": r["text"].strip()}
+                for r in self._runs
+                if r["text"].strip()
+            ]
+            if not non_empty:
+                non_empty = [{"font": "senior", "text": ""}]
+            full_text = "".join(r["text"] for r in self._runs).strip()
+            self.cells.append((
+                full_text,
+                self._cell_info["expect"],
+                self._cell_info["line"],
+                self._cell_info["stylistic_set"],
+                non_empty,
+            ))
+            self._cell_active = False
+            self._cell_info = None
+            self._runs = []
+        elif was_force_junior:
+            resume_font = self._current_font()
+            self._runs.append({"font": resume_font, "text": ""})
 
     def handle_data(self, data):
-        if self._in_td:
-            self._text_parts.append(data)
+        if self._cell_active:
+            self._runs[-1]["text"] += data
 
 
 # ---------------------------------------------------------------------------
 # Font/anchor loading
 # ---------------------------------------------------------------------------
 
-def load_font():
-    blob = hb.Blob.from_file_path(str(FONT_PATH))
+def load_font(variant="senior"):
+    blob = hb.Blob.from_file_path(str(FONT_PATHS[variant]))
     face = hb.Face(blob)
     return hb.Font(face)
 
 
-def build_anchor_map():
-    global _COMPILED_GLYPH_META
+def build_anchor_map(variant="senior"):
     data = load_glyph_data(GLYPH_DATA_DIR)
-    glyphs = compile_glyph_definitions(data, "senior")
-    _COMPILED_GLYPH_META = build_join_glyphs(glyphs)
+    glyphs = compile_glyph_definitions(data, variant)
+    _COMPILED_GLYPH_META[variant] = build_join_glyphs(glyphs)
 
     result = {}
     base_potential_entries = {}
-    for name, meta in _COMPILED_GLYPH_META.items():
+    for name, meta in _COMPILED_GLYPH_META[variant].items():
         entry = list(meta.entry) + list(meta.entry_curs_only)
         exit_ = list(meta.exit)
         if entry or exit_:
@@ -255,12 +310,14 @@ def build_anchor_map():
     return result, base_potential_entries
 
 
-def _compiled_glyph_meta(name):
-    if _COMPILED_GLYPH_META is None:
-        build_anchor_map()
-    meta = _COMPILED_GLYPH_META.get(name)
+def _compiled_glyph_meta(name, variant="senior"):
+    if variant not in _COMPILED_GLYPH_META:
+        build_anchor_map(variant)
+    meta = _COMPILED_GLYPH_META[variant].get(name)
     if meta is None:
-        raise AssertionError(f"Missing compiled glyph metadata for {name!r}")
+        raise AssertionError(
+            f"Missing compiled glyph metadata for {name!r} in {variant}"
+        )
     return meta
 
 
@@ -334,7 +391,7 @@ def _expand_maybe_ligatures(tokens, connections):
 # ---------------------------------------------------------------------------
 
 def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
-                        base_potential_entries=None):
+                        base_potential_entries=None, variant="senior"):
     if len(glyph_names) != len(tokens):
         return (
             f"Glyph count mismatch: got {glyph_names}, "
@@ -342,7 +399,7 @@ def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
         )
 
     for i, (gname, tok) in enumerate(zip(glyph_names, tokens)):
-        meta = _compiled_glyph_meta(gname)
+        meta = _compiled_glyph_meta(gname, variant)
         base = tok["base"]
         lig = tok["lig_base"]
 
@@ -364,8 +421,8 @@ def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
     for i, conn in enumerate(connections):
         left = glyph_names[i]
         right = glyph_names[i + 1]
-        left_meta = _compiled_glyph_meta(left)
-        right_meta = _compiled_glyph_meta(right)
+        left_meta = _compiled_glyph_meta(left, variant)
+        right_meta = _compiled_glyph_meta(right, variant)
         left_anchors = anchor_map.get(left, {})
         right_anchors = anchor_map.get(right, {})
         left_exits = {a[1] for a in left_anchors.get("exit", [])}
@@ -414,7 +471,8 @@ def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
 
 
 def run_shaping_test(font, anchor_map, text, expect_str,
-                     base_potential_entries=None, features=None):
+                     base_potential_entries=None, features=None,
+                     variant="senior"):
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
@@ -434,7 +492,7 @@ def run_shaping_test(font, anchor_map, text, expect_str,
         error = _try_interpretation(
             font, anchor_map, glyph_names,
             interpretations[0][0], interpretations[0][1],
-            base_potential_entries,
+            base_potential_entries, variant=variant,
         )
         if error:
             raise AssertionError(error)
@@ -445,7 +503,7 @@ def run_shaping_test(font, anchor_map, text, expect_str,
         error = _try_interpretation(
             font, anchor_map, glyph_names,
             interp_tokens, interp_connections,
-            base_potential_entries,
+            base_potential_entries, variant=variant,
         )
         if error is None:
             return
@@ -456,3 +514,175 @@ def run_shaping_test(font, anchor_map, text, expect_str,
         f"(shaped: {glyph_names}).\n"
         + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-run test runner
+# ---------------------------------------------------------------------------
+
+def _token_input_char_count(tok):
+    """How many base (non-modifier) input chars this token consumes."""
+    if tok.get("lig_base"):
+        return 2
+    return 1
+
+
+def _is_modifier_char(c):
+    """Characters that attach to the previous char instead of forming their own token.
+
+    Currently: variation selectors (U+FE00..U+FE0F).
+    """
+    return 0xFE00 <= ord(c) <= 0xFE0F
+
+
+def _partition_by_runs(runs, tokens, connections):
+    """Partition ``tokens`` and ``connections`` across ``runs``.
+
+    Walks the concatenated run text char-by-char, attributing each token to
+    the run where its base characters land. Variation selectors and similar
+    modifier chars are eaten by the preceding token. Connections between
+    tokens that end up in different runs are dropped (the inter-run gap is
+    implicit, since runs are shaped independently).
+
+    Returns a list of dicts with keys ``font``, ``text``, ``tokens``,
+    ``connections``.
+    """
+    full_text = ""
+    run_for_char = []
+    for run_idx, run in enumerate(runs):
+        for _ in run["text"]:
+            run_for_char.append(run_idx)
+        full_text += run["text"]
+
+    token_to_run = []
+    char_idx = 0
+    for tok in tokens:
+        base = _token_input_char_count(tok)
+        # Skip any leading modifier chars (shouldn't happen, but defend).
+        while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
+            char_idx += 1
+        if char_idx >= len(full_text):
+            raise ValueError(
+                f"Not enough input chars for token {tok!r} at char {char_idx}"
+            )
+        token_run = run_for_char[char_idx]
+        consumed = 0
+        while consumed < base:
+            if char_idx >= len(full_text):
+                raise ValueError(
+                    f"Token {tok!r} overruns text at char {char_idx}"
+                )
+            c = full_text[char_idx]
+            if _is_modifier_char(c):
+                char_idx += 1
+                continue
+            if run_for_char[char_idx] != token_run:
+                raise ValueError(
+                    f"Token {tok!r} straddles run boundary at char {char_idx}"
+                )
+            char_idx += 1
+            consumed += 1
+        # Eat trailing modifier chars that attach to this token's last char.
+        while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
+            char_idx += 1
+        token_to_run.append(token_run)
+
+    if char_idx != len(full_text):
+        raise ValueError(
+            f"Run text not fully consumed: used {char_idx} of "
+            f"{len(full_text)} chars"
+        )
+
+    slices = []
+    for run_idx, run in enumerate(runs):
+        tok_indices = [i for i, r in enumerate(token_to_run) if r == run_idx]
+        if not tok_indices:
+            slices.append({
+                "font": run["font"],
+                "text": run["text"],
+                "tokens": [],
+                "connections": [],
+            })
+            continue
+        run_tokens = [tokens[i] for i in tok_indices]
+        run_conns = []
+        for i in range(len(tok_indices) - 1):
+            if tok_indices[i + 1] != tok_indices[i] + 1:
+                raise ValueError(
+                    f"Non-contiguous tokens in run {run_idx}: "
+                    f"{tok_indices[i]} -> {tok_indices[i+1]}"
+                )
+            run_conns.append(connections[tok_indices[i]])
+        slices.append({
+            "font": run["font"],
+            "text": run["text"],
+            "tokens": run_tokens,
+            "connections": run_conns,
+        })
+    return slices
+
+
+def run_shaping_test_runs(fonts, anchor_maps, runs, expect_str,
+                          base_potential_entries=None, features=None):
+    """Shape each font-variant run independently and verify against expect_str.
+
+    ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior").
+    ``runs`` is a list of {"font": variant, "text": str}. Each run is shaped
+    against its own font, and the corresponding slice of tokens/connections
+    from ``expect_str`` is verified against that run.
+    """
+    tokens, connections = parse_expect(expect_str)
+    slices = _partition_by_runs(runs, tokens, connections)
+
+    potential = base_potential_entries or {}
+
+    for sl in slices:
+        variant = sl["font"]
+        text = sl["text"]
+        if not text:
+            continue
+        font = fonts[variant]
+        anchor_map = anchor_maps[variant]
+        sub_tokens = sl["tokens"]
+        sub_conns = sl["connections"]
+
+        buf = hb.Buffer()
+        buf.add_str(text)
+        buf.guess_segment_properties()
+        if features:
+            hb.shape(font, buf, features)
+        else:
+            hb.shape(font, buf)
+
+        infos = buf.glyph_infos
+        glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
+
+        interpretations = _expand_maybe_ligatures(sub_tokens, sub_conns)
+
+        # Junior has no cursive attachment — suppress connection assertions
+        # (glyph-identity assertions still run).
+        if variant == "junior":
+            interpretations = [
+                (t, [{"kind": "maybe", "y": None} for _ in c])
+                for t, c in interpretations
+            ]
+
+        errors = []
+        matched = False
+        for interp_tokens, interp_connections in interpretations:
+            error = _try_interpretation(
+                font, anchor_map, glyph_names,
+                interp_tokens, interp_connections,
+                potential.get(variant), variant=variant,
+            )
+            if error is None:
+                matched = True
+                break
+            errors.append(error)
+        if matched:
+            continue
+        raise AssertionError(
+            f"[{variant}] No interpretation matched for run {text!r} "
+            f"in {expect_str!r} (shaped: {glyph_names}).\n"
+            + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
+        )
