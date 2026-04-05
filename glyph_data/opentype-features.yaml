@@ -60,3 +60,7 @@ kerning:
       - yacute
       - ydieresis
     value: -1
+  he-before-noentry:
+    left_family: [qsHe]
+    right_group: noentry
+    value: -3
