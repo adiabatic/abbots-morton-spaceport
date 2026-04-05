@@ -52,6 +52,7 @@ class JoinPlan:
     ligatures: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     gated_pair_overrides: dict[str, list[tuple[str, list[str], str]]] = field(default_factory=dict)
+    gated_fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str], str]]] = field(default_factory=dict)
     rules: list[JoinRule] = field(default_factory=list)
 
 def _record_rule(plan: JoinPlan, rule: JoinRule) -> None:
@@ -253,9 +254,14 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             resolved_not_after = (
                 resolve_known_glyph_names(not_after, plan.glyph_names) if not_after else []
             )
-            fwd_pair_overrides.setdefault(base_name, []).append(
-                (glyph_name, resolved, resolved_not_after)
-            )
+            if meta.gate_feature:
+                plan.gated_fwd_pair_overrides.setdefault(base_name, []).append(
+                    (glyph_name, resolved, resolved_not_after, meta.gate_feature)
+                )
+            else:
+                fwd_pair_overrides.setdefault(base_name, []).append(
+                    (glyph_name, resolved, resolved_not_after)
+                )
             _record_rule(
                 plan,
                 JoinRule(
@@ -495,7 +501,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
         if all(_meta(variant_name).extended_entry_suffix is not None for variant_name, _ in overrides):
             entry_ext_pair_only.add(base_name)
 
-    all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides)
+    all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides) | set(plan.gated_fwd_pair_overrides)
     entry_ext_fwd_only = entry_ext_pair_only & all_fwd_bases
 
     pair_only = sorted(set(pair_overrides) - set(bk_replacements) - entry_ext_fwd_only)

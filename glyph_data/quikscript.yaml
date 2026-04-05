@@ -1810,6 +1810,16 @@ glyph_families:
           after: [{family: qsDay}]
         gate_feature_behind: ss03
         modifiers: [entry-baseline, after-day]
+      entry_baseline_before_low:
+        shape: prop
+        anchors:
+          entry: [1, 0]
+          exit: [2, 0]
+        select:
+          before: [{family: qsLow}]
+          not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
+        gate_feature_behind: ss03
+        modifiers: [entry-baseline, before-low]
       exit_xheight:
         shape: prop
         anchors:
