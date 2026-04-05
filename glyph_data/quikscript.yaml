@@ -435,15 +435,15 @@ glyph_families:
         select:
           not_before: [{family: qsNo}]
         modifiers: [exit-baseline]
-      exit_baseline_before_deep_or_roe:
+      exit_baseline_before_deep:
         shape: mono
         anchors:
           exit: [6, 0]
         select:
-          before: [{family: qsNo}, {family: qsRoe}]
+          before: [{family: qsNo}]
         derive:
-          extend_exit_before: [{family: qsDay}, {family: qsZoo}]
-        modifiers: [exit-baseline, before-deep-or-roe]
+          extend_exit_before: [{family: qsDay}, {family: qsRoe}, {family: qsZoo}]
+        modifiers: [exit-baseline, before-deep]
       entry_xheight:
         shape: mono
         anchors:
