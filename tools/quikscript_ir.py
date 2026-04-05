@@ -970,20 +970,50 @@ def _widen_bitmap_right_with_connector(
     exit_y: int,
     y_offset: int = 0,
     count: int = 1,
-) -> tuple[BitmapRow, ...]:
+) -> tuple[tuple[BitmapRow, ...], int]:
     if not bitmap:
-        return bitmap
+        return bitmap, 0
     height = len(bitmap)
     row_from_bottom = exit_y - y_offset
     connecting_row_idx = (height - 1) - row_from_bottom
+    connector_row = bitmap[connecting_row_idx]
+    if isinstance(connector_row, str):
+        bitmap_width = len(connector_row)
+        try:
+            rightmost_x = connector_row.rindex("#")
+        except ValueError:
+            rightmost_x = bitmap_width - 1
+    else:
+        bitmap_width = len(connector_row)
+        rightmost_x = bitmap_width - 1
+        for i in range(bitmap_width - 1, -1, -1):
+            if connector_row[i]:
+                rightmost_x = i
+                break
+    widen_by = max(0, rightmost_x + count + 1 - bitmap_width)
     new_bitmap: list[BitmapRow] = []
     for index, row in enumerate(bitmap):
-        suffix = "#" * count if index == connecting_row_idx else " " * count
         if isinstance(row, str):
-            new_bitmap.append(row + suffix)
+            if widen_by > 0:
+                row = row + " " * widen_by
+            if index == connecting_row_idx:
+                row_list = list(row)
+                for pos in range(rightmost_x + 1, rightmost_x + 1 + count):
+                    row_list[pos] = "#"
+                new_bitmap.append("".join(row_list))
+            else:
+                new_bitmap.append(row)
         else:
-            new_bitmap.append(tuple(list(row) + [int(char == "#") for char in suffix]))
-    return tuple(new_bitmap)
+            if widen_by > 0:
+                row = tuple(list(row) + [0] * widen_by)
+            if index == connecting_row_idx:
+                row_list = list(row)
+                for pos in range(rightmost_x + 1, rightmost_x + 1 + count):
+                    row_list[pos] = 1
+                new_bitmap.append(tuple(row_list))
+            else:
+                new_bitmap.append(row)
+    return tuple(new_bitmap), widen_by
 
 
 _UNSET = object()
@@ -1473,17 +1503,18 @@ def _generate_extended_exit_variants(
         modifier = f"exit-{suffix_word}"
         ext_name = f"{name}.exit-{suffix_word}"
         if ext_name not in join_glyphs:
+            new_bitmap, actual_dx = _widen_bitmap_right_with_connector(
+                join_glyph.bitmap,
+                exit_y,
+                join_glyph.y_offset,
+                count=count,
+            )
             variants[ext_name] = derive_join_glyph(
                 join_glyph,
                 name=ext_name,
-                bitmap=_widen_bitmap_right_with_connector(
-                    join_glyph.bitmap,
-                    exit_y,
-                    join_glyph.y_offset,
-                    count=count,
-                ),
+                bitmap=new_bitmap,
                 entry=() if join_glyph.extend_exit_no_entry else join_glyph.entry,
-                exit=_shift_anchors(join_glyph.exit, dx=count),
+                exit=_shift_anchors(join_glyph.exit, dx=actual_dx),
                 before=tuple(extend_before),
                 extend_exit_before=(),
                 extend_exit_no_entry=False,
@@ -1517,16 +1548,17 @@ def _generate_extended_exit_variants(
                 continue
             sec_name = f"{other_name}.exit-{suffix_word}"
             if sec_name not in join_glyphs and sec_name not in variants:
+                sec_bitmap, sec_dx = _widen_bitmap_right_with_connector(
+                    other_join_glyph.bitmap,
+                    other_join_glyph.exit[0][1],
+                    other_join_glyph.y_offset,
+                    count=count,
+                )
                 variants[sec_name] = derive_join_glyph(
                     other_join_glyph,
                     name=sec_name,
-                    bitmap=_widen_bitmap_right_with_connector(
-                        other_join_glyph.bitmap,
-                        other_join_glyph.exit[0][1],
-                        other_join_glyph.y_offset,
-                        count=count,
-                    ),
-                    exit=_shift_anchors(other_join_glyph.exit, dx=count),
+                    bitmap=sec_bitmap,
+                    exit=_shift_anchors(other_join_glyph.exit, dx=sec_dx),
                     after=(),
                     before=(),
                     not_after=(),
