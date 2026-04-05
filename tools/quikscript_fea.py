@@ -184,6 +184,9 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                 if base_name in pair_overrides:
                     for pair_variant, _ in pair_overrides[base_name]:
                         targets.add(pair_variant)
+                noentry_name = f"{base_name}.noentry"
+                if noentry_name in glyph_names:
+                    targets.add(noentry_name)
 
                 variant_meta = _meta(variant_name)
                 variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
