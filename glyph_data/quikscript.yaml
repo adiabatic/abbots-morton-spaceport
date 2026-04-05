@@ -2075,7 +2075,7 @@ glyph_families:
           entry: [1, 5]
           exit: [6, 0]
         select:
-          after: [{family: qsNo}]
+          after: [{family: qsLow}, {family: qsNo}]
         derive:
           extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
         modifiers: [entry-xheight]
