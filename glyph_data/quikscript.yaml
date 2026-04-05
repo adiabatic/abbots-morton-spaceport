@@ -1797,7 +1797,7 @@ glyph_families:
           entry: [1, 0]
           exit: [2, 5]
         select:
-          not_after: [{family: qsDay}, {family: qsEat}, {family: qsIt}, {family: qsZoo}]
+          not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
         derive:
           extend_entry_after: [{family: qsKey}]
         modifiers: [entry-baseline]
@@ -1808,6 +1808,7 @@ glyph_families:
           exit: [2, 0]
         select:
           after: [{family: qsDay}]
+        gate_feature_behind: ss03
         modifiers: [entry-baseline, after-day]
       exit_xheight:
         shape: prop

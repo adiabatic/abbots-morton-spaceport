@@ -74,6 +74,10 @@
         font-feature-settings: "ss02" 1;
       }
 
+      [data-stylistic-set~="03"] {
+        font-feature-settings: "ss03" 1;
+      }
+
       /*
      * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
      *
@@ -3682,7 +3686,7 @@
         <span data-expect="·Way ~x~ ·Eight ~b~ ·See ~t~ ·Tea ~b~ ·Utter ~x~ ·Jay"></span>,
         
         
-        <span data-expect="·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe"></span>
+        <span data-expect="·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe" data-stylistic-set="03"></span>
         <span data-expect="·Awe ~b~ ·Low | ·Tea.!half ~b~ ·Utter ~x~ ·Roe ~b~ ·No.alt ~b~ ·Utter | ·Tea.half ~x~ ·It ~b~ ·Vie"></span>.
       </p>
 
@@ -4038,7 +4042,7 @@
           <span data-expect="·Fee ~x~ ·Roe | ·Ox ~b~ ·Low ~x~ ·It | ·Key ~b~ ·See"></span>
           
           <span data-expect="·He | ·Utter ~b~ ·See ~t~ ·Key ~b~ ·-ing"></span>
-          <span data-expect="·It ~b~ ·No ~b~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·No"></span>
+          <span data-highlight data-expect="·It ~b~ ·No ~b~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·No"></span>
           <span data-expect="·Key | ·Awe ~b~ ·Roe | ·No"></span>
           
           <span data-expect="·Bay ~b~ ·It | ·Low ~x~ ·Day ~b~ ·-ing"></span>
@@ -4083,7 +4087,7 @@
           
           <span data-expect="·Utter | ·Tea ~x~ ·Et ~b~ ·No ~b~ ·Day"></span>
           
-          <span data-expect="·Et ~b~ ·No ~b~ ·It | ·Bay | ·Ox ~b~ ·Day ~b~ ·It ~b~ ·Zoo"></span>
+          <span data-expect="·Et ~b~ ·No ~b~ ·It | ·Bay | ·Ox ~b~ ·Day ~b~ ·It ~b~ ·Zoo" data-stylistic-set="03"></span>
           
           
           
