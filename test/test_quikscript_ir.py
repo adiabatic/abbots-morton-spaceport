@@ -8,6 +8,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from build_font import compile_glyph_definitions, load_glyph_data
 from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs
 from quikscript_ir import (
+    _widen_bitmap_right_with_connector,
     build_join_glyphs,
     compile_glyph_families,
     compile_quikscript_ir,
@@ -17,6 +18,65 @@ from quikscript_ir import (
     resolve_known_glyph_names,
 )
 from quikscript_planner import plan_quikscript_joins
+
+
+def test_widen_right_at_edge_widens_by_count():
+    bitmap = ("  ###",)
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=0, y_offset=0, count=1)
+    assert new_bitmap == ("  ####",)
+    assert dx == 1
+
+
+def test_widen_right_trailing_space_fills_in_place():
+    bitmap = (
+        "  ## ",
+        " #   ",
+        " #   ",
+        "  #  ",
+        "   # ",
+        "  ###",
+    )
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=5, y_offset=0, count=1)
+    assert new_bitmap[0] == "  ###"
+    assert dx == 0
+    assert all(len(row) == 5 for row in new_bitmap)
+
+
+def test_widen_right_one_trailing_space_count_2():
+    bitmap = ("## ",)
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=0, y_offset=0, count=2)
+    assert new_bitmap == ("####",)
+    assert dx == 1
+
+
+def test_widen_right_two_trailing_spaces_count_2():
+    bitmap = ("#  ",)
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=0, y_offset=0, count=2)
+    assert new_bitmap == ("###",)
+    assert dx == 0
+
+
+def test_widen_right_tuple_bitmap_row():
+    bitmap = ((0, 1, 1, 0),)
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=0, y_offset=0, count=1)
+    assert new_bitmap == ((0, 1, 1, 1),)
+    assert dx == 0
+
+
+def test_widen_right_non_connector_rows_unchanged():
+    bitmap = (
+        "## ",
+        "###",
+    )
+    new_bitmap, dx = _widen_bitmap_right_with_connector(bitmap, exit_y=1, y_offset=0, count=1)
+    assert new_bitmap == ("###", "###")
+    assert dx == 0
+
+
+def test_widen_right_empty_bitmap():
+    result, dx = _widen_bitmap_right_with_connector((), exit_y=0, y_offset=0, count=1)
+    assert result == ()
+    assert dx == 0
 
 
 def test_compile_quikscript_ir_matches_family_inventory_in_senior_build():
