@@ -284,6 +284,17 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                         lines.append(
                             f"        sub {base_name}' @entry_y{exit_y} @entry_only_y{sibling_y} by {variant_name};"
                         )
+            noentry_name = f"{base_name}.noentry"
+            if noentry_name in glyph_names:
+                for exit_y in sorted(variants.keys(), reverse=True):
+                    variant_name = variants[exit_y]
+                    if exit_y not in entry_classes:
+                        continue
+                    use_excl = (base_name, exit_y) in fwd_use_exclusive
+                    if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
+                        continue
+                    cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                    lines.append(f"        sub {noentry_name}' {cls} by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_fwd(base_name: str):
