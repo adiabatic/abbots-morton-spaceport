@@ -294,24 +294,48 @@ def generate_kern_fea(
     pixel_width: int,
 ) -> str:
     """Generate OpenType feature code for kern feature from kerning definitions."""
+    preamble = []
     lines = ["feature kern {"]
     for tag_name, definition in kerning_defs.items():
-        if "left" in definition:
+        if "left_family" in definition:
+            prefixes = [f"{b}." for b in definition["left_family"]]
+            left_glyphs = [
+                g for g in all_glyph_names
+                if g in definition["left_family"]
+                or any(g.startswith(p) for p in prefixes)
+            ]
+        elif "left" in definition:
             left_glyphs = definition["left"]
         else:
             excluded = set(kerning_groups.get(tag_name, []))
             left_glyphs = [g for g in all_glyph_names if g not in excluded]
         if not left_glyphs:
             continue
-        right_glyphs = definition["right"]
+        if "right_group" in definition:
+            suffix = "." + definition["right_group"]
+            right_glyphs = [g for g in all_glyph_names if g.endswith(suffix)]
+        else:
+            right_glyphs = definition["right"]
+        if not right_glyphs:
+            continue
         value = definition["value"] * pixel_width
         left = " ".join(sorted(left_glyphs))
-        right = " ".join(right_glyphs)
-        lines.append(f"    lookup kern_{tag_name} {{")
-        lines.append(f"        pos [{left}] [{right}] {value};")
-        lines.append(f"    }} kern_{tag_name};")
+        right = " ".join(sorted(right_glyphs))
+        if definition.get("right_group") == "noentry":
+            val_lookup = f"kern_{tag_name}_val"
+            preamble.append(f"lookup {val_lookup} {{")
+            for g in sorted(left_glyphs):
+                preamble.append(f"    pos {g} <0 0 {value} 0>;")
+            preamble.append(f"}} {val_lookup};")
+            lines.append(f"    lookup kern_{tag_name} {{")
+            lines.append(f"        pos [{left}]' lookup {val_lookup} uni200C [{right}];")
+            lines.append(f"    }} kern_{tag_name};")
+        else:
+            lines.append(f"    lookup kern_{tag_name} {{")
+            lines.append(f"        pos [{left}] [{right}] {value};")
+            lines.append(f"    }} kern_{tag_name};")
     lines.append("} kern;")
-    return "\n".join(lines)
+    return "\n".join(preamble + [""] + lines) if preamble else "\n".join(lines)
 
 
 def generate_ccmp_fea(glyphs_def: dict) -> str | None:
