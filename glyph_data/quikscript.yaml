@@ -408,7 +408,7 @@ glyph_families:
   qsGay:
     mono:
       bitmap:
-      - "  ## "  #
+      - "  ###"  #
       - " #   "
       - " #   "
       - "  #  "
@@ -420,27 +420,14 @@ glyph_families:
       y_offset: -3
     prop:
       shape: mono
-    shapes:
-      shape_1:
-        bitmap:
-        - "  ###"  #
-        - " #   "
-        - " #   "
-        - "  #  "
-        - "   # "
-        - "  ###"  #
-        - " #  #"
-        - " #  #"
-        - "  ## "
-        y_offset: -3
     forms:
-      exit_xheight_extended:
-        shape: shape_1
+      exit_xheight:
+        shape: mono
         anchors:
           exit: [6, 5]
         select:
           not_before: [{family: qsEt}]
-        modifiers: [exit-xheight, extended]
+        modifiers: [exit-xheight]
       exit_baseline:
         shape: mono
         anchors:
