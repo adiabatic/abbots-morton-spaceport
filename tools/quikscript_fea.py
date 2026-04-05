@@ -844,13 +844,11 @@ def emit_quikscript_ss(glyph_meta: dict) -> str | None:
 def emit_quikscript_ss_gate(plan: JoinPlan) -> str | None:
     from collections import defaultdict
 
-    if not plan.gated_pair_overrides:
+    if not plan.gated_pair_overrides and not plan.gated_fwd_pair_overrides:
         return None
 
     glyph_meta = plan.glyph_meta
-
-    def _exit_ys(name: str) -> tuple[int, ...]:
-        return glyph_meta[name].exit_ys
+    glyph_names = plan.glyph_names
 
     def _can_exit_at(name: str, y: int) -> bool:
         meta = glyph_meta[name]
@@ -863,7 +861,7 @@ def emit_quikscript_ss_gate(plan: JoinPlan) -> str | None:
             for c in plan.base_to_variants.get(meta.base_name, ())
         )
 
-    features: dict[str, list[tuple[str, str, list[str]]]] = defaultdict(list)
+    bk_features: dict[str, list[tuple[str, str, list[str]]]] = defaultdict(list)
     for base_name, overrides in plan.gated_pair_overrides.items():
         for variant_name, after_glyphs, feature_tag in overrides:
             expanded = set()
@@ -879,20 +877,56 @@ def emit_quikscript_ss_gate(plan: JoinPlan) -> str | None:
             for terminal in sorted(expanded & plan.terminal_entry_only):
                 expanded.discard(terminal)
 
-            features[feature_tag].append(
+            bk_features[feature_tag].append(
                 (base_name, variant_name, sorted(expanded))
             )
 
+    fwd_features: dict[str, list[tuple[str, str, list[str], list[str], list[str], set[int] | None]]] = defaultdict(list)
+    for base_name, overrides in plan.gated_fwd_pair_overrides.items():
+        for variant_name, before_glyphs, not_after_glyphs, feature_tag in overrides:
+            expanded_before = set()
+            for glyph in before_glyphs:
+                base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
+                expanded_before.update(plan.base_to_variants.get(base, ()))
+            for terminal in sorted(expanded_before & plan.terminal_exit_only):
+                expanded_before.discard(terminal)
+
+            expanded_not_after = set()
+            for glyph in not_after_glyphs:
+                base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
+                expanded_not_after.update(plan.base_to_variants.get(base, ()))
+
+            targets = {base_name}
+            if base_name in plan.bk_replacements:
+                targets.update(plan.bk_replacements[base_name].values())
+            if base_name in plan.fwd_replacements:
+                targets.update(plan.fwd_replacements[base_name].values())
+            if base_name in plan.pair_overrides:
+                for pair_variant, _ in plan.pair_overrides[base_name]:
+                    targets.add(pair_variant)
+            noentry_name = f"{base_name}.noentry"
+            if noentry_name in glyph_names:
+                targets.add(noentry_name)
+
+            variant_meta = glyph_meta[variant_name]
+            variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
+
+            fwd_features[feature_tag].append(
+                (base_name, variant_name, sorted(expanded_before),
+                 sorted(expanded_not_after), sorted(targets), variant_entry_ys)
+            )
+
+    all_tags = sorted(set(bk_features) | set(fwd_features))
     lines = []
-    for tag in sorted(features):
+    for tag in all_tags:
         lines.append(f"feature {tag} {{")
-        for base_name, variant_name, after_list in sorted(features[tag]):
+        for base_name, variant_name, after_list in sorted(bk_features.get(tag, [])):
             safe = variant_name.replace(".", "_")
             lines.append(f"    lookup {tag}_{safe} {{")
             variant_meta = glyph_meta[variant_name]
             not_before = list(variant_meta.not_before)
             if not_before:
-                resolved = resolve_known_glyph_names(not_before, plan.glyph_names)
+                resolved = resolve_known_glyph_names(not_before, glyph_names)
                 nb_expanded = set()
                 for nb_glyph in resolved:
                     nb_base = glyph_meta[nb_glyph].base_name
@@ -904,6 +938,32 @@ def emit_quikscript_ss_gate(plan: JoinPlan) -> str | None:
             lines.append(
                 f"        sub [{' '.join(after_list)}] {base_name}' by {variant_name};"
             )
+            lines.append(f"    }} {tag}_{safe};")
+        for base_name, variant_name, before_list, not_after_list, targets, variant_entry_ys in sorted(fwd_features.get(tag, [])):
+            safe = variant_name.replace(".", "_")
+            lines.append(f"    lookup {tag}_{safe} {{")
+            for target in targets:
+                target_meta = glyph_meta[target]
+                if variant_entry_ys is not None and target_meta.entry:
+                    target_entry_ys = set(target_meta.entry_ys)
+                    if not target_entry_ys.issubset(variant_entry_ys):
+                        if (target_entry_ys - variant_entry_ys) == target_entry_ys:
+                            continue
+                actual_variant = variant_name
+                suffix = target_meta.extended_entry_suffix
+                if suffix:
+                    extended = variant_name + suffix
+                    if extended not in glyph_names:
+                        extended = variant_name + ".entry-extended"
+                    if extended in glyph_names:
+                        actual_variant = extended
+                if not_after_list:
+                    lines.append(
+                        f"        ignore sub [{' '.join(not_after_list)}] {target}' [{' '.join(before_list)}];"
+                    )
+                lines.append(
+                    f"        sub {target}' [{' '.join(before_list)}] by {actual_variant};"
+                )
             lines.append(f"    }} {tag}_{safe};")
         lines.append(f"}} {tag};")
 
