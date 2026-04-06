@@ -81,15 +81,15 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
         if meta.word_final:
             continue
         if not meta.is_entry_variant:
-            if not meta.entry:
+            if not meta.entry and not meta.after:
                 continue
             if "half" not in meta.traits and "alt" not in meta.traits and not meta.after:
                 continue
-        if not meta.entry:
+        if not meta.entry and not meta.after:
             continue
         if meta.reverse_upgrade_from:
             continue
-        entry_y = meta.entry[0][1]
+        entry_y = meta.entry[0][1] if meta.entry else None
         base_name = meta.base_name
         if base_name not in glyph_meta:
             continue

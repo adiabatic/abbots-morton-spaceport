@@ -22,6 +22,20 @@ context_sets:
   - {family: qsDay}
   - {family: qsFee}
   - {family: qsTea}
+  talls:
+  - {family: qsPea}
+  - {family: qsTea}
+  - {family: qsKey}
+  - {family: qsThaw}
+  - {family: qsFee}
+  - {family: qsSee}
+  - {family: qsShe}
+  - {family: qsCheer}
+  - {family: qsYe}
+  - {family: qsHe}
+  - {family: qsIng}
+  - {family: qsLoch}
+  - {family: qsExcite}
 glyph_families:
   space:
     mono:
@@ -508,6 +522,13 @@ glyph_families:
         anchors:
           entry: [3, 1]
         modifiers: [entry-y1]
+      noentry_after_tall:
+        shape: mono
+        anchors:
+          entry: null
+        select:
+          after: [{context_set: talls}]
+        modifiers: [after-tall]
   qsThey:
     mono:
       bitmap:
