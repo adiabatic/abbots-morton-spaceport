@@ -198,7 +198,8 @@ hgroup {
   }
 }
 
-dt.highlighted {
+dt.highlighted,
+.passage span.highlighted {
   background: light-dark(#fff3cd, #5a4800);
 }
 
