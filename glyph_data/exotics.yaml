@@ -479,15 +479,14 @@ glyphs:
       - "##   "
 
   uni2699.prop:  # ⚙ Gear
-    y_offset: 0
     bitmap:
       - "   #   "
-      - "# ### #"
+      - "# ### #" #
       - " #   # "
       - "## # ##"
       - " #   # "
       - "# ### #"
-      - "   #   "
+      - "   #   " #
 
   u1F310.prop:  # 🌐 Globe with meridians (Globe/Fn key)
     y_offset: -1
