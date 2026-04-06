@@ -16,7 +16,7 @@ This font comes in two-and-a-half variants:
 - monospace (Abbots Morton Spaceport **Mono**)
 - proportional (Abbots Morton Spaceport **Sans**)
   - unligated (Abbots Morton Spaceport Sans **Junior**)
-  - ligated (Abbots Morton Spaceport Sans **Senior**) — see [Known issues](#known-issues) below
+  - ligated (Abbots Morton Spaceport Sans **Senior**) — but it has bugs in addition to its [Known issues](#known-issues) below
 
 You’ll definitely need to:
 
