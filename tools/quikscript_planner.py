@@ -26,10 +26,12 @@ class JoinPlan:
     base_to_variants: dict[str, set[str]] = field(default_factory=dict)
     bk_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     bk_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
+    bk_fwd_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = field(default_factory=dict)
     fwd_upgrades: dict[str, list[tuple[str, str, int, list[str]]]] = field(default_factory=dict)
     fwd_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     fwd_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
+    fwd_bk_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str]]]] = field(default_factory=dict)
     reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str]]] = field(default_factory=list)
     terminal_entry_only: set[str] = field(default_factory=set)
@@ -73,6 +75,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
     bk_exclusions = plan.bk_exclusions
     pair_overrides = plan.pair_overrides
     fwd_upgrades = plan.fwd_upgrades
+    bk_fwd_candidates: list[tuple[str, int, str, list[str]]] = []
 
     for glyph_name, meta in glyph_meta.items():
         if meta.word_final:
@@ -182,6 +185,14 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             if not_after:
                 resolved = resolve_known_glyph_names(not_after, plan.glyph_names)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
+            not_before = meta.not_before
+            if not_before and "half" in meta.traits:
+                bk_fwd_candidates.append((base_name, entry_y, glyph_name, list(not_before)))
+
+    for base_name, entry_y, glyph_name, not_before in bk_fwd_candidates:
+        if bk_replacements.get(base_name, {}).get(entry_y) == glyph_name:
+            resolved_fwd = resolve_known_glyph_names(not_before, plan.glyph_names)
+            plan.bk_fwd_exclusions.setdefault(base_name, {})[entry_y] = resolved_fwd
 
     for base_name, overrides in pair_overrides.items():
         by_after: dict[tuple, list[tuple[str, list[str]]]] = {}
@@ -290,6 +301,10 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             if not_before:
                 resolved = resolve_known_glyph_names(not_before, plan.glyph_names)
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
+            not_after = meta.not_after
+            if not_after and "half" in meta.traits:
+                resolved_bk = resolve_known_glyph_names(not_after, plan.glyph_names)
+                plan.fwd_bk_exclusions.setdefault(base_name, {})[exit_y] = resolved_bk
 
     reverse_only_upgrades = plan.reverse_only_upgrades
     for glyph_name, meta in glyph_meta.items():
