@@ -22,6 +22,26 @@ context_sets:
   - {family: qsDay}
   - {family: qsFee}
   - {family: qsTea}
+  shorts:
+  - {family: qsNo}
+  - {family: qsLow}
+  - {family: qsRoe}
+  - {family: qsIt}
+  - {family: qsEat}
+  - {family: qsEt}
+  - {family: qsEight}
+  - {family: qsAt}
+  - {family: qsI}
+  - {family: qsAh}
+  - {family: qsAwe}
+  - {family: qsOx}
+  - {family: qsOy}
+  - {family: qsUtter}
+  - {family: qsOut}
+  - {family: qsOwe}
+  - {family: qsFoot}
+  - {family: qsOoze}
+  - {family: qsLlan}
   talls:
   - {family: qsPea}
   - {family: qsTea}
@@ -36,6 +56,19 @@ context_sets:
   - {family: qsIng}
   - {family: qsLoch}
   - {family: qsExcite}
+  deeps:
+  - {family: qsBay}
+  - {family: qsDay}
+  - {family: qsGay}
+  - {family: qsThey}
+  - {family: qsVie}
+  - {family: qsZoo}
+  - {family: qsJai}
+  - {family: qsJay}
+  - {family: qsWay}
+  - {family: qsWhy}
+  - {family: qsMay}
+  - {family: qsExam}
 glyph_families:
   space:
     mono:
