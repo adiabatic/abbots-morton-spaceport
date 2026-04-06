@@ -51,6 +51,9 @@ jobs:
               font.save(f'build/{name}.woff2')
           "
 
+      - name: Generate test pages
+        run: uv run python tools/gen_ensure_sanity.py
+
       - name: Prepare site
         run: |
           mkdir -p site
@@ -67,6 +70,7 @@ jobs:
           cp test/specimen.html site/
           cp test/tables.html site/
           cp test/extra-senior-words.html site/
+          cp test/ensure-sanity.html site/
           cp test/the-manual.html site/
           cp test/shared.css site/
           cp test/shared.js site/
