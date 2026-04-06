@@ -1801,6 +1801,7 @@ glyph_families:
           not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
         derive:
           extend_entry_after: [{family: qsKey}]
+          extend_exit_before: [{family: qsZoo}]
         modifiers: [entry-baseline]
       entry_baseline_after_day:
         shape: prop
