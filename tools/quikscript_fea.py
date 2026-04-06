@@ -307,6 +307,10 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     for hidden_y in sorted(base_ey - var_ey):
                         if hidden_y in exit_classes:
                             lines.append(f"        ignore sub @exit_y{hidden_y} {base_name}' {cls};")
+                fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
+                if fwd_bk_excl:
+                    for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                        lines.append(f"        ignore sub {bg} {base_name}' {cls};")
                 excluded = _expand_exclusions(exclusions.get(exit_y, []))
                 for excluded_glyph in sorted(excluded):
                     lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
@@ -327,6 +331,10 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
                         continue
                     cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+                    fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
+                    if fwd_bk_excl:
+                        for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                            lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
                     lines.append(f"        sub {noentry_name}' {cls} by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
@@ -376,6 +384,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     def _emit_bk_cycle(bases: list[str]):
         lines.append("")
         lines.append("    lookup calt_cycle {")
+        bk_fwd_excl = plan.bk_fwd_exclusions
         for base_name in bases:
             if base_name not in bk_replacements:
                 continue
@@ -385,12 +394,19 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
                     excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
+                    fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
                     if excluded:
                         filtered = sorted(exit_classes[entry_y] - excluded)
                         if filtered:
                             member_list = " ".join(filtered)
+                            if fwd_excl:
+                                for fg in sorted(_expand_exclusions(fwd_excl)):
+                                    lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
                     else:
+                        if fwd_excl:
+                            for fg in sorted(_expand_exclusions(fwd_excl)):
+                                lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
                         lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
         for base_name in bases:
             if base_name in fwd_replacements:
@@ -410,6 +426,10 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                         for hidden_y in sorted(base_ey - var_ey):
                             if hidden_y in exit_classes:
                                 lines.append(f"        ignore sub @exit_y{hidden_y} {base_name}' {cls};")
+                    fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
+                    if fwd_bk_excl:
+                        for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                            lines.append(f"        ignore sub {bg} {base_name}' {cls};")
                     excluded = _expand_exclusions(exclusions.get(exit_y, []))
                     for excluded_glyph in sorted(excluded):
                         lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
@@ -454,10 +474,15 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
             safe = base_name.replace(".", "_").replace("-", "_")
             lines.append("")
             exclusions = bk_exclusions.get(base_name, {})
+            bk_fwd_excl = plan.bk_fwd_exclusions
             lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
                 for excluded_glyph in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
                     lines.append(f"        ignore sub {excluded_glyph} {base_name}';")
+                fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
+                if fwd_excl:
+                    for fg in sorted(_expand_exclusions(fwd_excl)):
+                        lines.append(f"        ignore sub {base_name}' {fg};")
                 lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
@@ -573,6 +598,10 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     safe = f"{bk_var}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
                     lines.append("")
                     lines.append(f"    lookup calt_fwd_override_{safe} {{")
+                    fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(fwd_exit_y)
+                    if fwd_bk_excl:
+                        for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                            lines.append(f"        ignore sub {bg} {bk_var}' {cls};")
                     not_before = list(_meta(fwd_var).not_before)
                     if not_before:
                         resolved = resolve_known_glyph_names(not_before, glyph_names)
@@ -670,10 +699,15 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
             safe = cycle_base.replace(".", "_").replace("-", "_")
             exclusions = bk_exclusions.get(cycle_base, {})
             lines.append("")
+            bk_fwd_excl = plan.bk_fwd_exclusions
             lines.append(f"    lookup calt_post_pair_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
                 for excluded_glyph in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
                     lines.append(f"        ignore sub {excluded_glyph} {cycle_base}';")
+                fwd_excl = bk_fwd_excl.get(cycle_base, {}).get(entry_y)
+                if fwd_excl:
+                    for fg in sorted(_expand_exclusions(fwd_excl)):
+                        lines.append(f"        ignore sub {cycle_base}' {fg};")
                 lines.append(f"        sub @exit_y{entry_y} {cycle_base}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_pair_bk_{safe};")
 

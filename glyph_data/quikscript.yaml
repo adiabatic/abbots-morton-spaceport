@@ -207,6 +207,7 @@ glyph_families:
           entry: [1, 5]
         select:
           not_after: [{family: qsAt}, {family: qsFee}, {family: qsNo}]
+          not_before: [{family: qsTea}]
         derive:
           extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
         traits: [half]
@@ -217,7 +218,8 @@ glyph_families:
           entry_curs_only: [1, 8]
           exit: [2, 5]
         select:
-          not_before: [{family: qsFee}, {family: qsFoot}]
+          not_after: [{family: qsTea}]
+          not_before: [{family: qsFee}, {family: qsFoot}, {family: qsTea}]
         traits: [half]
         modifiers: [exit-xheight]
       half_entry_top_exit_xheight:
@@ -226,7 +228,7 @@ glyph_families:
           entry: [1, 8]
           exit: [2, 5]
         select:
-          not_before: [{family: qsFee}, {family: qsFoot}, {family: qsOwe}]
+          not_before: [{family: qsFee}, {family: qsFoot}, {family: qsOwe}, {family: qsTea}]
         traits: [half]
         modifiers: [entry-top, exit-xheight]
       entry_top:

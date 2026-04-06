@@ -57,73 +57,87 @@ def expect_tok(name):
     return f"·{name}"
 
 
+def dt_name(name):
+    return f"·{name}"
+
+
 def entity(code):
     return f"&#x{code:04X};"
 
 
-def div_entry(dt_text, expect, codes):
+COLS = 3
+
+
+def cell_pair(dt_text, expect, codes):
     dd_content = "".join(entity(c) for c in codes)
     return (
-        f"          <div>\n"
-        f'            <dt>{dt_text}</dt>\n'
-        f'            <dd data-expect="{expect}">{dd_content}</dd>\n'
-        f"          </div>"
+        f'            <td>{dt_text}</td>\n'
+        f'            <td data-expect="{expect}" class="sample">{dd_content}</td>'
     )
 
 
-def dl_wrap(entries):
-    inner = "\n".join(entries)
+def empty_pair():
+    return "            <td></td>\n            <td></td>"
+
+
+def table_wrap(cells):
+    nrows = -(-len(cells) // COLS)  # ceil division
+    rows = []
+    for r in range(nrows):
+        chunk = []
+        for c in range(COLS):
+            idx = c * nrows + r
+            chunk.append(cells[idx] if idx < len(cells) else empty_pair())
+        rows.append("          <tr>\n" + "\n".join(chunk) + "\n          </tr>")
+    inner = "\n".join(rows)
     return (
-        '      <div class="word-list-container">\n'
-        '        <dl class="word-list word-list--2col sample">\n'
+        "      <table>\n"
         f"{inner}\n"
-        "        </dl>\n"
-        "      </div>"
+        "      </table>"
     )
 
 
 def build_sections():
-    tea_tok = "·Tea"
     tea_nhalf = "·Tea.!half"
 
     sections = []
 
     # --- Bare ---
-    bare = div_entry(
-        "Tea + Tea",
-        f"{tea_nhalf} {tea_nhalf}",
+    bare = cell_pair(
+        "·Tea·Tea",
+        f"{tea_nhalf} ? {tea_nhalf}",
         [TEA, TEA],
     )
-    sections.append(("Bare", dl_wrap([bare])))
+    sections.append(("Bare", table_wrap([bare])))
 
     # --- X + Tea + Tea ---
-    before_entries = []
+    before_cells = []
     for name, code in LETTERS:
         tok = expect_tok(name)
-        dt = f"{name} + Tea + Tea"
-        expect = f"{tok} ? {tea_nhalf} {tea_nhalf}"
-        before_entries.append(div_entry(dt, expect, [code, TEA, TEA]))
-    sections.append(("X + ·Tea + ·Tea", dl_wrap(before_entries)))
+        dt = f"{dt_name(name)}·Tea·Tea"
+        expect = f"{tok} ? {tea_nhalf} ? {tea_nhalf}"
+        before_cells.append(cell_pair(dt, expect, [code, TEA, TEA]))
+    sections.append(("X·Tea·Tea", table_wrap(before_cells)))
 
     # --- Tea + Tea + Y ---
-    after_entries = []
+    after_cells = []
     for name, code in LETTERS:
         tok = expect_tok(name)
-        dt = f"Tea + Tea + {name}"
-        expect = f"{tea_nhalf} {tea_nhalf} ? {tok}"
-        after_entries.append(div_entry(dt, expect, [TEA, TEA, code]))
-    sections.append(("·Tea + ·Tea + Y", dl_wrap(after_entries)))
+        dt = f"·Tea·Tea{dt_name(name)}"
+        expect = f"{tea_nhalf} ? {tea_nhalf} ? {tok}"
+        after_cells.append(cell_pair(dt, expect, [TEA, TEA, code]))
+    sections.append(("·Tea·Tea·Y", table_wrap(after_cells)))
 
-    # --- X + Tea + Tea + Y ---
-    both_entries = []
+    # --- X + Tea + Tea + Y: one table per X ---
     for xname, xcode in LETTERS:
+        xtok = expect_tok(xname)
+        cells = []
         for yname, ycode in LETTERS:
-            xtok = expect_tok(xname)
             ytok = expect_tok(yname)
-            dt = f"{xname} + Tea + Tea + {yname}"
-            expect = f"{xtok} ? {tea_nhalf} {tea_nhalf} ? {ytok}"
-            both_entries.append(div_entry(dt, expect, [xcode, TEA, TEA, ycode]))
-    sections.append(("X + ·Tea + ·Tea + Y", dl_wrap(both_entries)))
+            dt = f"{dt_name(xname)}·Tea·Tea{dt_name(yname)}"
+            expect = f"{xtok} ? {tea_nhalf} ? {tea_nhalf} ? {ytok}"
+            cells.append(cell_pair(dt, expect, [xcode, TEA, TEA, ycode]))
+        sections.append((f"{dt_name(xname)}·Tea·Tea·Y", table_wrap(cells)))
 
     return sections
 
@@ -155,6 +169,20 @@ def build_html():
         max-width: 80ch;
         font-size: var(--font-size);
         line-height: calc((14 + 2) / 11);
+      }}
+
+      table {{
+        border-collapse: collapse;
+        margin-bottom: 1rem;
+      }}
+
+      td {{
+        padding: 0.15rem 0.5rem;
+        vertical-align: baseline;
+      }}
+
+      td:first-child {{
+        white-space: nowrap;
       }}
     </style>
     <script type="module">
