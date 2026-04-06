@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Generate ensure-sanity.html with ·Tea·Tea no-double-half entries."""
 
+import re
+import subprocess
+import sys
 from pathlib import Path
 
 LETTERS = [
@@ -51,10 +54,50 @@ LETTERS = [
 ]
 
 TEA = 0xE652
+COLS = 3
+
+LIGATURE_PAIRS = {
+    ("Out", "Tea"),
+    ("Tea", "Oy"),
+}
 
 
 def expect_tok(name):
     return f"·{name}"
+
+
+def join_expect(names_and_tokens):
+    """Join expect tokens, using +? for ligature pairs and ? otherwise.
+
+    When a token is the second element of a +? ligature, its variant
+    modifiers are stripped because data-expect applies modifiers to the
+    whole ligature group, and they're dropped in the separated
+    interpretation anyway.  When a token is the first element of a +?
+    ligature, its modifiers are also stripped for the same reason.
+    """
+    # Pre-scan to find which indices are part of a ligature pair
+    in_liga_first: set[int] = set()
+    in_liga_second: set[int] = set()
+    for i in range(1, len(names_and_tokens)):
+        prev_name = names_and_tokens[i - 1][0]
+        cur_name = names_and_tokens[i][0]
+        if (prev_name, cur_name) in LIGATURE_PAIRS:
+            in_liga_first.add(i - 1)
+            in_liga_second.add(i)
+
+    parts = []
+    for i, (name, tok) in enumerate(names_and_tokens):
+        # Strip modifiers from tokens participating in a ligature
+        if i in in_liga_first or i in in_liga_second:
+            tok = expect_tok(name)
+
+        if i in in_liga_second:
+            parts.append(f"+?{name}")
+        elif i > 0:
+            parts.append(f" ? {tok}")
+        else:
+            parts.append(tok)
+    return "".join(parts)
 
 
 def dt_name(name):
@@ -65,14 +108,18 @@ def entity(code):
     return f"&#x{code:04X};"
 
 
-COLS = 3
+def cell_key(*names):
+    return "|".join(names)
 
 
-def cell_pair(dt_text, expect, codes):
+def cell_pair(dt_text, expect, codes, key, failed_keys):
     dd_content = "".join(entity(c) for c in codes)
+    highlight = key in failed_keys
+    label_prefix = "◊ " if highlight else ""
+    hl_attr = ' data-highlight=""' if highlight else ""
     return (
-        f'            <td>{dt_text}</td>\n'
-        f'            <td data-expect="{expect}" class="sample">{dd_content}</td>'
+        f"            <td>{label_prefix}{dt_text}</td>\n"
+        f'            <td data-expect="{expect}" data-key="{key}"{hl_attr} class="sample">{dd_content}</td>'
     )
 
 
@@ -97,53 +144,41 @@ def table_wrap(cells):
     )
 
 
-def build_sections():
+def build_sections(failed_keys):
     tea_nhalf = "·Tea.!half"
 
     sections = []
 
     # --- Bare ---
-    bare = cell_pair(
-        "·Tea·Tea",
-        f"{tea_nhalf} ? {tea_nhalf}",
-        [TEA, TEA],
-    )
+    key = cell_key("Tea", "Tea")
+    expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf)])
+    bare = cell_pair("·Tea·Tea", expect, [TEA, TEA], key, failed_keys)
     sections.append(("Bare", table_wrap([bare])))
 
     # --- X + Tea + Tea ---
     before_cells = []
     for name, code in LETTERS:
-        tok = expect_tok(name)
         dt = f"{dt_name(name)}·Tea·Tea"
-        expect = f"{tok} ? {tea_nhalf} ? {tea_nhalf}"
-        before_cells.append(cell_pair(dt, expect, [code, TEA, TEA]))
+        expect = join_expect([(name, expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)])
+        key = cell_key(name, "Tea", "Tea")
+        before_cells.append(cell_pair(dt, expect, [code, TEA, TEA], key, failed_keys))
     sections.append(("X·Tea·Tea", table_wrap(before_cells)))
 
     # --- Tea + Tea + Y ---
     after_cells = []
     for name, code in LETTERS:
-        tok = expect_tok(name)
         dt = f"·Tea·Tea{dt_name(name)}"
-        expect = f"{tea_nhalf} ? {tea_nhalf} ? {tok}"
-        after_cells.append(cell_pair(dt, expect, [TEA, TEA, code]))
+        expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, expect_tok(name))])
+        key = cell_key("Tea", "Tea", name)
+        after_cells.append(cell_pair(dt, expect, [TEA, TEA, code], key, failed_keys))
     sections.append(("·Tea·Tea·Y", table_wrap(after_cells)))
 
-    # --- X + Tea + Tea + Y: one table per X ---
-    for xname, xcode in LETTERS:
-        xtok = expect_tok(xname)
-        cells = []
-        for yname, ycode in LETTERS:
-            ytok = expect_tok(yname)
-            dt = f"{dt_name(xname)}·Tea·Tea{dt_name(yname)}"
-            expect = f"{xtok} ? {tea_nhalf} ? {tea_nhalf} ? {ytok}"
-            cells.append(cell_pair(dt, expect, [xcode, TEA, TEA, ycode]))
-        sections.append((f"{dt_name(xname)}·Tea·Tea·Y", table_wrap(cells)))
 
     return sections
 
 
-def build_html():
-    sections = build_sections()
+def build_html(failed_keys):
+    sections = build_sections(failed_keys)
 
     section_html = []
     for heading, content in sections:
@@ -183,6 +218,10 @@ def build_html():
 
       td:first-child {{
         white-space: nowrap;
+      }}
+
+      td[data-highlight] {{
+        background: light-dark(#fff3cd, #5a4800);
       }}
     </style>
     <script type="module">
@@ -234,8 +273,46 @@ def build_html():
 """
 
 
+def collect_failures(root, out_path):
+    html = out_path.read_text(encoding="utf-8")
+    line_to_key: dict[int, str] = {}
+    for i, line in enumerate(html.splitlines(), 1):
+        m = re.search(r'data-expect="[^"]*"', line)
+        if not m:
+            continue
+        km = re.search(r'data-key="([^"]*)"', line)
+        if km:
+            line_to_key[i] = km.group(1)
+
+    result = subprocess.run(
+        ["uv", "run", "pytest", str(out_path), "--tb=no", "-v"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    failed_keys = set()
+    for line in result.stdout.splitlines():
+        if "FAILED" not in line:
+            continue
+        m = re.search(r"::(\d+):", line)
+        if m:
+            lineno = int(m.group(1))
+            if lineno in line_to_key:
+                failed_keys.add(line_to_key[lineno])
+    return failed_keys
+
+
 if __name__ == "__main__":
     root = Path(__file__).resolve().parent.parent
     out = root / "test" / "ensure-sanity.html"
-    out.write_text(build_html(), encoding="utf-8")
+
+    # First pass: generate without highlights
+    out.write_text(build_html(set()), encoding="utf-8")
+
+    if "--mark-failures" in sys.argv:
+        print("Running tests to collect failures...")
+        failed_keys = collect_failures(root, out)
+        print(f"Found {len(failed_keys)} failures")
+        out.write_text(build_html(failed_keys), encoding="utf-8")
+
     print(f"Wrote {out}")
