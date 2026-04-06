@@ -4,6 +4,8 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 10.001
+
 ### 10.000
 
 #### Quikscript Senior
