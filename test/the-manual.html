@@ -136,9 +136,47 @@
       .underline {
         text-decoration: underline;
       }
+
+      .toggle-buttons .toggle-buttons__gear {
+        background: none;
+        color: light-dark(#0066cc, #4a9eff);
+        padding: 0.25rem;
+        font-size: 1.5rem;
+        line-height: 1;
+        opacity: 0.6;
+        align-self: flex-end;
+        transition: transform 0.3s ease, opacity 0.2s ease;
+        border-radius: 50%;
+      }
+
+      .toggle-buttons .toggle-buttons__gear:hover {
+        background: none;
+        opacity: 1;
+      }
+
+      .toggle-buttons__gear.gear-open {
+        transform: rotate(180deg);
+      }
+
+      .toggle-buttons__panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        max-height: 25rem;
+        overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.3s ease;
+        opacity: 1;
+      }
+
+      .toggle-buttons__panel.collapsed {
+        max-height: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
     </style>
     <script type="module">
       import { initToggles } from "./shared.js";
+      import { initGearMenu } from "./gear-menu.js";
 
       initToggles({
         sizeToggle: "size-toggle",
@@ -159,25 +197,30 @@
         verbiageToggle.textContent = active ? "Only letters" : "Whole manual";
         localStorage.setItem("letters-only", active ? "1" : "0");
       });
+
+      initGearMenu(".toggle-buttons");
     </script>
   </head>
   <body>
     <h1>The Quickscript Alphabet</h1>
 
     <div class="toggle-buttons">
-      <div id="size-toggle" class="size-control">
-        <button class="size-down">&minus;</button>
-        <span class="size-display">22px</span>
-        <button class="size-up">+</button>
+      <button class="toggle-buttons__gear" type="button" title="Toggle controls">&#x2699;&#xFE0E;</button>
+      <div class="toggle-buttons__panel collapsed">
+        <div id="size-toggle" class="size-control">
+          <button class="size-down">&minus;</button>
+          <span class="size-display">22px</span>
+          <button class="size-up">+</button>
+        </div>
+        <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">
+          AMS first
+        </button>
+        <button id="font-toggle">Sans</button>
+        <button id="level-toggle">Senior</button>
+        <button id="weight-toggle">Weight 400</button>
+        <button id="verbiage-toggle">Whole manual</button>
+        <button id="wipe-settings">Wipe settings</button>
       </div>
-      <button id="font-order-toggle" title="Nothing should change when this button is clicked if AMS Mono is in use.">
-        AMS first
-      </button>
-      <button id="font-toggle">Sans</button>
-      <button id="level-toggle">Senior</button>
-      <button id="weight-toggle">Weight 400</button>
-      <button id="verbiage-toggle">Whole manual</button>
-      <button id="wipe-settings">Wipe settings</button>
     </div>
 
     <h2>Alphabet sheet</h2>
