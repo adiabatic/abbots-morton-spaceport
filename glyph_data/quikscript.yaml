@@ -215,7 +215,7 @@ glyph_families:
         shape: half
         anchors:
           entry_curs_only: [1, 8]
-          exit: [1, 5]
+          exit: [2, 5]
         select:
           not_before: [{family: qsFee}, {family: qsFoot}]
         traits: [half]
@@ -224,7 +224,7 @@ glyph_families:
         shape: half
         anchors:
           entry: [1, 8]
-          exit: [1, 5]
+          exit: [2, 5]
         select:
           not_before: [{family: qsFee}, {family: qsFoot}, {family: qsOwe}]
         traits: [half]
