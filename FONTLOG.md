@@ -6,6 +6,34 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 10.001
 
+> Today I’m combining alphabet soup and a laxative.
+> I call it “Letter Rip”.
+
+— Skeletor
+
+10.001 updates Abbots Morton Spaceport Senior to mostly match through the Rip van Winkle passage on page 26 of The Manual.
+
+#### Quikscript Senior
+
+- New joining combinations: ·Utter·Pea, ·Utter·Gay, ·Fee·Ye, ·Roe·No, ·May·Pea, ·Oy after ·Low
+- Some letters can now connect to a following ·Tea at the Short height (surprisingly, this is A Thing)
+- Extend ·It·Zoo connection so ·Zoo doesn’t brush up against the ·It on the way down
+- Don’t use half-·Tea before ·Owe
+- ZWNJs now correctly break cursive connections before half-letter variants
+- ·He·It now kerns tightly, even if there’s a ZWNJ between them (I’m saving 99.99% of the kerning for last, though)
+- Add a few stylistic sets to get The Manual to look right — and no, I’m not planning on standardizing their functions until I’m all done, if ever, so don’t expect this to be stable across different fonts:
+  - `ss01` (suppress ·Utter·Pea join)
+  - `ss02` (allow ·I·Tea join at the Short height)
+  - `ss03` (allow ·It to join at baseline on both sides after ·Day)
+
+#### Non-Quikscript glyphs
+
+- Add ⚙ (gear)
+
+#### Not really user-facing (assuming I’ve done it right)
+
+- Generate (more) connecting pixels dynamically (instead of having a bunch of special half-·Tea, half-·Pea, and ·Gay bitmaps that have horizontal connections)
+
 ### 10.000
 
 #### Quikscript Senior
@@ -14,7 +42,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 - New glyph variants: joinable ·Jay and ·Why, top-entry ·Fee, wide-stance ·Excite, connects-at-the-baseline-on-both-sides ·It, and ·Jay+Utter ligature
 - New joining combinations: ·Tea·Oy, ·See·Low
 - Redesign ·Out (big-loop form is now the default proportional form) and ·Oy to match
-- Smarter half-letter selection: don't use half-·Tea before ·Foot or after ·No, don't use half-·Way before ·It
+- Smarter half-letter selection: don’t use half-·Tea before ·Foot or after ·No, don’t use half-·Way before ·It
 - Add VS01/VS02 variation selectors for forcing alternate (·Utter, ·No) and half forms (·Pea, ·Tea, etc.), respectively
 
 #### Non-Quikscript glyphs

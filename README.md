@@ -13,10 +13,10 @@ You can get a copy of the latest .otf and .woff2 files from [the Releases page][
 
 This font comes in two-and-a-half variants:
 
+- monospace (Abbots Morton Spaceport **Mono**)
 - proportional (Abbots Morton Spaceport **Sans**)
   - unligated (Abbots Morton Spaceport Sans **Junior**)
-  - <del>ligated (Abbots Morton Spaceport Sans **Senior**)</del> — not ready for production use yet (see [Known issues](#known-issues) below)
-- monospace (Abbots Morton Spaceport **Mono**)
+  - ligated (Abbots Morton Spaceport Sans **Senior**) — see [Known issues](#known-issues) below
 
 You’ll definitely need to:
 
@@ -30,7 +30,7 @@ And, if you want a monospace font, you’ll need to:
 
 For pixel-perfect rendering on a screen, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
 
-On the other hand, if you’re aiming for print (in, say, Word or Typst), you don’t need to care about pixel alignment if your target is a 600 DPI laser printer.
+On the other hand, if you’re aiming for print (in, say, Word or Typst), you don’t really need to care about pixel alignment if your target is a 600 DPI laser printer.
 
 ### Using with Departure Mono
 
@@ -135,9 +135,19 @@ In order to properly transcribe [The Manual][tm], I needed a way to force the di
 [tm]: ./reference/Quikscript%20Manual.pdf
 [vs]: https://en.wikipedia.org/wiki/Variant_form_(Unicode)
 
+## Stylistic sets
+
+In order to exactly match the contents of [The Manual][tm] without peppering the HTML with zero-width joiners everywhere, I decided to add a number of OpenType stylistic sets to turn on and off behavior that only happened sometimes. They are:
+
+- `ss01`: suppress ·Utter·Pea join
+- `ss02`: allow ·I·Tea to join at the Short height
+- `ss03`: allow ·It to join at baseline on both sides after ·Day
+
+I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
+
 ## Known issues
 
-Abbots Morton Spaceport Sans **Senior** uses OpenType’s `curs` feature. While this is very much the obviously correct OpenType feature to use to join letters to one another as done in Quikscript, support for it in LTRTTB scripts like Latin and Quikscript isn’t universal because so far, `curs` is only used in RTLTTB scripts like Arabic and the one naturally-occurring TTBLTR script, [Mongolian](https://en.wikipedia.org/wiki/Mongolian_script).
+Abbots Morton Spaceport Sans **Senior** uses OpenType’s `curs` feature. While this is very much the obviously correct OpenType feature to use to join letters to one another as done in Quikscript, support for it in <abbr title="left-to-right, top-to-bottom">LTRTTB</abbr> scripts like Latin and Quikscript isn’t universal because so far, `curs` is only used in <abbr title="right-to-left, top-to-bottom">RTLTTB</abbr> scripts like Arabic and the one naturally-occurring <abbr title="top-to-bottom, left-to-right">TTBLTR</abbr> script, [Mongolian](https://en.wikipedia.org/wiki/Mongolian_script).
 
 In my testing, AMSS Senior works fine in:
 
