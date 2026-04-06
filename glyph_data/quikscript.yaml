@@ -294,7 +294,7 @@ glyph_families:
         anchors:
           entry: [1, 0]
         select:
-          not_after: [{family: qsPea}]
+          not_after: [{family: qsPea}, {family: qsYe}]
         derive:
           extend_entry_after: [{family: qsKey}]
         modifiers: [entry-baseline]
