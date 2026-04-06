@@ -70,6 +70,7 @@ jobs:
           cp test/the-manual.html site/
           cp test/shared.css site/
           cp test/shared.js site/
+          cp test/gear-menu.js site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
