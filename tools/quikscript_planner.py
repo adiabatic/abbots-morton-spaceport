@@ -123,6 +123,8 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
         elif meta.extended_exit_suffix is not None:
             pass
         else:
+            if "half" in meta.traits and not meta.exit:
+                continue
             existing = bk_replacements.get(base_name, {}).get(entry_y)
             if existing is not None:
                 existing_meta = _meta(existing)

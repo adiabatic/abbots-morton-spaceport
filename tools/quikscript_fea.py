@@ -376,9 +376,14 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
             for entry_y in sorted(variants.keys()):
                 variant_name = variants[entry_y]
                 if entry_y in exit_classes:
-                    for excluded_glyph in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
-                        lines.append(f"        ignore sub {excluded_glyph} {base_name}';")
-                    lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                    excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
+                    if excluded:
+                        filtered = sorted(exit_classes[entry_y] - excluded)
+                        if filtered:
+                            member_list = " ".join(filtered)
+                            lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
+                    else:
+                        lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_bk_cycle(bases: list[str]):
@@ -477,13 +482,21 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
             bk_fwd_excl = plan.bk_fwd_exclusions
             lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
-                for excluded_glyph in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
-                    lines.append(f"        ignore sub {excluded_glyph} {base_name}';")
+                excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                 fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
-                if fwd_excl:
-                    for fg in sorted(_expand_exclusions(fwd_excl)):
-                        lines.append(f"        ignore sub {base_name}' {fg};")
-                lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
+                if excluded:
+                    filtered = sorted(exit_classes[entry_y] - excluded)
+                    if filtered:
+                        member_list = " ".join(filtered)
+                        if fwd_excl:
+                            for fg in sorted(_expand_exclusions(fwd_excl)):
+                                lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
+                        lines.append(f"        sub [{member_list}] {base_name}' by {relevant[entry_y]};")
+                else:
+                    if fwd_excl:
+                        for fg in sorted(_expand_exclusions(fwd_excl)):
+                            lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
+                    lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
     def _emit_post_override_bk(bases: list[str]):
@@ -720,13 +733,21 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
             bk_fwd_excl = plan.bk_fwd_exclusions
             lines.append(f"    lookup calt_post_pair_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
-                for excluded_glyph in sorted(_expand_exclusions(exclusions.get(entry_y, []))):
-                    lines.append(f"        ignore sub {excluded_glyph} {cycle_base}';")
+                excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                 fwd_excl = bk_fwd_excl.get(cycle_base, {}).get(entry_y)
-                if fwd_excl:
-                    for fg in sorted(_expand_exclusions(fwd_excl)):
-                        lines.append(f"        ignore sub {cycle_base}' {fg};")
-                lines.append(f"        sub @exit_y{entry_y} {cycle_base}' by {relevant[entry_y]};")
+                if excluded:
+                    filtered = sorted(exit_classes[entry_y] - excluded)
+                    if filtered:
+                        member_list = " ".join(filtered)
+                        if fwd_excl:
+                            for fg in sorted(_expand_exclusions(fwd_excl)):
+                                lines.append(f"        ignore sub [{member_list}] {cycle_base}' {fg};")
+                        lines.append(f"        sub [{member_list}] {cycle_base}' by {relevant[entry_y]};")
+                else:
+                    if fwd_excl:
+                        for fg in sorted(_expand_exclusions(fwd_excl)):
+                            lines.append(f"        ignore sub @exit_y{entry_y} {cycle_base}' {fg};")
+                    lines.append(f"        sub @exit_y{entry_y} {cycle_base}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_pair_bk_{safe};")
 
     _emit_reverse_upgrades()
