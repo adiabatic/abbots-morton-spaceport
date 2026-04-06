@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ensure Sanity — Abbots Morton Spaceport</title>
+    <link rel="stylesheet" href="shared.css" />
+    <style>
+      :root {
+        --font-stack: "Abbots Morton Spaceport Sans Senior", "Abbots Morton Spaceport Sans Junior", sans-serif;
+        --font-size: 22px;
+      }
+
+      body {
+        max-width: 80ch;
+        font-size: var(--font-size);
+        line-height: calc((14 + 2) / 11);
+      }
+    </style>
+    <script type="module">
+      import { initToggles } from "./shared.js";
+
+      initToggles({
+        sizeToggle: "size-toggle",
+        fontOrderToggle: "font-order-toggle",
+        fontToggle: "font-toggle",
+        levelToggle: "level-toggle",
+        weightToggle: "weight-toggle",
+      });
+    </script>
+  </head>
+  <body>
+    <h1>Ensure Sanity</h1>
+
+    <div class="toggle-buttons">
+      <div id="size-toggle" class="size-control">
+        <button class="size-down">&minus;</button>
+        <span class="size-display">22px</span>
+        <button class="size-up">+</button>
+      </div>
+      <button id="font-order-toggle">AMS first</button>
+      <button id="font-toggle">Sans</button>
+      <button id="level-toggle">Senior</button>
+      <button id="weight-toggle">Weight 400</button>
+    </div>
+
+    <p>Joins that are visibly broken, found by reviewing the tables page.</p>
+
+    <section class="panel">
+      <div class="word-list-container">
+        <dl class="word-list word-list--2col sample">
+        </dl>
+      </div>
+    </section>
+
+    <footer>
+      <a href="index.html">Font Test</a> | <a href="the-manual.html">The Manual</a> |
+      <a href="extra-senior-words.html">Extra Senior Words</a> |
+      <a href="tables.html">Tables</a> | Ensure Sanity |
+      <a href="specimen.html">Specimen</a> | <a href="exotics.html">Exotics</a> |
+      <a href="glyph-editor.html">Glyph Editor</a> |
+      <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+    </footer>
+  </body>
+</html>
