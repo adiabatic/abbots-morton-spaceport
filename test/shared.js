@@ -166,6 +166,7 @@ export function initHighlights(opts = {}) {
   const clearButton = opts.clearButtonId && document.getElementById(opts.clearButtonId);
   const tables = document.querySelectorAll(opts.tableSelector || '.pairings');
   const wordLists = opts.wordListSelector ? document.querySelectorAll(opts.wordListSelector) : [];
+  const passages = opts.passageSelector ? document.querySelectorAll(opts.passageSelector) : [];
   const cellPathFn = opts.cellPathFn || null;
 
   function loadHighlights() {
@@ -238,6 +239,37 @@ export function initHighlights(opts = {}) {
         dt.classList.toggle('highlighted');
         const path = dtPath(dt);
         if (dt.classList.contains('highlighted')) {
+          highlighted.add(path);
+        } else {
+          highlighted.delete(path);
+        }
+        saveHighlights(highlighted);
+      });
+    }
+  }
+
+  if (passages.length > 0) {
+    function spanPath(span) {
+      const passage = span.closest(opts.passageSelector);
+      const pi = [...passages].indexOf(passage);
+      const si = [...passage.querySelectorAll('span[data-expect], span[data-expect-noncanonically]')].indexOf(span);
+      return `span-${pi}-${si}`;
+    }
+
+    for (const path of highlighted) {
+      if (!path.startsWith('span-')) continue;
+      const [, pi, si] = path.split('-').map(Number);
+      const span = passages[pi]?.querySelectorAll('span[data-expect], span[data-expect-noncanonically]')[si];
+      if (span) span.classList.add('highlighted');
+    }
+
+    for (const passage of passages) {
+      passage.addEventListener('click', (e) => {
+        const span = e.target.closest('span[data-expect], span[data-expect-noncanonically]');
+        if (!span) return;
+        span.classList.toggle('highlighted');
+        const path = spanPath(span);
+        if (span.classList.contains('highlighted')) {
           highlighted.add(path);
         } else {
           highlighted.delete(path);
