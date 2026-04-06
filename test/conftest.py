@@ -9,7 +9,7 @@ collect_ignore = ["test_shaping.py"]
 
 
 def pytest_collect_file(parent, file_path):
-    if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html") and file_path.suffix == ".html":
+    if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html", "ensure-sanity.html") and file_path.suffix == ".html":
         return ShapingFile.from_parent(parent, path=file_path)
 
 
