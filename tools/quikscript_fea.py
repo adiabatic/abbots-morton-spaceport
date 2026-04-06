@@ -198,6 +198,8 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                 lines.append(f"    lookup calt_fwd_pair_{safe} {{")
                 for target in sorted(targets):
                     guard_list = None
+                    target_before = None
+                    partial_ignores: list[tuple[str, str]] = []
                     target_meta = _meta(target)
                     target_has_entry = bool(target_meta.entry)
                     if variant_entry_ys is not None:
@@ -219,6 +221,16 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                                 variant_exit_ys = set(variant_meta.exit_ys)
                                 if variant_exit_ys <= target_exit_ys:
                                     continue
+                                compatible = set()
+                                for ty in target_exit_ys:
+                                    compatible.update(
+                                        entry_classes.get(ty, set()) & expanded_before
+                                    )
+                                if compatible:
+                                    filtered = expanded_before - compatible
+                                    if not filtered:
+                                        continue
+                                    target_before = filtered
                             elif target_meta.after:
                                 continue
                         elif not target_has_entry:
@@ -232,6 +244,20 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                                         bk_exit_ys = set(bk_meta.exit_ys)
                                         if variant_exit_ys <= bk_exit_ys:
                                             protect_ys.add(bk_y)
+                                        else:
+                                            compatible = set()
+                                            for bk_exit_y in bk_exit_ys:
+                                                compatible.update(
+                                                    entry_classes.get(bk_exit_y, set())
+                                                    & expanded_before
+                                                )
+                                            if compatible:
+                                                ig_glyphs = exit_classes.get(bk_y, set())
+                                                if ig_glyphs:
+                                                    partial_ignores.append((
+                                                        " ".join(sorted(ig_glyphs)),
+                                                        " ".join(sorted(compatible)),
+                                                    ))
                                 if protect_ys:
                                     guard_glyphs = set()
                                     for protect_y in protect_ys:
@@ -246,14 +272,18 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                             extended = variant_name + ".entry-extended"
                         if extended in glyph_names:
                             actual_variant = extended
+                    effective_before = target_before if target_before is not None else expanded_before
+                    effective_before_list = " ".join(sorted(effective_before)) if target_before is not None else before_list
+                    for pi_guard, pi_before in partial_ignores:
+                        lines.append(f"        ignore sub [{pi_guard}] {target}' [{pi_before}];")
                     if guard_list:
-                        lines.append(f"        ignore sub [{guard_list}] {target}' [{before_list}];")
+                        lines.append(f"        ignore sub [{guard_list}] {target}' [{effective_before_list}];")
                     if expanded_not_after:
                         not_after_list = " ".join(sorted(expanded_not_after))
-                        lines.append(f"        ignore sub [{not_after_list}] {target}' [{before_list}];")
-                    for terminal in sorted(expanded_before & terminal_exit_only):
+                        lines.append(f"        ignore sub [{not_after_list}] {target}' [{effective_before_list}];")
+                    for terminal in sorted(effective_before & terminal_exit_only):
                         lines.append(f"        ignore sub {target}' {terminal};")
-                    lines.append(f"        sub {target}' [{before_list}] by {actual_variant};")
+                    lines.append(f"        sub {target}' [{effective_before_list}] by {actual_variant};")
                 lines.append(f"    }} calt_fwd_pair_{safe};")
 
     def _emit_fwd_general(base_name: str):
