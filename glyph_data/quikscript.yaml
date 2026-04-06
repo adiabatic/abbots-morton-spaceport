@@ -296,7 +296,7 @@ glyph_families:
         select:
           not_after: [{family: qsEat}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
         derive:
-          extend_entry_after: [{family: qsEight}, {family: qsKey}]
+          extend_entry_after: [{family: qsEight}, {family: qsJay}, {family: qsKey}]
         modifiers: [entry-baseline]
       entry_baseline_exit_baseline:
         shape: prop
