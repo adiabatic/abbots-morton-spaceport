@@ -609,6 +609,24 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                             lines.append(f"        ignore sub {bk_var}' {not_before_glyph};")
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
                     lines.append(f"    }} calt_fwd_override_{safe};")
+                    for ext_suffix in (".entry-extended", ".entry-doubly-extended"):
+                        ext_bk = f"{bk_var}{ext_suffix}"
+                        if ext_bk not in glyph_meta:
+                            continue
+                        if _meta(ext_bk).exit:
+                            continue
+                        ext_safe = f"{ext_bk}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
+                        lines.append("")
+                        lines.append(f"    lookup calt_fwd_override_{ext_safe} {{")
+                        if fwd_bk_excl:
+                            for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                                lines.append(f"        ignore sub {bg} {ext_bk}' {cls};")
+                        if not_before:
+                            resolved_nb = resolve_known_glyph_names(not_before, glyph_names)
+                            for nbg in sorted(_expand_exclusions(resolved_nb)):
+                                lines.append(f"        ignore sub {ext_bk}' {nbg};")
+                        lines.append(f"        sub {ext_bk}' {cls} by {fwd_var};")
+                        lines.append(f"    }} calt_fwd_override_{ext_safe};")
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
