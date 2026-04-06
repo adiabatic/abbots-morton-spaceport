@@ -11,6 +11,7 @@ export function initGearMenu(toolbarSelector) {
     clearTimeout(hoverTimer);
     clearTimeout(unhoverTimer);
     panel.classList.remove("collapsed");
+    panel.style.maxHeight = panel.scrollHeight + "px";
     gearBtn.classList.add("gear-open");
     tempExpanded = temp;
   }
@@ -18,6 +19,7 @@ export function initGearMenu(toolbarSelector) {
   function collapse() {
     clearTimeout(hoverTimer);
     clearTimeout(unhoverTimer);
+    panel.style.maxHeight = "";
     panel.classList.add("collapsed");
     gearBtn.classList.remove("gear-open");
     tempExpanded = false;
