@@ -1536,6 +1536,14 @@ glyph_families:
         derive:
           extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
         modifiers: [entry-xheight]
+      entry_xheight_after_i:
+        inherits: entry_xheight
+        select:
+          after: [{family: qsI}]
+        derive:
+          extend_entry_after: null
+        gate_feature_behind: ss04
+        modifiers: [after-i]
       entry_baseline:
         shape: mono
         anchors:
