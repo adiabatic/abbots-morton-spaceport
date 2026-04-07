@@ -241,7 +241,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             continue
         if meta.extended_entry_suffix is not None:
             continue
-        if meta.extended_exit_suffix is not None and not meta.before:
+        if meta.extended_exit_suffix is not None and not meta.before and not meta.gated_before:
             continue
         if meta.is_entry_variant and not meta.before:
             continue
@@ -261,6 +261,7 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
         if base_name not in glyph_meta:
             continue
         calt_before = meta.before
+        gated_before = meta.gated_before
         if calt_before:
             resolved = resolve_known_glyph_names(calt_before, plan.glyph_names)
             not_after = meta.not_after
@@ -286,7 +287,28 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                     not_after=tuple(resolved_not_after),
                 ),
             )
-        else:
+        if gated_before:
+            not_after = meta.not_after
+            resolved_not_after = (
+                resolve_known_glyph_names(not_after, plan.glyph_names) if not_after else []
+            )
+            for feature_tag, families in gated_before:
+                resolved_gated = resolve_known_glyph_names(list(families), plan.glyph_names)
+                plan.gated_fwd_pair_overrides.setdefault(base_name, []).append(
+                    (glyph_name, resolved_gated, resolved_not_after, feature_tag)
+                )
+                _record_rule(
+                    plan,
+                    JoinRule(
+                        phase="forward",
+                        kind="gated_pair_override",
+                        target_base=base_name,
+                        replacement=glyph_name,
+                        before=tuple(resolved_gated),
+                        not_after=tuple(resolved_not_after),
+                    ),
+                )
+        if not calt_before and not gated_before:
             fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
             _record_rule(
                 plan,

@@ -219,6 +219,12 @@
         "extend_exit_before": {
           "$ref": "#/definitions/selectorListOrNull"
         },
+        "extend_exit_before_gated": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/selectorListOrNull"
+          }
+        },
         "doubly_extend_entry_after": {
           "$ref": "#/definitions/selectorListOrNull"
         },
