@@ -659,7 +659,6 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
         _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
-            _emit_post_override_bk(bases)
         for base_name in bases:
             if base_name in all_fwd_bases and base_name not in early_pair_upgrade_bases:
                 if base_name in early_fwd_pairs:
@@ -705,6 +704,9 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     late_post = [base for base in post_cycle if base not in early_fwd_pairs]
     _emit_block(early_post)
     _emit_block(late_post)
+
+    if cycle_bases:
+        _emit_post_override_bk(cycle_list)
 
     if cycle_bases:
         pair_only_new_exit_ys: set[int] = set()
