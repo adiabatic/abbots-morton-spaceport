@@ -78,6 +78,10 @@
         font-feature-settings: "ss03" 1;
       }
 
+      [data-stylistic-set~="04"] {
+        font-feature-settings: "ss04" 1;
+      }
+
       /*
      * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
      *
@@ -4161,7 +4165,7 @@
           <p data-orthodox="When Drake climbed the tree in Panama, and saw both oceans, and vowed that he would sail a ship in the Pacific; when he crawled out upon the cliffs of Tierra del Fuego, and leaned his head over the southernmost angle of the world; when he scored a furrow round the globe with his keel, and received the homage of the barbarians of the antipodes in the name of the Virgin Queen; he was another man from what he had become after twenty years of court life and intrigue, and Spanish fighting, and gold-hunting. There is a tragic solemnity in his end, if we take it as the last act of his career; but it is his life, not his death, which we desire — not what he failed to do, but what he did…">
             
             <span data-expect="\· | ·Day ~b~ ·Roe | ·Eight | ·Key">·</span>
-            <span data-highlight data-expect="·Key ~b~ ·Low | ·I ~x~ ·May | ·Day"></span>
+            <span data-stylistic-set="04" data-expect="·Key ~b~ ·Low | ·I ~x~ ·May | ·Day"></span>
             
             <span data-expect="·Tea ~x~ ·Roe | ·Eat"></span>
             <span data-expect="·It ~b~ ·No.alt" data-content-duplicate></span>
