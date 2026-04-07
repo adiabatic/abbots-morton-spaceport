@@ -321,7 +321,7 @@ glyph_families:
         anchors:
           entry: [1, 0]
         select:
-          not_after: [{family: qsEat}, {family: qsIt}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
+          not_after: [{family: qsEat}, {family: qsHe}, {family: qsIt}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
         derive:
           extend_entry_after: [{family: qsEight}, {family: qsJay}, {family: qsKey}]
         modifiers: [entry-baseline]
@@ -512,6 +512,8 @@ glyph_families:
           exit: [6, 0]
         select:
           not_before: [{family: qsNo}]
+        derive:
+          extend_exit_before: [{family: qsTea}]
         modifiers: [exit-baseline]
       exit_baseline_before_deep:
         shape: mono
@@ -1355,7 +1357,7 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
-          not_before: [{family: qsSee}, {family: qsThaw}]
+          not_before: [{family: qsSee}, {family: qsTea}, {family: qsThaw}]
         modifiers: [exit-baseline]
       exit_baseline_before_may:
         shape: prop
