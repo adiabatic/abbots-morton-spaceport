@@ -46,11 +46,13 @@ class JoinGlyph:
     doubly_extend_exit_before: tuple[str, ...]
     noentry_after: tuple[str, ...]
     extend_exit_no_entry: bool
+    extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] = ()
     noentry_for: str | None = None
     generated_from: str | None = None
     transform_kind: str | None = None
     revert_feature: str | None = None
     gate_feature: str | None = None
+    gated_before: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -95,6 +97,7 @@ _CALT_KEYS = frozenset(
         "calt_word_final",
         "extend_entry_after",
         "extend_exit_before",
+        "extend_exit_before_gated",
         "doubly_extend_entry_after",
         "doubly_extend_exit_before",
         "noentry_after",
@@ -518,6 +521,22 @@ def _family_form_to_glyph_def(
                 field_name=source_key,
             )
 
+    gated_exit = derive.get("extend_exit_before_gated")
+    if gated_exit:
+        resolved_gated: dict[str, tuple[str, ...]] = {}
+        for feature_tag, refs in gated_exit.items():
+            resolved_gated[feature_tag] = tuple(
+                _normalize_family_refs(
+                    refs,
+                    family_names,
+                    context_sets=context_sets,
+                    context_family=family_name,
+                    context_label=f"form {form_name!r}" if form_name else "base record",
+                    field_name="extend_exit_before_gated",
+                )
+            )
+        glyph_def["extend_exit_before_gated"] = tuple(sorted(resolved_gated.items()))
+
     traits = _normalize_source_traits(
         form_def.get("traits", ()),
         family_name=family_name,
@@ -923,6 +942,7 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
             advance_width=glyph_def.get("advance_width"),
             extend_entry_after=tuple(glyph_def.get("extend_entry_after", ())),
             extend_exit_before=tuple(glyph_def.get("extend_exit_before", ())),
+            extend_exit_before_gated=tuple(glyph_def.get("extend_exit_before_gated", ())),
             doubly_extend_entry_after=tuple(
                 glyph_def.get("doubly_extend_entry_after", ())
             ),
@@ -1083,6 +1103,8 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> dict[str, Any]:
         "extend_exit_before",
         join_glyph.extend_exit_before,
     )
+    if join_glyph.extend_exit_before_gated:
+        glyph_def["extend_exit_before_gated"] = dict(join_glyph.extend_exit_before_gated)
     _set_optional_list(
         glyph_def,
         "doubly_extend_entry_after",
@@ -1136,6 +1158,8 @@ def derive_join_glyph(
     word_final: bool | object = _UNSET,
     extend_entry_after: tuple[str, ...] | object = _UNSET,
     extend_exit_before: tuple[str, ...] | object = _UNSET,
+    extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
+    gated_before: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
     doubly_extend_entry_after: tuple[str, ...] | object = _UNSET,
     doubly_extend_exit_before: tuple[str, ...] | object = _UNSET,
     noentry_after: tuple[str, ...] | object = _UNSET,
@@ -1173,6 +1197,14 @@ def derive_join_glyph(
     )
     resolved_extend_exit_before = (
         source.extend_exit_before if extend_exit_before is _UNSET else extend_exit_before
+    )
+    resolved_extend_exit_before_gated = (
+        source.extend_exit_before_gated
+        if extend_exit_before_gated is _UNSET
+        else extend_exit_before_gated
+    )
+    resolved_gated_before = (
+        source.gated_before if gated_before is _UNSET else gated_before
     )
     resolved_doubly_extend_entry_after = (
         source.doubly_extend_entry_after
@@ -1232,6 +1264,8 @@ def derive_join_glyph(
         advance_width=resolved_advance_width,
         extend_entry_after=resolved_extend_entry_after,
         extend_exit_before=resolved_extend_exit_before,
+        extend_exit_before_gated=resolved_extend_exit_before_gated,
+        gated_before=resolved_gated_before,
         doubly_extend_entry_after=resolved_doubly_extend_entry_after,
         doubly_extend_exit_before=resolved_doubly_extend_exit_before,
         noentry_after=resolved_noentry_after,
@@ -1295,6 +1329,8 @@ def generate_noentry_variants(
             entry=(),
             extend_entry_after=(),
             extend_exit_before=(),
+            extend_exit_before_gated=(),
+            gated_before=(),
             add_modifiers=("noentry",),
             is_noentry=True,
             generated_from=name,
@@ -1431,6 +1467,8 @@ def _generate_extended_entry_variants(
                             word_final=False,
                             extend_entry_after=(),
                             extend_exit_before=(),
+                            extend_exit_before_gated=(),
+                            gated_before=(),
                             doubly_extend_entry_after=(),
                             doubly_extend_exit_before=(),
                             noentry_after=(),
@@ -1469,6 +1507,8 @@ def _generate_extended_entry_variants(
                         word_final=False,
                         extend_entry_after=(),
                         extend_exit_before=(),
+                        extend_exit_before_gated=(),
+                        gated_before=(),
                         doubly_extend_entry_after=(),
                         doubly_extend_exit_before=(),
                         noentry_after=(),
@@ -1499,7 +1539,8 @@ def _generate_extended_exit_variants(
     variants: dict[str, JoinGlyph] = {}
     for name, join_glyph in sorted(join_glyphs.items()):
         extend_before = getattr(join_glyph, yaml_key)
-        if not extend_before:
+        gated_entries = join_glyph.extend_exit_before_gated if yaml_key == "extend_exit_before" else ()
+        if not extend_before and not gated_entries:
             continue
         if not join_glyph.exit:
             continue
@@ -1514,7 +1555,7 @@ def _generate_extended_exit_variants(
                 join_glyph.y_offset,
                 count=count,
             )
-            variants[ext_name] = derive_join_glyph(
+            variant = derive_join_glyph(
                 join_glyph,
                 name=ext_name,
                 bitmap=new_bitmap,
@@ -1522,11 +1563,14 @@ def _generate_extended_exit_variants(
                 exit=_shift_anchors(join_glyph.exit, dx=actual_dx),
                 before=tuple(extend_before),
                 extend_exit_before=(),
+                extend_exit_before_gated=(),
+                gated_before=gated_entries if gated_entries else (),
                 extend_exit_no_entry=False,
                 add_modifiers=(modifier,),
                 generated_from=name,
                 transform_kind=f"exit-{suffix_word}",
             )
+            variants[ext_name] = variant
             _record_transform(
                 transforms,
                 kind=f"exit-{suffix_word}",
@@ -1572,6 +1616,8 @@ def _generate_extended_exit_variants(
                     word_final=False,
                     extend_entry_after=(),
                     extend_exit_before=(),
+                    extend_exit_before_gated=(),
+                    gated_before=(),
                     doubly_extend_entry_after=(),
                     doubly_extend_exit_before=(),
                     noentry_after=(),
