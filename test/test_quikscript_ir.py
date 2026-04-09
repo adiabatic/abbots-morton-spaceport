@@ -5,7 +5,10 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from build_font import compile_glyph_definitions, load_glyph_data
+import build_font
+import glyph_compiler
+from build_font import compile_glyph_definitions, compile_glyph_metadata, load_glyph_data
+from glyph_compiler import compile_glyph_set
 from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs
 from quikscript_ir import (
     _widen_bitmap_right_with_connector,
@@ -13,7 +16,6 @@ from quikscript_ir import (
     compile_glyph_families,
     compile_quikscript_ir,
     expand_join_transforms,
-    flatten_join_glyphs,
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
@@ -79,21 +81,32 @@ def test_widen_right_empty_bitmap():
     assert dx == 0
 
 
-def test_compile_quikscript_ir_matches_family_inventory_in_senior_build():
+def test_compile_wrappers_match_canonical_compiled_glyph_set():
     data = load_glyph_data(ROOT / "glyph_data")
-    compiled = compile_glyph_definitions(data, "senior")
-    join_glyphs, transforms = compile_quikscript_ir(data, "senior")
-    flattened = flatten_join_glyphs(join_glyphs)
+    compiled = compile_glyph_set(data, "senior")
 
-    compiled_family = {
-        glyph_name: glyph_def
-        for glyph_name, glyph_def in compiled.items()
-        if glyph_def is not None and glyph_def.get("_family") is not None
-    }
+    assert compile_glyph_definitions(data, "senior") == compiled.glyph_definitions
+    assert compile_glyph_metadata(data, "senior") == compiled.glyph_meta
 
-    assert flattened.keys() == compiled_family.keys()
-    assert transforms
-    assert flattened == compiled_family
+
+def test_compiled_glyph_definitions_flatten_join_glyphs_once(monkeypatch):
+    data = load_glyph_data(ROOT / "glyph_data")
+    compiled = compile_glyph_set(data, "senior")
+    calls = 0
+    original_flatten = glyph_compiler.flatten_join_glyphs
+
+    def counting_flatten(join_glyphs):
+        nonlocal calls
+        calls += 1
+        return original_flatten(join_glyphs)
+
+    monkeypatch.setattr(glyph_compiler, "flatten_join_glyphs", counting_flatten)
+
+    first = compiled.glyph_definitions
+    second = compiled.glyph_definitions
+
+    assert first is second
+    assert calls == 1
 
 
 def test_glyph_name_normalization_handles_middle_embedded_prop_suffix():
@@ -187,3 +200,51 @@ def test_emit_quikscript_curs_uses_join_glyphs_and_noentry_links():
     assert "feature curs {" in curs
     assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in curs
     assert "pos cursive qsLead.noentry <anchor NULL> <anchor 50 0>;" in curs
+
+
+def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch):
+    data = load_glyph_data(ROOT / "glyph_data")
+    compiled = compile_glyph_set(data, "senior")
+    sentinel_plan = object()
+
+    class FakeCompiledGlyphSet:
+        def __init__(self, glyph_definitions, join_glyphs):
+            self.glyph_definitions = glyph_definitions
+            self.join_glyphs = join_glyphs
+
+    monkeypatch.setattr(
+        build_font,
+        "compile_glyph_set",
+        lambda glyph_data, variant: FakeCompiledGlyphSet(
+            compiled.glyph_definitions,
+            compiled.join_glyphs,
+        ),
+    )
+
+    def fake_curs(join_glyphs, pixel_width, pixel_height):
+        assert join_glyphs is compiled.join_glyphs
+        return None
+
+    def fake_plan(join_glyphs):
+        assert join_glyphs is compiled.join_glyphs
+        return sentinel_plan
+
+    def fake_ss_gate(plan):
+        assert plan is sentinel_plan
+        return None
+
+    def fake_calt(plan):
+        assert plan is sentinel_plan
+        return None
+
+    def fake_ss(join_glyphs):
+        assert join_glyphs is compiled.join_glyphs
+        return None
+
+    monkeypatch.setattr(build_font, "emit_quikscript_curs", fake_curs)
+    monkeypatch.setattr(build_font, "plan_quikscript_joins", fake_plan)
+    monkeypatch.setattr(build_font, "emit_quikscript_ss_gate", fake_ss_gate)
+    monkeypatch.setattr(build_font, "emit_quikscript_calt", fake_calt)
+    monkeypatch.setattr(build_font, "emit_quikscript_ss", fake_ss)
+
+    build_font.build_font(data, variant="senior")

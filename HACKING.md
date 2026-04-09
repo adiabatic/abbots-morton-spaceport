@@ -20,7 +20,7 @@ Quikscript now uses a family-based source schema in `glyph_data/quikscript.yaml`
 
 The join compiler is now split into `tools/quikscript_ir.py`, `tools/quikscript_planner.py`, and `tools/quikscript_fea.py`. `tools/build_font.py` still owns generic font loading/building, but Quikscript family compilation, generated join transforms, planner indexes, and `calt`/`curs` emission now live in those dedicated modules.
 
-Within that pipeline, `JoinGlyph` is the canonical in-memory Quikscript representation. `tools/build_font.py` keeps legacy flat `glyphs:` data separate, passes Quikscript through the planner/emitter as `JoinGlyph`, and only flattens Quikscript records back to raw glyph dicts at the final build boundary where the generic font builder needs them.
+Within that pipeline, `tools/glyph_compiler.py` owns the canonical variant-level compilation result. `CompiledGlyphSet` carries legacy flat `glyphs:` data, compiled Quikscript `JoinGlyph`s, and merged glyph metadata; Quikscript stays in `JoinGlyph` form through planning and feature emission, and only flattens back to raw glyph dicts at the final generic font-build boundary.
 
 ## Understanding
 
