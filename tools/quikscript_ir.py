@@ -30,7 +30,6 @@ class JoinGlyph:
     word_final: bool
     is_contextual: bool
     is_entry_variant: bool
-    is_exit_variant: bool
     entry_suffix: str | None
     exit_suffix: str | None
     extended_entry_suffix: str | None
@@ -647,13 +646,6 @@ def _normalize_anchors(raw) -> list[list[int]]:
     return [raw]
 
 
-def _is_entry_variant(glyph_name: str) -> bool:
-    return any(part.startswith("entry-") for part in glyph_name.split(".")[1:])
-
-
-def _is_exit_variant(glyph_name: str) -> bool:
-    return any(part.startswith("exit-") for part in glyph_name.split(".")[1:])
-
 
 def _is_contextual_variant(glyph_name: str) -> bool:
     parts = glyph_name.split(".")[1:]
@@ -784,7 +776,6 @@ def _glyph_def_to_join_glyph(
         word_final=bool(glyph_def.get("calt_word_final")),
         is_contextual=resolved_contextual,
         is_entry_variant=any(modifier.startswith("entry-") for modifier in resolved_modifiers),
-        is_exit_variant=any(modifier.startswith("exit-") for modifier in resolved_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -1112,7 +1103,6 @@ def derive_join_glyph(
         word_final=resolved_word_final,
         is_contextual=contextual,
         is_entry_variant=any(modifier.startswith("entry-") for modifier in resolved_modifiers),
-        is_exit_variant=any(modifier.startswith("exit-") for modifier in resolved_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(
