@@ -29,7 +29,6 @@ from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
 from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs, emit_quikscript_ss, emit_quikscript_ss_gate
 from quikscript_ir import (
-    JoinGlyph,
     _is_contextual_variant,
     get_base_glyph_name,
 )
@@ -131,16 +130,6 @@ def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint:
     subtable.cmap = {}
     subtable.uvsDict = uvsDict
     return subtable
-
-
-def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
-    """Compile source glyph data into the flat glyph map used by the build."""
-    return compile_glyph_set(glyph_data, variant).glyph_definitions
-
-
-def compile_glyph_metadata(glyph_data: dict, variant: str) -> dict[str, JoinGlyph]:
-    """Compile glyph metadata from the canonical compiled glyph set."""
-    return compile_glyph_set(glyph_data, variant).glyph_meta
 
 
 def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:

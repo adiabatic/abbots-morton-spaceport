@@ -6,54 +6,50 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from build_font import (
-    compile_glyph_definitions,
-    compile_glyph_metadata,
-    load_glyph_data,
-)
+from build_font import load_glyph_data
+from glyph_compiler import compile_glyph_set
 from quikscript_ir import generate_noentry_variants
 
 
-def _compiled_glyphs():
-    data = load_glyph_data(ROOT / "glyph_data")
-    return compile_glyph_definitions(data, "senior")
-
+def _compiled_set(data=None):
+    if data is None:
+        data = load_glyph_data(ROOT / "glyph_data")
+    return compile_glyph_set(data, "senior")
 
 def _compiled_meta():
-    data = load_glyph_data(ROOT / "glyph_data")
-    return compile_glyph_metadata(data, "senior")
+    return _compiled_set().glyph_meta
 
 
-def test_quikscript_family_and_generated_variants_stamp_metadata_seed():
-    glyphs = _compiled_glyphs()
+def test_quikscript_family_and_generated_variants_keep_logical_metadata():
+    meta = _compiled_meta()
 
-    tea = glyphs["qsTea"]
-    assert tea["_base_name"] == "qsTea"
-    assert tea["_modifiers"] == []
-    assert not tea["_contextual"]
+    tea = meta["qsTea"]
+    assert tea.base_name == "qsTea"
+    assert tea.modifiers == ()
+    assert not tea.is_contextual
 
-    utter = glyphs["qsUtter.alt.reaches-way-back"]
-    assert utter["_modifiers"] == ["alt", "reaches-way-back"]
-    assert utter["_contextual"]
-    assert "reaches-way-back" in utter["_compat_assertions"]
+    utter = meta["qsUtter.alt.reaches-way-back"]
+    assert utter.modifiers == ("alt", "reaches-way-back")
+    assert utter.is_contextual
+    assert "reaches-way-back" in utter.compat_assertions
 
-    may = glyphs["qsMay.entry-baseline.entry-extended"]
-    assert may["_modifiers"] == ["entry-baseline", "entry-extended"]
-    assert may["_entry_suffix"] == ".entry-baseline"
-    assert may["_extended_entry_suffix"] == ".entry-extended"
-    assert may["_is_entry_variant"]
+    may = meta["qsMay.entry-baseline.entry-extended"]
+    assert may.modifiers == ("entry-baseline", "entry-extended")
+    assert may.entry_suffix == ".entry-baseline"
+    assert may.extended_entry_suffix == ".entry-extended"
+    assert may.is_entry_variant
 
-    day_lig = glyphs["qsDay_qsUtter.entry-extended"]
-    assert day_lig["_base_name"] == "qsDay_qsUtter"
-    assert day_lig["_sequence"] == ["qsDay", "qsUtter"]
+    day_lig = meta["qsDay_qsUtter.entry-extended"]
+    assert day_lig.base_name == "qsDay_qsUtter"
+    assert day_lig.sequence == ("qsDay", "qsUtter")
 
-    noentry = glyphs["qsDay_qsUtter.noentry"]
-    assert noentry["_is_noentry"]
-    assert noentry["_contextual"]
+    noentry = meta["qsDay_qsUtter.noentry"]
+    assert noentry.is_noentry
+    assert noentry.is_contextual
 
 
-def test_family_form_modifiers_are_seeded_from_authored_form_data():
-    glyphs = compile_glyph_definitions(
+def test_family_form_modifiers_are_preserved_from_authored_form_data():
+    meta = _compiled_set(
         {
             "glyph_families": {
                 "qsTest": {
@@ -72,17 +68,16 @@ def test_family_form_modifiers_are_seeded_from_authored_form_data():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_meta
 
-    form = glyphs["qsTest.alt.reaches-way-back"]
-    assert form["_modifiers"] == ["alt", "reaches-way-back"]
-    assert {"alt", "reaches-way-back"} <= set(form["_compat_assertions"])
+    form = meta["qsTest.alt.reaches-way-back"]
+    assert form.modifiers == ("alt", "reaches-way-back")
+    assert {"alt", "reaches-way-back"} <= form.compat_assertions
 
 
 def test_form_keys_are_local_labels():
-    left = compile_glyph_definitions(
+    left = _compiled_set(
         {
             "glyph_families": {
                 "qsTest": {
@@ -101,10 +96,9 @@ def test_form_keys_are_local_labels():
                     },
                 },
             },
-        },
-        "senior",
-    )
-    right = compile_glyph_definitions(
+        }
+    ).glyph_meta
+    right = _compiled_set(
         {
             "glyph_families": {
                 "qsTest": {
@@ -123,16 +117,15 @@ def test_form_keys_are_local_labels():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_meta
 
     assert left.keys() == right.keys()
-    assert left["qsTest.alt.reaches-way-back"]["_modifiers"] == right["qsTest.alt.reaches-way-back"]["_modifiers"]
+    assert left["qsTest.alt.reaches-way-back"].modifiers == right["qsTest.alt.reaches-way-back"].modifiers
 
 
-def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
-    glyph_meta = compile_glyph_metadata(
+def test_noentry_generation_uses_authored_modifiers_not_compiled_name():
+    glyph_meta = _compiled_set(
         {
             "glyphs": {
                 "uni200C": {
@@ -159,9 +152,8 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_meta
 
     variants = generate_noentry_variants(glyph_meta, has_zwnj=True)
 
@@ -170,7 +162,7 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
 
 
 def test_structured_family_selectors_resolve_to_compiled_names():
-    glyphs = compile_glyph_definitions(
+    glyphs = _compiled_set(
         {
             "glyphs": {
                 "uni200C": {
@@ -216,15 +208,14 @@ def test_structured_family_selectors_resolve_to_compiled_names():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_definitions
 
     assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
 
 
 def test_context_sets_expand_and_compose_inside_select_and_derive():
-    glyphs = compile_glyph_definitions(
+    glyphs = _compiled_set(
         {
             "context_sets": {
                 "extended_leads": [
@@ -281,9 +272,8 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_definitions
 
     assert glyphs["qsTarget"]["extend_entry_after"] == ["qsExtOne", "qsExtTwo"]
     assert glyphs["qsTarget.entry-baseline"]["calt_after"] == [
@@ -293,7 +283,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
 
 
 def test_inherits_reuses_and_clears_nested_form_context():
-    glyphs = compile_glyph_definitions(
+    glyphs = _compiled_set(
         {
             "glyph_families": {
                 "qsBlocker": {
@@ -332,9 +322,8 @@ def test_inherits_reuses_and_clears_nested_form_context():
                     },
                 },
             },
-        },
-        "senior",
-    )
+        }
+    ).glyph_definitions
 
     assert glyphs["qsBase.half.entry-baseline"]["calt_not_before"] == ["qsBlocker"]
     assert "calt_not_before" not in glyphs["qsBase.half.entry-baseline.exit-baseline"]
@@ -342,7 +331,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
 
 
 def test_inherited_form_shape_override_replaces_visual_fields():
-    glyphs = compile_glyph_definitions(
+    compiled = _compiled_set(
         {
             "glyph_families": {
                 "qsBase": {
@@ -374,9 +363,10 @@ def test_inherited_form_shape_override_replaces_visual_fields():
                     },
                 },
             },
-        },
-        "senior",
+        }
     )
+    glyphs = compiled.glyph_definitions
+    meta = compiled.glyph_meta
 
     assert glyphs["qsBase.half"]["bitmap"] == ["11"]
     assert glyphs["qsBase.half"]["y_offset"] == -2
@@ -385,7 +375,7 @@ def test_inherited_form_shape_override_replaces_visual_fields():
     assert glyphs["qsBase.half.entry-baseline"]["bitmap"] == ["22", " 2"]
     assert glyphs["qsBase.half.entry-baseline"]["y_offset"] == 3
     assert glyphs["qsBase.half.entry-baseline"]["advance_width"] == 7
-    assert glyphs["qsBase.half.entry-baseline"]["_modifiers"] == ["half", "entry-baseline"]
+    assert meta["qsBase.half.entry-baseline"].modifiers == ("half", "entry-baseline")
 
 
 def test_alt_and_half_are_semantic_traits():

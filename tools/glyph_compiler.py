@@ -91,22 +91,12 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
     return new_glyphs
 
 
-def _prepare_legacy_glyph_def(name: str, glyph_def: dict | None) -> dict | None:
-    if glyph_def is None:
-        return None
-
-    prepared = dict(glyph_def)
-    prepared.setdefault("_base_name", get_base_glyph_name(name).split(".")[0])
-    prepared.setdefault("_contextual", _is_contextual_variant(name))
-    return prepared
-
-
 def _compile_legacy_glyphs(glyph_data: dict, variant: str) -> dict[str, dict | None]:
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
 
     legacy_glyphs = {
-        name: _prepare_legacy_glyph_def(name, glyph_def)
+        name: (dict(glyph_def) if glyph_def is not None else None)
         for name, glyph_def in glyph_data.get("glyphs", {}).items()
         if ".unused" not in name
     }
