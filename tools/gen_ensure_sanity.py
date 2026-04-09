@@ -116,7 +116,7 @@ def cell_pair(dt_text, expect, codes, key, failed_keys):
     dd_content = "".join(entity(c) for c in codes)
     highlight = key in failed_keys
     label_prefix = "◊ " if highlight else ""
-    hl_attr = ' data-highlight=""' if highlight else ""
+    hl_attr = ' data-failed=""' if highlight else ""
     return (
         f"            <td>{label_prefix}{dt_text}</td>\n"
         f'            <td data-expect="{expect}" data-key="{key}"{hl_attr} class="sample">{dd_content}</td>'
@@ -220,8 +220,8 @@ def build_html(failed_keys):
         white-space: nowrap;
       }}
 
-      td[data-highlight] {{
-        background: light-dark(#fff3cd, #5a4800);
+      td[data-failed] {{
+        background: light-dark(#f8d7da, #6b2020);
       }}
     </style>
     <script type="module">
