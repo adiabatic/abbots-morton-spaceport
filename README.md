@@ -143,6 +143,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss02`: allow ·I·Tea to join at the Short height
 - `ss03`: allow ·It to join at baseline on both sides after ·Day
 - `ss04`: allow ·I·May to join at the Short height
+- `ss05`: allow ·Ox·May to join at baseline
 
 I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
 

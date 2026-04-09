@@ -82,6 +82,10 @@
         font-feature-settings: "ss04" 1;
       }
 
+      [data-stylistic-set~="05"] {
+        font-feature-settings: "ss05" 1;
+      }
+
       /*
      * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
      *
@@ -4221,7 +4225,7 @@
             
             <span data-expect="·Roe | ·It | ◊ZWNJ | ·See | ◊ZWNJ | ·Eat ~b~ ·Vie | ·Day">&zwnj;&zwnj;</span>
             
-            <span data-highlight data-expect="·He.half ~x~ ·Ox | ·May | ·Utter ~x~ ·Jay">&zwnj;</span>
+            <span data-highlight data-stylistic-set="05" data-expect="·He.half ~x~ ·Ox ~b~ ·May | ◊ZWNJ | ·Utter ~x~ ·Jay">&zwnj;</span>
             
             
             <span data-expect="·Bay ~b~ ·Ah ~x~ ·Roe | ·Bay | ·Eight ~b~ ·Roe | ·It ~b~ ·Utter ~x~ ·No ~x~ ·Zoo"></span>
