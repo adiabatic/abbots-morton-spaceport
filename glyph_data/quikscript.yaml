@@ -504,7 +504,7 @@ glyph_families:
         anchors:
           exit: [6, 5]
         select:
-          not_before: [{family: qsEt}]
+          not_before: [{family: qsEt}, {family: qsOwe}]
         modifiers: [exit-xheight]
       exit_baseline:
         shape: mono
