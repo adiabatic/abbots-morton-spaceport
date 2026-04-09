@@ -7,13 +7,11 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import build_font
 import glyph_compiler
-from build_font import compile_glyph_definitions, compile_glyph_metadata, load_glyph_data
+from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
 from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs
 from quikscript_ir import (
     _widen_bitmap_right_with_connector,
-    build_join_glyphs,
-    compile_glyph_families,
     compile_quikscript_ir,
     expand_join_transforms,
     get_base_glyph_name,
@@ -81,12 +79,26 @@ def test_widen_right_empty_bitmap():
     assert dx == 0
 
 
-def test_compile_wrappers_match_canonical_compiled_glyph_set():
+def test_compile_glyph_set_exposes_flat_definitions_and_metadata():
     data = load_glyph_data(ROOT / "glyph_data")
     compiled = compile_glyph_set(data, "senior")
 
-    assert compile_glyph_definitions(data, "senior") == compiled.glyph_definitions
-    assert compile_glyph_metadata(data, "senior") == compiled.glyph_meta
+    assert compiled.glyph_definitions
+    assert compiled.glyph_meta
+    assert compiled.join_glyphs
+
+
+def test_compiled_glyph_definitions_do_not_export_compiler_metadata_keys():
+    data = load_glyph_data(ROOT / "glyph_data")
+    compiled = compile_glyph_set(data, "senior")
+
+    for glyph_name in (
+        "qsTea",
+        "qsDay_qsUtter",
+        "qsDay_qsUtter.noentry",
+        "qsMay.entry-baseline.entry-extended",
+    ):
+        assert not any(key.startswith("_") for key in compiled.glyph_definitions[glyph_name])
 
 
 def test_compiled_glyph_definitions_flatten_join_glyphs_once(monkeypatch):
@@ -115,9 +127,9 @@ def test_glyph_name_normalization_handles_middle_embedded_prop_suffix():
 
 
 def test_expand_join_transforms_tracks_generated_sources_and_kinds():
-    glyphs = build_join_glyphs(
-        compile_glyph_families(
-            {
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "glyph_families": {
                 "qsLead": {
                     "prop": {
                         "bitmap": ["#"],
@@ -142,8 +154,8 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
                     },
                 },
             },
-            "senior",
-        )
+        },
+        "junior",
     )
 
     expanded, transforms = expand_join_transforms(glyphs, has_zwnj=True)
@@ -177,9 +189,9 @@ def test_join_planner_populates_lookup_indexes_and_emits_calt_from_plan():
 
 
 def test_emit_quikscript_curs_uses_join_glyphs_and_noentry_links():
-    join_glyphs = build_join_glyphs(
-        compile_glyph_families(
-            {
+    join_glyphs, _ = compile_quikscript_ir(
+        {
+            "glyph_families": {
                 "qsLead": {
                     "prop": {
                         "bitmap": ["#"],
@@ -190,8 +202,8 @@ def test_emit_quikscript_curs_uses_join_glyphs_and_noentry_links():
                     },
                 },
             },
-            "senior",
-        )
+        },
+        "junior",
     )
 
     expanded, _ = expand_join_transforms(join_glyphs, has_zwnj=True)

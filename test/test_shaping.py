@@ -22,10 +22,8 @@ PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
 import sys
 sys.path.insert(0, str(ROOT / "tools"))
-from build_font import (
-    compile_glyph_metadata,
-    load_glyph_data,
-)
+from build_font import load_glyph_data
+from glyph_compiler import compile_glyph_set
 
 def _build_char_to_glyph_name():
     with open(PS_NAMES_PATH) as f:
@@ -304,7 +302,7 @@ def load_font(variant="senior"):
 
 def build_anchor_map(variant="senior"):
     data = load_glyph_data(GLYPH_DATA_DIR)
-    _COMPILED_GLYPH_META[variant] = compile_glyph_metadata(data, variant)
+    _COMPILED_GLYPH_META[variant] = compile_glyph_set(data, variant).glyph_meta
 
     result = {}
     base_potential_entries = {}
