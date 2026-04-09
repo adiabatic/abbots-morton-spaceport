@@ -556,8 +556,10 @@ def resolve_composite(
         if "base_y_adjust" in gd:
             accent_y_adjusts[id(bitmap_obj)] = gd["base_y_adjust"]
 
-    if "top" in glyph_def:
-        accent_name = glyph_def["top"]
+    def _apply_accent(position, result_bitmap, result_y_offset):
+        is_top = position == "top"
+        mark_key = "top_mark_y" if is_top else "bottom_mark_y"
+        accent_name = glyph_def[position]
         if is_proportional and accent_name + ".prop" in glyphs_def:
             accent_ref = accent_name + ".prop"
         else:
@@ -565,48 +567,28 @@ def resolve_composite(
         accent_glyph = glyphs_def.get(accent_ref)
         if accent_glyph is None:
             raise ValueError(
-                f"Composite glyph '{glyph_name}' references top accent '{accent_name}' which doesn't exist"
+                f"Composite glyph '{glyph_name}' references {position} accent '{accent_name}' which doesn't exist"
             )
         accent_bitmap = parse_bitmap(accent_glyph.get("bitmap", []))
-        mark_y = base_glyph.get("top_mark_y")
+        mark_y = base_glyph.get(mark_key)
         if mark_y is None:
             raise ValueError(
-                f"Composite glyph '{glyph_name}' needs top_mark_y on base '{base_ref}'"
+                f"Composite glyph '{glyph_name}' needs {mark_key} on base '{base_ref}'"
             )
         bitmap_id = id(accent_glyph.get("bitmap"))
         accent_x_adjust = accent_x_adjusts.get(bitmap_id, {}).get(base_name, 0)
         accent_y_adjust = accent_y_adjusts.get(bitmap_id, {}).get(base_name, 0)
-        result_bitmap, result_y_offset = compose_bitmaps(
+        return compose_bitmaps(
             result_bitmap, result_y_offset, accent_bitmap,
-            mark_y + accent_y_adjust, is_top=True,
+            mark_y + accent_y_adjust, is_top=is_top,
             accent_x_adjust=accent_x_adjust,
         )
 
+    if "top" in glyph_def:
+        result_bitmap, result_y_offset = _apply_accent("top", result_bitmap, result_y_offset)
+
     if "bottom" in glyph_def:
-        accent_name = glyph_def["bottom"]
-        if is_proportional and accent_name + ".prop" in glyphs_def:
-            accent_ref = accent_name + ".prop"
-        else:
-            accent_ref = accent_name
-        accent_glyph = glyphs_def.get(accent_ref)
-        if accent_glyph is None:
-            raise ValueError(
-                f"Composite glyph '{glyph_name}' references bottom accent '{accent_name}' which doesn't exist"
-            )
-        accent_bitmap = parse_bitmap(accent_glyph.get("bitmap", []))
-        mark_y = base_glyph.get("bottom_mark_y")
-        if mark_y is None:
-            raise ValueError(
-                f"Composite glyph '{glyph_name}' needs bottom_mark_y on base '{base_ref}'"
-            )
-        bitmap_id = id(accent_glyph.get("bitmap"))
-        accent_x_adjust = accent_x_adjusts.get(bitmap_id, {}).get(base_name, 0)
-        accent_y_adjust = accent_y_adjusts.get(bitmap_id, {}).get(base_name, 0)
-        result_bitmap, result_y_offset = compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap,
-            mark_y + accent_y_adjust, is_top=False,
-            accent_x_adjust=accent_x_adjust,
-        )
+        result_bitmap, result_y_offset = _apply_accent("bottom", result_bitmap, result_y_offset)
 
     return result_bitmap, result_y_offset
 
@@ -685,27 +667,12 @@ def build_font(
     # Build character map (Unicode codepoint -> glyph name)
     # Exclude .prop glyphs - they have no direct Unicode mapping
     cmap = {32: "space"}  # Always include space
-    for glyph_name, glyph_def in glyphs_def.items():
+    for glyph_name in glyphs_def:
         if is_proportional_glyph(glyph_name):
-            continue  # Proportional variants are accessed via ss01, not cmap
-        if len(glyph_name) == 1:
-            cmap[ord(glyph_name)] = glyph_name
-        elif glyph_name.startswith("uni") and len(glyph_name) == 7:
-            # Handle uniXXXX naming convention (4 hex digits)
-            try:
-                codepoint = int(glyph_name[3:], 16)
-                cmap[codepoint] = glyph_name
-            except ValueError:
-                pass  # Not a valid hex code, skip
-        elif glyph_name.startswith("u") and not glyph_name.startswith("uni") and len(glyph_name) == 6:
-            try:
-                codepoint = int(glyph_name[1:], 16)
-                if codepoint > 0xFFFF:
-                    cmap[codepoint] = glyph_name
-            except ValueError:
-                pass
-        elif glyph_name in postscript_glyph_names:
-            cmap[postscript_glyph_names[glyph_name]] = glyph_name
+            continue
+        cp = _resolve_codepoint(glyph_name, postscript_glyph_names)
+        if cp is not None:
+            cmap[cp] = glyph_name
 
     # Initialize FontBuilder for CFF-based OTF
     fb = FontBuilder(units_per_em, isTTF=False)

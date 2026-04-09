@@ -22,21 +22,13 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     fwd_replacements = plan.fwd_replacements
     fwd_exclusions = plan.fwd_exclusions
     fwd_pair_overrides = plan.fwd_pair_overrides
-    reverse_only_upgrades = plan.reverse_only_upgrades
-    terminal_entry_only = plan.terminal_entry_only
-    terminal_exit_only = plan.terminal_exit_only
     exit_classes = plan.exit_classes
     entry_classes = plan.entry_classes
     entry_exclusive = plan.entry_exclusive
     fwd_use_exclusive = plan.fwd_use_exclusive
     fwd_preferred_lookahead = plan.fwd_preferred_lookahead
-    sorted_bases = plan.sorted_bases
     cycle_bases = plan.cycle_bases
-    edges = plan.edges
-    pair_only = plan.pair_only
     all_bk_bases = plan.all_bk_bases
-    all_fwd_bases = plan.all_fwd_bases
-    fwd_only = plan.fwd_only
     lig_fwd_bases = plan.lig_fwd_bases
     early_pair_upgrade_bases = plan.early_pair_upgrade_bases
     early_fwd_pairs = plan.early_fwd_pairs
@@ -281,7 +273,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     if expanded_not_after:
                         not_after_list = " ".join(sorted(expanded_not_after))
                         lines.append(f"        ignore sub [{not_after_list}] {target}' [{effective_before_list}];")
-                    for terminal in sorted(effective_before & terminal_exit_only):
+                    for terminal in sorted(effective_before & plan.terminal_exit_only):
                         lines.append(f"        ignore sub {target}' {terminal};")
                     lines.append(f"        sub {target}' [{effective_before_list}] by {actual_variant};")
                 lines.append(f"    }} calt_fwd_pair_{safe};")
@@ -361,7 +353,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                     resolved = resolve_known_glyph_names(not_before, glyph_names)
                     for not_before_glyph in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {not_before_glyph};")
-                for terminal in sorted(expanded_after & terminal_entry_only):
+                for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 lines.append(f"        sub [{after_list}] {base_name}' by {variant_name};")
                 lines.append(f"    }} calt_pair_{safe};")
@@ -561,7 +553,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
-        for variant_name, source_variants, entry_ys, not_before in reverse_only_upgrades:
+        for variant_name, source_variants, entry_ys, not_before in plan.reverse_only_upgrades:
             valid_entry_ys = [y for y in sorted(set(entry_ys)) if y in exit_classes]
             if not valid_entry_ys:
                 continue
@@ -660,13 +652,13 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
         if use_cycle:
             _emit_post_upgrade_bk(bases)
         for base_name in bases:
-            if base_name in all_fwd_bases and base_name not in early_pair_upgrade_bases:
+            if base_name in plan.all_fwd_bases and base_name not in early_pair_upgrade_bases:
                 if base_name in early_fwd_pairs:
                     _emit_fwd_general(base_name)
                 else:
                     _emit_fwd(base_name)
 
-    for base_name in fwd_only:
+    for base_name in plan.fwd_only:
         if base_name in lig_fwd_bases:
             continue
         _emit_bk_pairs(base_name)
@@ -682,7 +674,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
     if cycle_bases:
         cycle_deps: set[str] = set()
         for cycle_base in cycle_bases:
-            cycle_deps |= edges.get(cycle_base, set())
+            cycle_deps |= plan.edges.get(cycle_base, set())
         cycle_deps -= cycle_bases
         for base_name in all_bk_bases:
             if base_name in cycle_bases:
@@ -710,7 +702,7 @@ def emit_quikscript_calt(plan: JoinPlan) -> str | None:
 
     if cycle_bases:
         pair_only_new_exit_ys: set[int] = set()
-        for pair_only_base in pair_only:
+        for pair_only_base in plan.pair_only:
             base_ys = set()
             if pair_only_base in glyph_meta:
                 base_ys.update(glyph_meta[pair_only_base].exit_ys)
