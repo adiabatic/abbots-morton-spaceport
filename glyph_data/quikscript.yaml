@@ -1748,7 +1748,7 @@ glyph_families:
           entry: [1, 0]
           exit: [7, 5]
         select:
-          before: [{family: qsNo}, {family: qsOx}]
+          before: [{family: qsAwe}, {family: qsNo}, {family: qsOx}]
         modifiers: [exit-xheight]
       exit_y1:
         shape: shape_5
