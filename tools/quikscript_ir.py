@@ -88,22 +88,6 @@ _ENTRY_EXIT_MODIFIER_RE = re.compile(
 )
 _BEFORE_AFTER_MODIFIER_RE = re.compile(r"^(?:before|after)-[a-z0-9]+(?:-[a-z0-9]+)*$")
 _EXTENDED_HEIGHT_LABELS = {0: "baseline", 5: "xheight", 6: "y6", 8: "top"}
-_CALT_KEYS = frozenset(
-    (
-        "calt_after",
-        "calt_before",
-        "calt_not_after",
-        "calt_not_before",
-        "calt_word_final",
-        "extend_entry_after",
-        "extend_exit_before",
-        "extend_exit_before_gated",
-        "doubly_extend_entry_after",
-        "doubly_extend_exit_before",
-        "noentry_after",
-        "reverse_upgrade_from",
-    )
-)
 
 
 def get_base_glyph_name(prop_glyph_name: str) -> str:

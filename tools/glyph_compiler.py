@@ -9,6 +9,19 @@ from quikscript_ir import (
     get_base_glyph_name,
 )
 
+_JOIN_REF_KEYS = (
+    "calt_after",
+    "calt_before",
+    "calt_not_after",
+    "calt_not_before",
+    "extend_entry_after",
+    "extend_exit_before",
+    "doubly_extend_entry_after",
+    "doubly_extend_exit_before",
+    "noentry_after",
+    "reverse_upgrade_from",
+)
+
 
 @dataclass(slots=True)
 class CompiledGlyphSet:
@@ -43,22 +56,10 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
         if not glyph_def or not rename_map:
             return glyph_def
 
-        list_keys = (
-            "calt_after",
-            "calt_before",
-            "calt_not_after",
-            "calt_not_before",
-            "extend_entry_after",
-            "extend_exit_before",
-            "doubly_extend_entry_after",
-            "doubly_extend_exit_before",
-            "noentry_after",
-            "reverse_upgrade_from",
-        )
         scalar_keys = ("base",)
         changed = False
 
-        for key in list_keys:
+        for key in _JOIN_REF_KEYS:
             values = glyph_def.get(key)
             if not values:
                 continue
@@ -118,20 +119,6 @@ def _validate_compiled_glyph_references(
     legacy_glyphs: dict[str, dict | None],
     join_glyphs: dict[str, JoinGlyph],
 ) -> None:
-    list_keys = (
-        "calt_after",
-        "calt_before",
-        "calt_not_after",
-        "calt_not_before",
-        "extend_entry_after",
-        "extend_exit_before",
-        "doubly_extend_entry_after",
-        "doubly_extend_exit_before",
-        "noentry_after",
-        "reverse_upgrade_from",
-        "preferred_over",
-    )
-
     all_glyph_names = set(legacy_glyphs) | set(join_glyphs)
 
     def _validate_refs(glyph_name: str, key: str, values) -> None:
@@ -144,7 +131,7 @@ def _validate_compiled_glyph_references(
     for glyph_name, glyph_def in legacy_glyphs.items():
         if glyph_def is None:
             continue
-        for key in list_keys:
+        for key in (*_JOIN_REF_KEYS, "preferred_over"):
             _validate_refs(glyph_name, key, glyph_def.get(key, ()))
 
     for glyph_name, join_glyph in join_glyphs.items():
