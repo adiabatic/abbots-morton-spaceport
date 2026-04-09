@@ -148,15 +148,16 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
     }
 
 
-def test_join_planner_exposes_rules_and_emits_calt_from_plan():
+def test_join_planner_populates_lookup_indexes_and_emits_calt_from_plan():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
     plan = plan_quikscript_joins(join_glyphs)
     calt = emit_quikscript_calt(plan)
 
-    assert plan.rules
-    assert {"backward", "forward", "upgrade"} <= {rule.phase for rule in plan.rules}
+    assert plan.bk_replacements
+    assert plan.all_fwd_bases
+    assert plan.fwd_upgrades
     assert plan.ligatures
     assert "feature calt {" in calt
     assert "lookup calt_zwnj {" in calt

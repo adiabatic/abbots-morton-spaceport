@@ -4,21 +4,6 @@ from dataclasses import dataclass, field
 from quikscript_ir import JoinGlyph, resolve_known_glyph_names
 
 
-@dataclass(frozen=True)
-class JoinRule:
-    phase: str
-    kind: str
-    target_base: str
-    replacement: str
-    match_prev_exit_y: int | None = None
-    match_next_entry_y: int | None = None
-    after: tuple[str, ...] = ()
-    before: tuple[str, ...] = ()
-    not_after: tuple[str, ...] = ()
-    not_before: tuple[str, ...] = ()
-    source_variants: tuple[str, ...] = ()
-
-
 @dataclass
 class JoinPlan:
     glyph_meta: dict[str, JoinGlyph]
@@ -55,10 +40,6 @@ class JoinPlan:
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     gated_pair_overrides: dict[str, list[tuple[str, list[str], str]]] = field(default_factory=dict)
     gated_fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str], str]]] = field(default_factory=dict)
-    rules: list[JoinRule] = field(default_factory=list)
-
-def _record_rule(plan: JoinPlan, rule: JoinRule) -> None:
-    plan.rules.append(rule)
 
 
 def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
@@ -107,17 +88,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                 )
             else:
                 pair_overrides.setdefault(base_name, []).append((glyph_name, list(calt_after)))
-            _record_rule(
-                plan,
-                JoinRule(
-                    phase="backward",
-                    kind="pair_override",
-                    target_base=base_name,
-                    replacement=glyph_name,
-                    after=tuple(calt_after),
-                    not_before=tuple(meta.not_before),
-                ),
-            )
         elif meta.extended_entry_suffix is not None:
             pass
         elif meta.extended_exit_suffix is not None:
@@ -137,18 +107,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                         fwd_upgrades.setdefault(base_name, []).append(
                             (glyph_name, existing, exit_y_val, list(nb))
                         )
-                        _record_rule(
-                            plan,
-                            JoinRule(
-                                phase="upgrade",
-                                kind="forward_upgrade",
-                                target_base=base_name,
-                                replacement=glyph_name,
-                                match_next_entry_y=exit_y_val,
-                                not_before=tuple(nb),
-                                source_variants=(existing,),
-                            ),
-                        )
                     else:
                         exit_y_val = existing_meta.exit[0][1]
                         nb = list(existing_meta.not_before)
@@ -156,33 +114,10 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                             (existing, glyph_name, exit_y_val, list(nb))
                         )
                         bk_replacements[base_name][entry_y] = glyph_name
-                        _record_rule(
-                            plan,
-                            JoinRule(
-                                phase="upgrade",
-                                kind="forward_upgrade",
-                                target_base=base_name,
-                                replacement=existing,
-                                match_next_entry_y=exit_y_val,
-                                not_before=tuple(nb),
-                                source_variants=(glyph_name,),
-                            ),
-                        )
                 else:
                     bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
             else:
                 bk_replacements.setdefault(base_name, {})[entry_y] = glyph_name
-            _record_rule(
-                plan,
-                JoinRule(
-                    phase="backward",
-                    kind="replacement",
-                    target_base=base_name,
-                    replacement=glyph_name,
-                    match_prev_exit_y=entry_y,
-                    not_after=tuple(meta.not_after),
-                ),
-            )
             not_after = meta.not_after
             if not_after:
                 resolved = resolve_known_glyph_names(not_after, plan.glyph_names)
@@ -217,18 +152,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                 nb = list(with_exit[0][1].not_before)
                 fwd_upgrades.setdefault(base_name, []).append(
                     (entry_exit_var, entry_only_var, exit_y, list(nb))
-                )
-                _record_rule(
-                    plan,
-                    JoinRule(
-                        phase="upgrade",
-                        kind="pair_upgrade",
-                        target_base=base_name,
-                        replacement=entry_exit_var,
-                        match_next_entry_y=exit_y,
-                        not_before=tuple(nb),
-                        source_variants=(entry_only_var,),
-                    ),
                 )
 
     fwd_replacements = plan.fwd_replacements
@@ -276,17 +199,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                 fwd_pair_overrides.setdefault(base_name, []).append(
                     (glyph_name, resolved, resolved_not_after)
                 )
-            _record_rule(
-                plan,
-                JoinRule(
-                    phase="forward",
-                    kind="pair_override",
-                    target_base=base_name,
-                    replacement=glyph_name,
-                    before=tuple(resolved),
-                    not_after=tuple(resolved_not_after),
-                ),
-            )
         if gated_before:
             not_after = meta.not_after
             resolved_not_after = (
@@ -297,30 +209,8 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                 plan.gated_fwd_pair_overrides.setdefault(base_name, []).append(
                     (glyph_name, resolved_gated, resolved_not_after, feature_tag)
                 )
-                _record_rule(
-                    plan,
-                    JoinRule(
-                        phase="forward",
-                        kind="gated_pair_override",
-                        target_base=base_name,
-                        replacement=glyph_name,
-                        before=tuple(resolved_gated),
-                        not_after=tuple(resolved_not_after),
-                    ),
-                )
         if not calt_before and not gated_before:
             fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
-            _record_rule(
-                plan,
-                JoinRule(
-                    phase="forward",
-                    kind="replacement",
-                    target_base=base_name,
-                    replacement=glyph_name,
-                    match_next_entry_y=exit_y,
-                    not_before=tuple(meta.not_before),
-                ),
-            )
             not_before = meta.not_before
             if not_before:
                 resolved = resolve_known_glyph_names(not_before, plan.glyph_names)
@@ -354,17 +244,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
                     [anchor[1] for anchor in entries],
                     list(meta.not_before),
                 )
-            )
-            _record_rule(
-                plan,
-                JoinRule(
-                    phase="reverse",
-                    kind="explicit_reverse_upgrade",
-                    target_base=meta.base_name,
-                    replacement=glyph_name,
-                    not_before=tuple(meta.not_before),
-                    source_variants=tuple(matching_sources),
-                ),
             )
 
     _base_anchors: dict[str, list[tuple[str, set[int], set[int]]]] = {}
@@ -631,15 +510,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
             base_name = meta.base_name
             if base_name in glyph_meta:
                 word_final_pairs[base_name] = glyph_name
-                _record_rule(
-                    plan,
-                    JoinRule(
-                        phase="word_final",
-                        kind="replacement",
-                        target_base=base_name,
-                        replacement=glyph_name,
-                    ),
-                )
 
     ligatures = []
     for glyph_name in glyph_meta:
@@ -673,6 +543,5 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
 
 __all__ = [
     "JoinPlan",
-    "JoinRule",
     "plan_quikscript_joins",
 ]

@@ -8,9 +8,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import (
     compile_glyph_definitions,
+    compile_glyph_metadata,
     load_glyph_data,
 )
-from quikscript_ir import build_join_glyphs, generate_noentry_variants
+from quikscript_ir import generate_noentry_variants
 
 
 def _compiled_glyphs():
@@ -19,7 +20,8 @@ def _compiled_glyphs():
 
 
 def _compiled_meta():
-    return build_join_glyphs(_compiled_glyphs())
+    data = load_glyph_data(ROOT / "glyph_data")
+    return compile_glyph_metadata(data, "senior")
 
 
 def test_quikscript_family_and_generated_variants_stamp_metadata_seed():
@@ -130,7 +132,7 @@ def test_form_keys_are_local_labels():
 
 
 def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
-    glyphs = compile_glyph_definitions(
+    glyph_meta = compile_glyph_metadata(
         {
             "glyphs": {
                 "uni200C": {
@@ -161,7 +163,7 @@ def test_noentry_generation_uses_seeded_modifiers_not_compiled_name():
         "senior",
     )
 
-    variants = generate_noentry_variants(build_join_glyphs(glyphs), has_zwnj=True)
+    variants = generate_noentry_variants(glyph_meta, has_zwnj=True)
 
     assert "qsBase.noentry" in variants
     assert "qsBase.alt.noentry" not in variants
