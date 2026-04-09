@@ -1554,6 +1554,13 @@ glyph_families:
         derive:
           extend_entry_after: [{context_set: extend_entry_after_he_pea_tea_it_ye}]
         modifiers: [entry-baseline]
+      entry_baseline_after_ox:
+        inherits: entry_baseline
+        select:
+          after: [{family: qsOx}]
+          not_after: null
+        gate_feature_behind: ss05
+        modifiers: [after-ox]
       exit_baseline:
         shape: shape_2
         anchors:

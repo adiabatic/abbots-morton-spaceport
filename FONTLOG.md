@@ -25,6 +25,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
   - `ss01` (suppress ·Utter·Pea join)
   - `ss02` (allow ·I·Tea join at the Short height)
   - `ss03` (allow ·It to join at baseline on both sides after ·Day)
+  - `ss05` (allow ·Ox·May join at baseline)
 
 #### Non-Quikscript glyphs
 
