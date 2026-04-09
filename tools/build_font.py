@@ -26,12 +26,10 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
+from glyph_compiler import compile_glyph_set, is_proportional_glyph
 from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs, emit_quikscript_ss, emit_quikscript_ss_gate
 from quikscript_ir import (
     JoinGlyph,
-    build_join_glyphs,
-    compile_quikscript_ir,
-    flatten_join_glyphs,
     _is_contextual_variant,
     get_base_glyph_name,
 )
@@ -135,203 +133,14 @@ def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint:
     return subtable
 
 
-def is_proportional_glyph(glyph_name: str) -> bool:
-    """Check if a glyph is a proportional variant."""
-    return glyph_name.endswith(".prop") or ".prop." in glyph_name or ".fina" in glyph_name
-
-
-def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
-    """
-    Prepare glyph definitions for the proportional font variant.
-
-    For the proportional font:
-    - .prop glyphs are renamed to their base names (e.g., qsPea.prop → qsPea)
-    - Base glyphs that have .prop variants are excluded
-    - Glyphs without .prop variants remain unchanged
-    - Glyph name references inside definitions are updated accordingly
-    """
-    # Build rename map: old .prop name → new base name
-    rename_map: dict[str, str] = {}
-    prop_base_names = set()
-    for glyph_name in glyphs_def.keys():
-        if is_proportional_glyph(glyph_name):
-            base_name = get_base_glyph_name(glyph_name)
-            prop_base_names.add(base_name)
-            rename_map[glyph_name] = base_name
-
-    def _rename_refs(glyph_def: dict | None) -> dict | None:
-        if not glyph_def or not rename_map:
-            return glyph_def
-        list_keys = (
-            "calt_after", "calt_before", "calt_not_after", "calt_not_before",
-            "extend_entry_after", "extend_exit_before",
-            "doubly_extend_entry_after", "doubly_extend_exit_before",
-            "noentry_after", "reverse_upgrade_from",
-        )
-        scalar_keys = ("base",)
-        changed = False
-        for key in list_keys:
-            val = glyph_def.get(key)
-            if not val:
-                continue
-            new_val = [rename_map.get(g, g) for g in val]
-            if new_val != list(val):
-                if not changed:
-                    glyph_def = dict(glyph_def)
-                    changed = True
-                glyph_def[key] = new_val
-        for key in scalar_keys:
-            val = glyph_def.get(key)
-            if val and val in rename_map:
-                if not changed:
-                    glyph_def = dict(glyph_def)
-                    changed = True
-                glyph_def[key] = rename_map[val]
-        return glyph_def
-
-    # Build new glyph dict
-    new_glyphs = {}
-    for glyph_name, glyph_def in glyphs_def.items():
-        if is_proportional_glyph(glyph_name):
-            # Rename .prop glyph to its base name
-            base_name = get_base_glyph_name(glyph_name)
-            new_glyphs[base_name] = _rename_refs(glyph_def)
-        elif glyph_name in prop_base_names:
-            # Skip base glyphs that have .prop variants
-            continue
-        else:
-            # Keep glyphs without .prop variants unchanged
-            new_glyphs[glyph_name] = _rename_refs(glyph_def)
-
-    return new_glyphs
-
-
-def _prepare_legacy_glyph_def(name: str, glyph_def: dict | None) -> dict | None:
-    if glyph_def is None:
-        return None
-
-    prepared = dict(glyph_def)
-    prepared.setdefault("_base_name", get_base_glyph_name(name).split(".")[0])
-    prepared.setdefault("_contextual", _is_contextual_variant(name))
-    return prepared
-
-
-def _compile_legacy_glyphs(glyph_data: dict, variant: str) -> dict[str, dict | None]:
-    is_proportional = variant != "mono"
-    is_senior = variant == "senior"
-
-    legacy_glyphs = {
-        name: _prepare_legacy_glyph_def(name, glyph_def)
-        for name, glyph_def in glyph_data.get("glyphs", {}).items()
-        if ".unused" not in name
-    }
-
-    if not is_senior:
-        legacy_glyphs = {
-            name: glyph_def
-            for name, glyph_def in legacy_glyphs.items()
-            if not _is_contextual_variant(name)
-        }
-
-    if is_proportional:
-        legacy_glyphs = prepare_proportional_glyphs(legacy_glyphs)
-
-    return legacy_glyphs
-
-
-def _flatten_compiled_glyphs(
-    legacy_glyphs: dict[str, dict | None],
-    join_glyphs: dict[str, JoinGlyph],
-) -> dict[str, dict]:
-    glyphs_def = dict(legacy_glyphs)
-    glyphs_def.update(flatten_join_glyphs(join_glyphs))
-    return glyphs_def
-
-
-def _compile_build_inputs(
-    glyph_data: dict,
-    variant: str,
-) -> tuple[dict[str, dict | None], dict[str, JoinGlyph]]:
-    legacy_glyphs = _compile_legacy_glyphs(glyph_data, variant)
-    join_glyphs, _ = compile_quikscript_ir(glyph_data, variant)
-
-    if variant == "senior":
-        _validate_compiled_glyph_references(legacy_glyphs, join_glyphs)
-
-    return legacy_glyphs, join_glyphs
-
-
 def compile_glyph_definitions(glyph_data: dict, variant: str) -> dict:
     """Compile source glyph data into the flat glyph map used by the build."""
-    legacy_glyphs, join_glyphs = _compile_build_inputs(glyph_data, variant)
-    return _flatten_compiled_glyphs(legacy_glyphs, join_glyphs)
+    return compile_glyph_set(glyph_data, variant).glyph_definitions
 
 
 def compile_glyph_metadata(glyph_data: dict, variant: str) -> dict[str, JoinGlyph]:
-    """Compile glyph metadata without round-tripping Quikscript glyphs through flat dicts."""
-    legacy_glyphs, join_glyphs = _compile_build_inputs(glyph_data, variant)
-    glyph_meta = build_join_glyphs(legacy_glyphs)
-    glyph_meta.update(join_glyphs)
-    return glyph_meta
-
-
-def _validate_compiled_glyph_references(
-    legacy_glyphs: dict[str, dict | None],
-    join_glyphs: dict[str, JoinGlyph],
-) -> None:
-    list_keys = (
-        "calt_after",
-        "calt_before",
-        "calt_not_after",
-        "calt_not_before",
-        "extend_entry_after",
-        "extend_exit_before",
-        "doubly_extend_entry_after",
-        "doubly_extend_exit_before",
-        "noentry_after",
-        "reverse_upgrade_from",
-        "preferred_over",
-    )
-
-    all_glyph_names = set(legacy_glyphs) | set(join_glyphs)
-
-    def _validate_refs(glyph_name: str, key: str, values) -> None:
-        for value in values:
-            if value not in all_glyph_names:
-                raise ValueError(
-                    f"Glyph {glyph_name!r} {key} refers to missing glyph {value!r}"
-                )
-
-    for glyph_name, glyph_def in legacy_glyphs.items():
-        if glyph_def is None:
-            continue
-        for key in list_keys:
-            _validate_refs(glyph_name, key, glyph_def.get(key, ()))
-
-    for glyph_name, join_glyph in join_glyphs.items():
-        _validate_refs(glyph_name, "calt_after", join_glyph.after)
-        _validate_refs(glyph_name, "calt_before", join_glyph.before)
-        _validate_refs(glyph_name, "calt_not_after", join_glyph.not_after)
-        _validate_refs(glyph_name, "calt_not_before", join_glyph.not_before)
-        _validate_refs(glyph_name, "extend_entry_after", join_glyph.extend_entry_after)
-        _validate_refs(glyph_name, "extend_exit_before", join_glyph.extend_exit_before)
-        _validate_refs(
-            glyph_name,
-            "doubly_extend_entry_after",
-            join_glyph.doubly_extend_entry_after,
-        )
-        _validate_refs(
-            glyph_name,
-            "doubly_extend_exit_before",
-            join_glyph.doubly_extend_exit_before,
-        )
-        _validate_refs(glyph_name, "noentry_after", join_glyph.noentry_after)
-        _validate_refs(
-            glyph_name,
-            "reverse_upgrade_from",
-            join_glyph.reverse_upgrade_from,
-        )
-        _validate_refs(glyph_name, "preferred_over", join_glyph.preferred_over)
+    """Compile glyph metadata from the canonical compiled glyph set."""
+    return compile_glyph_set(glyph_data, variant).glyph_meta
 
 
 def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
@@ -836,8 +645,9 @@ def build_font(
     metadata = glyph_data.get("metadata", {})
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
-    legacy_glyphs, join_glyphs = _compile_build_inputs(glyph_data, variant)
-    glyphs_def = _flatten_compiled_glyphs(legacy_glyphs, join_glyphs)
+    compiled = compile_glyph_set(glyph_data, variant)
+    glyphs_def = compiled.glyph_definitions
+    join_glyphs = compiled.join_glyphs
 
     # Font name differs per variant
     base_font_name = metadata["font_name"]
