@@ -398,8 +398,6 @@ def plan_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> JoinPlan:
 
     exit_classes = plan.exit_classes
     for glyph_name, meta in glyph_meta.items():
-        if meta.is_noentry:
-            continue
         if not meta.exit:
             continue
         for anchor in meta.exit:
