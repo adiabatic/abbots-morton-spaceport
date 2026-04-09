@@ -197,8 +197,9 @@ class _DataExpectCollector(HTMLParser):
 
     Each collected cell records a list of ``runs`` — one per contiguous font
     context inside the cell. A ``<span class="force-junior">`` descendant
-    switches the enclosed text to the Junior font; anything else stays in
-    Senior (the cell's default).
+    switches the enclosed text to the Junior font; a ``<span
+    data-stylistic-set="...">`` descendant starts a new run with per-run
+    features. Anything else stays in Senior (the cell's default).
     """
 
     _TAGS = {"td", "span", "dd"}
@@ -206,15 +207,15 @@ class _DataExpectCollector(HTMLParser):
     def __init__(self):
         super().__init__()
         self.cells = []
-        # Stack of (tag, is_cell_start, is_force_junior) for each open _TAGS
-        # element we are currently inside.
+        # Stack of (tag, is_cell_start, is_force_junior, inner_ss) for each
+        # open _TAGS element we are currently inside.
         self._open_tags = []
         self._cell_active = False
         self._cell_info = None  # dict: expect, line, stylistic_set
         self._runs = []  # list of {"font": str, "text": str}
 
     def _current_font(self):
-        for _tag, _is_cell, is_junior in reversed(self._open_tags):
+        for _tag, _is_cell, is_junior, _inner_ss in reversed(self._open_tags):
             if is_junior:
                 return "junior"
         return "senior"
@@ -235,18 +236,22 @@ class _DataExpectCollector(HTMLParser):
                 "stylistic_set": attr_dict.get("data-stylistic-set"),
             }
             self._runs = [{"font": "senior", "text": ""}]
-            self._open_tags.append((tag, True, False))
+            self._open_tags.append((tag, True, False, None))
             return
 
         if self._cell_active:
-            self._open_tags.append((tag, False, is_force_junior))
+            inner_ss = attr_dict.get("data-stylistic-set")
+            self._open_tags.append((tag, False, is_force_junior, inner_ss))
             if is_force_junior:
                 self._runs.append({"font": "junior", "text": ""})
+            elif inner_ss:
+                features = {f"ss{ss.zfill(2)}": True for ss in inner_ss.split()}
+                self._runs.append({"font": self._current_font(), "text": "", "features": features})
 
     def handle_endtag(self, tag):
         if tag not in self._TAGS or not self._open_tags:
             return
-        open_tag, is_cell_start, was_force_junior = self._open_tags[-1]
+        open_tag, is_cell_start, was_force_junior, was_inner_ss = self._open_tags[-1]
         if open_tag != tag:
             return
         self._open_tags.pop()
@@ -255,11 +260,15 @@ class _DataExpectCollector(HTMLParser):
             return
 
         if is_cell_start:
-            non_empty = [
-                {"font": r["font"], "text": r["text"].strip()}
-                for r in self._runs
-                if r["text"].strip()
-            ]
+            non_empty = []
+            for r in self._runs:
+                text = r["text"].strip()
+                if not text:
+                    continue
+                entry = {"font": r["font"], "text": text}
+                if r.get("features"):
+                    entry["features"] = r["features"]
+                non_empty.append(entry)
             if not non_empty:
                 non_empty = [{"font": "senior", "text": ""}]
             full_text = "".join(r["text"] for r in self._runs).strip()
@@ -276,6 +285,8 @@ class _DataExpectCollector(HTMLParser):
         elif was_force_junior:
             resume_font = self._current_font()
             self._runs.append({"font": resume_font, "text": ""})
+        elif was_inner_ss:
+            self._runs.append({"font": self._current_font(), "text": ""})
 
     def handle_data(self, data):
         if self._cell_active:
@@ -596,13 +607,11 @@ def _partition_by_runs(runs, tokens, connections):
     slices = []
     for run_idx, run in enumerate(runs):
         tok_indices = [i for i, r in enumerate(token_to_run) if r == run_idx]
+        base = {"font": run["font"], "text": run["text"]}
+        if run.get("features"):
+            base["features"] = run["features"]
         if not tok_indices:
-            slices.append({
-                "font": run["font"],
-                "text": run["text"],
-                "tokens": [],
-                "connections": [],
-            })
+            slices.append({**base, "tokens": [], "connections": []})
             continue
         run_tokens = [tokens[i] for i in tok_indices]
         run_conns = []
@@ -613,12 +622,7 @@ def _partition_by_runs(runs, tokens, connections):
                     f"{tok_indices[i]} -> {tok_indices[i+1]}"
                 )
             run_conns.append(connections[tok_indices[i]])
-        slices.append({
-            "font": run["font"],
-            "text": run["text"],
-            "tokens": run_tokens,
-            "connections": run_conns,
-        })
+        slices.append({**base, "tokens": run_tokens, "connections": run_conns})
     return slices
 
 
@@ -649,8 +653,15 @@ def run_shaping_test_runs(fonts, anchor_maps, runs, expect_str,
         buf = hb.Buffer()
         buf.add_str(text)
         buf.guess_segment_properties()
-        if features:
-            hb.shape(font, buf, features)
+        run_features = sl.get("features")
+        if run_features and features:
+            merged = {**features, **run_features}
+        elif run_features:
+            merged = run_features
+        else:
+            merged = features
+        if merged:
+            hb.shape(font, buf, merged)
         else:
             hb.shape(font, buf)
 

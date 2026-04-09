@@ -933,6 +933,11 @@ def emit_quikscript_ss(glyph_meta: dict) -> str | None:
         if meta.revert_feature:
             groups[meta.revert_feature].append((name, meta.base_name))
 
+    NOJOIN_TAG = "ss10"
+    for name, meta in glyph_meta.items():
+        if name != meta.base_name and len(meta.sequence) <= 1:
+            groups[NOJOIN_TAG].append((name, meta.base_name))
+
     if not groups:
         return None
 
