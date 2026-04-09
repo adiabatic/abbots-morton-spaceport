@@ -13,10 +13,9 @@ context_sets:
   - {family: qsYe}
   extend_exit_before_fee:
   - {family: qsFee}
-  extend_entry_after_half_tea_exit_xheight:
+  extend_entry_after_half_tea_or_pea:
   - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
   - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
-  extend_entry_after_half_pea:
   - {family: qsPea, traits: [half]}
   pea_half_not_before:
   - {family: qsDay}
@@ -162,7 +161,7 @@ glyph_families:
           not_before: [{family: qsAwe}, {family: qsCheer}, {family: qsEight}, {family: qsEt}, {family: qsFoot}, {family: qsIt}, {family: qsJay}, {family: qsLlan}, {family: qsNo}, {family: qsOwe}, {family: qsOx}, {family: qsRoe}, {family: qsThey}, {family: qsYe}, {family: qsZoo}]
         revert_feature: ss01
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
       half_entry_y6:
         inherits: half
@@ -182,7 +181,7 @@ glyph_families:
           entry: [1, 5]
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight, exit-xheight]
       half_entry_y6_exit_y6:
         inherits: half
@@ -220,7 +219,7 @@ glyph_families:
         select:
           after: [{context_set: after_extended_utter_or_ah}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
   qsTea:
     mono:
@@ -273,7 +272,7 @@ glyph_families:
         select:
           not_before: [{family: qsTea}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         traits: [half]
         modifiers: [entry-xheight]
       half_entry_xheight_ss03:
@@ -388,7 +387,7 @@ glyph_families:
         entry: [1, 5]
         exit: [5, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
     shapes:
       half:
         bitmap:
@@ -435,7 +434,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsDay_qsEat:
     sequence:
     - qsDay
@@ -456,7 +455,7 @@ glyph_families:
         entry: [1, 5]
         exit: [7, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsKey:
     mono:
       bitmap:
@@ -531,7 +530,7 @@ glyph_families:
         select:
           after: [{family: qsUtter}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
   qsThaw:
     mono:
@@ -613,7 +612,7 @@ glyph_families:
         select:
           after: [{context_set: after_extended_utter_or_ah}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
       exit_xheight:
         shape: mono
@@ -680,7 +679,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
       select:
         after: [{context_set: after_extended_utter_or_ah}]
   qsFee:
@@ -999,7 +998,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{family: qsMay}, {context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{family: qsMay}, {context_set: extend_entry_after_half_tea_or_pea}]
     shapes:
       half:
         bitmap:
@@ -1141,7 +1140,7 @@ glyph_families:
         entry: [1, 5]
         exit: [5, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsJay:
     mono:
       bitmap:
@@ -1166,7 +1165,7 @@ glyph_families:
           entry: [1, 5]
           exit: [6, 0]
         derive:
-          extend_entry_after: [{family: qsIt}, {context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{family: qsIt}, {context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
   qsJay_qsUtter:
     sequence:
@@ -1233,7 +1232,7 @@ glyph_families:
           entry: [1, 5]
           exit: [3, 0]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight, exit-baseline]
   qsWay:
     mono:
@@ -1534,7 +1533,7 @@ glyph_families:
         select:
           after: [{context_set: after_see_utter_or_extended_utter_or_ah}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
       entry_xheight_after_i:
         inherits: entry_xheight
@@ -1592,7 +1591,7 @@ glyph_families:
         exit: [6, 5]
       derive:
         extend_exit_before: [{context_set: extend_exit_before_fee}]
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
     shapes:
       alt:
         bitmap:
@@ -1675,7 +1674,7 @@ glyph_families:
       anchors:
         entry: [[1, 0], [1, 5]]
       derive:
-        extend_entry_after: [{family: qsEight}, {family: qsIt}, {family: qsYe}, {context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{family: qsEight}, {family: qsIt}, {family: qsYe}, {context_set: extend_entry_after_half_tea_or_pea}]
     shapes:
       shape_1:
         bitmap:
@@ -1792,7 +1791,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsExcite:
     mono:
       bitmap:
@@ -1903,7 +1902,7 @@ glyph_families:
         select:
           not_after: [{family: qsIt}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
       entry_baseline:
         shape: prop
@@ -1998,7 +1997,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsEight:
     mono:
       bitmap:
@@ -2014,7 +2013,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsAt:
     mono:
       bitmap:
@@ -2144,7 +2143,7 @@ glyph_families:
         entry: [1, 5]
         exit: [7, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsOx:
     mono:
       bitmap:
@@ -2160,7 +2159,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsOy:
     mono:
       bitmap:
@@ -2198,7 +2197,7 @@ glyph_families:
         select:
           after: [{family: qsLow}, {family: qsNo}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
   qsUtter:
     mono:
@@ -2254,7 +2253,7 @@ glyph_families:
           after: [{family: qsFee}, {family: qsMay}]
           not_before: [{family: qsRoe}, {family: qsThey}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         traits: [alt]
         modifiers: [reaches-way-back]
       alt_before_may:
@@ -2400,7 +2399,7 @@ glyph_families:
         select:
           not_after: [{family: qsLow}]
         derive:
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight]
       exit_xheight:
         shape: shape_2
@@ -2425,7 +2424,7 @@ glyph_families:
           extend_exit_before: [{context_set: extend_exit_before_fee}]
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
-          extend_entry_after: [{context_set: extend_entry_after_half_tea_exit_xheight}, {context_set: extend_entry_after_half_pea}]
+          extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
         modifiers: [entry-xheight, exit-xheight]
   qsFoot:
     mono:
@@ -2444,7 +2443,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: extend_entry_after_half_pea}]
+        extend_entry_after: [{context_set: extend_entry_after_half_tea_or_pea}]
   qsOoze:
     mono:
       bitmap:
