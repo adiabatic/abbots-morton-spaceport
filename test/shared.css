@@ -204,7 +204,7 @@ dt.highlighted,
 }
 
 [data-highlight] {
-  background: light-dark(#e8c4c4, #6b3333);
+  background: light-dark(#ffe0b2, #6b4400);
 }
 
 .wip {
