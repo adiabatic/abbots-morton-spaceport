@@ -1,5 +1,7 @@
 # TODO
 
+- Find out if there is a way to do tests for AMS that depend on having some kind of extra OpenType thing turned on, like discretionary ligatures for Joins On Both Sides At The Same Height For ·Tea
+- ensure kerning pairs work just as well in Quikscript Junior
 - Make lists of letters like "goes straight up and down on the left" and put these letters in the list, and declare that ·Owe never joins to it:
   - ·Tea
   - ·Day
