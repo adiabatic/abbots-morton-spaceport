@@ -9,7 +9,7 @@ import build_font
 import glyph_compiler
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
-from quikscript_fea import emit_quikscript_calt, emit_quikscript_curs
+from quikscript_fea import emit_quikscript_senior_features
 from quikscript_ir import (
     _widen_bitmap_right_with_connector,
     compile_quikscript_ir,
@@ -17,7 +17,6 @@ from quikscript_ir import (
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
-from quikscript_planner import plan_quikscript_joins
 
 
 def test_widen_right_at_edge_widens_by_count():
@@ -173,22 +172,20 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
     }
 
 
-def test_join_planner_populates_lookup_indexes_and_emits_calt_from_plan():
+def test_senior_feature_emitter_includes_join_and_gate_features():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    plan = plan_quikscript_joins(join_glyphs)
-    calt = emit_quikscript_calt(plan)
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
 
-    assert plan.bk_replacements
-    assert plan.all_fwd_bases
-    assert plan.fwd_upgrades
-    assert plan.ligatures
-    assert "feature calt {" in calt
-    assert "lookup calt_zwnj {" in calt
+    assert "feature curs {" in fea
+    assert "feature calt {" in fea
+    assert "feature ss03 {" in fea
+    assert "feature ss10 {" in fea
+    assert "lookup calt_zwnj {" in fea
 
 
-def test_emit_quikscript_curs_uses_join_glyphs_and_noentry_links():
+def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
     join_glyphs, _ = compile_quikscript_ir(
         {
             "glyph_families": {
@@ -207,17 +204,16 @@ def test_emit_quikscript_curs_uses_join_glyphs_and_noentry_links():
     )
 
     expanded, _ = expand_join_transforms(join_glyphs, has_zwnj=True)
-    curs = emit_quikscript_curs(expanded, 50, 50)
+    fea = emit_quikscript_senior_features(expanded, 50, 50)
 
-    assert "feature curs {" in curs
-    assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in curs
-    assert "pos cursive qsLead.noentry <anchor NULL> <anchor 50 0>;" in curs
+    assert "feature curs {" in fea
+    assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in fea
+    assert "pos cursive qsLead.noentry <anchor NULL> <anchor 50 0>;" in fea
 
 
 def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch):
     data = load_glyph_data(ROOT / "glyph_data")
     compiled = compile_glyph_set(data, "senior")
-    sentinel_plan = object()
 
     class FakeCompiledGlyphSet:
         def __init__(self, glyph_definitions, join_glyphs):
@@ -233,30 +229,12 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
         ),
     )
 
-    def fake_curs(join_glyphs, pixel_width, pixel_height):
+    def fake_emit(join_glyphs, pixel_width, pixel_height):
         assert join_glyphs is compiled.join_glyphs
+        assert pixel_width == data["metadata"]["pixel_size"]
+        assert pixel_height == data["metadata"]["pixel_size"]
         return None
 
-    def fake_plan(join_glyphs):
-        assert join_glyphs is compiled.join_glyphs
-        return sentinel_plan
-
-    def fake_ss_gate(plan):
-        assert plan is sentinel_plan
-        return None
-
-    def fake_calt(plan):
-        assert plan is sentinel_plan
-        return None
-
-    def fake_ss(join_glyphs):
-        assert join_glyphs is compiled.join_glyphs
-        return None
-
-    monkeypatch.setattr(build_font, "emit_quikscript_curs", fake_curs)
-    monkeypatch.setattr(build_font, "plan_quikscript_joins", fake_plan)
-    monkeypatch.setattr(build_font, "emit_quikscript_ss_gate", fake_ss_gate)
-    monkeypatch.setattr(build_font, "emit_quikscript_calt", fake_calt)
-    monkeypatch.setattr(build_font, "emit_quikscript_ss", fake_ss)
+    monkeypatch.setattr(build_font, "emit_quikscript_senior_features", fake_emit)
 
     build_font.build_font(data, variant="senior")
