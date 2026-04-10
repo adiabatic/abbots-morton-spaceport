@@ -170,7 +170,7 @@ A reference section listing every key that can appear in a glyph definition in t
 
 ## Notes for the generator
 
-- Read `tools/build_font.py`, `tools/quikscript_fea.py`, and `tools/quikscript_ir.py` for the actual implementation. The live entry points are `plan_quikscript_joins()`, `emit_quikscript_calt()`, `emit_quikscript_curs()`, and the transform-expansion helpers in `tools/quikscript_ir.py` such as `generate_extended_entry_variants()`.
+- Read `tools/build_font.py`, `tools/quikscript_fea.py`, and `tools/quikscript_ir.py` for the actual implementation. The live entry points are `emit_quikscript_senior_features()` and the transform-expansion helpers in `tools/quikscript_ir.py` such as `generate_extended_entry_variants()`.
 - Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
 - Read `reference/csur/index.html` for the code-point chart and character property descriptions.
