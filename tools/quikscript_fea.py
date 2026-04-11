@@ -573,6 +573,18 @@ def _expand_backward_after_variants(
 
     for after_glyph in after_glyphs:
         candidates = set(expand_selector(after_glyph))
+        # Also consider the .noentry variant of the same base. calt_zwnj
+        # substitutes a qs letter with its .noentry form after a ZWNJ, and the
+        # standard variant expander does not return it, so backward-context
+        # rules would otherwise miss that case and fail to fire.
+        after_base = (
+            glyph_meta[after_glyph].base_name
+            if after_glyph in glyph_meta
+            else after_glyph
+        )
+        noentry_candidate = f"{after_base}.noentry"
+        if noentry_candidate in glyph_meta:
+            candidates.add(noentry_candidate)
         if entry_ys:
             candidates = {
                 candidate for candidate in candidates
@@ -928,6 +940,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         candidate_meta = _meta(candidate_name)
         if candidate_meta.exit:
             return set()
+        # .noentry variants only appear after calt_zwnj substitutes the base
+        # form following a ZWNJ. They should not inherit the backward-guard
+        # rules that would otherwise block the pair substitution, because the
+        # ZWNJ is what drives the .noentry form in the first place.
+        if candidate_meta.is_noentry:
+            return set()
 
         candidate_base = candidate_meta.base_name
         guards: set[str] = set()
@@ -1159,6 +1177,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             exclusions = bk_exclusions.get(base_name, {})
             lines.append("")
             lines.append(f"    lookup calt_{safe} {{")
+            # HarfBuzz treats ZWNJ as a default-ignorable glyph and would
+            # otherwise allow this backward-context lookup to match across a
+            # ZWNJ. Mentioning uni200C in an ignore rule forces it into the
+            # lookup's coverage so HarfBuzz stops skipping it.
+            for fwd_variant in sorted(fwd_exit_only):
+                lines.append(f"        ignore sub uni200C {fwd_variant}';")
             for entry_y in sorted(relevant.keys()):
                 excluded = sorted(_expand_exclusions(exclusions.get(entry_y, [])))
                 for fwd_variant in sorted(fwd_exit_only):
