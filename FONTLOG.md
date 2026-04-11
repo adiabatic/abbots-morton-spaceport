@@ -4,6 +4,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 12.000
+
+- Fix ·Low and ·Llan (I’ve been writing them wrong this entire time)
+
 ### 11.000
 
 Hoopy Froude edition
