@@ -24,7 +24,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 - Add a few stylistic sets to get The Manual to look right — and no, I’m not planning on standardizing their functions until I’m all done, if ever, so don’t expect this to be stable across different fonts:
   - `ss01` (suppress ·Utter·Pea join)
   - `ss02` (allow ·I·Tea join at the Short height)
-  - `ss03` (allow ·It to join at baseline on both sides after ·Day)
+  - `ss03` (allow ·It to join at baseline on both sides after ·Day and before ·Low)
   - `ss05` (allow ·Ox·May join at baseline)
 
 #### Non-Quikscript glyphs

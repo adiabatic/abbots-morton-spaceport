@@ -542,6 +542,68 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
     return plan
 
 
+def _can_eventually_exit_at(
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    name: str,
+    y: int,
+) -> bool:
+    meta = glyph_meta[name]
+    if y in meta.exit_ys:
+        return True
+    if meta.exit:
+        return False
+    return any(
+        y in glyph_meta[candidate].exit_ys
+        for candidate in base_to_variants.get(meta.base_name, ())
+    )
+
+
+def _expand_backward_after_variants(
+    variant_name: str,
+    after_glyphs: list[str] | tuple[str, ...],
+    *,
+    expand_selector,
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+) -> set[str]:
+    variant_meta = glyph_meta[variant_name]
+    entry_ys = set(variant_meta.entry_ys)
+    expanded: set[str] = set()
+
+    for after_glyph in after_glyphs:
+        candidates = set(expand_selector(after_glyph))
+        if entry_ys:
+            candidates = {
+                candidate for candidate in candidates
+                if (
+                    set(glyph_meta[candidate].exit_ys) & entry_ys
+                    or (
+                        not glyph_meta[candidate].exit
+                        and any(
+                            _can_eventually_exit_at(
+                                glyph_meta,
+                                base_to_variants,
+                                candidate,
+                                entry_y,
+                            )
+                            for entry_y in entry_ys
+                        )
+                    )
+                )
+            }
+        expanded.update(candidates)
+
+    if variant_meta.entry_restriction_y is not None:
+        entry_y = variant_meta.entry_restriction_y
+        expanded = {
+            candidate for candidate in expanded
+            if _can_eventually_exit_at(glyph_meta, base_to_variants, candidate, entry_y)
+        }
+
+    return expanded
+
+
 def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     plan = analysis
     glyph_meta = plan.glyph_meta
@@ -682,17 +744,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    lookup calt_word_final_revert_{safe} {{")
             lines.append(f"        sub {variant}' @qs_letters by {base};")
             lines.append(f"    }} calt_word_final_revert_{safe};")
-
-    def _can_match_pair_exit(name: str, exit_y: int) -> bool:
-        meta = _meta(name)
-        if exit_y in meta.exit_ys:
-            return True
-        if meta.exit:
-            return False
-        return any(
-            exit_y in _meta(candidate).exit_ys
-            for candidate in base_to_variants.get(meta.base_name, ())
-        )
 
     def _expand_exclusions(excluded_glyphs: list[str]) -> set[str]:
         expanded = set()
@@ -873,16 +924,50 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _emit_fwd_pairs(base_name)
         _emit_fwd_general(base_name)
 
+    def _collect_pending_bk_pair_guards(candidate_name: str, entry_ys: set[int]) -> set[str]:
+        candidate_meta = _meta(candidate_name)
+        if candidate_meta.exit:
+            return set()
+
+        candidate_base = candidate_meta.base_name
+        guards: set[str] = set()
+
+        for prev_exit_y, pending_variant in bk_replacements.get(candidate_base, {}).items():
+            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+                continue
+            guards.update(exit_classes.get(prev_exit_y, set()))
+
+        for pending_variant, prev_glyphs in pair_overrides.get(candidate_base, []):
+            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+                continue
+            guards.update(_expand_all_variants(prev_glyphs))
+
+        return guards
+
+    def _candidate_can_support_entry_ys(candidate_name: str, entry_ys: set[int]) -> bool:
+        candidate_meta = _meta(candidate_name)
+        if set(candidate_meta.exit_ys) & entry_ys:
+            return True
+        if candidate_meta.exit:
+            return False
+        return any(
+            _can_eventually_exit_at(glyph_meta, base_to_variants, candidate_name, entry_y)
+            for entry_y in entry_ys
+        )
+
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
             for variant_name, after_glyphs in pair_overrides[base_name]:
-                expanded_after = _expand_all_variants(after_glyphs)
                 variant_meta = _meta(variant_name)
-                if variant_meta.entry_restriction_y is not None:
-                    entry_y = variant_meta.entry_restriction_y
-                    expanded_after = {
-                        name for name in expanded_after if _can_match_pair_exit(name, entry_y)
-                    }
+                expanded_after = _expand_backward_after_variants(
+                    variant_name,
+                    after_glyphs,
+                    expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                    glyph_meta=glyph_meta,
+                    base_to_variants=base_to_variants,
+                )
+                if not expanded_after:
+                    continue
                 after_list = " ".join(sorted(expanded_after))
                 safe = variant_name.replace(".", "_")
                 lines.append("")
@@ -892,6 +977,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     resolved = resolve_known_glyph_names(not_before, glyph_names)
                     for not_before_glyph in sorted(_expand_exclusions(resolved)):
                         lines.append(f"        ignore sub [{after_list}] {base_name}' {not_before_glyph};")
+                entry_ys = set(variant_meta.entry_ys)
+                if entry_ys:
+                    for candidate_name in sorted(expanded_after):
+                        guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, entry_ys)
+                        if guard_glyphs:
+                            guard_list = " ".join(sorted(guard_glyphs))
+                            lines.append(
+                                f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
+                            )
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 lines.append(f"        sub [{after_list}] {base_name}' by {variant_name};")
@@ -1492,32 +1586,61 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
     glyph_meta = plan.glyph_meta
     glyph_names = plan.glyph_names
 
-    def _can_exit_at(name: str, y: int) -> bool:
-        meta = glyph_meta[name]
-        if y in meta.exit_ys:
+    def _candidate_can_support_entry_ys(candidate_name: str, entry_ys: set[int]) -> bool:
+        candidate_meta = glyph_meta[candidate_name]
+        if set(candidate_meta.exit_ys) & entry_ys:
             return True
-        if meta.exit:
+        if candidate_meta.exit:
             return False
         return any(
-            y in glyph_meta[c].exit_ys
-            for c in plan.base_to_variants.get(meta.base_name, ())
+            _can_eventually_exit_at(glyph_meta, plan.base_to_variants, candidate_name, entry_y)
+            for entry_y in entry_ys
         )
+
+    def _collect_pending_bk_pair_guards(candidate_name: str, entry_ys: set[int]) -> set[str]:
+        candidate_meta = glyph_meta[candidate_name]
+        if candidate_meta.exit:
+            return set()
+
+        candidate_base = candidate_meta.base_name
+        guards: set[str] = set()
+
+        for prev_exit_y, pending_variant in plan.bk_replacements.get(candidate_base, {}).items():
+            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+                continue
+            guards.update(plan.exit_classes.get(prev_exit_y, set()))
+
+        for pending_variant, prev_glyphs in plan.pair_overrides.get(candidate_base, []):
+            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+                continue
+            expanded_prev = set()
+            for prev_glyph in prev_glyphs:
+                prev_base = glyph_meta[prev_glyph].base_name if prev_glyph in glyph_meta else prev_glyph
+                expanded_prev.update(plan.base_to_variants.get(prev_base, ()))
+            guards.update(expanded_prev)
+
+        return guards
 
     bk_features: dict[str, list[tuple[str, str, list[str]]]] = defaultdict(list)
     for base_name, overrides in plan.gated_pair_overrides.items():
         for variant_name, after_glyphs, feature_tag in overrides:
-            expanded = set()
-            for glyph in after_glyphs:
-                base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
-                expanded.update(plan.base_to_variants.get(base, ()))
-
-            variant_meta = glyph_meta[variant_name]
-            if variant_meta.entry_restriction_y is not None:
-                ey = variant_meta.entry_restriction_y
-                expanded = {g for g in expanded if _can_exit_at(g, ey)}
+            expanded = _expand_backward_after_variants(
+                variant_name,
+                after_glyphs,
+                expand_selector=lambda glyph: plan.base_to_variants.get(
+                    glyph_meta[glyph].base_name if glyph in glyph_meta else glyph,
+                    (),
+                ),
+                glyph_meta=glyph_meta,
+                base_to_variants=plan.base_to_variants,
+            )
+            if not expanded:
+                continue
 
             for terminal in sorted(expanded & plan.terminal_entry_only):
                 expanded.discard(terminal)
+            if not expanded:
+                continue
 
             bk_features[feature_tag].append(
                 (base_name, variant_name, sorted(expanded))
@@ -1577,6 +1700,15 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                     lines.append(
                         f"        ignore sub [{' '.join(after_list)}] {base_name}' {nb};"
                     )
+            entry_ys = set(variant_meta.entry_ys)
+            if entry_ys:
+                for candidate_name in after_list:
+                    guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, entry_ys)
+                    if guard_glyphs:
+                        guard_list = " ".join(sorted(guard_glyphs))
+                        lines.append(
+                            f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
+                        )
             lines.append(
                 f"        sub [{' '.join(after_list)}] {base_name}' by {variant_name};"
             )

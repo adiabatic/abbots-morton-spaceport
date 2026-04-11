@@ -141,7 +141,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 
 - `ss01`: suppress ·Utter·Pea join
 - `ss02`: allow ·I·Tea to join at the Short height
-- `ss03`: allow ·It to join at baseline on both sides after ·Day
+- `ss03`: allow ·It to join at baseline on both sides after ·Day and before ·Low
 - `ss04`: allow ·I·May to join at the Short height
 - `ss05`: allow ·Ox·May to join at baseline
 - `ss10`: suppress all joins for the wrapped letter(s) — reverts every contextual variant to its base form, removing all cursive anchors. Useful as an alternative to ZWNJ when you want a letter to stand alone without connecting to its neighbors; wrap the letter in a `<span>` with `font-feature-settings: "ss10" 1`.
