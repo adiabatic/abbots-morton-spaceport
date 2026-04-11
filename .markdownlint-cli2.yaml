@@ -2,3 +2,5 @@ config:
   line-length: false
   first-line-heading: false
   no-inline-html: false
+  no-duplicate-heading:
+    siblings_only: true
