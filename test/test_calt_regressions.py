@@ -28,7 +28,7 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
 def test_qs_no_alt_requires_a_compatible_it_exit():
     assert _shape("\uE65F\uE670\uE666") == [
         "qsJay",
-        "qsIt.entry-baseline",
+        "qsIt.exit-xheight",
         "qsNo",
     ]
 

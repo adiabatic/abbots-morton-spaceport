@@ -1903,7 +1903,7 @@ glyph_families:
           entry: [1, 0]
           exit: [2, 5]
         select:
-          not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
+          not_after: [{family: qsEat}, {family: qsIt}, {family: qsJay}, {family: qsZoo}]
         derive:
           extend_entry_after: [{family: qsKey}]
           extend_exit_before: [{family: qsZoo}]
@@ -1924,7 +1924,7 @@ glyph_families:
           exit: [2, 0]
         select:
           before: [{family: qsLow}]
-          not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
+          not_after: [{family: qsEat}, {family: qsIt}, {family: qsJay}, {family: qsZoo}]
         gate_feature_behind: ss03
         modifiers: [entry-baseline, before-low]
       exit_xheight:
