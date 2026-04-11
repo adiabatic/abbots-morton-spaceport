@@ -6,6 +6,16 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 11.000
 
+Hoopy Froude edition
+
+11.000 pushes Abbots Morton Spaceport Senior through the end of the Froude-on-Drake passage on page 27 of The Manual.
+
+#### Quikscript Senior
+
+- ZWNJs now do what they’re supposed to in more cases — particularly when the letter after the ZWNJ would otherwise have its form chosen based on a letter preceding the ZWNJ (e.g. the `·Jay ZWNJ ·It` in “Virgin”)
+- Don’t use half-·Way before ·Eat
+- Don’t use baseline-entry ·It after ·Jay
+
 ### 10.001
 
 > Today I’m combining alphabet soup and a laxative.
