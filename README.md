@@ -7,7 +7,10 @@ A pixel-font pair (mostly) for [Quikscript][]. Available as a sans-serif version
 
 You can get a copy of the latest .otf and .woff2 files from [the Releases page][r].
 
+If you’d like this in a non-pixel version, keep your eye on [Abbots Morton][am].
+
 [r]: https://github.com/adiabatic/abbots-morton-spaceport/releases
+[am]: https://github.com/adiabatic/abbots-morton
 
 ## Usage
 
