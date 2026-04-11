@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 
 
@@ -209,6 +210,28 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
     assert "feature curs {" in fea
     assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in fea
     assert "pos cursive qsLead.noentry <anchor NULL> <anchor 50 0>;" in fea
+
+
+def test_contextual_noentry_substitutions_stay_entryless():
+    data = load_glyph_data(ROOT / "glyph_data")
+    compiled = compile_glyph_set(data, "senior")
+    fea = emit_quikscript_senior_features(
+        compiled.join_glyphs,
+        data["metadata"]["pixel_size"],
+        data["metadata"]["pixel_size"],
+    )
+
+    contextual_sub = re.compile(r"sub ([A-Za-z0-9_.-]+)' .* by ([A-Za-z0-9_.-]+);")
+    for line in fea.splitlines():
+        match = contextual_sub.search(line)
+        if not match:
+            continue
+        lhs, rhs = match.groups()
+        if not lhs.endswith(".noentry"):
+            continue
+        rhs_meta = compiled.glyph_meta[rhs]
+        assert not rhs_meta.entry, line
+        assert not rhs_meta.entry_curs_only, line
 
 
 def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch):
