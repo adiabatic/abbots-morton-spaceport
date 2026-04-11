@@ -23,3 +23,20 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
         "qsSee.exit-baseline-right",
         "qsOoze",
     ]
+
+
+def test_qs_no_alt_requires_a_compatible_it_exit():
+    assert _shape("\uE65F\uE670\uE666") == [
+        "qsJay",
+        "qsIt.entry-baseline",
+        "qsNo",
+    ]
+
+
+def test_qs_low_entry_extended_requires_a_compatible_see_exit():
+    assert _shape("\uE665\uE670\uE65A\uE667") == [
+        "qsMay.exit-extended",
+        "qsIt.entry-xheight",
+        "qsSee",
+        "qsLow",
+    ]
