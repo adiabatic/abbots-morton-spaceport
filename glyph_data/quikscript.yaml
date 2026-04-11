@@ -1276,7 +1276,7 @@ glyph_families:
         anchors:
           exit: [4, 0]
         select:
-          not_before: [{family: qsIt}]
+          not_before: [{family: qsEat}, {family: qsIt}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
