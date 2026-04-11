@@ -62,6 +62,8 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
     for glyph_name, meta in glyph_meta.items():
         if meta.word_final:
             continue
+        if meta.is_noentry:
+            continue
         if not meta.is_entry_variant:
             if not meta.entry and not meta.after:
                 continue
@@ -559,6 +561,59 @@ def _can_eventually_exit_at(
     )
 
 
+def _has_left_entry(meta: JoinGlyph) -> bool:
+    return bool(meta.entry or meta.entry_curs_only)
+
+
+def _resolve_noentry_replacement(
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    target_name: str,
+    replacement_name: str,
+) -> str | None:
+    target_meta = glyph_meta[target_name]
+    if not target_meta.is_noentry:
+        return replacement_name
+
+    replacement_meta = glyph_meta[replacement_name]
+    if not _has_left_entry(replacement_meta):
+        return replacement_name
+
+    desired_exit_ys = tuple(sorted(set(replacement_meta.exit_ys)))
+    candidates: list[tuple[tuple, str]] = []
+    for candidate_name in sorted(base_to_variants.get(replacement_meta.base_name, ())):
+        candidate_meta = glyph_meta[candidate_name]
+        if _has_left_entry(candidate_meta):
+            continue
+        if tuple(sorted(set(candidate_meta.exit_ys))) != desired_exit_ys:
+            continue
+        if candidate_meta.extended_exit_suffix != replacement_meta.extended_exit_suffix:
+            continue
+        candidate_modifiers = tuple(
+            modifier for modifier in candidate_meta.modifiers if modifier != "noentry"
+        )
+        score = (
+            candidate_meta.generated_from == replacement_name,
+            candidate_meta.noentry_for == replacement_name,
+            candidate_meta.exit == replacement_meta.exit,
+            candidate_meta.exit_suffix == replacement_meta.exit_suffix,
+            candidate_meta.before == replacement_meta.before,
+            candidate_meta.not_before == replacement_meta.not_before,
+            candidate_meta.gate_feature == replacement_meta.gate_feature,
+            candidate_meta.transform_kind == replacement_meta.transform_kind,
+            candidate_modifiers == replacement_meta.modifiers,
+            not candidate_meta.is_contextual,
+            -len(candidate_meta.modifiers),
+        )
+        candidates.append((score, candidate_name))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][1]
+
+
 def _expand_backward_after_variants(
     variant_name: str,
     after_glyphs: list[str] | tuple[str, ...],
@@ -573,18 +628,19 @@ def _expand_backward_after_variants(
 
     for after_glyph in after_glyphs:
         candidates = set(expand_selector(after_glyph))
-        # Also consider the .noentry variant of the same base. calt_zwnj
-        # substitutes a qs letter with its .noentry form after a ZWNJ, and the
-        # standard variant expander does not return it, so backward-context
-        # rules would otherwise miss that case and fail to fire.
+        # Also consider any generated .noentry variants of the same base.
+        # calt_zwnj substitutes a qs letter with one of these forms after a
+        # ZWNJ, and the standard variant expander does not return them, so
+        # backward-context rules would otherwise miss those cases and fail to
+        # fire.
         after_base = (
             glyph_meta[after_glyph].base_name
             if after_glyph in glyph_meta
             else after_glyph
         )
-        noentry_candidate = f"{after_base}.noentry"
-        if noentry_candidate in glyph_meta:
-            candidates.add(noentry_candidate)
+        for candidate_name in base_to_variants.get(after_base, ()):
+            if glyph_meta[candidate_name].is_noentry:
+                candidates.add(candidate_name)
         if entry_ys:
             candidates = {
                 candidate for candidate in candidates
@@ -866,6 +922,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             extended = variant_name + ".entry-extended"
                         if extended in glyph_names:
                             actual_variant = extended
+                    actual_variant = _resolve_noentry_replacement(
+                        glyph_meta,
+                        base_to_variants,
+                        target,
+                        actual_variant,
+                    )
+                    if actual_variant is None:
+                        continue
                     effective_before = target_before if target_before is not None else expanded_before
                     effective_before_list = " ".join(sorted(effective_before)) if target_before is not None else before_list
                     for pi_guard, pi_before in partial_ignores:
@@ -929,7 +993,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if fwd_bk_excl:
                         for bg in sorted(_expand_exclusions(fwd_bk_excl)):
                             lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
-                    lines.append(f"        sub {noentry_name}' {cls} by {variant_name};")
+                    actual_variant = _resolve_noentry_replacement(
+                        glyph_meta,
+                        base_to_variants,
+                        noentry_name,
+                        variant_name,
+                    )
+                    if actual_variant is None:
+                        continue
+                    lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_fwd(base_name: str):
@@ -1755,6 +1827,14 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                         extended = variant_name + ".entry-extended"
                     if extended in glyph_names:
                         actual_variant = extended
+                actual_variant = _resolve_noentry_replacement(
+                    glyph_meta,
+                    plan.base_to_variants,
+                    target,
+                    actual_variant,
+                )
+                if actual_variant is None:
+                    continue
                 if not_after_list:
                     lines.append(
                         f"        ignore sub [{' '.join(not_after_list)}] {target}' [{' '.join(before_list)}];"

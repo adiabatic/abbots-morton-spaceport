@@ -161,6 +161,45 @@ def test_noentry_generation_uses_authored_modifiers_not_compiled_name():
     assert "qsBase.alt.noentry" not in variants
 
 
+def test_noentry_generation_keeps_exit_bearing_variants_usable_after_zwnj():
+    glyph_meta = _compiled_set(
+        {
+            "glyphs": {
+                "uni200C": {
+                    "bitmap": [],
+                    "advance_width": 0,
+                },
+            },
+            "glyph_families": {
+                "qsBase": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                    "forms": {
+                        "exit_form": {
+                            "shape": "prop",
+                            "anchors": {
+                                "entry": [0, 0],
+                                "exit": [1, 0],
+                            },
+                            "modifiers": ["exit-baseline"],
+                        },
+                    },
+                },
+            },
+        }
+    ).glyph_meta
+
+    variants = generate_noentry_variants(glyph_meta, has_zwnj=True)
+
+    assert "qsBase.exit-baseline.noentry" in variants
+    assert variants["qsBase.exit-baseline.noentry"].entry == ()
+    assert variants["qsBase.exit-baseline.noentry"].exit == ((1, 0),)
+
+
 def test_structured_family_selectors_resolve_to_compiled_names():
     glyphs = _compiled_set(
         {

@@ -1172,9 +1172,12 @@ def generate_noentry_variants(
 
     variants: dict[str, JoinGlyph] = {}
     for name, join_glyph in sorted(join_glyphs.items()):
-        if join_glyph.modifiers:
+        if join_glyph.is_noentry:
             continue
-        if not join_glyph.entry and name not in bases_with_entry_forms:
+        if join_glyph.modifiers:
+            if not join_glyph.entry or not join_glyph.exit:
+                continue
+        elif not join_glyph.entry and name not in bases_with_entry_forms:
             continue
         variant_name = name + ".noentry"
         variants[variant_name] = derive_join_glyph(
