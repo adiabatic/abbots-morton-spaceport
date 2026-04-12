@@ -1,4 +1,4 @@
-.PHONY: all test print-job watch explainer
+.PHONY: all test print-job serve explainer
 
 all:
 	uv run python tools/gen_ensure_sanity.py
@@ -14,5 +14,5 @@ print-job: all
 explainer:
 	cd doc/explainer && typst compile main.typ
 
-watch:
-	uv run python tools/watch.py
+serve:
+	uv run python tools/serve.py
