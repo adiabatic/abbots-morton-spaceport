@@ -7,6 +7,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 ### 12.000
 
 - Fix ·Low and ·Llan (I’ve been writing them wrong this entire time)
+- Add `ss06` (allow ·Roe·Eight joins at the x-height)
 
 ### 11.000
 
@@ -19,6 +20,7 @@ Hoopy Froude edition
 - ZWNJs now do what they’re supposed to in more cases — particularly when the letter after the ZWNJ would otherwise have its form chosen based on a letter preceding the ZWNJ (e.g. the `·Jay ZWNJ ·It` in “Virgin”)
 - Don’t use half-·Way before ·Eat
 - Don’t use baseline-entry ·It after ·Jay
+- Add `ss04` (allow ·I·May join at the Short height)
 
 ### 10.001
 
