@@ -248,7 +248,7 @@ def build_html(failed_keys):
       <button id="font-order-toggle">AMS first</button>
       <button id="font-toggle">Sans</button>
       <button id="level-toggle">Senior</button>
-      <button id="weight-toggle">Weight 400</button>
+      <button id="weight-toggle">Regular</button>
     </div>
 
     <p>Joins that are visibly broken, found by reviewing the tables page.</p>

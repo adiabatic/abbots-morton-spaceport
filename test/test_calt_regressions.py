@@ -5,7 +5,7 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf"
+FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import load_glyph_data

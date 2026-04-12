@@ -55,15 +55,28 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
   src: url(…/fonts/DepartureMono-Regular.woff2) format('woff2');
 }
 
-/* Pick one (or both) */
+/* Pick one (or both). Add the matching `-Bold.woff2` file if you want the
+   bold button to work. */
 @font-face {
   font-family: 'Abbots Morton Spaceport Sans Junior';
-  src: url(…/fonts/AbbotsMortonSpaceportSansJunior.woff2) format('woff2');
+  src: url(…/fonts/AbbotsMortonSpaceportSansJunior-Regular.woff2) format('woff2');
+  font-weight: 400;
+}
+@font-face {
+  font-family: 'Abbots Morton Spaceport Sans Junior';
+  src: url(…/fonts/AbbotsMortonSpaceportSansJunior-Bold.woff2) format('woff2');
+  font-weight: 700;
 }
 
 @font-face {
   font-family: 'Abbots Morton Spaceport Mono';
-  src: url(…/fonts/AbbotsMortonSpaceportMono.woff2) format('woff2');
+  src: url(…/fonts/AbbotsMortonSpaceportMono-Regular.woff2) format('woff2');
+  font-weight: 400;
+}
+@font-face {
+  font-family: 'Abbots Morton Spaceport Mono';
+  src: url(…/fonts/AbbotsMortonSpaceportMono-Bold.woff2) format('woff2');
+  font-weight: 700;
 }
 
 /* you probably know what selector you want already, but we’ll go with :root */
@@ -115,21 +128,17 @@ You know how people use [Nerd Fonts][] to get their usual fonts with extra glyph
 
 ## Weights
 
-Abbots Morton Sans (not Mono) is a variable font. The only variable axis that it has is `wght` — the one used to control how thin/bold the letters are.
+Every family ships as a pair of static OTFs — a Regular and a Bold — for six files total:
 
-Abbots Morton Sans takes the unpopular approach of having the `wght` axis control the _width_ of the pixels that make up the font.
+- `AbbotsMortonSpaceportMono-Regular.otf` and `-Bold.otf`
+- `AbbotsMortonSpaceportSansJunior-Regular.otf` and `-Bold.otf`
+- `AbbotsMortonSpaceportSansSenior-Regular.otf` and `-Bold.otf`
 
-- 200: half-width pixels
-- 300: ¾-width pixels
-- 400: normal-width pixels
-- 600: 1½-width pixels
-- 800: double-width pixels
+The Bold variant is a half-pixel rightward overstrike of the Regular — every “on” pixel becomes 1½ pixels wide — inspired by [Kim Slawson’s bold mockup for Departure Mono](https://github.com/rektdeckard/departure-mono/issues/17#issuecomment-2863240009). The logical pixel grid, advance widths, kerning, and cursive joins are all identical between Regular and Bold, so mixing them in one run of text just makes the strokes thicker without disturbing any of the layout.
 
-You will probably want to avoid selecting `Bold` in applications when using this; `Bold` is conventionally `700`.
+Regular and Bold are style-linked the conventional way, so `<b>`, `font-weight: 700`, and the Word/Pages Bold button all pick up the Bold file automatically when both are installed.
 
-Double-wide pixels are ugly, but they are definitely _bold_. On the other hand, there’s a reason roughly nobody is nostalgic for super-wide fonts from the early days of computing.
-
-Your ability to get not-horrible results from weights other than 400 and 800 depends on your font size and display device. If you’re targeting screens at 100% text zoom (@1x in Apple-speak), then if you want to use half-size pixels or 1½-size pixels, you’ll need to have a font size of 22/44/66…px. If you’re assuming everyone who reads your stuff has a Retina-class display (200% text zoom, @2x) then you’re only going to need to limit yourself to font sizes like 22/44/66px for (and-a-)quarter-pixel weights. Of course, if you’re targeting print with, say, a 600 or a 1200 DPI resolution, then you can probably pick a weight outside these multiples of 100, like `451`, and still be OK.
+There is no variable font and no `wght` axis. (Earlier versions of this font shipped a `wght` axis that controlled pixel width; that’s gone.)
 
 ## Variation selectors
 

@@ -45,10 +45,12 @@ jobs:
         run: |
           uv run python -c "
           from fontTools.ttLib import TTFont
-          for name in ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceportSansJunior', 'AbbotsMortonSpaceportSansSenior']:
-              font = TTFont(f'build/{name}.otf')
-              font.flavor = 'woff2'
-              font.save(f'build/{name}.woff2')
+          families = ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceportSansJunior', 'AbbotsMortonSpaceportSansSenior']
+          for family in families:
+              for style in ('Regular', 'Bold'):
+                  font = TTFont(f'build/{family}-{style}.otf')
+                  font.flavor = 'woff2'
+                  font.save(f'build/{family}-{style}.woff2')
           "
 
       - name: Generate test pages
@@ -57,12 +59,18 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p site
-          cp build/AbbotsMortonSpaceportMono.otf site/
-          cp build/AbbotsMortonSpaceportMono.woff2 site/
-          cp build/AbbotsMortonSpaceportSansJunior.otf site/
-          cp build/AbbotsMortonSpaceportSansJunior.woff2 site/
-          cp build/AbbotsMortonSpaceportSansSenior.otf site/
-          cp build/AbbotsMortonSpaceportSansSenior.woff2 site/
+          cp build/AbbotsMortonSpaceportMono-Regular.otf site/
+          cp build/AbbotsMortonSpaceportMono-Regular.woff2 site/
+          cp build/AbbotsMortonSpaceportMono-Bold.otf site/
+          cp build/AbbotsMortonSpaceportMono-Bold.woff2 site/
+          cp build/AbbotsMortonSpaceportSansJunior-Regular.otf site/
+          cp build/AbbotsMortonSpaceportSansJunior-Regular.woff2 site/
+          cp build/AbbotsMortonSpaceportSansJunior-Bold.otf site/
+          cp build/AbbotsMortonSpaceportSansJunior-Bold.woff2 site/
+          cp build/AbbotsMortonSpaceportSansSenior-Regular.otf site/
+          cp build/AbbotsMortonSpaceportSansSenior-Regular.woff2 site/
+          cp build/AbbotsMortonSpaceportSansSenior-Bold.otf site/
+          cp build/AbbotsMortonSpaceportSansSenior-Bold.woff2 site/
           cp test/DepartureMono-Regular.otf site/
           cp test/index.html site/index.html
           cp test/exotics.html site/
@@ -87,12 +95,18 @@ jobs:
         with:
           name: font-files
           path: |
-            build/AbbotsMortonSpaceportMono.otf
-            build/AbbotsMortonSpaceportMono.woff2
-            build/AbbotsMortonSpaceportSansJunior.otf
-            build/AbbotsMortonSpaceportSansJunior.woff2
-            build/AbbotsMortonSpaceportSansSenior.otf
-            build/AbbotsMortonSpaceportSansSenior.woff2
+            build/AbbotsMortonSpaceportMono-Regular.otf
+            build/AbbotsMortonSpaceportMono-Regular.woff2
+            build/AbbotsMortonSpaceportMono-Bold.otf
+            build/AbbotsMortonSpaceportMono-Bold.woff2
+            build/AbbotsMortonSpaceportSansJunior-Regular.otf
+            build/AbbotsMortonSpaceportSansJunior-Regular.woff2
+            build/AbbotsMortonSpaceportSansJunior-Bold.otf
+            build/AbbotsMortonSpaceportSansJunior-Bold.woff2
+            build/AbbotsMortonSpaceportSansSenior-Regular.otf
+            build/AbbotsMortonSpaceportSansSenior-Regular.woff2
+            build/AbbotsMortonSpaceportSansSenior-Bold.otf
+            build/AbbotsMortonSpaceportSansSenior-Bold.woff2
             README.md
             FONTLOG.md
 

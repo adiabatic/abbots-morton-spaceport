@@ -21,7 +21,7 @@ Steps:
 5. Verify the glyph matches exactly:
 
    ```zsh
-   uv run python tools/extract_glyph.py --compare $ARGUMENTS test/DepartureMono-Regular.otf test/AbbotsMortonSpaceportMono.otf
+   uv run python tools/extract_glyph.py --compare $ARGUMENTS test/DepartureMono-Regular.otf test/AbbotsMortonSpaceportMono-Regular.otf
    ```
 
    All metrics must match (advance_width, xMin, yMin, xMax, yMax, left_side_bearing). If they don't match, investigate and fix.
