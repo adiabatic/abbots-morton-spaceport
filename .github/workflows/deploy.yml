@@ -83,6 +83,7 @@ jobs:
           cp test/shared.css site/
           cp test/shared.js site/
           cp test/gear-menu.js site/
+          cp test/quikscript-title.svg site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
