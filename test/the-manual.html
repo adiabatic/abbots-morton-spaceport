@@ -95,10 +95,10 @@
       }
 
       /*
-     * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
-     *
-     * .dot-marker uses bottom: 0 because its inline-block baseline IS the text baseline. The .alphabet__glyphs pseudo-elements override bottom to calc(4em / 11) to account for half-leading (1em/11) + descender (3em/11) within the table cell.
-     */
+       * Dot markers: one font pixel (calc(1em / 11), since 550 UPM / 50 px = 11) at the baseline, with a box-shadow copy 5 font pixels up at the topmost Short-height pixel.
+       *
+       * .dot-marker uses bottom: 0 because its inline-block baseline IS the text baseline. The .alphabet__glyphs pseudo-elements override bottom to calc(4em / 11) to account for half-leading (1em/11) + descender (3em/11) within the table cell.
+       */
       .dot-marker {
         display: inline-block;
         width: calc(1em / 11);
@@ -237,6 +237,10 @@
         <button id="wipe-settings">Wipe settings</button>
       </div>
     </div>
+
+    <section hidden>
+      <b>Instructions to agents</b>: If you’re reading this page to find out how to spell things in Quikscript, the ZWNJs in words are non-canonical. They are only used here to get the look of words exactly right because this page is attempting to exactly re-create the joins and shapes used in the original manual, which has handwritten sections where a word might be joined one way in one place and joined differently in another place.
+    </section>
 
     <h2>Alphabet sheet</h2>
     <section class="panel">
