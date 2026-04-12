@@ -55,8 +55,7 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
   src: url(…/fonts/DepartureMono-Regular.woff2) format('woff2');
 }
 
-/* Pick one (or both). Add the matching `-Bold.woff2` file if you want the
-   bold button to work. */
+/* Pick Junior, Senior, or both. You’ll probably want the matching `-Bold.woff2` file, too. */
 @font-face {
   font-family: 'Abbots Morton Spaceport Sans Junior';
   src: url(…/fonts/AbbotsMortonSpaceportSansJunior-Regular.woff2) format('woff2');
@@ -134,11 +133,7 @@ Every family ships as a pair of static OTFs — a Regular and a Bold — for six
 - `AbbotsMortonSpaceportSansJunior-Regular.otf` and `-Bold.otf`
 - `AbbotsMortonSpaceportSansSenior-Regular.otf` and `-Bold.otf`
 
-The Bold variant is a half-pixel rightward overstrike of the Regular — every “on” pixel becomes 1½ pixels wide — inspired by [Kim Slawson’s bold mockup for Departure Mono](https://github.com/rektdeckard/departure-mono/issues/17#issuecomment-2863240009). The logical pixel grid, advance widths, kerning, and cursive joins are all identical between Regular and Bold, so mixing them in one run of text just makes the strokes thicker without disturbing any of the layout.
-
-Regular and Bold are style-linked the conventional way, so `<b>`, `font-weight: 700`, and the Word/Pages Bold button all pick up the Bold file automatically when both are installed.
-
-There is no variable font and no `wght` axis. (Earlier versions of this font shipped a `wght` axis that controlled pixel width; that’s gone.)
+The Bold variant is a half-pixel rightward overstrike of the Regular — every “on” pixel becomes 1½ pixels wide. This is totally fine if your text is set at 22px (instead of the bare-minimum 11px) or if you can assume that one CSS pixel is actually four device pixels, as is true for Retina-class displays (displays at 200% text zoom).
 
 ## Variation selectors
 
@@ -186,4 +181,5 @@ SIL OFL 1.1 for the font files themselves, and MIT for everything else.
 
 - [Helena Zhang](https://departuremono.com/) — Inspiration, more than a few directly-copied glyphs, several lightly-changed glyphs, and a handful of glyphs I just drew myself that amusingly happened to look exactly like DM’s
 - [Brad Neil](https://friedorange.xyz/) — Design critique
+- Kim Slawson for [his bold mockup for Departure Mono](https://github.com/rektdeckard/departure-mono/issues/17#issuecomment-2863240009)
 - anyone who’s ever written about fontmaking in public on the Internet — your discussions have been the wind beneath my LLMs’ wings
