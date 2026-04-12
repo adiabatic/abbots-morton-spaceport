@@ -6,8 +6,8 @@ import uharfbuzz as hb
 ROOT = Path(__file__).resolve().parent.parent
 
 PROPORTIONAL_FONTS = [
-    ROOT / "test" / "AbbotsMortonSpaceportSansJunior.otf",
-    ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf",
+    ROOT / "test" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
+    ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
 ]
 
 

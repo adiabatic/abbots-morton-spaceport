@@ -71,8 +71,9 @@ export function initToggles(opts = {}) {
   let isSans = true;
   let isSenior = true;
   let dmFirst = false;
-  const weights = [200, 400, 600, 800];
-  let weightIndex = 1;
+  const weights = [400, 700];
+  const weightLabels = ['Regular', 'Bold'];
+  let weightIndex = 0;
   const sizes = [11, 22, 33, 44, 55, 66, 77, 88];
   let sizeIndex = 1;
 
@@ -103,7 +104,7 @@ export function initToggles(opts = {}) {
     document.documentElement.style.setProperty('--font-weight', String(fontWeight));
     if (titleEl) titleEl.textContent = fontTitle;
     if (fontToggle) fontToggle.textContent = isSans ? 'Sans' : 'Mono';
-    if (weightToggle) weightToggle.textContent = `Weight ${weights[weightIndex]}`;
+    if (weightToggle) weightToggle.textContent = weightLabels[weightIndex];
 
     if (sizeDisplay) {
       document.documentElement.style.setProperty('--font-size', sizes[sizeIndex] + 'px');

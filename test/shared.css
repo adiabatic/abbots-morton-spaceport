@@ -1,16 +1,37 @@
 @font-face {
   font-family: "Abbots Morton Spaceport Mono";
-  src: url("AbbotsMortonSpaceportMono.otf") format("opentype");
+  src: url("AbbotsMortonSpaceportMono-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Abbots Morton Spaceport Mono";
+  src: url("AbbotsMortonSpaceportMono-Bold.otf") format("opentype");
+  font-weight: 700;
 }
 
 @font-face {
   font-family: "Abbots Morton Spaceport Sans Junior";
-  src: url("AbbotsMortonSpaceportSansJunior.otf") format("opentype");
+  src: url("AbbotsMortonSpaceportSansJunior-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Abbots Morton Spaceport Sans Junior";
+  src: url("AbbotsMortonSpaceportSansJunior-Bold.otf") format("opentype");
+  font-weight: 700;
 }
 
 @font-face {
   font-family: "Abbots Morton Spaceport Sans Senior";
-  src: url("AbbotsMortonSpaceportSansSenior.otf") format("opentype");
+  src: url("AbbotsMortonSpaceportSansSenior-Regular.otf") format("opentype");
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Abbots Morton Spaceport Sans Senior";
+  src: url("AbbotsMortonSpaceportSansSenior-Bold.otf") format("opentype");
+  font-weight: 700;
 }
 
 @font-face {

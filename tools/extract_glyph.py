@@ -13,7 +13,7 @@ Usage:
     # Compare a glyph between two fonts
     uv run python tools/extract_glyph.py --compare zero \\
         test/DepartureMono-Regular.otf \\
-        test/AbbotsMortonSpaceportMono.otf
+        test/AbbotsMortonSpaceportMono-Regular.otf
 """
 
 import argparse

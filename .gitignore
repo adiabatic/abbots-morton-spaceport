@@ -10,12 +10,9 @@ wheels/
 .venv
 
 # Build stuff
-/test/AbbotsMortonSpaceportMono.otf
+/test/AbbotsMortonSpaceport*.otf
+/test/AbbotsMortonSpaceport*.fea
 /test/ensure-sanity.html
-/test/AbbotsMortonSpaceportSansJunior.otf
-/test/AbbotsMortonSpaceportSansJunior.fea
-/test/AbbotsMortonSpaceportSansSenior.otf
-/test/AbbotsMortonSpaceportSansSenior.fea
 /test/print.pdf
 
 # Scratch files

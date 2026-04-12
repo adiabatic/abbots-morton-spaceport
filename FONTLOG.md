@@ -8,6 +8,9 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 - Fix ·Low and ·Llan (I’ve been writing them wrong this entire time)
 - Add `ss06` (allow ·Roe·Eight joins at the x-height)
+- Remove the `wght` variable-font axis
+- Add a Bold variant for Mono, Sans Junior, and Sans Senior via half-pixel rightward overstrike, inspired by [Kim Slawson’s Departure Mono bold mockup](https://github.com/rektdeckard/departure-mono/issues/17#issuecomment-2863240009). Regular and Bold are style-linked the conventional way, so the Bold button in your application will work.
+- Rename all font files to include a `-Regular` or `-Bold` suffix. Six static OTFs now ship in each release: `AbbotsMortonSpaceport{Mono,SansJunior,SansSenior}-{Regular,Bold}.otf`. Anyone pinning the old unsuffixed filenames will need to update their references.
 
 ### 11.000
 

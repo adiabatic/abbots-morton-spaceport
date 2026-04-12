@@ -70,17 +70,20 @@ def test_mono_preview_resets_to_regular_weight():
         });
 
         assert.equal(style.get('--font-weight'), '400');
+        assert.equal(weightToggle.textContent, 'Regular');
 
         weightToggle.click();
-        assert.equal(style.get('--font-weight'), '600');
-        assert.equal(toggles.getState().weightIndex, 2);
+        assert.equal(style.get('--font-weight'), '700');
+        assert.equal(weightToggle.textContent, 'Bold');
+        assert.equal(toggles.getState().weightIndex, 1);
 
         fontToggle.click();
         assert.equal(style.get('--font-weight'), '400');
-        assert.equal(toggles.getState().weightIndex, 2);
+        assert.equal(toggles.getState().weightIndex, 1);
 
         fontToggle.click();
-        assert.equal(style.get('--font-weight'), '600');
+        assert.equal(style.get('--font-weight'), '700');
+        assert.equal(weightToggle.textContent, 'Bold');
         """
     )
 

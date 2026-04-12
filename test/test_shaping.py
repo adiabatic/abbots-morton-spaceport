@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATHS = {
-    "senior": ROOT / "test" / "AbbotsMortonSpaceportSansSenior.otf",
-    "junior": ROOT / "test" / "AbbotsMortonSpaceportSansJunior.otf",
+    "senior": ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
+    "junior": ROOT / "test" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
 }
 FONT_PATH = FONT_PATHS["senior"]  # legacy alias
 GLYPH_DATA_DIR = ROOT / "glyph_data"
