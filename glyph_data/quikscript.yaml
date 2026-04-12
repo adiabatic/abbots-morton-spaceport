@@ -924,7 +924,7 @@ glyph_families:
           before: [{family: qsAt}, {family: qsOut}]
           not_after: [{family: qsIt}]
         derive:
-          extend_exit_before: [{family: qsLow}]
+          doubly_extend_exit_before: [{family: qsLow}]
         modifiers: [exit-baseline]
       exit_baseline_right:
         shape: shape_3
