@@ -86,7 +86,7 @@ jobs:
           cp test/quikscript-title.svg site/
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
@@ -156,7 +156,7 @@ jobs:
           zip -r "../abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip" .
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip
           body: ${{ steps.changelog.outputs.CHANGELOG }}
