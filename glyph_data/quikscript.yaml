@@ -1534,7 +1534,6 @@ glyph_families:
           after: [{family: qsI}]
         derive:
           extend_entry_after: null
-        gate_feature_behind: ss04
         modifiers: [after-i]
       entry_baseline:
         shape: mono
@@ -2074,11 +2073,11 @@ glyph_families:
         - family: qsFoot
         - family: qsIt
         - family: qsLlan
+        - family: qsMay
         - family: qsNo
         - family: qsRoe
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-          ss04: [{family: qsMay}]
     shapes:
       shape_1:
         bitmap:
