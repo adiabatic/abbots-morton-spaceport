@@ -8,6 +8,7 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 - Fix ·Low and ·Llan (yes, I’ve been writing them wrong _this entire time_)
 - Add `ss06` (allow ·Roe·Eight joins at the x-height)
+- Remove `ss04`; ·I·May now joins at the Short height by default (use ZWNJ to suppress)
 - Remove the `wght` variable-font axis, and…
 - Add a Bold variant for Mono, Sans Junior, and Sans Senior
 - Rename all font files to include a `-Regular` or `-Bold` suffix
