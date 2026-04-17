@@ -45,12 +45,11 @@ jobs:
         run: |
           uv run python -c "
           from fontTools.ttLib import TTFont
-          families = ['AbbotsMortonSpaceportMono', 'AbbotsMortonSpaceportSansJunior', 'AbbotsMortonSpaceportSansSenior']
-          for family in families:
-              for style in ('Regular', 'Bold'):
-                  font = TTFont(f'build/{family}-{style}.otf')
-                  font.flavor = 'woff2'
-                  font.save(f'build/{family}-{style}.woff2')
+          from pathlib import Path
+          for otf in Path('build').glob('*.otf'):
+              font = TTFont(otf)
+              font.flavor = 'woff2'
+              font.save(otf.with_suffix('.woff2'))
           "
 
       - name: Generate test pages
@@ -59,30 +58,10 @@ jobs:
       - name: Prepare site
         run: |
           mkdir -p site
-          cp build/AbbotsMortonSpaceportMono-Regular.otf site/
-          cp build/AbbotsMortonSpaceportMono-Regular.woff2 site/
-          cp build/AbbotsMortonSpaceportMono-Bold.otf site/
-          cp build/AbbotsMortonSpaceportMono-Bold.woff2 site/
-          cp build/AbbotsMortonSpaceportSansJunior-Regular.otf site/
-          cp build/AbbotsMortonSpaceportSansJunior-Regular.woff2 site/
-          cp build/AbbotsMortonSpaceportSansJunior-Bold.otf site/
-          cp build/AbbotsMortonSpaceportSansJunior-Bold.woff2 site/
-          cp build/AbbotsMortonSpaceportSansSenior-Regular.otf site/
-          cp build/AbbotsMortonSpaceportSansSenior-Regular.woff2 site/
-          cp build/AbbotsMortonSpaceportSansSenior-Bold.otf site/
-          cp build/AbbotsMortonSpaceportSansSenior-Bold.woff2 site/
+          cp build/*.otf build/*.woff2 site/
           cp test/DepartureMono-Regular.otf site/
-          cp test/index.html site/index.html
-          cp test/exotics.html site/
-          cp test/glyph-editor.html site/
-          cp test/specimen.html site/
-          cp test/tables.html site/
-          cp test/extra-senior-words.html site/
-          cp test/ensure-sanity.html site/
-          cp test/the-manual.html site/
-          cp test/shared.css site/
-          cp test/shared.js site/
-          cp test/gear-menu.js site/
+          cp test/*.html site/
+          cp test/shared.css test/shared.js test/gear-menu.js site/
           cp test/quikscript-title.svg site/
 
       - name: Upload Pages artifact
@@ -96,18 +75,8 @@ jobs:
         with:
           name: font-files
           path: |
-            build/AbbotsMortonSpaceportMono-Regular.otf
-            build/AbbotsMortonSpaceportMono-Regular.woff2
-            build/AbbotsMortonSpaceportMono-Bold.otf
-            build/AbbotsMortonSpaceportMono-Bold.woff2
-            build/AbbotsMortonSpaceportSansJunior-Regular.otf
-            build/AbbotsMortonSpaceportSansJunior-Regular.woff2
-            build/AbbotsMortonSpaceportSansJunior-Bold.otf
-            build/AbbotsMortonSpaceportSansJunior-Bold.woff2
-            build/AbbotsMortonSpaceportSansSenior-Regular.otf
-            build/AbbotsMortonSpaceportSansSenior-Regular.woff2
-            build/AbbotsMortonSpaceportSansSenior-Bold.otf
-            build/AbbotsMortonSpaceportSansSenior-Bold.woff2
+            build/*.otf
+            build/*.woff2
             README.md
             FONTLOG.md
 
