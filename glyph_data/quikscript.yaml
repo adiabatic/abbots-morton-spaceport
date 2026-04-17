@@ -1524,7 +1524,7 @@ glyph_families:
         anchors:
           entry: [4, 5]
         select:
-          after: [{family: qsSee_qsUtter}, {context_set: extended_exit_utter_ah}]
+          after: [{family: qsSee_qsUtter}, {family: qsDay_qsUtter}, {context_set: extended_exit_utter_ah}]
         derive:
           extend_entry_after: [{context_set: halves_exit_xheight}]
         modifiers: [entry-xheight]
