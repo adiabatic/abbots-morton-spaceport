@@ -1745,7 +1745,7 @@ glyph_families:
           entry: [[1, 5]]
           exit: [6, 0]
         select:
-          before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsNo}, {family: qsSee}, {family: qsVie}]
+          before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsSee}, {family: qsVie}]
         derive:
           extend_exit_before: [{family: qsI}, {family: qsLow}]
         modifiers: [exit-baseline]
