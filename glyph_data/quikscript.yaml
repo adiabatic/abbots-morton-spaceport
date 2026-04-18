@@ -348,6 +348,12 @@ glyph_families:
           after: [{family: qsI}]
         gate_feature_behind: ss02
         modifiers: [entry-xheight]
+      entry_xheight_after_fee:
+        inherits: entry_xheight
+        select:
+          after: [{family: qsFee}]
+        gate_feature_behind: ss03
+        modifiers: [entry-xheight, after-fee]
   qsTea_qsOy:
     sequence:
     - qsTea
