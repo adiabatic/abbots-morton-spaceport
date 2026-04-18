@@ -129,6 +129,8 @@ def test_glyph_name_normalization_handles_middle_embedded_prop_suffix():
 def test_expand_join_transforms_tracks_generated_sources_and_kinds():
     glyphs, _ = compile_quikscript_ir(
         {
+            "metadata": {},
+            "glyphs": {},
             "glyph_families": {
                 "qsLead": {
                     "prop": {
@@ -154,6 +156,8 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
                     },
                 },
             },
+            "context_sets": {},
+            "kerning": {},
         },
         "junior",
     )
@@ -190,6 +194,8 @@ def test_senior_feature_emitter_includes_join_and_gate_features():
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
     join_glyphs, _ = compile_quikscript_ir(
         {
+            "metadata": {},
+            "glyphs": {},
             "glyph_families": {
                 "qsLead": {
                     "prop": {
@@ -201,6 +207,8 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
                     },
                 },
             },
+            "context_sets": {},
+            "kerning": {},
         },
         "junior",
     )

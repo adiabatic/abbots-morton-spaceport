@@ -2,6 +2,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from quikscript_ir import (
+    GlyphData,
+    GlyphDef,
     JoinGlyph,
     _is_contextual_variant,
     build_join_glyphs,
@@ -26,15 +28,15 @@ _JOIN_REF_KEYS = (
 
 @dataclass(slots=True)
 class CompiledGlyphSet:
-    legacy_glyphs: dict[str, dict | None]
+    legacy_glyphs: dict[str, GlyphDef | None]
     join_glyphs: dict[str, JoinGlyph]
     glyph_meta: dict[str, JoinGlyph]
-    _glyph_definitions: dict[str, dict] | None = field(default=None, init=False, repr=False)
+    _glyph_definitions: dict[str, GlyphDef] | None = field(default=None, init=False, repr=False)
 
     @property
-    def glyph_definitions(self) -> dict[str, dict]:
+    def glyph_definitions(self) -> dict[str, GlyphDef]:
         if self._glyph_definitions is None:
-            glyph_definitions: dict[str, dict] = {
+            glyph_definitions: dict[str, GlyphDef] = {
                 k: v for k, v in self.legacy_glyphs.items() if v is not None
             }
             glyph_definitions.update(flatten_join_glyphs(self.join_glyphs))
@@ -46,7 +48,7 @@ def is_proportional_glyph(glyph_name: str) -> bool:
     return glyph_name.endswith(".prop") or ".prop." in glyph_name or ".fina" in glyph_name
 
 
-def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
+def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[str, GlyphDef | None]:
     rename_map: dict[str, str] = {}
     prop_base_names = set()
     for glyph_name in glyphs_def:
@@ -55,7 +57,7 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
             prop_base_names.add(base_name)
             rename_map[glyph_name] = base_name
 
-    def _rename_refs(glyph_def: dict | None) -> dict | None:
+    def _rename_refs(glyph_def: GlyphDef | None) -> GlyphDef | None:
         if not glyph_def or not rename_map:
             return glyph_def
 
@@ -95,7 +97,7 @@ def prepare_proportional_glyphs(glyphs_def: dict) -> dict:
     return new_glyphs
 
 
-def _compile_legacy_glyphs(glyph_data: dict, variant: str) -> dict[str, dict | None]:
+def _compile_legacy_glyphs(glyph_data: GlyphData, variant: str) -> dict[str, GlyphDef | None]:
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
 
@@ -119,12 +121,12 @@ def _compile_legacy_glyphs(glyph_data: dict, variant: str) -> dict[str, dict | N
 
 
 def _validate_compiled_glyph_references(
-    legacy_glyphs: dict[str, dict | None],
+    legacy_glyphs: dict[str, GlyphDef | None],
     join_glyphs: dict[str, JoinGlyph],
 ) -> None:
     all_glyph_names = set(legacy_glyphs) | set(join_glyphs)
 
-    def _validate_refs(glyph_name: str, key: str, values) -> None:
+    def _validate_refs(glyph_name: str, key: str, values: tuple[str, ...] | list[str]) -> None:
         for value in values:
             if value not in all_glyph_names:
                 raise ValueError(
@@ -259,7 +261,7 @@ def _validate_extensions_reach_targets(
         )
 
 
-def compile_glyph_set(glyph_data: dict, variant: str) -> CompiledGlyphSet:
+def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:
     legacy_glyphs = _compile_legacy_glyphs(glyph_data, variant)
     join_glyphs, _ = compile_quikscript_ir(glyph_data, variant)
 

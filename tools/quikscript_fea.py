@@ -1701,7 +1701,7 @@ def _emit_quikscript_curs(
     return "\n".join(lines)
 
 
-def _emit_quikscript_ss(glyph_meta: dict) -> str | None:
+def _emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
     from collections import defaultdict
 
     groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
