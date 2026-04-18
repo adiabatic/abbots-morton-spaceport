@@ -18,6 +18,7 @@ Usage:
 
 import argparse
 import sys
+from typing import Any
 
 from fontTools.ttLib import TTFont
 from fontTools.pens.recordingPen import RecordingPen
@@ -25,7 +26,7 @@ from fontTools.pens.recordingPen import RecordingPen
 PIXEL_SIZE = 50
 
 
-def extract_contours(recording):
+def extract_contours(recording: list[tuple[str, tuple[Any, ...]]]) -> list[list[tuple[float, float]]]:
     """Convert pen recording to list of polygon point lists."""
     contours = []
     current = []
@@ -43,7 +44,7 @@ def extract_contours(recording):
     return contours
 
 
-def point_in_polygon(x, y, polygon):
+def point_in_polygon(x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
     """Ray casting algorithm for even-odd fill."""
     n = len(polygon)
     inside = False
@@ -57,7 +58,7 @@ def point_in_polygon(x, y, polygon):
     return inside
 
 
-def glyph_to_bitmap(font_path, glyph_name, include_padding=True):
+def glyph_to_bitmap(font_path: str, glyph_name: str, include_padding: bool = True) -> tuple[list[str], int]:
     """
     Extract a glyph as a bitmap from an OTF font.
 
@@ -125,7 +126,7 @@ def glyph_to_bitmap(font_path, glyph_name, include_padding=True):
     return bitmap, y_offset
 
 
-def get_glyph_metrics(font_path, glyph_name):
+def get_glyph_metrics(font_path: str, glyph_name: str) -> dict[str, int]:
     """
     Get detailed metrics for a glyph.
 
@@ -172,7 +173,7 @@ def get_glyph_metrics(font_path, glyph_name):
     }
 
 
-def print_bitmap_yaml(glyph_name, bitmap, y_offset):
+def print_bitmap_yaml(glyph_name: str, bitmap: list[str], y_offset: int) -> None:
     """Print bitmap in YAML format suitable for glyph_data.yaml."""
     print(f"  {glyph_name}:")
     if y_offset != 0:
@@ -182,7 +183,7 @@ def print_bitmap_yaml(glyph_name, bitmap, y_offset):
         print(f'      - "{row}"')
 
 
-def compare_glyphs(glyph_name, font1_path, font2_path):
+def compare_glyphs(glyph_name: str, font1_path: str, font2_path: str) -> bool:
     """
     Compare a glyph between two fonts.
 
@@ -242,7 +243,7 @@ def compare_glyphs(glyph_name, font1_path, font2_path):
     return all_match
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Extract glyph bitmaps from OTF fonts"
     )

@@ -62,11 +62,11 @@ LIGATURE_PAIRS = {
 }
 
 
-def expect_tok(name):
+def expect_tok(name: str) -> str:
     return f"·{name}"
 
 
-def join_expect(names_and_tokens):
+def join_expect(names_and_tokens: list[tuple[str, str]]) -> str:
     """Join expect tokens, using +? for ligature pairs and ? otherwise.
 
     When a token is the second element of a +? ligature, its variant
@@ -100,19 +100,19 @@ def join_expect(names_and_tokens):
     return "".join(parts)
 
 
-def dt_name(name):
+def dt_name(name: str) -> str:
     return f"·{name}"
 
 
-def entity(code):
+def entity(code: int) -> str:
     return f"&#x{code:04X};"
 
 
-def cell_key(*names):
+def cell_key(*names: str) -> str:
     return "|".join(names)
 
 
-def cell_pair(dt_text, expect, codes, key, failed_keys):
+def cell_pair(dt_text: str, expect: str, codes: list[int], key: str, failed_keys: set[str]) -> str:
     dd_content = "".join(entity(c) for c in codes)
     highlight = key in failed_keys
     label_prefix = "◊ " if highlight else ""
@@ -123,11 +123,11 @@ def cell_pair(dt_text, expect, codes, key, failed_keys):
     )
 
 
-def empty_pair():
+def empty_pair() -> str:
     return "            <td></td>\n            <td></td>"
 
 
-def table_wrap(cells):
+def table_wrap(cells: list[str]) -> str:
     nrows = -(-len(cells) // COLS)  # ceil division
     rows = []
     for r in range(nrows):
@@ -144,7 +144,7 @@ def table_wrap(cells):
     )
 
 
-def build_sections(failed_keys):
+def build_sections(failed_keys: set[str]) -> list[tuple[str, str]]:
     tea_nhalf = "·Tea.!half"
 
     sections = []
@@ -177,7 +177,7 @@ def build_sections(failed_keys):
     return sections
 
 
-def build_html(failed_keys):
+def build_html(failed_keys: set[str]) -> str:
     sections = build_sections(failed_keys)
 
     section_html = []
@@ -273,7 +273,7 @@ def build_html(failed_keys):
 """
 
 
-def collect_failures(root, out_path):
+def collect_failures(root: Path, out_path: Path) -> set[str]:
     html = out_path.read_text(encoding="utf-8")
     line_to_key: dict[int, str] = {}
     for i, line in enumerate(html.splitlines(), 1):

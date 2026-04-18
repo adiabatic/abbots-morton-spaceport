@@ -35,7 +35,7 @@ PUNCTUATION_CATEGORIES = {
 }
 
 
-def get_bitmap_width(bitmap):
+def get_bitmap_width(bitmap: list[str]) -> int:
     """
     Calculate the actual content width of a bitmap (excluding empty columns).
 
@@ -45,7 +45,7 @@ def get_bitmap_width(bitmap):
         return 0
 
     # Find leftmost and rightmost '#' across all rows
-    min_col = float("inf")
+    min_col = len(bitmap[0])
     max_col = -1
 
     for row in bitmap:
@@ -60,7 +60,7 @@ def get_bitmap_width(bitmap):
     return max_col - min_col + 1
 
 
-def get_punctuation_glyphs(font_path):
+def get_punctuation_glyphs(font_path: str) -> list[tuple[str, int]]:
     """
     Get all punctuation glyph names and their Unicode code points from a font.
 
@@ -85,7 +85,7 @@ def get_punctuation_glyphs(font_path):
     return sorted(punctuation_glyphs, key=lambda x: x[1])
 
 
-def find_spaced_glyphs(font_path, max_width=4):
+def find_spaced_glyphs(font_path: str, max_width: int = 4) -> list[dict[str, str | int]]:
     """
     Find punctuation glyphs with bitmap width less than standard monospace.
 
@@ -118,7 +118,7 @@ def find_spaced_glyphs(font_path, max_width=4):
     return spaced_glyphs
 
 
-def write_yaml(glyphs, output_path):
+def write_yaml(glyphs: list[dict[str, str | int]], output_path: str) -> None:
     """Write the spaced glyphs to a YAML file."""
     with open(output_path, "w") as f:
         f.write("# Punctuation glyphs with empty side space in DepartureMono\n")
@@ -132,7 +132,7 @@ def write_yaml(glyphs, output_path):
             f.write(f"    unicode: \"{glyph['unicode']}\"\n")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Find punctuation glyphs with empty space on sides"
     )

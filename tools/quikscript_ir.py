@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 
 Anchor = tuple[int, int]
@@ -647,12 +647,12 @@ def compile_glyph_families(
     return compiled
 
 
-def _normalize_anchors(raw: list[Any] | None) -> list[list[int]]:
+def _normalize_anchors(raw: list[list[int]] | list[int] | None) -> list[list[int]]:
     if raw is None:
         return []
     if isinstance(raw[0], list):
-        return raw
-    return [raw]
+        return cast(list[list[int]], raw)
+    return [cast(list[int], raw)]
 
 
 
