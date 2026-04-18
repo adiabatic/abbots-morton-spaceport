@@ -32,11 +32,11 @@ from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
 from fontTools.misc.psCharStrings import T2CharString
 from fontTools.pens.t2CharStringPen import T2CharStringPen
-from fontTools.ttLib import newTable
+from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
 from quikscript_fea import emit_quikscript_senior_features
-from typing import Any
+from typing import Any, cast
 
 from quikscript_ir import (
     GlyphData,
@@ -378,7 +378,7 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
     return "\n".join(lines)
 
 
-def parse_bitmap(bitmap: list[Any]) -> list[list[int]]:
+def parse_bitmap(bitmap: list[str] | list[list[int]]) -> list[list[int]]:
     """
     Convert bitmap to a 2D array of 0s and 1s.
     Accepts either string rows ("#" = on) or int arrays.
@@ -391,7 +391,7 @@ def parse_bitmap(bitmap: list[Any]) -> list[list[int]]:
             [1 if c == '#' or c == '1' else 0 for c in row]
             for row in bitmap
         ]
-    return bitmap
+    return cast(list[list[int]], bitmap)
 
 
 def bitmap_to_rectangles(
@@ -614,7 +614,7 @@ def build_font(
     variant: str = "mono",
     pixel_width: int | None = None,
     bold: bool = False,
-):
+) -> TTFont:
     """
     Build font from glyph data dictionary.
     Creates a CFF-based OpenType font (.otf).
@@ -1004,7 +1004,7 @@ def build_font(
     return font
 
 
-def main():
+def main() -> None:
     if len(sys.argv) < 2:
         print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
         print("\nOutputs:")

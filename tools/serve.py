@@ -17,7 +17,7 @@ PORT = 7293
 
 
 class NoCacheStaticHandler(StaticFileHandler):
-    def set_extra_headers(self, path):
+    def set_extra_headers(self, path: str) -> None:
         self.set_header("Cache-Control", "no-store")
 
 
