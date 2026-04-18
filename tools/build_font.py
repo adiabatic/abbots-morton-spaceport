@@ -35,20 +35,24 @@ from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
 from quikscript_fea import emit_quikscript_senior_features
+from typing import Any
+
 from quikscript_ir import (
+    GlyphData,
+    GlyphDef,
     _is_contextual_variant,
     get_base_glyph_name,
 )
 
 
-def load_postscript_glyph_names() -> dict:
+def load_postscript_glyph_names() -> dict[str, int]:
     """Load PostScript glyph name to Unicode codepoint mapping from YAML."""
     path = Path(__file__).parent.parent / "postscript_glyph_names.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
 
 
-def load_glyph_data(path: Path) -> dict:
+def load_glyph_data(path: Path) -> GlyphData:
     """Load glyph definitions from a YAML file or directory of YAML files."""
     if path.is_dir():
         metadata = {}
@@ -88,7 +92,7 @@ def load_glyph_data(path: Path) -> dict:
         }
 
 
-def _resolve_codepoint(glyph_name: str, postscript_names: dict) -> int | None:
+def _resolve_codepoint(glyph_name: str, postscript_names: dict[str, int]) -> int | None:
     if len(glyph_name) == 1:
         return ord(glyph_name)
     if glyph_name.startswith("uni") and len(glyph_name) == 7:
@@ -105,7 +109,11 @@ def _resolve_codepoint(glyph_name: str, postscript_names: dict) -> int | None:
     return postscript_names.get(glyph_name)
 
 
-def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint: dict):
+def build_cmap14(
+    variation_sequences: dict[str, dict[str, str]],
+    glyphs_def: dict[str, GlyphDef],
+    name_to_codepoint: dict[str, int],
+) -> cmap_format_14 | None:
     """Build a cmap format 14 subtable for Unicode Variation Sequences."""
     if not variation_sequences:
         return None
@@ -138,7 +146,7 @@ def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint:
     return subtable
 
 
-def collect_kerning_groups(glyphs_def: dict) -> dict[str, list[str]]:
+def collect_kerning_groups(glyphs_def: dict[str, GlyphDef]) -> dict[str, list[str]]:
     """Build a mapping of {tag_name: [glyph_name, ...]} from kerning tags on glyphs."""
     groups = {}
     for glyph_name, glyph_def in glyphs_def.items():
@@ -200,7 +208,7 @@ def generate_kern_fea(
     return "\n".join(preamble + [""] + lines) if preamble else "\n".join(lines)
 
 
-def generate_ccmp_fea(glyphs_def: dict) -> str | None:
+def generate_ccmp_fea(glyphs_def: dict[str, GlyphDef]) -> str | None:
     """Generate OpenType feature code for dotted-base substitutions.
 
     Rewrites dotted lowercase bases to their dotless forms before top
@@ -235,7 +243,7 @@ def generate_ccmp_fea(glyphs_def: dict) -> str | None:
     return "\n".join(lines)
 
 
-def generate_mark_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> str | None:
+def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_height: int) -> str | None:
     """Generate OpenType feature code for mark positioning (combining diacriticals).
 
     Scans glyphs_def for marks (is_mark: true) and base glyphs with
@@ -369,7 +377,7 @@ def generate_mark_fea(glyphs_def: dict, pixel_width: int, pixel_height: int) -> 
     return "\n".join(lines)
 
 
-def parse_bitmap(bitmap: list) -> list[list[int]]:
+def parse_bitmap(bitmap: list[Any]) -> list[list[int]]:
     """
     Convert bitmap to a 2D array of 0s and 1s.
     Accepts either string rows ("#" = on) or int arrays.
@@ -421,7 +429,7 @@ def bitmap_to_rectangles(
     return rectangles
 
 
-def draw_rectangles_to_glyph(rectangles: list[tuple], glyph_set):
+def draw_rectangles_to_glyph(rectangles: list[tuple[int, int, int, int]], glyph_set: dict[str, Any]):
     """
     Draw rectangles as a TrueType glyph using T2CharStringPen.
     Returns a T2CharString for CFF/OTF fonts.
@@ -511,8 +519,8 @@ def compose_bitmaps(
 
 def resolve_composite(
     glyph_name: str,
-    glyph_def: dict,
-    glyphs_def: dict,
+    glyph_def: GlyphDef,
+    glyphs_def: dict[str, GlyphDef],
     is_proportional: bool,
 ) -> tuple[list[list[int]], int]:
     """
@@ -600,7 +608,7 @@ def resolve_composite(
 
 
 def build_font(
-    glyph_data: dict,
+    glyph_data: GlyphData,
     output_path: Path | None = None,
     variant: str = "mono",
     pixel_width: int | None = None,

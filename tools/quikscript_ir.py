@@ -2,11 +2,20 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
-from typing import Any
+from typing import Any, TypedDict
 
 
 Anchor = tuple[int, int]
 BitmapRow = str | tuple[int, ...]
+GlyphDef = dict[str, Any]
+
+
+class GlyphData(TypedDict):
+    metadata: dict[str, Any]
+    glyphs: dict[str, GlyphDef | None]
+    glyph_families: dict[str, Any]
+    context_sets: dict[str, list[Any]]
+    kerning: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -104,7 +113,7 @@ def resolve_known_glyph_names(
     return [value if value in glyph_names else get_base_glyph_name(value) for value in values]
 
 
-def _merge_family_records(base: dict, override: dict) -> dict:
+def _merge_family_records(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     merged = deepcopy(base)
     for key, value in override.items():
         if key in {"anchors", "select", "derive"}:
@@ -127,11 +136,11 @@ def _merge_family_records(base: dict, override: dict) -> dict:
 
 def _resolve_family_record(
     family_name: str,
-    family_def: dict,
+    family_def: dict[str, Any],
     record_name: str,
-    cache: dict[str, dict],
+    cache: dict[str, dict[str, Any]],
     stack: list[str],
-) -> dict:
+) -> dict[str, Any]:
     if record_name in cache:
         return cache[record_name]
     if record_name in stack:
@@ -150,7 +159,7 @@ def _resolve_family_record(
         raise ValueError(f"Unknown form '{record_name}' in glyph family '{family_name}'")
 
     stack.append(record_name)
-    resolved: dict = {}
+    resolved: dict[str, Any] = {}
     inherits = raw.get("inherits")
     if inherits:
         parents = [inherits] if isinstance(inherits, str) else inherits
@@ -189,7 +198,7 @@ def _resolve_family_record(
     return resolved
 
 
-def _is_contextual_family_form(form_def: dict, *, is_base_record: bool = False) -> bool:
+def _is_contextual_family_form(form_def: dict[str, Any], *, is_base_record: bool = False) -> bool:
     contextual = form_def.get("contextual")
     if contextual is not None:
         return bool(contextual)
@@ -243,7 +252,7 @@ def _validate_source_modifier(
 
 
 def _normalize_source_traits(
-    raw_traits,
+    raw_traits: list[str] | tuple[str, ...] | None,
     *,
     family_name: str,
     context: str,
@@ -265,7 +274,7 @@ def _normalize_source_traits(
 
 
 def _normalize_source_modifiers(
-    raw_modifiers,
+    raw_modifiers: list[str] | tuple[str, ...] | None,
     *,
     family_name: str,
     context: str,
@@ -427,15 +436,15 @@ def _normalize_family_refs(
 
 def _family_form_to_glyph_def(
     family_name: str,
-    family_def: dict,
-    form_def: dict,
+    family_def: dict[str, Any],
+    form_def: dict[str, Any],
     *,
     form_name: str | None = None,
     contextual: bool,
     family_names: set[str],
-    context_sets: dict[str, list],
-) -> dict:
-    glyph_def: dict = {}
+    context_sets: dict[str, list[Any]],
+) -> GlyphDef:
+    glyph_def: GlyphDef = {}
 
     if "bitmap" in form_def:
         glyph_def["bitmap"] = deepcopy(form_def["bitmap"])
@@ -531,9 +540,9 @@ def _family_form_to_glyph_def(
 
 
 def _iter_compiled_family_forms(
-    glyph_families: dict,
+    glyph_families: dict[str, Any],
     variant: str,
-    context_sets: dict[str, list] | None = None,
+    context_sets: dict[str, list[Any]] | None = None,
 ):
     if not glyph_families:
         return
@@ -543,7 +552,7 @@ def _iter_compiled_family_forms(
     context_sets = context_sets or {}
 
     for family_name, family_def in glyph_families.items():
-        cache: dict[str, dict] = {}
+        cache: dict[str, dict[str, Any]] = {}
 
         if variant == "mono":
             base_record_name = "mono" if family_def.get("mono") else None
@@ -610,14 +619,14 @@ def _iter_compiled_family_forms(
 
 
 def compile_glyph_families(
-    glyph_families: dict,
+    glyph_families: dict[str, Any],
     variant: str,
-    context_sets: dict[str, list] | None = None,
-) -> dict:
+    context_sets: dict[str, list[Any]] | None = None,
+) -> dict[str, GlyphDef]:
     if not glyph_families:
         return {}
 
-    compiled: dict[str, dict] = {}
+    compiled: dict[str, GlyphDef] = {}
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
@@ -638,7 +647,7 @@ def compile_glyph_families(
     return compiled
 
 
-def _normalize_anchors(raw) -> list[list[int]]:
+def _normalize_anchors(raw: list[Any] | None) -> list[list[int]]:
     if raw is None:
         return []
     if isinstance(raw[0], list):
@@ -800,7 +809,7 @@ def _glyph_def_to_join_glyph(
     )
 
 
-def _normalize_bitmap(bitmap: Sequence[Any] | None) -> tuple[BitmapRow, ...]:
+def _normalize_bitmap(bitmap: Sequence[str | list[int]] | None) -> tuple[BitmapRow, ...]:
     if not bitmap:
         return ()
     normalized: list[BitmapRow] = []
@@ -812,8 +821,8 @@ def _normalize_bitmap(bitmap: Sequence[Any] | None) -> tuple[BitmapRow, ...]:
     return tuple(normalized)
 
 
-def _materialize_bitmap(bitmap: Sequence[BitmapRow]) -> list[Any]:
-    materialized: list[Any] = []
+def _materialize_bitmap(bitmap: Sequence[BitmapRow]) -> list[str | list[int]]:
+    materialized: list[str | list[int]] = []
     for row in bitmap:
         if isinstance(row, str):
             materialized.append(row)
@@ -919,7 +928,7 @@ def _materialize_anchor_value(anchors: tuple[Anchor, ...]) -> list[int] | list[l
     return pairs
 
 
-def _set_optional_list(glyph_def: dict[str, Any], key: str, values: Sequence[str]) -> None:
+def _set_optional_list(glyph_def: GlyphDef, key: str, values: Sequence[str]) -> None:
     if values:
         glyph_def[key] = list(values)
     else:
@@ -927,7 +936,7 @@ def _set_optional_list(glyph_def: dict[str, Any], key: str, values: Sequence[str
 
 
 def _set_optional_anchor(
-    glyph_def: dict[str, Any],
+    glyph_def: GlyphDef,
     key: str,
     anchors: tuple[Anchor, ...],
 ) -> None:
@@ -938,8 +947,8 @@ def _set_optional_anchor(
         glyph_def[key] = value
 
 
-def _materialize_join_glyph(join_glyph: JoinGlyph) -> dict[str, Any]:
-    glyph_def: dict[str, Any] = {
+def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
+    glyph_def: GlyphDef = {
         "bitmap": _materialize_bitmap(join_glyph.bitmap),
     }
     if join_glyph.y_offset:
@@ -1515,7 +1524,7 @@ def expand_join_transforms(
     return expanded, transforms
 
 
-def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, dict]:
+def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, GlyphDef]:
     return {
         glyph_name: _materialize_join_glyph(join_glyph)
         for glyph_name, join_glyph in join_glyphs.items()
@@ -1523,7 +1532,7 @@ def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, dict]:
 
 
 def compile_quikscript_ir(
-    glyph_data: dict,
+    glyph_data: GlyphData,
     variant: str,
 ) -> tuple[dict[str, JoinGlyph], list[JoinTransform]]:
     glyph_families = glyph_data.get("glyph_families", {})
@@ -1567,6 +1576,8 @@ def compile_quikscript_ir(
 
 
 __all__ = [
+    "GlyphData",
+    "GlyphDef",
     "JoinGlyph",
     "JoinTransform",
     "build_join_glyphs",
