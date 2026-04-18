@@ -1,4 +1,6 @@
+import re
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -11,24 +13,23 @@ collect_ignore = ["test_shaping.py"]
 _shaping_cache: dict[str, Any] = {}
 
 
-def pytest_collect_file(parent, file_path):
+def pytest_collect_file(parent: pytest.Collector, file_path: Path) -> "ShapingFile | None":
     if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html", "ensure-sanity.html") and file_path.suffix == ".html":
         return ShapingFile.from_parent(parent, path=file_path)
+    return None
 
 
 class ShapingFile(pytest.File):
-    def collect(self):
+    def collect(self) -> Iterator["ShapingItem"]:
         from test_shaping import _DataExpectCollector
-
-        import re
 
         raw = self.path.read_text(encoding="utf-8")
         collector = _DataExpectCollector()
         collector.feed(raw)
 
-        seen_ids = {}
+        seen_ids: dict[str, int] = {}
         for text, expect, line, stylistic_set, runs in collector.cells:
-            if not expect.strip():
+            if not expect or not expect.strip():
                 continue
             slug = re.sub(r"[^a-zA-Z0-9]+", "_", text).strip("_")[:40]
             if not slug:
@@ -47,8 +48,10 @@ class ShapingFile(pytest.File):
 
 
 class ShapingItem(pytest.Item):
-    def __init__(self, name, parent, text, expect_str, html_line,
-                 stylistic_set=None, runs=None):
+    def __init__(self, name: str, parent: pytest.Item, text: str,
+                 expect_str: str, html_line: int,
+                 stylistic_set: str | None = None,
+                 runs: list[dict[str, Any]] | None = None) -> None:
         super().__init__(name, parent)
         self.text = text
         self.expect_str = expect_str
@@ -56,7 +59,7 @@ class ShapingItem(pytest.Item):
         self.stylistic_set = stylistic_set
         self.runs = runs or [{"font": "senior", "text": text}]
 
-    def setup(self):
+    def setup(self) -> None:
         if "fonts" not in _shaping_cache:
             subprocess.run(["make", "all"], cwd=ROOT, check=True)
             from test_shaping import load_font, build_anchor_map
@@ -73,7 +76,7 @@ class ShapingItem(pytest.Item):
             _shaping_cache["anchor_maps"] = anchor_maps
             _shaping_cache["potentials"] = potentials
 
-    def runtest(self):
+    def runtest(self) -> None:
         from test_shaping import run_shaping_test_runs
 
         features = None
@@ -90,8 +93,9 @@ class ShapingItem(pytest.Item):
             features=features,
         )
 
-    def reportinfo(self):
+    def reportinfo(self) -> tuple[Path, int, str]:
         return self.path, self.html_line - 1, self.name
 
-    def repr_failure(self, excinfo, style=None):
+    def repr_failure(self, excinfo: pytest.ExceptionInfo[BaseException],
+                     style: str | None = None) -> str:
         return str(excinfo.value)

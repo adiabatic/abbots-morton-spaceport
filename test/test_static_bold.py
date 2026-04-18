@@ -37,13 +37,13 @@ def _path(family: str, style: str) -> Path:
 
 @pytest.fixture(params=[(f, s) for f in FAMILIES for s in STYLES],
                 ids=lambda p: f"{p[0]}-{p[1]}")
-def font_pair(request):
+def font_pair(request: pytest.FixtureRequest) -> tuple[str, str, TTFont]:
     family, style = request.param
     return family, style, TTFont(_path(family, style))
 
 
 @pytest.fixture(params=FAMILIES)
-def family(request):
+def family(request: pytest.FixtureRequest) -> tuple[str, TTFont, TTFont]:
     family = request.param
     return (
         family,

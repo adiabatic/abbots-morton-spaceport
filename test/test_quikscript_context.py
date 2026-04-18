@@ -1,22 +1,22 @@
-from pathlib import Path
-
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+from typing import Any
+
 from build_font import load_glyph_data
-from glyph_compiler import compile_glyph_set
-from quikscript_ir import generate_noentry_variants
+from glyph_compiler import CompiledGlyphSet, compile_glyph_set
+from quikscript_ir import JoinGlyph, generate_noentry_variants
 
 
-def _compiled_set(data=None):
+def _compiled_set(data: Any = None) -> CompiledGlyphSet:
     if data is None:
         data = load_glyph_data(ROOT / "glyph_data")
     return compile_glyph_set(data, "senior")
 
-def _compiled_meta():
+def _compiled_meta() -> dict[str, JoinGlyph]:
     return _compiled_set().glyph_meta
 
 

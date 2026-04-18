@@ -1,10 +1,9 @@
+import sys
 from functools import lru_cache
 from pathlib import Path
+
 import uharfbuzz as hb
-import sys
-
 import yaml
-
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
@@ -14,10 +13,11 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
+from quikscript_ir import JoinGlyph
 
 
 @lru_cache(maxsize=1)
-def _font():
+def _font() -> hb.Font:
     blob = hb.Blob.from_file_path(str(FONT_PATH))
     face = hb.Face(blob)
     return hb.Font(face)
@@ -33,20 +33,20 @@ def _shape(text: str) -> list[str]:
 
 
 @lru_cache(maxsize=1)
-def _compiled_meta():
+def _compiled_meta() -> dict[str, JoinGlyph]:
     data = load_glyph_data(ROOT / "glyph_data")
     return compile_glyph_set(data, "senior").glyph_meta
 
 
 @lru_cache(maxsize=1)
-def _char_map():
+def _char_map() -> dict[str, str]:
     with PS_NAMES_PATH.open() as f:
         ps_names = yaml.safe_load(f)
     return {name: chr(codepoint) for name, codepoint in ps_names.items()}
 
 
 @lru_cache(maxsize=1)
-def _plain_quikscript_letters():
+def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     chars = _char_map()
     names = [
         name for name in sorted(chars)
@@ -72,7 +72,7 @@ def _exit_ys(glyph_name: str) -> set[int]:
     return {anchor[1] for anchor in meta.exit}
 
 
-def _append_utter_alt_failures(failures: list[str], label: str, text: str):
+def _append_utter_alt_failures(failures: list[str], label: str, text: str) -> None:
     glyphs = _shape(text)
     meta_map = _compiled_meta()
 
@@ -113,7 +113,7 @@ def _append_utter_alt_failures(failures: list[str], label: str, text: str):
                     )
 
 
-def _utter_alt_invariant_failures():
+def _utter_alt_invariant_failures() -> list[str]:
     failures: list[str] = []
     chars = _char_map()
     utter = chars["qsUtter"]
@@ -217,7 +217,7 @@ def test_qs_no_alt_selected_after_ox_before_fee():
     )
 
 
-def _no_alt_selection_failures():
+def _no_alt_selection_failures() -> list[str]:
     failures: list[str] = []
     chars = _char_map()
     no = chars["qsNo"]

@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 import uharfbuzz as hb
@@ -12,13 +13,13 @@ PROPORTIONAL_FONTS = [
 
 
 @pytest.fixture(params=PROPORTIONAL_FONTS, ids=lambda path: path.stem)
-def font(request):
+def font(request: pytest.FixtureRequest) -> hb.Font:
     blob = hb.Blob.from_file_path(str(request.param))
     face = hb.Face(blob)
     return hb.Font(face)
 
 
-def shape(font, text):
+def shape(font: hb.Font, text: str) -> list[dict[str, Any]]:
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
