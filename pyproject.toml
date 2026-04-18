@@ -2,7 +2,7 @@
 name = "abbots-morton-spaceport"
 version = "12.0.0"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "fonttools>=4.61.1",
     "pyyaml>=6.0.3",
@@ -13,4 +13,10 @@ dev = [
     "uharfbuzz>=0.43.0",
     "pytest>=8.0.0",
     "livereload>=2.7.1",
+    "pyright>=1.1.408",
 ]
+
+[tool.pyright]
+pythonVersion = "3.14"
+include = ["tools", "test"]
+extraPaths = ["tools"]

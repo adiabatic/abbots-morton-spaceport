@@ -36,6 +36,9 @@ jobs:
           uv sync
           uv pip install brotli  # for woff2 conversion
 
+      - name: Type check
+        run: uv run pyright tools/ test/
+
       - name: Build fonts
         run: |
           mkdir -p build
