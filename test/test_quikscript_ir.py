@@ -178,6 +178,7 @@ def test_senior_feature_emitter_includes_join_and_gate_features():
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
 
     assert "feature curs {" in fea
     assert "feature calt {" in fea
@@ -206,6 +207,7 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
 
     expanded, _ = expand_join_transforms(join_glyphs, has_zwnj=True)
     fea = emit_quikscript_senior_features(expanded, 50, 50)
+    assert fea is not None
 
     assert "feature curs {" in fea
     assert "pos cursive qsLead <anchor 0 0> <anchor 50 0>;" in fea
@@ -220,6 +222,7 @@ def test_contextual_noentry_substitutions_stay_entryless():
         data["metadata"]["pixel_size"],
         data["metadata"]["pixel_size"],
     )
+    assert fea is not None
 
     contextual_sub = re.compile(r"sub ([A-Za-z0-9_.-]+)' .* by ([A-Za-z0-9_.-]+);")
     for line in fea.splitlines():

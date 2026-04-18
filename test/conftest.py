@@ -1,11 +1,14 @@
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
 collect_ignore = ["test_shaping.py"]
+
+_shaping_cache: dict[str, Any] = {}
 
 
 def pytest_collect_file(parent, file_path):
@@ -54,7 +57,7 @@ class ShapingItem(pytest.Item):
         self.runs = runs or [{"font": "senior", "text": text}]
 
     def setup(self):
-        if not hasattr(self.session, "_shaping_fonts"):
+        if "fonts" not in _shaping_cache:
             subprocess.run(["make", "all"], cwd=ROOT, check=True)
             from test_shaping import load_font, build_anchor_map
 
@@ -66,9 +69,9 @@ class ShapingItem(pytest.Item):
                 anchors, potential = build_anchor_map(variant)
                 anchor_maps[variant] = anchors
                 potentials[variant] = potential
-            self.session._shaping_fonts = fonts
-            self.session._shaping_anchor_maps = anchor_maps
-            self.session._shaping_potentials = potentials
+            _shaping_cache["fonts"] = fonts
+            _shaping_cache["anchor_maps"] = anchor_maps
+            _shaping_cache["potentials"] = potentials
 
     def runtest(self):
         from test_shaping import run_shaping_test_runs
@@ -79,16 +82,16 @@ class ShapingItem(pytest.Item):
                         for ss in self.stylistic_set.split()}
 
         run_shaping_test_runs(
-            self.session._shaping_fonts,
-            self.session._shaping_anchor_maps,
+            _shaping_cache["fonts"],
+            _shaping_cache["anchor_maps"],
             self.runs,
             self.expect_str,
-            base_potential_entries=self.session._shaping_potentials,
+            base_potential_entries=_shaping_cache["potentials"],
             features=features,
         )
 
     def reportinfo(self):
         return self.path, self.html_line - 1, self.name
 
-    def repr_failure(self, excinfo):
+    def repr_failure(self, excinfo, style=None):
         return str(excinfo.value)

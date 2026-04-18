@@ -761,12 +761,12 @@ def _glyph_def_to_join_glyph(
             list(resolved_modifiers),
             resolved_traits,
         ),
-        entry=tuple(tuple(anchor) for anchor in _normalize_anchors(glyph_def.get("cursive_entry"))),
+        entry=tuple((a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_entry"))),
         entry_curs_only=tuple(
-            tuple(anchor)
-            for anchor in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
+            (a[0], a[1])
+            for a in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
         ),
-        exit=tuple(tuple(anchor) for anchor in _normalize_anchors(glyph_def.get("cursive_exit"))),
+        exit=tuple((a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_exit"))),
         after=tuple(glyph_def.get("calt_after", ())),
         before=tuple(glyph_def.get("calt_before", ())),
         not_after=tuple(glyph_def.get("calt_not_after", ())),

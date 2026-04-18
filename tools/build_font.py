@@ -130,8 +130,8 @@ def build_cmap14(variation_sequences: dict, glyphs_def: dict, name_to_codepoint:
         return None
 
     subtable = cmap_format_14(14)
-    subtable.platformID = 0
-    subtable.platEncID = 5
+    subtable.platformID = 0  # pyright: ignore[reportAttributeAccessIssue]
+    subtable.platEncID = 5  # pyright: ignore[reportAttributeAccessIssue]
     subtable.language = 0
     subtable.cmap = {}
     subtable.uvsDict = uvsDict
@@ -638,8 +638,8 @@ def build_font(
     suffixes = {"mono": " Mono", "junior": " Sans Junior", "senior": " Sans Senior"}
     font_name = base_font_name + suffixes[variant]
     version = metadata["version"]
-    units_per_em = metadata["units_per_em"]
-    pixel_height = metadata["pixel_size"]
+    units_per_em: int = metadata["units_per_em"]
+    pixel_height: int = metadata["pixel_size"]
     if pixel_width is None:
         pixel_width = pixel_height
     ascender = metadata["ascender"]
@@ -696,10 +696,7 @@ def build_font(
     charstrings = {}
     metrics = {}
 
-    # Placeholder glyph set for pen (not strictly needed for simple drawing)
-    class GlyphSet:
-        pass
-    glyph_set = GlyphSet()
+    glyph_set = None
 
     # Standard monospace width: 7 pixels (bitmap 5 + 2 spacing)
     mono_width = 7 * pixel_width
@@ -925,7 +922,7 @@ def build_font(
         fsType=0,  # Installable embedding - no restrictions
     )
     # RIBBI style linking: set the BOLD bit on Bold fonts, REGULAR on Regular.
-    fb.font["OS/2"].fsSelection = 0x20 if bold else 0x40
+    fb.font["OS/2"].fsSelection = 0x20 if bold else 0x40  # pyright: ignore[reportAttributeAccessIssue]
 
     # Setup post table
     # Monospace font: isFixedPitch=1, Proportional font: isFixedPitch=0
@@ -933,13 +930,13 @@ def build_font(
 
     # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
-    gasp.gaspRange = {0xFFFF: 0x0001}  # Grid-fit only, no antialiasing
+    gasp.gaspRange = {0xFFFF: 0x0001}  # pyright: ignore[reportAttributeAccessIssue]  # Grid-fit only, no antialiasing
     fb.font["gasp"] = gasp
 
     # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
     if bold:
-        fb.font["head"].macStyle |= 0x01  # Bold bit
+        fb.font["head"].macStyle |= 0x01  # pyright: ignore[reportAttributeAccessIssue]  # Bold bit
 
     vs_defs = metadata.get("variation_sequences", {})
     cmap14 = build_cmap14(vs_defs, glyphs_def, name_to_codepoint)
@@ -994,7 +991,7 @@ def build_font(
     print(f"  Pixel: {pixel_width}×{pixel_height} units")
 
     font = fb.font
-    font._fea_code = fea_code
+    font._fea_code = fea_code  # pyright: ignore[reportAttributeAccessIssue]
     return font
 
 

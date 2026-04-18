@@ -68,6 +68,7 @@ def get_punctuation_glyphs(font_path):
     """
     font = TTFont(font_path)
     cmap = font.getBestCmap()
+    assert cmap is not None
 
     punctuation_glyphs = []
 
