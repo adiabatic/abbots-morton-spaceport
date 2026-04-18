@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 from quikscript_ir import (
@@ -160,12 +161,109 @@ def _validate_compiled_glyph_references(
         _validate_refs(glyph_name, "preferred_over", join_glyph.preferred_over)
 
 
+def _validate_extensions_reach_targets(
+    join_glyphs: dict[str, JoinGlyph],
+) -> None:
+    glyph_to_family: dict[str, str] = {}
+    for g in join_glyphs.values():
+        if g.family:
+            glyph_to_family[g.name] = g.family
+
+    def _candidate_has_entry_at(candidate: JoinGlyph, y: int) -> bool:
+        return any(a[1] == y for a in (*candidate.entry, *candidate.entry_curs_only))
+
+    def _candidate_has_exit_at(candidate: JoinGlyph, y: int) -> bool:
+        return any(a[1] == y for a in candidate.exit)
+
+    def _after_includes_family(candidate: JoinGlyph, family: str) -> bool:
+        check = candidate
+        if candidate.is_entry_variant and candidate.generated_from:
+            source = join_glyphs.get(candidate.generated_from)
+            if source:
+                check = source
+        if not check.after:
+            return True
+        return any(glyph_to_family.get(n) == family for n in check.after)
+
+    errors: list[str] = []
+
+    for g in join_glyphs.values():
+        if not g.exit:
+            continue
+        exit_y = g.exit[0][1]
+
+        for feature_tag, target_names in g.extend_exit_before_gated:
+            for target_name in target_names:
+                target = join_glyphs.get(target_name)
+                if not target or not target.family:
+                    continue
+                has_match = any(
+                    c.family == target.family
+                    and _candidate_has_entry_at(c, exit_y)
+                    and c.gate_feature == feature_tag
+                    and _after_includes_family(c, g.family)
+                    for c in join_glyphs.values()
+                )
+                if not has_match:
+                    errors.append(
+                        f"{g.name} extends exit (y={exit_y}) toward "
+                        f"{target.family} behind {feature_tag}, but "
+                        f"{target.family} has no {feature_tag}-gated "
+                        f"entry at y={exit_y} reachable after {g.family}"
+                    )
+
+        for target_name in g.extend_exit_before:
+            target = join_glyphs.get(target_name)
+            if not target or not target.family:
+                continue
+            has_match = any(
+                c.family == target.family
+                and _candidate_has_entry_at(c, exit_y)
+                for c in join_glyphs.values()
+            )
+            if not has_match:
+                errors.append(
+                    f"{g.name} extends exit (y={exit_y}) toward "
+                    f"{target.family}, but {target.family} has no "
+                    f"entry at y={exit_y}"
+                )
+
+    for g in join_glyphs.values():
+        entry_anchors = (*g.entry, *g.entry_curs_only)
+        if not entry_anchors:
+            continue
+        entry_y = entry_anchors[0][1]
+
+        for target_name in g.extend_entry_after:
+            target = join_glyphs.get(target_name)
+            if not target or not target.family:
+                continue
+            has_match = any(
+                c.family == target.family
+                and _candidate_has_exit_at(c, entry_y)
+                for c in join_glyphs.values()
+            )
+            if not has_match:
+                errors.append(
+                    f"{g.name} extends entry (y={entry_y}) toward "
+                    f"{target.family}, but {target.family} has no "
+                    f"exit at y={entry_y}"
+                )
+
+    if errors:
+        raise ValueError(
+            "Extension-target anchor mismatches:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
 def compile_glyph_set(glyph_data: dict, variant: str) -> CompiledGlyphSet:
     legacy_glyphs = _compile_legacy_glyphs(glyph_data, variant)
     join_glyphs, _ = compile_quikscript_ir(glyph_data, variant)
 
     if variant == "senior":
         _validate_compiled_glyph_references(legacy_glyphs, join_glyphs)
+        _validate_extensions_reach_targets(join_glyphs)
 
     glyph_meta = build_join_glyphs(legacy_glyphs)
     glyph_meta.update(join_glyphs)
