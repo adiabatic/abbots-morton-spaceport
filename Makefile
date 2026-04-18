@@ -1,11 +1,14 @@
-.PHONY: all test print-job serve explainer
+.PHONY: all test typecheck print-job serve explainer
 
 all:
 	uv run python tools/gen_ensure_sanity.py
 	uv run python tools/build_font.py glyph_data/ test/
 	cd test && typst compile --font-path . print.typ
 
-test: all
+typecheck:
+	uv run pyright tools/ test/
+
+test: all typecheck
 	uv run pytest test/ -v
 
 print-job: all
