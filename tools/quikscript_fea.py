@@ -24,7 +24,6 @@ class _JoinAnalysis:
     terminal_exit_only: set[str] = field(default_factory=set)
     exit_classes: dict[int, set[str]] = field(default_factory=dict)
     entry_classes: dict[int, set[str]] = field(default_factory=dict)
-    real_entry_classes: dict[int, set[str]] = field(default_factory=dict)
     entry_exclusive: dict[int, set[str]] = field(default_factory=dict)
     fwd_use_exclusive: set[tuple[str, int]] = field(default_factory=set)
     fwd_preferred_lookahead: dict[str, list[tuple[str, int, int]]] = field(default_factory=dict)
@@ -319,13 +318,6 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                 continue
             for y in base_entry_ys:
                 entry_classes[y].add(fwd_var)
-
-    real_entry_classes = plan.real_entry_classes
-    for glyph_name, meta in glyph_meta.items():
-        if not meta.entry:
-            continue
-        for anchor in meta.entry:
-            real_entry_classes.setdefault(anchor[1], set()).add(glyph_name)
 
     entry_exclusive = plan.entry_exclusive
     all_entry_ys = set(entry_classes.keys())
@@ -1605,33 +1597,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
-
-    real_entry = plan.real_entry_classes
-    alt_reverts: list[tuple[str, str, int]] = []
-    for glyph_name, meta in glyph_meta.items():
-        if "alt" not in meta.traits:
-            continue
-        if meta.is_noentry:
-            continue
-        if meta.entry:
-            continue
-        if not meta.exit:
-            continue
-        for exit_y in meta.exit_ys:
-            if exit_y in real_entry:
-                alt_reverts.append((glyph_name, meta.base_name, exit_y))
-
-    if alt_reverts:
-        needed_ys = sorted({exit_y for _, _, exit_y in alt_reverts})
-        for y in needed_ys:
-            members = sorted(real_entry[y])
-            lines.append(f"    @real_entry_y{y} = [{' '.join(members)}];")
-        lines.append("")
-        lines.append("    lookup calt_safety_revert {")
-        for variant_name, base_name, exit_y in sorted(alt_reverts):
-            lines.append(f"        ignore sub {variant_name}' @real_entry_y{exit_y};")
-            lines.append(f"        sub {variant_name}' by {base_name};")
-        lines.append("    } calt_safety_revert;")
 
     lines.append("} calt;")
     return "\n".join(lines)
