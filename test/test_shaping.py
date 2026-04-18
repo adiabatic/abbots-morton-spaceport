@@ -8,7 +8,7 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import uharfbuzz as hb
 import yaml
@@ -39,6 +39,17 @@ class ExpectToken(TypedDict):
 class Connection(TypedDict):
     kind: Literal["join", "break", "height", "maybe"]
     y: int | None
+
+
+class Run(TypedDict):
+    font: str
+    text: str
+    features: NotRequired[dict[str, bool]]
+
+
+class PartitionedRun(Run):
+    tokens: list[ExpectToken]
+    connections: list[Connection]
 
 
 AnchorMap = dict[str, dict[str, list[Anchor]]]
@@ -231,11 +242,11 @@ class _DataExpectCollector(HTMLParser):
 
     def __init__(self) -> None:
         super().__init__()
-        self.cells: list[tuple[str, str | None, int, str | None, list[dict[str, Any]]]] = []
+        self.cells: list[tuple[str, str | None, int, str | None, list[Run]]] = []
         self._open_tags: list[tuple[str, bool, bool, str | None]] = []
         self._cell_active = False
         self._cell_info: _CellInfo | None = None
-        self._runs: list[dict[str, Any]] = []
+        self._runs: list[Run] = []
 
     def _current_font(self) -> str:
         for _tag, _is_cell, is_junior, _inner_ss in reversed(self._open_tags):
@@ -283,14 +294,15 @@ class _DataExpectCollector(HTMLParser):
             return
 
         if is_cell_start:
-            non_empty = []
+            non_empty: list[Run] = []
             for r in self._runs:
                 text = r["text"].strip()
                 if not text:
                     continue
-                entry = {"font": r["font"], "text": text}
-                if r.get("features"):
-                    entry["features"] = r["features"]
+                entry: Run = {"font": r["font"], "text": text}
+                features = r.get("features")
+                if features:
+                    entry["features"] = features
                 non_empty.append(entry)
             if not non_empty:
                 non_empty = [{"font": "senior", "text": ""}]
@@ -575,7 +587,7 @@ def _is_modifier_char(c: str) -> bool:
     return 0xFE00 <= ord(c) <= 0xFE0F
 
 
-def _partition_by_runs(runs: list[dict[str, Any]], tokens: list[ExpectToken], connections: list[Connection]) -> list[dict[str, Any]]:
+def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]) -> list[PartitionedRun]:
     """Partition ``tokens`` and ``connections`` across ``runs``.
 
     Walks the concatenated run text char-by-char, attributing each token to
@@ -633,31 +645,33 @@ def _partition_by_runs(runs: list[dict[str, Any]], tokens: list[ExpectToken], co
             f"{len(full_text)} chars"
         )
 
-    slices = []
+    slices: list[PartitionedRun] = []
     for run_idx, run in enumerate(runs):
         tok_indices = [i for i, r in enumerate(token_to_run) if r == run_idx]
-        base = {"font": run["font"], "text": run["text"]}
-        if run.get("features"):
-            base["features"] = run["features"]
         if not tok_indices:
-            slices.append({**base, "tokens": [], "connections": []})
-            continue
-        run_tokens = [tokens[i] for i in tok_indices]
-        run_conns = []
-        for i in range(len(tok_indices) - 1):
-            if tok_indices[i + 1] != tok_indices[i] + 1:
-                raise ValueError(
-                    f"Non-contiguous tokens in run {run_idx}: "
-                    f"{tok_indices[i]} -> {tok_indices[i+1]}"
-                )
-            run_conns.append(connections[tok_indices[i]])
-        slices.append({**base, "tokens": run_tokens, "connections": run_conns})
+            run_tokens: list[ExpectToken] = []
+            run_conns: list[Connection] = []
+        else:
+            run_tokens = [tokens[i] for i in tok_indices]
+            run_conns = []
+            for i in range(len(tok_indices) - 1):
+                if tok_indices[i + 1] != tok_indices[i] + 1:
+                    raise ValueError(
+                        f"Non-contiguous tokens in run {run_idx}: "
+                        f"{tok_indices[i]} -> {tok_indices[i+1]}"
+                    )
+                run_conns.append(connections[tok_indices[i]])
+        sl: PartitionedRun = {"font": run["font"], "text": run["text"], "tokens": run_tokens, "connections": run_conns}
+        run_features = run.get("features")
+        if run_features:
+            sl["features"] = run_features
+        slices.append(sl)
     return slices
 
 
 def run_shaping_test_runs(fonts: dict[str, hb.Font],
                           anchor_maps: dict[str, AnchorMap],
-                          runs: list[dict[str, Any]], expect_str: str,
+                          runs: list[Run], expect_str: str,
                           base_potential_entries: dict[str, dict[str, set[int]]] | None = None,
                           features: dict[str, bool] | None = None) -> None:
     """Shape each font-variant run independently and verify against expect_str.
