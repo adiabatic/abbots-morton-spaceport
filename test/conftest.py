@@ -2,9 +2,12 @@ import re
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import pytest
+
+if TYPE_CHECKING:
+    from test_shaping import Run
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -51,7 +54,7 @@ class ShapingItem(pytest.Item):
     def __init__(self, name: str, parent: pytest.Item, text: str,
                  expect_str: str, html_line: int,
                  stylistic_set: str | None = None,
-                 runs: list[dict[str, Any]] | None = None) -> None:
+                 runs: list[Run] | None = None) -> None:
         super().__init__(name, parent)
         self.text = text
         self.expect_str = expect_str

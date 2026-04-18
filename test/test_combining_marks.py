@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 import pytest
 import uharfbuzz as hb
@@ -12,6 +12,12 @@ PROPORTIONAL_FONTS = [
 ]
 
 
+class ShapedGlyph(TypedDict):
+    name: str
+    x_offset: int
+    y_offset: int
+
+
 @pytest.fixture(params=PROPORTIONAL_FONTS, ids=lambda path: path.stem)
 def font(request: pytest.FixtureRequest) -> hb.Font:
     blob = hb.Blob.from_file_path(str(request.param))
@@ -19,7 +25,7 @@ def font(request: pytest.FixtureRequest) -> hb.Font:
     return hb.Font(face)
 
 
-def shape(font: hb.Font, text: str) -> list[dict[str, Any]]:
+def shape(font: hb.Font, text: str) -> list[ShapedGlyph]:
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
