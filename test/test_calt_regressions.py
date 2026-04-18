@@ -3,19 +3,28 @@ from pathlib import Path
 import uharfbuzz as hb
 import sys
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
+ZWNJ = "\u200C"
 sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
 
 
-def _shape(text: str) -> list[str]:
+@lru_cache(maxsize=1)
+def _font():
     blob = hb.Blob.from_file_path(str(FONT_PATH))
     face = hb.Face(blob)
-    font = hb.Font(face)
+    return hb.Font(face)
+
+
+def _shape(text: str) -> list[str]:
+    font = _font()
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
@@ -27,6 +36,130 @@ def _shape(text: str) -> list[str]:
 def _compiled_meta():
     data = load_glyph_data(ROOT / "glyph_data")
     return compile_glyph_set(data, "senior").glyph_meta
+
+
+@lru_cache(maxsize=1)
+def _char_map():
+    with PS_NAMES_PATH.open() as f:
+        ps_names = yaml.safe_load(f)
+    return {name: chr(codepoint) for name, codepoint in ps_names.items()}
+
+
+@lru_cache(maxsize=1)
+def _plain_quikscript_letters():
+    chars = _char_map()
+    names = [
+        name for name in sorted(chars)
+        if name.startswith("qs")
+        and "_" not in name
+        and "." not in name
+        and name not in {"qsAngleParenLeft", "qsAngleParenRight"}
+    ]
+    return tuple((name, chars[name]) for name in names)
+
+
+def _entry_ys(glyph_name: str) -> set[int]:
+    meta = _compiled_meta().get(glyph_name)
+    if meta is None:
+        return set()
+    return {anchor[1] for anchor in meta.entry} | {anchor[1] for anchor in meta.entry_curs_only}
+
+
+def _exit_ys(glyph_name: str) -> set[int]:
+    meta = _compiled_meta().get(glyph_name)
+    if meta is None:
+        return set()
+    return {anchor[1] for anchor in meta.exit}
+
+
+def _append_utter_alt_failures(failures: list[str], label: str, text: str):
+    glyphs = _shape(text)
+    meta_map = _compiled_meta()
+
+    for index, glyph_name in enumerate(glyphs):
+        meta = meta_map.get(glyph_name)
+        if meta is None or meta.base_name != "qsUtter" or "alt" not in meta.traits:
+            continue
+
+        entry_ys = _entry_ys(glyph_name)
+        exit_ys = _exit_ys(glyph_name)
+
+        if entry_ys:
+            if index == 0:
+                failures.append(
+                    f"{label}: {glyph_name} has left-entry Ys {sorted(entry_ys)} at start in {glyphs}"
+                )
+            else:
+                prev_name = glyphs[index - 1]
+                common = _exit_ys(prev_name) & entry_ys
+                if not common:
+                    failures.append(
+                        f"{label}: {glyph_name} does not join left to {prev_name} "
+                        f"(prev exits={sorted(_exit_ys(prev_name))}, entry={sorted(entry_ys)}) in {glyphs}"
+                    )
+
+        if exit_ys:
+            if index + 1 >= len(glyphs):
+                failures.append(
+                    f"{label}: {glyph_name} has right-exit Ys {sorted(exit_ys)} at end in {glyphs}"
+                )
+            else:
+                next_name = glyphs[index + 1]
+                common = exit_ys & _entry_ys(next_name)
+                if not common:
+                    failures.append(
+                        f"{label}: {glyph_name} does not join right to {next_name} "
+                        f"(exit={sorted(exit_ys)}, next entries={sorted(_entry_ys(next_name))}) in {glyphs}"
+                    )
+
+
+def _utter_alt_invariant_failures():
+    failures: list[str] = []
+    chars = _char_map()
+    utter = chars["qsUtter"]
+    boundary_states = (
+        ("plain", "", ""),
+        ("zwnj-left", ZWNJ, ""),
+        ("zwnj-right", "", ZWNJ),
+        ("zwnj-both", ZWNJ, ZWNJ),
+    )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            for state_name, left_boundary, right_boundary in boundary_states:
+                text = left_char + left_boundary + utter + right_boundary + right_char
+                label = f"{left_name} / {state_name} / qsUtter / {right_name}"
+                _append_utter_alt_failures(failures, label, text)
+
+    for right_name, right_char in _plain_quikscript_letters():
+        _append_utter_alt_failures(
+            failures,
+            f"start / plain / qsUtter / {right_name}",
+            utter + right_char,
+        )
+        _append_utter_alt_failures(
+            failures,
+            f"start / zwnj-right / qsUtter / {right_name}",
+            utter + ZWNJ + right_char,
+        )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        _append_utter_alt_failures(
+            failures,
+            f"{left_name} / plain / qsUtter / end",
+            left_char + utter,
+        )
+        _append_utter_alt_failures(
+            failures,
+            f"{left_name} / zwnj-left / qsUtter / end",
+            left_char + ZWNJ + utter,
+        )
+
+    _append_utter_alt_failures(failures, "start / isolated / qsUtter / end", utter)
+    _append_utter_alt_failures(failures, "start / isolated-zwnj / qsUtter / end", utter + ZWNJ)
+    _append_utter_alt_failures(failures, "start / zwnj-isolated / qsUtter / end", ZWNJ + utter)
+
+    return failures
 
 
 def test_qs_see_exit_baseline_right_before_qs_ooze():
@@ -67,3 +200,8 @@ def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
     assert not it_meta.entry_curs_only
     assert {anchor[1] for anchor in it_meta.exit} == {5}
     assert {anchor[1] for anchor in it_meta.exit} & {anchor[1] for anchor in zoo_meta.entry} == {5}
+
+
+def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
+    failures = _utter_alt_invariant_failures()
+    assert not failures, "\n".join(failures[:50])

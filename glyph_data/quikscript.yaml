@@ -10,6 +10,20 @@ context_sets:
   - {family: qsYe}
   fee_entry_top:
   - {family: qsFee}
+  utter_reaches_way_back_after:
+  - {family: qsFee, modifiers: [exit-xheight, before-utter]}
+  - {family: qsMay}
+  utter_reaches_way_back_before:
+  - {family: qsSee}
+  - {family: qsIng}
+  - {family: qsLow}
+  - {family: qsNo}
+  utter_before_may:
+  - {family: qsMay}
+  - {family: qsMay, modifiers: [entry-baseline]}
+  - {family: qsMay, modifiers: [entry-baseline, entry-extended]}
+  - {family: qsMay, modifiers: [entry-baseline, exit-extended]}
+  - {family: qsMay, modifiers: [entry-baseline, entry-extended, exit-extended]}
   halves_exit_xheight:
   - {family: qsHe, traits: [half]}
   - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
@@ -2246,6 +2260,8 @@ glyph_families:
         shape: alt
         anchors:
           exit: [6, 0]
+        select:
+          not_before: [{family: qsUtter}]
         traits: [alt]
         variants:
         - mono
@@ -2257,7 +2273,8 @@ glyph_families:
           entry: [1, 5]
           exit: [7, 0]
         select:
-          after: [{family: qsFee}, {family: qsMay}]
+          after: [{context_set: utter_reaches_way_back_after}]
+          before: [{context_set: utter_reaches_way_back_before}]
           not_before: [{family: qsRoe}, {family: qsThey}]
         derive:
           extend_entry_after: [{context_set: halves_exit_xheight}]
@@ -2268,7 +2285,8 @@ glyph_families:
         anchors:
           exit: [6, 0]
         select:
-          before: [{family: qsMay}]
+          before: [{context_set: utter_before_may}]
+          not_after: [space, uni200C]
         traits: [alt]
         modifiers: [before-may]
         variants:

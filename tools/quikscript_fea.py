@@ -81,7 +81,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             base_meta = glyph_meta.get(base_name)
             if base_meta and entry_y in base_meta.entry_ys:
                 continue
-        if meta.before:
+        if meta.before and not meta.after:
             continue
         calt_after = meta.after
         if calt_after:
@@ -682,7 +682,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return glyph_meta[name]
 
     def _base_name(name: str) -> str:
-        return _meta(name).base_name
+        if name in glyph_meta:
+            return _meta(name).base_name
+        return name
 
     bk_replacements = plan.bk_replacements
     bk_exclusions = plan.bk_exclusions
@@ -711,6 +713,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         expanded = set(glyphs)
         for glyph in glyphs:
             base = _base_name(glyph)
+            if base not in glyph_meta:
+                continue
             form_specific = glyph != base
             if include_base:
                 expanded.add(base)
@@ -1076,9 +1080,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(
                                 f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
                             )
+                lookahead = ""
+                if variant_meta.before:
+                    before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
+                    if not before_list:
+                        continue
+                    lookahead = f" [{before_list}]"
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
-                lines.append(f"        sub [{after_list}] {base_name}' by {variant_name};")
+                lines.append(f"        sub [{after_list}] {base_name}'{lookahead} by {variant_name};")
                 lines.append(f"    }} calt_pair_{safe};")
 
     def _emit_bk_general(base_name: str):

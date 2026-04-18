@@ -51,6 +51,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 - The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
+- During `calt`, a ZWNJ boundary is still the literal `uni200C` glyph; if a selector needs to block or require a ZWNJ boundary, target `uni200C` in `after` / `not_after` rather than `space`.
 
 ## Bumping the version number
 
