@@ -1091,6 +1091,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"        sub [{after_list}] {base_name}'{lookahead} by {variant_name};")
                 lines.append(f"    }} calt_pair_{safe};")
 
+    def _fwd_pair_bk_targets(base_name: str, entry_y: int) -> list[str]:
+        if base_name not in fwd_pair_overrides:
+            return []
+        targets = []
+        for fwd_variant, _, _ in fwd_pair_overrides[base_name]:
+            fwd_meta = _meta(fwd_variant)
+            if fwd_meta.entry and entry_y not in set(fwd_meta.entry_ys):
+                targets.append(fwd_variant)
+        return targets
+
     def _emit_bk_general(base_name: str):
         if base_name in bk_replacements:
             variants = bk_replacements[base_name]
@@ -1107,8 +1117,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         if filtered:
                             member_list = " ".join(filtered)
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
+                            for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                                lines.append(f"        sub [{member_list}] {fpt}' by {variant_name};")
                     else:
                         lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                            lines.append(f"        sub @exit_y{entry_y} {fpt}' by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_bk_cycle(bases: list[str]):
@@ -1133,11 +1147,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 for fg in sorted(_expand_exclusions(fwd_excl)):
                                     lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
+                            for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                                if fwd_excl:
+                                    for fg in sorted(_expand_exclusions(fwd_excl)):
+                                        lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                                lines.append(f"        sub [{member_list}] {fpt}' by {variant_name};")
                     else:
                         if fwd_excl:
                             for fg in sorted(_expand_exclusions(fwd_excl)):
                                 lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
                         lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                            if fwd_excl:
+                                for fg in sorted(_expand_exclusions(fwd_excl)):
+                                    lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                            lines.append(f"        sub @exit_y{entry_y} {fpt}' by {variant_name};")
         for base_name in bases:
             if base_name in fwd_replacements:
                 variants = fwd_replacements[base_name]
@@ -1217,11 +1241,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             for fg in sorted(_expand_exclusions(fwd_excl)):
                                 lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
                         lines.append(f"        sub [{member_list}] {base_name}' by {relevant[entry_y]};")
+                        for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                            if fwd_excl:
+                                for fg in sorted(_expand_exclusions(fwd_excl)):
+                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                            lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
                     if fwd_excl:
                         for fg in sorted(_expand_exclusions(fwd_excl)):
                             lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
+                    for fpt in _fwd_pair_bk_targets(base_name, entry_y):
+                        if fwd_excl:
+                            for fg in sorted(_expand_exclusions(fwd_excl)):
+                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                        lines.append(f"        sub @exit_y{entry_y} {fpt}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
     def _emit_post_override_bk(bases: list[str]):
@@ -1476,11 +1510,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             for fg in sorted(_expand_exclusions(fwd_excl)):
                                 lines.append(f"        ignore sub [{member_list}] {cycle_base}' {fg};")
                         lines.append(f"        sub [{member_list}] {cycle_base}' by {relevant[entry_y]};")
+                        for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
+                            if fwd_excl:
+                                for fg in sorted(_expand_exclusions(fwd_excl)):
+                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                            lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
                     if fwd_excl:
                         for fg in sorted(_expand_exclusions(fwd_excl)):
                             lines.append(f"        ignore sub @exit_y{entry_y} {cycle_base}' {fg};")
                     lines.append(f"        sub @exit_y{entry_y} {cycle_base}' by {relevant[entry_y]};")
+                    for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
+                        if fwd_excl:
+                            for fg in sorted(_expand_exclusions(fwd_excl)):
+                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                        lines.append(f"        sub @exit_y{entry_y} {fpt}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_pair_bk_{safe};")
 
     _emit_reverse_upgrades()

@@ -202,6 +202,56 @@ def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
     assert {anchor[1] for anchor in it_meta.exit} & {anchor[1] for anchor in zoo_meta.entry} == {5}
 
 
+def test_qs_no_alt_selected_after_ox_before_fee():
+    glyphs = _shape("\uE678\uE666\uE658")
+    meta = _compiled_meta()
+    no_glyph = glyphs[1]
+    no_meta = meta[no_glyph]
+    assert "alt" in no_meta.traits, (
+        f"Expected No.alt after Ox, got {no_glyph}"
+    )
+    ox_exits = _exit_ys(glyphs[0])
+    no_entries = _entry_ys(no_glyph)
+    assert ox_exits & no_entries, (
+        f"Ox exits={sorted(ox_exits)} should overlap No.alt entries={sorted(no_entries)}"
+    )
+
+
+def _no_alt_selection_failures():
+    failures: list[str] = []
+    chars = _char_map()
+    no = chars["qsNo"]
+    meta_map = _compiled_meta()
+
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            text = left_char + no + right_char
+            glyphs = _shape(text)
+            for index, glyph_name in enumerate(glyphs):
+                meta = meta_map.get(glyph_name)
+                if meta is None or meta.base_name != "qsNo":
+                    continue
+                if index == 0:
+                    continue
+                prev_name = glyphs[index - 1]
+                prev_meta = meta_map.get(prev_name)
+                prev_exits = _exit_ys(prev_name)
+                prev_is_zoo = prev_meta and prev_meta.base_name == "qsZoo"
+                if 0 in prev_exits and not prev_is_zoo and "alt" not in meta.traits:
+                    label = f"{left_name} / qsNo / {right_name}"
+                    failures.append(
+                        f"{label}: expected No.alt after {prev_name} (exits at y=0) "
+                        f"but got {glyph_name} in {glyphs}"
+                    )
+
+    return failures
+
+
+def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
+    failures = _no_alt_selection_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
     failures = _utter_alt_invariant_failures()
     assert not failures, "\n".join(failures[:50])
