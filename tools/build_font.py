@@ -30,6 +30,7 @@ import yaml
 
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
+from fontTools.misc.psCharStrings import T2CharString
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
@@ -158,7 +159,7 @@ def collect_kerning_groups(glyphs_def: dict[str, GlyphDef]) -> dict[str, list[st
 
 
 def generate_kern_fea(
-    kerning_defs: dict,
+    kerning_defs: dict[str, dict[str, Any]],
     kerning_groups: dict[str, list[str]],
     all_glyph_names: list[str],
     pixel_width: int,
@@ -429,7 +430,7 @@ def bitmap_to_rectangles(
     return rectangles
 
 
-def draw_rectangles_to_glyph(rectangles: list[tuple[int, int, int, int]], glyph_set: dict[str, Any]):
+def draw_rectangles_to_glyph(rectangles: list[tuple[int, int, int, int]], glyph_set: dict[str, Any]) -> T2CharString:
     """
     Draw rectangles as a TrueType glyph using T2CharStringPen.
     Returns a T2CharString for CFF/OTF fonts.
