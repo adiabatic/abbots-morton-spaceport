@@ -1945,7 +1945,7 @@ glyph_families:
           exit: [2, 0]
         select:
           after: [{family: qsDay}]
-        gate_feature_behind: ss03
+        gate_feature_behind: ss04
         modifiers: [entry-baseline, after-day]
       entry_baseline_before_low:
         shape: prop
@@ -1955,7 +1955,7 @@ glyph_families:
         select:
           before: [{family: qsLow}]
           not_after: [{family: qsEat}, {family: qsIt}, {family: qsJay}, {family: qsZoo}]
-        gate_feature_behind: ss03
+        gate_feature_behind: ss04
         modifiers: [entry-baseline, before-low]
       exit_xheight:
         shape: prop
