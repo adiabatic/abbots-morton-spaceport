@@ -772,6 +772,8 @@ glyph_families:
           - family: qsLlan
           - family: qsNo
           - family: qsRoe
+          extend_exit_before_gated:
+            ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
       exit_xheight_before_utter:
         shape: mono
