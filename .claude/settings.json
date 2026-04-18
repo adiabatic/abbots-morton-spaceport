@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:fonttools.readthedocs.io)",
+      "WebFetch(domain:adobe-type-tools.github.io)",
+      "Bash(uv lock:*)",
+      "Bash(make:*)",
+      "Bash(ls:*)",
+      "Bash(uv run python:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync)",
+      "Bash(echo:*)",
+      "Bash(printf:*)",
+      "Bash(xxd:*)",
+      "Bash(hb-shape:*)",
+      "Bash(HB_OT_LAYOUT_DEBUG=1 hb-shape:*)",
+      "Bash(markdownlint-cli2:*)",
+      "WebFetch(domain:friedorange.xyz)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Edit(*.py)|Write(*.py)",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pyright tools/ test/",
+            "timeout": 60,
+            "statusMessage": "Checking Python types with pyright..."
+          }
+        ]
+      }
+    ]
+  }
+}
