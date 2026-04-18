@@ -5,8 +5,10 @@ HarfBuzz produces the expected glyph sequence and cursive connections.
 """
 
 import re
+import sys
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import Any, Literal, TypedDict
 
 import uharfbuzz as hb
 import yaml
@@ -20,21 +22,43 @@ FONT_PATH = FONT_PATHS["senior"]  # legacy alias
 GLYPH_DATA_DIR = ROOT / "glyph_data"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
-import sys
 sys.path.insert(0, str(ROOT / "tools"))
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
+from quikscript_ir import Anchor, JoinGlyph
 
-def _build_char_to_glyph_name():
+
+class ExpectToken(TypedDict):
+    base: str
+    lig_base: str | None
+    lig_mode: Literal["maybe", "maybe_break"] | None
+    variants: list[str]
+    neg_variants: list[str]
+
+
+class Connection(TypedDict):
+    kind: Literal["join", "break", "height", "maybe"]
+    y: int | None
+
+
+AnchorMap = dict[str, dict[str, list[Anchor]]]
+
+
+class _CellInfo(TypedDict):
+    expect: str | None
+    line: int
+    stylistic_set: str | None
+
+def _build_char_to_glyph_name() -> dict[str, str]:
     with open(PS_NAMES_PATH) as f:
         ps_names = yaml.safe_load(f)
-    result = {}
+    result: dict[str, str] = {}
     for name, codepoint in ps_names.items():
         result[chr(codepoint)] = name
     return result
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
-_COMPILED_GLYPH_META: dict = {}  # variant -> {glyph_name: JoinGlyph}
+_COMPILED_GLYPH_META: dict[str, dict[str, JoinGlyph]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +85,14 @@ LOZENGE_MAP = {
 CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*(\?)\s*|\s*\|\s*")
 
 
-def _letter_to_qs(name):
+def _letter_to_qs(name: str) -> str:
     if name == "-ing":
         return "qsIng"
     name = name.replace("\u2019", "").replace("'", "")
     return "qs" + name
 
 
-def parse_expect(raw):
+def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
     """Parse a data-expect string into (tokens, connections).
 
     tokens:  list of dicts with keys:
@@ -129,7 +153,9 @@ def parse_expect(raw):
             tokens.append({
                 "base": glyph_name,
                 "lig_base": None,
+                "lig_mode": None,
                 "variants": [],
+                "neg_variants": [],
             })
             pos += esc_m.end()
             continue
@@ -143,7 +169,9 @@ def parse_expect(raw):
             tokens.append({
                 "base": glyph_name,
                 "lig_base": None,
+                "lig_mode": None,
                 "variants": [],
+                "neg_variants": [],
             })
             pos += loz_m.end()
             continue
@@ -201,23 +229,21 @@ class _DataExpectCollector(HTMLParser):
 
     _TAGS = {"td", "span", "dd"}
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.cells = []
-        # Stack of (tag, is_cell_start, is_force_junior, inner_ss) for each
-        # open _TAGS element we are currently inside.
-        self._open_tags = []
+        self.cells: list[tuple[str, str | None, int, str | None, list[dict[str, Any]]]] = []
+        self._open_tags: list[tuple[str, bool, bool, str | None]] = []
         self._cell_active = False
-        self._cell_info: dict[str, str | int | None] | None = None
-        self._runs: list[dict] = []
+        self._cell_info: _CellInfo | None = None
+        self._runs: list[dict[str, Any]] = []
 
-    def _current_font(self):
+    def _current_font(self) -> str:
         for _tag, _is_cell, is_junior, _inner_ss in reversed(self._open_tags):
             if is_junior:
                 return "junior"
         return "senior"
 
-    def handle_starttag(self, tag, attrs):
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag not in self._TAGS:
             return
         attr_dict = dict(attrs)
@@ -245,7 +271,7 @@ class _DataExpectCollector(HTMLParser):
                 features = {f"ss{ss.zfill(2)}": True for ss in inner_ss.split()}
                 self._runs.append({"font": self._current_font(), "text": "", "features": features})
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag not in self._TAGS or not self._open_tags:
             return
         open_tag, is_cell_start, was_force_junior, was_inner_ss = self._open_tags[-1]
@@ -286,7 +312,7 @@ class _DataExpectCollector(HTMLParser):
         elif was_inner_ss:
             self._runs.append({"font": self._current_font(), "text": ""})
 
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self._cell_active:
             self._runs[-1]["text"] += data
 
@@ -295,18 +321,18 @@ class _DataExpectCollector(HTMLParser):
 # Font/anchor loading
 # ---------------------------------------------------------------------------
 
-def load_font(variant="senior"):
+def load_font(variant: str = "senior") -> hb.Font:
     blob = hb.Blob.from_file_path(str(FONT_PATHS[variant]))
     face = hb.Face(blob)
     return hb.Font(face)
 
 
-def build_anchor_map(variant="senior"):
+def build_anchor_map(variant: str = "senior") -> tuple[AnchorMap, dict[str, set[int]]]:
     data = load_glyph_data(GLYPH_DATA_DIR)
     _COMPILED_GLYPH_META[variant] = compile_glyph_set(data, variant).glyph_meta
 
-    result = {}
-    base_potential_entries = {}
+    result: AnchorMap = {}
+    base_potential_entries: dict[str, set[int]] = {}
     for name, meta in _COMPILED_GLYPH_META[variant].items():
         entry = list(meta.entry) + list(meta.entry_curs_only)
         exit_ = list(meta.exit)
@@ -318,7 +344,7 @@ def build_anchor_map(variant="senior"):
     return result, base_potential_entries
 
 
-def _compiled_glyph_meta(name, variant="senior"):
+def _compiled_glyph_meta(name: str, variant: str = "senior") -> JoinGlyph:
     if variant not in _COMPILED_GLYPH_META:
         build_anchor_map(variant)
     meta = _COMPILED_GLYPH_META[variant].get(name)
@@ -329,23 +355,23 @@ def _compiled_glyph_meta(name, variant="senior"):
     return meta
 
 
-def _modifier_matches(meta, modifier):
+def _modifier_matches(meta: JoinGlyph, modifier: str) -> bool:
     if modifier in {"alt", "half"}:
         return modifier in meta.traits
     return modifier in meta.compat_assertions
 
 
-def _modifier_not_matches(meta, modifier):
+def _modifier_not_matches(meta: JoinGlyph, modifier: str) -> bool:
     if modifier in {"alt", "half"}:
         return modifier not in meta.traits
     return modifier not in meta.compat_assertions
 
 
-def _glyph_base_name(meta):
+def _glyph_base_name(meta: JoinGlyph) -> str:
     return meta.base_name
 
 
-def _is_ligature_match(meta, base, lig):
+def _is_ligature_match(meta: JoinGlyph, base: str, lig: str) -> bool:
     return meta.sequence == (base, lig)
 
 
@@ -353,7 +379,7 @@ def _is_ligature_match(meta, base, lig):
 # Maybe-ligature expansion
 # ---------------------------------------------------------------------------
 
-def _expand_maybe_ligatures(tokens, connections):
+def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connection]) -> list[tuple[list[ExpectToken], list[Connection]]]:
     maybe_indices = [
         i for i, tok in enumerate(tokens)
         if tok.get("lig_mode") in ("maybe", "maybe_break")
@@ -398,8 +424,12 @@ def _expand_maybe_ligatures(tokens, connections):
 # Test runner
 # ---------------------------------------------------------------------------
 
-def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
-                        base_potential_entries=None, variant="senior"):
+def _try_interpretation(font: hb.Font, anchor_map: AnchorMap,
+                        glyph_names: list[str],
+                        tokens: list[ExpectToken],
+                        connections: list[Connection],
+                        base_potential_entries: dict[str, set[int]] | None = None,
+                        variant: str = "senior") -> str | None:
     if len(glyph_names) != len(tokens):
         return (
             f"Glyph count mismatch: got {glyph_names}, "
@@ -478,9 +508,11 @@ def _try_interpretation(font, anchor_map, glyph_names, tokens, connections,
     return None
 
 
-def run_shaping_test(font, anchor_map, text, expect_str,
-                     base_potential_entries=None, features=None,
-                     variant="senior"):
+def run_shaping_test(font: hb.Font, anchor_map: AnchorMap, text: str,
+                     expect_str: str,
+                     base_potential_entries: dict[str, set[int]] | None = None,
+                     features: dict[str, bool] | None = None,
+                     variant: str = "senior") -> None:
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
@@ -528,14 +560,14 @@ def run_shaping_test(font, anchor_map, text, expect_str,
 # Multi-run test runner
 # ---------------------------------------------------------------------------
 
-def _token_input_char_count(tok):
+def _token_input_char_count(tok: ExpectToken) -> int:
     """How many base (non-modifier) input chars this token consumes."""
     if tok.get("lig_base"):
         return 2
     return 1
 
 
-def _is_modifier_char(c):
+def _is_modifier_char(c: str) -> bool:
     """Characters that attach to the previous char instead of forming their own token.
 
     Currently: variation selectors (U+FE00..U+FE0F).
@@ -543,7 +575,7 @@ def _is_modifier_char(c):
     return 0xFE00 <= ord(c) <= 0xFE0F
 
 
-def _partition_by_runs(runs, tokens, connections):
+def _partition_by_runs(runs: list[dict[str, Any]], tokens: list[ExpectToken], connections: list[Connection]) -> list[dict[str, Any]]:
     """Partition ``tokens`` and ``connections`` across ``runs``.
 
     Walks the concatenated run text char-by-char, attributing each token to
@@ -623,8 +655,11 @@ def _partition_by_runs(runs, tokens, connections):
     return slices
 
 
-def run_shaping_test_runs(fonts, anchor_maps, runs, expect_str,
-                          base_potential_entries=None, features=None):
+def run_shaping_test_runs(fonts: dict[str, hb.Font],
+                          anchor_maps: dict[str, AnchorMap],
+                          runs: list[dict[str, Any]], expect_str: str,
+                          base_potential_entries: dict[str, dict[str, set[int]]] | None = None,
+                          features: dict[str, bool] | None = None) -> None:
     """Shape each font-variant run independently and verify against expect_str.
 
     ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior").
@@ -671,7 +706,7 @@ def run_shaping_test_runs(fonts, anchor_maps, runs, expect_str,
         # (glyph-identity assertions still run).
         if variant == "junior":
             interpretations = [
-                (t, [{"kind": "maybe", "y": None} for _ in c])
+                (t, [Connection(kind="maybe", y=None) for _ in c])
                 for t, c in interpretations
             ]
 
