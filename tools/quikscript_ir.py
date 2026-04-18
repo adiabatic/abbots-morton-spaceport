@@ -735,7 +735,7 @@ def _entry_restriction_y_from_modifiers(modifiers: list[str]) -> int | None:
 
 def _glyph_def_to_join_glyph(
     glyph_name: str,
-    glyph_def: dict,
+    glyph_def: GlyphDef,
     *,
     base_name: str | None = None,
     family_name: str | None = None,
