@@ -98,6 +98,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         else:
             if "half" in meta.traits and not meta.exit:
                 continue
+            assert entry_y is not None
             existing = bk_replacements.get(base_name, {}).get(entry_y)
             if existing is not None:
                 existing_meta = _meta(existing)
@@ -337,10 +338,10 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                     fwd_use_exclusive.add((base_name, exit_y))
         base_meta = glyph_meta.get(base_name)
         if base_meta and base_meta.exit:
-            base_exit_ys = set(base_meta.exit_ys)
-            min_base_exit = min(base_exit_ys)
+            known_exits = set(base_meta.exit_ys)
+            min_base_exit = min(known_exits)
             for exit_y in fwd_replacements[base_name]:
-                if exit_y not in base_exit_ys and exit_y < min_base_exit:
+                if exit_y not in known_exits and exit_y < min_base_exit:
                     fwd_use_exclusive.add((base_name, exit_y))
 
     fwd_preferred_lookahead = plan.fwd_preferred_lookahead
@@ -1461,8 +1462,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     _emit_block(pre_cycle)
 
-    if cycle_bases:
-        cycle_list = sorted(cycle_bases)
+    cycle_list = sorted(cycle_bases) if cycle_bases else []
+    if cycle_list:
         _emit_block(cycle_list, use_cycle=True)
 
     early_post = [base for base in post_cycle if base in early_fwd_pairs]
@@ -1470,7 +1471,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _emit_block(early_post)
     _emit_block(late_post)
 
-    if cycle_bases:
+    if cycle_list:
         _emit_post_override_bk(cycle_list)
 
     if cycle_bases:
@@ -1575,18 +1576,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for lig_name, components in sorted(ligatures):
             variant_sets: list[list[str]] = []
             for index, component in enumerate(components):
-                variants: set[str] = set()
+                lig_variants: set[str] = set()
                 if component in bk_replacements:
-                    variants.update(bk_replacements[component].values())
+                    lig_variants.update(bk_replacements[component].values())
                 if component in pair_overrides:
                     for variant_name, _ in pair_overrides[component]:
-                        variants.add(variant_name)
+                        lig_variants.add(variant_name)
                 if component in fwd_pair_overrides:
                     for variant_name, _, _ in fwd_pair_overrides[component]:
-                        variants.add(variant_name)
+                        lig_variants.add(variant_name)
                 if index == 0 and component in fwd_replacements:
-                    variants.update(fwd_replacements[component].values())
-                variant_sets.append([component] + sorted(variants))
+                    lig_variants.update(fwd_replacements[component].values())
+                variant_sets.append([component] + sorted(lig_variants))
             for combo in product(*variant_sets):
                 component_str = " ".join(combo)
                 actual_lig = lig_name

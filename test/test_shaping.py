@@ -208,8 +208,8 @@ class _DataExpectCollector(HTMLParser):
         # open _TAGS element we are currently inside.
         self._open_tags = []
         self._cell_active = False
-        self._cell_info = None  # dict: expect, line, stylistic_set
-        self._runs = []  # list of {"font": str, "text": str}
+        self._cell_info: dict[str, str | int | None] | None = None
+        self._runs: list[dict] = []
 
     def _current_font(self):
         for _tag, _is_cell, is_junior, _inner_ss in reversed(self._open_tags):
@@ -269,6 +269,7 @@ class _DataExpectCollector(HTMLParser):
             if not non_empty:
                 non_empty = [{"font": "senior", "text": ""}]
             full_text = "".join(r["text"] for r in self._runs).strip()
+            assert self._cell_info is not None
             self.cells.append((
                 full_text,
                 self._cell_info["expect"],

@@ -34,7 +34,9 @@ class CompiledGlyphSet:
     @property
     def glyph_definitions(self) -> dict[str, dict]:
         if self._glyph_definitions is None:
-            glyph_definitions = dict(self.legacy_glyphs)
+            glyph_definitions: dict[str, dict] = {
+                k: v for k, v in self.legacy_glyphs.items() if v is not None
+            }
             glyph_definitions.update(flatten_join_glyphs(self.join_glyphs))
             self._glyph_definitions = glyph_definitions
         return self._glyph_definitions
@@ -188,7 +190,7 @@ def _validate_extensions_reach_targets(
     errors: list[str] = []
 
     for g in join_glyphs.values():
-        if not g.exit:
+        if not g.exit or not g.family:
             continue
         exit_y = g.exit[0][1]
 
