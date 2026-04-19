@@ -66,6 +66,10 @@
         text-transform: uppercase;
       }
 
+      .page-break-before {
+        break-before: page;
+      }
+
       [data-stylistic-set~="01"] {
         font-feature-settings: "ss01" 1;
       }
@@ -495,7 +499,7 @@
       </p>
     </section>
 
-    <h2>Title Page</h2>
+    <h2 class='page-break-before'>Title Page</h2>
     <section class="panel" style="text-align: center">
       <div class="title-logo" role="img" aria-label="Quikscript"></div>
       <p style="line-height: 2">
@@ -509,7 +513,7 @@
       <p>Abbots Morton<br />Worcester<br />England</p>
     </section>
 
-    <h2 class="visibility-mutable__verbiage">Preface</h2>
+    <h2 class="visibility-mutable__verbiage page-break-before">Preface</h2>
     <section class="panel visibility-mutable__verbiage" data-page="2">
       <div style="max-width: 35ch">
         <p>
