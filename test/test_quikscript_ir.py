@@ -140,7 +140,7 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
                             "exit": [1, 0],
                         },
                         "derive": {
-                            "extend_exit_before": [{"family": "qsFollow"}],
+                            "extend_exit_before": {"by": 1, "targets": [{"family": "qsFollow"}]},
                         },
                     },
                 },
@@ -151,7 +151,7 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
                             "entry": [0, 0],
                         },
                         "derive": {
-                            "extend_entry_after": [{"family": "qsLead"}],
+                            "extend_entry_after": {"by": 1, "targets": [{"family": "qsLead"}]},
                         },
                     },
                 },

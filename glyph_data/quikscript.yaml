@@ -151,7 +151,7 @@ glyph_families:
           not_before: [{family: qsAwe}, {family: qsCheer}, {family: qsEight}, {family: qsEt}, {family: qsFoot}, {family: qsIt}, {family: qsJay}, {family: qsLlan}, {family: qsNo}, {family: qsOwe}, {family: qsOx}, {family: qsRoe}, {family: qsThey}, {family: qsYe}, {family: qsZoo}]
         revert_feature: ss01
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       half_entry_y6:
         inherits: half
@@ -171,7 +171,7 @@ glyph_families:
           entry: [1, 5]
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-xheight]
       half_entry_y6_exit_y6:
         inherits: half
@@ -209,7 +209,7 @@ glyph_families:
         select:
           after: [{context_set: extended_exit_utter_ah}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
   qsTea:
     mono:
@@ -262,7 +262,7 @@ glyph_families:
         select:
           not_before: [{family: qsTea}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         traits: [half]
         modifiers: [entry-xheight]
       half_entry_xheight_ss03:
@@ -329,7 +329,7 @@ glyph_families:
         select:
           not_after: [{family: qsEat}, {family: qsHe}, {family: qsIt}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
         derive:
-          extend_entry_after: [{family: qsEight}, {family: qsJay}, {family: qsKey}]
+          extend_entry_after: {by: 1, targets: [{family: qsEight}, {family: qsJay}, {family: qsKey}]}
         modifiers: [entry-baseline]
       entry_baseline_exit_baseline:
         shape: prop
@@ -400,7 +400,7 @@ glyph_families:
         entry: [1, 5]
         exit: [5, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
     shapes:
       half:
         bitmap:
@@ -423,7 +423,7 @@ glyph_families:
         select:
           not_after: [{family: qsTea}, {family: qsYe}]
         derive:
-          extend_entry_after: [{family: qsTea}, {family: qsYe}]
+          extend_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsYe}]}
         traits: [half]
   qsDay_qsUtter:
     sequence:
@@ -447,7 +447,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
     shapes:
       half:
         bitmap:
@@ -472,7 +472,7 @@ glyph_families:
         derive:
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
-          extend_entry_after: [{family: qsTea}, {family: qsYe}]
+          extend_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsYe}]}
         traits: [half]
   qsDay_qsEat:
     sequence:
@@ -494,7 +494,7 @@ glyph_families:
         entry: [1, 5]
         exit: [7, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsKey:
     mono:
       bitmap:
@@ -551,7 +551,7 @@ glyph_families:
         select:
           not_before: [{family: qsNo}]
         derive:
-          extend_exit_before: [{family: qsTea}]
+          extend_exit_before: {by: 1, targets: [{family: qsTea}]}
         modifiers: [exit-baseline]
       exit_baseline_before_deep:
         shape: mono
@@ -560,7 +560,7 @@ glyph_families:
         select:
           before: [{family: qsNo}]
         derive:
-          extend_exit_before: [{family: qsDay}, {family: qsRoe}, {family: qsZoo}]
+          extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsRoe}, {family: qsZoo}]}
         modifiers: [exit-baseline, before-deep]
       entry_xheight:
         shape: mono
@@ -569,7 +569,7 @@ glyph_families:
         select:
           after: [{family: qsUtter}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
   qsThaw:
     mono:
@@ -630,7 +630,7 @@ glyph_families:
         select:
           after: [{family: qsIng}]
         derive:
-          doubly_extend_entry_after: [{family: qsIng}]
+          extend_entry_after: {by: 2, targets: [{family: qsIng}]}
         modifiers: [after-ing]
       noentry_after_tall:
         shape: mono
@@ -660,7 +660,7 @@ glyph_families:
         select:
           after: [{context_set: extended_exit_utter_ah}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_xheight:
         shape: mono
@@ -727,7 +727,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
       select:
         after: [{context_set: extended_exit_utter_ah}]
   qsFee:
@@ -804,15 +804,17 @@ glyph_families:
           not_before: [{family: qsTea}]
         derive:
           extend_exit_before:
-          - family: qsCheer
-          - family: qsDay
-          - family: qsEight
-          - family: qsEt
-          - family: qsFoot
-          - family: qsIt
-          - family: qsLlan
-          - family: qsNo
-          - family: qsRoe
+            by: 1
+            targets:
+            - family: qsCheer
+            - family: qsDay
+            - family: qsEight
+            - family: qsEt
+            - family: qsFoot
+            - family: qsIt
+            - family: qsLlan
+            - family: qsNo
+            - family: qsRoe
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
@@ -870,7 +872,7 @@ glyph_families:
       anchors:
         entry: [1, 0]
       derive:
-        extend_entry_after: [{context_set: vie_may_entry_extend_triggers}]
+        extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
     shapes:
       shape_1:
         bitmap:
@@ -981,7 +983,7 @@ glyph_families:
           before: [{family: qsAt}, {family: qsOut}]
           not_after: [{family: qsIt}]
         derive:
-          doubly_extend_exit_before: [{family: qsLow}]
+          extend_exit_before: {by: 2, targets: [{family: qsLow}]}
         modifiers: [exit-baseline]
       exit_baseline_right:
         shape: shape_3
@@ -1009,7 +1011,7 @@ glyph_families:
       anchors:
         exit: [6, 5]
       derive:
-        extend_exit_before: [{family: qsMay}]
+        extend_exit_before: {by: 1, targets: [{family: qsMay}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
   qsSee_qsEat:
@@ -1048,7 +1050,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{family: qsMay}, {context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{family: qsMay}, {context_set: halves_exit_xheight}]}
     shapes:
       half:
         bitmap:
@@ -1135,14 +1137,16 @@ glyph_families:
           not_before: [{family: qsAt}, {family: qsExam}, {family: qsIt}, {family: qsEat}]
         derive:
           extend_exit_before:
-          - family: qsIng
-          - family: qsLow
-          - family: qsNo
-          - family: qsRoe
-          - family: qsSee
-          - family: qsTea
-          - family: qsThaw
-          - family: qsVie
+            by: 1
+            targets:
+            - family: qsIng
+            - family: qsLow
+            - family: qsNo
+            - family: qsRoe
+            - family: qsSee
+            - family: qsTea
+            - family: qsThaw
+            - family: qsVie
         modifiers: [exit-baseline]
   qsJai_qsUtter:
     sequence:
@@ -1190,7 +1194,7 @@ glyph_families:
         entry: [1, 5]
         exit: [5, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsJay:
     mono:
       bitmap:
@@ -1215,7 +1219,7 @@ glyph_families:
           entry: [1, 5]
           exit: [6, 0]
         derive:
-          extend_entry_after: [{family: qsIt}, {context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
   qsJay_qsUtter:
     sequence:
@@ -1282,7 +1286,7 @@ glyph_families:
           entry: [1, 5]
           exit: [3, 0]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-baseline]
   qsWay:
     mono:
@@ -1507,7 +1511,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{family: qsTea}]
+        extend_entry_after: {by: 1, targets: [{family: qsTea}]}
     shapes:
       shape_1:
         bitmap:
@@ -1547,7 +1551,7 @@ glyph_families:
       anchors:
         exit: [6, 5]
       derive:
-        extend_exit_before: [{family: qsDay}, {family: qsFee}, {family: qsIt}, {family: qsRoe}]
+        extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsFee}, {family: qsIt}, {family: qsRoe}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
@@ -1592,7 +1596,7 @@ glyph_families:
           - {family: qsWhy_qsUtter}
           - {context_set: extended_exit_utter_ah}
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       entry_xheight_after_i:
         inherits: entry_xheight
@@ -1609,7 +1613,7 @@ glyph_families:
         select:
           not_after: [{family: qsOx}]
         derive:
-          extend_entry_after: [{context_set: vie_may_entry_extend_triggers}]
+          extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
         modifiers: [entry-baseline]
       entry_baseline_after_ox:
         inherits: entry_baseline
@@ -1648,8 +1652,8 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 5]
       derive:
-        extend_exit_before: [{context_set: fee_entry_top}]
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
     shapes:
       alt:
         bitmap:
@@ -1714,8 +1718,8 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 5]
       derive:
-        extend_entry_after: [{family: qsSee}]
-        extend_exit_before: [{context_set: fee_entry_top}]
+        extend_entry_after: {by: 1, targets: [{family: qsSee}]}
+        extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
   qsRoe:
@@ -1732,7 +1736,7 @@ glyph_families:
       anchors:
         entry: [[1, 0], [1, 5]]
       derive:
-        extend_entry_after: [{family: qsEight}, {family: qsIt}, {family: qsYe}, {context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{family: qsEight}, {family: qsIt}, {family: qsYe}, {context_set: halves_exit_xheight}]}
     shapes:
       shape_1:
         bitmap:
@@ -1804,7 +1808,7 @@ glyph_families:
         select:
           before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsSee}, {family: qsVie}]
         derive:
-          extend_exit_before: [{family: qsI}, {family: qsLow}]
+          extend_exit_before: {by: 1, targets: [{family: qsI}, {family: qsLow}]}
         modifiers: [exit-baseline]
       exit_xheight:
         shape: shape_4
@@ -1854,7 +1858,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsExcite:
     mono:
       bitmap:
@@ -1965,7 +1969,7 @@ glyph_families:
         select:
           not_after: [{family: qsIt}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       entry_baseline:
         shape: prop
@@ -1975,8 +1979,8 @@ glyph_families:
         select:
           not_after: [{family: qsEat}, {family: qsIt}, {family: qsJay}, {family: qsZoo}]
         derive:
-          extend_entry_after: [{family: qsKey}]
-          extend_exit_before: [{family: qsZoo}]
+          extend_entry_after: {by: 1, targets: [{family: qsKey}]}
+          extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
         modifiers: [entry-baseline]
       entry_baseline_after_day:
         shape: prop
@@ -2060,7 +2064,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsEight:
     mono:
       bitmap:
@@ -2076,7 +2080,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsAt:
     mono:
       bitmap:
@@ -2092,7 +2096,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 5]
       derive:
-        extend_entry_after: [{family: qsSee}]
+        extend_entry_after: {by: 1, targets: [{family: qsSee}]}
   qsAt_qsMay:
     sequence:
     - qsAt
@@ -2131,16 +2135,18 @@ glyph_families:
         exit: [6, 5]
       derive:
         extend_exit_before:
-        - family: qsDay
-        - family: qsEight
-        - family: qsEt
-        - family: qsFee
-        - family: qsFoot
-        - family: qsIt
-        - family: qsLlan
-        - family: qsMay
-        - family: qsNo
-        - family: qsRoe
+          by: 1
+          targets:
+          - family: qsDay
+          - family: qsEight
+          - family: qsEt
+          - family: qsFee
+          - family: qsFoot
+          - family: qsIt
+          - family: qsLlan
+          - family: qsMay
+          - family: qsNo
+          - family: qsRoe
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
@@ -2182,7 +2188,7 @@ glyph_families:
         entry: [1, 0]
         exit: [8, 5]
       derive:
-        extend_exit_before: [{family: qsBay}, {family: qsFee}, {family: qsMay}, {family: qsThey}]
+        extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsFee}, {family: qsMay}, {family: qsThey}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
   qsAwe:
@@ -2206,7 +2212,7 @@ glyph_families:
         entry: [1, 5]
         exit: [7, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsOx:
     mono:
       bitmap:
@@ -2222,7 +2228,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 0]
       derive:
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsOy:
     mono:
       bitmap:
@@ -2260,7 +2266,7 @@ glyph_families:
         select:
           after: [{family: qsLow}, {family: qsNo}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
   qsUtter:
     mono:
@@ -2277,7 +2283,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 5]
       derive:
-        extend_exit_before: [{family: qsBay}, {family: qsFee}, {family: qsGay}, {family: qsThey}]
+        extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsFee}, {family: qsGay}, {family: qsThey}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
@@ -2319,7 +2325,7 @@ glyph_families:
           before: [{context_set: utter_reaches_way_back_before}]
           not_before: [{family: qsRoe}, {family: qsThey}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         traits: [alt]
         modifiers: [reaches-way-back]
       alt_before_may:
@@ -2401,7 +2407,7 @@ glyph_families:
           entry: [1, 0]
           exit: [6, 5]
         derive:
-          extend_exit_before: [{context_set: fee_entry_top}]
+          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
@@ -2466,7 +2472,7 @@ glyph_families:
         select:
           not_after: [{family: qsLow}]
         derive:
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_xheight:
         shape: shape_2
@@ -2475,7 +2481,7 @@ glyph_families:
         select:
           not_before: [{family: qsLlan}]
         derive:
-          extend_exit_before: [{context_set: fee_entry_top}]
+          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
@@ -2488,10 +2494,10 @@ glyph_families:
           not_after: [{family: qsLow}]
           not_before: [{family: qsLlan}]
         derive:
-          extend_exit_before: [{context_set: fee_entry_top}]
+          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
-          extend_entry_after: [{context_set: halves_exit_xheight}]
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-xheight]
   qsFoot:
     mono:
@@ -2510,7 +2516,7 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: [{context_set: halves_exit_xheight}]
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
   qsOoze:
     mono:
       bitmap:

@@ -17,10 +17,6 @@ _JOIN_REF_KEYS = (
     "calt_before",
     "calt_not_after",
     "calt_not_before",
-    "extend_entry_after",
-    "extend_exit_before",
-    "doubly_extend_entry_after",
-    "doubly_extend_exit_before",
     "noentry_after",
     "reverse_upgrade_from",
 )
@@ -75,6 +71,19 @@ def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[
                 glyph_def = dict(glyph_def)
                 changed = True
             glyph_def[key] = renamed
+
+        for key in ("extend_entry_after", "extend_exit_before"):
+            spec = glyph_def.get(key)
+            if not spec:
+                continue
+            targets = spec["targets"]
+            renamed = [rename_map.get(value, value) for value in targets]
+            if renamed == list(targets):
+                continue
+            if not changed:
+                glyph_def = dict(glyph_def)
+                changed = True
+            glyph_def[key] = {"by": spec["by"], "targets": renamed}
 
         for key in scalar_keys:
             value = glyph_def.get(key)
@@ -138,24 +147,24 @@ def _validate_compiled_glyph_references(
             continue
         for key in (*_JOIN_REF_KEYS, "preferred_over"):
             _validate_refs(glyph_name, key, glyph_def.get(key, ()))
+        for key in ("extend_entry_after", "extend_exit_before"):
+            spec = glyph_def.get(key)
+            if spec:
+                _validate_refs(glyph_name, key, spec.get("targets", ()))
 
     for glyph_name, join_glyph in join_glyphs.items():
         _validate_refs(glyph_name, "calt_after", join_glyph.after)
         _validate_refs(glyph_name, "calt_before", join_glyph.before)
         _validate_refs(glyph_name, "calt_not_after", join_glyph.not_after)
         _validate_refs(glyph_name, "calt_not_before", join_glyph.not_before)
-        _validate_refs(glyph_name, "extend_entry_after", join_glyph.extend_entry_after)
-        _validate_refs(glyph_name, "extend_exit_before", join_glyph.extend_exit_before)
-        _validate_refs(
-            glyph_name,
-            "doubly_extend_entry_after",
-            join_glyph.doubly_extend_entry_after,
-        )
-        _validate_refs(
-            glyph_name,
-            "doubly_extend_exit_before",
-            join_glyph.doubly_extend_exit_before,
-        )
+        if join_glyph.extend_entry_after is not None:
+            _validate_refs(
+                glyph_name, "extend_entry_after", join_glyph.extend_entry_after.targets
+            )
+        if join_glyph.extend_exit_before is not None:
+            _validate_refs(
+                glyph_name, "extend_exit_before", join_glyph.extend_exit_before.targets
+            )
         _validate_refs(glyph_name, "noentry_after", join_glyph.noentry_after)
         _validate_refs(
             glyph_name,
@@ -216,7 +225,8 @@ def _validate_extensions_reach_targets(
                         f"entry at y={exit_y} reachable after {g.family}"
                     )
 
-        for target_name in g.extend_exit_before:
+        exit_targets = g.extend_exit_before.targets if g.extend_exit_before else ()
+        for target_name in exit_targets:
             target = join_glyphs.get(target_name)
             if not target or not target.family:
                 continue
@@ -238,7 +248,8 @@ def _validate_extensions_reach_targets(
             continue
         entry_y = entry_anchors[0][1]
 
-        for target_name in g.extend_entry_after:
+        entry_targets = g.extend_entry_after.targets if g.extend_entry_after else ()
+        for target_name in entry_targets:
             target = join_glyphs.get(target_name)
             if not target or not target.family:
                 continue
