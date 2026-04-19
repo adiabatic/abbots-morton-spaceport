@@ -1598,6 +1598,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         ext_lig = lig_name + ".entry-extended"
                     if ext_lig in glyph_names:
                         actual_lig = ext_lig
+                if "half" in _meta(combo[0]).traits:
+                    half_lig = lig_name + ".half"
+                    if half_lig in glyph_names:
+                        actual_lig = half_lig
                 exit_suffix = _meta(combo[-1]).extended_exit_suffix
                 if exit_suffix:
                     ext_lig = actual_lig + ".exit-extended"
