@@ -448,6 +448,32 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         extend_entry_after: [{context_set: halves_exit_xheight}]
+    shapes:
+      half:
+        bitmap:
+        - "     ###"  #
+        - "    #   "
+        - "   #    "
+        - "   #    "
+        - "  #     "
+        - "# #     "  #
+        - "##      "
+        - "##      "
+        - "#       "
+        y_offset: -3
+    forms:
+      half:
+        shape: half
+        anchors:
+          entry: [1, 0]
+          exit: [9, 5]
+        select:
+          not_after: [{family: qsTea}, {family: qsYe}]
+        derive:
+          extend_exit_before_gated:
+            ss03: [{family: qsTea}]
+          extend_entry_after: [{family: qsTea}, {family: qsYe}]
+        traits: [half]
   qsDay_qsEat:
     sequence:
     - qsDay
