@@ -2017,7 +2017,7 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
-          before: [{family: qsUtter}]
+          before: [{family: qsUtter}, {family: qsDay}]
           not_after: [{family: qsEat}, {family: qsIt}, {family: qsZoo}]
         modifiers: [before-utter]
       exit_baseline_before_ing:
