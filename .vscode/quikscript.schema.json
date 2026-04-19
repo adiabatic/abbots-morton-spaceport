@@ -27,6 +27,23 @@
     }
   },
   "definitions": {
+    "extensionSpec": {
+      "type": "object",
+      "description": "Extension specification with a pixel count and target glyph list.",
+      "required": ["by", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Number of pixels to extend."
+        },
+        "targets": {
+          "$ref": "#/definitions/selectorList"
+        }
+      }
+    },
     "glyphReference": {
       "type": "string",
       "description": "Glyph or family reference. Structured selector mappings are preferred over bare strings for new authoring."
@@ -214,22 +231,22 @@
       "additionalProperties": false,
       "properties": {
         "extend_entry_after": {
-          "$ref": "#/definitions/selectorListOrNull"
+          "oneOf": [
+            { "$ref": "#/definitions/extensionSpec" },
+            { "type": "null" }
+          ]
         },
         "extend_exit_before": {
-          "$ref": "#/definitions/selectorListOrNull"
+          "oneOf": [
+            { "$ref": "#/definitions/extensionSpec" },
+            { "type": "null" }
+          ]
         },
         "extend_exit_before_gated": {
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/selectorListOrNull"
           }
-        },
-        "doubly_extend_entry_after": {
-          "$ref": "#/definitions/selectorListOrNull"
-        },
-        "doubly_extend_exit_before": {
-          "$ref": "#/definitions/selectorListOrNull"
         },
         "noentry_after": {
           "$ref": "#/definitions/selectorListOrNull"

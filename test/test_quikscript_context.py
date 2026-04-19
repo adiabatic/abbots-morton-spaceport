@@ -218,9 +218,10 @@ def test_structured_family_selectors_resolve_to_compiled_names():
                             "exit": [1, 0],
                         },
                         "derive": {
-                            "extend_exit_before": [
-                                {"family": "qsRight"},
-                            ],
+                            "extend_exit_before": {
+                                "by": 1,
+                                "targets": [{"family": "qsRight"}],
+                            },
                         },
                     },
                 },
@@ -296,7 +297,10 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                     "prop": {
                         "bitmap": ["#"],
                         "derive": {
-                            "extend_entry_after": [{"context_set": "all_extenders"}],
+                            "extend_entry_after": {
+                                "by": 1,
+                                "targets": [{"context_set": "all_extenders"}],
+                            },
                         },
                     },
                     "forms": {
@@ -314,7 +318,10 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
         }
     ).glyph_definitions
 
-    assert glyphs["qsTarget"]["extend_entry_after"] == ["qsExtOne", "qsExtTwo"]
+    assert glyphs["qsTarget"]["extend_entry_after"] == {
+        "by": 1,
+        "targets": ["qsExtOne", "qsExtTwo"],
+    }
     assert glyphs["qsTarget.entry-baseline"]["calt_after"] == [
         "qsPrimary",
         "qsLead.exit-extended",
