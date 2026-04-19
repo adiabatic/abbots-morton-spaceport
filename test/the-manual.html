@@ -86,10 +86,6 @@
         font-feature-settings: "ss05" 1;
       }
 
-      [data-stylistic-set~="06"] {
-        font-feature-settings: "ss06" 1;
-      }
-
       [data-stylistic-set~="10"] {
         font-feature-settings: "ss10" 1;
       }
@@ -1377,7 +1373,7 @@
         <tr>
           <td data-expect="·Pea ~x~ ·Roe ~b~ ·I"></td>
           <td>.</td>
-          <td data-expect="·Pea ~x~ ·Roe | ·Eight"></td>
+          <td data-expect="·Pea ~x~ ·Roe | ◊ZWNJ | ·Eight">&zwnj;</td>
           <td>.</td>
           <td data-expect="·Pea ~x~ ·Awe"></td>
           <td>:</td>
@@ -3859,7 +3855,7 @@
         
         
         
-        <span data-expect="·See ~t~ ·Tea.half ~x~ ·Roe | ·Eight ~b~ ·No.alt | ·Jay"></span>
+        <span data-expect="·See ~t~ ·Tea.half ~x~ ·Roe | ◊ZWNJ | ·Eight ~b~ ·No.alt | ·Jay">&zwnj;</span>
         
         
         
@@ -4180,7 +4176,7 @@
           <!-- prettier-ignore -->
           <p data-orthodox="When Drake climbed the tree in Panama, and saw both oceans, and vowed that he would sail a ship in the Pacific; when he crawled out upon the cliffs of Tierra del Fuego, and leaned his head over the southernmost angle of the world; when he scored a furrow round the globe with his keel, and received the homage of the barbarians of the antipodes in the name of the Virgin Queen; he was another man from what he had become after twenty years of court life and intrigue, and Spanish fighting, and gold-hunting. There is a tragic solemnity in his end, if we take it as the last act of his career; but it is his life, not his death, which we desire — not what he failed to do, but what he did…">
             
-            <span data-expect="\· | ·Day ~b~ ·Roe | ·Eight | ·Key">·</span>
+            <span data-expect="\· | ·Day ~b~ ·Roe | ◊ZWNJ | ·Eight | ·Key">·&zwnj;</span>
             <span data-expect="·Key ~b~ ·Low | ·I ~x~ ·May | ·Day"></span>
             
             <span data-expect="·Tea.half ~x~ ·Roe | ·Eat"></span>
@@ -4320,7 +4316,7 @@
         <figcaption data-orthodox="(Froude, on Drake)">
           ·&zwnj;,
           
-          <span data-stylistic-set="06" data-expect="\· | ·Day ~b~ ·Roe ~x~ ·Eight | ·Key">·</span>
+          <span data-expect="\· | ·Day ~b~ ·Roe ~x~ ·Eight | ·Key">·</span>
         </figcaption>
       </figure>
 
@@ -4426,7 +4422,7 @@
             <span data-expect="·Bay | ·Foot ~x~ ·Zoo | ·Utter.alt ~b~ ·May ~x~ ·Zoo"></span>,
             
             
-            <span data-expect="·It | ·Key ~b~ ·See ~6~ ·Pea.half ~x~ ·Et ~b~ ·Roe | ·It ~b~ ·May ~x~ ·Utter.alt ~b~ ·No.alt ~b~ ·Tea"></span>
+            <span data-highlight data-expect="·It | ·Key ~b~ ·See ~6~ ·Pea.half ~x~ ·Et ~b~ ·Roe | ·It ~b~ ·May ~x~ ·Utter.alt ~b~ ·No.alt ~b~ ·Tea"></span>
             
             <span data-expect="·Day ~b~ ·It | ·See ~t~ ·Key ~b~ ·Utter ~x~ ·No | ·Tea.half ~x~ ·It ~b~ ·No.alt | ·Ye ~b~ ·Ooze ~b~ ·Day.half"></span>
             
@@ -4444,7 +4440,7 @@
             <span data-expect="·See+Utter ~x~ ·Roe ~b~ ·Vie | ·It ~b~ ·See"></span>
             
             
-            <span data-expect="·Key ~b~ ·Utter ~x~ ·No | ·See | ·It ~x~ ·Day+Utter ~x~ ·Roe | ·Eight | ·She ~b~ ·Utter ~x~ ·No"></span>
+            <span data-expect="·Key ~b~ ·Utter ~x~ ·No | ·See | ·It ~x~ ·Day+Utter ~x~ ·Roe | ◊ZWNJ | ·Eight | ·She ~b~ ·Utter ~x~ ·No">&zwnj;</span>
             
             <span data-expect="·See | ·It | ·Key ~b~ ·See ~t~ ·Tea ~b~ ·Eat | \- | ·Fee | ·I | ·Vie">-</span>
             <span data-expect="·Fee ~x~ ·Roe ~b~ ·At | ·-ing | ·Key ~b~ ·See"></span>

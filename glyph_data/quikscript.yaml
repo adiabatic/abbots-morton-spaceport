@@ -1809,7 +1809,6 @@ glyph_families:
         inherits: exit_xheight
         select:
           before: [{family: qsEight}]
-        gate_feature_behind: ss06
         modifiers: [exit-xheight, before-eight]
       exit_y1:
         shape: shape_5
