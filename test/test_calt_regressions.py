@@ -186,6 +186,15 @@ def test_qs_low_entry_extended_requires_a_compatible_see_exit():
     ]
 
 
+def test_qs_thaw_after_ing_uses_triply_extended_entry():
+    chars = _char_map()
+
+    assert _shape(chars["qsIng"] + chars["qsThaw"]) == [
+        "qsIng",
+        "qsThaw.after-ing.entry-triply-extended",
+    ]
+
+
 def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
     glyphs = _shape("\uE653\u200C\uE670\uE65B\uE675\uE668")
 

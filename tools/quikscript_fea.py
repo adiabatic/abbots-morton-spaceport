@@ -5,6 +5,13 @@ from itertools import product
 from quikscript_ir import JoinGlyph, resolve_known_glyph_names
 
 
+_ENTRY_EXTENSION_SUFFIXES = (
+    ".entry-triply-extended",
+    ".entry-doubly-extended",
+    ".entry-extended",
+)
+
+
 @dataclass
 class _JoinAnalysis:
     glyph_meta: dict[str, JoinGlyph]
@@ -41,6 +48,21 @@ class _JoinAnalysis:
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     gated_pair_overrides: dict[str, list[tuple[str, list[str], str]]] = field(default_factory=dict)
     gated_fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str], str]]] = field(default_factory=dict)
+
+
+def _backward_pair_sort_key(
+    glyph_meta: dict[str, JoinGlyph],
+    variant_name: str,
+    selector_glyphs: list[str],
+) -> tuple[int, int, int, int, str]:
+    meta = glyph_meta[variant_name]
+    return (
+        -len(meta.modifiers),
+        -len(meta.before),
+        -len(meta.not_before),
+        -len(selector_glyphs),
+        variant_name,
+    )
 
 
 def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysis:
@@ -1052,7 +1074,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
-            for variant_name, after_glyphs in pair_overrides[base_name]:
+            for variant_name, after_glyphs in sorted(
+                pair_overrides[base_name],
+                key=lambda item: _backward_pair_sort_key(glyph_meta, item[0], item[1]),
+            ):
                 variant_meta = _meta(variant_name)
                 expanded_after = _expand_backward_after_variants(
                     variant_name,
@@ -1388,7 +1413,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(f"        ignore sub {bk_var}' {not_before_glyph};")
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
                     lines.append(f"    }} calt_fwd_override_{safe};")
-                    for ext_suffix in (".entry-extended", ".entry-doubly-extended"):
+                    for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
                         ext_bk = f"{bk_var}{ext_suffix}"
                         if ext_bk not in glyph_meta:
                             continue
@@ -1840,7 +1865,10 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
     lines = []
     for tag in all_tags:
         lines.append(f"feature {tag} {{")
-        for base_name, variant_name, after_list in sorted(bk_features.get(tag, [])):
+        for base_name, variant_name, after_list in sorted(
+            bk_features.get(tag, []),
+            key=lambda item: (item[0],) + _backward_pair_sort_key(glyph_meta, item[1], item[2]),
+        ):
             safe = variant_name.replace(".", "_")
             lines.append(f"    lookup {tag}_{safe} {{")
             variant_meta = glyph_meta[variant_name]

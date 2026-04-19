@@ -698,18 +698,12 @@ def _compat_assertions_from_modifiers(
             compat.update({"entry", modifier.removeprefix("entry-")})
         elif modifier.startswith("exit-"):
             compat.update({"exit", modifier.removeprefix("exit-")})
-        if modifier.startswith("entry-doubly-extended"):
-            compat.update({"entry", "extended", "doubly-extended", "entry-doubly-extended"})
-            continue
-        if modifier.startswith("exit-doubly-extended"):
-            compat.update({"exit", "extended", "doubly-extended", "exit-doubly-extended"})
-            continue
-        if modifier.startswith("entry-extended"):
-            compat.update({"entry", "extended", "entry-extended"})
-            continue
-        if modifier.startswith("exit-extended"):
-            compat.update({"exit", "extended", "exit-extended"})
-            continue
+        for side in ("entry", "exit"):
+            for suffix in _EXTENSION_SUFFIX.values():
+                prefix = f"{side}-{suffix}"
+                if modifier.startswith(prefix):
+                    compat.update({side, "extended", suffix, prefix})
+                    break
     return frozenset(compat)
 
 
