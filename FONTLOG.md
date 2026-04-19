@@ -6,10 +6,23 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 13.000
 
+Abbots Morton Spaceport Senior now matches, or at least _should_ match, The Manual all the way through to the end. Hopefully I haven’t broken anything.
+
+- Repurpose `ss03` (now: just allow ·Tea to be joined to at the Short height)
+  - Add ·Fee·Tea connection at the Short height
+- Repurpose `ss04` (now: allow ·It to join at baseline after ·Day and before ·Low)
+- Remove `ss06`; ·Roe·Eight now joins at the Short height by default
+- Fix ·-ing·Thaw connection
+- Fix ·Vie·Low connection
+- Fix ·No.alt·Fee pairing
+- Improve ·See·Low spacing
+- Add ·Day+Utter.half ligature form
+- Have ·Ah respond to all ·X+Utter ligatures, not just ·Day+Utter and ·See+Utter
+
 ### 12.000
 
 - Fix ·Low and ·Llan (yes, I’ve been writing them wrong _this entire time_)
-- Add `ss06` (allow ·Roe·Eight joins at the x-height)
+- Add `ss06` (allow ·Roe·Eight joins at the Short height)
 - Remove `ss04`; ·I·May now joins at the Short height by default (use ZWNJ to suppress)
 - Remove the `wght` variable-font axis, and…
 - Add a Bold variant for Mono, Sans Junior, and Sans Senior
@@ -48,7 +61,7 @@ Hoopy Froude edition
 - Add a few stylistic sets to get The Manual to look right — and no, I’m not planning on standardizing their functions until I’m all done, if ever, so don’t expect this to be stable across different fonts:
   - `ss01` (suppress ·Utter·Pea join)
   - `ss02` (allow ·I·Tea join at the Short height)
-  - `ss03` (allow ·Tea to be joined to at the x-height)
+  - `ss03` (allow ·Tea to be joined to at the Short height)
   - `ss04` (allow ·It to join at baseline after ·Day and before ·Low)
   - `ss05` (allow ·Ox·May join at baseline)
 
