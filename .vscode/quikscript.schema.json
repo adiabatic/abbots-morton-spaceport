@@ -360,6 +360,16 @@
         "bottom": {
           "type": "string",
           "description": "Bottom combining-mark glyph name for composite glyph assembly."
+        },
+        "gate_feature_behind": {
+          "type": "string",
+          "description": "OpenType feature tag (e.g. ss02) that must be enabled for this form to activate.",
+          "pattern": "^ss(?!00)\\d{2}$"
+        },
+        "revert_feature": {
+          "type": "string",
+          "description": "OpenType feature tag (e.g. ss01) that reverts this form to its base glyph when enabled.",
+          "pattern": "^ss(?!00)\\d{2}$"
         }
       }
     },
