@@ -60,7 +60,7 @@ def _backward_pair_sort_key(
         -len(meta.modifiers),
         -len(meta.before),
         -len(meta.not_before),
-        -len(selector_glyphs),
+        len(selector_glyphs),
         variant_name,
     )
 
@@ -511,11 +511,13 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
     for base_name, overrides in fwd_pair_overrides.items():
         found = False
         for variant_name, before_glyphs, _ in overrides:
+            variant_meta = _meta(variant_name)
+            if variant_meta.extended_exit_suffix is not None:
+                continue
             if base_name in {glyph_meta[glyph].base_name for glyph in before_glyphs}:
                 early_fwd_pairs.add(base_name)
                 found = True
                 break
-            variant_meta = _meta(variant_name)
             if variant_meta.exit:
                 exit_ys = set(variant_meta.exit_ys)
                 for before_glyph in before_glyphs:
