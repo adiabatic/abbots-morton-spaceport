@@ -52,29 +52,31 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
 ```css
 @font-face {
   font-family: 'Departure Mono';
-  src: url(…/fonts/DepartureMono-Regular.woff2) format('woff2');
+  src: url(…/DepartureMono-Regular.woff2) format('woff2');
 }
 
 /* Pick Junior, Senior, or both. You’ll probably want the matching `-Bold.woff2` file, too. */
 @font-face {
   font-family: 'Abbots Morton Spaceport Sans Junior';
-  src: url(…/fonts/AbbotsMortonSpaceportSansJunior-Regular.woff2) format('woff2');
+  src: url(…/AbbotsMortonSpaceportSansJunior-Regular.woff2) format('woff2');
   font-weight: 400;
 }
+
 @font-face {
   font-family: 'Abbots Morton Spaceport Sans Junior';
-  src: url(…/fonts/AbbotsMortonSpaceportSansJunior-Bold.woff2) format('woff2');
+  src: url(…/AbbotsMortonSpaceportSansJunior-Bold.woff2) format('woff2');
   font-weight: 700;
 }
 
 @font-face {
   font-family: 'Abbots Morton Spaceport Mono';
-  src: url(…/fonts/AbbotsMortonSpaceportMono-Regular.woff2) format('woff2');
+  src: url(…/AbbotsMortonSpaceportMono-Regular.woff2) format('woff2');
   font-weight: 400;
 }
+
 @font-face {
   font-family: 'Abbots Morton Spaceport Mono';
-  src: url(…/fonts/AbbotsMortonSpaceportMono-Bold.woff2) format('woff2');
+  src: url(…/AbbotsMortonSpaceportMono-Bold.woff2) format('woff2');
   font-weight: 700;
 }
 
