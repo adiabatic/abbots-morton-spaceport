@@ -891,7 +891,7 @@ glyph_families:
           entry: [1, 0]
           exit: [8, 0]
         select:
-          before: [{family: qsNo}, {family: qsRoe}, {family: qsIng}]
+          before: [{family: qsNo}, {family: qsRoe}, {family: qsIng}, {family: qsLow}]
         modifiers: [exit-baseline]
   qsVie_qsUtter:
     sequence:
