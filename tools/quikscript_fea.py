@@ -1745,6 +1745,13 @@ def _emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
         if name != meta.base_name and len(meta.sequence) <= 1:
             groups[NOJOIN_TAG].append((name, meta.base_name))
 
+    for name, meta in glyph_meta.items():
+        if meta.replaces_family_feature:
+            base = meta.base_name
+            for other_name, other_meta in glyph_meta.items():
+                if other_meta.base_name == base and other_name != name:
+                    groups[meta.replaces_family_feature].append((other_name, name))
+
     if not groups:
         return None
 

@@ -370,6 +370,11 @@
           "type": "string",
           "description": "OpenType feature tag (e.g. ss01) that reverts this form to its base glyph when enabled.",
           "pattern": "^ss(?!00)\\d{2}$"
+        },
+        "replaces_family_feature": {
+          "type": "string",
+          "description": "OpenType feature tag (e.g. ss06) that replaces all family variants with this form when enabled.",
+          "pattern": "^ss(?!00)\\d{2}$"
         }
       }
     },
