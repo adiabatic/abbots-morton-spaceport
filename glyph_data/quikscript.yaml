@@ -2498,6 +2498,16 @@ glyph_families:
             ss03: [{family: qsTea}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-xheight]
+      gapped:
+        bitmap:
+        - " # # "  #
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
+        replaces_family_feature: ss06
+        modifiers: [gapped]
   qsFoot:
     mono:
       bitmap:

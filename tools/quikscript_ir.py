@@ -67,6 +67,7 @@ class JoinGlyph:
     transform_kind: str | None = None
     revert_feature: str | None = None
     gate_feature: str | None = None
+    replaces_family_feature: str | None = None
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
@@ -249,7 +250,7 @@ def _validate_source_modifier(
             f"{family_name} {context} uses trait-like token {modifier!r} in modifiers; "
             "put it under traits instead"
         )
-    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry"}:
+    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry", "gapped"}:
         return
     if _ENTRY_EXIT_MODIFIER_RE.fullmatch(modifier):
         return
@@ -556,6 +557,10 @@ def _family_form_to_glyph_def(
     if gate_feature is not None:
         glyph_def["gate_feature"] = gate_feature
 
+    replaces_family_feature = form_def.get("replaces_family_feature")
+    if replaces_family_feature is not None:
+        glyph_def["replaces_family_feature"] = replaces_family_feature
+
     return glyph_def
 
 
@@ -822,6 +827,7 @@ def _glyph_def_to_join_glyph(
         transform_kind=transform_kind,
         revert_feature=glyph_def.get("revert_feature"),
         gate_feature=glyph_def.get("gate_feature"),
+        replaces_family_feature=glyph_def.get("replaces_family_feature"),
     )
 
 
