@@ -43,6 +43,8 @@ Use `+` to assert that two letters are shaped as a single ligature glyph:
 
 This expects one output glyph whose compiled metadata sequence records both `qsDay` and `qsUtter`.
 
+Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a Day+Utter ligature with the `half` trait, even though the half form is on the first letter in the pair.
+
 ### Maybe-ligature assertions
 
 Use `+?` or `+|` when the font may or may not ligate two letters:
