@@ -10,6 +10,9 @@ BitmapRow = str | tuple[int, ...]
 GlyphDef = dict[str, Any]
 
 
+_EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended"}
+
+
 @dataclass(frozen=True)
 class ExtensionSpec:
     by: int
@@ -724,16 +727,20 @@ def _exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     return None
 
 
+_EXTENDED_ENTRY_PREFIXES = tuple(f"entry-{s}" for s in _EXTENSION_SUFFIX.values())
+_EXTENDED_EXIT_PREFIXES = tuple(f"exit-{s}" for s in _EXTENSION_SUFFIX.values())
+
+
 def _extended_entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     for modifier in modifiers:
-        if modifier.startswith("entry-extended") or modifier.startswith("entry-doubly-extended"):
+        if modifier.startswith(_EXTENDED_ENTRY_PREFIXES):
             return "." + modifier
     return None
 
 
 def _extended_exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     for modifier in modifiers:
-        if modifier.startswith("exit-extended") or modifier.startswith("exit-doubly-extended"):
+        if modifier.startswith(_EXTENDED_EXIT_PREFIXES):
             return "." + modifier
     return None
 
@@ -1396,9 +1403,6 @@ def _add_exit_extension_variant(
         restricted_y=exit_y if is_source else None,
         preserves_entry=not target_glyph.extend_exit_no_entry if is_source else True,
     )
-
-
-_EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended"}
 
 
 def _generate_extended_variants(
