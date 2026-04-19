@@ -38,6 +38,15 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert may.entry_suffix == ".entry-baseline"
     assert may.extended_entry_suffix == ".entry-extended"
     assert may.is_entry_variant
+    assert {"entry", "extended", "entry-extended"} <= may.compat_assertions
+
+    thaw = meta["qsThaw.after-ing.entry-triply-extended"]
+    assert {
+        "entry",
+        "extended",
+        "triply-extended",
+        "entry-triply-extended",
+    } <= thaw.compat_assertions
 
     day_lig = meta["qsDay_qsUtter.entry-extended"]
     assert day_lig.base_name == "qsDay_qsUtter"
