@@ -2,7 +2,6 @@ from pathlib import Path
 import re
 import sys
 
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -189,6 +188,30 @@ def test_senior_feature_emitter_includes_join_and_gate_features():
     assert "feature ss03 {" in fea
     assert "feature ss10 {" in fea
     assert "lookup calt_zwnj {" in fea
+
+
+def test_senior_feature_emitter_prefers_narrower_pair_overrides():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    assert fea.index("lookup calt_pair_qsThaw_after-ing {") < fea.index(
+        "lookup calt_pair_qsThaw_after-tall {"
+    )
+
+
+def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_widebase():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    assert fea.index("lookup calt_fwd_pair_qsThaw_exit-baseline {") < fea.index(
+        "lookup calt_pair_qsIng_widebase {"
+    )
 
 
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():

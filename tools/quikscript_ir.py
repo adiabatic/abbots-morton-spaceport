@@ -1178,7 +1178,6 @@ def _record_transform(
         )
     )
 
-
 def generate_noentry_variants(
     join_glyphs: dict[str, JoinGlyph],
     *,

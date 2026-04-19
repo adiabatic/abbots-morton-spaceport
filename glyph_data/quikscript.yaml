@@ -629,8 +629,6 @@ glyph_families:
           entry: [3, 0]
         select:
           after: [{family: qsIng}]
-        derive:
-          extend_entry_after: {by: 2, targets: [{family: qsIng}]}
         modifiers: [after-ing]
       noentry_after_tall:
         shape: mono
@@ -1512,6 +1510,7 @@ glyph_families:
         exit: [6, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsTea}]}
+        extend_exit_before: {by: 3, targets: [{family: qsThaw}]}
     shapes:
       shape_1:
         bitmap:

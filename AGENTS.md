@@ -50,6 +50,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - When multiple Quikscript forms share the same selector or anchor scaffolding, prefer `inherits` over copying the whole form, and clear inherited nested keys with `null` when a child form needs to drop them.
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 - The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
+- When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
+- For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 - During `calt`, a ZWNJ boundary is still the literal `uni200C` glyph; if a selector needs to block or require a ZWNJ boundary, target `uni200C` in `after` / `not_after` rather than `space`.
 

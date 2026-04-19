@@ -186,12 +186,12 @@ def test_qs_low_entry_extended_requires_a_compatible_see_exit():
     ]
 
 
-def test_qs_thaw_after_ing_uses_triply_extended_entry():
+def test_qs_ing_before_thaw_uses_triply_extended_exit():
     chars = _char_map()
 
     assert _shape(chars["qsIng"] + chars["qsThaw"]) == [
-        "qsIng",
-        "qsThaw.after-ing.entry-triply-extended",
+        "qsIng.exit-triply-extended",
+        "qsThaw.after-ing",
     ]
 
 
