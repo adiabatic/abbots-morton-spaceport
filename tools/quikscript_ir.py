@@ -849,20 +849,48 @@ def _widen_bitmap_with_connector(
     entry_y: int,
     y_offset: int = 0,
     count: int = 1,
-) -> tuple[BitmapRow, ...]:
+) -> tuple[tuple[BitmapRow, ...], int]:
     if not bitmap:
-        return bitmap
+        return bitmap, 0
     height = len(bitmap)
     row_from_bottom = entry_y - y_offset
     connecting_row_idx = (height - 1) - row_from_bottom
+    connector_row = bitmap[connecting_row_idx]
+    if isinstance(connector_row, str):
+        try:
+            leftmost_x = connector_row.index("#")
+        except ValueError:
+            leftmost_x = 0
+    else:
+        leftmost_x = len(connector_row)
+        for i in range(len(connector_row)):
+            if connector_row[i]:
+                leftmost_x = i
+                break
+    prepend = max(0, count - leftmost_x)
     new_bitmap: list[BitmapRow] = []
     for index, row in enumerate(bitmap):
-        prefix = "#" * count if index == connecting_row_idx else " " * count
         if isinstance(row, str):
-            new_bitmap.append(prefix + row)
+            if prepend > 0:
+                row = " " * prepend + row
+            if index == connecting_row_idx:
+                row_list = list(row)
+                for pos in range(leftmost_x + prepend - count, leftmost_x + prepend):
+                    row_list[pos] = "#"
+                new_bitmap.append("".join(row_list))
+            else:
+                new_bitmap.append(row)
         else:
-            new_bitmap.append(tuple([int(char == "#") for char in prefix] + list(row)))
-    return tuple(new_bitmap)
+            if prepend > 0:
+                row = tuple([0] * prepend + list(row))
+            if index == connecting_row_idx:
+                row_list = list(row)
+                for pos in range(leftmost_x + prepend - count, leftmost_x + prepend):
+                    row_list[pos] = 1
+                new_bitmap.append(tuple(row_list))
+            else:
+                new_bitmap.append(row)
+    return tuple(new_bitmap), prepend
 
 
 def _widen_bitmap_right_with_connector(
@@ -1290,14 +1318,15 @@ def _add_entry_extension_variants(
         if variant_name in join_glyphs or (not is_source and variant_name in variants):
             continue
 
+        new_bitmap, prepend = _widen_bitmap_with_connector(
+            target_glyph.bitmap,
+            y,
+            target_glyph.y_offset,
+            count=count,
+        )
         kwargs = {
-            "bitmap": _widen_bitmap_with_connector(
-                target_glyph.bitmap,
-                y,
-                target_glyph.y_offset,
-                count=count,
-            ),
-            "exit": _shift_anchors(target_glyph.exit, dx=count),
+            "bitmap": new_bitmap,
+            "exit": _shift_anchors(target_glyph.exit, dx=prepend),
             "add_modifiers": (modifier,),
             "generated_from": target_name,
             "transform_kind": kind,

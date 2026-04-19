@@ -623,6 +623,15 @@ glyph_families:
         anchors:
           entry: [3, 1]
         modifiers: [entry-y1]
+      after_ing:
+        shape: mono
+        anchors:
+          entry: [3, 0]
+        select:
+          after: [{family: qsIng}]
+        derive:
+          doubly_extend_entry_after: [{family: qsIng}]
+        modifiers: [after-ing]
       noentry_after_tall:
         shape: mono
         anchors:
