@@ -317,6 +317,13 @@ def test_qs_ye_it_do_not_connect():
     ]
 
 
+def test_qs_ye_see_do_not_connect():
+    assert _shape("\uE660\uE65A") == [
+        "qsYe",
+        "qsSee.after-ye",
+    ]
+
+
 def test_qs_ye_ing_do_not_connect():
     assert _shape("\uE660\uE664") == [
         "qsYe",
@@ -335,6 +342,13 @@ def test_qs_ye_exam_do_not_connect():
     assert _shape("\uE660\uE66C") == [
         "qsYe",
         "qsExam.after-ye",
+    ]
+
+
+def test_qs_see_pea_keeps_the_y6_join():
+    assert _shape("\uE65A\uE650") == [
+        "qsSee.exit-y6",
+        "qsPea.entry-y6",
     ]
 
 

@@ -982,6 +982,13 @@ glyph_families:
         derive:
           extend_exit_before: {by: 2, targets: [{family: qsLow}]}
         modifiers: [exit-baseline]
+      noentry_after_ye:
+        shape: mono
+        anchors:
+          entry: null
+        select:
+          after: [{family: qsYe}]
+        modifiers: [after-ye]
       exit_baseline_right:
         shape: shape_3
         anchors:
