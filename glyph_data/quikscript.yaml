@@ -1283,7 +1283,7 @@ glyph_families:
           entry: [1, 5]
           exit: [3, 0]
         select:
-          not_after: [{family: qsThey}, {family: qsWay}]
+          not_after: [{family: qsThey}, {family: qsWay}, {family: qsWhy}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-baseline]
@@ -1463,6 +1463,8 @@ glyph_families:
         shape: shape_1
         anchors:
           exit: [6, 5]
+        select:
+          not_before: [{family: qsYe}]
         modifiers: [exit-xheight]
       half:
         shape: half
