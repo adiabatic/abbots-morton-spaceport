@@ -625,8 +625,9 @@ def _iter_compiled_family_forms(
             if variant == "mono":
                 if "mono" not in variants:
                     continue
-            elif variants and variant not in variants:
-                continue
+            elif variants:
+                if variant not in variants:
+                    continue
             else:
                 contextual = _is_contextual_family_form(resolved)
                 if not is_senior and contextual:

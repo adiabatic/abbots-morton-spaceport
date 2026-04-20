@@ -2506,6 +2506,7 @@ glyph_families:
         - "#   #"
         - " ### "  #
         replaces_family_feature: ss06
+        variants: [junior, senior]
         modifiers: [gapped]
   qsFoot:
     mono:

@@ -1732,7 +1732,7 @@ def _emit_quikscript_curs(
     return "\n".join(lines)
 
 
-def _emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
+def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
     from collections import defaultdict
 
     groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -1965,7 +1965,7 @@ def emit_quikscript_senior_features(
     if calt_fea:
         parts.append(calt_fea)
 
-    ss_fea = _emit_quikscript_ss(join_glyphs)
+    ss_fea = emit_quikscript_ss(join_glyphs)
     if ss_fea:
         parts.append(ss_fea)
 
@@ -1974,4 +1974,4 @@ def emit_quikscript_senior_features(
     return "\n\n".join(parts)
 
 
-__all__ = ["emit_quikscript_senior_features"]
+__all__ = ["emit_quikscript_senior_features", "emit_quikscript_ss"]
