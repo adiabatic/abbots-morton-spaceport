@@ -213,6 +213,61 @@ def _owe_terminal_invariant_failures() -> list[str]:
     return failures
 
 
+def _middle_pea_xheight_left_gate_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    pea = chars["qsPea"]
+    allowed_left = {"qsMay", "qsUtter"}
+    saw_allowed: set[str] = set()
+    saw_disallowed_case = False
+    meta_map = _compiled_meta()
+
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            glyphs = _shape(left_char + pea + right_char)
+            pea_index = next(
+                (
+                    index for index, glyph_name in enumerate(glyphs)
+                    if meta_map.get(glyph_name) and meta_map[glyph_name].base_name == "qsPea"
+                ),
+                None,
+            )
+            if pea_index is None or pea_index == 0 or pea_index + 1 >= len(glyphs):
+                continue
+
+            prev_name = glyphs[pea_index - 1]
+            pea_name = glyphs[pea_index]
+            next_name = glyphs[pea_index + 1]
+            right_common = _exit_ys(pea_name) & _entry_ys(next_name)
+            if 5 not in right_common:
+                continue
+
+            left_common = _exit_ys(prev_name) & _entry_ys(pea_name)
+            label = f"{left_name} / qsPea / {right_name}"
+            if left_name in allowed_left:
+                saw_allowed.add(left_name)
+                if 5 not in left_common:
+                    failures.append(
+                        f"{label}: expected x-height left join into {pea_name} from {prev_name} "
+                        f"while keeping right join to {next_name} in {glyphs}"
+                    )
+            else:
+                saw_disallowed_case = True
+                if 5 in left_common:
+                    failures.append(
+                        f"{label}: unexpected x-height left join into {pea_name} from {prev_name} "
+                        f"while keeping right join to {next_name} in {glyphs}"
+                    )
+
+    missing_allowed = sorted(allowed_left - saw_allowed)
+    if missing_allowed:
+        failures.append(f"Missing allowed middle-Pea x-height cases for {missing_allowed}")
+    if not saw_disallowed_case:
+        failures.append("Did not exercise any disallowed middle-Pea x-height left contexts")
+
+    return failures
+
+
 def test_qs_see_exit_baseline_right_before_qs_ooze():
     assert _shape("\uE65A\uE67E") == [
         "qsSee.exit-baseline-right",
@@ -278,6 +333,31 @@ def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
     failures = _owe_terminal_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
+    chars = _char_map()
+
+    assert _shape(chars["qsUtter"] + chars["qsPea"] + chars["qsAwe"]) == [
+        "qsUtter",
+        "qsPea.half.entry-xheight.exit-xheight",
+        "qsAwe.entry-extended",
+    ]
+
+
+def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right():
+    chars = _char_map()
+
+    assert _shape(chars["qsAh"] + chars["qsPea"] + chars["qsAwe"]) == [
+        "qsAh",
+        "qsPea.half",
+        "qsAwe.entry-extended",
+    ]
+
+
+def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
+    failures = _middle_pea_xheight_left_gate_failures()
     assert not failures, "\n".join(failures[:50])
 
 
