@@ -152,9 +152,9 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss03`: allow ·Tea to be joined to at the x-height
 - `ss04`: allow ·It to join at baseline after ·Day and before ·Low
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
-- `ss10`: suppress all joins for the wrapped letter(s) — reverts every contextual variant to its base form, removing all cursive anchors. Useful as an alternative to ZWNJ when you want a letter to stand alone without connecting to its neighbors; wrap the letter in a `<span>` with `font-feature-settings: "ss10" 1`. ZWNJ only blocks the join across that one boundary; it does not fully isolate either letter.
+- `ss10`: suppress all joins for the wrapped letter(s) — beats interspersing ZWNJs between letters of a word
 
-I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
+**I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font**. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
 
 ## Known issues
 
