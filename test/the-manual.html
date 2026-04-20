@@ -74,10 +74,6 @@
         break-before: page;
       }
 
-      [data-stylistic-set~="01"] {
-        font-feature-settings: "ss01" 1;
-      }
-
       [data-stylistic-set~="02"] {
         font-feature-settings: "ss02" 1;
       }
@@ -2501,7 +2497,7 @@
           <tr>
             <td data-expect="·Key ~b~ ·Utter ~x~ ·Bay ~b~ ·Zoo.half"></td>
             <td>.</td>
-            <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·See" data-stylistic-set="01"></td>
+            <td data-expect="·Key ~b~ ·Utter | ◊ZWNJ | ·Pea ~b~ ·See">&zwnj;</td>
             <td>.</td>
             <td data-expect="·May ~x~ ·Eight ~b~ ·Day.half ~b~ ·Zoo.half"></td>
             <td>.</td>

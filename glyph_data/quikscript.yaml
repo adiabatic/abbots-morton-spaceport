@@ -149,7 +149,6 @@ glyph_families:
         select:
           after: [{family: qsUtter}, {family: qsMay}]
           not_before: [{family: qsAwe}, {family: qsCheer}, {family: qsEight}, {family: qsEt}, {family: qsFoot}, {family: qsIt}, {family: qsJay}, {family: qsLlan}, {family: qsNo}, {family: qsOwe}, {family: qsOx}, {family: qsRoe}, {family: qsThey}, {family: qsYe}, {family: qsZoo}]
-        revert_feature: ss01
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]

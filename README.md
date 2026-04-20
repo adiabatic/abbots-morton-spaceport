@@ -148,7 +148,6 @@ In order to properly transcribe [The Manual][tm], I needed a way to force the di
 
 In order to exactly match the contents of [The Manual][tm] without peppering the HTML with zero-width joiners everywhere, I decided to add a number of OpenType stylistic sets to turn on and off behavior that only happened sometimes. They are:
 
-- `ss01`: suppress ·Utter·Pea join
 - `ss02`: allow ·I·Tea to join at the Short height
 - `ss03`: allow ·Tea to be joined to at the x-height
 - `ss04`: allow ·It to join at baseline after ·Day and before ·Low
