@@ -2149,6 +2149,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 5]
       derive:
+        extend_entry_after: {by: 1, targets: [{family: qsYe}]}
         extend_exit_before:
           by: 1
           targets:
