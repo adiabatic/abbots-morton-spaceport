@@ -1908,6 +1908,11 @@ glyph_families:
         select:
           after: [{family: qsYe}]
         modifiers: [after-ye]
+      noentry_after_pea:
+        inherits: noentry_after_ye
+        select:
+          after: [{family: qsPea}]
+        modifiers: [after-pea]
   qsExam:
     mono:
       bitmap:
@@ -1933,6 +1938,11 @@ glyph_families:
         select:
           after: [{family: qsYe}]
         modifiers: [after-ye]
+      noentry_after_pea:
+        inherits: noentry_after_ye
+        select:
+          after: [{family: qsPea}]
+        modifiers: [after-pea]
   qsAngleParenLeft:
     mono:
       bitmap:
