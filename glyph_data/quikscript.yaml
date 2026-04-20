@@ -1533,6 +1533,13 @@ glyph_families:
         select:
           after: [{family: qsThaw}]
         modifiers: [widebase]
+      noentry_after_ye:
+        shape: mono
+        anchors:
+          entry: null
+        select:
+          after: [{family: qsYe}]
+        modifiers: [after-ye]
   qsMay:
     mono:
       bitmap:
