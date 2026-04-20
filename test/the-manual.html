@@ -125,18 +125,6 @@
         display: none;
       }
 
-      body.letters-only .visibility-mutable__verbiage {
-        display: none;
-      }
-
-      body.letters-only {
-        --m-table-spacing: 1ch;
-      }
-
-      body:not(.letters-only) .visibility-mutable__when-no-prose {
-        display: none;
-      }
-
       .title-logo {
         display: block;
         width: 70%;
@@ -201,18 +189,6 @@
         weightToggle: "weight-toggle",
       });
 
-      const verbiageToggle = document.getElementById("verbiage-toggle");
-      if (localStorage.getItem("letters-only") === "1") {
-        document.body.classList.add("letters-only");
-        verbiageToggle.textContent = "Only letters";
-      }
-      verbiageToggle.addEventListener("click", () => {
-        document.body.classList.toggle("letters-only");
-        const active = document.body.classList.contains("letters-only");
-        verbiageToggle.textContent = active ? "Only letters" : "Whole manual";
-        localStorage.setItem("letters-only", active ? "1" : "0");
-      });
-
       initGearMenu(".toggle-buttons");
     </script>
   </head>
@@ -233,7 +209,6 @@
         <button id="font-toggle">Sans</button>
         <button id="level-toggle">Senior</button>
         <button id="weight-toggle">Regular</button>
-        <button id="verbiage-toggle">Whole manual</button>
         <button id="wipe-settings">Wipe settings</button>
       </div>
     </div>
@@ -513,8 +488,8 @@
       <p>Abbots Morton<br />Worcester<br />England</p>
     </section>
 
-    <h2 class="visibility-mutable__verbiage page-break-before">Preface</h2>
-    <section class="panel visibility-mutable__verbiage" data-page="2">
+    <h2 class="page-break-before">Preface</h2>
+    <section class="panel" data-page="2">
       <div style="max-width: 35ch">
         <p>
           The front cover has seven words in a new alphabet of 40 letters. Can seven words be written with less labour,
@@ -538,8 +513,8 @@
       </p>
     </section>
 
-    <h2 class="visibility-mutable__verbiage">Introductory Review</h2>
-    <section class="panel visibility-mutable__verbiage">
+    <h2>Introductory Review</h2>
+    <section class="panel">
       <a name="page-5"></a>
       <p>
         Many reforming alphabets seek only to make Spelling more consistent. A few seek to reduce the
@@ -869,7 +844,7 @@
     <h2>Section I: How to write Junior Quikscript</h2>
     <section class="panel">
       <a name="page-9"></a>
-      <div class="visibility-mutable__verbiage">
+      <div>
         <p>Unfold the Alphabet Sheet for constant reference as you read, and study page 8 carefully first.</p>
 
         <h3 class="uppercase">Spelling</h3>
@@ -1165,11 +1140,11 @@
 
     <h2>Section II: How letters may be joined</h2>
     <section class="panel">
-      <p class="visibility-mutable__verbiage">
+      <p>
         Letter joining is not a virtue in itself, but where it can be done without added strokes of the pen it avoids
         the slight but cumulative actions of lifting the pen and moving the hand to a fresh starting point.
       </p>
-      <p class="visibility-mutable__verbiage">
+      <p>
         It will not have escaped notice that in the written examples one letter often ends almost where the next letter
         begins. They are recognizable still if they end-and-begin at the same point without a break or penlift. Such
         connections may occur on the writing-line; or on the upper parallel at Short letter height; or higher still by
@@ -1178,7 +1153,7 @@
         with many other letters but not with all. Never attempt connections midway between the parallels: breaks are
         less confusing.
       </p>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Several vowel letters join almost irresistably with a following letter No. 25, which is designed to be written
         upwards as well as downwards: as in
       </p>
@@ -1208,8 +1183,7 @@
           <td data-expect="\- | ·Out   ~x~ ·Roe">-</td>
         </tr>
       </table>
-      <hr class="visibility-mutable__when-no-prose" />
-      <p class="visibility-mutable__verbiage">
+      <p>
         While many connections forward from the M-letter (as well as those forward <u>to</u> it) require its normal low
         start, foresight will sometimes suggest writing it downwards from the top, so as to connect forward from it
         along the writing line — as below in ‘Marry, mire, mar’; but avoid connection where the next letter immediately
@@ -1219,22 +1193,10 @@
         <style>
           @scope {
             :scope {
-              border-spacing: var(--m-table-spacing, 2ch) 0;
+              border-spacing: 2ch 0;
             }
           }
         </style>
-        <tr class="visibility-mutable__when-no-prose">
-          <td>merry</td>
-          <td>Mary</td>
-          <td>marry</td>
-          <td>mire</td>
-          <td>mar</td>
-          <td>more</td>
-          <td>moor</td>
-          <td>mere</td>
-          <td>murder</td>
-          <td>sour</td>
-        </tr>
         <tr>
           <td data-expect="     ·May ~x~ ·Et    ~b~ ·Roe"></td>
           <td data-expect="\· | ·May ~x~ ·Eight ~b~ ·Roe">·</td>
@@ -1245,32 +1207,14 @@
           <td data-expect="     ·May  | ·Ooze   ~b~ ·Utter ~x~ ·Roe"></td>
           <td data-expect="     ·May  | ·Eat    ~b~ ·Utter ~x~ ·Roe"></td>
           <td data-expect="     ·May  | ·Utter  ~x~ ·Roe | ·Day+Utter ~x~ ·Roe"></td>
-          <td data-expect="     ·See ~b~ ·Out   ~x~ ·Roe" class='visibility-mutable__when-no-prose'></td>
         </tr>
       </table>
-      <hr class="visibility-mutable__when-no-prose" />
-      <p class="visibility-mutable__verbiage">Notice the connected -der of Murder. Write ‘Dear’ connectedly: .</p>
-      <p class="visibility-mutable__verbiage">
+      <p>Notice the connected -der of Murder. Write ‘Dear’ connectedly: .</p>
+      <p>
         ‘Fear’  has a penlift. ‘Career’  and ‘Carrier’  have breaks.
       </p>
-      <table class="pairings visibility-mutable__when-no-prose">
-        <tr>
-          <td>dear</td>
-          <td>fear</td>
-          <td>career</td>
-          <td>carrier</td>
-        </tr>
-        <tr>
-          <td data-expect="                       ·Day+Eat ~b~ ·Utter ~x~ ·Roe"></td>
-          <td data-expect="                    ·Fee | ·Eat ~b~ ·Utter ~x~ ·Roe"></td>
-          <td data-expect="·Key ~b~ ·Utter ~x~ ·Roe | ·Eat ~b~ ·Utter ~x~ ·Roe"></td>
-          <td data-expect="·Key ~b~ ·At    ~x~ ·Roe | ·It  ~b~ ·Utter ~x~ ·Roe"></td>
-        </tr>
-      </table>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         Letter No. 8 may connect on the writing-line by an allowable extension upward <u>and</u> <u>forward</u> to that
         level (as in Nos. 10 and 12), to write:
       </p>
@@ -1297,9 +1241,7 @@
         </tr>
       </table>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         Connections producing a right-angle or wider angle are slower than acute-angled connections. Detachment is often
         better. But do not hesitate to join with acute angles or where a continuous curve is formed. Here are
         combinations of two consonants which should become habitual:
@@ -1340,19 +1282,19 @@
           <td data-expect="·See ~t~ ·Key ~b~ ·Roe"></td>
         </tr>
       </table>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Little practice is needed to write Tall-S upwardly (from left to right) as well as downwardly, and both ways are
         equally handy in making joins. As always, the secret is a light touch.
       </p>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         So far, letters have not been modified by connection: we now go further.
       </p>
 
       <hgroup>
         <h3><u class="uppercase">6 Half letters</u> make extremely useful and frequent connections.</h3>
       </hgroup>
-      <p class="visibility-mutable__verbiage">
+      <p>
         As the lower halves of letters , ,  are alike, it is clear that the top halves suffice for spelling. To end
         them on the upper parallel is useful in joining them to letters which begin there. Examples are:
       </p>
@@ -1392,14 +1334,12 @@
           <td data-expect="·He ~x~ ·Awe ~b~ ·Low"></td>
         </tr>
       </table>
-      <p class="visibility-mutable__verbiage">(Instinctively these connections become acute-angled.)</p>
+      <p>(Instinctively these connections become acute-angled.)</p>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Similar joinings are convenient on the writing-line with three Deep letters. ‘W’ is halved to be written only
         below the writing-line in —
       </p>
-
-      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1434,12 +1374,10 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         At the end of words (or syllables) halved  (D) and halved  (Z) are often (not always) useful: they serve
         frequently for tenses, plurals, possessives:
       </p>
-
-      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1481,11 +1419,10 @@
           <td data-expect="·See | ·Et ~b~ ·Zoo.half"></td>
         </tr>
       </table>
-      <p class="visibility-mutable__verbiage">
+      <p>
         In some halved connections a tiny zig-zag or ‘step’ breaks confusing continuity. There is a step needed on the
         upper parallel in —
       </p>
-      <hr class="visibility-mutable__when-no-prose" />
       <table class="pairings">
         <tr>
           <td>till</td>
@@ -1515,9 +1452,7 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">Examples of:</p>
-
-      <hr class="visibility-mutable__when-no-prose" />
+      <p>Examples of:</p>
 
       <table class="pairings">
         <tr>
@@ -1564,7 +1499,7 @@
       <hgroup>
         <h3><u class="uppercase">4 Alternative letter-symbols</u> help to make connections.</h3>
       </hgroup>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Of all consonants, the N-sound is most frequent. If it were possible we should give it an X-like letter with
         four points of connection. Our ‘normal’ N-letter has one rearward and one forward connection but none on the
         writing-line. So where a writing-line connection is foreseen, it is usually convenient to <u>reverse</u> the
@@ -1573,19 +1508,19 @@
       <table class="pairings">
         <tr>
           <td>no</td>
-          <td><span class="visibility-mutable__verbiage">(but)</span></td>
-          <td>now<span class="visibility-mutable__verbiage">,</span></td>
+          <td><span>(but)</span></td>
+          <td>now<span>,</span></td>
           <td></td>
           <td>neck</td>
-          <td><span class="visibility-mutable__verbiage">(but)</span></td>
-          <td>knack<span class="visibility-mutable__verbiage">,</span></td>
+          <td><span>(but)</span></td>
+          <td>knack<span>,</span></td>
           <td></td>
           <td>(k)nave</td>
-          <td><span class="visibility-mutable__verbiage">(but)</span></td>
-          <td>knife<span class="visibility-mutable__verbiage">,</span></td>
+          <td><span>(but)</span></td>
+          <td>knife<span>,</span></td>
           <td></td>
           <td>nod</td>
-          <td><span class="visibility-mutable__verbiage">—</span></td>
+          <td><span>—</span></td>
           <td>need</td>
         </tr>
         <tr>
@@ -1607,9 +1542,7 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">Any preceding letter determines the sort of N:</p>
-
-      <hr class="visibility-mutable__when-no-prose" />
+      <p>Any preceding letter determines the sort of N:</p>
 
       <table class="pairings">
         <tr>
@@ -1656,17 +1589,15 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         There is an alternative, &#xFE00; (written downwards), to upwardly written . This letter No. 36 is frequently
         followed by consonants beginning on the writing-line, , , ; and ,  which may also be begun at that level.
       </p>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Consider where the ‘alternative’ vowel letter &#xFE00; is the better choice. In some words the normal upward
         letter  ends with a penlift which is foreseeable and avoidable by substituting its alternative:
       </p>
-
-      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1709,13 +1640,11 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         In these last words, a penlift is saved by using alternative &#xFE00;. In the next examples, either form of the
         vowel involves a penlift and either may be written — with slight preference for the alternative form on grounds
         of appearance only, despite its earlier penlift.
       </p>
-
-      <hr class="visibility-mutable__when-no-prose" />
 
       <table class="pairings">
         <tr>
@@ -1758,20 +1687,18 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage"></p>
-
-      <hr class="visibility-mutable__when-no-prose" />
+      <p></p>
 
       <table class="pairings">
         <tr>
-          <td class="visibility-mutable__verbiage">Standard syllables</td>
+          <td>Standard syllables</td>
           <td>-ally</td>
           <td></td>
           <td>-ous</td>
           <td></td>
           <td title="as an adjective">-ful</td>
-          <td class="visibility-mutable__verbiage">(as an adj.)</td>
-          <td class="visibility-mutable__verbiage">invariably:</td>
+          <td>(as an adj.)</td>
+          <td>invariably:</td>
         </tr>
         <tr>
           <td></td>
@@ -1785,7 +1712,7 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         <u>Letter X</u>, in Orthodox, is a labour-saving way of writing two sounds at once. To compete with it, Senior
         Quikscript substitutes
       </p>
@@ -1798,20 +1725,20 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">— but <u>only</u> where Orthodox spells <u>these</u> sounds with X.</p>
-      <p class="visibility-mutable__verbiage">Correct use of these labour-saving substitutes is as follows:</p>
+      <p>— but <u>only</u> where Orthodox spells <u>these</u> sounds with X.</p>
+      <p>Correct use of these labour-saving substitutes is as follows:</p>
 
-      <ul class="visibility-mutable__verbiage">
+      <ul>
         <li> for <u>Ex</u>cite, <u>Ex</u>treme, <u>Ex</u>pect with an initial vowel  easier than .</li>
         <li> for <u>Ex</u>amine, <u>Ex</u>ample, <u>Ex</u>hibit</li>
       </ul>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Beware of adding a superfluous S-letter for the C in Ex<u>c</u>ite, Ex<u>c</u>ess etc, it is covered already by
         the X-letter.
       </p>
 
-      <ul class="visibility-mutable__verbiage">
+      <ul>
         <li> in N<u>ex</u>t, V<u>ex</u>, S<u>ex</u>; but  in N<u>ecks</u>,</li>
         <li> in Ta<u>x</u>, Fi<u>x</u>, O<u>x</u>, Bu<u>x</u>om — with various vowels: but —</li>
         <li>
@@ -1823,7 +1750,7 @@
 
       <hr width="10%" />
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Common words listed overleaf show to what advantage these various letter connections are applied in standard
         word-outlines.
       </p>
@@ -2455,13 +2382,13 @@
         </dl>
       </div>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         It is known that our 70 commonest words, constantly repeated, account for <u>half the total</u> of words in
         English writings as a whole. Most of these repeatable words have been simplified on pages 12 and 17. Adding the
         standardized full spellings on page 16, we already extend well beyond the commonest 70. These lists are arranged
         for reference as need arises, not to be memorized all at once.
       </p>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Less than half of the words to be written, though the longer ones, remain; and phonetic spelling deals with
         their stressed root syllables. Only a few much used affix syllables are contracted with advantage, but as their
         unstressed vowels may be variably pronounced, some standard usage must be established.
@@ -2470,7 +2397,7 @@
       <hgroup>
         <h3 class="underline"><u class="uppercase">Terminal</u> -es, -ed</h3>
       </hgroup>
-      <p class="visibility-mutable__verbiage">How — or why — should we spell any sound of <u>e</u> in such words as:</p>
+      <p>How — or why — should we spell any sound of <u>e</u> in such words as:</p>
 
       <div
         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(8ch, 1fr)); gap: 1ch; margin-inline: 10%"
@@ -2489,7 +2416,7 @@
         <div>seat<u>e</u>d</div>
       </div>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Is it uttered like the e in ‘<u>e</u>gg’, the <u>i</u> in ‘<u>i</u>t’, or the <u>u</u> in ‘<u>u</u>pon’? Its
         sound is not spelt at all in ‘Jone’s’: in ‘join<del>e</del>d’, its spelling is not sounded, nor is it in
         countless other words. It is only heard as a mere separator of consonants which cannot be pronounced together.
@@ -2517,10 +2444,9 @@
           <td data-expect="\- | ·Tea   ~b~ ·Day">-</td>
         </tr>
       </table>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Notice that the -Z ending of plurals and tenses becomes an -S sound where it follows certain consonants:
       </p>
-      <hr class="visibility-mutable__when-no-prose" />
       <table class="pairings">
         <tr>
           <td>cubs</td>
@@ -2554,31 +2480,19 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         After seven consonants, the -d tense ending changes to a T sound: as in — tippe<u>d</u>, licke<u>d</u>,
         frothe<u>d</u>, roughe<u>d</u>, fusse<u>d</u>, rushe<u>d</u>, clutche<u>d</u>. All these D’s are pronounced as
         T, and they will be spelt with a T-letter.
       </p>
-      <hr class="visibility-mutable__when-no-prose" />
-      <table class="pairings visibility-mutable__when-no-prose">
-        <tr>
-          <td>Mr Jones’s</td>
-        </tr>
-        <tr>
-          <td>
-            ·
-            <span data-expect="·Jay | ·Owe ~x~ ·No ~x~ ·Zoo ~b~ ·Zoo.half"></span>
-          </td>
-        </tr>
-      </table>
-      <p class="visibility-mutable__verbiage">
+      <p>
         ·  clearly means &ldquo;Mr Jones’s&rdquo;: with one name-dot, no apostrophe.
       </p>
 
       <hgroup>
         <h3 class="underline"><span class="uppercase">Terminal</span> -ing</h3>
       </hgroup>
-      <p class="visibility-mutable__verbiage">Provided it is an affix and not a root, omit vowel-i. See examples:</p>
+      <p>Provided it is an affix and not a root, omit vowel-i. See examples:</p>
       <table class="pairings">
         <tr>
           <td>call<del>i</del>ng</td>
@@ -2612,61 +2526,17 @@
         </tr>
       </table>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>being</td>
-          <td>doing</td>
-          <td>thinking</td>
-        </tr>
-        <tr>
-          <td></td>
-          <td data-expect="·Day  ~b~ ·-ing"></td>
-          <td></td>
-        </tr>
-      </table>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Root Contractions plus Affix allow:  = being,  = doing,  = thinking, but <u>spell the root fully</u> after
         a prefix or with somewhat changed meaning: e.g., in — b<u>e</u>ings, und<u>o</u>ing, unth<u>ink</u>ingly,
         <u>wi</u>llingness, c<u>ann</u>ing.
       </p>
 
-      <hr class="visibility-mutable__when-no-prose" />
 
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>b<u>e</u>ings</td>
-          <td>und<u>o</u>ing</td>
-          <td>unth<u>ink</u>ingly</td>
-          <td><u>wi</u>llingness</td>
-          <td>c<u>ann</u>ing</td>
-        </tr>
-        <tr title="I’m guessing at the spelling, here. Corrections appreciated.">
-          <td data-expect="·Bay ~b~ ·Eat | ·It ~b~ ·-ing ~b~ ·Zoo.half"></td>
-          <td data-expect="·Utter ~x~ ·No ~x~ ·Day ~b~ ·Ooze | ·It ~b~ ·-ing"></td>
-          <td data-expect="·Utter ~x~ ·No | ·Thaw | ·It ~b~ ·-ing | ·Key | ·It ~b~ ·-ing ~b~ ·Low ~x~ ·It">
-            
-          </td>
-          <td data-expect="·Way ~x~ ·It ~b~ ·Low ~x~ ·It ~b~ ·-ing ~b~ ·No.alt | ·Et ~b~ ·See"></td>
-          <td data-expect="·Key ~b~ ·At ~x~ ·No | ·-ing"></td>
-        </tr>
-      </table>
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         Spell -ing in full after roots ending in -y:  = carr<u>yi</u>ng<span data-thus-it-is>,</span>
       </p>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>carrying</td>
-        </tr>
-        <tr>
-          <td data-expect="·Key ~b~ ·At ~x~ ·Roe | ·It | ·It ~b~ ·-ing"></td>
-        </tr>
-      </table>
 
       <hgroup>
         <h3>
@@ -2674,15 +2544,14 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Where an L-sound is final, the general rule is to omit any <u>unstressed</u> vowel sound between L and the
         preceding consonant: examples will explain.
       </p>
 
-      <p class="visibility-mutable__verbiage">Omit the vowel struck out in:</p>
+      <p>Omit the vowel struck out in:</p>
 
       <div
-        class="visibility-mutable__verbiage"
         style="
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(6ch, 1fr));
@@ -2709,100 +2578,13 @@
         <div>cav<del>i</del>l.</div>
       </div>
 
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>trib<del>a</del>l</td>
-          <td></td>
-          <td>fin<del>a</del>l</td>
-          <td></td>
-          <td>or<del>a</del>l</td>
-          <td></td>
-          <td>anim<del>a</del>l</td>
-          <td></td>
-          <td>init<del>ia</del>l</td>
-          <td></td>
-          <td>offic<del>ia</del>l</td>
-        </tr>
-        <tr>
-          <td data-expect="·Tea ~x~ ·Roe ~b~ ·I | ·Bay ~b~ ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Fee | ·I ~x~ ·No | ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Awe ~b~ ·Roe | ·Low"></td>
-          <td>.</td>
-          <td data-expect="·At ~x~ ·No ~x~ ·It ~b~ ·May | ·Low"></td>
-          <td>.</td>
-          <td data-expect="·It ~b~ ·No.alt ~b~ ·It | ·She ~b~ ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Owe ~x~ ·Fee | ·It | ·She ~b~ ·Low"></td>
-        </tr>
-      </table>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>miss<del>a</del>l</td>
-          <td></td>
-          <td>riv<del>a</del>l</td>
-          <td></td>
-          <td>lev<del>e</del>l</td>
-          <td></td>
-          <td>bev<del>e</del>l</td>
-          <td></td>
-          <td>rifl<del>e</del></td>
-          <td></td>
-          <td>coupl<del>e</del></td>
-        </tr>
-        <tr>
-          <td data-expect="·May ~x~ ·It ~b~ ·See | ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Roe ~b~ ·I | ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-          <td>.</td>
-          <td data-expect="·Low ~x~ ·Et ~b~ ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-          <td>.</td>
-          <td data-expect="·Bay | ·Et ~b~ ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-          <td>.</td>
-          <td data-expect="·Roe ~b~ ·I ~x~ ·Fee | ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low" data-stylistic-set="01"></td>
-        </tr>
-      </table>
-
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>eagl<del>e</del></td>
-          <td></td>
-          <td>eas<del>e</del>l</td>
-          <td></td>
-          <td>dev<del>i</del>l</td>
-          <td></td>
-          <td>civ<del>i</del>l</td>
-          <td></td>
-          <td>cav<del>i</del>l</td>
-        </tr>
-        <tr>
-          <td data-expect="·Eat  |  ·Gay ~b~ ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Eat ~b~ ·Zoo ~b~ ·Low"></td>
-          <td>.</td>
-          <td data-expect="·Day | ·Et ~b~ ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-          <td>.</td>
-          <td data-expect="·See | ·It ~b~ ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-          <td>.</td>
-          <td data-expect="·Key ~b~ ·At | ·Vie | ◊ZWNJ | ·Low">&zwnj;</td>
-        </tr>
-      </table>
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         <u>Where another syllable is added</u>, the vowel sound before this L must be clearly pronounced and spelt in
         most cases: as it must be in —
       </p>
 
       <div
-        class="visibility-mutable__verbiage"
         style="
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(8ch, 1fr));
@@ -2821,64 +2603,13 @@
         <div>rif(<u>u</u>)l<del>e</del>man,</div>
       </div>
 
-      <hr class="visibility-mutable__when-no-prose" />
 
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>fin<u>a</u>lly</td>
-          <td></td>
-          <td>or<u>a</u>lly</td>
-          <td></td>
-          <td>anim<u>a</u>lity</td>
-          <td></td>
-          <td>initi<u>a</u>lly</td>
-          <td></td>
-          <td>offici<u>a</u>lly</td>
-        </tr>
-        <tr>
-          <td data-expect="·Fee | ·I ~x~ ·No | ·Utter.alt ~b~ ·Low ~x~ ·It"></td>
-          <td>.</td>
-          <td data-expect="·Awe ~b~ ·Roe | ·Utter.alt ~b~ ·Low ~x~ ·It"></td>
-          <td>.</td>
-          <td data-expect="·At ~x~ ·No ~x~ ·It ~b~ ·May | ·At | ·Low ~x~ ·It | ·Tea.half ~x~ ·It"></td>
-          <td>.</td>
-          <td data-expect="·It ~b~ ·No.alt ~b~ ·It | ·She | ·Utter.alt ~b~ ·Low ~x~ ·It"></td>
-          <td>.</td>
-          <td data-expect="·Owe ~x~ ·Fee | ·It | ·She | ·Utter.alt ~b~ ·Low ~x~ ·It"></td>
-        </tr>
-      </table>
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>lev<u>e</u>lling</td>
-          <td></td>
-          <td>dev<u>i</u>lry</td>
-          <td></td>
-          <td>cav<u>i</u>ller</td>
-          <td></td>
-          <td>rif(<u>u</u>)<del>l</del>eman</td>
-        </tr>
-        <tr>
-          <td data-expect="·Low ~x~ ·Et ~b~ ·Vie | ·Utter.alt ~b~ ·Low | ·-ing"></td>
-          <td>.</td>
-          <td data-expect="·Day | ·Et ~b~ ·Vie | ·Utter.alt ~b~ ·Low ~x~ ·Roe | ·It"></td>
-          <td>.</td>
-          <td data-expect="·Key ~b~ ·At | ·Vie | ·Utter.alt ~b~ ·Low | ·Utter ~x~ ·Roe"></td>
-          <td>.</td>
-          <td data-expect="·Roe ~b~ ·I ~x~ ·Fee | ·Utter.alt ~b~ ·Low | ·May ~x~ ·Utter.reaches-way-back ~b~ ·No.alt">
-            
-          </td>
-        </tr>
-      </table>
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         (Cou<u>pl</u>et and Cou<u>pl</u>ing lose all trace of the diminished and negligible vowel-<u>sound</u> which may
         precede L in Couple: it certainly does not follow the L-sound.
       </p>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <p class="visibility-mutable__verbiage">
+      <p>
         While L needs no preceding vowel in Spaniel = , one is clearly needed wherever -al follows on a vowel-<u
           >sound</u
         >
@@ -2886,7 +2617,6 @@
       </p>
 
       <div
-        class="visibility-mutable__verbiage"
         style="
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(12ch, 1fr));
@@ -2899,24 +2629,6 @@
         <div>l<u>oya</u>l = .</div>
       </div>
 
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>couplet</td>
-          <td>coupling</td>
-          <td>Spaniel</td>
-          <td>burial</td>
-          <td>visual</td>
-          <td>loyal</td>
-        </tr>
-        <tr>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·Et ~b~ ·Low" data-stylistic-set="01"></td>
-          <td data-expect="·Key ~b~ ·Utter | ·Pea ~b~ ·Low ~x~ ·It ~b~ ·-ing" data-stylistic-set="01"></td>
-          <td data-expect="·See ~6~ ·Pea ~b~ ·At ~x~ ·No ~x~ ·Ye ~b~ ·Low"></td>
-          <td data-expect="·Bay | ·Et ~b~ ·Roe | ·It | ·Utter.alt ~b~ ·Low"></td>
-          <td data-expect="·Vie | ·It ~b~ ·Zoo.half | ·Ye ~b~ ·Ooze | ·Utter.alt ~b~ ·Low"></td>
-          <td data-expect="·Low | ·Oy | ·Utter.alt ~b~ ·Low"><span class="force-junior"></span></td>
-        </tr>
-      </table>
 
       <hgroup>
         <h3>
@@ -2924,7 +2636,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         These terminals should <u>always</u> be written as shown, even if a preceding penlift results. Notice the choice
         for first letters:
       </p>
@@ -2955,7 +2667,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         ‘Alternative’ N-letter is joined to preceding consonant, <u>omitting vowel</u>.
       </p>
 
@@ -3002,7 +2714,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Written invariably as — ; no contraction, no alternatives. Note convenient acute angle or continuous line
         which results in most cases:
       </p>
@@ -3078,7 +2790,7 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">(Note the listed contraction,  = often, as an exception).</p>
+      <p>(Note the listed contraction,  = often, as an exception).</p>
 
       <hgroup>
         <h3>
@@ -3086,24 +2798,12 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">Written invariably with —  followed by a penlift:</p>
+      <p>Written invariably with —  followed by a penlift:</p>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         pres<u>ent</u>, dist<u>ant</u> (alike) with …-; pres<u>ence</u>, dist<u>ance</u> …-.
       </p>
 
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>pres<u>ent</u>, dist<u>ant</u></td>
-          <td>:</td>
-          <td>pres<u>ence</u>, dist<u>ance</u></td>
-        </tr>
-        <tr>
-          <td data-expect="\- | ·Utter ~x~ ·No | ·Tea">-</td>
-          <td>:</td>
-          <td data-expect="\- | ·Utter ~x~ ·No | ·See">-</td>
-        </tr>
-      </table>
 
       <hgroup>
         <h3>
@@ -3148,24 +2848,6 @@
         >nt, unm<u class="stressed">a</u>n.
       </p>
 
-      <hr class="visibility-mutable__when-no-prose" />
-
-      <table class="visibility-mutable__when-no-prose pairings">
-        <tr>
-          <td>Overl<u>a</u>nd</td>
-          <td></td>
-          <td>cem<u>e</u>nt</td>
-          <td></td>
-          <td>unm<u>a</u>n</td>
-        </tr>
-        <tr>
-          <td data-expect="·Owe | ·Vie+Utter ~x~ ·Roe ~b~ ·Low | ·At ~x~ ·No ~x~ ·Day"></td>
-          <td>.</td>
-          <td data-expect="·See | ·It ~b~ ·May ~x~ ·Et ~b~ ·No.alt ~b~ ·Tea"></td>
-          <td>.</td>
-          <td data-expect="·Utter ~x~ ·No | ·May ~b~ ·At ~x~ ·No"></td>
-        </tr>
-      </table>
 
       <hgroup>
         <h3>
@@ -3173,7 +2855,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">The ‘alternative’ vowel-letter joined to S, invariably:</p>
+      <p>The ‘alternative’ vowel-letter joined to S, invariably:</p>
 
       <table class="pairings">
         <tr>
@@ -3198,7 +2880,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">Distinguished from the -us, ous terminal by writing vowel No. 28 .</p>
+      <p>Distinguished from the -us, ous terminal by writing vowel No. 28 .</p>
 
       <table class="pairings">
         <tr>
@@ -3225,7 +2907,7 @@
         <h3 class="underline"><span class="uppercase">Terminal</span> -er (etc.)</h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Always -<span data-expect="·Utter ~x~ ·Roe"></span>; plural always -<span data-expect="·Utter ~x~ ·Roe | ·Zoo"
           ></span
         >
@@ -3240,16 +2922,13 @@
             mart<u>yr</u>, mit<u>r</u>e.
           </td>
         </tr>
-        <tr class="visibility-mutable__when-no-prose">
-          <td data-expect="\- | ·Utter ~x~ ·Roe">-</td>
-        </tr>
       </table>
 
       <hgroup>
         <h3 class="underline"><span class="uppercase">Terminal</span> -ier, -ior (etc.)</h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">If unstressed, - : if stressed, -. Examples illustrate:</p>
+      <p>If unstressed, - : if stressed, -. Examples illustrate:</p>
 
       <table class="pairings">
         <tr>
@@ -3296,7 +2975,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         Though the actual sound of terminal -y varies in pronunciation, it certainly must be constant in spelling. The
         dictionary suggests letter- No. 26, and leaves  No. 27 for distinction where the terminal is <u>stressed</u>.
       </p>
@@ -3363,7 +3042,7 @@
           <td>… …</td>
           <td data-expect="\- | ·Utter ~x~ ·Jay | \.">-.</td>
         </tr>
-        <tr class="visibility-mutable__verbiage">
+        <tr>
           <td>
             But distinguish the terminal after marr<u>i</u>age, carr<u>i</u>age<br />
             i.e., after <u>root</u> words ending in -y.
@@ -3384,7 +3063,7 @@
         <span data-expect="·Ox ~b~ ·No.alt | ·Way ~x~ ·Day ~b~ ·Zoo.half"></span>
       </p>
 
-      <p class="visibility-mutable__verbiage">(the stressed syllables ‘for—, on—,’ should <u>not</u> be contracted).</p>
+      <p>(the stressed syllables ‘for—, on—,’ should <u>not</u> be contracted).</p>
 
       <hgroup>
         <h3>
@@ -3406,7 +3085,7 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">A valuable distinction is made (whatever their pronunciation) between</p>
+      <p>A valuable distinction is made (whatever their pronunciation) between</p>
 
       <table class="pairings">
         <tr>
@@ -3431,12 +3110,12 @@
         </tr>
       </table>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         c<del>o</del>nv<span class="stressed">e</span>ntion, convent: c<del>o</del>nf<span class="stressed">e</span>r,
         conference: c<del>o</del>nf<span class="stressed">o</span>rm, conformation, etc.
       </p>
 
-      <p class="visibility-mutable__verbiage">Similarly, distinction is made between:</p>
+      <p>Similarly, distinction is made between:</p>
 
       <p>
         c<del>o</del>mp<span class="stressed">o</span>sed, c<del>o</del>mpr<span class="stressed">e</span>ss,
@@ -3447,7 +3126,7 @@
         >mpound (n.), c<span class="stressed">o</span>mment … with <span data-expect="·Key | ·Ox | ·May"></span>-.
       </p>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         No other contracted prefixes are used, because a word’s first syllable is less automatically read than the last
         syllable. But it is necessary to standardize their spelling and form.
       </p>
@@ -3470,10 +3149,10 @@
         </h3>
       </hgroup>
 
-      <p class="visibility-mutable__verbiage">In effect only the vowel-sound is the prefix to a root word in:</p>
+      <p>In effect only the vowel-sound is the prefix to a root word in:</p>
 
       <table class="pairings">
-        <tr class="visibility-mutable__verbiage">
+        <tr>
           <td><u>ann</u>ounce,</td>
           <td><u>ann</u>ul,</td>
           <td><u>ann</u>uity</td>
@@ -3496,7 +3175,7 @@
       </table>
 
       <table class="pairings">
-        <tr class="visibility-mutable__verbiage">
+        <tr>
           <td>Note, where the initial sound is stressed,</td>
           <td>…</td>
           <td><span class="stressed">a</span>nnual</td>
@@ -3506,7 +3185,7 @@
           <td><span class="stressed">a</span>rrows</td>
         </tr>
         <tr>
-          <td class="visibility-mutable__verbiage">— spelling changes with changed sound</td>
+          <td>— spelling changes with changed sound</td>
           <td>…</td>
           <td><span data-expect="·At ~x~ ·No"></span>-</td>
           <td>.</td>
@@ -3524,7 +3203,7 @@
 
       <table class="pairings">
         <tr>
-          <td colspan="6" class="visibility-mutable__verbiage">
+          <td colspan="6">
             <u>ob</u>j<span class="stressed">e</span>ct, <u>ob</u>t<span class="stressed">a</span>in, <u>ob</u>s<span
               class="stressed"
               >e</span
@@ -3534,7 +3213,7 @@
           <td>with <span data-expect="·Utter ~x~ ·Bay"></span>-</td>
         </tr>
         <tr>
-          <td colspan="6" class="visibility-mutable__verbiage">
+          <td colspan="6">
             <u><span class="stressed">o</span>b</u>ject (noun), <u><span class="stressed">o</span>b</u>stacle,
             <u><span class="stressed">o</span>b</u>viate (stressed prefix)
           </td>
@@ -3542,12 +3221,12 @@
           <td>with <span data-expect="·Ox | ·Bay"></span>-</td>
         </tr>
         <tr>
-          <td colspan="3" class="visibility-mutable__verbiage">
+          <td colspan="3">
             <u>off</u>icial, <u>off</u><span class="stressed">e</span>nd
           </td>
           <td>…</td>
           <td>with <span data-expect="·Utter ~x~ ·Fee"></span>-:</td>
-          <td class="visibility-mutable__verbiage">
+          <td>
             <u><span class="stressed">o</span>ff</u>ice, <u><span class="stressed">o</span>ff</u>er
           </td>
           <td>…</td>
@@ -3572,20 +3251,20 @@
           }
         </style>
         <span
-          ><span class="visibility-mutable__verbiage"><u>be</u>gin, <u>be</u>hind, <u>be</u>head</span> …
+          ><span><u>be</u>gin, <u>be</u>hind, <u>be</u>head</span> …
           <span data-expect="·Bay ~b~ ·It.entry-baseline"></span>-:</span
         >
         <span
-          ><span class="visibility-mutable__verbiage"><u>de</u>cide, <u>de</u>fend, <u>de</u>sertion</span> …
+          ><span><u>de</u>cide, <u>de</u>fend, <u>de</u>sertion</span> …
           <span data-expect="·Day ~b~ ·It.entry-baseline"></span>-:</span
         >
         <span
-          ><span class="visibility-mutable__verbiage"><u>re</u>ceive, <u>re</u>fuse, <u>re</u>sult</span> …
+          ><span><u>re</u>ceive, <u>re</u>fuse, <u>re</u>sult</span> …
           <span data-expect="·Roe | ·It"></span>- .</span
         >
       </div>
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         But there is a vowel change in stressed prefixes: d<span class="stressed">e</span>finite, d<span
           class="stressed"
           >e</span
@@ -3602,21 +3281,21 @@
       </hgroup>
 
       <p>
-        <span class="visibility-mutable__verbiage"
+        <span
           ><u>pre</u>serve, <u>pre</u>vent, <u>pre</u>cluded, <u>pre</u>sent (verb)</span
         >
         … (unstressed) with <span data-expect="·Pea.half ~x~ ·Roe | ·It"></span>-.
       </p>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Compare stressed prefix in: pr<span class="stressed">e</span>servation, pr<span class="stressed">e</span>lude,
         pr<span class="stressed">e</span>suppose, pr<span class="stressed">e</span>sent (n.)
       </p>
 
       <p>
-        <span class="visibility-mutable__verbiage"><u>pro</u>duce (v.), <u>pro</u>test (v.), <u>pro</u>nounce</span> …
+        <span><u>pro</u>duce (v.), <u>pro</u>test (v.), <u>pro</u>nounce</span> …
         (unstressed) with <span data-expect="·Pea.half ~x~ ·Roe | ·Utter"></span>-.
       </p>
-      <p class="visibility-mutable__verbiage">
+      <p>
         Compare stressed prefix vowels in: pr<span class="stressed">o</span>duce (n.), pr<span class="stressed">o</span
         >test (n.), pr<span class="stressed">o</span>noun.
       </p>
@@ -3628,7 +3307,7 @@
       </hgroup>
 
       <p>
-        <span class="visibility-mutable__verbiage"
+        <span
           ><u>per</u>suade, <u>per</u>fume, <u>pur</u>sue, <u>pur</u>chase (stressed or not)</span
         >
         with… <span data-expect="·Pea ~b~ ·Utter ~x~ ·Roe"></span>-.
@@ -3642,7 +3321,7 @@
       </hgroup>
 
       <p>
-        <span class="visibility-mutable__verbiage"
+        <span
           ><u>in</u>quire, <u>en</u>quiry, <u>in</u>form, <u>en</u>large, <u>en</u>rage, <u>en</u>close,
           <u>en</u>deavour</span
         >
@@ -3651,7 +3330,7 @@
     </section>
 
     <h2>Examples</h2>
-    <section class="panel visibility-mutable__verbiage">
+    <section class="panel">
       <h3 class="center uppercase">Note</h3>
 
       <p>
@@ -3681,7 +3360,7 @@
       </p>
     </section>
     <section class="panel">
-      <p class="visibility-mutable__verbiage">
+      <p>
         Compare these 4½ lines in Senior script with the 6 line Junior version of the same words on page 11. Connections
         and contractions account for this considerable further saving:
       </p>
@@ -3754,7 +3433,7 @@
 
       <hr width="10%" />
 
-      <p class="visibility-mutable__verbiage">
+      <p>
         In such colloquial passages as these, half of the words are listed contractions, for such is the prevalence of a
         few common words in subject matter of this kind. Test the remarkable saving of pen movements by writing one of
         these sentences equally large in Orthodox and in Quickscript:
