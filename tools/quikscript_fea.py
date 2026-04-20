@@ -26,7 +26,7 @@ class _JoinAnalysis:
     fwd_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     fwd_bk_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str]]]] = field(default_factory=dict)
-    reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str]]] = field(default_factory=list)
+    reverse_only_upgrades: list[tuple[str, list[str], list[int], list[str], list[str]]] = field(default_factory=list)
     terminal_entry_only: set[str] = field(default_factory=set)
     terminal_exit_only: set[str] = field(default_factory=set)
     exit_classes: dict[int, set[str]] = field(default_factory=dict)
@@ -286,6 +286,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                     glyph_name,
                     matching_sources,
                     [anchor[1] for anchor in entries],
+                    list(meta.after),
                     list(meta.not_before),
                 )
             )
@@ -1436,20 +1437,61 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
-        for variant_name, source_variants, entry_ys, not_before in plan.reverse_only_upgrades:
+        for variant_name, source_variants, entry_ys, after_glyphs, not_before in plan.reverse_only_upgrades:
             valid_entry_ys = [y for y in sorted(set(entry_ys)) if y in exit_classes]
             if not valid_entry_ys:
                 continue
             safe = variant_name.replace(".", "_")
             lines.append("")
             lines.append(f"    lookup calt_reverse_upgrade_explicit_{safe} {{")
-            if not_before:
-                not_before_list = " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
-                for source_variant in source_variants:
-                    lines.append(f"        ignore sub {source_variant}' [{not_before_list}];")
+            expanded_after = None
+            if after_glyphs:
+                expanded_after = _expand_backward_after_variants(
+                    variant_name,
+                    after_glyphs,
+                    expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                    glyph_meta=glyph_meta,
+                    base_to_variants=base_to_variants,
+                )
+                if not expanded_after:
+                    continue
+            not_before_list = (
+                " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
+                if not_before else None
+            )
             for entry_y in valid_entry_ys:
+                if expanded_after is None:
+                    for source_variant in source_variants:
+                        if not_before_list:
+                            lines.append(f"        ignore sub {source_variant}' [{not_before_list}];")
+                        lines.append(f"        sub @exit_y{entry_y} {source_variant}' by {variant_name};")
+                    continue
+
+                expanded_after_for_y = {
+                    candidate for candidate in expanded_after
+                    if _can_eventually_exit_at(
+                        glyph_meta,
+                        base_to_variants,
+                        candidate,
+                        entry_y,
+                    )
+                }
+                if not expanded_after_for_y:
+                    continue
+                after_list = " ".join(sorted(expanded_after_for_y))
                 for source_variant in source_variants:
-                    lines.append(f"        sub @exit_y{entry_y} {source_variant}' by {variant_name};")
+                    for candidate_name in sorted(expanded_after_for_y):
+                        guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, {entry_y})
+                        if guard_glyphs:
+                            guard_list = " ".join(sorted(guard_glyphs))
+                            lines.append(
+                                f"        ignore sub [{guard_list}] {candidate_name} {source_variant}';"
+                            )
+                    if not_before_list:
+                        lines.append(
+                            f"        ignore sub [{after_list}] {source_variant}' [{not_before_list}];"
+                        )
+                    lines.append(f"        sub [{after_list}] {source_variant}' by {variant_name};")
             lines.append(f"    }} calt_reverse_upgrade_explicit_{safe};")
 
     def _emit_noentry_fwd_overrides(bases: list[str]):
