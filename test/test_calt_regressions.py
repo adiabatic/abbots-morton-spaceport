@@ -275,6 +275,13 @@ def test_qs_he_ye_do_not_connect():
     ]
 
 
+def test_qs_it_ye_do_not_connect():
+    assert _shape("\uE670\uE660") == [
+        "qsIt",
+        "qsYe",
+    ]
+
+
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
     failures = _utter_alt_invariant_failures()
     assert not failures, "\n".join(failures[:50])
