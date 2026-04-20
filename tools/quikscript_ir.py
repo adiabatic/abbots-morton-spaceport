@@ -1374,7 +1374,7 @@ def _add_exit_extension_variant(
 
     kwargs = {
         "bitmap": new_bitmap,
-        "exit": _shift_anchors(target_glyph.exit, dx=actual_dx),
+        "exit": _shift_anchors(target_glyph.exit, dx=count),
         "extend_exit_no_entry": False,
         "add_modifiers": (f"exit-{suffix_word}",),
         "generated_from": target_name,
