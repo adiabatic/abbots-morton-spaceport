@@ -268,6 +268,13 @@ def test_qs_they_ye_do_not_connect():
     ]
 
 
+def test_qs_why_ye_do_not_connect():
+    assert _shape("\uE663\uE660") == [
+        "qsWhy",
+        "qsYe",
+    ]
+
+
 def test_qs_way_ye_do_not_connect():
     assert _shape("\uE661\uE660") == [
         "qsWay",
