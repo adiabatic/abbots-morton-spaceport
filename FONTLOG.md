@@ -6,6 +6,11 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 14.000
 
+- Remove `ss01`; ·Utter·Pea joins are now the default
+- Remove `ss05`; ·Ox·May now joins at the baseline by default
+- Repurpose `ss06` (now: use gapped ·Owe, which doesn't connect at the top)
+- Stylistic sets now work in Junior, not just Senior…although that really only applies to `ss06`, knock on wood
+
 ### 13.000
 
 Abbots Morton Spaceport Senior now matches, or at least _should_ match, The Manual all the way through to the end. Hopefully I haven’t broken anything.
