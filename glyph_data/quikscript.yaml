@@ -664,7 +664,7 @@ glyph_families:
         anchors:
           exit: [4, 5]
         select:
-          not_before: [{family: qsDay}, {family: qsTea}]
+          not_before: [{family: qsDay}, {family: qsTea}, {family: qsYe}]
         modifiers: [exit-xheight]
   qsThey_qsMay:
     sequence:
@@ -1283,7 +1283,7 @@ glyph_families:
           entry: [1, 5]
           exit: [3, 0]
         select:
-          not_after: [{family: qsWay}]
+          not_after: [{family: qsThey}, {family: qsWay}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-baseline]
