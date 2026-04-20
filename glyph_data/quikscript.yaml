@@ -148,7 +148,7 @@ glyph_families:
           exit: [5, 0]
         select:
           after: [{family: qsUtter}, {family: qsMay}]
-          not_before: [{family: qsAwe}, {family: qsCheer}, {family: qsEight}, {family: qsEt}, {family: qsFoot}, {family: qsIt}, {family: qsJay}, {family: qsLlan}, {family: qsNo}, {family: qsOwe}, {family: qsOx}, {family: qsRoe}, {family: qsThey}, {family: qsYe}, {family: qsZoo}]
+          not_before: [{family: qsAwe}, {family: qsCheer}, {family: qsEight}, {family: qsEt}, {family: qsFoot}, {family: qsIt}, {family: qsJay}, {family: qsLlan}, {family: qsNo}, {family: qsOwe}, {family: qsOx}, {family: qsRoe}, {family: qsZoo}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
@@ -168,6 +168,8 @@ glyph_families:
         inherits: half
         anchors:
           entry: [1, 5]
+        select:
+          after: [{family: qsUtter}, {family: qsMay}]
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
