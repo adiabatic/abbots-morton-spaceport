@@ -41,6 +41,8 @@ class _JoinAnalysis:
     all_bk_bases: list[str] = field(default_factory=list)
     all_fwd_bases: set[str] = field(default_factory=set)
     fwd_only: list[str] = field(default_factory=list)
+    early_pair_fwd_general: list[str] = field(default_factory=list)
+    early_pair_fwd_general_exit_ys: dict[str, set[int]] = field(default_factory=dict)
     lig_fwd_bases: set[str] = field(default_factory=set)
     early_pair_upgrade_bases: set[str] = field(default_factory=set)
     early_fwd_pairs: set[str] = field(default_factory=set)
@@ -444,21 +446,48 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             entry_ext_pair_only.add(base_name)
 
     all_fwd_bases = set(fwd_replacements) | set(fwd_pair_overrides) | set(plan.gated_fwd_pair_overrides)
+    pair_override_bases = set(pair_overrides)
     entry_ext_fwd_only = entry_ext_pair_only & all_fwd_bases
 
-    pair_only = sorted(set(pair_overrides) - set(bk_replacements) - entry_ext_fwd_only)
+    dependent_pair_fwd_general: dict[str, set[int]] = {}
+    pair_only_fwd_candidates = (
+        pair_override_bases - set(bk_replacements) - entry_ext_fwd_only
+    ) & set(fwd_replacements)
+    for base_name in pair_only_fwd_candidates:
+        base_meta = glyph_meta.get(base_name)
+        if base_meta is None:
+            continue
+        current_exit_ys = set(base_meta.exit_ys)
+        shadowed_exit_ys: set[int] = set()
+        for variant_name, _, _ in fwd_pair_overrides.get(base_name, []):
+            shadowed_exit_ys.update(_meta(variant_name).exit_ys)
+        for variant_name, _, _, _ in plan.gated_fwd_pair_overrides.get(base_name, []):
+            shadowed_exit_ys.update(_meta(variant_name).exit_ys)
+        safe_exit_ys: set[int] = set()
+        for exit_y in fwd_replacements.get(base_name, {}):
+            if exit_y in current_exit_ys or exit_y in shadowed_exit_ys:
+                continue
+            # Emit only the plain forward-exit Ys that another base's
+            # backward substitutions cannot see until this base has changed.
+            if any(other_base != base_name and exit_y in set(entry_variants) for other_base, entry_variants in bk_replacements.items()):
+                safe_exit_ys.add(exit_y)
+        if safe_exit_ys:
+            dependent_pair_fwd_general[base_name] = safe_exit_ys
+
+    pair_only = sorted(pair_override_bases - set(bk_replacements) - entry_ext_fwd_only)
     all_bk_bases = sorted_bases + pair_only
 
-    fwd_only_set = all_fwd_bases - set(bk_replacements) - (set(pair_overrides) - entry_ext_pair_only)
+    fwd_only_set = all_fwd_bases - set(bk_replacements) - (pair_override_bases - entry_ext_pair_only)
+    early_fwd_set = fwd_only_set | set(dependent_pair_fwd_general)
 
-    fwd_fwd_edges: dict[str, set[str]] = {base: set() for base in fwd_only_set}
-    for base_a in fwd_only_set:
+    fwd_fwd_edges: dict[str, set[str]] = {base: set() for base in early_fwd_set}
+    for base_a in early_fwd_set:
         for exit_y in fwd_replacements.get(base_a, {}):
             use_excl = (base_a, exit_y) in fwd_use_exclusive
             if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
                 continue
             cls = entry_exclusive[exit_y] if use_excl else entry_classes.get(exit_y, set())
-            for base_b in fwd_only_set:
+            for base_b in early_fwd_set:
                 if base_b == base_a or base_b not in cls:
                     continue
                 for b_variant in fwd_replacements.get(base_b, {}).values():
@@ -466,32 +495,34 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                         fwd_fwd_edges[base_a].add(base_b)
                         break
 
-    for base_a in fwd_only_set:
+    for base_a in early_fwd_set:
         if base_a not in pair_overrides:
             continue
         for _, after_glyphs in pair_overrides[base_a]:
             for after_glyph in after_glyphs:
                 base_b = glyph_meta[after_glyph].base_name
-                if base_b != base_a and base_b in fwd_only_set:
+                if base_b != base_a and base_b in early_fwd_set:
                     fwd_fwd_edges[base_a].add(base_b)
 
-    fwd_out: dict[str, set[str]] = {base: set() for base in fwd_only_set}
-    fwd_in_deg: dict[str, int] = {base: len(fwd_fwd_edges[base]) for base in fwd_only_set}
-    for base in fwd_only_set:
+    fwd_out: dict[str, set[str]] = {base: set() for base in early_fwd_set}
+    fwd_in_deg: dict[str, int] = {base: len(fwd_fwd_edges[base]) for base in early_fwd_set}
+    for base in early_fwd_set:
         for dependency in fwd_fwd_edges[base]:
             fwd_out[dependency].add(base)
 
-    fwd_queue = deque(sorted(base for base in fwd_only_set if fwd_in_deg[base] == 0))
-    fwd_only: list[str] = []
+    fwd_queue = deque(sorted(base for base in early_fwd_set if fwd_in_deg[base] == 0))
+    fwd_early: list[str] = []
     while fwd_queue:
         node = fwd_queue.popleft()
-        fwd_only.append(node)
+        fwd_early.append(node)
         for neighbor in sorted(fwd_out[node]):
             fwd_in_deg[neighbor] -= 1
             if fwd_in_deg[neighbor] == 0:
                 fwd_queue.append(neighbor)
 
-    fwd_only.extend(sorted(fwd_only_set - set(fwd_only)))
+    fwd_early.extend(sorted(early_fwd_set - set(fwd_early)))
+    fwd_only = [base for base in fwd_early if base in fwd_only_set]
+    early_pair_fwd_general = [base for base in fwd_early if base in dependent_pair_fwd_general]
 
     lig_fwd_bases: set[str] = set()
     for base_name in fwd_only:
@@ -560,6 +591,10 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
     plan.all_bk_bases = all_bk_bases
     plan.all_fwd_bases = all_fwd_bases
     plan.fwd_only = fwd_only
+    plan.early_pair_fwd_general = early_pair_fwd_general
+    plan.early_pair_fwd_general_exit_ys = {
+        base_name: dependent_pair_fwd_general[base_name] for base_name in early_pair_fwd_general
+    }
     plan.lig_fwd_bases = lig_fwd_bases
     plan.early_pair_upgrade_bases = early_pair_upgrade_bases
     plan.early_fwd_pairs = early_fwd_pairs
@@ -726,6 +761,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     cycle_bases = plan.cycle_bases
     all_bk_bases = plan.all_bk_bases
     lig_fwd_bases = plan.lig_fwd_bases
+    early_pair_fwd_general = {
+        base_name: set(plan.early_pair_fwd_general_exit_ys[base_name])
+        for base_name in plan.early_pair_fwd_general
+    }
     early_pair_upgrade_bases = plan.early_pair_upgrade_bases
     early_fwd_pairs = plan.early_fwd_pairs
     ligatures = plan.ligatures
@@ -973,14 +1012,66 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     lines.append(f"        sub {target}' [{effective_before_list}] by {actual_variant};")
                 lines.append(f"    }} calt_fwd_pair_{safe};")
 
-    def _emit_fwd_general(base_name: str):
-        if base_name in fwd_replacements:
-            variants = fwd_replacements[base_name]
-            exclusions = fwd_exclusions.get(base_name, {})
-            lookup_name = f"calt_fwd_{base_name}"
-            lines.append("")
-            lines.append(f"    lookup {lookup_name} {{")
-            for exit_y in sorted(variants.keys(), reverse=True):
+    def _emit_fwd_general(
+        base_name: str,
+        *,
+        only_exit_ys: set[int] | None = None,
+        skip_exit_ys: set[int] | None = None,
+        lookup_prefix: str = "calt_fwd_",
+    ):
+        if base_name not in fwd_replacements:
+            return
+
+        variants = fwd_replacements[base_name]
+        selected_exit_ys = [
+            exit_y
+            for exit_y in sorted(variants.keys(), reverse=True)
+            if (only_exit_ys is None or exit_y in only_exit_ys)
+            and (skip_exit_ys is None or exit_y not in skip_exit_ys)
+        ]
+        if not selected_exit_ys:
+            return
+
+        exclusions = fwd_exclusions.get(base_name, {})
+        lookup_name = f"{lookup_prefix}{base_name}"
+        emitted = False
+        lines.append("")
+        lines.append(f"    lookup {lookup_name} {{")
+        for exit_y in selected_exit_ys:
+            variant_name = variants[exit_y]
+            if exit_y not in entry_classes:
+                continue
+            use_excl = (base_name, exit_y) in fwd_use_exclusive
+            if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
+                continue
+            cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
+            base_ey = {y for y, members in entry_classes.items() if base_name in members}
+            var_ey = {y for y, members in entry_classes.items() if variant_name in members}
+            if var_ey:
+                for hidden_y in sorted(base_ey - var_ey):
+                    if hidden_y in exit_classes:
+                        lines.append(f"        ignore sub @exit_y{hidden_y} {base_name}' {cls};")
+            fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
+            if fwd_bk_excl:
+                for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                    lines.append(f"        ignore sub {bg} {base_name}' {cls};")
+            excluded = _expand_exclusions(exclusions.get(exit_y, []))
+            for excluded_glyph in sorted(excluded):
+                lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
+            lines.append(f"        sub {base_name}' {cls} by {variant_name};")
+            emitted = True
+        if base_name in fwd_preferred_lookahead:
+            for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
+                if exit_y not in selected_exit_ys:
+                    continue
+                if exit_y in entry_classes and sibling_y in entry_exclusive and entry_exclusive[sibling_y]:
+                    lines.append(
+                        f"        sub {base_name}' @entry_y{exit_y} @entry_only_y{sibling_y} by {variant_name};"
+                    )
+                    emitted = True
+        noentry_name = f"{base_name}.noentry"
+        if noentry_name in glyph_names:
+            for exit_y in selected_exit_ys:
                 variant_name = variants[exit_y]
                 if exit_y not in entry_classes:
                     continue
@@ -988,50 +1079,25 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
                     continue
                 cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
-                base_ey = {y for y, members in entry_classes.items() if base_name in members}
-                var_ey = {y for y, members in entry_classes.items() if variant_name in members}
-                if var_ey:
-                    for hidden_y in sorted(base_ey - var_ey):
-                        if hidden_y in exit_classes:
-                            lines.append(f"        ignore sub @exit_y{hidden_y} {base_name}' {cls};")
                 fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
                 if fwd_bk_excl:
                     for bg in sorted(_expand_exclusions(fwd_bk_excl)):
-                        lines.append(f"        ignore sub {bg} {base_name}' {cls};")
-                excluded = _expand_exclusions(exclusions.get(exit_y, []))
-                for excluded_glyph in sorted(excluded):
-                    lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
-                lines.append(f"        sub {base_name}' {cls} by {variant_name};")
-            if base_name in fwd_preferred_lookahead:
-                for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
-                    if exit_y in entry_classes and sibling_y in entry_exclusive and entry_exclusive[sibling_y]:
-                        lines.append(
-                            f"        sub {base_name}' @entry_y{exit_y} @entry_only_y{sibling_y} by {variant_name};"
-                        )
-            noentry_name = f"{base_name}.noentry"
-            if noentry_name in glyph_names:
-                for exit_y in sorted(variants.keys(), reverse=True):
-                    variant_name = variants[exit_y]
-                    if exit_y not in entry_classes:
-                        continue
-                    use_excl = (base_name, exit_y) in fwd_use_exclusive
-                    if use_excl and (exit_y not in entry_exclusive or not entry_exclusive[exit_y]):
-                        continue
-                    cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
-                    fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
-                    if fwd_bk_excl:
-                        for bg in sorted(_expand_exclusions(fwd_bk_excl)):
-                            lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
-                    actual_variant = _resolve_noentry_replacement(
-                        glyph_meta,
-                        base_to_variants,
-                        noentry_name,
-                        variant_name,
-                    )
-                    if actual_variant is None:
-                        continue
-                    lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
+                        lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
+                actual_variant = _resolve_noentry_replacement(
+                    glyph_meta,
+                    base_to_variants,
+                    noentry_name,
+                    variant_name,
+                )
+                if actual_variant is None:
+                    continue
+                lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
+                emitted = True
+        if emitted:
             lines.append(f"    }} {lookup_name};")
+        else:
+            lines.pop()
+            lines.pop()
 
     def _emit_fwd(base_name: str):
         _emit_fwd_pairs(base_name)
@@ -1436,7 +1502,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
-            if base_name not in early_pair_upgrade_bases:
+            if base_name not in early_pair_upgrade_bases and base_name not in early_pair_fwd_general:
                 _emit_bk_pairs(base_name)
         for base_name in bases:
             if base_name in early_fwd_pairs:
@@ -1453,17 +1519,33 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if use_cycle:
             _emit_post_upgrade_bk(bases)
         for base_name in bases:
-            if base_name in plan.all_fwd_bases and base_name not in early_pair_upgrade_bases:
-                if base_name in early_fwd_pairs:
-                    _emit_fwd_general(base_name)
-                else:
-                    _emit_fwd(base_name)
+            if base_name not in plan.all_fwd_bases or base_name in early_pair_upgrade_bases:
+                continue
+            early_exit_ys = early_pair_fwd_general.get(base_name)
+            if early_exit_ys is not None:
+                if base_name not in early_fwd_pairs:
+                    _emit_fwd_pairs(base_name)
+                _emit_fwd_general(base_name, skip_exit_ys=early_exit_ys)
+            elif base_name in early_fwd_pairs:
+                _emit_fwd_general(base_name)
+            else:
+                _emit_fwd(base_name)
 
     for base_name in plan.fwd_only:
         if base_name in lig_fwd_bases:
             continue
         _emit_bk_pairs(base_name)
         _emit_fwd(base_name)
+
+    for base_name in plan.early_pair_fwd_general:
+        if base_name in early_pair_upgrade_bases:
+            continue
+        _emit_bk_pairs(base_name)
+        _emit_fwd_general(
+            base_name,
+            only_exit_ys=early_pair_fwd_general[base_name],
+            lookup_prefix="calt_fwd_early_",
+        )
 
     for base_name in sorted(early_pair_upgrade_bases):
         _emit_bk_pairs(base_name)

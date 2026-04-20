@@ -9,7 +9,7 @@ import build_font
 import glyph_compiler
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
-from quikscript_fea import emit_quikscript_senior_features
+from quikscript_fea import _analyze_quikscript_joins, emit_quikscript_senior_features
 from quikscript_ir import (
     _widen_bitmap_right_with_connector,
     compile_quikscript_ir,
@@ -85,6 +85,15 @@ def test_compile_glyph_set_exposes_flat_definitions_and_metadata():
     assert compiled.glyph_definitions
     assert compiled.glyph_meta
     assert compiled.join_glyphs
+
+
+def test_qs_see_keeps_its_y6_forward_lookup_early_when_ye_blocks_its_entry():
+    data = load_glyph_data(ROOT / "glyph_data")
+    compiled = compile_glyph_set(data, "senior")
+    analysis = _analyze_quikscript_joins(compiled.glyph_meta)
+
+    assert "qsSee" in analysis.early_pair_fwd_general
+    assert analysis.early_pair_fwd_general_exit_ys["qsSee"] == {6}
 
 
 def test_compiled_glyph_definitions_do_not_export_compiler_metadata_keys():
