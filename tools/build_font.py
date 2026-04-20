@@ -35,7 +35,7 @@ from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
-from quikscript_fea import emit_quikscript_senior_features
+from quikscript_fea import emit_quikscript_senior_features, emit_quikscript_ss
 from typing import Any, cast
 
 from quikscript_ir import (
@@ -979,6 +979,10 @@ def build_font(
         )
         if senior_fea:
             fea_code_parts.append(senior_fea)
+    elif is_proportional:
+        ss_fea = emit_quikscript_ss(join_glyphs)
+        if ss_fea:
+            fea_code_parts.append(ss_fea)
 
     fea_code = None
     if fea_code_parts:
