@@ -282,6 +282,13 @@ def test_qs_it_ye_do_not_connect():
     ]
 
 
+def test_qs_ye_it_do_not_connect():
+    assert _shape("\uE660\uE670") == [
+        "qsYe",
+        "qsIt",
+    ]
+
+
 def test_qs_ye_excite_do_not_connect():
     assert _shape("\uE660\uE66B") == [
         "qsYe",
