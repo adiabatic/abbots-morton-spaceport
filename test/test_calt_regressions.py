@@ -282,6 +282,20 @@ def test_qs_it_ye_do_not_connect():
     ]
 
 
+def test_qs_ye_excite_do_not_connect():
+    assert _shape("\uE660\uE66B") == [
+        "qsYe",
+        "qsExcite.after-ye",
+    ]
+
+
+def test_qs_ye_exam_do_not_connect():
+    assert _shape("\uE660\uE66C") == [
+        "qsYe",
+        "qsExam.after-ye",
+    ]
+
+
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
     failures = _utter_alt_invariant_failures()
     assert not failures, "\n".join(failures[:50])
