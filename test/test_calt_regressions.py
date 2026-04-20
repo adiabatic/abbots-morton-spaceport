@@ -261,6 +261,13 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
     assert not failures, "\n".join(failures[:50])
 
 
+def test_qs_pea_ye_do_not_connect():
+    assert _shape("\uE650\uE660") == [
+        "qsPea",
+        "qsYe",
+    ]
+
+
 def test_qs_tea_ye_do_not_connect():
     assert _shape("\uE652\uE660") == [
         "qsTea",
