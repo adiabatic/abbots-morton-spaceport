@@ -164,6 +164,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         for variant_name, after in overrides:
             key = tuple(sorted(after))
             by_after.setdefault(key, []).append((variant_name, after))
+        deferred_pair_exit_variants: set[str] = set()
         for group in by_after.values():
             with_exit = []
             without_exit = []
@@ -175,12 +176,27 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                     without_exit.append((variant_name, variant_meta))
             if with_exit and without_exit:
                 entry_only_var = without_exit[0][0]
-                entry_exit_var = with_exit[0][0]
-                exit_y = with_exit[0][1].exit[0][1]
-                nb = list(with_exit[0][1].not_before)
+                entry_exit_var, entry_exit_meta = next(
+                    (
+                        (variant_name, variant_meta)
+                        for variant_name, variant_meta in with_exit
+                        if not variant_meta.before
+                    ),
+                    with_exit[0],
+                )
+                exit_y = entry_exit_meta.exit[0][1]
+                nb = list(entry_exit_meta.not_before)
                 fwd_upgrades.setdefault(base_name, []).append(
                     (entry_exit_var, entry_only_var, exit_y, list(nb))
                 )
+                if not entry_exit_meta.before:
+                    deferred_pair_exit_variants.add(entry_exit_var)
+        if deferred_pair_exit_variants:
+            pair_overrides[base_name] = [
+                (variant_name, after)
+                for variant_name, after in overrides
+                if variant_name not in deferred_pair_exit_variants
+            ]
 
     fwd_replacements = plan.fwd_replacements
     fwd_exclusions = plan.fwd_exclusions
