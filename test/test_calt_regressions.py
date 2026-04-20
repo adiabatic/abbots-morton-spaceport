@@ -261,6 +261,13 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
     assert not failures, "\n".join(failures[:50])
 
 
+def test_qs_way_ye_do_not_connect():
+    assert _shape("\uE661\uE660") == [
+        "qsWay",
+        "qsYe",
+    ]
+
+
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
     failures = _utter_alt_invariant_failures()
     assert not failures, "\n".join(failures[:50])
