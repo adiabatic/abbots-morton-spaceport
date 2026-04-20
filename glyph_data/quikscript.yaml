@@ -1608,18 +1608,9 @@ glyph_families:
         anchors:
           entry: [1, 0]
           exit: [6, 5]
-        select:
-          not_after: [{family: qsOx}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
         modifiers: [entry-baseline]
-      entry_baseline_after_ox:
-        inherits: entry_baseline
-        select:
-          after: [{family: qsOx}]
-          not_after: null
-        gate_feature_behind: ss05
-        modifiers: [after-ox]
       exit_baseline:
         shape: shape_2
         anchors:
