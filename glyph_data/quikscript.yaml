@@ -1885,6 +1885,13 @@ glyph_families:
           entry: [1, 0]
           exit: [8, 0]
         modifiers: [exit-baseline, before-vertical]
+      noentry_after_ye:
+        shape: mono
+        anchors:
+          entry: null
+        select:
+          after: [{family: qsYe}]
+        modifiers: [after-ye]
   qsExam:
     mono:
       bitmap:
@@ -1902,6 +1909,14 @@ glyph_families:
       shape: mono
       anchors:
         entry: [1, 0]
+    forms:
+      noentry_after_ye:
+        shape: mono
+        anchors:
+          entry: null
+        select:
+          after: [{family: qsYe}]
+        modifiers: [after-ye]
   qsAngleParenLeft:
     mono:
       bitmap:
