@@ -1402,7 +1402,7 @@ glyph_families:
         anchors:
           exit: [3, 5]
         select:
-          not_before: [{family: qsFee}]
+          not_before: [{family: qsFee}, {family: qsYe}]
         traits: [half]
       exit_baseline:
         shape: prop
