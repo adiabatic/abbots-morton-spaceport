@@ -10,7 +10,7 @@ BitmapRow = str | tuple[int, ...]
 GlyphDef = dict[str, Any]
 
 
-_EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended"}
+_EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended", 4: "quadruply-extended"}
 
 
 @dataclass(frozen=True)
