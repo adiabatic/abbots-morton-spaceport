@@ -1996,6 +1996,8 @@ glyph_families:
         shape: prop
         anchors:
           exit: [2, 5]
+        select:
+          not_before: [{family: qsYe}]
         modifiers: [exit-xheight]
       exit_baseline:
         shape: prop
