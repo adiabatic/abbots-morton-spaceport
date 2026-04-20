@@ -162,6 +162,57 @@ def _utter_alt_invariant_failures() -> list[str]:
     return failures
 
 
+def _append_terminal_owe_failures(failures: list[str], label: str, text: str) -> None:
+    glyphs = _shape(text)
+    meta_map = _compiled_meta()
+
+    if not glyphs:
+        failures.append(f"{label}: expected a terminal qsOwe glyph")
+        return
+
+    index = len(glyphs) - 1
+    glyph_name = glyphs[index]
+    meta = meta_map.get(glyph_name)
+    if meta is None or meta.base_name != "qsOwe":
+        failures.append(f"{label}: expected terminal qsOwe glyph, got {glyphs}")
+        return
+    entry_ys = _entry_ys(glyph_name)
+    exit_ys = _exit_ys(glyph_name)
+
+    if not entry_ys:
+        failures.append(f"{label}: {glyph_name} has no left-entry Ys in {glyphs}")
+    elif index == 0:
+        failures.append(f"{label}: {glyph_name} starts the run in {glyphs}")
+    else:
+        prev_name = glyphs[index - 1]
+        common = _exit_ys(prev_name) & entry_ys
+        if not common:
+            failures.append(
+                f"{label}: {glyph_name} does not join left to {prev_name} "
+                f"(prev exits={sorted(_exit_ys(prev_name))}, entry={sorted(entry_ys)}) in {glyphs}"
+            )
+    if exit_ys:
+        failures.append(
+            f"{label}: {glyph_name} has right-exit Ys {sorted(exit_ys)} at end in {glyphs}"
+        )
+
+
+def _owe_terminal_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    pea = chars["qsPea"]
+    owe = chars["qsOwe"]
+
+    for left_name, left_char in _plain_quikscript_letters():
+        _append_terminal_owe_failures(
+            failures,
+            f"{left_name} / qsPea / qsOwe / end",
+            left_char + pea + owe,
+        )
+
+    return failures
+
+
 def test_qs_see_exit_baseline_right_before_qs_ooze():
     assert _shape("\uE65A\uE67E") == [
         "qsSee.exit-baseline-right",
@@ -184,6 +235,50 @@ def test_qs_low_entry_extended_requires_a_compatible_see_exit():
         "qsSee",
         "qsLow",
     ]
+
+
+def test_qs_owe_after_pea_stays_left_only_at_word_end():
+    chars = _char_map()
+
+    assert _shape(chars["qsPea"] + chars["qsOwe"]) == [
+        "qsPea.half",
+        "qsOwe.entry-xheight.entry-extended",
+    ]
+
+
+def test_qs_owe_after_bay_pea_stays_left_only_at_word_end():
+    chars = _char_map()
+
+    assert _shape(chars["qsBay"] + chars["qsPea"] + chars["qsOwe"]) == [
+        "qsBay",
+        "qsPea.half",
+        "qsOwe.entry-xheight.entry-extended",
+    ]
+
+
+def test_qs_owe_after_tea_pea_stays_left_only_at_word_end():
+    chars = _char_map()
+
+    assert _shape(chars["qsTea"] + chars["qsPea"] + chars["qsOwe"]) == [
+        "qsTea",
+        "qsPea.half",
+        "qsOwe.entry-xheight.entry-extended",
+    ]
+
+
+def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
+    chars = _char_map()
+
+    assert _shape(chars["qsPea"] + chars["qsOwe"] + chars["qsNo"]) == [
+        "qsPea.half",
+        "qsOwe.entry-xheight.exit-xheight.entry-extended",
+        "qsNo",
+    ]
+
+
+def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
+    failures = _owe_terminal_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
 
 
 def test_qs_ing_before_thaw_uses_triply_extended_exit():

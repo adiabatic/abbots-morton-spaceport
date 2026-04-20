@@ -211,6 +211,22 @@ def test_senior_feature_emitter_prefers_narrower_pair_overrides():
     )
 
 
+def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    pair_lookup = "lookup calt_pair_qsOwe_entry-xheight_entry-extended {"
+    upgrade_lookup = "lookup calt_upgrade_qsOwe_entry-xheight_exit-xheight_entry-extended {"
+
+    assert pair_lookup in fea
+    assert upgrade_lookup in fea
+    assert "lookup calt_pair_qsOwe_entry-xheight_exit-xheight_entry-extended {" not in fea
+    assert fea.index(pair_lookup) < fea.index(upgrade_lookup)
+
+
 def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_widebase():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
