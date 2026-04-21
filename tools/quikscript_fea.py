@@ -11,6 +11,39 @@ _ENTRY_EXTENSION_SUFFIXES = (
     ".entry-extended",
 )
 
+@dataclass(frozen=True)
+class _PendingBkEntryGuard:
+    guard_glyphs: tuple[str, ...]
+    before_bases: tuple[str, ...] = ()
+
+
+_PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard, ...]] = {
+    ("qsTea", "qsTea.exit-baseline", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsAh",),
+        ),
+    ),
+    ("qsTea", "qsTea.half.exit-xheight", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsAwe",),
+        ),
+    ),
+    ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsAh",),
+        ),
+    ),
+    ("qsTea.entry-baseline", "qsTea.half.exit-xheight", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsAwe",),
+        ),
+    ),
+}
+
 
 @dataclass
 class _JoinAnalysis:
@@ -652,6 +685,24 @@ def _resolve_noentry_replacement(
     if not target_meta.is_noentry:
         return replacement_name
 
+    return _resolve_entryless_replacement(
+        glyph_meta,
+        base_to_variants,
+        target_name,
+        replacement_name,
+    )
+
+
+def _resolve_entryless_replacement(
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    target_name: str,
+    replacement_name: str,
+) -> str | None:
+    target_meta = glyph_meta[target_name]
+    if _has_left_entry(target_meta):
+        return replacement_name
+
     replacement_meta = glyph_meta[replacement_name]
     if not _has_left_entry(replacement_meta):
         return replacement_name
@@ -905,6 +956,30 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             expanded.update(base_to_variants.get(excluded_base, ()))
         return expanded
 
+    def _emit_pending_bk_entry_guards(
+        source_name: str,
+        replacement_name: str,
+        right_context_glyphs: set[str],
+    ) -> None:
+        replacement_entry_ys = set(_meta(replacement_name).all_entry_ys)
+        for entry_y in sorted(exit_classes):
+            if entry_y in replacement_entry_ys:
+                continue
+            guards = _PENDING_BK_ENTRY_GUARDS.get(
+                (source_name, replacement_name, entry_y),
+            )
+            if not guards:
+                continue
+            for guard in guards:
+                allowed_before = set(right_context_glyphs)
+                if guard.before_bases:
+                    allowed_before &= _expand_all_variants(guard.before_bases, include_base=True)
+                if not allowed_before:
+                    continue
+                guard_list = " ".join(sorted(guard.guard_glyphs))
+                before_list = " ".join(sorted(allowed_before))
+                lines.append(f"        ignore sub [{guard_list}] {source_name}' [{before_list}];")
+
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
@@ -1026,6 +1101,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(f"        ignore sub [{not_after_list}] {target}' [{effective_before_list}];")
                     for terminal in sorted(effective_before & plan.terminal_exit_only):
                         lines.append(f"        ignore sub {target}' {terminal};")
+                    _emit_pending_bk_entry_guards(
+                        target,
+                        actual_variant,
+                        effective_before,
+                    )
                     lines.append(f"        sub {target}' [{effective_before_list}] by {actual_variant};")
                 lines.append(f"    }} calt_fwd_pair_{safe};")
 
@@ -1075,6 +1155,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             excluded = _expand_exclusions(exclusions.get(exit_y, []))
             for excluded_glyph in sorted(excluded):
                 lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
+            right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
+            _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
         if base_name in fwd_preferred_lookahead:
@@ -1298,6 +1380,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     excluded = _expand_exclusions(exclusions.get(exit_y, []))
                     for excluded_glyph in sorted(excluded):
                         lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
+                    right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
+                    _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
                     lines.append(f"        sub {base_name}' {cls} by {variant_name};")
         lines.append("    } calt_cycle;")
 
@@ -1537,6 +1621,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         resolved = resolve_known_glyph_names(not_before, glyph_names)
                         for not_before_glyph in sorted(_expand_exclusions(resolved)):
                             lines.append(f"        ignore sub {bk_var}' {not_before_glyph};")
+                    right_context_glyphs = (
+                        entry_exclusive[fwd_exit_y] if use_exclusive else entry_classes[fwd_exit_y]
+                    )
+                    _emit_pending_bk_entry_guards(bk_var, fwd_var, right_context_glyphs)
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
                     lines.append(f"    }} calt_fwd_override_{safe};")
                     for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
@@ -1555,8 +1643,71 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             resolved_nb = resolve_known_glyph_names(not_before, glyph_names)
                             for nbg in sorted(_expand_exclusions(resolved_nb)):
                                 lines.append(f"        ignore sub {ext_bk}' {nbg};")
+                        _emit_pending_bk_entry_guards(ext_bk, fwd_var, right_context_glyphs)
                         lines.append(f"        sub {ext_bk}' {cls} by {fwd_var};")
                         lines.append(f"    }} calt_fwd_override_{ext_safe};")
+
+    def _emit_pair_fwd_overrides(base_name: str):
+        if base_name in bk_replacements:
+            return
+        if base_name not in pair_overrides or base_name not in fwd_replacements:
+            return
+
+        source_variants = sorted({
+            variant_name
+            for variant_name, _ in pair_overrides[base_name]
+            if not _meta(variant_name).exit and not _has_left_entry(_meta(variant_name))
+        })
+        if not source_variants:
+            return
+
+        for source_variant in source_variants:
+            valid_overrides = []
+            for fwd_exit_y, fwd_var in sorted(fwd_replacements[base_name].items()):
+                if fwd_exit_y not in entry_classes:
+                    continue
+                has_upgrade = any(
+                    entry_only == source_variant and ey == fwd_exit_y
+                    for _, entry_only, ey, _ in fwd_upgrades.get(base_name, [])
+                )
+                if has_upgrade:
+                    continue
+                actual_variant = _resolve_entryless_replacement(
+                    glyph_meta,
+                    base_to_variants,
+                    source_variant,
+                    fwd_var,
+                )
+                if actual_variant is None or actual_variant == source_variant:
+                    continue
+                valid_overrides.append((fwd_exit_y, actual_variant))
+            if not valid_overrides:
+                continue
+
+            max_exit_y = max(exit_y for exit_y, _ in valid_overrides)
+            for fwd_exit_y, actual_variant in valid_overrides:
+                use_exclusive = len(valid_overrides) > 1 and fwd_exit_y != max_exit_y
+                if use_exclusive:
+                    if fwd_exit_y not in entry_exclusive or not entry_exclusive[fwd_exit_y]:
+                        continue
+                    cls = f"@entry_only_y{fwd_exit_y}"
+                else:
+                    cls = f"@entry_y{fwd_exit_y}"
+
+                safe = f"{source_variant}_{fwd_exit_y}".replace(".", "_").replace("-", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_fwd_override_{safe} {{")
+                fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(fwd_exit_y)
+                if fwd_bk_excl:
+                    for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                        lines.append(f"        ignore sub {bg} {source_variant}' {cls};")
+                not_before = list(_meta(actual_variant).not_before)
+                if not_before:
+                    resolved = resolve_known_glyph_names(not_before, glyph_names)
+                    for not_before_glyph in sorted(_expand_exclusions(resolved)):
+                        lines.append(f"        ignore sub {source_variant}' {not_before_glyph};")
+                lines.append(f"        sub {source_variant}' {cls} by {actual_variant};")
+                lines.append(f"    }} calt_fwd_override_{safe};")
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
@@ -1573,6 +1724,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in bases:
             if base_name not in early_pair_upgrade_bases:
                 _emit_upgrades(base_name)
+            _emit_pair_fwd_overrides(base_name)
         _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
@@ -1593,6 +1745,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if base_name in lig_fwd_bases:
             continue
         _emit_bk_pairs(base_name)
+        _emit_pair_fwd_overrides(base_name)
         _emit_fwd(base_name)
 
     for base_name in plan.early_pair_fwd_general:

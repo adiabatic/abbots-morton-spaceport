@@ -51,6 +51,7 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 - The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
+- When preserving a rare established join against a later substitution, scope the guard to the specific right-context families that need the exception; do not let a prohibited pair globally freeze each other's shaping.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
