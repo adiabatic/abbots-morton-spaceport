@@ -520,6 +520,232 @@ def test_qs_ye_exam_do_not_connect():
     ]
 
 
+def test_qs_way_tea_do_not_connect():
+    glyphs = _shape("\uE661\uE652")
+    way_exits = _exit_ys(glyphs[0])
+    tea_entries = _entry_ys(glyphs[1])
+    assert not (way_exits & tea_entries), (
+        f"Way exits={sorted(way_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+    )
+
+
+def test_qs_way_not_half_before_tea():
+    glyphs = _shape("\uE661\uE652")
+    meta = _compiled_meta()
+    way_meta = meta[glyphs[0]]
+    assert way_meta.base_name == "qsWay"
+    assert "half" not in way_meta.traits, (
+        f"Expected non-half Way before Tea, got {glyphs[0]}"
+    )
+
+
+def _way_tea_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    way = chars["qsWay"]
+    tea = chars["qsTea"]
+    meta_map = _compiled_meta()
+
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            text = left_char + way + tea + right_char
+            glyphs = _shape(text)
+            for index, glyph_name in enumerate(glyphs):
+                glyph_meta = meta_map.get(glyph_name)
+                if glyph_meta is None or glyph_meta.base_name != "qsWay":
+                    continue
+                label = f"{left_name} / qsWay / qsTea / {right_name}"
+                if "half" in glyph_meta.traits:
+                    failures.append(
+                        f"{label}: half-Way selected before Tea: {glyphs}"
+                    )
+                if index + 1 < len(glyphs):
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"{label}: Way joins to next glyph {glyphs[index + 1]} "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    return failures
+
+
+def test_qs_way_tea_do_not_connect_in_context():
+    failures = _way_tea_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_why_tea_do_not_connect():
+    glyphs = _shape("\uE663\uE652")
+    why_exits = _exit_ys(glyphs[0])
+    tea_entries = _entry_ys(glyphs[1])
+    assert not (why_exits & tea_entries), (
+        f"Why exits={sorted(why_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+    )
+
+
+def test_qs_why_not_half_before_tea():
+    glyphs = _shape("\uE663\uE652")
+    meta = _compiled_meta()
+    why_meta = meta[glyphs[0]]
+    assert why_meta.base_name == "qsWhy"
+    assert "half" not in why_meta.traits, (
+        f"Expected non-half Why before Tea, got {glyphs[0]}"
+    )
+
+
+def _why_tea_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    why = chars["qsWhy"]
+    tea = chars["qsTea"]
+    meta_map = _compiled_meta()
+
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            text = left_char + why + tea + right_char
+            glyphs = _shape(text)
+            for index, glyph_name in enumerate(glyphs):
+                glyph_meta = meta_map.get(glyph_name)
+                if glyph_meta is None or glyph_meta.base_name != "qsWhy":
+                    continue
+                label = f"{left_name} / qsWhy / qsTea / {right_name}"
+                if "half" in glyph_meta.traits:
+                    failures.append(
+                        f"{label}: half-Why selected before Tea: {glyphs}"
+                    )
+                if index + 1 < len(glyphs):
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"{label}: Why joins to next glyph {glyphs[index + 1]} "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    return failures
+
+
+def test_qs_why_tea_do_not_connect_in_context():
+    failures = _why_tea_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_owe_tea_do_not_connect():
+    glyphs = _shape("\uE67C\uE652")
+    owe_exits = _exit_ys(glyphs[0])
+    tea_entries = _entry_ys(glyphs[1])
+    assert not (owe_exits & tea_entries), (
+        f"Owe exits={sorted(owe_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+    )
+
+
+def test_qs_tea_owe_do_not_connect():
+    glyphs = _shape("\uE652\uE67C")
+    tea_exits = _exit_ys(glyphs[0])
+    owe_entries = _entry_ys(glyphs[1])
+    assert not (tea_exits & owe_entries), (
+        f"Tea exits={sorted(tea_exits)} should not overlap Owe entries={sorted(owe_entries)} in {glyphs}"
+    )
+
+
+def _owe_tea_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    owe = chars["qsOwe"]
+    tea = chars["qsTea"]
+    meta_map = _compiled_meta()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        text = owe + tea + right_char
+        glyphs = _shape(text)
+        for index, glyph_name in enumerate(glyphs):
+            glyph_meta = meta_map.get(glyph_name)
+            if glyph_meta is None:
+                continue
+            if glyph_meta.base_name == "qsOwe" and index + 1 < len(glyphs):
+                next_meta = meta_map.get(glyphs[index + 1])
+                if next_meta and next_meta.base_name == "qsTea":
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"qsOwe / qsTea / {right_name}: Owe joins Tea "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        text = left_char + owe + tea
+        glyphs = _shape(text)
+        for index, glyph_name in enumerate(glyphs):
+            glyph_meta = meta_map.get(glyph_name)
+            if glyph_meta is None:
+                continue
+            if glyph_meta.base_name == "qsOwe" and index + 1 < len(glyphs):
+                next_meta = meta_map.get(glyphs[index + 1])
+                if next_meta and next_meta.base_name == "qsTea":
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"{left_name} / qsOwe / qsTea: Owe joins Tea "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    return failures
+
+
+def _tea_owe_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    owe = chars["qsOwe"]
+    tea = chars["qsTea"]
+    meta_map = _compiled_meta()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        text = tea + owe + right_char
+        glyphs = _shape(text)
+        for index, glyph_name in enumerate(glyphs):
+            glyph_meta = meta_map.get(glyph_name)
+            if glyph_meta is None:
+                continue
+            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
+                next_meta = meta_map.get(glyphs[index + 1])
+                if next_meta and next_meta.base_name == "qsOwe":
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"qsTea / qsOwe / {right_name}: Tea joins Owe "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        text = left_char + tea + owe
+        glyphs = _shape(text)
+        for index, glyph_name in enumerate(glyphs):
+            glyph_meta = meta_map.get(glyph_name)
+            if glyph_meta is None:
+                continue
+            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
+                next_meta = meta_map.get(glyphs[index + 1])
+                if next_meta and next_meta.base_name == "qsOwe":
+                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+                    if common:
+                        failures.append(
+                            f"{left_name} / qsTea / qsOwe: Tea joins Owe "
+                            f"at Y={sorted(common)} in {glyphs}"
+                        )
+
+    return failures
+
+
+def test_qs_owe_tea_do_not_connect_in_context():
+    failures = _owe_tea_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_tea_owe_do_not_connect_in_context():
+    failures = _tea_owe_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
 def test_qs_see_pea_keeps_the_y6_join():
     assert _shape("\uE65A\uE650") == [
         "qsSee.exit-y6",
