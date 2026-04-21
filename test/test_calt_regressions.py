@@ -33,6 +33,19 @@ def _shape(text: str) -> list[str]:
     return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
 
 
+@lru_cache(maxsize=None)
+def _shape_with_features(
+    text: str,
+    feature_items: tuple[tuple[str, bool], ...],
+) -> list[str]:
+    font = _font()
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(font, buf, dict(feature_items))
+    return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+
+
 @lru_cache(maxsize=1)
 def _compiled_meta() -> dict[str, JoinGlyph]:
     data = load_glyph_data(ROOT / "glyph_data")
@@ -881,6 +894,19 @@ def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
     chars = _char_map()
     glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsOy"])
     assert glyphs == ["qsEt", "qsTea_qsOy"]
+
+
+def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
+    chars = _char_map()
+    glyphs = _shape_with_features(
+        chars["qsBay"] + chars["qsEt"] + chars["qsTea"] + chars["qsUtter"] + chars["qsRoe"],
+        (("ss05", True),),
+    )
+    assert glyphs == ["qsBay", "qsEt", "qsTea.entry-baseline.exit-baseline", "qsUtter", "qsRoe"]
+    assert not _pair_join_ys(glyphs, 0)
+    assert _pair_join_ys(glyphs, 1) == {0}
+    assert _pair_join_ys(glyphs, 2) == {0}
+    assert _pair_join_ys(glyphs, 3) == {5}
 
 
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
