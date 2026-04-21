@@ -336,14 +336,6 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsEight}, {family: qsJay}, {family: qsKey}]}
         modifiers: [entry-baseline]
-      entry_baseline_exit_baseline:
-        shape: prop
-        anchors:
-          entry: [1, 0]
-          exit: [2, 0]
-        select:
-          after: [{family: qsEt}]
-        modifiers: [entry-baseline, exit-baseline]
       entry_xheight:
         shape: prop
         anchors:

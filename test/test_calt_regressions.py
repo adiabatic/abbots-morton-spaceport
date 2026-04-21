@@ -861,6 +861,28 @@ def test_qs_out_tea_does_not_let_qs_tea_choose_qs_day():
     assert triple == ["qsOut_qsTea", "qsDay"]
 
 
+def test_qs_et_tea_does_not_keep_the_baseline_exit_before_qs_ah():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsAh"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsAh"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_does_not_keep_the_baseline_exit_before_qs_out():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsOut"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsOut"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsOy"])
+    assert glyphs == ["qsEt", "qsTea_qsOy"]
+
+
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     chars = _char_map()
     glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
@@ -1234,6 +1256,47 @@ def _out_tea_prefers_the_ligature_over_right_joins_failures() -> list[str]:
 
 def test_qs_out_tea_prefers_the_ligature_over_right_joins():
     failures = _out_tea_prefers_the_ligature_over_right_joins_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _et_tea_keeps_the_left_join_and_blocks_right_join_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        glyphs = _shape(chars["qsEt"] + chars["qsTea"] + right_char)
+        if right_name == "qsOy":
+            if glyphs != ["qsEt", "qsTea_qsOy"]:
+                failures.append(
+                    f"qsEt / qsTea / qsOy: expected ['qsEt', 'qsTea_qsOy'], got {glyphs}"
+                )
+            continue
+
+        if len(glyphs) != 3:
+            failures.append(
+                f"qsEt / qsTea / {right_name}: expected three glyphs with plain qsTea sequencing, got {glyphs}"
+            )
+            continue
+        if _base_names(glyphs) != ("qsEt", "qsTea", right_name):
+            failures.append(
+                f"qsEt / qsTea / {right_name}: unexpected base sequence {_base_names(glyphs)} in {glyphs}"
+            )
+            continue
+
+        left_ys = _pair_join_ys(glyphs, 0)
+        right_ys = _pair_join_ys(glyphs, 1)
+        tea_exits = _exit_ys(glyphs[1])
+        if left_ys != {0} or right_ys or tea_exits:
+            failures.append(
+                f"qsEt / qsTea / {right_name}: expected Et to keep the left baseline join and Tea to stop on the right, "
+                f"but got {glyphs} with left Ys={sorted(left_ys)}, right Ys={sorted(right_ys)}, tea exits={sorted(tea_exits)}"
+            )
+
+    return failures
+
+
+def test_qs_et_tea_only_keeps_the_left_baseline_join_except_before_qs_oy():
+    failures = _et_tea_keeps_the_left_join_and_blocks_right_join_failures()
     assert not failures, "\n".join(failures[:50])
 
 

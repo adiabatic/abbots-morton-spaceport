@@ -19,24 +19,28 @@ class _PendingBkEntryGuard:
 
 _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard, ...]] = {
     ("qsTea", "qsTea.exit-baseline", 0): (
+        _PendingBkEntryGuard(("qsEt",)),
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAh", "qsTea"),
         ),
     ),
     ("qsTea", "qsTea.half.exit-xheight", 0): (
+        _PendingBkEntryGuard(("qsEt",)),
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAwe",),
         ),
     ),
     ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
+        _PendingBkEntryGuard(("qsEt",)),
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAh", "qsTea"),
         ),
     ),
     ("qsTea.entry-baseline", "qsTea.half.exit-xheight", 0): (
+        _PendingBkEntryGuard(("qsEt",)),
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAwe",),
