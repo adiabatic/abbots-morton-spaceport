@@ -151,6 +151,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss02`: allow ·I·Tea to join at the Short height
 - `ss03`: allow ·Tea to be joined to at the x-height
 - `ss04`: allow ·It to join at baseline after ·Day and before ·Low
+- `ss05`: allow `·Et ~b~ ·Tea ~b~ ...` double baseline joins again when you want the older/manual-style behavior
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
 - `ss10`: suppress all joins for the wrapped letter(s) — beats interspersing ZWNJs between letters of a word
 

@@ -58,6 +58,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
 - When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
 - After `·Et`, keep `·Tea` on its left baseline join and suppress its ordinary right joins; preserve `·Tea·Oy` through the ligature rules instead of an `·Et`-specific `qsTea` form that joins on both sides.
+- Use `ss05` to opt back into `·Et ~b~ ·Tea ~b~ ...` baseline double-joins when needed; the default shaping should still suppress Tea's ordinary right joins after `·Et`.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.

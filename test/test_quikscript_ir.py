@@ -195,6 +195,7 @@ def test_senior_feature_emitter_includes_join_and_gate_features():
     assert "feature curs {" in fea
     assert "feature calt {" in fea
     assert "feature ss03 {" in fea
+    assert "feature ss05 {" in fea
     assert "feature ss10 {" in fea
     assert "lookup calt_zwnj {" in fea
 
