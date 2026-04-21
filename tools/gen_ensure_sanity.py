@@ -54,6 +54,7 @@ LETTERS = [
 ]
 
 TEA = 0xE652
+CHEER = 0xE65E
 COLS = 3
 
 LIGATURE_PAIRS = {
@@ -144,16 +145,20 @@ def table_wrap(cells: list[str]) -> str:
     )
 
 
-def build_sections(failed_keys: set[str]) -> list[tuple[str, str]]:
+def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, str]]]]:
     tea_nhalf = "·Tea.!half"
+    tea_tok = expect_tok("Tea")
+    cheer_tok = expect_tok("Cheer")
 
-    sections = []
+    panels: list[tuple[str, str, list[tuple[str, str]]]] = []
+
+    tea_tea_sections: list[tuple[str, str]] = []
 
     # --- Bare ---
     key = cell_key("Tea", "Tea")
     expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf)])
     bare = cell_pair("·Tea·Tea", expect, [TEA, TEA], key, failed_keys)
-    sections.append(("Bare", table_wrap([bare])))
+    tea_tea_sections.append(("Bare", table_wrap([bare])))
 
     # --- X + Tea + Tea ---
     before_cells = []
@@ -162,7 +167,7 @@ def build_sections(failed_keys: set[str]) -> list[tuple[str, str]]:
         expect = join_expect([(name, expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)])
         key = cell_key(name, "Tea", "Tea")
         before_cells.append(cell_pair(dt, expect, [code, TEA, TEA], key, failed_keys))
-    sections.append(("X·Tea·Tea", table_wrap(before_cells)))
+    tea_tea_sections.append(("X·Tea·Tea", table_wrap(before_cells)))
 
     # --- Tea + Tea + Y ---
     after_cells = []
@@ -171,20 +176,78 @@ def build_sections(failed_keys: set[str]) -> list[tuple[str, str]]:
         expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, expect_tok(name))])
         key = cell_key("Tea", "Tea", name)
         after_cells.append(cell_pair(dt, expect, [TEA, TEA, code], key, failed_keys))
-    sections.append(("·Tea·Tea·Y", table_wrap(after_cells)))
+    tea_tea_sections.append(("·Tea·Tea·Y", table_wrap(after_cells)))
 
+    panels.append(
+        (
+            "·Tea + ·Tea: no double halves",
+            "Neither ·Tea should be a half-height variant when two appear consecutively, regardless of surrounding context.",
+            tea_tea_sections,
+        )
+    )
 
-    return sections
+    tea_cheer_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·Tea·Cheer ---
+    key = cell_key("Tea", "Cheer")
+    expect = f"{tea_nhalf} | {cheer_tok}"
+    bare_tc = cell_pair("·Tea·Cheer", expect, [TEA, CHEER], key, failed_keys)
+    tea_cheer_sections.append(("Bare", table_wrap([bare_tc])))
+
+    # --- X + Tea + Cheer ---
+    # Tea's half/!half trait varies with X (e.g., ·It forces .half via a prior
+    # baseline/x-height join; ·See lands on .!half post-fix). Assert only the
+    # strict break between Tea and Cheer; leave Tea's trait unasserted.
+    # Skip X=Tea: ·Tea·Tea·Cheer is a content duplicate of the Y=Cheer row in
+    # the ·Tea·Tea·Y grid above, which already carries a stricter assertion.
+    x_tc_cells = []
+    for name, code in LETTERS:
+        if name == "Tea":
+            continue
+        dt = f"{dt_name(name)}·Tea·Cheer"
+        if (name, "Tea") in LIGATURE_PAIRS:
+            expect = f"{expect_tok(name)}+?Tea | {cheer_tok}"
+        else:
+            expect = f"{expect_tok(name)} ? {tea_tok} | {cheer_tok}"
+        key = cell_key(name, "Tea", "Cheer")
+        x_tc_cells.append(cell_pair(dt, expect, [code, TEA, CHEER], key, failed_keys))
+    tea_cheer_sections.append(("X·Tea·Cheer", table_wrap(x_tc_cells)))
+
+    # --- Tea + Cheer + Y ---
+    tc_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·Tea·Cheer{dt_name(name)}"
+        expect = f"{tea_nhalf} | {cheer_tok} ? {expect_tok(name)}"
+        key = cell_key("Tea", "Cheer", name)
+        tc_y_cells.append(cell_pair(dt, expect, [TEA, CHEER, code], key, failed_keys))
+    tea_cheer_sections.append(("·Tea·Cheer·Y", table_wrap(tc_y_cells)))
+
+    panels.append(
+        (
+            "·Tea + ·Cheer: never joins",
+            "·Tea must never join rightward onto ·Cheer, regardless of the preceding or following letter.",
+            tea_cheer_sections,
+        )
+    )
+
+    return panels
 
 
 def build_html(failed_keys: set[str]) -> str:
-    sections = build_sections(failed_keys)
+    panels = build_panels(failed_keys)
 
-    section_html = []
-    for heading, content in sections:
-        section_html.append(f"      <h3>{heading}</h3>\n{content}")
-
-    body_sections = "\n\n".join(section_html)
+    panel_parts: list[str] = []
+    for title, intro, sections in panels:
+        section_html = [f"      <h3>{heading}</h3>\n{content}" for heading, content in sections]
+        body = "\n\n".join(section_html)
+        panel_parts.append(
+            "    <section class=\"panel\">\n"
+            f"      <h2>{title}</h2>\n"
+            f"      <p>{intro}</p>\n\n"
+            f"{body}\n"
+            "    </section>"
+        )
+    body_sections = "\n\n".join(panel_parts)
 
     return f"""\
 <!doctype html>
@@ -253,12 +316,7 @@ def build_html(failed_keys: set[str]) -> str:
 
     <p>Joins that are visibly broken, found by reviewing the tables page.</p>
 
-    <section class="panel">
-      <h2>·Tea + ·Tea: no double halves</h2>
-      <p>Neither ·Tea should be a half-height variant when two appear consecutively, regardless of surrounding context.</p>
-
 {body_sections}
-    </section>
 
     <footer>
       <a href="index.html">Font Test</a> | <a href="the-manual.html">The Manual</a> |
