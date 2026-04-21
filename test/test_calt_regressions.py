@@ -805,6 +805,25 @@ def test_qs_excite_tea_keeps_left_join_before_qs_awe():
     _assert_join_preserved("qsExcite / qsTea / qsAwe", pair, triple, pair_index_in_triple=0)
 
 
+def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_ox():
+    chars = _char_map()
+    glyphs = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOx"])
+    assert _base_names(glyphs) == ("qsExcite", "qsTea", "qsOx")
+    assert not _pair_join_ys(glyphs, 0)
+    assert _pair_join_ys(glyphs, 1) == {5}
+    assert not _exit_ys(glyphs[0]), glyphs
+
+
+def test_qs_excite_tea_keeps_the_baseline_join_before_qs_tea():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsTea"])
+    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsTea"])
+    assert _base_names(pair) == ("qsExcite", "qsTea")
+    assert _base_names(triple) == ("qsExcite", "qsTea", "qsTea")
+    _assert_join_preserved("qsExcite / qsTea / qsTea", pair, triple, pair_index_in_triple=0)
+    assert not _pair_join_ys(triple, 1)
+
+
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     chars = _char_map()
     glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
@@ -1125,6 +1144,32 @@ def _excite_nonjoining_left_context_preserves_right_join_failures() -> list[str]
 
 def test_qs_excite_nonjoining_left_context_preserves_right_join_in_plain_triples():
     failures = _excite_nonjoining_left_context_preserves_right_join_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        glyphs = _shape(chars["qsExcite"] + chars["qsTea"] + right_char)
+        if len(glyphs) != 3:
+            continue
+        if _base_names(glyphs) != ("qsExcite", "qsTea", right_name):
+            continue
+        if _pair_join_ys(glyphs, 0):
+            continue
+        if _exit_ys(glyphs[0]):
+            failures.append(
+                f"qsExcite / qsTea / {right_name}: left pair does not join in {glyphs}, "
+                f"but qsExcite still has exits {sorted(_exit_ys(glyphs[0]))}"
+            )
+
+    return failures
+
+
+def test_qs_excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it():
+    failures = _excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it_failures()
     assert not failures, "\n".join(failures[:50])
 
 
