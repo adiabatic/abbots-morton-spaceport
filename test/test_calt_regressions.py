@@ -23,6 +23,7 @@ def _font() -> hb.Font:
     return hb.Font(face)
 
 
+@lru_cache(maxsize=None)
 def _shape(text: str) -> list[str]:
     font = _font()
     buf = hb.Buffer()
@@ -70,6 +71,37 @@ def _exit_ys(glyph_name: str) -> set[int]:
     if meta is None:
         return set()
     return {anchor[1] for anchor in meta.exit}
+
+
+def _base_names(glyph_names: list[str]) -> tuple[str, ...]:
+    meta_map = _compiled_meta()
+    result = []
+    for glyph_name in glyph_names:
+        glyph_meta = meta_map.get(glyph_name)
+        result.append(glyph_meta.base_name if glyph_meta is not None else glyph_name)
+    return tuple(result)
+
+
+def _pair_join_ys(glyph_names: list[str], index: int) -> set[int]:
+    if index + 1 >= len(glyph_names):
+        return set()
+    return _exit_ys(glyph_names[index]) & _entry_ys(glyph_names[index + 1])
+
+
+def _assert_join_preserved(
+    label: str,
+    pair_glyphs: list[str],
+    triple_glyphs: list[str],
+    *,
+    pair_index_in_triple: int,
+) -> None:
+    pair_ys = _pair_join_ys(pair_glyphs, 0)
+    triple_ys = _pair_join_ys(triple_glyphs, pair_index_in_triple)
+    missing = pair_ys - triple_ys
+    assert not missing, (
+        f"{label}: expected established join Ys {sorted(pair_ys)} from {pair_glyphs} "
+        f"to remain in {triple_glyphs}, but lost Ys {sorted(missing)}"
+    )
 
 
 def _append_utter_alt_failures(failures: list[str], label: str, text: str) -> None:
@@ -755,6 +787,64 @@ def test_qs_excite_tea_connect_at_baseline():
     )
 
 
+def test_qs_excite_tea_keeps_left_join_before_qs_ah():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsTea"])
+    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsAh"])
+    assert _base_names(pair) == ("qsExcite", "qsTea")
+    assert _base_names(triple[:2]) == ("qsExcite", "qsTea")
+    _assert_join_preserved("qsExcite / qsTea / qsAh", pair, triple, pair_index_in_triple=0)
+
+
+def test_qs_excite_tea_keeps_left_join_before_qs_awe():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsTea"])
+    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsAwe"])
+    assert _base_names(pair) == ("qsExcite", "qsTea")
+    assert _base_names(triple[:2]) == ("qsExcite", "qsTea")
+    _assert_join_preserved("qsExcite / qsTea / qsAwe", pair, triple, pair_index_in_triple=0)
+
+
+def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
+    chars = _char_map()
+    glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
+    assert _base_names(glyphs) == ("qsIt", "qsExcite", "qsTea", "qsIt")
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+    assert _pair_join_ys(glyphs, 2) == {5}
+    assert "half" in _compiled_meta()[glyphs[2]].traits, glyphs
+
+
+def test_qs_tea_excite_keeps_right_join_to_qs_ah():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsAh"])
+    triple = _shape(chars["qsTea"] + chars["qsExcite"] + chars["qsAh"])
+    assert _base_names(pair) == ("qsExcite", "qsAh")
+    assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
+    assert not _pair_join_ys(triple, 0)
+    _assert_join_preserved("qsTea / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
+
+
+def test_qs_pea_excite_keeps_right_join_to_qs_ah():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsAh"])
+    triple = _shape(chars["qsPea"] + chars["qsExcite"] + chars["qsAh"])
+    assert _base_names(pair) == ("qsExcite", "qsAh")
+    assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
+    assert not _pair_join_ys(triple, 0)
+    _assert_join_preserved("qsPea / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
+
+
+def test_qs_ye_excite_keeps_right_join_to_qs_ah():
+    chars = _char_map()
+    pair = _shape(chars["qsExcite"] + chars["qsAh"])
+    triple = _shape(chars["qsYe"] + chars["qsExcite"] + chars["qsAh"])
+    assert _base_names(pair) == ("qsExcite", "qsAh")
+    assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
+    assert not _pair_join_ys(triple, 0)
+    _assert_join_preserved("qsYe / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
+
+
 def test_qs_tea_excite_do_not_connect():
     glyphs = _shape("\uE652\uE66B")
     tea_exits = _exit_ys(glyphs[0])
@@ -986,6 +1076,55 @@ def _tea_thaw_invariant_failures() -> list[str]:
 
 def test_qs_tea_thaw_do_not_connect_in_context():
     failures = _tea_thaw_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _excite_nonjoining_left_context_preserves_right_join_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    excite = chars["qsExcite"]
+
+    for right_name, right_char in _plain_quikscript_letters():
+        right_pair_glyphs = _shape(excite + right_char)
+        if len(right_pair_glyphs) != 2:
+            continue
+        if _base_names(right_pair_glyphs) != ("qsExcite", right_name):
+            continue
+        pair_ys = _pair_join_ys(right_pair_glyphs, 0)
+        if not pair_ys:
+            continue
+
+        for left_name, left_char in _plain_quikscript_letters():
+            left_pair_glyphs = _shape(left_char + excite)
+            if len(left_pair_glyphs) != 2:
+                continue
+            if _base_names(left_pair_glyphs) != (left_name, "qsExcite"):
+                continue
+            if _pair_join_ys(left_pair_glyphs, 0):
+                continue
+
+            triple_glyphs = _shape(left_char + excite + right_char)
+            if len(triple_glyphs) != 3:
+                continue
+            if _base_names(triple_glyphs) != (left_name, "qsExcite", right_name):
+                continue
+            left_triple_ys = _pair_join_ys(triple_glyphs, 0)
+            right_triple_ys = _pair_join_ys(triple_glyphs, 1)
+            missing = pair_ys - right_triple_ys
+            if left_triple_ys or missing:
+                failures.append(
+                    f"{left_name} / qsExcite / {right_name}: nonjoining left context "
+                    f"{left_pair_glyphs} changed the right join from {right_pair_glyphs} "
+                    f"to {triple_glyphs}; left Ys={sorted(left_triple_ys)}, "
+                    f"right pair Ys={sorted(pair_ys)}, triple Ys={sorted(right_triple_ys)}, "
+                    f"missing {sorted(missing)}"
+                )
+
+    return failures
+
+
+def test_qs_excite_nonjoining_left_context_preserves_right_join_in_plain_triples():
+    failures = _excite_nonjoining_left_context_preserves_right_join_failures()
     assert not failures, "\n".join(failures[:50])
 
 
