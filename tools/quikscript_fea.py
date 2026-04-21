@@ -1441,7 +1441,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _emit_fwd_pairs(base_name)
         _emit_fwd_general(base_name)
 
-    def _collect_pending_bk_pair_guards(candidate_name: str, entry_ys: set[int]) -> set[str]:
+    def _collect_pending_bk_pair_guards(
+        candidate_name: str,
+        entry_ys: set[int],
+        right_base_name: str,
+    ) -> set[str]:
         candidate_meta = _meta(candidate_name)
         if candidate_meta.exit:
             return set()
@@ -1464,6 +1468,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if _candidate_can_support_entry_ys(pending_variant, entry_ys):
                 continue
             guards.update(_expand_all_variants(prev_glyphs))
+
+        needed_exit_ys = entry_ys - set(candidate_meta.exit_ys)
+        if needed_exit_ys:
+            for (source_name, replacement_name, _), pending_guards in _PENDING_BK_ENTRY_GUARDS.items():
+                if source_name != candidate_name:
+                    continue
+                if not (set(_meta(replacement_name).exit_ys) & needed_exit_ys):
+                    continue
+                for guard in pending_guards:
+                    if guard.before_bases and right_base_name not in guard.before_bases:
+                        continue
+                    guards.update(guard.guard_glyphs)
 
         return guards
 
@@ -1506,7 +1522,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 entry_ys = set(variant_meta.entry_ys)
                 if entry_ys:
                     for candidate_name in sorted(expanded_after):
-                        guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, entry_ys)
+                        guard_glyphs = _collect_pending_bk_pair_guards(
+                            candidate_name,
+                            entry_ys,
+                            variant_meta.base_name,
+                        )
                         if guard_glyphs:
                             guard_list = " ".join(sorted(guard_glyphs))
                             lines.append(
@@ -1804,7 +1824,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 after_list = " ".join(sorted(expanded_after_for_y))
                 for source_variant in source_variants:
                     for candidate_name in sorted(expanded_after_for_y):
-                        guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, {entry_y})
+                        guard_glyphs = _collect_pending_bk_pair_guards(
+                            candidate_name,
+                            {entry_y},
+                            _meta(variant_name).base_name,
+                        )
                         if guard_glyphs:
                             guard_list = " ".join(sorted(guard_glyphs))
                             lines.append(
