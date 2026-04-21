@@ -1408,14 +1408,26 @@ def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
 def test_qs_tea_before_qs_i_extends_exit():
     chars = _char_map()
     glyphs = _shape(chars["qsTea"] + chars["qsI"])
-    assert glyphs == ["qsTea.exit-baseline.exit-extended", "qsI"]
+    assert glyphs == ["qsTea.entry-top.exit-baseline.exit-extended", "qsI"]
     assert _pair_join_ys(glyphs, 0) == {0}
+
+
+def test_qs_see_tea_i_extends_exit():
+    chars = _char_map()
+    glyphs = _shape(chars["qsSee"] + chars["qsTea"] + chars["qsI"])
+    assert glyphs == [
+        "qsSee",
+        "qsTea.entry-top.exit-baseline.exit-extended",
+        "qsI",
+    ]
+    assert _pair_join_ys(glyphs, 0) == {8}
+    assert _pair_join_ys(glyphs, 1) == {0}
 
 
 def test_qs_fee_tea_i_extends_exit():
     chars = _char_map()
     glyphs = _shape(chars["qsFee"] + chars["qsTea"] + chars["qsI"])
-    assert glyphs[1] == "qsTea.exit-baseline.exit-extended"
+    assert glyphs[1] == "qsTea.entry-top.exit-baseline.exit-extended"
     assert glyphs[2] == "qsI"
     assert _pair_join_ys(glyphs, 1) == {0}
 
@@ -1426,6 +1438,21 @@ def test_qs_et_tea_i_preserves_left_only_invariant():
     assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsI"]
     assert _pair_join_ys(glyphs, 0) == {0}
     assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_i_extends_exit_in_ss05():
+    chars = _char_map()
+    glyphs = _shape_with_features(
+        chars["qsEt"] + chars["qsTea"] + chars["qsI"],
+        (("ss05", True),),
+    )
+    assert glyphs == [
+        "qsEt",
+        "qsTea.entry-baseline.exit-baseline.exit-extended",
+        "qsI",
+    ]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert _pair_join_ys(glyphs, 1) == {0}
 
 
 def test_qs_i_before_qs_tea_unchanged_by_forward_extension():

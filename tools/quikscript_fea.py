@@ -1232,6 +1232,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if base_name in pair_overrides:
                     for pair_variant, _ in pair_overrides[base_name]:
                         targets.add(pair_variant)
+                if base_name in fwd_upgrades:
+                    for entry_exit_var, _, _, _ in fwd_upgrades[base_name]:
+                        targets.add(entry_exit_var)
                 noentry_name = f"{base_name}.noentry"
                 if noentry_name in glyph_names:
                     targets.add(noentry_name)
@@ -2514,6 +2517,9 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
             if base_name in plan.pair_overrides:
                 for pair_variant, _ in plan.pair_overrides[base_name]:
                     targets.add(pair_variant)
+            if base_name in plan.fwd_upgrades:
+                for entry_exit_var, _, _, _ in plan.fwd_upgrades[base_name]:
+                    targets.add(entry_exit_var)
             noentry_name = f"{base_name}.noentry"
             if noentry_name in glyph_names:
                 targets.add(noentry_name)
@@ -2557,8 +2563,25 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                         lines.append(
                             f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
                         )
+            before_suffix = ""
+            if variant_meta.before:
+                resolved_before = resolve_known_glyph_names(
+                    list(variant_meta.before), glyph_names
+                )
+                before_expanded: set[str] = set()
+                for before_glyph in resolved_before:
+                    before_base = (
+                        glyph_meta[before_glyph].base_name
+                        if before_glyph in glyph_meta
+                        else before_glyph
+                    )
+                    before_expanded.update(plan.base_to_variants.get(before_base, ()))
+                for terminal in sorted(before_expanded & plan.terminal_exit_only):
+                    before_expanded.discard(terminal)
+                if before_expanded:
+                    before_suffix = f" [{' '.join(sorted(before_expanded))}]"
             lines.append(
-                f"        sub [{' '.join(after_list)}] {base_name}' by {variant_name};"
+                f"        sub [{' '.join(after_list)}] {base_name}'{before_suffix} by {variant_name};"
             )
             lines.append(f"    }} {tag}_{safe};")
         for base_name, variant_name, before_list, not_after_list, targets, variant_entry_ys in sorted(fwd_features.get(tag, [])):
