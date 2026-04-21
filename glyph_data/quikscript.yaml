@@ -252,6 +252,8 @@ glyph_families:
         shape: prop
         anchors:
           exit: [2, 0]
+        select:
+          not_before: [{family: qsExam}, {family: qsExcite}, {family: qsThaw}]
         modifiers: [exit-baseline]
       half:
         shape: half
@@ -322,13 +324,15 @@ glyph_families:
         anchors:
           entry: [1, 8]
           exit: [2, 0]
+        select:
+          not_before: [{family: qsExam}, {family: qsExcite}, {family: qsThaw}]
         modifiers: [entry-top, exit-baseline]
       entry_baseline:
         shape: prop
         anchors:
           entry: [1, 0]
         select:
-          not_after: [{family: qsEat}, {family: qsHe}, {family: qsIt}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
+          not_after: [{family: qsEat}, {family: qsExam}, {family: qsExcite}, {family: qsHe}, {family: qsIt}, {family: qsPea}, {family: qsTea}, {family: qsYe}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsEight}, {family: qsJay}, {family: qsKey}]}
         modifiers: [entry-baseline]
@@ -1902,6 +1906,8 @@ glyph_families:
         anchors:
           entry: [1, 0]
           exit: [8, 0]
+        select:
+          not_before: [{family: qsTea}]
         modifiers: [exit-baseline, before-vertical]
       noentry_after_ye:
         shape: mono
@@ -1915,6 +1921,11 @@ glyph_families:
         select:
           after: [{family: qsPea}]
         modifiers: [after-pea]
+      noentry_after_tea:
+        inherits: noentry_after_ye
+        select:
+          after: [{family: qsTea}]
+        modifiers: [after-tea]
   qsExam:
     mono:
       bitmap:
@@ -1945,6 +1956,11 @@ glyph_families:
         select:
           after: [{family: qsPea}]
         modifiers: [after-pea]
+      noentry_after_tea:
+        inherits: noentry_after_ye
+        select:
+          after: [{family: qsTea}]
+        modifiers: [after-tea]
   qsAngleParenLeft:
     mono:
       bitmap:
