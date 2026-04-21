@@ -845,6 +845,14 @@ def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_oy():
     assert not _exit_ys(triple[0]), triple
 
 
+def test_qs_out_tea_prefers_the_ligature_before_qs_roe():
+    chars = _char_map()
+    pair = _shape(chars["qsOut"] + chars["qsTea"])
+    triple = _shape(chars["qsOut"] + chars["qsTea"] + chars["qsRoe"])
+    assert pair == ["qsOut_qsTea"]
+    assert triple == ["qsOut_qsTea", "qsRoe"]
+
+
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     chars = _char_map()
     glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
@@ -1191,6 +1199,33 @@ def _excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it_fa
 
 def test_qs_excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it():
     failures = _excite_tea_only_keeps_the_left_join_when_the_final_tea_still_supports_it_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _out_tea_prefers_the_ligature_over_right_joins_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        glyphs = _shape(chars["qsOut"] + chars["qsTea"] + right_char)
+        if not glyphs or glyphs[0] == "qsOut_qsTea":
+            continue
+        if len(glyphs) < 3:
+            continue
+        if _base_names(glyphs)[:2] != ("qsOut", "qsTea"):
+            continue
+        if not _exit_ys(glyphs[1]):
+            continue
+        failures.append(
+            f"qsOut / qsTea / {right_name}: expected qsOut_qsTea to win over the right join, "
+            f"but got {glyphs} with tea exits {sorted(_exit_ys(glyphs[1]))}"
+        )
+
+    return failures
+
+
+def test_qs_out_tea_prefers_the_ligature_over_right_joins():
+    failures = _out_tea_prefers_the_ligature_over_right_joins_failures()
     assert not failures, "\n".join(failures[:50])
 
 

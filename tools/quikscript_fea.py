@@ -61,6 +61,11 @@ _PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuar
 }
 
 
+_LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
+    "qsOut_qsTea",
+}
+
+
 @dataclass
 class _JoinAnalysis:
     glyph_meta: dict[str, JoinGlyph]
@@ -886,6 +891,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 expanded.update(all_variants)
         return expanded
 
+    def _ligature_component_variants(component: str, index: int) -> set[str]:
+        lig_variants: set[str] = {component}
+        if component in bk_replacements:
+            lig_variants.update(bk_replacements[component].values())
+        if component in pair_overrides:
+            lig_variants.update(variant_name for variant_name, _ in pair_overrides[component])
+        if component in fwd_pair_overrides:
+            lig_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[component])
+        if index == 0 and component in fwd_replacements:
+            lig_variants.update(fwd_replacements[component].values())
+        return lig_variants
+
     bk_used_ys = set()
     for variants in bk_replacements.values():
         bk_used_ys.update(variants.keys())
@@ -1078,18 +1095,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if ext_bk in glyph_meta and not _meta(ext_bk).exit and mid_source == ext_bk:
                         return bk_var
             return None
-
-        def _ligature_component_variants(component: str, index: int) -> set[str]:
-            lig_variants: set[str] = {component}
-            if component in bk_replacements:
-                lig_variants.update(bk_replacements[component].values())
-            if component in pair_overrides:
-                lig_variants.update(variant_name for variant_name, _ in pair_overrides[component])
-            if component in fwd_pair_overrides:
-                lig_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[component])
-            if index == 0 and component in fwd_replacements:
-                lig_variants.update(fwd_replacements[component].values())
-            return lig_variants
 
         for mid_source in sorted(right_context_glyphs):
             mid_meta = _meta(mid_source)
@@ -2129,7 +2134,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if component in fwd_pair_overrides:
                     for variant_name, _, _ in fwd_pair_overrides[component]:
                         lig_variants.add(variant_name)
-                if index == 0 and component in fwd_replacements:
+                if (
+                    index == 0
+                    or (
+                        index == 1
+                        and lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS
+                    )
+                ) and component in fwd_replacements:
                     lig_variants.update(fwd_replacements[component].values())
                 variant_sets.append([component] + sorted(lig_variants))
             for combo in product(*variant_sets):
