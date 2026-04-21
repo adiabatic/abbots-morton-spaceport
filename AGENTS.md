@@ -20,6 +20,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For ex
 
 - `uv run pytest` not `pytest`
 
+If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `~/Library/Caches/uv`), point `uv` at a project-local cache by setting `UV_CACHE_DIR=.uv-cache` (add `.uv-cache/` to `.gitignore` if it's not already covered).
+
 ## Adding glyphs
 
 - Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
