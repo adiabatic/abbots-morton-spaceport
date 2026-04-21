@@ -56,6 +56,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - When preserving a rare established join against a later substitution, scope the guard to the specific right-context families that need the exception; do not let a prohibited pair globally freeze each other's shaping.
 - When deciding whether a preserved join may survive later context, account for downstream ligatures too; if the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit.
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
+- When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
