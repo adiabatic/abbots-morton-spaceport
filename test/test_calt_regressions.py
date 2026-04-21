@@ -896,6 +896,38 @@ def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
     assert glyphs == ["qsEt", "qsTea_qsOy"]
 
 
+def test_qs_et_tea_does_not_make_qs_may_reach_back_when_it_cannot_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsMay"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsMay"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_does_not_make_qs_ing_reach_back_when_it_cannot_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsIng"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsIng"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_does_not_make_qs_vie_reach_back_when_it_cannot_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsVie"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsVie"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_et_tea_does_not_make_qs_day_choose_the_half_entry_form_without_a_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsDay"])
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsDay"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
 def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
     chars = _char_map()
     glyphs = _shape_with_features(
@@ -1323,6 +1355,41 @@ def _et_tea_keeps_the_left_join_and_blocks_right_join_failures() -> list[str]:
 
 def test_qs_et_tea_only_keeps_the_left_baseline_join_except_before_qs_oy():
     failures = _et_tea_keeps_the_left_join_and_blocks_right_join_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _et_tea_nonjoining_right_context_keeps_right_glyph_plain_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        if right_name == "qsOy":
+            continue
+        glyphs = _shape(chars["qsEt"] + chars["qsTea"] + right_char)
+        if len(glyphs) != 3:
+            continue
+        if _base_names(glyphs) != ("qsEt", "qsTea", right_name):
+            continue
+        if _pair_join_ys(glyphs, 1):
+            continue
+
+        solo = _shape(right_char)
+        if glyphs[2:] == solo:
+            continue
+
+        right_meta = _compiled_meta()[glyphs[2]]
+        if "entry" not in right_meta.compat_assertions and "half" not in right_meta.traits:
+            continue
+
+        failures.append(
+            f"qsEt / qsTea / {right_name}: nonjoining right glyph changed from {solo} to {glyphs[2:]}"
+        )
+
+    return failures
+
+
+def test_qs_et_tea_nonjoining_right_context_keeps_right_glyph_plain():
+    failures = _et_tea_nonjoining_right_context_keeps_right_glyph_plain_failures()
     assert not failures, "\n".join(failures[:50])
 
 
