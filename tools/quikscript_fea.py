@@ -21,7 +21,7 @@ _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard,
     ("qsTea", "qsTea.exit-baseline", 0): (
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAh",),
+            ("qsAh", "qsTea"),
         ),
     ),
     ("qsTea", "qsTea.half.exit-xheight", 0): (
@@ -33,7 +33,7 @@ _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard,
     ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
         _PendingBkEntryGuard(
             ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAh",),
+            ("qsAh", "qsTea"),
         ),
     ),
     ("qsTea.entry-baseline", "qsTea.half.exit-xheight", 0): (
@@ -980,6 +980,165 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 before_list = " ".join(sorted(allowed_before))
                 lines.append(f"        ignore sub [{guard_list}] {source_name}' [{before_list}];")
 
+    def _preserved_before_contexts(
+        source_name: str,
+        replacement_name: str,
+        entry_y: int,
+        left_guard_name: str,
+    ) -> set[str]:
+        preserved: set[str] = set()
+        for guard in _matching_pending_bk_guards(
+            source_name,
+            replacement_name,
+            entry_y,
+            left_guard_name,
+        ):
+            if left_guard_name not in guard.guard_glyphs:
+                continue
+            if not guard.before_bases:
+                return set(glyph_names)
+            preserved.update(_expand_all_variants(guard.before_bases, include_base=True))
+        return preserved
+
+    def _matching_pending_bk_guards(
+        source_name: str,
+        replacement_name: str,
+        entry_y: int,
+        left_guard_name: str,
+    ) -> tuple[_PendingBkEntryGuard, ...]:
+        return tuple(
+            guard
+            for guard in _PENDING_BK_ENTRY_GUARDS.get((source_name, replacement_name, entry_y), ())
+            if left_guard_name in guard.guard_glyphs
+        )
+
+    def _emit_pending_fwd_exit_guards(
+        source_name: str,
+        replacement_name: str,
+        exit_y: int,
+        right_context_glyphs: set[str],
+    ) -> None:
+        if exit_y not in _meta(replacement_name).exit_ys:
+            return
+
+        emitted: set[tuple[str, tuple[str, ...]]] = set()
+
+        def _emit_guard(mid_source: str, before_glyphs: set[str]) -> None:
+            if not before_glyphs:
+                return
+            before_tuple = tuple(sorted(before_glyphs))
+            key = (mid_source, before_tuple)
+            if key in emitted:
+                return
+            emitted.add(key)
+            before_list = " ".join(before_tuple)
+            lines.append(f"        ignore sub {source_name}' {mid_source} [{before_list}];")
+
+        def _matching_entry_only_source(mid_source: str) -> str | None:
+            mid_base = _base_name(mid_source)
+            for _, bk_var in sorted(bk_replacements.get(mid_base, {}).items()):
+                if _meta(bk_var).exit:
+                    continue
+                if mid_source == bk_var:
+                    return bk_var
+                for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
+                    ext_bk = f"{bk_var}{ext_suffix}"
+                    if ext_bk in glyph_meta and not _meta(ext_bk).exit and mid_source == ext_bk:
+                        return bk_var
+            return None
+
+        for mid_source in sorted(right_context_glyphs):
+            mid_meta = _meta(mid_source)
+            mid_base = mid_meta.base_name
+
+            if mid_source == mid_base:
+                for mid_exit_y, mid_replacement in sorted(fwd_replacements.get(mid_base, {}).items()):
+                    if mid_exit_y not in entry_classes:
+                        continue
+                    if exit_y in set(_meta(mid_replacement).all_entry_ys):
+                        continue
+                    if not _matching_pending_bk_guards(
+                        mid_source,
+                        mid_replacement,
+                        exit_y,
+                        replacement_name,
+                    ):
+                        continue
+                    fwd_bk_excl = plan.fwd_bk_exclusions.get(mid_base, {}).get(mid_exit_y)
+                    if fwd_bk_excl and replacement_name in _expand_exclusions(fwd_bk_excl):
+                        continue
+                    use_excl = (mid_base, mid_exit_y) in fwd_use_exclusive
+                    if use_excl and (mid_exit_y not in entry_exclusive or not entry_exclusive[mid_exit_y]):
+                        continue
+                    trigger_contexts = set(
+                        entry_exclusive[mid_exit_y] if use_excl else entry_classes[mid_exit_y]
+                    )
+                    trigger_contexts -= _expand_exclusions(
+                        fwd_exclusions.get(mid_base, {}).get(mid_exit_y, []),
+                    )
+                    trigger_contexts -= _preserved_before_contexts(
+                        mid_source,
+                        mid_replacement,
+                        exit_y,
+                        replacement_name,
+                    )
+                    _emit_guard(mid_source, trigger_contexts)
+
+            entry_only_source = _matching_entry_only_source(mid_source)
+            if entry_only_source is None or mid_base not in fwd_replacements:
+                continue
+            if exit_y not in set(mid_meta.all_entry_ys):
+                continue
+
+            valid_overrides = []
+            for mid_exit_y, mid_replacement in sorted(fwd_replacements[mid_base].items()):
+                if mid_exit_y not in entry_classes:
+                    continue
+                if _meta(mid_replacement).entry:
+                    continue
+                has_upgrade = any(
+                    entry_only == entry_only_source and ey == mid_exit_y
+                    for _, entry_only, ey, _ in fwd_upgrades.get(mid_base, [])
+                )
+                if has_upgrade:
+                    continue
+                if exit_y in set(_meta(mid_replacement).all_entry_ys):
+                    continue
+                if not _matching_pending_bk_guards(
+                    mid_source,
+                    mid_replacement,
+                    exit_y,
+                    replacement_name,
+                ):
+                    continue
+                fwd_bk_excl = plan.fwd_bk_exclusions.get(mid_base, {}).get(mid_exit_y)
+                if fwd_bk_excl and replacement_name in _expand_exclusions(fwd_bk_excl):
+                    continue
+                valid_overrides.append((mid_exit_y, mid_replacement))
+
+            if not valid_overrides:
+                continue
+
+            max_exit_y = max(mid_exit_y for mid_exit_y, _ in valid_overrides)
+            for mid_exit_y, mid_replacement in valid_overrides:
+                use_excl = len(valid_overrides) > 1 and mid_exit_y != max_exit_y
+                if use_excl and (mid_exit_y not in entry_exclusive or not entry_exclusive[mid_exit_y]):
+                    continue
+                trigger_contexts = set(
+                    entry_exclusive[mid_exit_y] if use_excl else entry_classes[mid_exit_y]
+                )
+                not_before = list(_meta(mid_replacement).not_before)
+                if not_before:
+                    resolved = resolve_known_glyph_names(not_before, glyph_names)
+                    trigger_contexts -= _expand_exclusions(resolved)
+                trigger_contexts -= _preserved_before_contexts(
+                    mid_source,
+                    mid_replacement,
+                    exit_y,
+                    replacement_name,
+                )
+                _emit_guard(mid_source, trigger_contexts)
+
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
@@ -1156,6 +1315,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             for excluded_glyph in sorted(excluded):
                 lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
             right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
+            _emit_pending_fwd_exit_guards(base_name, variant_name, exit_y, right_context_glyphs)
             _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
