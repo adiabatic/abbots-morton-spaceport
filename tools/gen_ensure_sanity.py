@@ -6,6 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# noqa E402: "module import not at top of file" — must follow sys.path tweak above
+from build_font import load_glyph_data  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
+
 LETTERS = [
     ("Pea", 0xE650),
     ("Bay", 0xE651),
@@ -59,12 +65,23 @@ HE = 0xE662
 CHEER = 0xE65E
 COLS = 3
 
-LIGATURE_PAIRS = {
-    ("Out", "Tea"),
-    ("Tea", "Oy"),
-    ("Day", "Eat"),
-    ("Day", "Utter"),
-}
+def _family_to_label(family: str) -> str:
+    base = family.removeprefix("qs")
+    return "-ing" if base == "Ing" else base
+
+
+def _compute_ligature_pairs() -> set[tuple[str, str]]:
+    data = load_glyph_data(ROOT / "glyph_data")
+    pairs: set[tuple[str, str]] = set()
+    for family in data["glyph_families"].values():
+        seq = family.get("sequence")
+        if isinstance(seq, list) and len(seq) == 2:
+            first, second = seq
+            pairs.add((_family_to_label(first), _family_to_label(second)))
+    return pairs
+
+
+LIGATURE_PAIRS = _compute_ligature_pairs()
 
 
 def expect_tok(name: str) -> str:
@@ -416,15 +433,14 @@ def collect_failures(root: Path, out_path: Path) -> set[str]:
 
 
 if __name__ == "__main__":
-    root = Path(__file__).resolve().parent.parent
-    out = root / "test" / "ensure-sanity.html"
+    out = ROOT / "test" / "ensure-sanity.html"
 
     # First pass: generate without highlights
     out.write_text(build_html(set()), encoding="utf-8")
 
     if "--mark-failures" in sys.argv:
         print("Running tests to collect failures...")
-        failed_keys = collect_failures(root, out)
+        failed_keys = collect_failures(ROOT, out)
         print(f"Found {len(failed_keys)} failures")
         out.write_text(build_html(failed_keys), encoding="utf-8")
 
