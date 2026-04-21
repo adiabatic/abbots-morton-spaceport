@@ -853,6 +853,14 @@ def test_qs_out_tea_prefers_the_ligature_before_qs_roe():
     assert triple == ["qsOut_qsTea", "qsRoe"]
 
 
+def test_qs_out_tea_does_not_let_qs_tea_choose_qs_day():
+    chars = _char_map()
+    pair = _shape(chars["qsOut"] + chars["qsTea"])
+    triple = _shape(chars["qsOut"] + chars["qsTea"] + chars["qsDay"])
+    assert pair == ["qsOut_qsTea"]
+    assert triple == ["qsOut_qsTea", "qsDay"]
+
+
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     chars = _char_map()
     glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])

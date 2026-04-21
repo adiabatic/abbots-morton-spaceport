@@ -891,7 +891,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 expanded.update(all_variants)
         return expanded
 
-    def _ligature_component_variants(component: str, index: int) -> set[str]:
+    def _ligature_component_variants(lig_name: str, component: str, index: int) -> set[str]:
         lig_variants: set[str] = {component}
         if component in bk_replacements:
             lig_variants.update(bk_replacements[component].values())
@@ -899,7 +899,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lig_variants.update(variant_name for variant_name, _ in pair_overrides[component])
         if component in fwd_pair_overrides:
             lig_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[component])
-        if index == 0 and component in fwd_replacements:
+        if (
+            index == 0
+            or (
+                index == 1
+                and lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS
+            )
+        ) and component in fwd_replacements:
             lig_variants.update(fwd_replacements[component].values())
         return lig_variants
 
@@ -1146,7 +1152,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if not guards:
                     continue
-                trigger_contexts = _ligature_component_variants(components[1], 1)
+                trigger_contexts = _ligature_component_variants(lig_name, components[1], 1)
                 for guard in guards:
                     allowed_before = set(trigger_contexts)
                     if guard.before_bases:
@@ -2117,6 +2123,102 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     _emit_exit_extended_bk_refinement()
 
+    pair_after_cache: dict[tuple[str, tuple[str, ...]], set[str]] = {}
+
+    def _expanded_pair_after(
+        variant_name: str,
+        after_glyphs: list[str] | tuple[str, ...],
+    ) -> set[str]:
+        key = (variant_name, tuple(after_glyphs))
+        expanded = pair_after_cache.get(key)
+        if expanded is None:
+            expanded = _expand_backward_after_variants(
+                variant_name,
+                after_glyphs,
+                expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                glyph_meta=glyph_meta,
+                base_to_variants=base_to_variants,
+            )
+            pair_after_cache[key] = expanded
+        return expanded
+
+    def _post_liga_right_fallback(lig_target: str, base_name: str) -> str:
+        if base_name not in bk_replacements:
+            return base_name
+
+        lig_exit_ys = set(_meta(lig_target).exit_ys)
+        exclusions = bk_exclusions.get(base_name, {})
+        for entry_y in sorted(bk_replacements[base_name]):
+            if entry_y not in lig_exit_ys:
+                continue
+            excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
+            if lig_target in excluded:
+                continue
+            return bk_replacements[base_name][entry_y]
+
+        return base_name
+
+    def _collect_post_liga_right_cleanup_rules(
+        lig_name: str,
+        components: tuple[str, ...],
+    ) -> list[tuple[str, str, str]]:
+        if not components:
+            return []
+
+        component_targets = set(
+            _ligature_component_variants(lig_name, components[-1], len(components) - 1)
+        )
+        lig_targets = sorted(base_to_variants.get(lig_name, {lig_name}))
+        seen: set[tuple[str, str, str]] = set()
+        rules: list[tuple[str, str, str]] = []
+        affected_bases = sorted(set(bk_replacements) | set(pair_overrides))
+
+        for base_name in affected_bases:
+            candidates: set[str] = set()
+
+            for variant_name, after_glyphs in pair_overrides.get(base_name, []):
+                if _expanded_pair_after(variant_name, after_glyphs) & component_targets:
+                    candidates.add(variant_name)
+
+            exclusions = bk_exclusions.get(base_name, {})
+            for entry_y, variant_name in bk_replacements.get(base_name, {}).items():
+                excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
+                if any(
+                    entry_y in set(_meta(component_target).exit_ys)
+                    and component_target not in excluded
+                    for component_target in component_targets
+                ):
+                    candidates.add(variant_name)
+
+            if not candidates:
+                continue
+
+            for lig_target in lig_targets:
+                fallback = _post_liga_right_fallback(lig_target, base_name)
+                protected = {
+                    variant_name
+                    for variant_name, after_glyphs in pair_overrides.get(base_name, [])
+                    if lig_target in _expanded_pair_after(variant_name, after_glyphs)
+                }
+                for candidate in sorted(candidates):
+                    if candidate in protected:
+                        continue
+                    replacement = _resolve_entryless_replacement(
+                        glyph_meta,
+                        base_to_variants,
+                        candidate,
+                        fallback,
+                    )
+                    if replacement is None or replacement == candidate:
+                        continue
+                    rule = (lig_target, candidate, replacement)
+                    if rule in seen:
+                        continue
+                    seen.add(rule)
+                    rules.append(rule)
+
+        return rules
+
     if ligatures:
         from itertools import product
 
@@ -2125,24 +2227,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for lig_name, components in sorted(ligatures):
             variant_sets: list[list[str]] = []
             for index, component in enumerate(components):
-                lig_variants: set[str] = set()
-                if component in bk_replacements:
-                    lig_variants.update(bk_replacements[component].values())
-                if component in pair_overrides:
-                    for variant_name, _ in pair_overrides[component]:
-                        lig_variants.add(variant_name)
-                if component in fwd_pair_overrides:
-                    for variant_name, _, _ in fwd_pair_overrides[component]:
-                        lig_variants.add(variant_name)
-                if (
-                    index == 0
-                    or (
-                        index == 1
-                        and lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS
-                    )
-                ) and component in fwd_replacements:
-                    lig_variants.update(fwd_replacements[component].values())
-                variant_sets.append([component] + sorted(lig_variants))
+                variant_sets.append(sorted(_ligature_component_variants(lig_name, component, index)))
             for combo in product(*variant_sets):
                 component_str = " ".join(combo)
                 actual_lig = lig_name
@@ -2166,11 +2251,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         lines.append("    } calt_liga;")
 
         lig_glyph_names = {lig_name for lig_name, _ in ligatures}
+        post_liga_cleanup_rules: list[tuple[str, str, str]] = []
+        for lig_name, components in sorted(ligatures):
+            post_liga_cleanup_rules.extend(
+                _collect_post_liga_right_cleanup_rules(lig_name, components)
+            )
         post_liga_rules: list[tuple[str, str, list[str]]] = []
         for base_name in sorted(pair_overrides):
             for variant_name, after_glyphs in pair_overrides[base_name]:
-                if any(glyph in lig_glyph_names for glyph in after_glyphs):
-                    post_liga_rules.append((base_name, variant_name, after_glyphs))
+                if not any(glyph in lig_glyph_names for glyph in after_glyphs):
+                    continue
+                expanded_after = sorted(_expanded_pair_after(variant_name, after_glyphs))
+                if expanded_after:
+                    post_liga_rules.append((base_name, variant_name, expanded_after))
 
         for lig_name in sorted(lig_glyph_names):
             noentry_after = _meta(lig_name).noentry_after
@@ -2186,6 +2279,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     sorted(_expand_all_variants(noentry_after, include_base=True)),
                 )
             )
+
+        if post_liga_cleanup_rules:
+            lines.append("")
+            lines.append("    lookup calt_post_liga_cleanup {")
+            for lig_target, candidate, replacement in post_liga_cleanup_rules:
+                lines.append(f"        sub {lig_target} {candidate}' by {replacement};")
+            lines.append("    } calt_post_liga_cleanup;")
 
         if post_liga_rules:
             lines.append("")
