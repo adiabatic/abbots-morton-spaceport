@@ -45,6 +45,22 @@ _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard,
 }
 
 
+_PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard, ...]] = {
+    ("qsTea", "qsTea_qsOy", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsOy",),
+        ),
+    ),
+    ("qsTea.entry-baseline", "qsTea_qsOy", 0): (
+        _PendingBkEntryGuard(
+            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsOy",),
+        ),
+    ),
+}
+
+
 @dataclass
 class _JoinAnalysis:
     glyph_meta: dict[str, JoinGlyph]
@@ -837,6 +853,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     early_fwd_pairs = plan.early_fwd_pairs
     ligatures = plan.ligatures
     word_final_pairs = plan.word_final_pairs
+    ligatures_by_first_component: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
+    for lig_name, components in ligatures:
+        if components:
+            ligatures_by_first_component.setdefault(components[0], []).append((lig_name, components))
 
     if not bk_replacements and not fwd_replacements:
         return None
@@ -1012,6 +1032,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if left_guard_name in guard.guard_glyphs
         )
 
+    def _matching_pending_liga_guards(
+        source_name: str,
+        lig_name: str,
+        entry_y: int,
+        left_guard_name: str,
+    ) -> tuple[_PendingBkEntryGuard, ...]:
+        return tuple(
+            guard
+            for guard in _PENDING_LIGA_ENTRY_GUARDS.get((source_name, lig_name, entry_y), ())
+            if left_guard_name in guard.guard_glyphs
+        )
+
     def _emit_pending_fwd_exit_guards(
         source_name: str,
         replacement_name: str,
@@ -1046,6 +1078,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if ext_bk in glyph_meta and not _meta(ext_bk).exit and mid_source == ext_bk:
                         return bk_var
             return None
+
+        def _ligature_component_variants(component: str, index: int) -> set[str]:
+            lig_variants: set[str] = {component}
+            if component in bk_replacements:
+                lig_variants.update(bk_replacements[component].values())
+            if component in pair_overrides:
+                lig_variants.update(variant_name for variant_name, _ in pair_overrides[component])
+            if component in fwd_pair_overrides:
+                lig_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[component])
+            if index == 0 and component in fwd_replacements:
+                lig_variants.update(fwd_replacements[component].values())
+            return lig_variants
 
         for mid_source in sorted(right_context_glyphs):
             mid_meta = _meta(mid_source)
@@ -1083,6 +1127,26 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         replacement_name,
                     )
                     _emit_guard(mid_source, trigger_contexts)
+
+            for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
+                if len(components) != 2:
+                    continue
+                if exit_y in set(_meta(lig_name).all_entry_ys):
+                    continue
+                guards = _matching_pending_liga_guards(
+                    mid_source,
+                    lig_name,
+                    exit_y,
+                    replacement_name,
+                )
+                if not guards:
+                    continue
+                trigger_contexts = _ligature_component_variants(components[1], 1)
+                for guard in guards:
+                    allowed_before = set(trigger_contexts)
+                    if guard.before_bases:
+                        allowed_before &= _expand_all_variants(guard.before_bases, include_base=True)
+                    _emit_guard(mid_source, allowed_before)
 
             entry_only_source = _matching_entry_only_source(mid_source)
             if entry_only_source is None or mid_base not in fwd_replacements:

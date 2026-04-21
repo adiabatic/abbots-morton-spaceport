@@ -830,8 +830,18 @@ def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_out():
     triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOut"])
     assert _base_names(pair) == ("qsTea", "qsOut")
     assert _base_names(triple) == ("qsExcite", "qsTea", "qsOut")
+    assert triple[0] == "qsExcite"
     assert not _pair_join_ys(triple, 0)
     _assert_join_preserved("qsExcite / qsTea / qsOut", pair, triple[1:], pair_index_in_triple=0)
+    assert not _exit_ys(triple[0]), triple
+
+
+def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_oy():
+    chars = _char_map()
+    pair = _shape(chars["qsTea"] + chars["qsOy"])
+    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOy"])
+    assert pair == ["qsTea_qsOy"]
+    assert triple == ["qsExcite", "qsTea_qsOy"]
     assert not _exit_ys(triple[0]), triple
 
 
