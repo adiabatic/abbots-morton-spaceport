@@ -1432,6 +1432,13 @@ glyph_families:
         select:
           not_before: [{family: qsSee}, {family: qsTea}, {family: qsThaw}]
         modifiers: [exit-baseline]
+      exit_baseline_before_day:
+        shape: prop
+        anchors:
+          exit: [2, 0]
+        select:
+          before: [{family: qsDay}]
+        modifiers: [exit-baseline, before-day]
       exit_baseline_before_may:
         shape: prop
         anchors:
