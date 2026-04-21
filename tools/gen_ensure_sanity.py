@@ -54,12 +54,16 @@ LETTERS = [
 ]
 
 TEA = 0xE652
+DAY = 0xE653
+HE = 0xE662
 CHEER = 0xE65E
 COLS = 3
 
 LIGATURE_PAIRS = {
     ("Out", "Tea"),
     ("Tea", "Oy"),
+    ("Day", "Eat"),
+    ("Day", "Utter"),
 }
 
 
@@ -227,6 +231,57 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             "·Tea + ·Cheer: never joins",
             "·Tea must never join rightward onto ·Cheer, regardless of the preceding or following letter.",
             tea_cheer_sections,
+        )
+    )
+
+    he_nhalf = "·He.!half"
+    day_half = "·Day.half"
+    he_tok = expect_tok("He")
+
+    he_day_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·He·Day ---
+    key = cell_key("He", "Day")
+    expect = f"{he_nhalf} ~b~ {day_half}"
+    bare_hd = cell_pair("·He·Day", expect, [HE, DAY], key, failed_keys)
+    he_day_sections.append(("Bare", table_wrap([bare_hd])))
+
+    # --- X + He + Day ---
+    # qsHe has no entry anchor, so the X → He connection is context-dependent;
+    # assert only that He lands on a non-half variant and Day lands on its half.
+    x_hd_cells = []
+    for name, code in LETTERS:
+        dt = f"{dt_name(name)}·He·Day"
+        expect = f"{expect_tok(name)} ? {he_nhalf} ~b~ {day_half}"
+        key = cell_key(name, "He", "Day")
+        x_hd_cells.append(cell_pair(dt, expect, [code, HE, DAY], key, failed_keys))
+    he_day_sections.append(("X·He·Day", table_wrap(x_hd_cells)))
+
+    # --- He + Day + Y ---
+    # When (Day, Y) ligates, the Day.half trait rides on the ligature glyph
+    # if that ligature has a half variant (qsDay_qsUtter.half exists, so the
+    # baseline join survives). qsDay_qsEat has no half variant, so qsHe still
+    # lands on its full form but the ligature enters at x-height — relax the
+    # connection assertion there.
+    hd_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·He·Day{dt_name(name)}"
+        if ("Day", name) in LIGATURE_PAIRS:
+            if name == "Utter":
+                expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
+            else:
+                expect = f"{he_nhalf} ? ·Day+?{name}"
+        else:
+            expect = f"{he_nhalf} ~b~ {day_half} ? {expect_tok(name)}"
+        key = cell_key("He", "Day", name)
+        hd_y_cells.append(cell_pair(dt, expect, [HE, DAY, code], key, failed_keys))
+    he_day_sections.append(("·He·Day·Y", table_wrap(hd_y_cells)))
+
+    panels.append(
+        (
+            "·He + ·Day: full He, half Day",
+            "·He must be a full-height variant and ·Day must be its half form when they appear consecutively, regardless of surrounding context.",
+            he_day_sections,
         )
     )
 
