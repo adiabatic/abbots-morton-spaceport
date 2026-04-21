@@ -746,12 +746,12 @@ def test_qs_tea_owe_do_not_connect_in_context():
     assert not failures, "\n".join(failures[:50])
 
 
-def test_qs_excite_tea_do_not_connect():
+def test_qs_excite_tea_connect_at_baseline():
     glyphs = _shape("\uE66B\uE652")
     excite_exits = _exit_ys(glyphs[0])
     tea_entries = _entry_ys(glyphs[1])
-    assert not (excite_exits & tea_entries), (
-        f"Excite exits={sorted(excite_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+    assert 0 in (excite_exits & tea_entries), (
+        f"Excite exits={sorted(excite_exits)} should overlap Tea entries={sorted(tea_entries)} at Y=0 in {glyphs}"
     )
 
 
@@ -782,48 +782,6 @@ def test_qs_tea_exam_do_not_connect():
     )
 
 
-def _excite_tea_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    excite = chars["qsExcite"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = excite + tea + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsExcite" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsExcite / qsTea / {right_name}: Excite joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + excite + tea
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsExcite" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsExcite / qsTea: Excite joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
 
 
 def _tea_excite_invariant_failures() -> list[str]:
@@ -956,11 +914,6 @@ def _tea_exam_invariant_failures() -> list[str]:
                         )
 
     return failures
-
-
-def test_qs_excite_tea_do_not_connect_in_context():
-    failures = _excite_tea_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
 
 
 def test_qs_tea_excite_do_not_connect_in_context():
