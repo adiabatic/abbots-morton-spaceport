@@ -253,7 +253,10 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
+          not_after: [{family: qsEt}]
           not_before: [{family: qsExam}, {family: qsExcite}, {family: qsThaw}]
+        derive:
+          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [exit-baseline]
       half:
         shape: half
