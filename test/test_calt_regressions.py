@@ -824,6 +824,17 @@ def test_qs_excite_tea_keeps_the_baseline_join_before_qs_tea():
     assert not _pair_join_ys(triple, 1)
 
 
+def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_out():
+    chars = _char_map()
+    pair = _shape(chars["qsTea"] + chars["qsOut"])
+    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOut"])
+    assert _base_names(pair) == ("qsTea", "qsOut")
+    assert _base_names(triple) == ("qsExcite", "qsTea", "qsOut")
+    assert not _pair_join_ys(triple, 0)
+    _assert_join_preserved("qsExcite / qsTea / qsOut", pair, triple[1:], pair_index_in_triple=0)
+    assert not _exit_ys(triple[0]), triple
+
+
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     chars = _char_map()
     glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
