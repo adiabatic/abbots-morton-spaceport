@@ -9,9 +9,12 @@
 
 ## More glyphs
 
-- Make an ·I that drags along the baseline before going up sharply so it works with ·Way.half better (see "wild" and "wise" in The Manual)
-- Make a ·Bay·Utter ligature (`qsBay_qsUtter.prop`)
-- Make a ·Gay·Utter ligature (`qsGay_qsUtter.prop`) for "waggon"
+- Standalone
+  - an ·I that drags along the baseline before going up sharply so it works with ·Way.half better (see "wild" and "wise" in The Manual)
+- Make ligatures
+  - ·Bay·Utter
+  - ·Gay·Utter ("waggon")
+  - ·Gay·Out
 
 ## Other
 
