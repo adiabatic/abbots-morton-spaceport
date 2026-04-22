@@ -64,6 +64,7 @@ DAY = 0xE653
 HE = 0xE662
 WAY = 0xE661
 CHEER = 0xE65E
+OWE = 0xE67C
 COLS = 3
 
 def _family_to_label(family: str) -> str:
@@ -346,6 +347,49 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             "·Way + ·Day: full Way, full Day",
             "·Way and ·Day must both be their full-height variants when they appear consecutively, regardless of the surrounding context; they always join at x-height.",
             way_day_sections,
+        )
+    )
+
+    owe_tok = expect_tok("Owe")
+    day_tok = expect_tok("Day")
+
+    owe_day_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·Owe·Day ---
+    key = cell_key("Owe", "Day")
+    expect = f"{owe_tok} | {day_tok}"
+    bare_od = cell_pair("·Owe·Day", expect, [OWE, DAY], key, failed_keys)
+    owe_day_sections.append(("Bare", table_wrap([bare_od])))
+
+    # --- X + Owe + Day ---
+    x_od_cells = []
+    for name, code in LETTERS:
+        dt = f"{dt_name(name)}·Owe·Day"
+        expect = f"{expect_tok(name)} ? {owe_tok} | {day_tok}"
+        key = cell_key(name, "Owe", "Day")
+        x_od_cells.append(cell_pair(dt, expect, [code, OWE, DAY], key, failed_keys))
+    owe_day_sections.append(("X·Owe·Day", table_wrap(x_od_cells)))
+
+    # --- Owe + Day + Y ---
+    # When (Day, Y) ligates into ·Day+Utter or ·Day+Eat, assert only that
+    # the break between ·Owe and the ligature survives; variant modifiers on
+    # the ligature are out of scope for this panel.
+    od_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·Owe·Day{dt_name(name)}"
+        if ("Day", name) in LIGATURE_PAIRS:
+            expect = f"{owe_tok} | ·Day+?{name}"
+        else:
+            expect = f"{owe_tok} | {day_tok} ? {expect_tok(name)}"
+        key = cell_key("Owe", "Day", name)
+        od_y_cells.append(cell_pair(dt, expect, [OWE, DAY, code], key, failed_keys))
+    owe_day_sections.append(("·Owe·Day·Y", table_wrap(od_y_cells)))
+
+    panels.append(
+        (
+            "·Owe + ·Day: never joins (opt back in with ss07)",
+            "·Owe must never cursive-attach to a following ·Day in the default shaping — including when (·Day, Y) ligates into ·Day+Utter or ·Day+Eat. Users who want Read's manual-style join back can enable stylistic set ss07.",
+            owe_day_sections,
         )
     )
 

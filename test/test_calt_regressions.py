@@ -1675,3 +1675,171 @@ def _way_not_half_before_non_bridging_failures() -> list[str]:
 def test_qs_way_full_before_any_non_bridging_middle():
     failures = _way_not_half_before_non_bridging_failures()
     assert not failures, "\n".join(failures[:50])
+
+
+# ---------------------------------------------------------------------------
+# ·Owe must never join onto a following ·Day (or any ligature starting with
+# ·Day) in the default shaping. Stylistic set ss07 restores the join for
+# users who want Read's manual-style ·Owe·Day rendering back.
+# ---------------------------------------------------------------------------
+
+
+_DAY_BASES = frozenset({"qsDay", "qsDay_qsUtter", "qsDay_qsEat"})
+
+
+def _owe_day_failures_in(glyphs: list[str], label: str) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    for index, glyph_name in enumerate(glyphs):
+        if index + 1 >= len(glyphs):
+            continue
+        left_meta = meta_map.get(glyph_name)
+        right_meta = meta_map.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != "qsOwe":
+            continue
+        if right_meta.base_name not in _DAY_BASES:
+            continue
+        common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+        if common:
+            failures.append(
+                f"{label}: Owe joins {right_meta.base_name} at Y={sorted(common)} in {glyphs}"
+            )
+    return failures
+
+
+def test_qs_owe_day_do_not_connect():
+    chars = _char_map()
+    glyphs = _shape(chars["qsOwe"] + chars["qsDay"])
+    failures = _owe_day_failures_in(glyphs, "bare qsOwe / qsDay")
+    assert not failures, "\n".join(failures)
+
+
+def _owe_day_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    owe = chars["qsOwe"]
+    day = chars["qsDay"]
+
+    for right_name, right_char in _plain_quikscript_letters():
+        text = owe + day + right_char
+        failures.extend(
+            _owe_day_failures_in(_shape(text), f"qsOwe / qsDay / {right_name}")
+        )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        text = left_char + owe + day
+        failures.extend(
+            _owe_day_failures_in(_shape(text), f"{left_name} / qsOwe / qsDay")
+        )
+
+    return failures
+
+
+def test_qs_owe_day_do_not_connect_in_context():
+    failures = _owe_day_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_owe_day_utter_ligature_does_not_connect():
+    chars = _char_map()
+    glyphs = _shape(chars["qsOwe"] + chars["qsDay"] + chars["qsUtter"])
+    failures = _owe_day_failures_in(glyphs, "qsOwe / qsDay / qsUtter")
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_owe_day_eat_ligature_does_not_connect():
+    chars = _char_map()
+    glyphs = _shape(chars["qsOwe"] + chars["qsDay"] + chars["qsEat"])
+    failures = _owe_day_failures_in(glyphs, "qsOwe / qsDay / qsEat")
+    assert not failures, "\n".join(failures)
+
+
+_SS07_FEATURE = (("ss07", True),)
+
+
+def _owe_day_joins_at_y5_in(glyphs: list[str], label: str) -> list[str]:
+    """Return failures for positions where Owe should join a Day-base at Y=5 but doesn't."""
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    found_pair = False
+    for index, glyph_name in enumerate(glyphs):
+        if index + 1 >= len(glyphs):
+            continue
+        left_meta = meta_map.get(glyph_name)
+        right_meta = meta_map.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != "qsOwe":
+            continue
+        if right_meta.base_name not in _DAY_BASES:
+            continue
+        found_pair = True
+        common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+        if 5 not in common:
+            failures.append(
+                f"{label}: Owe does not join {right_meta.base_name} at Y=5 "
+                f"(exit_ys={sorted(_exit_ys(glyph_name))}, "
+                f"entry_ys={sorted(_entry_ys(glyphs[index + 1]))}) in {glyphs}"
+            )
+    if not found_pair:
+        failures.append(f"{label}: expected an Owe-followed-by-Day pair, got {glyphs}")
+    return failures
+
+
+def test_qs_owe_day_connects_under_ss07():
+    chars = _char_map()
+    glyphs = _shape_with_features(chars["qsOwe"] + chars["qsDay"], _SS07_FEATURE)
+    failures = _owe_day_joins_at_y5_in(glyphs, "bare qsOwe / qsDay (ss07)")
+    assert not failures, "\n".join(failures)
+
+
+def _owe_day_ss07_invariant_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    owe = chars["qsOwe"]
+    day = chars["qsDay"]
+
+    for right_name, right_char in _plain_quikscript_letters():
+        text = owe + day + right_char
+        failures.extend(
+            _owe_day_joins_at_y5_in(
+                _shape_with_features(text, _SS07_FEATURE),
+                f"qsOwe / qsDay / {right_name} (ss07)",
+            )
+        )
+
+    for left_name, left_char in _plain_quikscript_letters():
+        text = left_char + owe + day
+        failures.extend(
+            _owe_day_joins_at_y5_in(
+                _shape_with_features(text, _SS07_FEATURE),
+                f"{left_name} / qsOwe / qsDay (ss07)",
+            )
+        )
+
+    return failures
+
+
+def test_qs_owe_day_connects_under_ss07_in_context():
+    failures = _owe_day_ss07_invariant_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def test_qs_owe_day_utter_ligature_connects_under_ss07():
+    chars = _char_map()
+    glyphs = _shape_with_features(
+        chars["qsOwe"] + chars["qsDay"] + chars["qsUtter"], _SS07_FEATURE
+    )
+    failures = _owe_day_joins_at_y5_in(glyphs, "qsOwe / qsDay / qsUtter (ss07)")
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_owe_day_eat_ligature_connects_under_ss07():
+    chars = _char_map()
+    glyphs = _shape_with_features(
+        chars["qsOwe"] + chars["qsDay"] + chars["qsEat"], _SS07_FEATURE
+    )
+    failures = _owe_day_joins_at_y5_in(glyphs, "qsOwe / qsDay / qsEat (ss07)")
+    assert not failures, "\n".join(failures)
