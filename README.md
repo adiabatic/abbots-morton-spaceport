@@ -153,6 +153,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss04`: allow ·It to join at baseline after ·Day and before ·Low
 - `ss05`: allow `·Et ~b~ ·Tea ~b~ ...` double baseline joins again when you want the older/manual-style behavior
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
+- `ss07`: allow ·Owe·Day to join at the x-height again (the default shaping breaks the pair, including when ·Day is the start of a ligature like ·Day+Utter or ·Day+Eat)
 - `ss10`: suppress all joins for the wrapped letter(s) — beats interspersing ZWNJs between letters of a word
 
 **I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font**. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
