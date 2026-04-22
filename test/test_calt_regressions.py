@@ -2,6 +2,7 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
+import pytest
 import uharfbuzz as hb
 import yaml
 
@@ -9,6 +10,8 @@ ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 ZWNJ = "\u200C"
+_SS05_FEATURE = (("ss05", True),)
+_SS07_FEATURE = (("ss07", True),)
 sys.path.insert(0, str(ROOT / "tools"))
 
 from build_font import load_glyph_data
@@ -90,6 +93,36 @@ def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     return tuple((name, chars[name]) for name in names)
 
 
+def _qs_text(*parts: str) -> str:
+    chars = _char_map()
+    result = []
+    for part in parts:
+        if part in chars:
+            result.append(chars[part])
+            continue
+        if part.startswith("qs"):
+            raise KeyError(f"Unknown Quikscript glyph name: {part}")
+        result.append(part)
+    return "".join(result)
+
+
+def _shape_qs(
+    *parts: str,
+    features: tuple[tuple[str, bool], ...] = (),
+) -> list[str]:
+    text = _qs_text(*parts)
+    return _shape_with_features(text, features) if features else _shape(text)
+
+
+def _shape_qs_with_clusters(*parts: str) -> tuple[tuple[str, int], ...]:
+    return _shape_with_clusters(_qs_text(*parts))
+
+
+def _assert_no_failures(failures: list[str], *, limit: int | None = 50) -> None:
+    excerpt = failures if limit is None else failures[:limit]
+    assert not failures, "\n".join(excerpt)
+
+
 def _entry_ys(glyph_name: str) -> set[int]:
     meta = _compiled_meta().get(glyph_name)
     if meta is None:
@@ -113,6 +146,15 @@ def _base_names(glyph_names: list[str]) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _find_base_index(glyph_names: list[str], base_name: str) -> int | None:
+    meta_map = _compiled_meta()
+    for index, glyph_name in enumerate(glyph_names):
+        glyph_meta = meta_map.get(glyph_name)
+        if glyph_meta is not None and glyph_meta.base_name == base_name:
+            return index
+    return None
+
+
 def _pair_join_ys(glyph_names: list[str], index: int) -> set[int]:
     if index + 1 >= len(glyph_names):
         return set()
@@ -133,6 +175,94 @@ def _assert_join_preserved(
         f"{label}: expected established join Ys {sorted(pair_ys)} from {pair_glyphs} "
         f"to remain in {triple_glyphs}, but lost Ys {sorted(missing)}"
     )
+
+
+def _append_nonjoining_pair_failures(
+    failures: list[str],
+    label: str,
+    glyphs: list[str],
+    left_base: str,
+    right_base: str,
+) -> None:
+    meta_map = _compiled_meta()
+    for index, glyph_name in enumerate(glyphs[:-1]):
+        left_meta = meta_map.get(glyph_name)
+        right_meta = meta_map.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != left_base or right_meta.base_name != right_base:
+            continue
+        common = _pair_join_ys(glyphs, index)
+        if common:
+            failures.append(
+                f"{label}: {left_base} joins {right_base} at Y={sorted(common)} in {glyphs}"
+            )
+
+
+def _collect_nonjoining_pair_context_failures(
+    left_base: str,
+    right_base: str,
+) -> list[str]:
+    failures: list[str] = []
+
+    for right_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs(left_base, right_base, right_name)
+        _append_nonjoining_pair_failures(
+            failures,
+            f"{left_base} / {right_base} / {right_name}",
+            glyphs,
+            left_base,
+            right_base,
+        )
+
+    for left_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs(left_name, left_base, right_base)
+        _append_nonjoining_pair_failures(
+            failures,
+            f"{left_name} / {left_base} / {right_base}",
+            glyphs,
+            left_base,
+            right_base,
+        )
+
+    return failures
+
+
+def _collect_surrounded_nonjoining_pair_failures(
+    left_base: str,
+    right_base: str,
+    *,
+    require_full_left: bool = False,
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    left_label = left_base[2:]
+    right_label = right_base[2:]
+
+    for outer_left_name, _ in _plain_quikscript_letters():
+        for outer_right_name, _ in _plain_quikscript_letters():
+            glyphs = _shape_qs(outer_left_name, left_base, right_base, outer_right_name)
+            label = f"{outer_left_name} / {left_base} / {right_base} / {outer_right_name}"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                if left_meta.base_name != left_base or right_meta.base_name != right_base:
+                    continue
+                if require_full_left and "half" in left_meta.traits:
+                    failures.append(
+                        f"{label}: half-{left_label} selected before {right_label}: {glyphs}"
+                    )
+                common = _pair_join_ys(glyphs, index)
+                if common:
+                    failures.append(
+                        f"{label}: {left_label} joins to next glyph {glyphs[index + 1]} "
+                        f"at Y={sorted(common)} in {glyphs}"
+                    )
+
+    return failures
 
 
 def _append_utter_alt_failures(failures: list[str], label: str, text: str) -> None:
@@ -355,39 +485,32 @@ def test_qs_low_entry_extended_requires_a_compatible_see_exit():
     ]
 
 
-def test_qs_owe_after_pea_stays_left_only_at_word_end():
-    chars = _char_map()
-
-    assert _shape(chars["qsPea"] + chars["qsOwe"]) == [
-        "qsPea.half",
-        "qsOwe.entry-xheight.entry-extended",
-    ]
-
-
-def test_qs_owe_after_bay_pea_stays_left_only_at_word_end():
-    chars = _char_map()
-
-    assert _shape(chars["qsBay"] + chars["qsPea"] + chars["qsOwe"]) == [
-        "qsBay",
-        "qsPea.half",
-        "qsOwe.entry-xheight.entry-extended",
-    ]
-
-
-def test_qs_owe_after_tea_pea_stays_left_only_at_word_end():
-    chars = _char_map()
-
-    assert _shape(chars["qsTea"] + chars["qsPea"] + chars["qsOwe"]) == [
-        "qsTea",
-        "qsPea.half",
-        "qsOwe.entry-xheight.entry-extended",
-    ]
+@pytest.mark.parametrize(
+    ("parts", "expected"),
+    [
+        pytest.param(
+            ("qsPea", "qsOwe"),
+            ["qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            id="bare",
+        ),
+        pytest.param(
+            ("qsBay", "qsPea", "qsOwe"),
+            ["qsBay", "qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            id="after-bay",
+        ),
+        pytest.param(
+            ("qsTea", "qsPea", "qsOwe"),
+            ["qsTea", "qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            id="after-tea",
+        ),
+    ],
+)
+def test_qs_owe_after_pea_stays_left_only_at_word_end(parts: tuple[str, ...], expected: list[str]):
+    assert _shape_qs(*parts) == expected
 
 
 def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
-    chars = _char_map()
-
-    assert _shape(chars["qsPea"] + chars["qsOwe"] + chars["qsNo"]) == [
+    assert _shape_qs("qsPea", "qsOwe", "qsNo") == [
         "qsPea.half",
         "qsOwe.entry-xheight.exit-xheight.entry-extended",
         "qsNo",
@@ -395,14 +518,11 @@ def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
 
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
-    failures = _owe_terminal_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
+    _assert_no_failures(_owe_terminal_invariant_failures())
 
 
 def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
-    chars = _char_map()
-
-    assert _shape(chars["qsUtter"] + chars["qsPea"] + chars["qsAwe"]) == [
+    assert _shape_qs("qsUtter", "qsPea", "qsAwe") == [
         "qsUtter",
         "qsPea.half.entry-xheight.exit-xheight",
         "qsAwe.entry-extended",
@@ -410,9 +530,7 @@ def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right()
 
 
 def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right():
-    chars = _char_map()
-
-    assert _shape(chars["qsAh"] + chars["qsPea"] + chars["qsAwe"]) == [
+    assert _shape_qs("qsAh", "qsPea", "qsAwe") == [
         "qsAh",
         "qsPea.half",
         "qsAwe.entry-extended",
@@ -420,21 +538,18 @@ def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right()
 
 
 def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
-    failures = _middle_pea_xheight_left_gate_failures()
-    assert not failures, "\n".join(failures[:50])
+    _assert_no_failures(_middle_pea_xheight_left_gate_failures())
 
 
 def test_qs_ing_before_thaw_uses_triply_extended_exit():
-    chars = _char_map()
-
-    assert _shape(chars["qsIng"] + chars["qsThaw"]) == [
+    assert _shape_qs("qsIng", "qsThaw") == [
         "qsIng.exit-triply-extended",
         "qsThaw.after-ing",
     ]
 
 
 def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
-    glyphs = _shape("\uE653\u200C\uE670\uE65B\uE675\uE668")
+    glyphs = _shape_qs("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe")
 
     assert glyphs[0:2] == ["qsDay", "space"]
     assert glyphs[3:] == ["qsZoo", "qsI.exit-extended", "qsRoe"]
@@ -450,7 +565,7 @@ def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
 
 
 def test_qs_no_alt_selected_after_ox_before_fee():
-    glyphs = _shape("\uE678\uE666\uE658")
+    glyphs = _shape_qs("qsOx", "qsNo", "qsFee")
     meta = _compiled_meta()
     no_glyph = glyphs[1]
     no_meta = meta[no_glyph]
@@ -495,322 +610,98 @@ def _no_alt_selection_failures() -> list[str]:
 
 
 def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
-    failures = _no_alt_selection_failures()
-    assert not failures, "\n".join(failures[:50])
+    _assert_no_failures(_no_alt_selection_failures())
 
 
-def test_qs_pea_ye_do_not_connect():
-    assert _shape("\uE650\uE660") == [
-        "qsPea",
-        "qsYe",
-    ]
+@pytest.mark.parametrize(
+    ("parts", "expected"),
+    [
+        pytest.param(("qsPea", "qsYe"), ["qsPea", "qsYe"], id="pea-ye"),
+        pytest.param(("qsTea", "qsYe"), ["qsTea", "qsYe"], id="tea-ye"),
+        pytest.param(("qsThey", "qsYe"), ["qsThey", "qsYe"], id="they-ye"),
+        pytest.param(("qsWhy", "qsYe"), ["qsWhy", "qsYe"], id="why-ye"),
+        pytest.param(("qsWay", "qsYe"), ["qsWay", "qsYe"], id="way-ye"),
+        pytest.param(("qsHe", "qsYe"), ["qsHe", "qsYe"], id="he-ye"),
+        pytest.param(("qsIt", "qsYe"), ["qsIt", "qsYe"], id="it-ye"),
+        pytest.param(("qsYe", "qsIt"), ["qsYe", "qsIt"], id="ye-it"),
+        pytest.param(("qsYe", "qsSee"), ["qsYe", "qsSee.after-ye"], id="ye-see"),
+        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-ye"], id="ye-ing"),
+        pytest.param(("qsYe", "qsExcite"), ["qsYe", "qsExcite.after-ye"], id="ye-excite"),
+        pytest.param(("qsYe", "qsExam"), ["qsYe", "qsExam.after-ye"], id="ye-exam"),
+    ],
+)
+def test_qs_ye_sequences_keep_the_nonjoining_forms(
+    parts: tuple[str, ...],
+    expected: list[str],
+):
+    assert _shape_qs(*parts) == expected
 
 
-def test_qs_tea_ye_do_not_connect():
-    assert _shape("\uE652\uE660") == [
-        "qsTea",
-        "qsYe",
-    ]
-
-
-def test_qs_they_ye_do_not_connect():
-    assert _shape("\uE657\uE660") == [
-        "qsThey",
-        "qsYe",
-    ]
-
-
-def test_qs_why_ye_do_not_connect():
-    assert _shape("\uE663\uE660") == [
-        "qsWhy",
-        "qsYe",
-    ]
-
-
-def test_qs_way_ye_do_not_connect():
-    assert _shape("\uE661\uE660") == [
-        "qsWay",
-        "qsYe",
-    ]
-
-
-def test_qs_he_ye_do_not_connect():
-    assert _shape("\uE662\uE660") == [
-        "qsHe",
-        "qsYe",
-    ]
-
-
-def test_qs_it_ye_do_not_connect():
-    assert _shape("\uE670\uE660") == [
-        "qsIt",
-        "qsYe",
-    ]
-
-
-def test_qs_ye_it_do_not_connect():
-    assert _shape("\uE660\uE670") == [
-        "qsYe",
-        "qsIt",
-    ]
-
-
-def test_qs_ye_see_do_not_connect():
-    assert _shape("\uE660\uE65A") == [
-        "qsYe",
-        "qsSee.after-ye",
-    ]
-
-
-def test_qs_ye_ing_do_not_connect():
-    assert _shape("\uE660\uE664") == [
-        "qsYe",
-        "qsIng.after-ye",
-    ]
-
-
-def test_qs_ye_excite_do_not_connect():
-    assert _shape("\uE660\uE66B") == [
-        "qsYe",
-        "qsExcite.after-ye",
-    ]
-
-
-def test_qs_ye_exam_do_not_connect():
-    assert _shape("\uE660\uE66C") == [
-        "qsYe",
-        "qsExam.after-ye",
-    ]
-
-
-def test_qs_way_tea_do_not_connect():
-    glyphs = _shape("\uE661\uE652")
-    way_exits = _exit_ys(glyphs[0])
-    tea_entries = _entry_ys(glyphs[1])
-    assert not (way_exits & tea_entries), (
-        f"Way exits={sorted(way_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+@pytest.mark.parametrize(
+    ("left_base", "right_base"),
+    [
+        pytest.param("qsWay", "qsTea", id="way-tea"),
+        pytest.param("qsWhy", "qsTea", id="why-tea"),
+        pytest.param("qsOwe", "qsTea", id="owe-tea"),
+        pytest.param("qsTea", "qsOwe", id="tea-owe"),
+    ],
+)
+def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
+    glyphs = _shape_qs(left_base, right_base)
+    left_exits = _exit_ys(glyphs[0])
+    right_entries = _entry_ys(glyphs[1])
+    assert not (left_exits & right_entries), (
+        f"{left_base} exits={sorted(left_exits)} should not overlap "
+        f"{right_base} entries={sorted(right_entries)} in {glyphs}"
     )
 
 
-def test_qs_way_not_half_before_tea():
-    glyphs = _shape("\uE661\uE652")
-    meta = _compiled_meta()
-    way_meta = meta[glyphs[0]]
-    assert way_meta.base_name == "qsWay"
-    assert "half" not in way_meta.traits, (
-        f"Expected non-half Way before Tea, got {glyphs[0]}"
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsWay", id="way"),
+        pytest.param("qsWhy", id="why"),
+    ],
+)
+def test_qs_way_and_qs_why_stay_full_before_qs_tea(left_base: str):
+    glyphs = _shape_qs(left_base, "qsTea")
+    left_meta = _compiled_meta()[glyphs[0]]
+    assert left_meta.base_name == left_base
+    assert "half" not in left_meta.traits, (
+        f"Expected non-half {left_base} before Tea, got {glyphs[0]}"
     )
 
 
-def _way_tea_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    way = chars["qsWay"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for left_name, left_char in _plain_quikscript_letters():
-        for right_name, right_char in _plain_quikscript_letters():
-            text = left_char + way + tea + right_char
-            glyphs = _shape(text)
-            for index, glyph_name in enumerate(glyphs):
-                glyph_meta = meta_map.get(glyph_name)
-                if glyph_meta is None or glyph_meta.base_name != "qsWay":
-                    continue
-                label = f"{left_name} / qsWay / qsTea / {right_name}"
-                if "half" in glyph_meta.traits:
-                    failures.append(
-                        f"{label}: half-Way selected before Tea: {glyphs}"
-                    )
-                if index + 1 < len(glyphs):
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{label}: Way joins to next glyph {glyphs[index + 1]} "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def test_qs_way_tea_do_not_connect_in_context():
-    failures = _way_tea_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_why_tea_do_not_connect():
-    glyphs = _shape("\uE663\uE652")
-    why_exits = _exit_ys(glyphs[0])
-    tea_entries = _entry_ys(glyphs[1])
-    assert not (why_exits & tea_entries), (
-        f"Why exits={sorted(why_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsWay", id="way"),
+        pytest.param("qsWhy", id="why"),
+    ],
+)
+def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_qs_tea_in_context(left_base: str):
+    _assert_no_failures(
+        _collect_surrounded_nonjoining_pair_failures(
+            left_base,
+            "qsTea",
+            require_full_left=True,
+        )
     )
 
 
-def test_qs_why_not_half_before_tea():
-    glyphs = _shape("\uE663\uE652")
-    meta = _compiled_meta()
-    why_meta = meta[glyphs[0]]
-    assert why_meta.base_name == "qsWhy"
-    assert "half" not in why_meta.traits, (
-        f"Expected non-half Why before Tea, got {glyphs[0]}"
-    )
-
-
-def _why_tea_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    why = chars["qsWhy"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for left_name, left_char in _plain_quikscript_letters():
-        for right_name, right_char in _plain_quikscript_letters():
-            text = left_char + why + tea + right_char
-            glyphs = _shape(text)
-            for index, glyph_name in enumerate(glyphs):
-                glyph_meta = meta_map.get(glyph_name)
-                if glyph_meta is None or glyph_meta.base_name != "qsWhy":
-                    continue
-                label = f"{left_name} / qsWhy / qsTea / {right_name}"
-                if "half" in glyph_meta.traits:
-                    failures.append(
-                        f"{label}: half-Why selected before Tea: {glyphs}"
-                    )
-                if index + 1 < len(glyphs):
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{label}: Why joins to next glyph {glyphs[index + 1]} "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def test_qs_why_tea_do_not_connect_in_context():
-    failures = _why_tea_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_owe_tea_do_not_connect():
-    glyphs = _shape("\uE67C\uE652")
-    owe_exits = _exit_ys(glyphs[0])
-    tea_entries = _entry_ys(glyphs[1])
-    assert not (owe_exits & tea_entries), (
-        f"Owe exits={sorted(owe_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
-    )
-
-
-def test_qs_tea_owe_do_not_connect():
-    glyphs = _shape("\uE652\uE67C")
-    tea_exits = _exit_ys(glyphs[0])
-    owe_entries = _entry_ys(glyphs[1])
-    assert not (tea_exits & owe_entries), (
-        f"Tea exits={sorted(tea_exits)} should not overlap Owe entries={sorted(owe_entries)} in {glyphs}"
-    )
-
-
-def _owe_tea_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    owe = chars["qsOwe"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = owe + tea + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsOwe" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsOwe / qsTea / {right_name}: Owe joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + owe + tea
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsOwe" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsOwe / qsTea: Owe joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def _tea_owe_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    owe = chars["qsOwe"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = tea + owe + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsOwe":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsTea / qsOwe / {right_name}: Tea joins Owe "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + tea + owe
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsOwe":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsTea / qsOwe: Tea joins Owe "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def test_qs_owe_tea_do_not_connect_in_context():
-    failures = _owe_tea_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_tea_owe_do_not_connect_in_context():
-    failures = _tea_owe_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
+@pytest.mark.parametrize(
+    ("left_base", "right_base"),
+    [
+        pytest.param("qsOwe", "qsTea", id="owe-tea"),
+        pytest.param("qsTea", "qsOwe", id="tea-owe"),
+    ],
+)
+def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
+    _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
 
 
 def test_qs_excite_tea_connect_at_baseline():
-    glyphs = _shape("\uE66B\uE652")
+    glyphs = _shape_qs("qsExcite", "qsTea")
     excite_exits = _exit_ys(glyphs[0])
     tea_entries = _entry_ys(glyphs[1])
     assert 0 in (excite_exits & tea_entries), (
@@ -818,27 +709,28 @@ def test_qs_excite_tea_connect_at_baseline():
     )
 
 
-def test_qs_excite_tea_keeps_left_join_before_qs_ah():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsTea"])
-    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsAh"])
+@pytest.mark.parametrize(
+    "right_base",
+    [
+        pytest.param("qsAh", id="before-ah"),
+        pytest.param("qsAwe", id="before-awe"),
+    ],
+)
+def test_qs_excite_tea_keeps_left_join_when_the_follower_still_supports_it(right_base: str):
+    pair = _shape_qs("qsExcite", "qsTea")
+    triple = _shape_qs("qsExcite", "qsTea", right_base)
     assert _base_names(pair) == ("qsExcite", "qsTea")
     assert _base_names(triple[:2]) == ("qsExcite", "qsTea")
-    _assert_join_preserved("qsExcite / qsTea / qsAh", pair, triple, pair_index_in_triple=0)
-
-
-def test_qs_excite_tea_keeps_left_join_before_qs_awe():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsTea"])
-    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsAwe"])
-    assert _base_names(pair) == ("qsExcite", "qsTea")
-    assert _base_names(triple[:2]) == ("qsExcite", "qsTea")
-    _assert_join_preserved("qsExcite / qsTea / qsAwe", pair, triple, pair_index_in_triple=0)
+    _assert_join_preserved(
+        f"qsExcite / qsTea / {right_base}",
+        pair,
+        triple,
+        pair_index_in_triple=0,
+    )
 
 
 def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_ox():
-    chars = _char_map()
-    glyphs = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOx"])
+    glyphs = _shape_qs("qsExcite", "qsTea", "qsOx")
     assert _base_names(glyphs) == ("qsExcite", "qsTea", "qsOx")
     assert not _pair_join_ys(glyphs, 0)
     assert _pair_join_ys(glyphs, 1) == {5}
@@ -846,9 +738,8 @@ def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_ox():
 
 
 def test_qs_excite_tea_keeps_the_baseline_join_before_qs_tea():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsTea"])
-    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsTea"])
+    pair = _shape_qs("qsExcite", "qsTea")
+    triple = _shape_qs("qsExcite", "qsTea", "qsTea")
     assert _base_names(pair) == ("qsExcite", "qsTea")
     assert _base_names(triple) == ("qsExcite", "qsTea", "qsTea")
     _assert_join_preserved("qsExcite / qsTea / qsTea", pair, triple, pair_index_in_triple=0)
@@ -856,9 +747,8 @@ def test_qs_excite_tea_keeps_the_baseline_join_before_qs_tea():
 
 
 def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_out():
-    chars = _char_map()
-    pair = _shape(chars["qsTea"] + chars["qsOut"])
-    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOut"])
+    pair = _shape_qs("qsTea", "qsOut")
+    triple = _shape_qs("qsExcite", "qsTea", "qsOut")
     assert _base_names(pair) == ("qsTea", "qsOut")
     assert _base_names(triple) == ("qsExcite", "qsTea", "qsOut")
     assert triple[0] == "qsExcite"
@@ -868,89 +758,58 @@ def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_out():
 
 
 def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_oy():
-    chars = _char_map()
-    pair = _shape(chars["qsTea"] + chars["qsOy"])
-    triple = _shape(chars["qsExcite"] + chars["qsTea"] + chars["qsOy"])
+    pair = _shape_qs("qsTea", "qsOy")
+    triple = _shape_qs("qsExcite", "qsTea", "qsOy")
     assert pair == ["qsTea_qsOy"]
     assert triple == ["qsExcite", "qsTea_qsOy"]
     assert not _exit_ys(triple[0]), triple
 
 
-def test_qs_out_tea_prefers_the_ligature_before_qs_roe():
-    chars = _char_map()
-    pair = _shape(chars["qsOut"] + chars["qsTea"])
-    triple = _shape(chars["qsOut"] + chars["qsTea"] + chars["qsRoe"])
+@pytest.mark.parametrize(
+    "right_base",
+    [
+        pytest.param("qsRoe", id="before-roe"),
+        pytest.param("qsDay", id="before-day"),
+    ],
+)
+def test_qs_out_tea_prefers_the_ligature_before_nonjoining_followers(right_base: str):
+    pair = _shape_qs("qsOut", "qsTea")
+    triple = _shape_qs("qsOut", "qsTea", right_base)
     assert pair == ["qsOut_qsTea"]
-    assert triple == ["qsOut_qsTea", "qsRoe"]
-
-
-def test_qs_out_tea_does_not_let_qs_tea_choose_qs_day():
-    chars = _char_map()
-    pair = _shape(chars["qsOut"] + chars["qsTea"])
-    triple = _shape(chars["qsOut"] + chars["qsTea"] + chars["qsDay"])
-    assert pair == ["qsOut_qsTea"]
-    assert triple == ["qsOut_qsTea", "qsDay"]
-
-
-def test_qs_et_tea_does_not_keep_the_baseline_exit_before_qs_ah():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsAh"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsAh"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
-
-
-def test_qs_et_tea_does_not_keep_the_baseline_exit_before_qs_out():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsOut"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsOut"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+    assert triple == ["qsOut_qsTea", right_base]
 
 
 def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsOy"])
+    glyphs = _shape_qs("qsEt", "qsTea", "qsOy")
     assert glyphs == ["qsEt", "qsTea_qsOy"]
 
 
-def test_qs_et_tea_does_not_make_qs_may_reach_back_when_it_cannot_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsMay"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsMay"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
-
-
-def test_qs_et_tea_does_not_make_qs_ing_reach_back_when_it_cannot_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsIng"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsIng"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
-
-
-def test_qs_et_tea_does_not_make_qs_vie_reach_back_when_it_cannot_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsVie"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsVie"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
-
-
-def test_qs_et_tea_does_not_make_qs_day_choose_the_half_entry_form_without_a_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsDay"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsDay"]
+@pytest.mark.parametrize(
+    "right_base",
+    [
+        pytest.param("qsAh", id="before-ah"),
+        pytest.param("qsOut", id="before-out"),
+        pytest.param("qsMay", id="before-may"),
+        pytest.param("qsIng", id="before-ing"),
+        pytest.param("qsVie", id="before-vie"),
+        pytest.param("qsDay", id="before-day"),
+    ],
+)
+def test_qs_et_tea_keeps_only_the_left_baseline_join_in_plain_right_contexts(right_base: str):
+    glyphs = _shape_qs("qsEt", "qsTea", right_base)
+    assert glyphs == ["qsEt", "qsTea.entry-baseline", right_base]
     assert _pair_join_ys(glyphs, 0) == {0}
     assert not _pair_join_ys(glyphs, 1)
 
 
 def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
-    chars = _char_map()
-    glyphs = _shape_with_features(
-        chars["qsBay"] + chars["qsEt"] + chars["qsTea"] + chars["qsUtter"] + chars["qsRoe"],
-        (("ss05", True),),
+    glyphs = _shape_qs(
+        "qsBay",
+        "qsEt",
+        "qsTea",
+        "qsUtter",
+        "qsRoe",
+        features=_SS05_FEATURE,
     )
     assert glyphs == ["qsBay", "qsEt", "qsTea.entry-baseline.exit-baseline", "qsUtter", "qsRoe"]
     assert not _pair_join_ys(glyphs, 0)
@@ -960,8 +819,7 @@ def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
 
 
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
-    chars = _char_map()
-    glyphs = _shape(chars["qsIt"] + chars["qsExcite"] + chars["qsTea"] + chars["qsIt"])
+    glyphs = _shape_qs("qsIt", "qsExcite", "qsTea", "qsIt")
     assert _base_names(glyphs) == ("qsIt", "qsExcite", "qsTea", "qsIt")
     assert _pair_join_ys(glyphs, 0) == {0}
     assert not _pair_join_ys(glyphs, 1)
@@ -969,268 +827,58 @@ def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
     assert "half" in _compiled_meta()[glyphs[2]].traits, glyphs
 
 
-def test_qs_tea_excite_keeps_right_join_to_qs_ah():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsAh"])
-    triple = _shape(chars["qsTea"] + chars["qsExcite"] + chars["qsAh"])
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsTea", id="tea"),
+        pytest.param("qsPea", id="pea"),
+        pytest.param("qsYe", id="ye"),
+    ],
+)
+def test_nonjoining_left_context_preserves_qs_excite_qs_ah_join(left_base: str):
+    pair = _shape_qs("qsExcite", "qsAh")
+    triple = _shape_qs(left_base, "qsExcite", "qsAh")
     assert _base_names(pair) == ("qsExcite", "qsAh")
     assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
     assert not _pair_join_ys(triple, 0)
-    _assert_join_preserved("qsTea / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
-
-
-def test_qs_pea_excite_keeps_right_join_to_qs_ah():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsAh"])
-    triple = _shape(chars["qsPea"] + chars["qsExcite"] + chars["qsAh"])
-    assert _base_names(pair) == ("qsExcite", "qsAh")
-    assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
-    assert not _pair_join_ys(triple, 0)
-    _assert_join_preserved("qsPea / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
-
-
-def test_qs_ye_excite_keeps_right_join_to_qs_ah():
-    chars = _char_map()
-    pair = _shape(chars["qsExcite"] + chars["qsAh"])
-    triple = _shape(chars["qsYe"] + chars["qsExcite"] + chars["qsAh"])
-    assert _base_names(pair) == ("qsExcite", "qsAh")
-    assert _base_names(triple[1:]) == ("qsExcite", "qsAh")
-    assert not _pair_join_ys(triple, 0)
-    _assert_join_preserved("qsYe / qsExcite / qsAh", pair, triple, pair_index_in_triple=1)
-
-
-def test_qs_tea_excite_do_not_connect():
-    glyphs = _shape("\uE652\uE66B")
-    tea_exits = _exit_ys(glyphs[0])
-    excite_entries = _entry_ys(glyphs[1])
-    assert not (tea_exits & excite_entries), (
-        f"Tea exits={sorted(tea_exits)} should not overlap Excite entries={sorted(excite_entries)} in {glyphs}"
+    _assert_join_preserved(
+        f"{left_base} / qsExcite / qsAh",
+        pair,
+        triple,
+        pair_index_in_triple=1,
     )
 
 
-def test_qs_exam_tea_do_not_connect():
-    glyphs = _shape("\uE66C\uE652")
-    exam_exits = _exit_ys(glyphs[0])
-    tea_entries = _entry_ys(glyphs[1])
-    assert not (exam_exits & tea_entries), (
-        f"Exam exits={sorted(exam_exits)} should not overlap Tea entries={sorted(tea_entries)} in {glyphs}"
+@pytest.mark.parametrize(
+    ("left_base", "right_base"),
+    [
+        pytest.param("qsTea", "qsExcite", id="tea-excite"),
+        pytest.param("qsExam", "qsTea", id="exam-tea"),
+        pytest.param("qsTea", "qsExam", id="tea-exam"),
+        pytest.param("qsTea", "qsThaw", id="tea-thaw"),
+    ],
+)
+def test_qs_nonjoining_pairs_keep_their_edges_separate(left_base: str, right_base: str):
+    glyphs = _shape_qs(left_base, right_base)
+    left_exits = _exit_ys(glyphs[0])
+    right_entries = _entry_ys(glyphs[1])
+    assert not (left_exits & right_entries), (
+        f"{left_base} exits={sorted(left_exits)} should not overlap "
+        f"{right_base} entries={sorted(right_entries)} in {glyphs}"
     )
 
 
-def test_qs_tea_exam_do_not_connect():
-    glyphs = _shape("\uE652\uE66C")
-    tea_exits = _exit_ys(glyphs[0])
-    exam_entries = _entry_ys(glyphs[1])
-    assert not (tea_exits & exam_entries), (
-        f"Tea exits={sorted(tea_exits)} should not overlap Exam entries={sorted(exam_entries)} in {glyphs}"
-    )
-
-
-
-
-def _tea_excite_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    excite = chars["qsExcite"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = tea + excite + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsExcite":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsTea / qsExcite / {right_name}: Tea joins Excite "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + tea + excite
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsExcite":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsTea / qsExcite: Tea joins Excite "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def _exam_tea_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    exam = chars["qsExam"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = exam + tea + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsExam" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsExam / qsTea / {right_name}: Exam joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + exam + tea
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsExam" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsTea":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsExam / qsTea: Exam joins Tea "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def _tea_exam_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    exam = chars["qsExam"]
-    tea = chars["qsTea"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = tea + exam + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsExam":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsTea / qsExam / {right_name}: Tea joins Exam "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + tea + exam
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsExam":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsTea / qsExam: Tea joins Exam "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def test_qs_tea_excite_do_not_connect_in_context():
-    failures = _tea_excite_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_exam_tea_do_not_connect_in_context():
-    failures = _exam_tea_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_tea_exam_do_not_connect_in_context():
-    failures = _tea_exam_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def test_qs_tea_thaw_do_not_connect():
-    glyphs = _shape("\uE652\uE656")
-    tea_exits = _exit_ys(glyphs[0])
-    thaw_entries = _entry_ys(glyphs[1])
-    assert not (tea_exits & thaw_entries), (
-        f"Tea exits={sorted(tea_exits)} should not overlap Thaw entries={sorted(thaw_entries)} in {glyphs}"
-    )
-
-
-def _tea_thaw_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    tea = chars["qsTea"]
-    thaw = chars["qsThaw"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = tea + thaw + right_char
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsThaw":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"qsTea / qsThaw / {right_name}: Tea joins Thaw "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + tea + thaw
-        glyphs = _shape(text)
-        for index, glyph_name in enumerate(glyphs):
-            glyph_meta = meta_map.get(glyph_name)
-            if glyph_meta is None:
-                continue
-            if glyph_meta.base_name == "qsTea" and index + 1 < len(glyphs):
-                next_meta = meta_map.get(glyphs[index + 1])
-                if next_meta and next_meta.base_name == "qsThaw":
-                    common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
-                    if common:
-                        failures.append(
-                            f"{left_name} / qsTea / qsThaw: Tea joins Thaw "
-                            f"at Y={sorted(common)} in {glyphs}"
-                        )
-
-    return failures
-
-
-def test_qs_tea_thaw_do_not_connect_in_context():
-    failures = _tea_thaw_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
+@pytest.mark.parametrize(
+    ("left_base", "right_base"),
+    [
+        pytest.param("qsTea", "qsExcite", id="tea-excite"),
+        pytest.param("qsExam", "qsTea", id="exam-tea"),
+        pytest.param("qsTea", "qsExam", id="tea-exam"),
+        pytest.param("qsTea", "qsThaw", id="tea-thaw"),
+    ],
+)
+def test_qs_nonjoining_pairs_stay_nonjoining_in_context(left_base: str, right_base: str):
+    _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
 
 
 def _excite_nonjoining_left_context_preserves_right_join_failures() -> list[str]:
@@ -1755,10 +1403,6 @@ def test_qs_owe_day_eat_ligature_does_not_connect():
     failures = _owe_day_failures_in(glyphs, "qsOwe / qsDay / qsEat")
     assert not failures, "\n".join(failures)
 
-
-_SS07_FEATURE = (("ss07", True),)
-
-
 def _owe_day_joins_at_y5_in(glyphs: list[str], label: str) -> list[str]:
     """Return failures for positions where Owe should join a Day-base at Y=5 but doesn't."""
     failures: list[str] = []
@@ -1845,86 +1489,180 @@ def test_qs_owe_day_eat_ligature_connects_under_ss07():
     assert not failures, "\n".join(failures)
 
 
-def test_qs_gay_before_it_extends_exit():
-    chars = _char_map()
-    assert _shape(chars["qsGay"] + chars["qsIt"]) == [
-        "qsGay.exit-baseline.exit-extended",
-        "qsIt.entry-baseline",
-    ]
-
-
-_GAY_IT_LEADERS = (
+_GAY_CONTEXTS = (
     "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
     "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
     "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
 )
 
+_GAY_JOINING_PAIR_CASES = (
+    pytest.param(
+        "qsTea",
+        ["qsGay.exit-baseline.exit-extended", "qsTea.entry-baseline"],
+        id="tea",
+    ),
+    pytest.param(
+        "qsIt",
+        ["qsGay.exit-baseline.exit-extended", "qsIt.entry-baseline"],
+        id="it",
+    ),
+    pytest.param(
+        "qsI",
+        ["qsGay.exit-baseline.exit-extended", "qsI"],
+        id="i",
+    ),
+    pytest.param(
+        "qsExam",
+        ["qsGay.exit-baseline.exit-extended", "qsExam"],
+        id="exam",
+    ),
+)
 
-def test_qs_gay_before_it_stays_extended_in_any_leading_context():
-    chars = _char_map()
-    failures: list[str] = []
-    for leader in _GAY_IT_LEADERS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsIt"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(f"{leader} + qsGay + qsIt: no qsGay glyph found ({glyphs!r})")
-            continue
-        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"{leader} + qsGay + qsIt: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[gay_index]} (full: {glyphs!r})"
-            )
-            continue
-        if glyphs[gay_index + 1] != "qsIt.entry-baseline":
-            failures.append(
-                f"{leader} + qsGay + qsIt: expected qsIt.entry-baseline after qsGay, "
-                f"got {glyphs[gay_index + 1]} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
+_GAY_CONTEXT_JOIN_CASES = (
+    pytest.param("qsIt", "qsIt.entry-baseline", id="it"),
+    pytest.param("qsI", None, id="i"),
+    pytest.param("qsExam", None, id="exam"),
+)
 
+_GAY_CONTEXT_JOIN_TARGETS = (
+    pytest.param("qsIt", id="it"),
+    pytest.param("qsI", id="i"),
+    pytest.param("qsExam", id="exam"),
+)
 
-_GAY_IT_FOLLOWERS = (
-    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
-    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
-    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+_GAY_NONJOINING_TARGETS = (
+    pytest.param("qsExcite", id="excite"),
+    pytest.param("qsOoze", id="ooze"),
+)
+
+_GAY_BASELINE_EXTENDED_TARGETS = (
+    pytest.param("qsTea", id="tea"),
+    pytest.param("qsIt", id="it"),
+    pytest.param("qsI", id="i"),
+    pytest.param("qsExam", id="exam"),
 )
 
 
-def test_qs_gay_before_it_stays_extended_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
+def _append_gay_joining_context_failures(
+    failures: list[str],
+    label: str,
+    glyphs: list[str],
+    target_base: str,
+    *,
+    expected_target_glyph: str | None = None,
+) -> None:
+    gay_index = _find_base_index(glyphs, "qsGay")
+    if gay_index is None:
+        failures.append(f"{label}: no qsGay glyph found ({glyphs!r})")
+        return
+    if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+        failures.append(
+            f"{label}: expected qsGay.exit-baseline.exit-extended, "
+            f"got {glyphs[gay_index]} (full: {glyphs!r})"
+        )
+        return
+    if gay_index + 1 >= len(glyphs):
+        failures.append(f"{label}: {target_base} did not follow qsGay ({glyphs!r})")
+        return
+
+    target_name = glyphs[gay_index + 1]
+    target_meta = _compiled_meta().get(target_name)
+    if target_meta is None or target_meta.base_name != target_base:
+        failures.append(f"{label}: {target_base} did not follow qsGay ({glyphs!r})")
+        return
+
+    if expected_target_glyph is not None and target_name != expected_target_glyph:
+        failures.append(
+            f"{label}: expected {expected_target_glyph} after qsGay, "
+            f"got {target_name} (full: {glyphs!r})"
+        )
+
+    entry_ys = _entry_ys(target_name)
+    if entry_ys and 0 not in entry_ys:
+        failures.append(
+            f"{label}: {target_base} ({target_name}) has an entry anchor but "
+            f"not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
+        )
+
+
+def _append_gay_nonjoining_context_failures(
+    failures: list[str],
+    label: str,
+    glyphs: list[str],
+    target_base: str,
+) -> None:
+    gay_index = _find_base_index(glyphs, "qsGay")
+    if gay_index is None:
+        failures.append(f"{label}: no qsGay glyph found ({glyphs!r})")
+        return
+    if gay_index + 1 >= len(glyphs):
+        failures.append(f"{label}: {target_base} did not follow qsGay ({glyphs!r})")
+        return
+
+    target_name = glyphs[gay_index + 1]
+    target_meta = _compiled_meta().get(target_name)
+    if target_meta is None or target_meta.base_name != target_base:
+        failures.append(f"{label}: {target_base} did not follow qsGay ({glyphs!r})")
+        return
+
+    shared = _exit_ys(glyphs[gay_index]) & _entry_ys(target_name)
+    if shared:
+        failures.append(
+            f"{label}: qsGay ({glyphs[gay_index]}) and {target_base} ({target_name}) "
+            f"share y={shared}; should not join (full: {glyphs!r})"
+        )
+
+
+@pytest.mark.parametrize(("target_base", "expected"), _GAY_JOINING_PAIR_CASES)
+def test_qs_gay_extends_before_selected_targets(target_base: str, expected: list[str]):
+    assert _shape_qs("qsGay", target_base) == expected
+
+
+@pytest.mark.parametrize(
+    ("target_base", "expected_target_glyph"),
+    _GAY_CONTEXT_JOIN_CASES,
+)
+def test_qs_gay_joining_targets_keep_extension_in_any_leading_context(
+    target_base: str,
+    expected_target_glyph: str | None,
+):
     failures: list[str] = []
-    for follower in _GAY_IT_FOLLOWERS:
-        glyphs = _shape(chars["qsGay"] + chars["qsIt"] + chars[follower])
-        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"qsGay + qsIt + {follower}: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[0]} (full: {glyphs!r})"
-            )
-            continue
-        it_meta = meta[glyphs[1]]
-        it_entry = {anchor[1] for anchor in (*it_meta.entry, *it_meta.entry_curs_only)}
-        if it_entry and 0 not in it_entry:
-            failures.append(
-                f"qsGay + qsIt + {follower}: qsIt ({glyphs[1]}) has an entry anchor but "
-                f"not at baseline; entry_ys={it_entry} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
+    for leader in _GAY_CONTEXTS:
+        glyphs = _shape_qs(leader, "qsGay", target_base)
+        _append_gay_joining_context_failures(
+            failures,
+            f"{leader} + qsGay + {target_base}",
+            glyphs,
+            target_base,
+            expected_target_glyph=expected_target_glyph,
+        )
+    _assert_no_failures(failures, limit=None)
 
 
-def test_qs_gay_it_join_anchors_match_after_extension():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsIt"])
+@pytest.mark.parametrize("target_base", _GAY_CONTEXT_JOIN_TARGETS)
+def test_qs_gay_joining_targets_keep_extension_in_any_trailing_context(target_base: str):
+    failures: list[str] = []
+    for follower in _GAY_CONTEXTS:
+        glyphs = _shape_qs("qsGay", target_base, follower)
+        _append_gay_joining_context_failures(
+            failures,
+            f"qsGay + {target_base} + {follower}",
+            glyphs,
+            target_base,
+        )
+    _assert_no_failures(failures, limit=None)
+
+
+@pytest.mark.parametrize("target_base", _GAY_CONTEXT_JOIN_TARGETS)
+def test_qs_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
+    glyphs = _shape_qs("qsGay", target_base)
     meta = _compiled_meta()
     gay = meta[glyphs[0]]
-    it = meta[glyphs[1]]
+    target = meta[glyphs[1]]
     gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    it_entry_ys = {anchor[1] for anchor in (*it.entry, *it.entry_curs_only)}
-    assert gay_exit_ys & it_entry_ys, (
-        f"qsGay.exit {gay.exit} and qsIt.entry {it.entry} share no y-coordinate"
+    target_entry_ys = {anchor[1] for anchor in (*target.entry, *target.entry_curs_only)}
+    assert gay_exit_ys & target_entry_ys, (
+        f"qsGay.exit {gay.exit} and {target_base}.entry {target.entry} share no y-coordinate"
     )
     assert gay.exit == ((7, 0),), (
         f"qsGay exit anchor should be shifted one pixel right by the extension, "
@@ -1932,14 +1670,15 @@ def test_qs_gay_it_join_anchors_match_after_extension():
     )
 
 
-def test_qs_gay_exit_baseline_extended_targets_include_tea_and_it():
+@pytest.mark.parametrize("target_base", _GAY_BASELINE_EXTENDED_TARGETS)
+def test_qs_gay_exit_baseline_extended_targets_include_joining_followers(target_base):
     meta = _compiled_meta()
     variant = meta["qsGay.exit-baseline.exit-extended"]
     assert variant.exit == ((7, 0),), (
         f"qsGay.exit-baseline.exit-extended should exit at x=7, y=0; got {variant.exit}"
     )
-    assert {"qsTea", "qsIt"}.issubset(set(variant.before)), (
-        f"qsGay.exit-baseline.exit-extended should name qsTea and qsIt in `before`; "
+    assert target_base in set(variant.before), (
+        f"qsGay.exit-baseline.exit-extended should name {target_base} in `before`; "
         f"got {variant.before}"
     )
 
@@ -1956,363 +1695,51 @@ def test_qs_gay_exit_xheight_extended_exists_for_it():
     )
 
 
-def test_qs_gay_before_tea_still_extends_exit():
-    chars = _char_map()
-    assert _shape(chars["qsGay"] + chars["qsTea"]) == [
-        "qsGay.exit-baseline.exit-extended",
-        "qsTea.entry-baseline",
-    ]
+@pytest.mark.parametrize("target_base", _GAY_NONJOINING_TARGETS)
+def test_qs_gay_nonjoining_targets_do_not_join(target_base):
+    glyphs = _shape_qs("qsGay", target_base)
+    assert glyphs == ["qsGay", target_base], (
+        f"qsGay + {target_base} should render without a join; got {glyphs!r}"
+    )
+    assert not _pair_join_ys(glyphs, 0), (
+        f"qsGay ({glyphs[0]}) and {target_base} ({glyphs[1]}) must not share a join y; "
+        f"gay exit ys={_exit_ys(glyphs[0])}, {target_base} entry ys={_entry_ys(glyphs[1])}"
+    )
 
 
-def test_qs_gay_before_i_extends_exit():
-    chars = _char_map()
-    assert _shape(chars["qsGay"] + chars["qsI"]) == [
-        "qsGay.exit-baseline.exit-extended",
-        "qsI",
-    ]
-
-
-_GAY_I_LEADERS = (
-    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
-    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
-    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
-)
-
-
-def test_qs_gay_before_i_stays_extended_in_any_leading_context():
-    chars = _char_map()
+@pytest.mark.parametrize("target_base", _GAY_NONJOINING_TARGETS)
+def test_qs_gay_nonjoining_targets_do_not_join_in_any_leading_context(target_base):
     failures: list[str] = []
-    for leader in _GAY_I_LEADERS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsI"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(f"{leader} + qsGay + qsI: no qsGay glyph found ({glyphs!r})")
-            continue
-        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"{leader} + qsGay + qsI: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[gay_index]} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
+    for leader in _GAY_CONTEXTS:
+        glyphs = _shape_qs(leader, "qsGay", target_base)
+        _append_gay_nonjoining_context_failures(
+            failures,
+            f"{leader} + qsGay + {target_base}",
+            glyphs,
+            target_base,
+        )
+    _assert_no_failures(failures, limit=None)
 
 
-_GAY_I_FOLLOWERS = (
-    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
-    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
-    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
-)
-
-
-def test_qs_gay_before_i_stays_extended_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
+@pytest.mark.parametrize("target_base", _GAY_NONJOINING_TARGETS)
+def test_qs_gay_nonjoining_targets_do_not_join_in_any_trailing_context(target_base):
     failures: list[str] = []
-    for follower in _GAY_I_FOLLOWERS:
-        glyphs = _shape(chars["qsGay"] + chars["qsI"] + chars[follower])
-        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"qsGay + qsI + {follower}: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[0]} (full: {glyphs!r})"
-            )
-            continue
-        i_meta = meta[glyphs[1]]
-        i_entry = {anchor[1] for anchor in (*i_meta.entry, *i_meta.entry_curs_only)}
-        if i_entry and 0 not in i_entry:
-            failures.append(
-                f"qsGay + qsI + {follower}: qsI ({glyphs[1]}) has an entry anchor but "
-                f"not at baseline; entry_ys={i_entry} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
+    for follower in _GAY_CONTEXTS:
+        glyphs = _shape_qs("qsGay", target_base, follower)
+        _append_gay_nonjoining_context_failures(
+            failures,
+            f"qsGay + {target_base} + {follower}",
+            glyphs,
+            target_base,
+        )
+    _assert_no_failures(failures, limit=None)
 
 
-def test_qs_gay_i_join_anchors_match_after_extension():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsI"])
-    meta = _compiled_meta()
-    gay = meta[glyphs[0]]
-    i = meta[glyphs[1]]
-    gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    i_entry_ys = {anchor[1] for anchor in (*i.entry, *i.entry_curs_only)}
-    assert gay_exit_ys & i_entry_ys, (
-        f"qsGay.exit {gay.exit} and qsI.entry {i.entry} share no y-coordinate"
-    )
-    assert gay.exit == ((7, 0),), (
-        f"qsGay exit anchor should be shifted one pixel right by the extension, "
-        f"got {gay.exit}"
-    )
-
-
-def test_qs_gay_exit_baseline_extended_targets_include_tea_it_and_i():
-    meta = _compiled_meta()
-    variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert variant.exit == ((7, 0),), (
-        f"qsGay.exit-baseline.exit-extended should exit at x=7, y=0; got {variant.exit}"
-    )
-    assert {"qsTea", "qsIt", "qsI"}.issubset(set(variant.before)), (
-        f"qsGay.exit-baseline.exit-extended should name qsTea, qsIt, and qsI in `before`; "
-        f"got {variant.before}"
-    )
-
-
-def test_qs_gay_before_exam_extends_exit():
-    chars = _char_map()
-    assert _shape(chars["qsGay"] + chars["qsExam"]) == [
-        "qsGay.exit-baseline.exit-extended",
-        "qsExam",
-    ]
-
-
-_GAY_EXAM_CONTEXTS = (
-    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
-    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
-    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
-)
-
-
-def test_qs_gay_before_exam_stays_extended_in_any_leading_context():
-    chars = _char_map()
-    failures: list[str] = []
-    for leader in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExam"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(
-                f"{leader} + qsGay + qsExam: no qsGay glyph found ({glyphs!r})"
-            )
-            continue
-        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"{leader} + qsGay + qsExam: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[gay_index]} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_before_exam_stays_extended_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for follower in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars["qsGay"] + chars["qsExam"] + chars[follower])
-        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"qsGay + qsExam + {follower}: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[0]} (full: {glyphs!r})"
-            )
-            continue
-        exam_meta = meta[glyphs[1]]
-        entry_ys = {
-            anchor[1] for anchor in (*exam_meta.entry, *exam_meta.entry_curs_only)
-        }
-        if entry_ys and 0 not in entry_ys:
-            failures.append(
-                f"qsGay + qsExam + {follower}: qsExam ({glyphs[1]}) has an entry "
-                f"anchor but not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_exam_join_anchors_match_after_extension():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsExam"])
-    meta = _compiled_meta()
-    gay = meta[glyphs[0]]
-    exam = meta[glyphs[1]]
-    gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    exam_entry_ys = {anchor[1] for anchor in (*exam.entry, *exam.entry_curs_only)}
-    assert gay_exit_ys & exam_entry_ys, (
-        f"qsGay.exit {gay.exit} and qsExam.entry {exam.entry} share no y-coordinate"
-    )
-    assert gay.exit == ((7, 0),), (
-        f"qsGay exit anchor should be shifted one pixel right by the extension, "
-        f"got {gay.exit}"
-    )
-
-
-def test_qs_gay_exit_baseline_extended_targets_include_exam():
-    meta = _compiled_meta()
-    variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert "qsExam" in set(variant.before), (
-        f"qsGay.exit-baseline.exit-extended should name qsExam in `before`; "
-        f"got {variant.before}"
-    )
-
-
-def test_qs_gay_before_excite_does_not_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsExcite"])
-    assert glyphs == ["qsGay", "qsExcite"], (
-        f"qsGay + qsExcite should render without a join; got {glyphs!r}"
-    )
-    meta = _compiled_meta()
-    gay = meta[glyphs[0]]
-    excite = meta[glyphs[1]]
-    gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    excite_entry_ys = {
-        anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
-    }
-    assert not (gay_exit_ys & excite_entry_ys), (
-        f"qsGay ({glyphs[0]}) and qsExcite ({glyphs[1]}) must not share a join y; "
-        f"gay exit ys={gay_exit_ys}, excite entry ys={excite_entry_ys}"
-    )
-
-
-def test_qs_gay_before_excite_does_not_join_in_any_leading_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for leader in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExcite"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(
-                f"{leader} + qsGay + qsExcite: no qsGay glyph found ({glyphs!r})"
-            )
-            continue
-        if gay_index + 1 >= len(glyphs) or not glyphs[gay_index + 1].startswith(
-            "qsExcite"
-        ):
-            failures.append(
-                f"{leader} + qsGay + qsExcite: qsExcite did not follow qsGay ({glyphs!r})"
-            )
-            continue
-        gay = meta[glyphs[gay_index]]
-        excite = meta[glyphs[gay_index + 1]]
-        shared = {anchor[1] for anchor in gay.exit} & {
-            anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
-        }
-        if shared:
-            failures.append(
-                f"{leader} + qsGay + qsExcite: qsGay ({glyphs[gay_index]}) and qsExcite "
-                f"({glyphs[gay_index + 1]}) share y={shared}; should not join (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_before_excite_does_not_join_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for follower in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars["qsGay"] + chars["qsExcite"] + chars[follower])
-        if not glyphs[0].startswith("qsGay") or not glyphs[1].startswith("qsExcite"):
-            failures.append(
-                f"qsGay + qsExcite + {follower}: unexpected leading sequence ({glyphs!r})"
-            )
-            continue
-        gay = meta[glyphs[0]]
-        excite = meta[glyphs[1]]
-        shared = {anchor[1] for anchor in gay.exit} & {
-            anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
-        }
-        if shared:
-            failures.append(
-                f"qsGay + qsExcite + {follower}: qsGay ({glyphs[0]}) and qsExcite "
-                f"({glyphs[1]}) share y={shared}; should not join (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_extended_variants_exclude_excite():
+@pytest.mark.parametrize("target_base", _GAY_NONJOINING_TARGETS)
+def test_qs_gay_extended_variants_exclude_nonjoining_targets(target_base):
     meta = _compiled_meta()
     for name, variant in meta.items():
         if name.startswith("qsGay") and "exit-extended" in name:
-            assert "qsExcite" not in set(variant.before), (
-                f"{name}.before should not include qsExcite; got {variant.before}"
-            )
-
-
-def test_qs_gay_before_ooze_does_not_join():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsOoze"])
-    assert glyphs == ["qsGay", "qsOoze"], (
-        f"qsGay + qsOoze should render without a join; got {glyphs!r}"
-    )
-    meta = _compiled_meta()
-    gay = meta[glyphs[0]]
-    ooze = meta[glyphs[1]]
-    gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    ooze_entry_ys = {
-        anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
-    }
-    assert not (gay_exit_ys & ooze_entry_ys), (
-        f"qsGay ({glyphs[0]}) and qsOoze ({glyphs[1]}) must not share a join y; "
-        f"gay exit ys={gay_exit_ys}, ooze entry ys={ooze_entry_ys}"
-    )
-
-
-def test_qs_gay_before_ooze_does_not_join_in_any_leading_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for leader in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsOoze"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(
-                f"{leader} + qsGay + qsOoze: no qsGay glyph found ({glyphs!r})"
-            )
-            continue
-        if gay_index + 1 >= len(glyphs) or not glyphs[gay_index + 1].startswith(
-            "qsOoze"
-        ):
-            failures.append(
-                f"{leader} + qsGay + qsOoze: qsOoze did not follow qsGay ({glyphs!r})"
-            )
-            continue
-        gay = meta[glyphs[gay_index]]
-        ooze = meta[glyphs[gay_index + 1]]
-        shared = {anchor[1] for anchor in gay.exit} & {
-            anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
-        }
-        if shared:
-            failures.append(
-                f"{leader} + qsGay + qsOoze: qsGay ({glyphs[gay_index]}) and qsOoze "
-                f"({glyphs[gay_index + 1]}) share y={shared}; should not join (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_before_ooze_does_not_join_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for follower in _GAY_EXAM_CONTEXTS:
-        glyphs = _shape(chars["qsGay"] + chars["qsOoze"] + chars[follower])
-        if not glyphs[0].startswith("qsGay") or not glyphs[1].startswith("qsOoze"):
-            failures.append(
-                f"qsGay + qsOoze + {follower}: unexpected leading sequence ({glyphs!r})"
-            )
-            continue
-        gay = meta[glyphs[0]]
-        ooze = meta[glyphs[1]]
-        shared = {anchor[1] for anchor in gay.exit} & {
-            anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
-        }
-        if shared:
-            failures.append(
-                f"qsGay + qsOoze + {follower}: qsGay ({glyphs[0]}) and qsOoze "
-                f"({glyphs[1]}) share y={shared}; should not join (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
-def test_qs_gay_extended_variants_exclude_ooze():
-    meta = _compiled_meta()
-    for name, variant in meta.items():
-        if name.startswith("qsGay") and "exit-extended" in name:
-            assert "qsOoze" not in set(variant.before), (
-                f"{name}.before should not include qsOoze; got {variant.before}"
+            assert target_base not in set(variant.before), (
+                f"{name}.before should not include {target_base}; got {variant.before}"
             )
