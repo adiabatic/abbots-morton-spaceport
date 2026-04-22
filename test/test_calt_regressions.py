@@ -2057,14 +2057,6 @@ def test_qs_gay_exit_baseline_extended_targets_include_tea_it_and_i():
     )
 
 
-def test_qs_gay_before_excite_extends_exit():
-    chars = _char_map()
-    assert _shape(chars["qsGay"] + chars["qsExcite"]) == [
-        "qsGay.exit-baseline.exit-extended",
-        "qsExcite",
-    ]
-
-
 def test_qs_gay_before_exam_extends_exit():
     chars = _char_map()
     assert _shape(chars["qsGay"] + chars["qsExam"]) == [
@@ -2073,39 +2065,17 @@ def test_qs_gay_before_exam_extends_exit():
     ]
 
 
-_GAY_EXCITE_EXAM_LEADERS = (
+_GAY_EXAM_CONTEXTS = (
     "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
     "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
     "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
 )
 
 
-def test_qs_gay_before_excite_stays_extended_in_any_leading_context():
-    chars = _char_map()
-    failures: list[str] = []
-    for leader in _GAY_EXCITE_EXAM_LEADERS:
-        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExcite"])
-        try:
-            gay_index = next(
-                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
-            )
-        except StopIteration:
-            failures.append(
-                f"{leader} + qsGay + qsExcite: no qsGay glyph found ({glyphs!r})"
-            )
-            continue
-        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"{leader} + qsGay + qsExcite: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[gay_index]} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
 def test_qs_gay_before_exam_stays_extended_in_any_leading_context():
     chars = _char_map()
     failures: list[str] = []
-    for leader in _GAY_EXCITE_EXAM_LEADERS:
+    for leader in _GAY_EXAM_CONTEXTS:
         glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExam"])
         try:
             gay_index = next(
@@ -2124,35 +2094,11 @@ def test_qs_gay_before_exam_stays_extended_in_any_leading_context():
     assert not failures, "\n".join(failures)
 
 
-def test_qs_gay_before_excite_stays_extended_in_any_trailing_context():
-    chars = _char_map()
-    meta = _compiled_meta()
-    failures: list[str] = []
-    for follower in _GAY_EXCITE_EXAM_LEADERS:
-        glyphs = _shape(chars["qsGay"] + chars["qsExcite"] + chars[follower])
-        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
-            failures.append(
-                f"qsGay + qsExcite + {follower}: expected qsGay.exit-baseline.exit-extended, "
-                f"got {glyphs[0]} (full: {glyphs!r})"
-            )
-            continue
-        excite_meta = meta[glyphs[1]]
-        entry_ys = {
-            anchor[1] for anchor in (*excite_meta.entry, *excite_meta.entry_curs_only)
-        }
-        if entry_ys and 0 not in entry_ys:
-            failures.append(
-                f"qsGay + qsExcite + {follower}: qsExcite ({glyphs[1]}) has an entry "
-                f"anchor but not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
-            )
-    assert not failures, "\n".join(failures)
-
-
 def test_qs_gay_before_exam_stays_extended_in_any_trailing_context():
     chars = _char_map()
     meta = _compiled_meta()
     failures: list[str] = []
-    for follower in _GAY_EXCITE_EXAM_LEADERS:
+    for follower in _GAY_EXAM_CONTEXTS:
         glyphs = _shape(chars["qsGay"] + chars["qsExam"] + chars[follower])
         if glyphs[0] != "qsGay.exit-baseline.exit-extended":
             failures.append(
@@ -2172,25 +2118,6 @@ def test_qs_gay_before_exam_stays_extended_in_any_trailing_context():
     assert not failures, "\n".join(failures)
 
 
-def test_qs_gay_excite_join_anchors_match_after_extension():
-    chars = _char_map()
-    glyphs = _shape(chars["qsGay"] + chars["qsExcite"])
-    meta = _compiled_meta()
-    gay = meta[glyphs[0]]
-    excite = meta[glyphs[1]]
-    gay_exit_ys = {anchor[1] for anchor in gay.exit}
-    excite_entry_ys = {
-        anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
-    }
-    assert gay_exit_ys & excite_entry_ys, (
-        f"qsGay.exit {gay.exit} and qsExcite.entry {excite.entry} share no y-coordinate"
-    )
-    assert gay.exit == ((7, 0),), (
-        f"qsGay exit anchor should be shifted one pixel right by the extension, "
-        f"got {gay.exit}"
-    )
-
-
 def test_qs_gay_exam_join_anchors_match_after_extension():
     chars = _char_map()
     glyphs = _shape(chars["qsGay"] + chars["qsExam"])
@@ -2208,10 +2135,97 @@ def test_qs_gay_exam_join_anchors_match_after_extension():
     )
 
 
-def test_qs_gay_exit_baseline_extended_targets_include_excite_and_exam():
+def test_qs_gay_exit_baseline_extended_targets_include_exam():
     meta = _compiled_meta()
     variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert {"qsExcite", "qsExam"}.issubset(set(variant.before)), (
-        f"qsGay.exit-baseline.exit-extended should name qsExcite and qsExam in "
-        f"`before`; got {variant.before}"
+    assert "qsExam" in set(variant.before), (
+        f"qsGay.exit-baseline.exit-extended should name qsExam in `before`; "
+        f"got {variant.before}"
     )
+
+
+def test_qs_gay_before_excite_does_not_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsExcite"])
+    assert glyphs == ["qsGay", "qsExcite"], (
+        f"qsGay + qsExcite should render without a join; got {glyphs!r}"
+    )
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    excite = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    excite_entry_ys = {
+        anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
+    }
+    assert not (gay_exit_ys & excite_entry_ys), (
+        f"qsGay ({glyphs[0]}) and qsExcite ({glyphs[1]}) must not share a join y; "
+        f"gay exit ys={gay_exit_ys}, excite entry ys={excite_entry_ys}"
+    )
+
+
+def test_qs_gay_before_excite_does_not_join_in_any_leading_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for leader in _GAY_EXAM_CONTEXTS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExcite"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(
+                f"{leader} + qsGay + qsExcite: no qsGay glyph found ({glyphs!r})"
+            )
+            continue
+        if gay_index + 1 >= len(glyphs) or not glyphs[gay_index + 1].startswith(
+            "qsExcite"
+        ):
+            failures.append(
+                f"{leader} + qsGay + qsExcite: qsExcite did not follow qsGay ({glyphs!r})"
+            )
+            continue
+        gay = meta[glyphs[gay_index]]
+        excite = meta[glyphs[gay_index + 1]]
+        shared = {anchor[1] for anchor in gay.exit} & {
+            anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
+        }
+        if shared:
+            failures.append(
+                f"{leader} + qsGay + qsExcite: qsGay ({glyphs[gay_index]}) and qsExcite "
+                f"({glyphs[gay_index + 1]}) share y={shared}; should not join (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_excite_does_not_join_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_EXAM_CONTEXTS:
+        glyphs = _shape(chars["qsGay"] + chars["qsExcite"] + chars[follower])
+        if not glyphs[0].startswith("qsGay") or not glyphs[1].startswith("qsExcite"):
+            failures.append(
+                f"qsGay + qsExcite + {follower}: unexpected leading sequence ({glyphs!r})"
+            )
+            continue
+        gay = meta[glyphs[0]]
+        excite = meta[glyphs[1]]
+        shared = {anchor[1] for anchor in gay.exit} & {
+            anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
+        }
+        if shared:
+            failures.append(
+                f"qsGay + qsExcite + {follower}: qsGay ({glyphs[0]}) and qsExcite "
+                f"({glyphs[1]}) share y={shared}; should not join (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_extended_variants_exclude_excite():
+    meta = _compiled_meta()
+    for name, variant in meta.items():
+        if name.startswith("qsGay") and "exit-extended" in name:
+            assert "qsExcite" not in set(variant.before), (
+                f"{name}.before should not include qsExcite; got {variant.before}"
+            )
