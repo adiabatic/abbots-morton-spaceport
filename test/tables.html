@@ -344,7 +344,7 @@
         for (const col of LETTERS) {
           const th = document.createElement('th');
           th.textContent = String.fromCodePoint(col.code);
-          th.title = col.name;
+          th.title = `·${col.name}`;
           headerRow.appendChild(th);
         }
         thead.appendChild(headerRow);
@@ -355,12 +355,12 @@
           const tr = document.createElement('tr');
           const th = document.createElement('th');
           th.textContent = String.fromCodePoint(row.code);
-          th.title = row.name;
+          th.title = `·${row.name}`;
           tr.appendChild(th);
           for (const [ci, col] of LETTERS.entries()) {
             const td = document.createElement('td');
             td.textContent = String.fromCodePoint(col.code, selected.code, row.code);
-            td.title = `${col.name} + ${selected.name} + ${row.name}`;
+            td.title = `·${col.name}·${selected.name}·${row.name}`;
             td.dataset.row = ri;
             td.dataset.col = ci;
             const key = cellKey(selected.name, ri, ci);
