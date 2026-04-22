@@ -556,6 +556,8 @@ glyph_families:
           exit: [6, 5]
         select:
           not_before: [{family: qsEt}, {family: qsOwe}]
+        derive:
+          extend_exit_before: {by: 1, targets: [{family: qsIt}]}
         modifiers: [exit-xheight]
       exit_baseline:
         shape: mono
@@ -564,7 +566,7 @@ glyph_families:
         select:
           not_before: [{family: qsNo}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsTea}]}
+          extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsIt}, {family: qsI}, {family: qsExcite}, {family: qsExam}]}
         modifiers: [exit-baseline]
       exit_baseline_before_deep:
         shape: mono

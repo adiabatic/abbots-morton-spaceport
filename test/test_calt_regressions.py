@@ -1843,3 +1843,375 @@ def test_qs_owe_day_eat_ligature_connects_under_ss07():
     )
     failures = _owe_day_joins_at_y5_in(glyphs, "qsOwe / qsDay / qsEat (ss07)")
     assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_it_extends_exit():
+    chars = _char_map()
+    assert _shape(chars["qsGay"] + chars["qsIt"]) == [
+        "qsGay.exit-baseline.exit-extended",
+        "qsIt.entry-baseline",
+    ]
+
+
+_GAY_IT_LEADERS = (
+    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
+    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
+    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+)
+
+
+def test_qs_gay_before_it_stays_extended_in_any_leading_context():
+    chars = _char_map()
+    failures: list[str] = []
+    for leader in _GAY_IT_LEADERS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsIt"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(f"{leader} + qsGay + qsIt: no qsGay glyph found ({glyphs!r})")
+            continue
+        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"{leader} + qsGay + qsIt: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[gay_index]} (full: {glyphs!r})"
+            )
+            continue
+        if glyphs[gay_index + 1] != "qsIt.entry-baseline":
+            failures.append(
+                f"{leader} + qsGay + qsIt: expected qsIt.entry-baseline after qsGay, "
+                f"got {glyphs[gay_index + 1]} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+_GAY_IT_FOLLOWERS = (
+    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
+    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
+    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+)
+
+
+def test_qs_gay_before_it_stays_extended_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_IT_FOLLOWERS:
+        glyphs = _shape(chars["qsGay"] + chars["qsIt"] + chars[follower])
+        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"qsGay + qsIt + {follower}: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[0]} (full: {glyphs!r})"
+            )
+            continue
+        it_meta = meta[glyphs[1]]
+        it_entry = {anchor[1] for anchor in (*it_meta.entry, *it_meta.entry_curs_only)}
+        if it_entry and 0 not in it_entry:
+            failures.append(
+                f"qsGay + qsIt + {follower}: qsIt ({glyphs[1]}) has an entry anchor but "
+                f"not at baseline; entry_ys={it_entry} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_it_join_anchors_match_after_extension():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsIt"])
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    it = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    it_entry_ys = {anchor[1] for anchor in (*it.entry, *it.entry_curs_only)}
+    assert gay_exit_ys & it_entry_ys, (
+        f"qsGay.exit {gay.exit} and qsIt.entry {it.entry} share no y-coordinate"
+    )
+    assert gay.exit == ((7, 0),), (
+        f"qsGay exit anchor should be shifted one pixel right by the extension, "
+        f"got {gay.exit}"
+    )
+
+
+def test_qs_gay_exit_baseline_extended_targets_include_tea_and_it():
+    meta = _compiled_meta()
+    variant = meta["qsGay.exit-baseline.exit-extended"]
+    assert variant.exit == ((7, 0),), (
+        f"qsGay.exit-baseline.exit-extended should exit at x=7, y=0; got {variant.exit}"
+    )
+    assert {"qsTea", "qsIt"}.issubset(set(variant.before)), (
+        f"qsGay.exit-baseline.exit-extended should name qsTea and qsIt in `before`; "
+        f"got {variant.before}"
+    )
+
+
+def test_qs_gay_exit_xheight_extended_exists_for_it():
+    meta = _compiled_meta()
+    variant = meta["qsGay.exit-xheight.exit-extended"]
+    assert variant.exit == ((7, 5),), (
+        f"qsGay.exit-xheight.exit-extended should exit at x=7, y=5; got {variant.exit}"
+    )
+    assert "qsIt" in set(variant.before), (
+        f"qsGay.exit-xheight.exit-extended should name qsIt in `before`; "
+        f"got {variant.before}"
+    )
+
+
+def test_qs_gay_before_tea_still_extends_exit():
+    chars = _char_map()
+    assert _shape(chars["qsGay"] + chars["qsTea"]) == [
+        "qsGay.exit-baseline.exit-extended",
+        "qsTea.entry-baseline",
+    ]
+
+
+def test_qs_gay_before_i_extends_exit():
+    chars = _char_map()
+    assert _shape(chars["qsGay"] + chars["qsI"]) == [
+        "qsGay.exit-baseline.exit-extended",
+        "qsI",
+    ]
+
+
+_GAY_I_LEADERS = (
+    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
+    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
+    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+)
+
+
+def test_qs_gay_before_i_stays_extended_in_any_leading_context():
+    chars = _char_map()
+    failures: list[str] = []
+    for leader in _GAY_I_LEADERS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsI"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(f"{leader} + qsGay + qsI: no qsGay glyph found ({glyphs!r})")
+            continue
+        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"{leader} + qsGay + qsI: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[gay_index]} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+_GAY_I_FOLLOWERS = (
+    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
+    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
+    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+)
+
+
+def test_qs_gay_before_i_stays_extended_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_I_FOLLOWERS:
+        glyphs = _shape(chars["qsGay"] + chars["qsI"] + chars[follower])
+        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"qsGay + qsI + {follower}: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[0]} (full: {glyphs!r})"
+            )
+            continue
+        i_meta = meta[glyphs[1]]
+        i_entry = {anchor[1] for anchor in (*i_meta.entry, *i_meta.entry_curs_only)}
+        if i_entry and 0 not in i_entry:
+            failures.append(
+                f"qsGay + qsI + {follower}: qsI ({glyphs[1]}) has an entry anchor but "
+                f"not at baseline; entry_ys={i_entry} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_i_join_anchors_match_after_extension():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsI"])
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    i = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    i_entry_ys = {anchor[1] for anchor in (*i.entry, *i.entry_curs_only)}
+    assert gay_exit_ys & i_entry_ys, (
+        f"qsGay.exit {gay.exit} and qsI.entry {i.entry} share no y-coordinate"
+    )
+    assert gay.exit == ((7, 0),), (
+        f"qsGay exit anchor should be shifted one pixel right by the extension, "
+        f"got {gay.exit}"
+    )
+
+
+def test_qs_gay_exit_baseline_extended_targets_include_tea_it_and_i():
+    meta = _compiled_meta()
+    variant = meta["qsGay.exit-baseline.exit-extended"]
+    assert variant.exit == ((7, 0),), (
+        f"qsGay.exit-baseline.exit-extended should exit at x=7, y=0; got {variant.exit}"
+    )
+    assert {"qsTea", "qsIt", "qsI"}.issubset(set(variant.before)), (
+        f"qsGay.exit-baseline.exit-extended should name qsTea, qsIt, and qsI in `before`; "
+        f"got {variant.before}"
+    )
+
+
+def test_qs_gay_before_excite_extends_exit():
+    chars = _char_map()
+    assert _shape(chars["qsGay"] + chars["qsExcite"]) == [
+        "qsGay.exit-baseline.exit-extended",
+        "qsExcite",
+    ]
+
+
+def test_qs_gay_before_exam_extends_exit():
+    chars = _char_map()
+    assert _shape(chars["qsGay"] + chars["qsExam"]) == [
+        "qsGay.exit-baseline.exit-extended",
+        "qsExam",
+    ]
+
+
+_GAY_EXCITE_EXAM_LEADERS = (
+    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
+    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
+    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+)
+
+
+def test_qs_gay_before_excite_stays_extended_in_any_leading_context():
+    chars = _char_map()
+    failures: list[str] = []
+    for leader in _GAY_EXCITE_EXAM_LEADERS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExcite"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(
+                f"{leader} + qsGay + qsExcite: no qsGay glyph found ({glyphs!r})"
+            )
+            continue
+        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"{leader} + qsGay + qsExcite: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[gay_index]} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_exam_stays_extended_in_any_leading_context():
+    chars = _char_map()
+    failures: list[str] = []
+    for leader in _GAY_EXCITE_EXAM_LEADERS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsExam"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(
+                f"{leader} + qsGay + qsExam: no qsGay glyph found ({glyphs!r})"
+            )
+            continue
+        if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"{leader} + qsGay + qsExam: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[gay_index]} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_excite_stays_extended_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_EXCITE_EXAM_LEADERS:
+        glyphs = _shape(chars["qsGay"] + chars["qsExcite"] + chars[follower])
+        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"qsGay + qsExcite + {follower}: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[0]} (full: {glyphs!r})"
+            )
+            continue
+        excite_meta = meta[glyphs[1]]
+        entry_ys = {
+            anchor[1] for anchor in (*excite_meta.entry, *excite_meta.entry_curs_only)
+        }
+        if entry_ys and 0 not in entry_ys:
+            failures.append(
+                f"qsGay + qsExcite + {follower}: qsExcite ({glyphs[1]}) has an entry "
+                f"anchor but not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_exam_stays_extended_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_EXCITE_EXAM_LEADERS:
+        glyphs = _shape(chars["qsGay"] + chars["qsExam"] + chars[follower])
+        if glyphs[0] != "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"qsGay + qsExam + {follower}: expected qsGay.exit-baseline.exit-extended, "
+                f"got {glyphs[0]} (full: {glyphs!r})"
+            )
+            continue
+        exam_meta = meta[glyphs[1]]
+        entry_ys = {
+            anchor[1] for anchor in (*exam_meta.entry, *exam_meta.entry_curs_only)
+        }
+        if entry_ys and 0 not in entry_ys:
+            failures.append(
+                f"qsGay + qsExam + {follower}: qsExam ({glyphs[1]}) has an entry "
+                f"anchor but not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_excite_join_anchors_match_after_extension():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsExcite"])
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    excite = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    excite_entry_ys = {
+        anchor[1] for anchor in (*excite.entry, *excite.entry_curs_only)
+    }
+    assert gay_exit_ys & excite_entry_ys, (
+        f"qsGay.exit {gay.exit} and qsExcite.entry {excite.entry} share no y-coordinate"
+    )
+    assert gay.exit == ((7, 0),), (
+        f"qsGay exit anchor should be shifted one pixel right by the extension, "
+        f"got {gay.exit}"
+    )
+
+
+def test_qs_gay_exam_join_anchors_match_after_extension():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsExam"])
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    exam = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    exam_entry_ys = {anchor[1] for anchor in (*exam.entry, *exam.entry_curs_only)}
+    assert gay_exit_ys & exam_entry_ys, (
+        f"qsGay.exit {gay.exit} and qsExam.entry {exam.entry} share no y-coordinate"
+    )
+    assert gay.exit == ((7, 0),), (
+        f"qsGay exit anchor should be shifted one pixel right by the extension, "
+        f"got {gay.exit}"
+    )
+
+
+def test_qs_gay_exit_baseline_extended_targets_include_excite_and_exam():
+    meta = _compiled_meta()
+    variant = meta["qsGay.exit-baseline.exit-extended"]
+    assert {"qsExcite", "qsExam"}.issubset(set(variant.before)), (
+        f"qsGay.exit-baseline.exit-extended should name qsExcite and qsExam in "
+        f"`before`; got {variant.before}"
+    )
