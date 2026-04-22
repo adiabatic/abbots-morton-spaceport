@@ -616,18 +616,18 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
 @pytest.mark.parametrize(
     ("parts", "expected"),
     [
+        pytest.param(("qsHe", "qsYe"), ["qsHe", "qsYe"], id="he-ye"),
+        pytest.param(("qsIt", "qsYe"), ["qsIt", "qsYe"], id="it-ye"),
         pytest.param(("qsPea", "qsYe"), ["qsPea", "qsYe"], id="pea-ye"),
         pytest.param(("qsTea", "qsYe"), ["qsTea", "qsYe"], id="tea-ye"),
         pytest.param(("qsThey", "qsYe"), ["qsThey", "qsYe"], id="they-ye"),
-        pytest.param(("qsWhy", "qsYe"), ["qsWhy", "qsYe"], id="why-ye"),
         pytest.param(("qsWay", "qsYe"), ["qsWay", "qsYe"], id="way-ye"),
-        pytest.param(("qsHe", "qsYe"), ["qsHe", "qsYe"], id="he-ye"),
-        pytest.param(("qsIt", "qsYe"), ["qsIt", "qsYe"], id="it-ye"),
+        pytest.param(("qsWhy", "qsYe"), ["qsWhy", "qsYe"], id="why-ye"),
+        pytest.param(("qsYe", "qsExam"), ["qsYe", "qsExam.after-ye"], id="ye-exam"),
+        pytest.param(("qsYe", "qsExcite"), ["qsYe", "qsExcite.after-ye"], id="ye-excite"),
+        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-ye"], id="ye-ing"),
         pytest.param(("qsYe", "qsIt"), ["qsYe", "qsIt"], id="ye-it"),
         pytest.param(("qsYe", "qsSee"), ["qsYe", "qsSee.after-ye"], id="ye-see"),
-        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-ye"], id="ye-ing"),
-        pytest.param(("qsYe", "qsExcite"), ["qsYe", "qsExcite.after-ye"], id="ye-excite"),
-        pytest.param(("qsYe", "qsExam"), ["qsYe", "qsExam.after-ye"], id="ye-exam"),
     ],
 )
 def test_qs_ye_sequences_keep_the_nonjoining_forms(
@@ -640,10 +640,10 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
 @pytest.mark.parametrize(
     ("left_base", "right_base"),
     [
-        pytest.param("qsWay", "qsTea", id="way-tea"),
-        pytest.param("qsWhy", "qsTea", id="why-tea"),
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWay", "qsTea", id="way-tea"),
+        pytest.param("qsWhy", "qsTea", id="why-tea"),
     ],
 )
 def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
