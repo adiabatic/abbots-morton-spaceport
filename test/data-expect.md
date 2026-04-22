@@ -73,6 +73,12 @@ Tokens are separated by connection operators that describe how adjacent glyphs a
 
 A "join" means the preceding glyph's exit anchor and the following glyph's entry anchor share the specified Y coordinate. A "break" means no matching anchor pair exists. A "maybe" skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
 
+### Break-isolation invariant
+
+When `|` separates two Quikscript letter tokens — and likewise when `?` separates a pair that turns out not to join — the test runner additionally asserts that **neither letter influences the other's shape choice**. It re-shapes the two sides as separate HarfBuzz buffers and verifies that the glyph chosen for each token matches the in-context glyph. A disagreement means a `calt` lookup is reaching across the non-join, and the test fails with a diagnostic naming both glyph choices.
+
+Concretely: there's no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on either side of a `|` to pin down "this glyph wasn't chosen because of the other one". The runner enforces that automatically, scoped to letter-vs-letter pairs (boundary tokens like `◊space`, `◊ZWNJ`, and escaped punctuation are excluded — those exist precisely to influence neighboring shape).
+
 ## Duplicates
 
 Three levels of duplicate exist between two elements that both carry a `data-expect` attribute:
