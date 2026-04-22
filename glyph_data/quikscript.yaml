@@ -1501,7 +1501,7 @@ glyph_families:
         anchors:
           exit: [5, 0]
         select:
-          not_before: [{family: qsI}, {family: qsIt}, {family: qsTea}]
+          not_before: [{family: qsI}, {family: qsIt}, {family: qsTea}, {family: qsThaw}]
         traits: [half]
   qsWhy_qsUtter:
     sequence:
