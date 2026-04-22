@@ -2229,3 +2229,90 @@ def test_qs_gay_extended_variants_exclude_excite():
             assert "qsExcite" not in set(variant.before), (
                 f"{name}.before should not include qsExcite; got {variant.before}"
             )
+
+
+def test_qs_gay_before_ooze_does_not_join():
+    chars = _char_map()
+    glyphs = _shape(chars["qsGay"] + chars["qsOoze"])
+    assert glyphs == ["qsGay", "qsOoze"], (
+        f"qsGay + qsOoze should render without a join; got {glyphs!r}"
+    )
+    meta = _compiled_meta()
+    gay = meta[glyphs[0]]
+    ooze = meta[glyphs[1]]
+    gay_exit_ys = {anchor[1] for anchor in gay.exit}
+    ooze_entry_ys = {
+        anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
+    }
+    assert not (gay_exit_ys & ooze_entry_ys), (
+        f"qsGay ({glyphs[0]}) and qsOoze ({glyphs[1]}) must not share a join y; "
+        f"gay exit ys={gay_exit_ys}, ooze entry ys={ooze_entry_ys}"
+    )
+
+
+def test_qs_gay_before_ooze_does_not_join_in_any_leading_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for leader in _GAY_EXAM_CONTEXTS:
+        glyphs = _shape(chars[leader] + chars["qsGay"] + chars["qsOoze"])
+        try:
+            gay_index = next(
+                i for i, name in enumerate(glyphs) if name.startswith("qsGay")
+            )
+        except StopIteration:
+            failures.append(
+                f"{leader} + qsGay + qsOoze: no qsGay glyph found ({glyphs!r})"
+            )
+            continue
+        if gay_index + 1 >= len(glyphs) or not glyphs[gay_index + 1].startswith(
+            "qsOoze"
+        ):
+            failures.append(
+                f"{leader} + qsGay + qsOoze: qsOoze did not follow qsGay ({glyphs!r})"
+            )
+            continue
+        gay = meta[glyphs[gay_index]]
+        ooze = meta[glyphs[gay_index + 1]]
+        shared = {anchor[1] for anchor in gay.exit} & {
+            anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
+        }
+        if shared:
+            failures.append(
+                f"{leader} + qsGay + qsOoze: qsGay ({glyphs[gay_index]}) and qsOoze "
+                f"({glyphs[gay_index + 1]}) share y={shared}; should not join (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_before_ooze_does_not_join_in_any_trailing_context():
+    chars = _char_map()
+    meta = _compiled_meta()
+    failures: list[str] = []
+    for follower in _GAY_EXAM_CONTEXTS:
+        glyphs = _shape(chars["qsGay"] + chars["qsOoze"] + chars[follower])
+        if not glyphs[0].startswith("qsGay") or not glyphs[1].startswith("qsOoze"):
+            failures.append(
+                f"qsGay + qsOoze + {follower}: unexpected leading sequence ({glyphs!r})"
+            )
+            continue
+        gay = meta[glyphs[0]]
+        ooze = meta[glyphs[1]]
+        shared = {anchor[1] for anchor in gay.exit} & {
+            anchor[1] for anchor in (*ooze.entry, *ooze.entry_curs_only)
+        }
+        if shared:
+            failures.append(
+                f"qsGay + qsOoze + {follower}: qsGay ({glyphs[0]}) and qsOoze "
+                f"({glyphs[1]}) share y={shared}; should not join (full: {glyphs!r})"
+            )
+    assert not failures, "\n".join(failures)
+
+
+def test_qs_gay_extended_variants_exclude_ooze():
+    meta = _compiled_meta()
+    for name, variant in meta.items():
+        if name.startswith("qsGay") and "exit-extended" in name:
+            assert "qsOoze" not in set(variant.before), (
+                f"{name}.before should not include qsOoze; got {variant.before}"
+            )
