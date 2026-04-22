@@ -62,6 +62,7 @@ LETTERS = [
 TEA = 0xE652
 DAY = 0xE653
 HE = 0xE662
+WAY = 0xE661
 CHEER = 0xE65E
 COLS = 3
 
@@ -299,6 +300,52 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             "·He + ·Day: full He, half Day",
             "·He must be a full-height variant and ·Day must be its half form when they appear consecutively, regardless of surrounding context.",
             he_day_sections,
+        )
+    )
+
+    way_nhalf = "·Way.!half"
+    day_nhalf = "·Day.!half"
+
+    way_day_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·Way·Day ---
+    key = cell_key("Way", "Day")
+    expect = f"{way_nhalf} ~x~ {day_nhalf}"
+    bare_wd = cell_pair("·Way·Day", expect, [WAY, DAY], key, failed_keys)
+    way_day_sections.append(("Bare", table_wrap([bare_wd])))
+
+    # --- X + Way + Day ---
+    # qsWay has no entry anchor, so the X → Way connection is
+    # context-dependent; assert only that Way lands on a full (non-half)
+    # variant and Day lands on its full variant.
+    x_wd_cells = []
+    for name, code in LETTERS:
+        dt = f"{dt_name(name)}·Way·Day"
+        expect = f"{expect_tok(name)} ? {way_nhalf} ~x~ {day_nhalf}"
+        key = cell_key(name, "Way", "Day")
+        x_wd_cells.append(cell_pair(dt, expect, [code, WAY, DAY], key, failed_keys))
+    way_day_sections.append(("X·Way·Day", table_wrap(x_wd_cells)))
+
+    # --- Way + Day + Y ---
+    # When (Day, Y) ligates, qsDay is consumed into qsDay_qs<Y>; in that
+    # case assert only that Way stays full and the ligature is formed
+    # (variant modifiers on the ligature are out of scope for this panel).
+    wd_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·Way·Day{dt_name(name)}"
+        if ("Day", name) in LIGATURE_PAIRS:
+            expect = f"{way_nhalf} ? ·Day+?{name}"
+        else:
+            expect = f"{way_nhalf} ~x~ {day_nhalf} ? {expect_tok(name)}"
+        key = cell_key("Way", "Day", name)
+        wd_y_cells.append(cell_pair(dt, expect, [WAY, DAY, code], key, failed_keys))
+    way_day_sections.append(("·Way·Day·Y", table_wrap(wd_y_cells)))
+
+    panels.append(
+        (
+            "·Way + ·Day: full Way, full Day",
+            "·Way and ·Day must both be their full-height variants when they appear consecutively, regardless of the surrounding context; they always join at x-height.",
+            way_day_sections,
         )
     )
 

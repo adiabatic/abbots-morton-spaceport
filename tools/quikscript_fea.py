@@ -92,6 +92,7 @@ class _JoinAnalysis:
     entry_exclusive: dict[int, set[str]] = field(default_factory=dict)
     fwd_use_exclusive: set[tuple[str, int]] = field(default_factory=set)
     fwd_preferred_lookahead: dict[str, list[tuple[str, int, int]]] = field(default_factory=dict)
+    preferred_lookahead_bridges: dict[tuple[int, int], set[str]] = field(default_factory=dict)
     sorted_bases: list[str] = field(default_factory=list)
     cycle_bases: set[str] = field(default_factory=set)
     edges: dict[str, set[str]] = field(default_factory=dict)
@@ -467,6 +468,25 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                 fwd_preferred_lookahead.setdefault(base_name, []).append(
                     (variant_name, exit_y, sibling_exit_y)
                 )
+
+    preferred_lookahead_bridges = plan.preferred_lookahead_bridges
+    for entries in fwd_preferred_lookahead.values():
+        for _variant_name, exit_y, sibling_y in entries:
+            key = (exit_y, sibling_y)
+            if key in preferred_lookahead_bridges:
+                continue
+            bridge_members: set[str] = set()
+            for candidate in entry_classes.get(exit_y, ()):
+                candidate_meta = glyph_meta.get(candidate)
+                candidate_base = candidate_meta.base_name if candidate_meta else candidate
+                for variant_name in plan.base_to_variants.get(candidate_base, ()):
+                    variant_meta = glyph_meta.get(variant_name)
+                    if variant_meta is None:
+                        continue
+                    if exit_y in variant_meta.entry_ys and sibling_y in variant_meta.exit_ys:
+                        bridge_members.add(candidate)
+                        break
+            preferred_lookahead_bridges[key] = bridge_members
 
     base_exit_ys: dict[str, set[int]] = {}
     for base_name in bk_replacements:
@@ -949,6 +969,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if excl_members:
                 lines.append(f"    @entry_only_y{y} = [{' '.join(excl_members)}];")
 
+    for (exit_y, sibling_y), bridge_members in sorted(plan.preferred_lookahead_bridges.items()):
+        if not bridge_members:
+            continue
+        lines.append(
+            f"    @bridge_y{exit_y}_y{sibling_y} = [{' '.join(sorted(bridge_members))}];"
+        )
+
     zwnj = "uni200C"
     noentry_pairs = []
     for name in sorted(glyph_names):
@@ -1405,9 +1432,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
                 if exit_y not in selected_exit_ys:
                     continue
+                bridge_members = plan.preferred_lookahead_bridges.get((exit_y, sibling_y))
+                if not bridge_members:
+                    continue
                 if exit_y in entry_classes and sibling_y in entry_exclusive and entry_exclusive[sibling_y]:
                     lines.append(
-                        f"        sub {base_name}' @entry_y{exit_y} @entry_only_y{sibling_y} by {variant_name};"
+                        f"        sub {base_name}' @bridge_y{exit_y}_y{sibling_y} @entry_only_y{sibling_y} by {variant_name};"
                     )
                     emitted = True
         noentry_name = f"{base_name}.noentry"
