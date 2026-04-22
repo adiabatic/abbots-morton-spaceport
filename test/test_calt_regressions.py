@@ -34,6 +34,24 @@ def _shape(text: str) -> list[str]:
 
 
 @lru_cache(maxsize=None)
+def _shape_with_clusters(text: str) -> tuple[tuple[str, int], ...]:
+    """Shape `text` and return ((glyph_name, cluster), ...).
+
+    Cluster values are the character indices from the input; ligatures
+    report the cluster of their first component.
+    """
+    font = _font()
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+    return tuple(
+        (font.glyph_to_string(info.codepoint), info.cluster)
+        for info in buf.glyph_infos
+    )
+
+
+@lru_cache(maxsize=None)
 def _shape_with_features(
     text: str,
     feature_items: tuple[tuple[str, bool], ...],
@@ -1461,3 +1479,199 @@ def test_qs_i_before_qs_tea_unchanged_by_forward_extension():
     tea_meta = _compiled_meta()[glyphs[1]]
     assert tea_meta.base_name == "qsTea"
     assert "exit-extended" not in tea_meta.modifiers
+
+
+# ---------------------------------------------------------------------------
+# ·Way·Day must always use full-height Way and full-height Day.
+#
+# Regression guard against a 2-glyph preferred-lookahead FEA rule that used to
+# substitute qsWay.half whenever the third glyph had only a y=5 entry, even if
+# the middle glyph (qsDay) could not actually bridge qsWay.half's y=0 exit to
+# the third glyph's y=5 entry. That produced qsWay.half·qsDay.half·X with no
+# cursive join between Day.half and X.
+# ---------------------------------------------------------------------------
+
+
+_DAY_PAIR_LIGATURES = frozenset({
+    # (day_prefix_base, follower_base) pairs that combine into a ligature,
+    # consuming qsDay into qsDay_qs<follower>. In those outputs there is no
+    # standalone qsDay glyph to inspect.
+    ("qsDay", "qsEat"),
+    ("qsDay", "qsUtter"),
+})
+
+
+def test_qs_way_day_joins_at_xheight():
+    chars = _char_map()
+    glyphs = _shape(chars["qsWay"] + chars["qsDay"])
+    assert len(glyphs) == 2, f"Expected 2 glyphs, got {glyphs}"
+    meta = _compiled_meta()
+    way_meta = meta[glyphs[0]]
+    day_meta = meta[glyphs[1]]
+    assert way_meta.base_name == "qsWay"
+    assert day_meta.base_name == "qsDay"
+    assert "half" not in way_meta.traits, f"Expected full Way, got {glyphs[0]}"
+    assert "half" not in day_meta.traits, f"Expected full Day, got {glyphs[1]}"
+    assert 5 in _exit_ys(glyphs[0]) & _entry_ys(glyphs[1]), (
+        f"Expected ·Way·Day to join at y=5, got exits={_exit_ys(glyphs[0])} "
+        f"entries={_entry_ys(glyphs[1])}"
+    )
+
+
+def _way_day_base_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    way = chars["qsWay"]
+    day = chars["qsDay"]
+    meta_map = _compiled_meta()
+
+    for right_name, right_char in _plain_quikscript_letters():
+        text = way + day + right_char
+        glyphs = _shape(text)
+        label = f"qsWay / qsDay / {right_name}"
+
+        way_meta = meta_map.get(glyphs[0])
+        if way_meta is None or way_meta.base_name != "qsWay":
+            failures.append(f"{label}: first glyph is not qsWay: {glyphs}")
+            continue
+        if "half" in way_meta.traits:
+            failures.append(f"{label}: half-Way selected: {glyphs}")
+
+        if len(glyphs) < 2:
+            failures.append(f"{label}: too few glyphs: {glyphs}")
+            continue
+
+        day_meta = meta_map.get(glyphs[1])
+        if day_meta is None:
+            failures.append(f"{label}: unknown second glyph: {glyphs}")
+            continue
+
+        # Day may legitimately be consumed into a ligature with the follower.
+        if day_meta.sequence and ("qsDay", right_name) in _DAY_PAIR_LIGATURES:
+            continue
+        if day_meta.base_name != "qsDay":
+            failures.append(f"{label}: second glyph is not qsDay: {glyphs}")
+            continue
+        if "half" in day_meta.traits:
+            failures.append(f"{label}: half-Day selected: {glyphs}")
+
+    return failures
+
+
+def test_qs_way_day_never_half():
+    failures = _way_day_base_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _way_day_context_failures() -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    way = chars["qsWay"]
+    day = chars["qsDay"]
+    meta_map = _compiled_meta()
+
+    # Clusters for the L·Way·Day·R input: L=0, Way=1, Day=2, R=3. Only flag
+    # glyphs whose cluster is 1 (the Way we are testing) or 2 (the Day we
+    # are testing). A qsDay that shows up at cluster 3 is the R position
+    # and is unrelated to the Way·Day invariant under test.
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            text = left_char + way + day + right_char
+            shaped = _shape_with_clusters(text)
+            label = f"{left_name} / qsWay / qsDay / {right_name}"
+
+            for glyph_name, cluster in shaped:
+                if cluster not in (1, 2):
+                    continue
+                g_meta = meta_map.get(glyph_name)
+                if g_meta is None:
+                    continue
+                # qsDay consumed into qsDay_qs<X> keeps its full-height body;
+                # the ligature is a separate form.
+                if g_meta.sequence and g_meta.sequence[0] == "qsDay":
+                    continue
+                if g_meta.base_name == "qsWay" and "half" in g_meta.traits:
+                    failures.append(
+                        f"{label}: half-Way selected: {[g for g, _ in shaped]}"
+                    )
+                if (
+                    g_meta.base_name == "qsDay"
+                    and cluster == 2
+                    and "half" in g_meta.traits
+                ):
+                    failures.append(
+                        f"{label}: half-Day selected: {[g for g, _ in shaped]}"
+                    )
+
+    return failures
+
+
+def test_qs_way_day_never_half_in_context():
+    failures = _way_day_context_failures()
+    assert not failures, "\n".join(failures[:50])
+
+
+def _non_bridging_middle_bases() -> list[tuple[str, str]]:
+    """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry
+    across their variants) but have no single variant combining y=0 entry
+    with y=5 exit — i.e. cannot bridge Way.half's y=0 exit up to a
+    y=5-only-entry follower, so the 2-glyph preferred-lookahead must not
+    fire for them.
+
+    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for
+    those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half;`
+    correctly fires and selecting half-Way is fine.
+    """
+    meta_map = _compiled_meta()
+    variants_by_base: dict[str, list] = {}
+    for glyph_meta in meta_map.values():
+        variants_by_base.setdefault(glyph_meta.base_name, []).append(glyph_meta)
+
+    result: list[tuple[str, str]] = []
+    for base_name, base_char in _plain_quikscript_letters():
+        variants = variants_by_base.get(base_name, [])
+        can_enter_y0 = any(0 in v.entry_ys for v in variants)
+        can_enter_y5 = any(5 in v.entry_ys for v in variants)
+        can_bridge_y0_to_y5 = any(
+            0 in v.entry_ys and 5 in v.exit_ys for v in variants
+        )
+        if can_enter_y0 and can_enter_y5 and not can_bridge_y0_to_y5:
+            result.append((base_name, base_char))
+    return result
+
+
+def _way_not_half_before_non_bridging_failures() -> list[str]:
+    """For every non-bridging middle M and every right-context X, ·Way·M·X
+    must not pick half-Way — the Way.half → M → X chain cannot actually join
+    at the x-height entry X needs.
+    """
+    failures: list[str] = []
+    chars = _char_map()
+    way = chars["qsWay"]
+    meta_map = _compiled_meta()
+
+    for middle_name, middle_char in _non_bridging_middle_bases():
+        for right_name, right_char in _plain_quikscript_letters():
+            text = way + middle_char + right_char
+            glyphs = _shape(text)
+            first_meta = meta_map.get(glyphs[0])
+            if first_meta is None:
+                continue
+            # qsWay+qsUtter ligates into qsWay_qsUtter; that's a full-size Way
+            # body and not a `.half` variant, so skip sequences where qsWay
+            # is consumed.
+            if first_meta.sequence and first_meta.sequence[0] == "qsWay":
+                continue
+            if first_meta.base_name != "qsWay":
+                continue
+            if "half" in first_meta.traits:
+                failures.append(
+                    f"qsWay / {middle_name} / {right_name}: half-Way selected "
+                    f"before a non-bridging middle: {glyphs}"
+                )
+    return failures
+
+
+def test_qs_way_full_before_any_non_bridging_middle():
+    failures = _way_not_half_before_non_bridging_failures()
+    assert not failures, "\n".join(failures[:50])

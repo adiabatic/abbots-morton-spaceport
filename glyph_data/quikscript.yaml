@@ -434,7 +434,7 @@ glyph_families:
           entry: [1, 0]
           exit: [5, 0]
         select:
-          not_after: [{family: qsTea}, {family: qsYe}]
+          not_after: [{family: qsTea}, {family: qsWay}, {family: qsYe}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsYe}]}
         traits: [half]
@@ -1357,7 +1357,7 @@ glyph_families:
         anchors:
           exit: [4, 0]
         select:
-          not_before: [{family: qsEat}, {family: qsIt}, {family: qsTea}]
+          not_before: [{family: qsDay}, {family: qsEat}, {family: qsIt}, {family: qsTea}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
