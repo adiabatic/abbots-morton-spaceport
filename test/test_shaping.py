@@ -587,6 +587,154 @@ def _is_modifier_char(c: str) -> bool:
     return 0xFE00 <= ord(c) <= 0xFE0F
 
 
+def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, int]]:
+    """Return one ``(start, end)`` half-open char range per token in ``text``.
+
+    Each range covers the token's base chars plus any trailing modifier chars
+    (variation selectors) that attach to its last base char. Raises ``ValueError``
+    if ``text`` is exhausted mid-token or has trailing chars no token claims.
+    """
+    spans: list[tuple[int, int]] = []
+    char_idx = 0
+    for tok in tokens:
+        while char_idx < len(text) and _is_modifier_char(text[char_idx]):
+            char_idx += 1
+        if char_idx >= len(text):
+            raise ValueError(
+                f"Not enough input chars for token {tok!r} at char {char_idx}"
+            )
+        start = char_idx
+        base = _token_input_char_count(tok)
+        consumed = 0
+        while consumed < base:
+            if char_idx >= len(text):
+                raise ValueError(
+                    f"Token {tok!r} overruns text at char {char_idx}"
+                )
+            if _is_modifier_char(text[char_idx]):
+                char_idx += 1
+                continue
+            char_idx += 1
+            consumed += 1
+        while char_idx < len(text) and _is_modifier_char(text[char_idx]):
+            char_idx += 1
+        spans.append((start, char_idx))
+    if char_idx != len(text):
+        raise ValueError(
+            f"Text not fully consumed by tokens: used {char_idx} of "
+            f"{len(text)} chars"
+        )
+    return spans
+
+
+def _shape_text_glyph_names(font: hb.Font, text: str,
+                             features: dict[str, bool] | None) -> list[str]:
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    if features:
+        hb.shape(font, buf, features)
+    else:
+        hb.shape(font, buf)
+    return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+
+
+def _isolation_glyphs_split(font: hb.Font, text: str,
+                              segment_breaks: list[int],
+                              features: dict[str, bool] | None) -> list[str]:
+    """Shape each segment of ``text`` separately and concatenate glyph names.
+
+    ``segment_breaks`` are char offsets into ``text`` where the input is split.
+    Each segment is shaped in its own HarfBuzz buffer, so no contextual lookup
+    can fire across a break.
+    """
+    bounds = [0, *segment_breaks, len(text)]
+    out: list[str] = []
+    for start, end in zip(bounds, bounds[1:]):
+        if start >= end:
+            continue
+        out.extend(_shape_text_glyph_names(font, text[start:end], features))
+    return out
+
+
+def _check_break_isolation(text: str,
+                            tokens: list[ExpectToken],
+                            connections: list[Connection],
+                            anchor_map: AnchorMap,
+                            glyph_names_full: list[str],
+                            font: hb.Font,
+                            features: dict[str, bool] | None) -> str | None:
+    """Verify that shape choices flanking each non-join survive isolation.
+
+    For every connection whose chosen interpretation is a break — or a "maybe"
+    where the resolved glyph pair has no shared anchor Y — re-shape the input
+    with the two sides split into independent HarfBuzz buffers. The glyph at
+    each token position flanking the break must match between the full shaping
+    and the split shaping. Any disagreement means a contextual lookup is
+    reaching across a non-join — exactly what the user shouldn't have to pin
+    down manually with ``.!half`` / ``.!alt`` style assertions.
+
+    ZWNJ injection was considered as a second reference but rejected: this
+    font intentionally fires ``.noentry`` rules against literal ``uni200C``
+    (see project CLAUDE.md on ZWNJ handling in ``calt``), so ZWNJ-injected
+    shaping isn't equivalent to isolation here.
+    """
+    def _is_qs_letter(tok: ExpectToken) -> bool:
+        # Only Quikscript letter tokens participate in the isolation check.
+        # Non-letter tokens (◊space, ◊ZWNJ, \-, etc.) are boundary markers
+        # whose whole job is to influence their neighbors' shape — applying
+        # isolation against them produces false positives, since e.g. the
+        # font fires legitimate `.noentry` rules after a literal U+200C.
+        return tok["base"].startswith("qs")
+
+    isolating_indices: list[int] = []
+    for i, conn in enumerate(connections):
+        if not (_is_qs_letter(tokens[i]) and _is_qs_letter(tokens[i + 1])):
+            continue
+        kind = conn["kind"]
+        if kind == "break":
+            isolating_indices.append(i)
+        elif kind == "maybe":
+            left = glyph_names_full[i]
+            right = glyph_names_full[i + 1]
+            left_exits = {a[1] for a in anchor_map.get(left, {}).get("exit", [])}
+            right_entries = {a[1] for a in anchor_map.get(right, {}).get("entry", [])}
+            if not (left_exits & right_entries):
+                isolating_indices.append(i)
+    if not isolating_indices:
+        return None
+
+    spans = _token_char_spans(text, tokens)
+    segment_breaks = sorted({spans[i + 1][0] for i in isolating_indices})
+
+    split_names = _isolation_glyphs_split(font, text, segment_breaks, features)
+
+    expected_len = len(tokens)
+    if len(split_names) != expected_len:
+        return (
+            "Isolation check produced unexpected glyph count "
+            f"(full={len(glyph_names_full)}, split={len(split_names)}, "
+            f"expected={expected_len}). A contextual lookup probably ate or "
+            "duplicated glyphs across a split boundary."
+        )
+
+    for break_idx, ci in enumerate(isolating_indices, start=1):
+        for side, ti in (("left", ci), ("right", ci + 1)):
+            f = glyph_names_full[ti]
+            s = split_names[ti]
+            if f == s:
+                continue
+            return (
+                f"Break #{break_idx} (between tokens {ci} and {ci + 1}): "
+                f"{side} glyph differs in isolation —\n"
+                f"  full:  {f}\n"
+                f"  split: {s}\n"
+                "Non-joining pair must produce the same shape choice in "
+                "isolation. A contextual lookup is leaking across the break."
+            )
+    return None
+
+
 def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]) -> list[PartitionedRun]:
     """Partition ``tokens`` and ``connections`` across ``runs``.
 
@@ -725,7 +873,7 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
             ]
 
         errors = []
-        matched = False
+        matched_interp: tuple[list[ExpectToken], list[Connection]] | None = None
         for interp_tokens, interp_connections in interpretations:
             error = _try_interpretation(
                 font, anchor_map, glyph_names,
@@ -733,13 +881,28 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
                 potential.get(variant), variant=variant,
             )
             if error is None:
-                matched = True
+                matched_interp = (interp_tokens, interp_connections)
                 break
             errors.append(error)
-        if matched:
-            continue
-        raise AssertionError(
-            f"[{variant}] No interpretation matched for run {text!r} "
-            f"in {expect_str!r} (shaped: {glyph_names}).\n"
-            + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
-        )
+        if matched_interp is None:
+            raise AssertionError(
+                f"[{variant}] No interpretation matched for run {text!r} "
+                f"in {expect_str!r} (shaped: {glyph_names}).\n"
+                + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
+            )
+
+        # Isolation invariant: for senior only, any token pair that does not
+        # actually join must shape the same way when isolated. Junior forces
+        # every connection to "maybe", so the check would fire on every pair
+        # and doesn't match what it's asking about (no cursive at all).
+        if variant == "senior":
+            interp_tokens, interp_connections = matched_interp
+            iso_error = _check_break_isolation(
+                text, interp_tokens, interp_connections,
+                anchor_map, glyph_names, font, merged,
+            )
+            if iso_error:
+                raise AssertionError(
+                    f"[{variant}] Isolation check failed for run {text!r} "
+                    f"in {expect_str!r} (shaped: {glyph_names}).\n{iso_error}"
+                )
