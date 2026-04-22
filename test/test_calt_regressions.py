@@ -644,6 +644,7 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
+        pytest.param("qsWhy", "qsThaw", id="why-thaw"),
     ],
 )
 def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
@@ -657,33 +658,37 @@ def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
 
 
 @pytest.mark.parametrize(
-    "left_base",
+    ("left_base", "right_base"),
     [
-        pytest.param("qsWay", id="way"),
-        pytest.param("qsWhy", id="why"),
+        pytest.param("qsWay", "qsTea", id="way-before-tea"),
+        pytest.param("qsWhy", "qsTea", id="why-before-tea"),
+        pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
     ],
 )
-def test_qs_way_and_qs_why_stay_full_before_qs_tea(left_base: str):
-    glyphs = _shape_qs(left_base, "qsTea")
+def test_qs_way_and_qs_why_stay_full_before_right_base(left_base: str, right_base: str):
+    glyphs = _shape_qs(left_base, right_base)
     left_meta = _compiled_meta()[glyphs[0]]
     assert left_meta.base_name == left_base
     assert "half" not in left_meta.traits, (
-        f"Expected non-half {left_base} before Tea, got {glyphs[0]}"
+        f"Expected non-half {left_base} before {right_base}, got {glyphs[0]}"
     )
 
 
 @pytest.mark.parametrize(
-    "left_base",
+    ("left_base", "right_base"),
     [
-        pytest.param("qsWay", id="way"),
-        pytest.param("qsWhy", id="why"),
+        pytest.param("qsWay", "qsTea", id="way-before-tea"),
+        pytest.param("qsWhy", "qsTea", id="why-before-tea"),
+        pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
     ],
 )
-def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_qs_tea_in_context(left_base: str):
+def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context(
+    left_base: str, right_base: str
+):
     _assert_no_failures(
         _collect_surrounded_nonjoining_pair_failures(
             left_base,
-            "qsTea",
+            right_base,
             require_full_left=True,
         )
     )
@@ -694,6 +699,7 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_qs_tea_in_context(lef
     [
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWhy", "qsThaw", id="why-thaw"),
     ],
 )
 def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
