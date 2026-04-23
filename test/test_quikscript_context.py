@@ -454,8 +454,8 @@ def test_generated_entry_and_ligature_metadata_keep_logical_identity():
 def test_height_suffixes_are_available_as_compat_assertions():
     meta = _compiled_meta()
 
-    roe = meta["qsRoe.exit-baseline.before-thaw"]
-    assert {"exit", "exit-baseline", "baseline", "before-thaw"} <= roe.compat_assertions
+    roe = meta["qsRoe.exit-baseline"]
+    assert {"exit", "exit-baseline", "baseline"} <= roe.compat_assertions
 
 
 def test_reverse_upgrade_metadata_is_preserved():
@@ -467,5 +467,5 @@ def test_reverse_upgrade_metadata_is_preserved():
     assert pea.entry_suffix == ".entry-xheight"
     assert pea.exit_suffix == ".exit-xheight"
 
-    roe = meta["qsRoe.exit-baseline.before-thaw"]
+    roe = meta["qsRoe.exit-baseline"]
     assert "baseline" in roe.compat_assertions
