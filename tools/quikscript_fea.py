@@ -418,14 +418,6 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             fwd_meta = _meta(fwd_var)
             if fwd_meta.entry:
                 continue
-            # Alt forms without an entry anchor (e.g., qsUtter.alt) have no
-            # cursive-attachable entry — preceding glyphs that would key off the
-            # base's entry class shouldn't fire their joining "exit" form before
-            # such alts, since no join can complete. Other no-entry variants
-            # (e.g., terminal/ligature components) keep their inherited class
-            # membership for compatibility with downstream lookups.
-            if "alt" in fwd_meta.traits:
-                continue
             for y in base_entry_ys:
                 entry_classes[y].add(fwd_var)
 
