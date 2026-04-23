@@ -79,7 +79,13 @@ _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
 # glyphs that trigger ``mid_base``'s alt substitution. Unlike
 # ``_PENDING_BK_ENTRY_GUARDS``, this does not also suppress the mid substitution
 # itself, so the mid glyph still becomes its alt form across the break.
-_NARROW_FWD_EXIT_GUARDS: dict[tuple[str, str, int], tuple[str, ...]] = {
+#
+# Hand-curated rather than auto-derived from ``fwd_replacements`` + alt-trait
+# detection. The pattern is general (any fwd-exit sub whose mid base will lose
+# its entry via its own fwd sub would benefit), and an emission-time auto-
+# population is possible. Prefer adding entries on evidence: each case should
+# come with a test that would fail without the guard.
+_IGNORE_FWD_EXIT_WHEN_MID_STRIPS_ENTRY: dict[tuple[str, str, int], tuple[str, ...]] = {
     ("qsShe", "qsShe.exit-baseline", 0): ("qsUtter",),
 }
 
@@ -1441,7 +1447,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
             _emit_pending_fwd_exit_guards(base_name, variant_name, exit_y, right_context_glyphs)
             _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
-            narrow_mids = _NARROW_FWD_EXIT_GUARDS.get((base_name, variant_name, exit_y))
+            narrow_mids = _IGNORE_FWD_EXIT_WHEN_MID_STRIPS_ENTRY.get((base_name, variant_name, exit_y))
             if narrow_mids:
                 for mid_base in narrow_mids:
                     for mid_exit_y, mid_replacement in sorted(
@@ -1449,6 +1455,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     ):
                         if _meta(mid_replacement).entry:
                             continue
+                        assert mid_exit_y in entry_classes, (
+                            f"fwd_replacements[{mid_base}][{mid_exit_y}] exists "
+                            f"but entry_classes[{mid_exit_y}] is missing"
+                        )
                         mid_use_excl = (mid_base, mid_exit_y) in fwd_use_exclusive
                         if mid_use_excl and (
                             mid_exit_y not in entry_exclusive
