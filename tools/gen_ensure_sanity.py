@@ -173,16 +173,6 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     tea_tok = expect_tok("Tea")
     cheer_tok = expect_tok("Cheer")
 
-    # Right-context letters that have a cosmetic ``noentry-after-X`` form
-    # firing on adjacent left contexts. These influence the right glyph's
-    # name via ``after:`` selectors that match across the runner's ``|``
-    # annotation; in production the corresponding YAML ``not_after:
-    # [space, uni200C]`` guard suppresses the rule when a space or ZWNJ
-    # actually separates the two letters. Use ``|?|`` to skip the test
-    # runner's isolation invariant for these specific pairs.
-    NOENTRY_AFTER_TALL = {"Thaw"}
-    NOENTRY_AFTER_TEA = {"Excite", "Exam"}
-
     panels: list[tuple[str, str, list[tuple[str, str]]]] = []
 
     tea_tea_sections: list[tuple[str, str]] = []
@@ -194,32 +184,19 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     tea_tea_sections.append(("Bare", table_wrap([bare])))
 
     # --- X + Tea + Tea ---
-    # When X has a top exit (·See), the first Tea picks
-    # ``qsTea.entry-top.exit-baseline`` — and the ``exit-baseline`` modifier
-    # leaks across the second non-join (second Tea has no entry to attach to).
-    # Use ``|?|`` between the two Teas in that case; the form is name-only.
     before_cells = []
     for name, code in LETTERS:
         dt = f"{dt_name(name)}·Tea·Tea"
-        if name == "See":
-            expect = f"{expect_tok(name)} ? {tea_nhalf} |?| {tea_nhalf}"
-        else:
-            expect = join_expect([(name, expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)])
+        expect = join_expect([(name, expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)])
         key = cell_key(name, "Tea", "Tea")
         before_cells.append(cell_pair(dt, expect, [code, TEA, TEA], key, failed_keys))
     tea_tea_sections.append(("X·Tea·Tea", table_wrap(before_cells)))
 
     # --- Tea + Tea + Y ---
-    # When Y has ``noentry-after-tall`` (Y is ·Thaw, since Tea is tall) or
-    # ``noentry-after-tea`` (Y in ·Excite, ·Exam), the cosmetic suppression
-    # leaks across the second non-join. Use ``|?|`` for those Ys.
     after_cells = []
     for name, code in LETTERS:
         dt = f"·Tea·Tea{dt_name(name)}"
-        if name in NOENTRY_AFTER_TALL or name in NOENTRY_AFTER_TEA:
-            expect = f"{tea_nhalf} ? {tea_nhalf} |?| {expect_tok(name)}"
-        else:
-            expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, expect_tok(name))])
+        expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, expect_tok(name))])
         key = cell_key("Tea", "Tea", name)
         after_cells.append(cell_pair(dt, expect, [TEA, TEA, code], key, failed_keys))
     tea_tea_sections.append(("·Tea·Tea·Y", table_wrap(after_cells)))
@@ -260,13 +237,10 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     tea_cheer_sections.append(("X·Tea·Cheer", table_wrap(x_tc_cells)))
 
     # --- Tea + Cheer + Y ---
-    # Cheer is tall, so Y=Thaw triggers ``noentry-after-tall`` — name-only
-    # leak across the Cheer-Thaw non-join. Use ``|?|`` for Y=Thaw.
     tc_y_cells = []
     for name, code in LETTERS:
         dt = f"·Tea·Cheer{dt_name(name)}"
-        sep = "|?|" if name in NOENTRY_AFTER_TALL else "?"
-        expect = f"{tea_nhalf} | {cheer_tok} {sep} {expect_tok(name)}"
+        expect = f"{tea_nhalf} | {cheer_tok} ? {expect_tok(name)}"
         key = cell_key("Tea", "Cheer", name)
         tc_y_cells.append(cell_pair(dt, expect, [TEA, CHEER, code], key, failed_keys))
     tea_cheer_sections.append(("·Tea·Cheer·Y", table_wrap(tc_y_cells)))
@@ -307,11 +281,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # if that ligature has a half variant (qsDay_qsUtter.half exists, so the
     # baseline join survives). qsDay_qsEat has no half variant, so qsHe still
     # lands on its full form but the ligature enters at x-height — relax the
-    # connection assertion there. Additionally, ``qsHe.exit-baseline.before-day``
-    # leaks across the He-ligature non-join (He's ``before:`` selector fires on
-    # the original qsDay before it gets consumed); the form is name-only when
-    # the ligature has no baseline-entry partner, so use ``|?|`` to skip
-    # isolation in that case.
+    # connection assertion there.
     hd_y_cells = []
     for name, code in LETTERS:
         dt = f"·He·Day{dt_name(name)}"
@@ -319,7 +289,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             if name == "Utter":
                 expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
             else:
-                expect = f"{he_nhalf} |?| ·Day+?{name}"
+                expect = f"{he_nhalf} ? ·Day+?{name}"
         else:
             expect = f"{he_nhalf} ~b~ {day_half} ? {expect_tok(name)}"
         key = cell_key("He", "Day", name)
