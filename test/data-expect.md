@@ -69,6 +69,7 @@ Tokens are separated by connection operators that describe how adjacent glyphs a
 | `~t~` | Joined at top (y = 8) |
 | `~6~` | Joined at y = 6 |
 | `\|` | Break (no cursive connection) |
+| `\|?\|` | Break, with shape isolation NOT asserted |
 | `?` | Maybe connects, or doesn't |
 
 A "join" means the preceding glyph's exit anchor and the following glyph's entry anchor share the specified Y coordinate. A "break" means no matching anchor pair exists. A "maybe" skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
@@ -78,6 +79,12 @@ A "join" means the preceding glyph's exit anchor and the following glyph's entry
 When `|` separates two Quikscript letter tokens — and likewise when `?` separates a pair that turns out not to join — the test runner additionally asserts that **neither letter influences the other's shape choice**. It re-shapes the two sides as separate HarfBuzz buffers and verifies that the glyph chosen for each token matches the in-context glyph. A disagreement means a `calt` lookup is reaching across the non-join, and the test fails with a diagnostic naming both glyph choices.
 
 Concretely: there's no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on either side of a `|` to pin down "this glyph wasn't chosen because of the other one". The runner enforces that automatically, scoped to letter-vs-letter pairs (boundary tokens like `◊space`, `◊ZWNJ`, and escaped punctuation are excluded — those exist precisely to influence neighboring shape).
+
+### When the font legitimately leaks across a non-join: `|?|`
+
+A few font shapes are intentional "looks-better-when-adjacent" rules that fire on glyph-name signature alone — for instance, `qsThaw.noentry-after-tall` removes Thaw's entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn't fire. But in test, `|` doesn't insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
+
+Use `|?|` instead of `|` for these specific cases. It still asserts that the two glyphs do not cursive-attach (no shared entry/exit Y), but skips the isolation invariant. Reach for `|?|` only when the cross-break shape difference is purely cosmetic / glyph-name-only (same bitmap, same effective cursive position), and adjacent letters in real text would naturally suppress the rule because of the intervening space or ZWNJ glyph.
 
 ## Duplicates
 

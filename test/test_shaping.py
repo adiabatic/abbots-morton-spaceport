@@ -93,7 +93,7 @@ LOZENGE_MAP = {
     "ZWNJ": "space",
 }
 
-CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*(\?)\s*|\s*\|\s*")
+CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*(\|\?\|)\s*|\s*(\?)\s*|\s*\|\s*")
 
 
 def _letter_to_qs(name: str) -> str:
@@ -112,8 +112,13 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
         lig_mode  – None (must-ligate), "maybe" (+?), or "maybe_break" (+|)
         variants  – list of variant assertion strings, e.g. ["half"]
     connections: list of dicts (len = len(tokens) - 1) with keys:
-        kind      – "join", "break", "height", or "maybe"
+        kind      – "join", "break", "break_no_isolation", "height", or "maybe"
         y         – int or None (only for "height")
+
+    "break_no_isolation" (the ``|?|`` operator) behaves like "break" for the
+    join validation — the two glyphs must not share an entry/exit Y — but
+    skips the break-isolation invariant. Use it when the font legitimately
+    influences shape across a non-join (e.g., cosmetic entry-stub removal).
     """
     HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
 
@@ -146,6 +151,8 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                     h = conn_m.group(1)
                     connections.append({"kind": "height", "y": HEIGHT_MAP[h]})
                 elif conn_m.group(2):
+                    connections.append({"kind": "break_no_isolation", "y": None})
+                elif conn_m.group(3):
                     connections.append({"kind": "maybe", "y": None})
                 else:
                     connections.append({"kind": "break", "y": None})
@@ -481,12 +488,14 @@ def _try_interpretation(font: hb.Font, anchor_map: AnchorMap,
 
         if conn["kind"] == "maybe":
             continue
-        if conn["kind"] == "break":
+        if conn["kind"] in ("break", "break_no_isolation"):
             if common_ys:
                 return (
                     f"Connection {i}: expected break between {left} and {right}, "
                     f"but found common Y values {common_ys}"
                 )
+            if conn["kind"] == "break_no_isolation":
+                continue
             if base_potential_entries and left_exits and "half" in left_meta.traits:
                 left_base = left_meta.base_name
                 base_key = left_base if left_base in anchor_map else f"{left_base}.prop"
