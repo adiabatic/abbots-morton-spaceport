@@ -63,6 +63,7 @@ TEA = 0xE652
 DAY = 0xE653
 HE = 0xE662
 WAY = 0xE661
+THAW = 0xE656
 CHEER = 0xE65E
 OWE = 0xE67C
 COLS = 3
@@ -347,6 +348,45 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             "·Way + ·Day: full Way, full Day",
             "·Way and ·Day must both be their full-height variants when they appear consecutively, regardless of the surrounding context; they always join at x-height.",
             way_day_sections,
+        )
+    )
+
+    thaw_tok = expect_tok("Thaw")
+
+    way_thaw_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·Way·Thaw ---
+    key = cell_key("Way", "Thaw")
+    expect = f"{way_nhalf} | {thaw_tok}"
+    bare_wt = cell_pair("·Way·Thaw", expect, [WAY, THAW], key, failed_keys)
+    way_thaw_sections.append(("Bare", table_wrap([bare_wt])))
+
+    # --- X + Way + Thaw ---
+    # qsWay has no entry anchor, so the X → Way connection is
+    # context-dependent; assert only that Way stays full (not half) and
+    # that Way and Thaw do not cursive-attach.
+    x_wt_cells = []
+    for name, code in LETTERS:
+        dt = f"{dt_name(name)}·Way·Thaw"
+        expect = f"{expect_tok(name)} ? {way_nhalf} | {thaw_tok}"
+        key = cell_key(name, "Way", "Thaw")
+        x_wt_cells.append(cell_pair(dt, expect, [code, WAY, THAW], key, failed_keys))
+    way_thaw_sections.append(("X·Way·Thaw", table_wrap(x_wt_cells)))
+
+    # --- Way + Thaw + Y ---
+    wt_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·Way·Thaw{dt_name(name)}"
+        expect = f"{way_nhalf} | {thaw_tok} ? {expect_tok(name)}"
+        key = cell_key("Way", "Thaw", name)
+        wt_y_cells.append(cell_pair(dt, expect, [WAY, THAW, code], key, failed_keys))
+    way_thaw_sections.append(("·Way·Thaw·Y", table_wrap(wt_y_cells)))
+
+    panels.append(
+        (
+            "·Way + ·Thaw: full Way, never joins",
+            "·Way must stay full-height before ·Thaw and must never cursive-attach to it, regardless of the surrounding context. Half-Way's baseline exit would otherwise baseline-join Thaw's default baseline entry.",
+            way_thaw_sections,
         )
     )
 

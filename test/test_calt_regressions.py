@@ -658,6 +658,7 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
+        pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
     ],
@@ -685,6 +686,7 @@ def test_qs_she_stays_plain_before_qs_thaw():
     ("left_base", "right_base"),
     [
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
+        pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
     ],
@@ -702,6 +704,7 @@ def test_qs_way_and_qs_why_stay_full_before_right_base(left_base: str, right_bas
     ("left_base", "right_base"),
     [
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
+        pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
     ],
@@ -724,6 +727,7 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
     ],
 )
@@ -735,6 +739,28 @@ def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
     _assert_no_failures(
         _collect_surrounded_nonjoining_pair_failures(
             "qsShe",
+            "qsThaw",
+            require_isolated_left=True,
+        )
+    )
+
+
+def test_qs_way_stays_plain_before_qs_thaw():
+    isolated = _shape_qs("qsWay")[0]
+    glyphs = _shape_qs("qsWay", "qsThaw")
+
+    assert isolated == "qsWay"
+    assert glyphs[0] == isolated, f"Expected qsWay before qsThaw, got {glyphs}"
+    assert "half" not in _compiled_meta()[glyphs[0]].traits, (
+        f"Expected non-half qsWay before qsThaw, got {glyphs[0]}"
+    )
+    assert _compiled_meta()[glyphs[1]].base_name == "qsThaw"
+
+
+def test_qs_way_stays_plain_and_nonjoining_before_qs_thaw_in_context():
+    _assert_no_failures(
+        _collect_surrounded_nonjoining_pair_failures(
+            "qsWay",
             "qsThaw",
             require_isolated_left=True,
         )
