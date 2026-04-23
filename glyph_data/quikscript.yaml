@@ -612,7 +612,7 @@ glyph_families:
       exit_baseline:
         shape: mono
         anchors:
-          exit: [5, 0]
+          exit: [4, 0]
         select:
           before: [{family: qsIng}]
         derive:
