@@ -1527,9 +1527,19 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 0]
       derive:
-        extend_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsThaw}]}
+        extend_entry_after: {by: 1, targets: [{family: qsTea}]}
         extend_exit_before: {by: 3, targets: [{family: qsThaw}]}
     forms:
+      after_thaw:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [6, 0]
+        select:
+          after: [{family: qsThaw}]
+        derive:
+          extend_entry_after: {by: 2, targets: [{family: qsThaw}]}
+        modifiers: [after-thaw]
       noentry_after_ye:
         shape: mono
         anchors:

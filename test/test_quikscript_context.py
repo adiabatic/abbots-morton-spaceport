@@ -53,7 +53,7 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert ing_entry.extended_entry_suffix == ".entry-extended"
     assert ing_entry.is_entry_variant
     assert {"entry", "extended", "entry-extended"} <= ing_entry.compat_assertions
-    assert ing_entry.after == ("qsTea", "qsThaw")
+    assert ing_entry.after == ("qsTea",)
 
     day_lig = meta["qsDay_qsUtter.entry-extended"]
     assert day_lig.base_name == "qsDay_qsUtter"
