@@ -1,1 +1,1 @@
-Help me fill up the latest (empty?) @FONTLOG.md entry with everything that's font-user-visible that's changed since the last release. Use multiple agents to look in what's actually changed in each commit and not just what the Git commits say.
+Help me fill up the latest (empty?) @FONTLOG.md entry with everything that's font-user-visible that's changed since the last release. There's a Git tag for the last release. Use multiple agents to look in what's actually changed in each commit and not just what the Git commits say.
