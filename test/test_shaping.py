@@ -8,10 +8,12 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 import uharfbuzz as hb
 import yaml
+from fontTools.pens.recordingPen import RecordingPen
+from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATHS = {
@@ -70,6 +72,9 @@ def _build_char_to_glyph_name() -> dict[str, str]:
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
 _COMPILED_GLYPH_META: dict[str, dict[str, JoinGlyph]] = {}
+_TT_FONTS: dict[str, TTFont] = {}
+_TT_GLYPH_SETS: dict[str, Any] = {}
+_OUTLINE_SIG_CACHE: dict[tuple[str, str], tuple] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +642,7 @@ def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, i
 
 
 def _shape_text_glyph_names(font: hb.Font, text: str,
-                             features: dict[str, bool] | None) -> list[str]:
+                             features: dict[str, bool] | None) -> tuple[list[str], list]:
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
@@ -645,25 +650,62 @@ def _shape_text_glyph_names(font: hb.Font, text: str,
         hb.shape(font, buf, features)
     else:
         hb.shape(font, buf)
-    return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    names = [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    positions = list(buf.glyph_positions)
+    return names, positions
 
 
 def _isolation_glyphs_split(font: hb.Font, text: str,
                               segment_breaks: list[int],
-                              features: dict[str, bool] | None) -> list[str]:
+                              features: dict[str, bool] | None) -> tuple[list[str], list]:
     """Shape each segment of ``text`` separately and concatenate glyph names.
 
     ``segment_breaks`` are char offsets into ``text`` where the input is split.
     Each segment is shaped in its own HarfBuzz buffer, so no contextual lookup
-    can fire across a break.
+    can fire across a break. Returns parallel lists of glyph names and
+    HarfBuzz position records.
     """
     bounds = [0, *segment_breaks, len(text)]
-    out: list[str] = []
+    names: list[str] = []
+    positions: list = []
     for start, end in zip(bounds, bounds[1:]):
         if start >= end:
             continue
-        out.extend(_shape_text_glyph_names(font, text[start:end], features))
-    return out
+        seg_names, seg_positions = _shape_text_glyph_names(
+            font, text[start:end], features,
+        )
+        names.extend(seg_names)
+        positions.extend(seg_positions)
+    return names, positions
+
+
+def _get_tt_glyph_set(variant: str) -> Any:
+    glyph_set = _TT_GLYPH_SETS.get(variant)
+    if glyph_set is None:
+        tt = TTFont(str(FONT_PATHS[variant]))
+        _TT_FONTS[variant] = tt
+        glyph_set = tt.getGlyphSet()
+        _TT_GLYPH_SETS[variant] = glyph_set
+    return glyph_set
+
+
+def _glyph_outline_signature(variant: str, glyph_name: str) -> tuple:
+    key = (variant, glyph_name)
+    sig = _OUTLINE_SIG_CACHE.get(key)
+    if sig is None:
+        glyph_set = _get_tt_glyph_set(variant)
+        pen = RecordingPen()
+        glyph_set[glyph_name].draw(pen)
+        sig = tuple(pen.value)
+        _OUTLINE_SIG_CACHE[key] = sig
+    return sig
+
+
+def _positions_equivalent(pos_a, pos_b) -> bool:
+    return (pos_a.x_offset == pos_b.x_offset
+            and pos_a.y_offset == pos_b.y_offset
+            and pos_a.x_advance == pos_b.x_advance
+            and pos_a.y_advance == pos_b.y_advance)
 
 
 def _check_break_isolation(text: str,
@@ -671,8 +713,10 @@ def _check_break_isolation(text: str,
                             connections: list[Connection],
                             anchor_map: AnchorMap,
                             glyph_names_full: list[str],
+                            glyph_positions_full: list,
                             font: hb.Font,
-                            features: dict[str, bool] | None) -> str | None:
+                            features: dict[str, bool] | None,
+                            variant: str) -> str | None:
     """Verify that shape choices flanking each non-join survive isolation.
 
     For every connection whose chosen interpretation is a break — or a "maybe"
@@ -716,7 +760,9 @@ def _check_break_isolation(text: str,
     spans = _token_char_spans(text, tokens)
     segment_breaks = sorted({spans[i + 1][0] for i in isolating_indices})
 
-    split_names = _isolation_glyphs_split(font, text, segment_breaks, features)
+    split_names, split_positions = _isolation_glyphs_split(
+        font, text, segment_breaks, features,
+    )
 
     expected_len = len(tokens)
     if len(split_names) != expected_len:
@@ -733,13 +779,36 @@ def _check_break_isolation(text: str,
             s = split_names[ti]
             if f == s:
                 continue
+            f_sig = _glyph_outline_signature(variant, f)
+            s_sig = _glyph_outline_signature(variant, s)
+            outline_same = f_sig == s_sig
+            position_same = _positions_equivalent(
+                glyph_positions_full[ti], split_positions[ti],
+            )
+            if outline_same and position_same:
+                continue
+            diff_parts = []
+            if not outline_same:
+                diff_parts.append("outline")
+            if not position_same:
+                diff_parts.append("position")
+            diff_summary = " + ".join(diff_parts)
+            f_pos = glyph_positions_full[ti]
+            s_pos = split_positions[ti]
+            pos_fmt = (
+                f"x_offset={f_pos.x_offset}/{s_pos.x_offset}, "
+                f"y_offset={f_pos.y_offset}/{s_pos.y_offset}, "
+                f"x_advance={f_pos.x_advance}/{s_pos.x_advance}, "
+                f"y_advance={f_pos.y_advance}/{s_pos.y_advance}"
+            )
             return (
                 f"Break #{break_idx} (between tokens {ci} and {ci + 1}): "
-                f"{side} glyph differs in isolation —\n"
+                f"{side} glyph visual differs in isolation ({diff_summary}) —\n"
                 f"  full:  {f}\n"
                 f"  split: {s}\n"
-                "Non-joining pair must produce the same shape choice in "
-                "isolation. A contextual lookup is leaking across the break."
+                f"  positions (full/split): {pos_fmt}\n"
+                "Non-joining pair must render the same in isolation. A "
+                "contextual lookup is leaking across the break."
             )
     return None
 
@@ -870,6 +939,7 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
 
         infos = buf.glyph_infos
         glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
+        glyph_positions = list(buf.glyph_positions)
 
         interpretations = _expand_maybe_ligatures(sub_tokens, sub_conns)
 
@@ -908,7 +978,8 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
             interp_tokens, interp_connections = matched_interp
             iso_error = _check_break_isolation(
                 text, interp_tokens, interp_connections,
-                anchor_map, glyph_names, font, merged,
+                anchor_map, glyph_names, glyph_positions,
+                font, merged, variant,
             )
             if iso_error:
                 raise AssertionError(
