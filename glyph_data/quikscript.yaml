@@ -76,6 +76,12 @@ context_sets:
   - {family: qsWhy}
   - {family: qsMay}
   - {family: qsExam}
+  # Letters whose default form does not accept a baseline cursive entry
+  # (no anchor at y=0). A preceding tall must not commit to its
+  # baseline-exit "wide" form when one of these follows, since the join
+  # cannot form anyway.
+  no_baseline_join_after_tall:
+  - {family: qsThaw}
 glyph_families:
   space:
     mono:
@@ -1923,6 +1929,8 @@ glyph_families:
         anchors:
           entry: [1, 0]
           exit: [8, 0]
+        select:
+          not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [exit-baseline, before-vertical]
       noentry_after_ye:
         shape: mono
