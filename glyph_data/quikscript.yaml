@@ -1810,7 +1810,7 @@ glyph_families:
           entry: [[1, 5]]
           exit: [6, 0]
         select:
-          before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsSee}, {family: qsVie}]
+          before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsSee}, {family: qsThaw}, {family: qsVie}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsI}, {family: qsLow}]}
         modifiers: [exit-baseline]
@@ -1827,14 +1827,6 @@ glyph_families:
         select:
           before: [{family: qsEight}]
         modifiers: [exit-xheight, before-eight]
-      exit_baseline_before_thaw:
-        shape: shape_3
-        anchors:
-          entry: [[1, 0], [1, 5]]
-          exit: [6, 0]
-        select:
-          before: [{family: qsThaw}]
-        modifiers: [exit-baseline, before-thaw]
   qsLoch:
     mono:
       bitmap:
