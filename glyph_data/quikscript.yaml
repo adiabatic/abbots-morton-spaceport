@@ -1128,6 +1128,8 @@ glyph_families:
         shape: shape_1
         anchors:
           exit: [6, 0]
+        select:
+          not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [exit-baseline]
   qsJai:
     mono:
