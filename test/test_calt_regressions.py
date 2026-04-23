@@ -767,6 +767,129 @@ def test_qs_way_stays_plain_and_nonjoining_before_qs_thaw_in_context():
     )
 
 
+def test_qs_may_thaw_joins_at_baseline_when_alone():
+    # Sanity check: ·May·Thaw alone is still a valid baseline join.
+    # The orphan-exit guard must not fire when qsThaw keeps its entry.
+    glyphs = _shape_qs("qsMay", "qsThaw")
+    assert glyphs == ["qsMay.exit-baseline", "qsThaw"], glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}
+
+
+def test_qs_may_does_not_take_exit_baseline_before_qs_thaw_that_loses_entry():
+    # The reported bug: in ·May·Thaw·-ing, qsThaw forward-subs to
+    # qsThaw.exit-baseline (which strips its entry) so ·May must not keep
+    # picking qsMay.exit-baseline. That variant would otherwise dangle
+    # below the baseline into an empty join.
+    glyphs = _shape_qs("qsMay", "qsThaw", "qsIng")
+    assert _base_names(glyphs) == ("qsMay", "qsThaw", "qsIng"), glyphs
+    assert glyphs[0] == "qsMay", glyphs
+    assert "exit-baseline" not in _compiled_meta()[glyphs[0]].modifiers, glyphs
+    assert not _pair_join_ys(glyphs, 0), glyphs
+    # The qsThaw ~ qsIng join itself must still hold at the baseline.
+    assert _pair_join_ys(glyphs, 1) == {0}
+
+
+def _qs_may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
+    """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay
+    picked a contextual ``exit-baseline`` variant even though the following
+    qsThaw variant no longer accepts a baseline entry.
+
+    Flagging the ``exit-baseline`` modifier specifically — rather than any
+    mismatched exit — is intentional: qsMay's default (and ``.noentry``) form
+    has a y-height exit that could never attach to qsThaw anyway. The bug is
+    narrower: qsMay's lookup saw qsThaw's default baseline entry and moved
+    qsMay to ``.exit-baseline`` on the assumption that a baseline join was
+    about to form, and then qsThaw's own forward substitution stripped the
+    entry out from under it.
+    """
+    failures: list[str] = []
+    meta = _compiled_meta()
+    for index, glyph in enumerate(glyphs[:-1]):
+        left_meta = meta.get(glyph)
+        right_meta = meta.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != "qsMay" or right_meta.base_name != "qsThaw":
+            continue
+        if "exit-baseline" not in left_meta.modifiers:
+            continue
+        right_entries = set(right_meta.entry_ys) | {
+            anchor[1] for anchor in right_meta.entry_curs_only
+        }
+        if 0 not in right_entries:
+            failures.append(
+                f"{label}: qsMay picked exit-baseline ({glyph}) but adjacent "
+                f"qsThaw variant {glyphs[index + 1]} has no baseline entry "
+                f"(entries Y={sorted(right_entries)}) in {glyphs}"
+            )
+    return failures
+
+
+@pytest.mark.parametrize(
+    "suffix_name",
+    [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
+)
+def test_qs_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
+    # For every possible left-side neighbour, ·X·May·Thaw·-ing (i.e. whenever
+    # qsThaw forward-subs away its entry) must not leave qsMay with an exit
+    # that has nowhere to land on qsThaw.
+    failures = _qs_may_thaw_orphan_failures(
+        _shape_qs(suffix_name, "qsMay", "qsThaw", "qsIng"),
+        f"{suffix_name} / qsMay / qsThaw / qsIng",
+    )
+    _assert_no_failures(failures)
+
+
+@pytest.mark.parametrize(
+    "left_name",
+    [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
+)
+@pytest.mark.parametrize(
+    "right_name",
+    [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
+)
+def test_qs_may_thaw_ing_surrounded_is_never_orphaned(left_name: str, right_name: str):
+    # Surround ·May·Thaw·-ing with every letter pair. qsMay must never dangle
+    # an orphan exit into qsThaw, regardless of outer context.
+    failures = _qs_may_thaw_orphan_failures(
+        _shape_qs(left_name, "qsMay", "qsThaw", "qsIng", right_name),
+        f"{left_name} / qsMay / qsThaw / qsIng / {right_name}",
+    )
+    _assert_no_failures(failures)
+
+
+def test_qs_may_thaw_stays_isolated_across_zwnj():
+    # A ZWNJ before qsMay shapes it to qsMay.noentry; the same forward-sub
+    # path would otherwise promote it to qsMay.exit-baseline before
+    # qsThaw → qsThaw.exit-baseline, leaving the same orphan exit.
+    chars = _char_map()
+    text = chars["qsTea"] + ZWNJ + chars["qsMay"] + chars["qsThaw"] + chars["qsIng"]
+    glyphs = _shape(text)
+    may_index = _find_base_index(glyphs, "qsMay")
+    assert may_index is not None, glyphs
+    may_glyph = glyphs[may_index]
+    assert "exit-baseline" not in _compiled_meta()[may_glyph].modifiers, glyphs
+    _assert_no_failures(
+        _qs_may_thaw_orphan_failures(glyphs, "qsTea / ZWNJ / qsMay / qsThaw / qsIng")
+    )
+
+
+@pytest.mark.parametrize(
+    "ing_variant",
+    [
+        pytest.param("qsIng", id="plain-ing"),
+    ],
+)
+def test_qs_may_thaw_before_ing_variants_stays_plain(ing_variant: str):
+    # Every variant of qsIng that triggers qsThaw's forward sub must keep
+    # qsMay out of exit-baseline.
+    glyphs = _shape_qs("qsMay", "qsThaw", ing_variant)
+    assert glyphs[0] == "qsMay", glyphs
+    _assert_no_failures(
+        _qs_may_thaw_orphan_failures(glyphs, f"qsMay / qsThaw / {ing_variant}")
+    )
+
+
 def test_qs_excite_tea_connect_at_baseline():
     glyphs = _shape_qs("qsExcite", "qsTea")
     excite_exits = _exit_ys(glyphs[0])

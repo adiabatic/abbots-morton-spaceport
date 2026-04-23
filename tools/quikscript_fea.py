@@ -76,9 +76,13 @@ _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
 # would leave an orphan exit. Register the (source, replacement, exit_y) key
 # here to emit a narrow ``ignore sub source' mid_base [contexts]`` rule in
 # ``source``'s forward lookup, where ``contexts`` is the set of right-hand
-# glyphs that trigger ``mid_base``'s alt substitution. Unlike
-# ``_PENDING_BK_ENTRY_GUARDS``, this does not also suppress the mid substitution
-# itself, so the mid glyph still becomes its alt form across the break.
+# glyphs that trigger ``mid_base``'s entry-stripping substitution. Both general
+# ``fwd_replacements`` (e.g. qsUtter → qsUtter.alt) and pair-specific
+# ``fwd_pair_overrides`` (e.g. qsThaw → qsThaw.exit-baseline before qsIng) are
+# covered. Unlike ``_PENDING_BK_ENTRY_GUARDS``, this does not also suppress the
+# mid substitution itself, so the mid glyph still becomes its alt form across
+# the break. The guard is mirrored onto the ``.noentry`` variant sub so
+# ZWNJ-prefixed runs are protected too.
 #
 # Hand-curated rather than auto-derived from ``fwd_replacements`` + alt-trait
 # detection. The pattern is general (any fwd-exit sub whose mid base will lose
@@ -87,6 +91,7 @@ _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
 # come with a test that would fail without the guard.
 _IGNORE_FWD_EXIT_WHEN_MID_STRIPS_ENTRY: dict[tuple[str, str, int], tuple[str, ...]] = {
     ("qsShe", "qsShe.exit-baseline", 0): ("qsUtter",),
+    ("qsMay", "qsMay.exit-baseline", 0): ("qsThaw",),
 }
 
 
@@ -1266,6 +1271,68 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 _emit_guard(mid_source, trigger_contexts)
 
+    def _emit_narrow_mid_entry_strip_guards(
+        source_name: str,
+        variant_name: str,
+        exit_y: int,
+    ) -> None:
+        """Emit ``ignore sub`` rules that block ``source_name → variant_name``
+        when the next glyph is a ``mid_base`` whose own forward substitution
+        will strip its entry anchor in the same run.
+
+        Covers both general forward substitutions (``fwd_replacements``) and
+        pair-specific ones (``fwd_pair_overrides``). Without these guards, the
+        left glyph's exit ends up orphaned against the stripped mid glyph.
+
+        The dict key uses the source glyph's base family name so the same guard
+        applies whether the sub targets the bare base or a ``.noentry`` variant.
+        """
+        source_base = _meta(source_name).base_name if source_name in glyph_meta else source_name
+        narrow_mids = _IGNORE_FWD_EXIT_WHEN_MID_STRIPS_ENTRY.get(
+            (source_base, variant_name, exit_y)
+        )
+        if not narrow_mids:
+            return
+        for mid_base in narrow_mids:
+            for mid_exit_y, mid_replacement in sorted(
+                fwd_replacements.get(mid_base, {}).items()
+            ):
+                if _meta(mid_replacement).entry:
+                    continue
+                assert mid_exit_y in entry_classes, (
+                    f"fwd_replacements[{mid_base}][{mid_exit_y}] exists "
+                    f"but entry_classes[{mid_exit_y}] is missing"
+                )
+                mid_use_excl = (mid_base, mid_exit_y) in fwd_use_exclusive
+                if mid_use_excl and (
+                    mid_exit_y not in entry_exclusive
+                    or not entry_exclusive[mid_exit_y]
+                ):
+                    continue
+                mid_cls = (
+                    f"@entry_only_y{mid_exit_y}"
+                    if mid_use_excl
+                    else f"@entry_y{mid_exit_y}"
+                )
+                lines.append(
+                    f"        ignore sub {source_name}' {mid_base} {mid_cls};"
+                )
+            emitted_before_lists: set[tuple[str, ...]] = set()
+            for mid_variant, mid_before_glyphs, _ in fwd_pair_overrides.get(mid_base, []):
+                if _meta(mid_variant).entry:
+                    continue
+                expanded_mid_before = _expand_all_variants(mid_before_glyphs)
+                if not expanded_mid_before:
+                    continue
+                before_tuple = tuple(sorted(expanded_mid_before))
+                if before_tuple in emitted_before_lists:
+                    continue
+                emitted_before_lists.add(before_tuple)
+                mid_before_list = " ".join(before_tuple)
+                lines.append(
+                    f"        ignore sub {source_name}' {mid_base} [{mid_before_list}];"
+                )
+
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
@@ -1447,32 +1514,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
             _emit_pending_fwd_exit_guards(base_name, variant_name, exit_y, right_context_glyphs)
             _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
-            narrow_mids = _IGNORE_FWD_EXIT_WHEN_MID_STRIPS_ENTRY.get((base_name, variant_name, exit_y))
-            if narrow_mids:
-                for mid_base in narrow_mids:
-                    for mid_exit_y, mid_replacement in sorted(
-                        fwd_replacements.get(mid_base, {}).items()
-                    ):
-                        if _meta(mid_replacement).entry:
-                            continue
-                        assert mid_exit_y in entry_classes, (
-                            f"fwd_replacements[{mid_base}][{mid_exit_y}] exists "
-                            f"but entry_classes[{mid_exit_y}] is missing"
-                        )
-                        mid_use_excl = (mid_base, mid_exit_y) in fwd_use_exclusive
-                        if mid_use_excl and (
-                            mid_exit_y not in entry_exclusive
-                            or not entry_exclusive[mid_exit_y]
-                        ):
-                            continue
-                        mid_cls = (
-                            f"@entry_only_y{mid_exit_y}"
-                            if mid_use_excl
-                            else f"@entry_y{mid_exit_y}"
-                        )
-                        lines.append(
-                            f"        ignore sub {base_name}' {mid_base} {mid_cls};"
-                        )
+            _emit_narrow_mid_entry_strip_guards(base_name, variant_name, exit_y)
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
         if base_name in fwd_preferred_lookahead:
@@ -1509,6 +1551,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if actual_variant is None:
                     continue
+                _emit_narrow_mid_entry_strip_guards(
+                    noentry_name, variant_name, exit_y
+                )
                 lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
                 emitted = True
         if emitted:
@@ -1721,6 +1766,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(f"        ignore sub {base_name}' {excluded_glyph};")
                     right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
                     _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
+                    _emit_narrow_mid_entry_strip_guards(base_name, variant_name, exit_y)
                     lines.append(f"        sub {base_name}' {cls} by {variant_name};")
         lines.append("    } calt_cycle;")
 
