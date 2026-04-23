@@ -4,6 +4,36 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 14.001
+
+#### Quikscript Senior
+
+- Disconnect a long list of ·Ye pairs that shouldn’t have been joining:
+  - Don’t join ·Way·Ye, ·He·Ye, ·They·Ye, ·Why·Ye
+  - Don’t join ·It·Ye and ·Ye·It
+  - Don’t join ·Ye·See, ·Ye·-ing, ·Pea·Ye, ·Tea·Ye
+  - Don’t connect ·Ye to ·Excite or ·Examine
+  - Extend ·Ye·I so the join reads cleanly
+- ·Tea join cleanup:
+  - Stop ·Tea·Cheer from joining
+  - Add a pixel of breathing room between ·Tea·I in most contexts
+  - Lock in that ·Tea gets only one baseline connection (·Excite·Tea stays as an exception)
+  - Make ·Out·Tea·Day use a full-size ·Day; prefer ·Tea joins with ·Out in ·Out·Tea·X
+- ·Pea join cleanup:
+  - Only ·Utter and ·May now join to ·Pea
+  - Break up ·Pea·Excite and ·Pea·Examine
+- ·Gay changes:
+  - Add more ·Gay extensions
+  - Don’t join ·Gay·Ooze or ·Gay·Excite
+- ·Day-related changes:
+  - Make ·Owe·Day never join by default
+  - Have ·Way·Day connect at the x-height
+  - Have ·He·Day use a half-·Day
+- Don’t join ·Why·Thaw; polish up ·Excite·Thaw
+- Add `ss05` (allow `·Et ·Tea` to double-join at the baseline)
+- Add `ss07` (restore the ·Owe·Day x-height join)
+- Prevent letters that don’t join from influencing each other’s shape choice
+
 ### 14.000
 
 - Remove `ss01`; ·Utter·Pea joins are now the default
