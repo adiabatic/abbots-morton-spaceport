@@ -228,7 +228,7 @@ def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
     assert fea.index(pair_lookup) < fea.index(upgrade_lookup)
 
 
-def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_widebase():
+def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extended():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
@@ -236,7 +236,7 @@ def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_widebase():
     assert fea is not None
 
     assert fea.index("lookup calt_fwd_pair_qsThaw_exit-baseline {") < fea.index(
-        "lookup calt_pair_qsIng_widebase {"
+        "lookup calt_pair_qsIng_entry-extended {"
     )
 
 

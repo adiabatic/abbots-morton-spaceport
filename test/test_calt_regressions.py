@@ -555,6 +555,13 @@ def test_qs_ing_before_thaw_uses_triply_extended_exit():
     ]
 
 
+def test_qs_thaw_before_ing_uses_entry_extended_ing():
+    assert _shape_qs("qsThaw", "qsIng") == [
+        "qsThaw.exit-baseline",
+        "qsIng.entry-extended",
+    ]
+
+
 def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
     glyphs = _shape_qs("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe")
 
