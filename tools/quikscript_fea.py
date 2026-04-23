@@ -70,6 +70,20 @@ _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
 }
 
 
+# When ``source`` is about to substitute to ``replacement`` at ``exit_y``, but
+# the immediately-following glyph ``mid_base`` has its own forward substitution
+# that will strip its entry anchor in the same run, ``source``'s substitution
+# would leave an orphan exit. Register the (source, replacement, exit_y) key
+# here to emit a narrow ``ignore sub source' mid_base [contexts]`` rule in
+# ``source``'s forward lookup, where ``contexts`` is the set of right-hand
+# glyphs that trigger ``mid_base``'s alt substitution. Unlike
+# ``_PENDING_BK_ENTRY_GUARDS``, this does not also suppress the mid substitution
+# itself, so the mid glyph still becomes its alt form across the break.
+_NARROW_FWD_EXIT_GUARDS: dict[tuple[str, str, int], tuple[str, ...]] = {
+    ("qsShe", "qsShe.exit-baseline", 0): ("qsUtter",),
+}
+
+
 @dataclass
 class _JoinAnalysis:
     glyph_meta: dict[str, JoinGlyph]
@@ -1427,6 +1441,28 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             right_context_glyphs = entry_exclusive[exit_y] if use_excl else entry_classes[exit_y]
             _emit_pending_fwd_exit_guards(base_name, variant_name, exit_y, right_context_glyphs)
             _emit_pending_bk_entry_guards(base_name, variant_name, right_context_glyphs)
+            narrow_mids = _NARROW_FWD_EXIT_GUARDS.get((base_name, variant_name, exit_y))
+            if narrow_mids:
+                for mid_base in narrow_mids:
+                    for mid_exit_y, mid_replacement in sorted(
+                        fwd_replacements.get(mid_base, {}).items()
+                    ):
+                        if _meta(mid_replacement).entry:
+                            continue
+                        mid_use_excl = (mid_base, mid_exit_y) in fwd_use_exclusive
+                        if mid_use_excl and (
+                            mid_exit_y not in entry_exclusive
+                            or not entry_exclusive[mid_exit_y]
+                        ):
+                            continue
+                        mid_cls = (
+                            f"@entry_only_y{mid_exit_y}"
+                            if mid_use_excl
+                            else f"@entry_y{mid_exit_y}"
+                        )
+                        lines.append(
+                            f"        ignore sub {base_name}' {mid_base} {mid_cls};"
+                        )
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
         if base_name in fwd_preferred_lookahead:
