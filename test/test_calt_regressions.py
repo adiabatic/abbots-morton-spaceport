@@ -233,11 +233,13 @@ def _collect_surrounded_nonjoining_pair_failures(
     right_base: str,
     *,
     require_full_left: bool = False,
+    require_isolated_left: bool = False,
 ) -> list[str]:
     failures: list[str] = []
     meta_map = _compiled_meta()
     left_label = left_base[2:]
     right_label = right_base[2:]
+    isolated_left_glyph = _shape_qs(left_base)[0] if require_isolated_left else None
 
     for outer_left_name, _ in _plain_quikscript_letters():
         for outer_right_name, _ in _plain_quikscript_letters():
@@ -254,6 +256,11 @@ def _collect_surrounded_nonjoining_pair_failures(
                 if require_full_left and "half" in left_meta.traits:
                     failures.append(
                         f"{label}: half-{left_label} selected before {right_label}: {glyphs}"
+                    )
+                if require_isolated_left and glyph_name != isolated_left_glyph:
+                    failures.append(
+                        f"{label}: expected isolated {left_label} glyph "
+                        f"{isolated_left_glyph}, got {glyph_name} in {glyphs}"
                     )
                 common = _pair_join_ys(glyphs, index)
                 if common:
@@ -641,6 +648,7 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
     ("left_base", "right_base"),
     [
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
+        pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
@@ -655,6 +663,15 @@ def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
         f"{left_base} exits={sorted(left_exits)} should not overlap "
         f"{right_base} entries={sorted(right_entries)} in {glyphs}"
     )
+
+
+def test_qs_she_stays_plain_before_qs_thaw():
+    isolated = _shape_qs("qsShe")[0]
+    glyphs = _shape_qs("qsShe", "qsThaw")
+
+    assert isolated == "qsShe"
+    assert glyphs[0] == isolated, f"Expected qsShe before qsThaw, got {glyphs}"
+    assert _compiled_meta()[glyphs[1]].base_name == "qsThaw"
 
 
 @pytest.mark.parametrize(
@@ -698,12 +715,23 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
     ("left_base", "right_base"),
     [
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
+        pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
     ],
 )
 def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
     _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
+
+
+def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
+    _assert_no_failures(
+        _collect_surrounded_nonjoining_pair_failures(
+            "qsShe",
+            "qsThaw",
+            require_isolated_left=True,
+        )
+    )
 
 
 def test_qs_excite_tea_connect_at_baseline():
