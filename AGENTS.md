@@ -60,6 +60,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - After `·Et`, keep `·Tea` on its left baseline join and suppress its ordinary right joins; preserve `·Tea·Oy` through the ligature rules instead of an `·Et`-specific `qsTea` form that joins on both sides.
 - Use `ss05` to opt back into `·Et ~b~ ·Tea ~b~ ...` baseline double-joins when needed; the default shaping should still suppress Tea's ordinary right joins after `·Et`.
 - When a left glyph only "could" gain a needed exit through a guarded forward substitution, backward pair lookups on the follower must inherit those same guards; otherwise `·Et·Tea·X` can wrongly pick joining/extended right-hand forms even though `·Tea` cannot join them.
+- When a forward-exit substitution would be invalidated because the next glyph later strips the matching entry, derive the guard from the generator's right-context classes and the next glyph's own forward substitutions; do not add hand-curated per-pair guard tables.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.

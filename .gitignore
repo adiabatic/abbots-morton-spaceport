@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+.uv-cache/
 
 # Build stuff
 /test/AbbotsMortonSpaceport*.otf
