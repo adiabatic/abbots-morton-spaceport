@@ -240,6 +240,77 @@ def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extend
     )
 
 
+def test_senior_feature_emitter_derives_mid_entry_strip_guards():
+    join_glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {
+                "uni200C": {
+                    "bitmap": [],
+                    "advance_width": 0,
+                },
+            },
+            "glyph_families": {
+                "qsLeft": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 5],
+                            "exit": [1, 5],
+                        },
+                    },
+                    "forms": {
+                        "exit_baseline": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [1, 0],
+                            },
+                            "modifiers": ["exit-baseline"],
+                        },
+                    },
+                },
+                "qsMid": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                    "forms": {
+                        "exit_baseline": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [1, 0],
+                            },
+                            "select": {
+                                "before": [{"family": "qsRight"}],
+                            },
+                            "modifiers": ["exit-baseline"],
+                        },
+                    },
+                },
+                "qsRight": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    assert "ignore sub qsLeft' qsMid [qsRight];" in fea
+    assert "ignore sub qsLeft.noentry' qsMid [qsRight];" in fea
+
+
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
     join_glyphs, _ = compile_quikscript_ir(
         {

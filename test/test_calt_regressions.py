@@ -825,6 +825,30 @@ def _qs_may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
     return failures
 
 
+def _qs_no_thaw_alt_failures(glyphs: list[str], label: str) -> list[str]:
+    failures: list[str] = []
+    meta = _compiled_meta()
+    for index, glyph in enumerate(glyphs[:-1]):
+        left_meta = meta.get(glyph)
+        right_meta = meta.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != "qsNo" or right_meta.base_name != "qsThaw":
+            continue
+        if "alt" not in left_meta.traits:
+            continue
+        right_entries = set(right_meta.entry_ys) | {
+            anchor[1] for anchor in right_meta.entry_curs_only
+        }
+        if 0 not in right_entries:
+            failures.append(
+                f"{label}: qsNo picked alt ({glyph}) but adjacent "
+                f"qsThaw variant {glyphs[index + 1]} has no baseline entry "
+                f"(entries Y={sorted(right_entries)}) in {glyphs}"
+            )
+    return failures
+
+
 @pytest.mark.parametrize(
     "suffix_name",
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
@@ -887,6 +911,44 @@ def test_qs_may_thaw_before_ing_variants_stays_plain(ing_variant: str):
     assert glyphs[0] == "qsMay", glyphs
     _assert_no_failures(
         _qs_may_thaw_orphan_failures(glyphs, f"qsMay / qsThaw / {ing_variant}")
+    )
+
+
+def test_qs_no_does_not_take_alt_before_qs_thaw_that_loses_entry():
+    glyphs = _shape_qs("qsNo", "qsThaw", "qsIng")
+    assert _base_names(glyphs) == ("qsNo", "qsThaw", "qsIng"), glyphs
+    assert glyphs[0] == "qsNo", glyphs
+    assert "alt" not in _compiled_meta()[glyphs[0]].traits, glyphs
+    assert not _pair_join_ys(glyphs, 0), glyphs
+    assert _pair_join_ys(glyphs, 1) == {0}
+
+
+@pytest.mark.parametrize(
+    "left_name",
+    [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
+)
+@pytest.mark.parametrize(
+    "right_name",
+    [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
+)
+def test_qs_no_thaw_ing_surrounded_does_not_select_alt(left_name: str, right_name: str):
+    failures = _qs_no_thaw_alt_failures(
+        _shape_qs(left_name, "qsNo", "qsThaw", "qsIng", right_name),
+        f"{left_name} / qsNo / qsThaw / qsIng / {right_name}",
+    )
+    _assert_no_failures(failures)
+
+
+def test_qs_no_thaw_stays_non_alt_across_zwnj():
+    chars = _char_map()
+    text = chars["qsTea"] + ZWNJ + chars["qsNo"] + chars["qsThaw"] + chars["qsIng"]
+    glyphs = _shape(text)
+    no_index = _find_base_index(glyphs, "qsNo")
+    assert no_index is not None, glyphs
+    no_glyph = glyphs[no_index]
+    assert "alt" not in _compiled_meta()[no_glyph].traits, glyphs
+    _assert_no_failures(
+        _qs_no_thaw_alt_failures(glyphs, "qsTea / ZWNJ / qsNo / qsThaw / qsIng")
     )
 
 
