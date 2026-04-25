@@ -272,6 +272,63 @@ def _collect_surrounded_nonjoining_pair_failures(
     return failures
 
 
+def _collect_nonjoining_left_ligature_failures(
+    left_base: str,
+    ligature_base: str,
+    ligature_parts: tuple[str, ...],
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    contexts: list[tuple[str | None, str | None]] = [(None, None)]
+    contexts.extend((None, right_name) for right_name, _ in _plain_quikscript_letters())
+    contexts.extend((left_name, None) for left_name, _ in _plain_quikscript_letters())
+    contexts.extend(
+        (outer_left_name, outer_right_name)
+        for outer_left_name, _ in _plain_quikscript_letters()
+        for outer_right_name, _ in _plain_quikscript_letters()
+    )
+
+    for outer_left_name, outer_right_name in contexts:
+        parts = (
+            ([outer_left_name] if outer_left_name else [])
+            + [left_base]
+            + list(ligature_parts)
+            + ([outer_right_name] if outer_right_name else [])
+        )
+        glyphs = _shape_qs(*parts)
+        label = " / ".join(parts)
+        saw_pair = False
+
+        for index, glyph_name in enumerate(glyphs[:-1]):
+            left_meta = meta_map.get(glyph_name)
+            right_meta = meta_map.get(glyphs[index + 1])
+            if left_meta is None or right_meta is None:
+                continue
+            left_is_target = (
+                left_meta.base_name == left_base
+                or (
+                    left_meta.sequence
+                    and left_meta.sequence[-1] == left_base
+                )
+            )
+            if not left_is_target or right_meta.base_name != ligature_base:
+                continue
+            saw_pair = True
+            common = _pair_join_ys(glyphs, index)
+            if common:
+                failures.append(
+                    f"{label}: {glyph_name} joins {glyphs[index + 1]} "
+                    f"at Y={sorted(common)} in {glyphs}"
+                )
+
+        if not saw_pair and outer_left_name is None and outer_right_name is None:
+            failures.append(
+                f"{label}: expected {left_base} immediately before {ligature_base}, got {glyphs}"
+            )
+
+    return failures
+
+
 def _append_utter_alt_failures(failures: list[str], label: str, text: str) -> None:
     glyphs = _shape(text)
     meta_map = _compiled_meta()
@@ -733,6 +790,25 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
 )
 def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
     _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsMay", id="may"),
+        pytest.param("qsNo", id="no"),
+        pytest.param("qsFoot", id="foot"),
+    ],
+)
+def test_qs_may_no_and_foot_never_join_to_qs_they_utter(left_base: str):
+    _assert_no_failures(
+        _collect_nonjoining_left_ligature_failures(
+            left_base,
+            "qsThey_qsUtter",
+            ("qsThey", "qsUtter"),
+        ),
+        limit=None,
+    )
 
 
 def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():

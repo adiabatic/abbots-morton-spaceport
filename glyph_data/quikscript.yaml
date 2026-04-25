@@ -721,6 +721,7 @@ glyph_families:
         entry: [3, 5]
         exit: [12, 5]
       derive:
+        noentry_after: [{family: qsMay}, {family: qsNo}, {family: qsFoot}, {family: qsAt_qsMay}]
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
