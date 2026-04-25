@@ -11,59 +11,6 @@ _ENTRY_EXTENSION_SUFFIXES = (
     ".entry-extended",
 )
 
-@dataclass(frozen=True)
-class _PendingBkEntryGuard:
-    guard_glyphs: tuple[str, ...]
-    before_bases: tuple[str, ...] = ()
-
-
-_PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard, ...]] = {
-    ("qsTea", "qsTea.exit-baseline", 0): (
-        _PendingBkEntryGuard(("qsEt",)),
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAh", "qsTea"),
-        ),
-    ),
-    ("qsTea", "qsTea.half.exit-xheight", 0): (
-        _PendingBkEntryGuard(("qsEt",)),
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAwe",),
-        ),
-    ),
-    ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
-        _PendingBkEntryGuard(("qsEt",)),
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAh", "qsTea"),
-        ),
-    ),
-    ("qsTea.entry-baseline", "qsTea.half.exit-xheight", 0): (
-        _PendingBkEntryGuard(("qsEt",)),
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsAwe",),
-        ),
-    ),
-}
-
-
-_PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[_PendingBkEntryGuard, ...]] = {
-    ("qsTea", "qsTea_qsOy", 0): (
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsOy",),
-        ),
-    ),
-    ("qsTea.entry-baseline", "qsTea_qsOy", 0): (
-        _PendingBkEntryGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
-            ("qsOy",),
-        ),
-    ),
-}
-
 
 _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
     "qsOut_qsTea",
