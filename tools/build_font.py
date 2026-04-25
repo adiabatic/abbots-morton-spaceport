@@ -30,7 +30,6 @@ import yaml
 
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
-from fontTools.misc.psCharStrings import T2CharString
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
@@ -63,16 +62,16 @@ def load_glyph_data(path: Path) -> GlyphData:
         kerning_defs = {}
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
-                data = yaml.safe_load(f)
-            if data and "metadata" in data:
+                data = yaml.safe_load(f) or {}
+            if "metadata" in data:
                 metadata = data["metadata"]
-            if data and "glyphs" in data:
+            if "glyphs" in data:
                 glyphs.update(data["glyphs"])
-            if data and "glyph_families" in data:
+            if "glyph_families" in data:
                 glyph_families.update(data["glyph_families"])
-            if data and "context_sets" in data:
+            if "context_sets" in data:
                 context_sets.update(data["context_sets"])
-            if data and "kerning" in data:
+            if "kerning" in data:
                 kerning_defs.update(data["kerning"])
         return {
             "metadata": metadata,
@@ -428,24 +427,6 @@ def bitmap_to_rectangles(
                 rectangles.append((x, y, pixel_width, pixel_height))
 
     return rectangles
-
-
-def draw_rectangles_to_glyph(rectangles: list[tuple[int, int, int, int]], glyph_set: dict[str, Any]) -> T2CharString:
-    """
-    Draw rectangles as a TrueType glyph using T2CharStringPen.
-    Returns a T2CharString for CFF/OTF fonts.
-    """
-    pen = T2CharStringPen(width=0, glyphSet=glyph_set)
-
-    for x, y, w, h in rectangles:
-        # Draw counter-clockwise for CFF (outer contour)
-        pen.moveTo((x, y))
-        pen.lineTo((x, y + h))
-        pen.lineTo((x + w, y + h))
-        pen.lineTo((x + w, y))
-        pen.closePath()
-
-    return pen.getCharString()
 
 
 def compose_bitmaps(
