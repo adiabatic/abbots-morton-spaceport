@@ -29,6 +29,13 @@ context_sets:
   - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
   - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
   - {family: qsPea, traits: [half]}
+  # The Quikscript letter families fall into three height categories.
+  # Shorts fit within the x-height (6-pixel bitmap, baseline at y=0). Talls
+  # rise from the baseline to the cap height (9-pixel bitmap). Deeps are also
+  # 9 pixels tall but sit with y_offset=-3, so they descend below the baseline.
+  # The `shorts` and `deeps` lists are kept here as documentation of those
+  # categories; only `talls` and `no_baseline_join_after_tall` are currently
+  # referenced by `select` / `derive` rules elsewhere in this file.
   shorts:
   - {family: qsNo}
   - {family: qsLow}

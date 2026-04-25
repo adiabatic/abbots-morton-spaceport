@@ -1,4 +1,4 @@
-from collections import deque
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
 
@@ -2875,8 +2875,6 @@ def _emit_quikscript_curs(
 
 
 def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
-    from collections import defaultdict
-
     groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for name, meta in glyph_meta.items():
         if meta.revert_feature:
@@ -2909,8 +2907,6 @@ def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph]) -> str | None:
 
 def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
     plan = analysis
-    from collections import defaultdict
-
     if not plan.gated_pair_overrides and not plan.gated_fwd_pair_overrides:
         return None
 
