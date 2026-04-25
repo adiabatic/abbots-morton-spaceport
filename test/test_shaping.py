@@ -20,7 +20,6 @@ FONT_PATHS = {
     "senior": ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
     "junior": ROOT / "test" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
 }
-FONT_PATH = FONT_PATHS["senior"]  # legacy alias
 GLYPH_DATA_DIR = ROOT / "glyph_data"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 

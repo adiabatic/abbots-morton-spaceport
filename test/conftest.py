@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent.parent
 
-collect_ignore = ["test_shaping.py"]
 
 _shaping_cache: dict[str, Any] = {}
 

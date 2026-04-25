@@ -719,20 +719,17 @@ def _no_orphan_exit_into_ligature_failures(
     return failures
 
 
-def test_qs_letter_does_not_reach_into_two_glyph_ligature():
-    _assert_no_failures(_no_orphan_exit_into_ligature_failures())
-
-
-def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss03():
-    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS03_FEATURE))
-
-
-def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss05():
-    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS05_FEATURE))
-
-
-def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss07():
-    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS07_FEATURE))
+@pytest.mark.parametrize(
+    "feature_items",
+    [
+        pytest.param((), id="default"),
+        pytest.param(_SS03_FEATURE, id="ss03"),
+        pytest.param(_SS05_FEATURE, id="ss05"),
+        pytest.param(_SS07_FEATURE, id="ss07"),
+    ],
+)
+def test_qs_letter_does_not_reach_into_two_glyph_ligature(feature_items):
+    _assert_no_failures(_no_orphan_exit_into_ligature_failures(feature_items))
 
 
 def _word_initial_promoted_entry_failures(
@@ -790,20 +787,17 @@ def _word_initial_promoted_entry_failures(
     return failures
 
 
-def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor():
-    _assert_no_failures(_word_initial_promoted_entry_failures())
-
-
-def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss03():
-    _assert_no_failures(_word_initial_promoted_entry_failures(_SS03_FEATURE))
-
-
-def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss05():
-    _assert_no_failures(_word_initial_promoted_entry_failures(_SS05_FEATURE))
-
-
-def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss07():
-    _assert_no_failures(_word_initial_promoted_entry_failures(_SS07_FEATURE))
+@pytest.mark.parametrize(
+    "feature_items",
+    [
+        pytest.param((), id="default"),
+        pytest.param(_SS03_FEATURE, id="ss03"),
+        pytest.param(_SS05_FEATURE, id="ss05"),
+        pytest.param(_SS07_FEATURE, id="ss07"),
+    ],
+)
+def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor(feature_items):
+    _assert_no_failures(_word_initial_promoted_entry_failures(feature_items))
 
 
 def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
