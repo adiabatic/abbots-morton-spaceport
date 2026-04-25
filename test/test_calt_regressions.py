@@ -931,7 +931,6 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsSee", id="way-see"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
-        pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWay", "qsVie", id="way-vie"),
         pytest.param("qsWhy", "qsSee", id="why-see"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
@@ -963,7 +962,6 @@ def test_qs_she_stays_plain_before_qs_thaw():
     [
         pytest.param("qsWay", "qsSee", id="way-before-see"),
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
-        pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWay", "qsVie", id="way-before-vie"),
         pytest.param("qsWhy", "qsSee", id="why-before-see"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
@@ -985,7 +983,6 @@ def test_qs_way_and_qs_why_stay_full_before_right_base(left_base: str, right_bas
     [
         pytest.param("qsWay", "qsSee", id="way-before-see"),
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
-        pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWay", "qsVie", id="way-before-vie"),
         pytest.param("qsWhy", "qsSee", id="why-before-see"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
@@ -1012,7 +1009,6 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsSee", id="way-see"),
-        pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWay", "qsVie", id="way-vie"),
         pytest.param("qsWhy", "qsSee", id="why-see"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
@@ -1046,28 +1042,6 @@ def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
     _assert_no_failures(
         _collect_surrounded_nonjoining_pair_failures(
             "qsShe",
-            "qsThaw",
-            require_isolated_left=True,
-        )
-    )
-
-
-def test_qs_way_stays_plain_before_qs_thaw():
-    isolated = _shape_qs("qsWay")[0]
-    glyphs = _shape_qs("qsWay", "qsThaw")
-
-    assert isolated == "qsWay"
-    assert glyphs[0] == isolated, f"Expected qsWay before qsThaw, got {glyphs}"
-    assert "half" not in _compiled_meta()[glyphs[0]].traits, (
-        f"Expected non-half qsWay before qsThaw, got {glyphs[0]}"
-    )
-    assert _compiled_meta()[glyphs[1]].base_name == "qsThaw"
-
-
-def test_qs_way_stays_plain_and_nonjoining_before_qs_thaw_in_context():
-    _assert_no_failures(
-        _collect_surrounded_nonjoining_pair_failures(
-            "qsWay",
             "qsThaw",
             require_isolated_left=True,
         )
@@ -1708,116 +1682,6 @@ _DAY_PAIR_LIGATURES = frozenset({
 })
 
 
-def test_qs_way_day_joins_at_xheight():
-    chars = _char_map()
-    glyphs = _shape(chars["qsWay"] + chars["qsDay"])
-    assert len(glyphs) == 2, f"Expected 2 glyphs, got {glyphs}"
-    meta = _compiled_meta()
-    way_meta = meta[glyphs[0]]
-    day_meta = meta[glyphs[1]]
-    assert way_meta.base_name == "qsWay"
-    assert day_meta.base_name == "qsDay"
-    assert "half" not in way_meta.traits, f"Expected full Way, got {glyphs[0]}"
-    assert "half" not in day_meta.traits, f"Expected full Day, got {glyphs[1]}"
-    assert 5 in _exit_ys(glyphs[0]) & _entry_ys(glyphs[1]), (
-        f"Expected ·Way·Day to join at y=5, got exits={_exit_ys(glyphs[0])} "
-        f"entries={_entry_ys(glyphs[1])}"
-    )
-
-
-def _way_day_base_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    way = chars["qsWay"]
-    day = chars["qsDay"]
-    meta_map = _compiled_meta()
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = way + day + right_char
-        glyphs = _shape(text)
-        label = f"qsWay / qsDay / {right_name}"
-
-        way_meta = meta_map.get(glyphs[0])
-        if way_meta is None or way_meta.base_name != "qsWay":
-            failures.append(f"{label}: first glyph is not qsWay: {glyphs}")
-            continue
-        if "half" in way_meta.traits:
-            failures.append(f"{label}: half-Way selected: {glyphs}")
-
-        if len(glyphs) < 2:
-            failures.append(f"{label}: too few glyphs: {glyphs}")
-            continue
-
-        day_meta = meta_map.get(glyphs[1])
-        if day_meta is None:
-            failures.append(f"{label}: unknown second glyph: {glyphs}")
-            continue
-
-        # Day may legitimately be consumed into a ligature with the follower.
-        if day_meta.sequence and ("qsDay", right_name) in _DAY_PAIR_LIGATURES:
-            continue
-        if day_meta.base_name != "qsDay":
-            failures.append(f"{label}: second glyph is not qsDay: {glyphs}")
-            continue
-        if "half" in day_meta.traits:
-            failures.append(f"{label}: half-Day selected: {glyphs}")
-
-    return failures
-
-
-def test_qs_way_day_never_half():
-    failures = _way_day_base_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
-def _way_day_context_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    way = chars["qsWay"]
-    day = chars["qsDay"]
-    meta_map = _compiled_meta()
-
-    # Clusters for the L·Way·Day·R input: L=0, Way=1, Day=2, R=3. Only flag
-    # glyphs whose cluster is 1 (the Way we are testing) or 2 (the Day we
-    # are testing). A qsDay that shows up at cluster 3 is the R position
-    # and is unrelated to the Way·Day invariant under test.
-    for left_name, left_char in _plain_quikscript_letters():
-        for right_name, right_char in _plain_quikscript_letters():
-            text = left_char + way + day + right_char
-            shaped = _shape_with_clusters(text)
-            label = f"{left_name} / qsWay / qsDay / {right_name}"
-
-            for glyph_name, cluster in shaped:
-                if cluster not in (1, 2):
-                    continue
-                g_meta = meta_map.get(glyph_name)
-                if g_meta is None:
-                    continue
-                # qsDay consumed into qsDay_qs<X> keeps its full-height body;
-                # the ligature is a separate form.
-                if g_meta.sequence and g_meta.sequence[0] == "qsDay":
-                    continue
-                if g_meta.base_name == "qsWay" and "half" in g_meta.traits:
-                    failures.append(
-                        f"{label}: half-Way selected: {[g for g, _ in shaped]}"
-                    )
-                if (
-                    g_meta.base_name == "qsDay"
-                    and cluster == 2
-                    and "half" in g_meta.traits
-                ):
-                    failures.append(
-                        f"{label}: half-Day selected: {[g for g, _ in shaped]}"
-                    )
-
-    return failures
-
-
-def test_qs_way_day_never_half_in_context():
-    failures = _way_day_context_failures()
-    assert not failures, "\n".join(failures[:50])
-
-
 def _non_bridging_middle_bases() -> list[tuple[str, str]]:
     """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry
     across their variants) but have no single variant combining y=0 entry
@@ -2035,39 +1899,6 @@ def _owe_day_failures_in(glyphs: list[str], label: str) -> list[str]:
                 f"{label}: Owe joins {right_meta.base_name} at Y={sorted(common)} in {glyphs}"
             )
     return failures
-
-
-def test_qs_owe_day_do_not_connect():
-    chars = _char_map()
-    glyphs = _shape(chars["qsOwe"] + chars["qsDay"])
-    failures = _owe_day_failures_in(glyphs, "bare qsOwe / qsDay")
-    assert not failures, "\n".join(failures)
-
-
-def _owe_day_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    owe = chars["qsOwe"]
-    day = chars["qsDay"]
-
-    for right_name, right_char in _plain_quikscript_letters():
-        text = owe + day + right_char
-        failures.extend(
-            _owe_day_failures_in(_shape(text), f"qsOwe / qsDay / {right_name}")
-        )
-
-    for left_name, left_char in _plain_quikscript_letters():
-        text = left_char + owe + day
-        failures.extend(
-            _owe_day_failures_in(_shape(text), f"{left_name} / qsOwe / qsDay")
-        )
-
-    return failures
-
-
-def test_qs_owe_day_do_not_connect_in_context():
-    failures = _owe_day_invariant_failures()
-    assert not failures, "\n".join(failures[:50])
 
 
 def test_qs_owe_day_utter_ligature_does_not_connect():
@@ -2423,3 +2254,391 @@ def test_qs_gay_extended_variants_exclude_nonjoining_targets(target_base):
             assert target_base not in set(variant.before), (
                 f"{name}.before should not include {target_base}; got {variant.before}"
             )
+
+
+# --- Pair sanity invariants --------------------------------------------------
+#
+# These tests enumerate every plain Quikscript letter as a left or right
+# neighbour of a target pair, asserting variant selection (full/half) and
+# connection (join/break) behaviour for that pair across all surrounding
+# contexts.
+
+
+# --- Panel 2: ·Tea·Cheer never joins -----------------------------------------
+
+
+def _tea_cheer_pair_failures(glyphs: list[str], label: str) -> list[str]:
+    """Find Tea-bearing-followed-by-Cheer pairs in ``glyphs`` and verify:
+
+    * the Tea-bearing glyph does not cursive-join the Cheer;
+    * the standalone Tea (when not consumed into a left ligature) is full.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    for index, glyph_name in enumerate(glyphs[:-1]):
+        left_meta = meta_map.get(glyph_name)
+        right_meta = meta_map.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        left_is_tea = left_meta.base_name == "qsTea" or (
+            left_meta.sequence and left_meta.sequence[-1] == "qsTea"
+        )
+        if not left_is_tea or right_meta.base_name != "qsCheer":
+            continue
+        common = _pair_join_ys(glyphs, index)
+        if common:
+            failures.append(
+                f"{label}: Tea-bearing {glyph_name} joins {glyphs[index + 1]} "
+                f"at Y={sorted(common)} in {glyphs}"
+            )
+        if left_meta.base_name == "qsTea" and "half" in left_meta.traits:
+            failures.append(
+                f"{label}: half-Tea selected before Cheer: {glyphs}"
+            )
+    return failures
+
+
+def test_qs_tea_cheer_never_joins():
+    glyphs = _shape_qs("qsTea", "qsCheer")
+    _assert_no_failures(_tea_cheer_pair_failures(glyphs, "qsTea / qsCheer"))
+
+
+def _tea_cheer_in_context_failures() -> list[str]:
+    failures: list[str] = []
+
+    for left_name, _ in _plain_quikscript_letters():
+        if left_name == "qsTea":
+            # Tea+Tea+Cheer is exercised by the Tea+Tea panel; skip here so
+            # the assertion remains specifically about the Tea+Cheer pair.
+            continue
+        glyphs = _shape_qs(left_name, "qsTea", "qsCheer")
+        failures.extend(
+            _tea_cheer_pair_failures(glyphs, f"{left_name} / qsTea / qsCheer")
+        )
+
+    for right_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs("qsTea", "qsCheer", right_name)
+        failures.extend(
+            _tea_cheer_pair_failures(glyphs, f"qsTea / qsCheer / {right_name}")
+        )
+
+    return failures
+
+
+def test_qs_tea_cheer_never_joins_in_context():
+    _assert_no_failures(_tea_cheer_in_context_failures())
+
+
+# --- Panel 4: ·Way·Day stays full+full and joins at the x-height -------------
+
+
+def test_qs_way_day_keeps_full_way_full_day_and_joins_at_xheight():
+    """Bare ·Way·Day shapes as full Way + full Day, joined at Y=5."""
+    glyphs = _shape_qs("qsWay", "qsDay")
+    meta_map = _compiled_meta()
+    assert len(glyphs) == 2, f"Expected 2 glyphs, got {glyphs}"
+    way_meta = meta_map[glyphs[0]]
+    day_meta = meta_map[glyphs[1]]
+    assert way_meta.base_name == "qsWay", f"First glyph is not qsWay: {glyphs}"
+    assert day_meta.base_name == "qsDay", f"Second glyph is not qsDay: {glyphs}"
+    assert "half" not in way_meta.traits, f"Expected full Way, got {glyphs[0]}"
+    assert "half" not in day_meta.traits, f"Expected full Day, got {glyphs[1]}"
+    assert 5 in _pair_join_ys(glyphs, 0), (
+        f"Expected ·Way·Day to join at Y=5, got exits={sorted(_exit_ys(glyphs[0]))} "
+        f"entries={sorted(_entry_ys(glyphs[1]))} in {glyphs}"
+    )
+
+
+def _way_day_invariant_failures(
+    shaped: tuple[tuple[str, int], ...],
+    *,
+    way_cluster: int,
+    day_cluster: int,
+    day_consumed_with: str | None,
+    label: str,
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    glyph_names = [g for g, _ in shaped]
+
+    way_glyph: str | None = None
+    day_glyph: str | None = None
+
+    for glyph_name, cluster in shaped:
+        meta = meta_map.get(glyph_name)
+        if meta is None:
+            continue
+        if cluster == way_cluster and meta.base_name == "qsWay":
+            way_glyph = glyph_name
+            if "half" in meta.traits:
+                failures.append(
+                    f"{label}: half-Way at cluster {cluster}: {glyph_names}"
+                )
+        if cluster == day_cluster:
+            if day_consumed_with and meta.sequence == ("qsDay", day_consumed_with):
+                # Day was rolled into the qsDay_qs<right> ligature; the
+                # ligature's own rules apply, not the standalone-Day rules.
+                continue
+            if meta.base_name == "qsDay":
+                day_glyph = glyph_name
+                if "half" in meta.traits:
+                    failures.append(
+                        f"{label}: half-Day at cluster {cluster}: {glyph_names}"
+                    )
+
+    if way_glyph is not None and day_glyph is not None:
+        if 5 not in _exit_ys(way_glyph) & _entry_ys(day_glyph):
+            failures.append(
+                f"{label}: ·Way·Day does not join at Y=5: "
+                f"exit={sorted(_exit_ys(way_glyph))} "
+                f"entry={sorted(_entry_ys(day_glyph))} in {glyph_names}"
+            )
+
+    return failures
+
+
+def _way_day_in_context_failures() -> list[str]:
+    failures: list[str] = []
+
+    for left_name, _ in _plain_quikscript_letters():
+        shaped = _shape_with_clusters(_qs_text(left_name, "qsWay", "qsDay"))
+        failures.extend(
+            _way_day_invariant_failures(
+                shaped,
+                way_cluster=1,
+                day_cluster=2,
+                day_consumed_with=None,
+                label=f"{left_name} / qsWay / qsDay",
+            )
+        )
+
+    for right_name, _ in _plain_quikscript_letters():
+        shaped = _shape_with_clusters(_qs_text("qsWay", "qsDay", right_name))
+        consumed = right_name if ("qsDay", right_name) in _DAY_PAIR_LIGATURES else None
+        failures.extend(
+            _way_day_invariant_failures(
+                shaped,
+                way_cluster=0,
+                day_cluster=1,
+                day_consumed_with=consumed,
+                label=f"qsWay / qsDay / {right_name}",
+            )
+        )
+
+    for left_name, _ in _plain_quikscript_letters():
+        for right_name, _ in _plain_quikscript_letters():
+            shaped = _shape_with_clusters(
+                _qs_text(left_name, "qsWay", "qsDay", right_name)
+            )
+            consumed = (
+                right_name if ("qsDay", right_name) in _DAY_PAIR_LIGATURES else None
+            )
+            failures.extend(
+                _way_day_invariant_failures(
+                    shaped,
+                    way_cluster=1,
+                    day_cluster=2,
+                    day_consumed_with=consumed,
+                    label=f"{left_name} / qsWay / qsDay / {right_name}",
+                )
+            )
+
+    return failures
+
+
+def test_qs_way_day_keeps_full_way_full_day_and_joins_at_xheight_in_context():
+    _assert_no_failures(_way_day_in_context_failures())
+
+
+# --- Panel 5: ·Way·Thaw keeps full Way and never joins -----------------------
+
+
+def _way_thaw_invariant_failures(
+    shaped: tuple[tuple[str, int], ...],
+    *,
+    way_cluster: int,
+    thaw_cluster: int,
+    label: str,
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    glyph_names = [g for g, _ in shaped]
+
+    way_glyph: str | None = None
+    thaw_glyph: str | None = None
+
+    for glyph_name, cluster in shaped:
+        meta = meta_map.get(glyph_name)
+        if meta is None:
+            continue
+        if cluster == way_cluster and meta.base_name == "qsWay":
+            way_glyph = glyph_name
+            if "half" in meta.traits:
+                failures.append(
+                    f"{label}: half-Way at cluster {cluster}: {glyph_names}"
+                )
+        if cluster == thaw_cluster and meta.base_name == "qsThaw":
+            thaw_glyph = glyph_name
+
+    if way_glyph is not None and thaw_glyph is not None:
+        common = _exit_ys(way_glyph) & _entry_ys(thaw_glyph)
+        if common:
+            failures.append(
+                f"{label}: Way joins Thaw at Y={sorted(common)} in {glyph_names}"
+            )
+
+    return failures
+
+
+def test_qs_way_thaw_keeps_full_way_and_never_joins():
+    glyphs = _shape_qs("qsWay", "qsThaw")
+    meta_map = _compiled_meta()
+    assert len(glyphs) == 2, f"Expected 2 glyphs, got {glyphs}"
+    way_meta = meta_map[glyphs[0]]
+    thaw_meta = meta_map[glyphs[1]]
+    assert way_meta.base_name == "qsWay", f"First glyph is not qsWay: {glyphs}"
+    assert thaw_meta.base_name == "qsThaw", f"Second glyph is not qsThaw: {glyphs}"
+    assert "half" not in way_meta.traits, f"Expected full Way, got {glyphs[0]}"
+    assert not (_exit_ys(glyphs[0]) & _entry_ys(glyphs[1])), (
+        f"Expected ·Way·Thaw to not join, got exits={sorted(_exit_ys(glyphs[0]))} "
+        f"entries={sorted(_entry_ys(glyphs[1]))} in {glyphs}"
+    )
+
+
+def _way_thaw_in_context_failures() -> list[str]:
+    failures: list[str] = []
+
+    for left_name, _ in _plain_quikscript_letters():
+        shaped = _shape_with_clusters(_qs_text(left_name, "qsWay", "qsThaw"))
+        failures.extend(
+            _way_thaw_invariant_failures(
+                shaped,
+                way_cluster=1,
+                thaw_cluster=2,
+                label=f"{left_name} / qsWay / qsThaw",
+            )
+        )
+
+    for right_name, _ in _plain_quikscript_letters():
+        shaped = _shape_with_clusters(_qs_text("qsWay", "qsThaw", right_name))
+        failures.extend(
+            _way_thaw_invariant_failures(
+                shaped,
+                way_cluster=0,
+                thaw_cluster=1,
+                label=f"qsWay / qsThaw / {right_name}",
+            )
+        )
+
+    for left_name, _ in _plain_quikscript_letters():
+        for right_name, _ in _plain_quikscript_letters():
+            shaped = _shape_with_clusters(
+                _qs_text(left_name, "qsWay", "qsThaw", right_name)
+            )
+            failures.extend(
+                _way_thaw_invariant_failures(
+                    shaped,
+                    way_cluster=1,
+                    thaw_cluster=2,
+                    label=f"{left_name} / qsWay / qsThaw / {right_name}",
+                )
+            )
+
+    return failures
+
+
+def test_qs_way_thaw_keeps_full_way_and_never_joins_in_context():
+    _assert_no_failures(_way_thaw_in_context_failures())
+
+
+# --- Panel 6: ·Owe·Day never joins -------------------------------------------
+
+
+def test_qs_owe_day_never_joins():
+    glyphs = _shape_qs("qsOwe", "qsDay")
+    _assert_no_failures(_owe_day_failures_in(glyphs, "qsOwe / qsDay"))
+
+
+def _owe_day_in_context_failures() -> list[str]:
+    failures: list[str] = []
+
+    for right_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs("qsOwe", "qsDay", right_name)
+        failures.extend(
+            _owe_day_failures_in(glyphs, f"qsOwe / qsDay / {right_name}")
+        )
+
+    for left_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs(left_name, "qsOwe", "qsDay")
+        failures.extend(
+            _owe_day_failures_in(glyphs, f"{left_name} / qsOwe / qsDay")
+        )
+
+    for left_name, _ in _plain_quikscript_letters():
+        for right_name, _ in _plain_quikscript_letters():
+            glyphs = _shape_qs(left_name, "qsOwe", "qsDay", right_name)
+            failures.extend(
+                _owe_day_failures_in(
+                    glyphs, f"{left_name} / qsOwe / qsDay / {right_name}"
+                )
+            )
+
+    return failures
+
+
+def test_qs_owe_day_never_joins_in_context():
+    _assert_no_failures(_owe_day_in_context_failures())
+
+
+# --- Panel 7: ·They·Jay never joins ------------------------------------------
+
+
+_JAY_BASES = frozenset({"qsJay", "qsJay_qsUtter"})
+
+
+def _they_jay_pair_failures(glyphs: list[str], label: str) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    for index, glyph_name in enumerate(glyphs[:-1]):
+        left_meta = meta_map.get(glyph_name)
+        right_meta = meta_map.get(glyphs[index + 1])
+        if left_meta is None or right_meta is None:
+            continue
+        if left_meta.base_name != "qsThey":
+            continue
+        if right_meta.base_name not in _JAY_BASES:
+            continue
+        common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
+        if common:
+            failures.append(
+                f"{label}: They joins {right_meta.base_name} at Y={sorted(common)} "
+                f"in {glyphs}"
+            )
+    return failures
+
+
+def test_qs_they_jay_never_joins():
+    glyphs = _shape_qs("qsThey", "qsJay")
+    _assert_no_failures(_they_jay_pair_failures(glyphs, "qsThey / qsJay"))
+
+
+def _they_jay_in_context_failures() -> list[str]:
+    failures: list[str] = []
+
+    for left_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs(left_name, "qsThey", "qsJay")
+        failures.extend(
+            _they_jay_pair_failures(glyphs, f"{left_name} / qsThey / qsJay")
+        )
+
+    for right_name, _ in _plain_quikscript_letters():
+        glyphs = _shape_qs("qsThey", "qsJay", right_name)
+        failures.extend(
+            _they_jay_pair_failures(glyphs, f"qsThey / qsJay / {right_name}")
+        )
+
+    return failures
+
+
+def test_qs_they_jay_never_joins_in_context():
+    _assert_no_failures(_they_jay_in_context_failures())
