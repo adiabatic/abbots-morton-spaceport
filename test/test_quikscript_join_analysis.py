@@ -408,3 +408,279 @@ def test_ss_gated_swap_adds_a_mismatch():
     assert "ss03" in message
     assert "qsPea.before-tea" in message
     assert "qsTea" in message
+
+
+# Regression-witness tests — each fixture distills the kind of steady-state
+# join mismatch that the named historical commit was working around. For the
+# four FEA-only fixes (every commit below except 075d485, which mutated YAML),
+# the pre-fix YAML was structurally consistent and the bug lived in the FEA
+# emitter; these fixtures express the hypothetical YAML where the FEA-side
+# guard had not yet been introduced. The validator is designed to make that
+# situation impossible.
+
+
+def test_regression_075d485_fee_exits_xheight_before_utter():
+    """075d485 — Fix ·Fee→·Utter and ·See→·At cursive connections.
+
+    Pre-fix: qsFee.exit-xheight declared ``before: qsUtter`` and exits at y=5,
+    but qsUtter's only y=5 entry-bearing variant is a backward-pair override
+    (``after: qsAh, qsTea``) that cannot select after qsFee. Modeled here as
+    qsUtter having no y=5 entry at all — the validator is family-level and
+    surfaces the same missing-y mismatch.
+    """
+    qs_fee = _make_glyph(
+        name="qsFee",
+        base_name="qsFee",
+        family="qsFee",
+        exit=((4, 0),),
+    )
+    qs_fee_exit_xheight = _make_glyph(
+        name="qsFee.exit-xheight",
+        base_name="qsFee",
+        family="qsFee",
+        modifiers=("exit-xheight",),
+        exit=((4, 5),),
+        before=("qsUtter",),
+    )
+    qs_utter = _make_glyph(
+        name="qsUtter",
+        base_name="qsUtter",
+        family="qsUtter",
+        entry=((0, 0),),
+        exit=((4, 0),),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsFee": qs_fee,
+                "qsFee.exit-xheight": qs_fee_exit_xheight,
+                "qsUtter": qs_utter,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsFee.exit-xheight" in message
+    assert "qsUtter" in message
+    assert "y=5" in message
+
+
+def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
+    """8c7c486 — Fix backward after matching for incompatible joins.
+
+    Pre-fix (FEA-only): qsNo.alt.after-it-and-vie was selected even when the
+    predecessor's exit didn't actually match its entry y, because backward
+    ``after:`` expansion was family-level. Fixture: qsNo.alt.after-it-and-vie
+    enters at y=0 listing ``after: [qsIt, qsVie]``, but neither family has
+    any reachable exit at y=0.
+    """
+    qs_it = _make_glyph(
+        name="qsIt",
+        base_name="qsIt",
+        family="qsIt",
+        exit=((4, 5),),
+    )
+    qs_vie = _make_glyph(
+        name="qsVie",
+        base_name="qsVie",
+        family="qsVie",
+        exit=((4, 5),),
+    )
+    qs_no = _make_glyph(
+        name="qsNo",
+        base_name="qsNo",
+        family="qsNo",
+        entry=((0, 5),),
+        exit=((4, 5),),
+    )
+    qs_no_alt_after_it_and_vie = _make_glyph(
+        name="qsNo.alt.after-it-and-vie",
+        base_name="qsNo",
+        family="qsNo",
+        traits=frozenset({"alt"}),
+        modifiers=("after-it-and-vie",),
+        entry=((0, 0),),
+        exit=((4, 5),),
+        after=("qsIt", "qsVie"),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsIt": qs_it,
+                "qsVie": qs_vie,
+                "qsNo": qs_no,
+                "qsNo.alt.after-it-and-vie": qs_no_alt_after_it_and_vie,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsNo.alt.after-it-and-vie" in message
+    assert "qsIt" in message or "qsVie" in message
+    assert "y=0" in message
+
+
+def test_regression_d641641_tea_x_must_not_pick_joining_x():
+    """d641641 — ·Tea·X shouldn't pick a joining X when they don't join anyway.
+
+    Pre-fix (FEA-only): qsTea.exit-baseline could preselect an X variant that,
+    after later substitutions, no longer carried the matching y=0 entry.
+    Fixture: qsTea.exit-baseline exits y=0 listing ``before: qsExample``, but
+    qsExample's only variant has ``noentry_after: [qsTea]``, so the entry is
+    stripped specifically when qsTea is the predecessor — no reachable y=0
+    entry remains.
+    """
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0),),
+        exit=((4, 5),),
+    )
+    qs_tea_exit_baseline = _make_glyph(
+        name="qsTea.exit-baseline",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("exit-baseline",),
+        entry=((0, 0),),
+        exit=((4, 0),),
+        before=("qsExample",),
+    )
+    qs_example = _make_glyph(
+        name="qsExample",
+        base_name="qsExample",
+        family="qsExample",
+        entry=((0, 0),),
+        exit=((4, 5),),
+        noentry_after=("qsTea",),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsTea": qs_tea,
+                "qsTea.exit-baseline": qs_tea_exit_baseline,
+                "qsExample": qs_example,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsTea.exit-baseline" in message
+    assert "qsExample" in message
+    assert "y=0" in message
+
+
+def test_regression_714a2d5_tea_oy_ligature_after_tea():
+    """714a2d5 — ·Tea·Oy also counts as a ·Tea you can't join to at the baseline.
+
+    Pre-fix (FEA-only): the qsTea_qsOy ligature consumes qsTea, and the
+    ligature's effective entry sits at x-height while predecessors that joined
+    a bare baseline qsTea expected y=0. Fixture: qsX.before-tea-oy exits y=0
+    listing the ligature directly as the right context, but the only reachable
+    variant of family qsTea_qsOy enters at y=5.
+    """
+    qs_x = _make_glyph(
+        name="qsX",
+        base_name="qsX",
+        family="qsX",
+        exit=((4, 5),),
+    )
+    qs_x_before_tea_oy = _make_glyph(
+        name="qsX.before-tea-oy",
+        base_name="qsX",
+        family="qsX",
+        modifiers=("before-tea-oy",),
+        exit=((4, 0),),
+        before=("qsTea_qsOy",),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0),),
+        exit=((4, 5),),
+    )
+    qs_oy = _make_glyph(
+        name="qsOy",
+        base_name="qsOy",
+        family="qsOy",
+        entry=((0, 5),),
+    )
+    qs_tea_qs_oy = _make_glyph(
+        name="qsTea_qsOy",
+        base_name="qsTea_qsOy",
+        family="qsTea_qsOy",
+        sequence=("qsTea", "qsOy"),
+        entry=((0, 5),),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsX": qs_x,
+                "qsX.before-tea-oy": qs_x_before_tea_oy,
+                "qsTea": qs_tea,
+                "qsOy": qs_oy,
+                "qsTea_qsOy": qs_tea_qs_oy,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsX.before-tea-oy" in message
+    assert "qsTea_qsOy" in message
+    assert "y=0" in message
+
+
+def test_regression_77ca573_ing_before_may_thaw_ligature():
+    """77ca573 — Have ·May·Thaw look right after ·-ing.
+
+    Pre-fix (FEA-only): forward calt on qsIng targeting the qsMay+qsThaw
+    ligature didn't agree on entry height. Fixture: qsIng.exit-extended exits
+    y=5 listing ``before: qsMay_qsThaw``, but the May+Thaw ligature has only a
+    y=0 entry — no y=5 entry on any reachable candidate.
+    """
+    qs_ing = _make_glyph(
+        name="qsIng",
+        base_name="qsIng",
+        family="qsIng",
+        exit=((4, 0),),
+    )
+    qs_ing_exit_extended = _make_glyph(
+        name="qsIng.exit-extended",
+        base_name="qsIng",
+        family="qsIng",
+        modifiers=("exit-extended",),
+        exit=((4, 5),),
+        before=("qsMay_qsThaw",),
+    )
+    qs_may = _make_glyph(
+        name="qsMay",
+        base_name="qsMay",
+        family="qsMay",
+        entry=((0, 0),),
+        exit=((4, 0),),
+    )
+    qs_thaw = _make_glyph(
+        name="qsThaw",
+        base_name="qsThaw",
+        family="qsThaw",
+        entry=((0, 0),),
+    )
+    qs_may_qs_thaw = _make_glyph(
+        name="qsMay_qsThaw",
+        base_name="qsMay_qsThaw",
+        family="qsMay_qsThaw",
+        sequence=("qsMay", "qsThaw"),
+        entry=((0, 0),),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsIng": qs_ing,
+                "qsIng.exit-extended": qs_ing_exit_extended,
+                "qsMay": qs_may,
+                "qsThaw": qs_thaw,
+                "qsMay_qsThaw": qs_may_qs_thaw,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsIng.exit-extended" in message
+    assert "qsMay_qsThaw" in message
+    assert "y=5" in message
