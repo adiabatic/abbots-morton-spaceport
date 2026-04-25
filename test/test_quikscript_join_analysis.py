@@ -19,6 +19,8 @@ from quikscript_ir import JoinGlyph
 from quikscript_join_analysis import (
     DerivedBkGuard,
     JoinReachability,
+    _compute_derived_bk_guards,
+    _compute_derived_liga_guards,
     derive_pending_bk_entry_guards,
     derive_pending_liga_entry_guards,
     validate_join_consistency,
@@ -754,7 +756,7 @@ def test_derive_bk_guards_emits_when_forward_sub_loses_entry():
     }
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_bk_entry_guards(reach)
+    derived = _compute_derived_bk_guards(reach)
 
     key = ("qsTea", "qsTea.exit-baseline", 0)
     assert key in derived
@@ -792,7 +794,7 @@ def test_derive_bk_guards_skips_when_replacement_keeps_entry():
     }
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_bk_entry_guards(reach)
+    derived = _compute_derived_bk_guards(reach)
 
     assert not any(
         replacement == "qsTea.keepentry"
@@ -891,7 +893,7 @@ def test_derive_liga_guards_emits_when_ligature_loses_entry():
     }
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_liga_entry_guards(reach)
+    derived = _compute_derived_liga_guards(reach)
 
     key = ("qsTea", "qsTea_qsOy", 0)
     assert key in derived
@@ -945,7 +947,7 @@ def test_derive_bk_guards_handles_backward_variant_as_source():
     }
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_bk_entry_guards(reach)
+    derived = _compute_derived_bk_guards(reach)
 
     key = ("qsTea.entry-baseline", "qsTea.entry-baseline.exit-x", 0)
     assert key in derived
