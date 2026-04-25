@@ -127,10 +127,6 @@ def join_expect(names_and_tokens: list[tuple[str, str]]) -> str:
     return "".join(parts)
 
 
-def dt_name(name: str) -> str:
-    return f"·{name}"
-
-
 def entity(code: int) -> str:
     return f"&#x{code:04X};"
 
@@ -189,7 +185,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- X + Tea + Tea ---
     before_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·Tea·Tea"
+        dt = f"{expect_tok(name)}·Tea·Tea"
         expect = join_expect([(name, expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)])
         key = cell_key(name, "Tea", "Tea")
         before_cells.append(cell_pair(dt, expect, [code, TEA, TEA], key, failed_keys))
@@ -198,7 +194,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- Tea + Tea + Y ---
     after_cells = []
     for name, code in LETTERS:
-        dt = f"·Tea·Tea{dt_name(name)}"
+        dt = f"·Tea·Tea{expect_tok(name)}"
         expect = join_expect([("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, expect_tok(name))])
         key = cell_key("Tea", "Tea", name)
         after_cells.append(cell_pair(dt, expect, [TEA, TEA, code], key, failed_keys))
@@ -230,7 +226,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     for name, code in LETTERS:
         if name == "Tea":
             continue
-        dt = f"{dt_name(name)}·Tea·Cheer"
+        dt = f"{expect_tok(name)}·Tea·Cheer"
         if (name, "Tea") in LIGATURE_PAIRS:
             expect = f"{expect_tok(name)}+?Tea | {cheer_tok}"
         else:
@@ -242,7 +238,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- Tea + Cheer + Y ---
     tc_y_cells = []
     for name, code in LETTERS:
-        dt = f"·Tea·Cheer{dt_name(name)}"
+        dt = f"·Tea·Cheer{expect_tok(name)}"
         expect = f"{tea_nhalf} | {cheer_tok} ? {expect_tok(name)}"
         key = cell_key("Tea", "Cheer", name)
         tc_y_cells.append(cell_pair(dt, expect, [TEA, CHEER, code], key, failed_keys))
@@ -273,7 +269,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # assert only that He lands on a non-half variant and Day lands on its half.
     x_hd_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·He·Day"
+        dt = f"{expect_tok(name)}·He·Day"
         expect = f"{expect_tok(name)} ? {he_nhalf} ~b~ {day_half}"
         key = cell_key(name, "He", "Day")
         x_hd_cells.append(cell_pair(dt, expect, [code, HE, DAY], key, failed_keys))
@@ -287,7 +283,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # its x-height exit can join the ligature instead of being orphaned.
     hd_y_cells = []
     for name, code in LETTERS:
-        dt = f"·He·Day{dt_name(name)}"
+        dt = f"·He·Day{expect_tok(name)}"
         if ("Day", name) in LIGATURE_PAIRS:
             if name == "Utter":
                 expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
@@ -324,7 +320,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # variant and Day lands on its full variant.
     x_wd_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·Way·Day"
+        dt = f"{expect_tok(name)}·Way·Day"
         expect = f"{expect_tok(name)} ? {way_nhalf} ~x~ {day_nhalf}"
         key = cell_key(name, "Way", "Day")
         x_wd_cells.append(cell_pair(dt, expect, [code, WAY, DAY], key, failed_keys))
@@ -336,7 +332,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # (variant modifiers on the ligature are out of scope for this panel).
     wd_y_cells = []
     for name, code in LETTERS:
-        dt = f"·Way·Day{dt_name(name)}"
+        dt = f"·Way·Day{expect_tok(name)}"
         if ("Day", name) in LIGATURE_PAIRS:
             expect = f"{way_nhalf} ? ·Day+?{name}"
         else:
@@ -369,7 +365,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # that Way and Thaw do not cursive-attach.
     x_wt_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·Way·Thaw"
+        dt = f"{expect_tok(name)}·Way·Thaw"
         expect = f"{expect_tok(name)} ? {way_nhalf} | {thaw_tok}"
         key = cell_key(name, "Way", "Thaw")
         x_wt_cells.append(cell_pair(dt, expect, [code, WAY, THAW], key, failed_keys))
@@ -378,7 +374,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- Way + Thaw + Y ---
     wt_y_cells = []
     for name, code in LETTERS:
-        dt = f"·Way·Thaw{dt_name(name)}"
+        dt = f"·Way·Thaw{expect_tok(name)}"
         expect = f"{way_nhalf} | {thaw_tok} ? {expect_tok(name)}"
         key = cell_key("Way", "Thaw", name)
         wt_y_cells.append(cell_pair(dt, expect, [WAY, THAW, code], key, failed_keys))
@@ -406,7 +402,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- X + Owe + Day ---
     x_od_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·Owe·Day"
+        dt = f"{expect_tok(name)}·Owe·Day"
         expect = f"{expect_tok(name)} ? {owe_tok} | {day_tok}"
         key = cell_key(name, "Owe", "Day")
         x_od_cells.append(cell_pair(dt, expect, [code, OWE, DAY], key, failed_keys))
@@ -418,7 +414,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # the ligature are out of scope for this panel.
     od_y_cells = []
     for name, code in LETTERS:
-        dt = f"·Owe·Day{dt_name(name)}"
+        dt = f"·Owe·Day{expect_tok(name)}"
         if ("Day", name) in LIGATURE_PAIRS:
             expect = f"{owe_tok} | ·Day+?{name}"
         else:
@@ -449,7 +445,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- X + They + Jay ---
     x_tj_cells = []
     for name, code in LETTERS:
-        dt = f"{dt_name(name)}·They·Jay"
+        dt = f"{expect_tok(name)}·They·Jay"
         left_connection = "|?|" if name == "Utter" else "?"
         expect = f"{expect_tok(name)} {left_connection} {they_tok} | {jay_tok}"
         key = cell_key(name, "They", "Jay")
@@ -459,7 +455,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- They + Jay + Y ---
     tj_y_cells = []
     for name, code in LETTERS:
-        dt = f"·They·Jay{dt_name(name)}"
+        dt = f"·They·Jay{expect_tok(name)}"
         if ("Jay", name) in LIGATURE_PAIRS:
             expect = f"{they_tok} | ·Jay+?{name}"
         else:

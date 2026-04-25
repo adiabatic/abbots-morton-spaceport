@@ -370,7 +370,7 @@
 
       // Initialize row markers
       function initRowMarkers() {
-        document.querySelectorAll(".row-marker").forEach((el) => el.remove());
+        for (const el of document.querySelectorAll(".row-marker")) el.remove();
 
         const markerRows = [
           { row: TALL_HEIGHT_ROW, label: "th", title: "tall height" },
@@ -460,13 +460,13 @@
         rowComments = [];
         const bitmapLines = text.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/gm);
         if (bitmapLines) {
-          bitmapLines.forEach((line) => {
+          for (const line of bitmapLines) {
             const match = line.match(/^\s*-\s*["']([^"']+)["']\s*(#.*)?$/);
             if (match) {
               bitmap.push(match[1]);
               rowComments.push(match[2] || "");
             }
-          });
+          }
         }
 
         // Detect column count from first bitmap row
@@ -489,7 +489,7 @@
         const cells = lightboard.querySelectorAll(".lightboard-cell");
         const startRow = getBitmapStartRow();
 
-        cells.forEach((cell) => {
+        for (const cell of cells) {
           const row = parseInt(cell.dataset.row);
           const col = parseInt(cell.dataset.col);
           const bitmapRow = row - startRow;
@@ -507,7 +507,7 @@
             cell.classList.add("disabled");
             cell.classList.remove("on", "off");
           }
-        });
+        }
 
         glyphInfo.textContent = glyphName ? `${glyphName} ${glyphComment}` : "";
         yOffsetInput.value = yOffset;
@@ -626,13 +626,13 @@
         }
 
         output += `${leadingIndent}  bitmap:\n`;
-        bitmap.forEach((row, i) => {
+        for (const [i, row] of bitmap.entries()) {
           output += `${leadingIndent}    - "${row}"`;
           if (rowComments[i]) {
             output += ` ${rowComments[i]}`;
           }
           output += "\n";
-        });
+        }
 
         return output;
       }
