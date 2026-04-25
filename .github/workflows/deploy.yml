@@ -55,9 +55,6 @@ jobs:
               font.save(otf.with_suffix('.woff2'))
           "
 
-      - name: Generate test pages
-        run: uv run python tools/gen_ensure_sanity.py
-
       - name: Prepare site
         run: |
           mkdir -p site
