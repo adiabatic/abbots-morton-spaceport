@@ -189,7 +189,6 @@ glyph_families:
         modifiers: [entry-xheight, exit-xheight]
       half_entry_y6_exit_y6:
         inherits: half
-        shape: half
         anchors:
           entry: [1, 6]
           exit: [4, 6]
