@@ -827,6 +827,176 @@ def _expand_backward_after_variants(
     return expanded
 
 
+def _split_fea_context_tokens(body: str) -> tuple[str, ...] | None:
+    tokens = []
+    i = 0
+    while i < len(body):
+        while i < len(body) and body[i].isspace():
+            i += 1
+        if i >= len(body):
+            break
+        if body[i] == "[":
+            end = body.find("]", i + 1)
+            if end == -1:
+                return None
+            end += 1
+            if end < len(body) and body[end] == "'":
+                end += 1
+            tokens.append(body[i:end])
+            i = end
+            continue
+        end = i
+        while end < len(body) and not body[end].isspace():
+            end += 1
+        tokens.append(body[i:end])
+        i = end
+    return tuple(tokens)
+
+
+def _parse_ignore_sub_line(line: str) -> tuple[str, tuple[str, ...]] | None:
+    stripped = line.lstrip()
+    if not stripped.startswith("ignore sub ") or not stripped.endswith(";"):
+        return None
+    indent = line[: len(line) - len(stripped)]
+    body = stripped.removeprefix("ignore sub ")[:-1].strip()
+    tokens = _split_fea_context_tokens(body)
+    if not tokens:
+        return None
+    return indent, tokens
+
+
+def _is_groupable_context_token(token: str) -> bool:
+    return (
+        not token.startswith("[")
+        and not token.startswith("@")
+        and not token.endswith("'")
+        and "[" not in token
+        and "]" not in token
+    )
+
+
+def _format_ignore_sub_line(indent: str, tokens: tuple[str, ...]) -> str:
+    return f"{indent}ignore sub {' '.join(tokens)};"
+
+
+def _coalesce_parsed_ignore_rules(
+    entries: list[tuple[str, tuple[str, ...]]],
+) -> list[str]:
+    deduped_entries = []
+    seen = set()
+    for entry in entries:
+        if entry in seen:
+            continue
+        seen.add(entry)
+        deduped_entries.append(entry)
+
+    consumed: set[int] = set()
+    result = []
+    for i, (indent, tokens) in enumerate(deduped_entries):
+        if i in consumed:
+            continue
+
+        best_group: list[int] = []
+        best_slot: int | None = None
+        for slot, token in enumerate(tokens):
+            if not _is_groupable_context_token(token):
+                continue
+            group = [i]
+            for j in range(i + 1, len(deduped_entries)):
+                if j in consumed:
+                    continue
+                other_indent, other_tokens = deduped_entries[j]
+                if other_indent != indent or len(other_tokens) != len(tokens):
+                    continue
+                if not _is_groupable_context_token(other_tokens[slot]):
+                    continue
+                if other_tokens[:slot] != tokens[:slot]:
+                    continue
+                if other_tokens[slot + 1:] != tokens[slot + 1:]:
+                    continue
+                group.append(j)
+            if len(group) > len(best_group):
+                best_group = group
+                best_slot = slot
+
+        if best_slot is not None and len(best_group) > 1:
+            replacements = {
+                deduped_entries[group_index][1][best_slot] for group_index in best_group
+            }
+            if len(replacements) > 1:
+                grouped_tokens = list(tokens)
+                grouped_tokens[best_slot] = f"[{' '.join(sorted(replacements))}]"
+                result.append(_format_ignore_sub_line(indent, tuple(grouped_tokens)))
+                consumed.update(best_group)
+                continue
+
+        result.append(_format_ignore_sub_line(indent, tokens))
+        consumed.add(i)
+
+    return result
+
+
+def _coalesce_ignore_sub_run(lines: list[str]) -> list[str]:
+    result = []
+    parsed_entries: list[tuple[str, tuple[str, ...]]] = []
+
+    def flush() -> None:
+        nonlocal parsed_entries
+        if parsed_entries:
+            result.extend(_coalesce_parsed_ignore_rules(parsed_entries))
+            parsed_entries = []
+
+    for line in lines:
+        parsed = _parse_ignore_sub_line(line)
+        if parsed is None:
+            flush()
+            result.append(line)
+        else:
+            parsed_entries.append(parsed)
+    flush()
+    return result
+
+
+def _coalesce_consecutive_ignore_rules(lines: list[str]) -> list[str]:
+    result = []
+    run = []
+
+    def flush() -> None:
+        nonlocal run
+        if run:
+            result.extend(_coalesce_ignore_sub_run(run))
+            run = []
+
+    for line in lines:
+        if line.lstrip().startswith("ignore sub "):
+            run.append(line)
+        else:
+            flush()
+            result.append(line)
+    flush()
+    return result
+
+
+def _format_post_liga_cleanup_rules(
+    rules: list[tuple[str, str, str]],
+) -> list[str]:
+    grouped_rules: dict[tuple[str, str], list[str]] = {}
+    for lig_target, candidate, replacement in rules:
+        key = (candidate, replacement)
+        grouped_rules.setdefault(key, []).append(lig_target)
+
+    lines = []
+    for (candidate, replacement), lig_targets in grouped_rules.items():
+        unique_lig_targets = sorted(set(lig_targets))
+        if len(unique_lig_targets) == 1:
+            lig_target = unique_lig_targets[0]
+            lines.append(f"        sub {lig_target} {candidate}' by {replacement};")
+        else:
+            lig_target_list = " ".join(unique_lig_targets)
+            lines.append(f"        sub [{lig_target_list}] {candidate}' by {replacement};")
+    return lines
+
+
 def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     plan = analysis
     glyph_meta = plan.glyph_meta
@@ -2757,8 +2927,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if post_liga_cleanup_rules:
             lines.append("")
             lines.append("    lookup calt_post_liga_cleanup {")
-            for lig_target, candidate, replacement in post_liga_cleanup_rules:
-                lines.append(f"        sub {lig_target} {candidate}' by {replacement};")
+            lines.extend(_format_post_liga_cleanup_rules(post_liga_cleanup_rules))
             lines.append("    } calt_post_liga_cleanup;")
 
         if post_liga_rules:
@@ -2777,6 +2946,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             _emit_fwd(base_name)
 
     lines.append("} calt;")
+    lines = _coalesce_consecutive_ignore_rules(lines)
     return "\n".join(lines)
 
 

@@ -9,7 +9,12 @@ import build_font
 import glyph_compiler
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
-from quikscript_fea import _analyze_quikscript_joins, emit_quikscript_senior_features
+from quikscript_fea import (
+    _analyze_quikscript_joins,
+    _coalesce_consecutive_ignore_rules,
+    _format_post_liga_cleanup_rules,
+    emit_quikscript_senior_features,
+)
 from quikscript_ir import (
     _widen_bitmap_right_with_connector,
     compile_quikscript_ir,
@@ -200,6 +205,56 @@ def test_senior_feature_emitter_includes_join_and_gate_features():
     assert "lookup calt_zwnj {" in fea
 
 
+def test_coalesce_consecutive_ignore_rules_groups_unmarked_context_glyphs():
+    lines = [
+        "    lookup calt_sample {",
+        "        ignore sub qsA qsTarget' @entry_y5;",
+        "        ignore sub qsB qsTarget' @entry_y5;",
+        "        sub qsTarget' @entry_y5 by qsTarget.exit-xheight;",
+        "        ignore sub qsC qsOther' @entry_y0;",
+        "        ignore sub qsD qsOther' @entry_y0;",
+        "    } calt_sample;",
+    ]
+
+    assert _coalesce_consecutive_ignore_rules(lines) == [
+        "    lookup calt_sample {",
+        "        ignore sub [qsA qsB] qsTarget' @entry_y5;",
+        "        sub qsTarget' @entry_y5 by qsTarget.exit-xheight;",
+        "        ignore sub [qsC qsD] qsOther' @entry_y0;",
+        "    } calt_sample;",
+    ]
+
+
+def test_coalesce_consecutive_ignore_rules_does_not_group_marked_glyphs():
+    lines = [
+        "        ignore sub qsA' qsTarget;",
+        "        ignore sub qsB' qsTarget;",
+    ]
+
+    assert _coalesce_consecutive_ignore_rules(lines) == lines
+
+
+def test_coalesce_consecutive_ignore_rules_keeps_unparsed_lines_as_barriers():
+    lines = [
+        "        ignore sub qsA qsTarget' @entry_y5;",
+        "        ignore sub [qsBroken qsTarget' @entry_y5;",
+        "        ignore sub qsB qsTarget' @entry_y5;",
+    ]
+
+    assert _coalesce_consecutive_ignore_rules(lines) == lines
+
+
+def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
+    assert _format_post_liga_cleanup_rules([
+        ("qsLigOne", "qsRight.entry-xheight", "qsRight"),
+        ("qsLigTwo", "qsRight.entry-xheight", "qsRight"),
+        ("qsLigTwo", "qsOther.entry-baseline", "qsOther"),
+    ]) == [
+        "        sub [qsLigOne qsLigTwo] qsRight.entry-xheight' by qsRight;",
+        "        sub qsLigTwo qsOther.entry-baseline' by qsOther;",
+    ]
+
+
 def test_senior_feature_emitter_prefers_narrower_pair_overrides():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
@@ -307,8 +362,8 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert "ignore sub qsLeft' qsMid [qsRight];" in fea
-    assert "ignore sub qsLeft.noentry' qsMid [qsRight];" in fea
+    assert "ignore sub qsLeft' [qsMid qsMid.exit-baseline] [qsRight];" in fea
+    assert "ignore sub qsLeft.noentry' [qsMid qsMid.exit-baseline] [qsRight];" in fea
 
 
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
