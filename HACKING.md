@@ -29,6 +29,8 @@ Each array item is a whitespace-separated sequence of Quikscript letter names us
 
 The matcher scans `[data-expect]`, `.pairings td`, `.pairings dd`, `.word-list td`, and `.word-list dd`. A sequence marks an element as WIP if either its `data-expect` contains the requested tokens in order or its text content contains the raw PUA substring built from the base letter names. No other current JavaScript reads `wip.json`.
 
+When there is no active WIP list, `test/wip.json` is intentionally checked in as `[]` rather than deleted: the highlighting machinery stays loaded on standby, and adding a new WIP entry is a one-line edit instead of restoring a deleted file.
+
 ## Quikscript data
 
 Quikscript now uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `forms`; forms declare explicit `traits` / `modifiers`, can reuse scaffolding with `inherits`, and `select` / `derive` rules use structured family selectors plus top-level `context_sets` instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests. In VS Code, `.vscode/quikscript.schema.json` is associated with that file for hover docs and structural validation when the Red Hat YAML extension is installed.

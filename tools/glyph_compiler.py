@@ -1,4 +1,3 @@
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 from quikscript_ir import (
