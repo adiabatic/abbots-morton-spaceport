@@ -7,8 +7,39 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
+from functools import lru_cache
+
+from build_font import load_glyph_data
+from glyph_compiler import compile_glyph_set
+from quikscript_fea import (
+    _PENDING_BK_ENTRY_GUARDS,
+    _PENDING_LIGA_ENTRY_GUARDS,
+)
 from quikscript_ir import JoinGlyph
-from quikscript_join_analysis import JoinReachability, validate_join_consistency
+from quikscript_join_analysis import (
+    DerivedBkGuard,
+    JoinReachability,
+    derive_pending_bk_entry_guards,
+    derive_pending_liga_entry_guards,
+    validate_join_consistency,
+)
+
+
+@lru_cache(maxsize=1)
+def _real_join_glyphs() -> dict[str, JoinGlyph]:
+    data = load_glyph_data(ROOT / "glyph_data")
+    return compile_glyph_set(data, "senior").glyph_meta
+
+
+def _flatten_guards(
+    guards: dict[tuple[str, str, int], tuple[Any, ...]],
+) -> set[tuple[str, str, int, str]]:
+    flat: set[tuple[str, str, int, str]] = set()
+    for (source, replacement, entry_y), entries in guards.items():
+        for entry in entries:
+            for guard_glyph in entry.guard_glyphs:
+                flat.add((source, replacement, entry_y, guard_glyph))
+    return flat
 
 
 _DEFAULTS: dict[str, Any] = {
@@ -684,3 +715,263 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
     assert "qsIng.exit-extended" in message
     assert "qsMay_qsThaw" in message
     assert "y=5" in message
+
+
+def test_derive_bk_guards_emits_when_forward_sub_loses_entry():
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+    )
+    qs_tea_exit_baseline = _make_glyph(
+        name="qsTea.exit-baseline",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("exit-baseline",),
+        entry=((0, 5),),
+        exit=((4, 0),),
+        before=("qsAh",),
+    )
+    qs_et = _make_glyph(
+        name="qsEt",
+        base_name="qsEt",
+        family="qsEt",
+        exit=((4, 0),),
+    )
+    qs_ah = _make_glyph(
+        name="qsAh",
+        base_name="qsAh",
+        family="qsAh",
+        entry=((0, 0),),
+    )
+    glyph_meta = {
+        "qsTea": qs_tea,
+        "qsTea.exit-baseline": qs_tea_exit_baseline,
+        "qsEt": qs_et,
+        "qsAh": qs_ah,
+    }
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_bk_entry_guards(reach)
+
+    key = ("qsTea", "qsTea.exit-baseline", 0)
+    assert key in derived
+    guard_glyphs = {g for entry in derived[key] for g in entry.guard_glyphs}
+    assert "qsEt" in guard_glyphs
+
+
+def test_derive_bk_guards_skips_when_replacement_keeps_entry():
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+    )
+    qs_tea_keepentry = _make_glyph(
+        name="qsTea.keepentry",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("keepentry",),
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+        before=("qsAh",),
+    )
+    qs_et = _make_glyph(
+        name="qsEt",
+        base_name="qsEt",
+        family="qsEt",
+        exit=((4, 0),),
+    )
+    glyph_meta = {
+        "qsTea": qs_tea,
+        "qsTea.keepentry": qs_tea_keepentry,
+        "qsEt": qs_et,
+    }
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_bk_entry_guards(reach)
+
+    assert not any(
+        replacement == "qsTea.keepentry"
+        for (_, replacement, _) in derived
+    )
+
+
+def test_derive_bk_guards_propagates_before_bases_for_conditional_left():
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+    )
+    qs_tea_exit_baseline = _make_glyph(
+        name="qsTea.exit-baseline",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("exit-baseline",),
+        entry=((0, 5),),
+        exit=((4, 0),),
+        before=("qsAh",),
+    )
+    qs_excite_before_vertical = _make_glyph(
+        name="qsExcite.exit-baseline.before-vertical",
+        base_name="qsExcite",
+        family="qsExcite",
+        modifiers=("exit-baseline", "before-vertical"),
+        exit=((4, 0),),
+        before=("qsAh", "qsTea"),
+    )
+    qs_ah = _make_glyph(
+        name="qsAh",
+        base_name="qsAh",
+        family="qsAh",
+        entry=((0, 0),),
+    )
+    glyph_meta = {
+        "qsTea": qs_tea,
+        "qsTea.exit-baseline": qs_tea_exit_baseline,
+        "qsExcite.exit-baseline.before-vertical": qs_excite_before_vertical,
+        "qsAh": qs_ah,
+    }
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_bk_entry_guards(reach)
+
+    key = ("qsTea", "qsTea.exit-baseline", 0)
+    assert key in derived
+    excite_guards = [
+        g
+        for g in derived[key]
+        if g.guard_glyphs == ("qsExcite.exit-baseline.before-vertical",)
+    ]
+    assert excite_guards == [
+        DerivedBkGuard(
+            guard_glyphs=("qsExcite.exit-baseline.before-vertical",),
+            before_bases=("qsAh", "qsTea"),
+        )
+    ]
+
+
+def test_derive_liga_guards_emits_when_ligature_loses_entry():
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+    )
+    qs_oy = _make_glyph(
+        name="qsOy",
+        base_name="qsOy",
+        family="qsOy",
+        entry=((0, 0),),
+    )
+    qs_tea_qs_oy = _make_glyph(
+        name="qsTea_qsOy",
+        base_name="qsTea_qsOy",
+        family=None,
+        sequence=("qsTea", "qsOy"),
+        entry=((0, 5),),
+    )
+    qs_et = _make_glyph(
+        name="qsEt",
+        base_name="qsEt",
+        family="qsEt",
+        exit=((4, 0),),
+    )
+    glyph_meta = {
+        "qsTea": qs_tea,
+        "qsOy": qs_oy,
+        "qsTea_qsOy": qs_tea_qs_oy,
+        "qsEt": qs_et,
+    }
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_liga_entry_guards(reach)
+
+    key = ("qsTea", "qsTea_qsOy", 0)
+    assert key in derived
+    guard_glyphs = {g for entry in derived[key] for g in entry.guard_glyphs}
+    assert "qsEt" in guard_glyphs
+
+
+def test_derive_bk_guards_handles_backward_variant_as_source():
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0), (0, 5)),
+        exit=((4, 0),),
+    )
+    qs_tea_entry_baseline = _make_glyph(
+        name="qsTea.entry-baseline",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("entry-baseline",),
+        entry=((0, 0),),
+        exit=((4, 0),),
+    )
+    qs_tea_entry_baseline_exit_x = _make_glyph(
+        name="qsTea.entry-baseline.exit-x",
+        base_name="qsTea.entry-baseline",
+        family="qsTea",
+        modifiers=("entry-baseline", "exit-x"),
+        entry=((0, 5),),
+        exit=((4, 5),),
+        before=("qsAh",),
+    )
+    qs_et = _make_glyph(
+        name="qsEt",
+        base_name="qsEt",
+        family="qsEt",
+        exit=((4, 0),),
+    )
+    qs_ah = _make_glyph(
+        name="qsAh",
+        base_name="qsAh",
+        family="qsAh",
+        entry=((0, 0),),
+    )
+    glyph_meta = {
+        "qsTea": qs_tea,
+        "qsTea.entry-baseline": qs_tea_entry_baseline,
+        "qsTea.entry-baseline.exit-x": qs_tea_entry_baseline_exit_x,
+        "qsEt": qs_et,
+        "qsAh": qs_ah,
+    }
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_bk_entry_guards(reach)
+
+    key = ("qsTea.entry-baseline", "qsTea.entry-baseline.exit-x", 0)
+    assert key in derived
+    guard_glyphs = {g for entry in derived[key] for g in entry.guard_glyphs}
+    assert "qsEt" in guard_glyphs
+
+
+def test_derived_bk_guards_are_superset_of_curated():
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_bk_entry_guards(reach)
+
+    curated = _flatten_guards(_PENDING_BK_ENTRY_GUARDS)
+    derived_flat = _flatten_guards(derived)
+    missing = curated - derived_flat
+    assert not missing, f"Curated guards missing from derivation: {sorted(missing)}"
+
+
+def test_derived_liga_guards_are_superset_of_curated():
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    derived = derive_pending_liga_entry_guards(reach)
+
+    curated = _flatten_guards(_PENDING_LIGA_ENTRY_GUARDS)
+    derived_flat = _flatten_guards(derived)
+    missing = curated - derived_flat
+    assert not missing, f"Curated liga guards missing from derivation: {sorted(missing)}"

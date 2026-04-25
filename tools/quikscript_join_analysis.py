@@ -25,7 +25,19 @@ from quikscript_fea import (
 )
 
 
-__all__ = ["JoinReachability", "validate_join_consistency"]
+__all__ = [
+    "DerivedBkGuard",
+    "JoinReachability",
+    "derive_pending_bk_entry_guards",
+    "derive_pending_liga_entry_guards",
+    "validate_join_consistency",
+]
+
+
+@dataclass(frozen=True)
+class DerivedBkGuard:
+    guard_glyphs: tuple[str, ...]
+    before_bases: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -556,3 +568,134 @@ def _format_backward_error(
         f"{t_family}{gate_note}, but reachable variants of {t_family} "
         f"({witness}) carry exit Ys {ys_repr} — no y={entry_y} exit"
     )
+
+
+def derive_pending_bk_entry_guards(
+    reachability: JoinReachability,
+) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
+    """Derive the equivalent of ``_PENDING_BK_ENTRY_GUARDS`` from reachability.
+
+    Walks every ``(source, replacement)`` forward-substitution pair the FEA
+    emitter would consider and, for each global exit Y the replacement cannot
+    accept, collects every left-glyph variant that exits at that Y. These are
+    the glyphs that would have joined the un-substituted source and whose join
+    the substitution would silently break — the same set the runtime
+    ``_emit_pending_bk_entry_guards`` emits ``ignore sub`` rules for.
+
+    Output is a superset of the curated table; B2 reconciles ``before_bases``
+    by FEA diff parity.
+    """
+    glyph_by_exit_y = _index_glyphs_by_exit_y(reachability)
+    buf: dict[tuple[str, str, int], list[DerivedBkGuard]] = {}
+    for source_name, replacement_name in _iter_forward_sub_pairs(reachability):
+        _collect_guards(
+            reachability, glyph_by_exit_y, buf, source_name, replacement_name
+        )
+    return _finalize_guards(buf)
+
+
+def derive_pending_liga_entry_guards(
+    reachability: JoinReachability,
+) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
+    """Derive the equivalent of ``_PENDING_LIGA_ENTRY_GUARDS`` from reachability.
+
+    For every ligature, treats every variant of the first-component family as
+    a possible runtime source being consumed; for each global exit Y the
+    ligature cannot accept, collects every left-glyph variant whose exit Y
+    would have produced a join. Mirrors the runtime semantics of
+    ``_matching_pending_liga_guards``.
+    """
+    glyph_by_exit_y = _index_glyphs_by_exit_y(reachability)
+    buf: dict[tuple[str, str, int], list[DerivedBkGuard]] = {}
+    for lig_name, components in reachability.ligatures:
+        if not components:
+            continue
+        first_component_meta = reachability.glyph_meta.get(components[0])
+        if first_component_meta is None:
+            continue
+        first_family = first_component_meta.family or first_component_meta.base_name
+        for source_name in reachability.base_to_variants.get(first_family, frozenset()):
+            _collect_guards(
+                reachability, glyph_by_exit_y, buf, source_name, lig_name
+            )
+    return _finalize_guards(buf)
+
+
+def _index_glyphs_by_exit_y(
+    reachability: JoinReachability,
+) -> dict[int, list[tuple[str, JoinGlyph]]]:
+    by_y: dict[int, list[tuple[str, JoinGlyph]]] = {}
+    for name, meta in reachability.glyph_meta.items():
+        for y in meta.exit_ys:
+            by_y.setdefault(y, []).append((name, meta))
+    return by_y
+
+
+def _iter_forward_sub_pairs(reachability: JoinReachability):
+    seen: set[tuple[str, str]] = set()
+
+    def emit(source: str, replacement: str):
+        pair = (source, replacement)
+        if pair in seen:
+            return
+        seen.add(pair)
+        yield pair
+
+    for base, exit_to_variant in reachability.fwd_replacements.items():
+        for variant in exit_to_variant.values():
+            yield from emit(base, variant)
+    for base, overrides in reachability.fwd_pair_overrides.items():
+        for variant, _, _ in overrides:
+            yield from emit(base, variant)
+    for base, overrides in reachability.gated_fwd_pair_overrides.items():
+        for variant, _, _, _ in overrides:
+            yield from emit(base, variant)
+
+    # bk_var × fwd_var: the runtime emits sub rules at call sites 4/5 of
+    # _emit_pending_bk_entry_guards (tools/quikscript_fea.py:2332, 2358), where
+    # a backward variant is forward-subbed to a forward variant of the same
+    # base. The bk_replacements dict is keyed by base; the corresponding fwd
+    # variants live under the same base in the fwd_* maps.
+    for base, entry_to_bk_var in reachability.bk_replacements.items():
+        fwd_variants: list[str] = []
+        fwd_variants.extend(reachability.fwd_replacements.get(base, {}).values())
+        fwd_variants.extend(
+            v for v, _, _ in reachability.fwd_pair_overrides.get(base, ())
+        )
+        fwd_variants.extend(
+            v for v, _, _, _ in reachability.gated_fwd_pair_overrides.get(base, ())
+        )
+        for bk_var in entry_to_bk_var.values():
+            for fwd_var in fwd_variants:
+                yield from emit(bk_var, fwd_var)
+
+
+def _collect_guards(
+    reachability: JoinReachability,
+    glyph_by_exit_y: dict[int, list[tuple[str, JoinGlyph]]],
+    buf: dict[tuple[str, str, int], list[DerivedBkGuard]],
+    source_name: str,
+    replacement_name: str,
+) -> None:
+    replacement_meta = reachability.glyph_meta.get(replacement_name)
+    if replacement_meta is None:
+        return
+    replacement_entry_ys = set(replacement_meta.all_entry_ys)
+    for entry_y, left_glyphs in glyph_by_exit_y.items():
+        if entry_y in replacement_entry_ys:
+            continue
+        for left_name, left_meta in left_glyphs:
+            before_bases = tuple(left_meta.before) if left_meta.before else ()
+            buf.setdefault((source_name, replacement_name, entry_y), []).append(
+                DerivedBkGuard(guard_glyphs=(left_name,), before_bases=before_bases)
+            )
+
+
+def _finalize_guards(
+    buf: dict[tuple[str, str, int], list[DerivedBkGuard]],
+) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
+    out: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {}
+    for key, guards in buf.items():
+        deduped = sorted(set(guards), key=lambda g: (g.guard_glyphs, g.before_bases))
+        out[key] = tuple(deduped)
+    return out
