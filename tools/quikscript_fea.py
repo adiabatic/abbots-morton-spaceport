@@ -886,6 +886,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     glyph_names = plan.glyph_names
     base_to_variants = plan.base_to_variants
 
+    # Function-local import: quikscript_join_analysis imports from quikscript_fea,
+    # so a top-of-module import here would cycle.
+    from quikscript_join_analysis import (
+        DerivedBkGuard,
+        JoinReachability,
+        derive_pending_bk_entry_guards,
+        derive_pending_liga_entry_guards,
+    )
+
+    _reachability = JoinReachability.from_join_glyphs(glyph_meta)
+    _derived_bk_guards = derive_pending_bk_entry_guards(_reachability)
+    _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
+
     def _meta(name: str) -> JoinGlyph:
         return glyph_meta[name]
 
@@ -1074,7 +1087,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for entry_y in sorted(exit_classes):
             if entry_y in replacement_entry_ys:
                 continue
-            guards = _PENDING_BK_ENTRY_GUARDS.get(
+            guards = _derived_bk_guards.get(
                 (source_name, replacement_name, entry_y),
             )
             if not guards:
@@ -1114,10 +1127,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         replacement_name: str,
         entry_y: int,
         left_guard_name: str,
-    ) -> tuple[_PendingBkEntryGuard, ...]:
+    ) -> tuple[DerivedBkGuard, ...]:
         return tuple(
             guard
-            for guard in _PENDING_BK_ENTRY_GUARDS.get((source_name, replacement_name, entry_y), ())
+            for guard in _derived_bk_guards.get((source_name, replacement_name, entry_y), ())
             if left_guard_name in guard.guard_glyphs
         )
 
@@ -1126,10 +1139,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         lig_name: str,
         entry_y: int,
         left_guard_name: str,
-    ) -> tuple[_PendingBkEntryGuard, ...]:
+    ) -> tuple[DerivedBkGuard, ...]:
         return tuple(
             guard
-            for guard in _PENDING_LIGA_ENTRY_GUARDS.get((source_name, lig_name, entry_y), ())
+            for guard in _derived_liga_guards.get((source_name, lig_name, entry_y), ())
             if left_guard_name in guard.guard_glyphs
         )
 
@@ -1838,7 +1851,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         needed_exit_ys = entry_ys - set(candidate_meta.exit_ys)
         if needed_exit_ys:
-            for (source_name, replacement_name, _), pending_guards in _PENDING_BK_ENTRY_GUARDS.items():
+            for (source_name, replacement_name, _), pending_guards in _derived_bk_guards.items():
                 if source_name != candidate_name:
                     continue
                 if not (set(_meta(replacement_name).exit_ys) & needed_exit_ys):
