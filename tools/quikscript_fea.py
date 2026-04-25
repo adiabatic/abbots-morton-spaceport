@@ -721,6 +721,40 @@ def _has_left_entry(meta: JoinGlyph) -> bool:
     return bool(meta.entry or meta.entry_curs_only)
 
 
+def _entry_anchor_is_visual_addition(
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    variant_name: str,
+) -> bool:
+    """Return True when this variant's entry anchor goes with a left tail in
+    the bitmap that no naturally-entryless sibling has.
+
+    Returns False when there exists a naturally-entryless sibling sharing the
+    same bitmap — meaning the entry anchor is purely positional (the bitmap
+    looks identical with or without it). Auto-generated `.noentry` siblings
+    do not count: they share the bitmap by construction, since they exist to
+    strip the cursive anchor without redrawing the glyph.
+    """
+    variant_meta = glyph_meta[variant_name]
+    if not variant_meta.entry:
+        return False
+    target_bitmap = variant_meta.bitmap
+    base = variant_meta.base_name
+    for sibling_name in base_to_variants.get(base, ()):
+        if sibling_name == variant_name:
+            continue
+        sibling_meta = glyph_meta[sibling_name]
+        if _has_left_entry(sibling_meta):
+            continue
+        if sibling_meta.noentry_for is not None:
+            # Auto-generated noentry stripper — same bitmap as its source,
+            # not an independent design.
+            continue
+        if sibling_meta.bitmap == target_bitmap:
+            return False
+    return True
+
+
 def _resolve_noentry_replacement(
     glyph_meta: dict[str, JoinGlyph],
     base_to_variants: dict[str, set[str]],
@@ -1589,6 +1623,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         continue
                     effective_before = target_before if target_before is not None else expanded_before
                     effective_before_list = " ".join(sorted(effective_before)) if target_before is not None else before_list
+                    actual_variant_meta = _meta(actual_variant)
+                    actual_entry_ys = (
+                        set(actual_variant_meta.entry_ys) if actual_variant_meta.entry else set()
+                    )
+                    entry_backtrack_prefix = ""
+                    if actual_entry_ys and not target_has_entry:
+                        if _entry_anchor_is_visual_addition(
+                            glyph_meta, base_to_variants, actual_variant
+                        ):
+                            entry_backtrack_glyphs: set[str] = set()
+                            for entry_y in actual_entry_ys:
+                                entry_backtrack_glyphs.update(exit_classes.get(entry_y, set()))
+                            entry_backtrack_glyphs -= expanded_not_after
+                            if not entry_backtrack_glyphs:
+                                continue
+                            entry_backtrack_prefix = (
+                                f"[{' '.join(sorted(entry_backtrack_glyphs))}] "
+                            )
                     for pi_guard, pi_before in partial_ignores:
                         lines.append(f"        ignore sub [{pi_guard}] {target}' [{pi_before}];")
                     if guard_list:
@@ -1603,7 +1655,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         actual_variant,
                         effective_before,
                     )
-                    lines.append(f"        sub {target}' [{effective_before_list}] by {actual_variant};")
+                    lines.append(
+                        f"        sub {entry_backtrack_prefix}{target}' [{effective_before_list}] by {actual_variant};"
+                    )
                 lines.append(f"    }} calt_fwd_pair_{safe};")
 
     def _emit_fwd_general(
@@ -2983,7 +3037,8 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    lookup {tag}_{safe} {{")
             for target in targets:
                 target_meta = glyph_meta[target]
-                if variant_entry_ys is not None and target_meta.entry:
+                target_has_entry = bool(target_meta.entry)
+                if variant_entry_ys is not None and target_has_entry:
                     target_entry_ys = set(target_meta.entry_ys)
                     if not target_entry_ys.issubset(variant_entry_ys):
                         if (target_entry_ys - variant_entry_ys) == target_entry_ys:
@@ -3004,12 +3059,30 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                 )
                 if actual_variant is None:
                     continue
+                actual_variant_meta = glyph_meta[actual_variant]
+                actual_entry_ys = (
+                    set(actual_variant_meta.entry_ys) if actual_variant_meta.entry else set()
+                )
+                entry_backtrack_prefix = ""
+                if actual_entry_ys and not target_has_entry:
+                    if _entry_anchor_is_visual_addition(
+                        glyph_meta, plan.base_to_variants, actual_variant
+                    ):
+                        entry_backtrack_glyphs: set[str] = set()
+                        for entry_y in actual_entry_ys:
+                            entry_backtrack_glyphs.update(plan.exit_classes.get(entry_y, set()))
+                        entry_backtrack_glyphs -= set(not_after_list)
+                        if not entry_backtrack_glyphs:
+                            continue
+                        entry_backtrack_prefix = (
+                            f"[{' '.join(sorted(entry_backtrack_glyphs))}] "
+                        )
                 if not_after_list:
                     lines.append(
                         f"        ignore sub [{' '.join(not_after_list)}] {target}' [{' '.join(before_list)}];"
                     )
                 lines.append(
-                    f"        sub {target}' [{' '.join(before_list)}] by {actual_variant};"
+                    f"        sub {entry_backtrack_prefix}{target}' [{' '.join(before_list)}] by {actual_variant};"
                 )
             lines.append(f"    }} {tag}_{safe};")
         lines.append(f"}} {tag};")

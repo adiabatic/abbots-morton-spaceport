@@ -2538,6 +2538,14 @@ glyph_families:
           before: [{family: qsDay}]
         gate_feature_behind: ss07
         modifiers: [entry-xheight, exit-xheight, before-day]
+      exit_xheight_before_day_ss07:
+        shape: shape_2
+        anchors:
+          exit: [7, 5]
+        select:
+          before: [{family: qsDay}]
+        gate_feature_behind: ss07
+        modifiers: [exit-xheight, before-day]
       gapped:
         bitmap:
         - " # # "  #
