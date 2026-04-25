@@ -663,7 +663,7 @@ glyph_families:
         anchors:
           exit: [4, 5]
         select:
-          not_before: [{family: qsDay}, {family: qsTea}, {family: qsYe}]
+          not_before: [{family: qsDay}, {family: qsJay}, {family: qsTea}, {family: qsYe}]
         modifiers: [exit-xheight]
   qsThey_qsMay:
     sequence:
