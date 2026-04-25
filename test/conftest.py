@@ -15,8 +15,32 @@ ROOT = Path(__file__).resolve().parent.parent
 _shaping_cache: dict[str, Any] = {}
 
 
+def _ensure_shaping_cache() -> dict[str, Any]:
+    if "fonts" not in _shaping_cache:
+        subprocess.run(["make", "all"], cwd=ROOT, check=True)
+        from test_shaping import load_font, build_anchor_map
+
+        fonts = {}
+        anchor_maps = {}
+        potentials = {}
+        for variant in ("senior", "junior"):
+            fonts[variant] = load_font(variant)
+            anchors, potential = build_anchor_map(variant)
+            anchor_maps[variant] = anchors
+            potentials[variant] = potential
+        _shaping_cache["fonts"] = fonts
+        _shaping_cache["anchor_maps"] = anchor_maps
+        _shaping_cache["potentials"] = potentials
+    return _shaping_cache
+
+
+@pytest.fixture(scope="session")
+def shaping_env() -> dict[str, Any]:
+    return _ensure_shaping_cache()
+
+
 def pytest_collect_file(parent: pytest.Collector, file_path: Path) -> "ShapingFile | None":
-    if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html", "ensure-sanity.html") and file_path.suffix == ".html":
+    if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html") and file_path.suffix == ".html":
         return ShapingFile.from_parent(parent, path=file_path)
     return None
 
@@ -62,21 +86,7 @@ class ShapingItem(pytest.Item):
         self.runs = runs or [{"font": "senior", "text": text}]
 
     def setup(self) -> None:
-        if "fonts" not in _shaping_cache:
-            subprocess.run(["make", "all"], cwd=ROOT, check=True)
-            from test_shaping import load_font, build_anchor_map
-
-            fonts = {}
-            anchor_maps = {}
-            potentials = {}
-            for variant in ("senior", "junior"):
-                fonts[variant] = load_font(variant)
-                anchors, potential = build_anchor_map(variant)
-                anchor_maps[variant] = anchors
-                potentials[variant] = potential
-            _shaping_cache["fonts"] = fonts
-            _shaping_cache["anchor_maps"] = anchor_maps
-            _shaping_cache["potentials"] = potentials
+        _ensure_shaping_cache()
 
     def runtest(self) -> None:
         from test_shaping import run_shaping_test_runs
