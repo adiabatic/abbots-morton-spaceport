@@ -291,7 +291,10 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
             },
             "glyph_families": {
                 "qsPrimary": {
-                    "prop": {"bitmap": ["#"]},
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 0]},
+                    },
                 },
                 "qsLead": {
                     "prop": {"bitmap": ["#"]},
@@ -352,7 +355,10 @@ def test_inherits_reuses_and_clears_nested_form_context():
                     "prop": {"bitmap": ["#"]},
                 },
                 "qsOther": {
-                    "prop": {"bitmap": ["#"]},
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"entry": [0, 0]},
+                    },
                 },
                 "qsBase": {
                     "prop": {

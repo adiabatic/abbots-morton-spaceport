@@ -1793,7 +1793,7 @@ glyph_families:
         anchors:
           entry: [1, 5]
         select:
-          after: [{family: qsIt}, {family: qsMay}, {family: qsYe}]
+          after: [{family: qsIt}, {family: qsMay}]
         modifiers: [entry-extended-at-xheight]
       entry_xheight:
         shape: mono
