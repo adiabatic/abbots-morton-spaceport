@@ -606,6 +606,135 @@ def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     )
 
 
+def test_qs_owe_fee_may_owe_does_not_reach_for_ligature():
+    # ·Owe·Fee·May ligates ·Fee+·May into qsFee_qsMay (no entry anchor).
+    # ·Owe must not pick a forward-extending variant whose exit anchor
+    # would point at the missing entry.
+    glyphs = _shape_qs("qsOwe", "qsFee", "qsMay")
+    assert glyphs[1] == "qsFee_qsMay", (
+        f"expected qsFee_qsMay ligature in second position; got {glyphs}"
+    )
+    assert _exit_ys(glyphs[0]) == set(), (
+        f"·Owe must have no exit anchor before qsFee_qsMay; got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 0) == set(), (
+        f"·Owe must not join into qsFee_qsMay; got {glyphs}"
+    )
+
+
+@pytest.mark.parametrize(
+    "feature_label,feature_items",
+    [
+        pytest.param("default", (), id="default"),
+        pytest.param("ss03", _SS03_FEATURE, id="ss03"),
+        pytest.param("ss05", _SS05_FEATURE, id="ss05"),
+        pytest.param("ss07", _SS07_FEATURE, id="ss07"),
+    ],
+)
+def test_qs_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
+    glyphs = _shape_qs("qsOwe", "qsFee", "qsMay", features=feature_items)
+    assert glyphs[1] == "qsFee_qsMay", (
+        f"expected qsFee_qsMay ligature in second position under "
+        f"features={feature_label}; got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 0) == set(), (
+        f"·Owe joins into qsFee_qsMay under features={feature_label}; "
+        f"got {glyphs}"
+    )
+    assert _exit_ys(glyphs[0]) == set(), (
+        f"·Owe gained an exit anchor before qsFee_qsMay under "
+        f"features={feature_label}; got {glyphs}"
+    )
+
+
+@lru_cache(maxsize=1)
+def _two_component_ligatures() -> tuple[tuple[str, tuple[str, str]], ...]:
+    meta_map = _compiled_meta()
+    out: list[tuple[str, tuple[str, str]]] = []
+    for name, meta in meta_map.items():
+        if not meta.sequence or len(meta.sequence) != 2:
+            continue
+        if name != meta.base_name:
+            continue
+        out.append((name, (meta.sequence[0], meta.sequence[1])))
+    return tuple(sorted(out))
+
+
+def _no_orphan_exit_into_ligature_failures(
+    feature_items: tuple[tuple[str, bool], ...] = (),
+) -> list[str]:
+    failures: list[str] = []
+    chars = _char_map()
+    meta_map = _compiled_meta()
+
+    for lig_name, (mid_base, right_base) in _two_component_ligatures():
+        if mid_base not in chars or right_base not in chars:
+            continue
+        mid_char = chars[mid_base]
+        right_char = chars[right_base]
+
+        for left_name, left_char in _plain_quikscript_letters():
+            text = left_char + mid_char + right_char
+            glyphs = (
+                _shape_with_features(text, feature_items)
+                if feature_items
+                else _shape(text)
+            )
+            for index, glyph in enumerate(glyphs[:-1]):
+                next_glyph = glyphs[index + 1]
+                next_meta = meta_map.get(next_glyph)
+                left_meta = meta_map.get(glyph)
+                if next_meta is None or left_meta is None:
+                    continue
+                if next_meta.base_name != lig_name:
+                    continue
+                if next_meta.is_noentry:
+                    # Ligature was stripped of its entry by a separate
+                    # backward substitution (e.g. noentry_after); that's
+                    # a different bug pattern than the one this test
+                    # guards against.
+                    continue
+                base_meta = meta_map.get(left_meta.base_name)
+                if base_meta is None:
+                    continue
+                left_exit_ys = _exit_ys(glyph)
+                base_exit_ys = set(base_meta.exit_ys)
+                contextual_exit_ys = left_exit_ys - base_exit_ys
+                has_extended_exit = left_meta.extended_exit_suffix is not None
+                if not contextual_exit_ys and not has_extended_exit:
+                    continue
+                next_entry_ys = _entry_ys(next_glyph)
+                orphan = left_exit_ys - next_entry_ys
+                if orphan:
+                    failures.append(
+                        f"{left_name} / {mid_base} / {right_base} "
+                        f"(features={dict(feature_items) or None}): "
+                        f"{glyph} has exit Y={sorted(orphan)} not present in "
+                        f"{next_glyph} entries Y={sorted(next_entry_ys)} "
+                        f"(base {left_meta.base_name!r} exits Y={sorted(base_exit_ys)}, "
+                        f"extended_exit_suffix={left_meta.extended_exit_suffix!r}) "
+                        f"in {glyphs}"
+                    )
+
+    return failures
+
+
+def test_qs_letter_does_not_reach_into_two_glyph_ligature():
+    _assert_no_failures(_no_orphan_exit_into_ligature_failures())
+
+
+def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss03():
+    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS03_FEATURE))
+
+
+def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss05():
+    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS05_FEATURE))
+
+
+def test_qs_letter_does_not_reach_into_two_glyph_ligature_under_ss07():
+    _assert_no_failures(_no_orphan_exit_into_ligature_failures(_SS07_FEATURE))
+
+
 def _word_initial_promoted_entry_failures(
     feature_items: tuple[tuple[str, bool], ...] = (),
 ) -> list[str]:

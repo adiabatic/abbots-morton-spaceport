@@ -282,9 +282,9 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
     # --- He + Day + Y ---
     # When (Day, Y) ligates, the Day.half trait rides on the ligature glyph
     # if that ligature has a half variant (qsDay_qsUtter.half exists, so the
-    # baseline join survives). qsDay_qsEat has no half variant, so qsHe still
-    # lands on its full form but the ligature enters at x-height — relax the
-    # connection assertion there.
+    # baseline join survives). When the ligature has no half variant (e.g.
+    # qsDay_qsEat enters only at x-height), qsHe must take its half form so
+    # its x-height exit can join the ligature instead of being orphaned.
     hd_y_cells = []
     for name, code in LETTERS:
         dt = f"·He·Day{dt_name(name)}"
@@ -292,7 +292,7 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             if name == "Utter":
                 expect = f"{he_nhalf} ~b~ ·Day+?{name}.half"
             else:
-                expect = f"{he_nhalf} ? ·Day+?{name}"
+                expect = f"·He.half ~x~ ·Day+?{name}"
         else:
             expect = f"{he_nhalf} ~b~ {day_half} ? {expect_tok(name)}"
         key = cell_key("He", "Day", name)

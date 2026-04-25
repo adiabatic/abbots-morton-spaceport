@@ -1490,6 +1490,32 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     for stripped_variant in sorted(_entry_stripped_variants(actual_mid_variant)):
                         _emit_guard(stripped_variant, set(before_tuple))
 
+        for mid_source in sorted(right_context_glyphs):
+            if mid_source not in glyph_meta:
+                continue
+            mid_meta = _meta(mid_source)
+            mid_base = mid_meta.base_name
+            if require_mid_base_without_exit and _meta(mid_base).exit:
+                continue
+            for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
+                if len(components) != 2:
+                    continue
+                lig_variant_entry_ys: set[int] = set()
+                for lig_variant in base_to_variants.get(lig_name, {lig_name}):
+                    if lig_variant in glyph_meta:
+                        lig_variant_entry_ys.update(_meta(lig_variant).all_entry_ys)
+                if exit_y in lig_variant_entry_ys:
+                    continue
+                first_component_variants = _ligature_component_variants(
+                    lig_name, components[0], 0
+                )
+                if mid_source not in first_component_variants:
+                    continue
+                trigger_contexts = _ligature_component_variants(lig_name, components[1], 1)
+                if not trigger_contexts:
+                    continue
+                _emit_guard(mid_source, trigger_contexts)
+
     def _emit_entry_strip_guards_for_replacement_exit(
         source_name: str,
         replacement_name: str,
@@ -1655,6 +1681,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         actual_variant,
                         effective_before,
                     )
+                    for actual_exit_y in sorted(set(_meta(actual_variant).exit_ys)):
+                        if actual_exit_y not in entry_classes:
+                            continue
+                        _emit_narrow_mid_entry_strip_guards(
+                            target,
+                            actual_variant,
+                            actual_exit_y,
+                            effective_before,
+                        )
                     lines.append(
                         f"        sub {entry_backtrack_prefix}{target}' [{effective_before_list}] by {actual_variant};"
                     )
