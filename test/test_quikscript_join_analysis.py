@@ -11,16 +11,14 @@ from functools import lru_cache
 
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
-from quikscript_fea import (
-    _PENDING_BK_ENTRY_GUARDS,
-    _PENDING_LIGA_ENTRY_GUARDS,
-)
 from quikscript_ir import JoinGlyph
 from quikscript_join_analysis import (
     DerivedBkGuard,
     JoinReachability,
     _compute_derived_bk_guards,
     _compute_derived_liga_guards,
+    _RESIDUAL_BK_GUARDS,
+    _RESIDUAL_LIGA_GUARDS,
     derive_pending_bk_entry_guards,
     derive_pending_liga_entry_guards,
     validate_join_consistency,
@@ -955,25 +953,41 @@ def test_derive_bk_guards_handles_backward_variant_as_source():
     assert "qsEt" in guard_glyphs
 
 
-def test_derived_bk_guards_are_superset_of_curated():
+def _structurally_coverable(
+    residual: dict[tuple[str, str, int], tuple[Any, ...]],
+    glyph_meta: dict[str, JoinGlyph],
+) -> dict[tuple[str, str, int], tuple[Any, ...]]:
+    coverable: dict[tuple[str, str, int], tuple[Any, ...]] = {}
+    for key, guards in residual.items():
+        source_name, _, entry_y = key
+        meta = glyph_meta.get(source_name)
+        if meta is None or entry_y not in meta.all_entry_ys:
+            continue
+        coverable[key] = guards
+    return coverable
+
+
+def test_structural_bk_guards_cover_coverable_residual():
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_bk_entry_guards(reach)
+    structural = _compute_derived_bk_guards(reach)
 
-    curated = _flatten_guards(_PENDING_BK_ENTRY_GUARDS)
-    derived_flat = _flatten_guards(derived)
-    missing = curated - derived_flat
-    assert not missing, f"Curated guards missing from derivation: {sorted(missing)}"
+    coverable = _structurally_coverable(_RESIDUAL_BK_GUARDS, glyph_meta)
+    missing = _flatten_guards(coverable) - _flatten_guards(structural)
+    assert not missing, (
+        f"Structurally-coverable residual guards missing from derivation: {sorted(missing)}"
+    )
 
 
-def test_derived_liga_guards_are_superset_of_curated():
+def test_structural_liga_guards_cover_coverable_residual():
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
-    derived = derive_pending_liga_entry_guards(reach)
+    structural = _compute_derived_liga_guards(reach)
 
-    curated = _flatten_guards(_PENDING_LIGA_ENTRY_GUARDS)
-    derived_flat = _flatten_guards(derived)
-    missing = curated - derived_flat
-    assert not missing, f"Curated liga guards missing from derivation: {sorted(missing)}"
+    coverable = _structurally_coverable(_RESIDUAL_LIGA_GUARDS, glyph_meta)
+    missing = _flatten_guards(coverable) - _flatten_guards(structural)
+    assert not missing, (
+        f"Structurally-coverable residual liga guards missing from derivation: {sorted(missing)}"
+    )

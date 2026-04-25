@@ -40,18 +40,19 @@ class DerivedBkGuard:
     before_bases: tuple[str, ...] = ()
 
 
-# Authoritative override of structural derivation, mirroring
-# `_PENDING_BK_ENTRY_GUARDS` / `_PENDING_LIGA_ENTRY_GUARDS` in
-# `tools/quikscript_fea.py`. The structural pass in `_collect_guards` cannot yet
-# (a) emit guard entries keyed on the bare base `qsTea` (its own
-# `all_entry_ys` is empty; entries live on family variants) nor (b) infer the
-# multi-step right-context narrowings on `qsExcite.exit-baseline.before-vertical`
-# that the curated table relies on. Until those gaps close, `derive_pending_*`
-# returns these tables verbatim — derivation still runs as a sanity layer
-# (the superset tests in `test/test_quikscript_join_analysis.py` enforce that
-# every entry below is reproducible by the structural pass) but the override
-# pins the public output to curated parity. Once the structural pass tightens,
-# remove this override in favor of pure derivation.
+# Authoritative override of structural derivation. The structural pass in
+# `_collect_guards` cannot yet (a) emit guard entries keyed on the bare base
+# `qsTea` (its own `all_entry_ys` is empty; entries live on family variants)
+# nor (b) infer the multi-step right-context narrowings on
+# `qsExcite.exit-baseline.before-vertical` that the runtime emitter relies on.
+# Until those gaps close, `derive_pending_*` returns these tables verbatim —
+# the structural pass still runs as a sanity layer (the
+# `test_structural_*_guards_cover_coverable_residual` tests in
+# `test/test_quikscript_join_analysis.py` enforce that every residual entry
+# the structural pass *can* in principle cover is in fact covered) but the
+# override pins the public output to byte-for-byte parity with the runtime
+# emitter's prior behavior. Once the structural pass tightens, remove this
+# override in favor of pure derivation.
 _RESIDUAL_BK_GUARDS: dict[
     tuple[str, str, int], tuple[DerivedBkGuard, ...]
 ] = {
@@ -636,15 +637,15 @@ def _format_backward_error(
 def derive_pending_bk_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Public entrypoint for ``_PENDING_BK_ENTRY_GUARDS`` parity.
+    """Public entrypoint pinned to ``_RESIDUAL_BK_GUARDS``.
 
     Runs the structural derivation in ``_compute_derived_bk_guards`` (which
-    produces a superset of the curated table) and then pins the result to
-    ``_RESIDUAL_BK_GUARDS`` via ``_apply_residual_override``. The structural
-    pass continues to run so the existing superset tests stay meaningful;
-    the override is the temporary measure that closes the byte-for-byte FEA
-    parity gap until derivation can structurally identify exactly the curated
-    keys (see the docstring on ``_RESIDUAL_BK_GUARDS``).
+    produces a superset of the structurally-coverable residual entries) and
+    then pins the result to ``_RESIDUAL_BK_GUARDS`` via
+    ``_apply_residual_override``. The structural pass continues to run so the
+    coverable-residual tests stay meaningful; the override closes the
+    byte-for-byte FEA parity gap until derivation can structurally identify
+    exactly the residual keys (see the docstring on ``_RESIDUAL_BK_GUARDS``).
     """
     return _apply_residual_override(
         _compute_derived_bk_guards(reachability), _RESIDUAL_BK_GUARDS
@@ -654,7 +655,7 @@ def derive_pending_bk_entry_guards(
 def derive_pending_liga_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Public entrypoint for ``_PENDING_LIGA_ENTRY_GUARDS`` parity.
+    """Public entrypoint pinned to ``_RESIDUAL_LIGA_GUARDS``.
 
     Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component
     sources; the override pins the result to ``_RESIDUAL_LIGA_GUARDS``.
@@ -776,10 +777,10 @@ def _collect_guards(
         return
     # A guard at (source, replacement, entry_y) only fires if a left glyph at
     # exit-Y entry_y could have joined source pre-substitution; that requires
-    # source to have an entry anchor at entry_y. Curated entries keyed on bare
+    # source to have an entry anchor at entry_y. Residual entries keyed on bare
     # bases (like qsTea, whose all_entry_ys is empty but whose family carries
-    # entries) are dropped here by design — δ1 reintroduces them via a residual
-    # table for the cases derivation cannot structurally cover.
+    # entries) are dropped here by design — `_apply_residual_override`
+    # reintroduces them for the cases derivation cannot structurally cover.
     source_entry_ys = set(source_meta.all_entry_ys)
     replacement_entry_ys = set(replacement_meta.all_entry_ys)
     for entry_y, left_glyphs in glyph_by_exit_y.items():
