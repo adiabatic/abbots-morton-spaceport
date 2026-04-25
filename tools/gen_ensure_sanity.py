@@ -66,6 +66,8 @@ WAY = 0xE661
 THAW = 0xE656
 CHEER = 0xE65E
 OWE = 0xE67C
+THEY = 0xE657
+JAY = 0xE65F
 COLS = 3
 
 def _family_to_label(family: str) -> str:
@@ -430,6 +432,47 @@ def build_panels(failed_keys: set[str]) -> list[tuple[str, str, list[tuple[str, 
             "·Owe + ·Day: never joins (opt back in with ss07)",
             "·Owe must never cursive-attach to a following ·Day in the default shaping — including when (·Day, Y) ligates into ·Day+Utter or ·Day+Eat. Users who want Read's manual-style join back can enable stylistic set ss07.",
             owe_day_sections,
+        )
+    )
+
+    they_tok = expect_tok("They")
+    jay_tok = expect_tok("Jay")
+
+    they_jay_sections: list[tuple[str, str]] = []
+
+    # --- Bare ·They·Jay ---
+    key = cell_key("They", "Jay")
+    expect = f"{they_tok} | {jay_tok}"
+    bare_tj = cell_pair("·They·Jay", expect, [THEY, JAY], key, failed_keys)
+    they_jay_sections.append(("Bare", table_wrap([bare_tj])))
+
+    # --- X + They + Jay ---
+    x_tj_cells = []
+    for name, code in LETTERS:
+        dt = f"{dt_name(name)}·They·Jay"
+        left_connection = "|?|" if name == "Utter" else "?"
+        expect = f"{expect_tok(name)} {left_connection} {they_tok} | {jay_tok}"
+        key = cell_key(name, "They", "Jay")
+        x_tj_cells.append(cell_pair(dt, expect, [code, THEY, JAY], key, failed_keys))
+    they_jay_sections.append(("X·They·Jay", table_wrap(x_tj_cells)))
+
+    # --- They + Jay + Y ---
+    tj_y_cells = []
+    for name, code in LETTERS:
+        dt = f"·They·Jay{dt_name(name)}"
+        if ("Jay", name) in LIGATURE_PAIRS:
+            expect = f"{they_tok} | ·Jay+?{name}"
+        else:
+            expect = f"{they_tok} | {jay_tok} ? {expect_tok(name)}"
+        key = cell_key("They", "Jay", name)
+        tj_y_cells.append(cell_pair(dt, expect, [THEY, JAY, code], key, failed_keys))
+    they_jay_sections.append(("·They·Jay·Y", table_wrap(tj_y_cells)))
+
+    panels.append(
+        (
+            "·They + ·Jay: never joins",
+            "·They must never cursive-attach to a following ·Jay, regardless of the surrounding context.",
+            they_jay_sections,
         )
     )
 
