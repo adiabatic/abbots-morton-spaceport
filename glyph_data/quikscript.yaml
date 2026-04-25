@@ -1399,7 +1399,7 @@ glyph_families:
         - " ##"
         - "#  "
         - "#  "
-        - "## "  #
+        - "#  "  #
         - "   "
         - "   "
         - "   "
@@ -1409,7 +1409,7 @@ glyph_families:
       half:
         shape: half
         anchors:
-          exit: [3, 5]
+          exit: [2, 5]
         select:
           not_before: [{family: qsFee}, {family: qsYe}]
         traits: [half]
