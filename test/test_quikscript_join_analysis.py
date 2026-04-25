@@ -2,11 +2,13 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
 from quikscript_ir import JoinGlyph
-from quikscript_join_analysis import JoinReachability
+from quikscript_join_analysis import JoinReachability, validate_join_consistency
 
 
 _DEFAULTS: dict[str, Any] = {
@@ -165,3 +167,244 @@ def test_reachability_view_is_immutable():
         pass
     else:
         raise AssertionError("MappingProxyType should reject item assignment")
+
+
+def test_validator_accepts_known_good_pair():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 0),),
+    )
+    qs_pea_before_tea = _make_glyph(
+        name="qsPea.before-tea",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-tea",),
+        exit=((4, 0),),
+        before=("qsTea",),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0),),
+        exit=((4, 5),),
+    )
+
+    validate_join_consistency(
+        {
+            "qsPea": qs_pea,
+            "qsPea.before-tea": qs_pea_before_tea,
+            "qsTea": qs_tea,
+        }
+    )
+
+
+def test_forward_intent_with_no_matching_backward_entry_raises():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+    )
+    qs_pea_before_tea = _make_glyph(
+        name="qsPea.before-tea",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-tea",),
+        exit=((4, 0),),
+        before=("qsTea",),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        exit=((4, 5),),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsPea": qs_pea,
+                "qsPea.before-tea": qs_pea_before_tea,
+                "qsTea": qs_tea,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsPea.before-tea" in message
+    assert "y=0" in message
+    assert "qsTea" in message
+
+
+def test_backward_intent_with_no_matching_forward_exit_raises():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        exit=((4, 5),),
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 0),),
+        exit=((4, 5),),
+        after=("qsPea",),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsPea": qs_pea,
+                "qsTea": qs_tea,
+                "qsTea.after-pea": qs_tea_after_pea,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsTea.after-pea" in message
+    assert "qsPea" in message
+    assert "y=0" in message
+
+
+def test_ligature_only_path_with_mismatched_anchor_raises():
+    qs_out = _make_glyph(
+        name="qsOut",
+        base_name="qsOut",
+        family="qsOut",
+        exit=((4, 5),),
+    )
+    qs_out_before_tea = _make_glyph(
+        name="qsOut.before-tea",
+        base_name="qsOut",
+        family="qsOut",
+        modifiers=("before-tea",),
+        exit=((4, 0),),
+        before=("qsTea",),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        exit=((4, 5),),
+    )
+    qs_out_qs_tea = _make_glyph(
+        name="qsOut_qsTea",
+        base_name="qsOut_qsTea",
+        family=None,
+        sequence=("qsOut", "qsTea"),
+        entry=((0, 5),),
+        exit=((4, 5),),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsOut": qs_out,
+                "qsOut.before-tea": qs_out_before_tea,
+                "qsTea": qs_tea,
+                "qsOut_qsTea": qs_out_qs_tea,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsOut.before-tea" in message
+    assert "y=0" in message
+    assert "qsTea" in message
+
+
+def test_noentry_after_strip_creates_a_mismatch():
+    """When the only entry-bearing variant of T loses its entry under F,
+    the validator must surface the resulting mismatch."""
+    qs_see = _make_glyph(
+        name="qsSee",
+        base_name="qsSee",
+        family="qsSee",
+        exit=((4, 0),),
+    )
+    qs_see_before_out_tea = _make_glyph(
+        name="qsSee.before-out-tea",
+        base_name="qsSee",
+        family="qsSee",
+        modifiers=("before-out-tea",),
+        exit=((4, 0),),
+        before=("qsOut_qsTea",),
+    )
+    qs_out_qs_tea = _make_glyph(
+        name="qsOut_qsTea",
+        base_name="qsOut_qsTea",
+        family="qsOut_qsTea",
+        sequence=("qsOut", "qsTea"),
+        entry=((0, 0),),
+        exit=((4, 5),),
+        noentry_after=("qsSee",),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsSee": qs_see,
+                "qsSee.before-out-tea": qs_see_before_out_tea,
+                "qsOut_qsTea": qs_out_qs_tea,
+            }
+        )
+    message = str(exc_info.value)
+    assert "qsSee.before-out-tea" in message
+    assert "qsOut_qsTea" in message
+
+
+def test_ss_gated_swap_adds_a_mismatch():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 0),),
+    )
+    qs_pea_before_tea = _make_glyph(
+        name="qsPea.before-tea",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-tea",),
+        exit=((4, 0),),
+        before=("qsTea",),
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 0),),
+        exit=((4, 5),),
+    )
+    qs_tea_after_pea_ss03 = _make_glyph(
+        name="qsTea.after-pea-ss03",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea-ss03",),
+        entry=(),
+        exit=((4, 5),),
+        after=("qsPea",),
+        gate_feature="ss03",
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        validate_join_consistency(
+            {
+                "qsPea": qs_pea,
+                "qsPea.before-tea": qs_pea_before_tea,
+                "qsTea": qs_tea,
+                "qsTea.after-pea-ss03": qs_tea_after_pea_ss03,
+            }
+        )
+    message = str(exc_info.value)
+    assert "ss03" in message
+    assert "qsPea.before-tea" in message
+    assert "qsTea" in message

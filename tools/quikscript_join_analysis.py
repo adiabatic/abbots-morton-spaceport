@@ -13,14 +13,19 @@ ordering, cycle detection, and the FEA emitter's policy-specific gates stay in
 ``quikscript_fea`` where they belong.
 """
 
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
 from quikscript_ir import JoinGlyph
+from quikscript_fea import (
+    _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS,
+    _resolve_noentry_replacement,
+)
 
 
-__all__ = ["JoinReachability"]
+__all__ = ["JoinReachability", "validate_join_consistency"]
 
 
 @dataclass(frozen=True)
@@ -136,3 +141,418 @@ class JoinReachability:
                 {y: frozenset(names) for y, names in entry_classes_buf.items()}
             ),
         )
+
+
+def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
+    """Steady-state cursive-join consistency check.
+
+    For every form F that declares a contextual selector (``select.before`` or
+    ``select.after``) and carries the matching cursive anchor, assert that some
+    reachable variant of each named target family carries a compatible anchor
+    on the other side at the same Y. Validates the default state plus each
+    distinct stylistic-set gate observed in the corpus.
+
+    Raises ``ValueError`` listing every mismatch. Orphan anchors (an exit Y
+    with no matching entry Y anywhere, or vice versa) are warned to stderr
+    only.
+    """
+    reachability = JoinReachability.from_join_glyphs(join_glyphs)
+    glyph_meta_dict = dict(reachability.glyph_meta)
+    base_to_variants_dict = {
+        base: set(variants)
+        for base, variants in reachability.base_to_variants.items()
+    }
+
+    errors: list[str] = []
+    _check_join_consistency(
+        reachability,
+        glyph_meta_dict,
+        base_to_variants_dict,
+        gated_feature=None,
+        errors=errors,
+    )
+    for ss_tag in _ss_tags(reachability):
+        _check_join_consistency(
+            reachability,
+            glyph_meta_dict,
+            base_to_variants_dict,
+            gated_feature=ss_tag,
+            errors=errors,
+        )
+    _warn_orphans(reachability)
+    if errors:
+        raise ValueError(
+            "Join consistency mismatches:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+
+
+def _ss_tags(reachability: JoinReachability) -> list[str]:
+    tags: set[str] = set()
+    for entries in reachability.gated_pair_overrides.values():
+        tags.update(tag for _, _, tag in entries)
+    for entries in reachability.gated_fwd_pair_overrides.values():
+        tags.update(tag for _, _, _, tag in entries)
+    return sorted(tags)
+
+
+def _warn_orphans(reachability: JoinReachability) -> None:
+    entry_owners: dict[int, list[str]] = {
+        y: sorted(names) for y, names in reachability.entry_classes.items()
+    }
+    exit_owners: dict[int, list[str]] = {}
+    for name, meta in reachability.glyph_meta.items():
+        for anchor in meta.exit:
+            exit_owners.setdefault(anchor[1], []).append(name)
+        for anchor in meta.entry_curs_only:
+            entry_owners.setdefault(anchor[1], []).append(name)
+    for y in sorted(set(entry_owners) - set(exit_owners)):
+        for name in entry_owners[y]:
+            print(
+                f"WARN: orphan entry_y={y} on {name} (no exit_y={y} anywhere)",
+                file=sys.stderr,
+            )
+    for y in sorted(set(exit_owners) - set(entry_owners)):
+        for name in sorted(exit_owners[y]):
+            print(
+                f"WARN: orphan exit_y={y} on {name} (no entry_y={y} anywhere)",
+                file=sys.stderr,
+            )
+
+
+def _check_join_consistency(
+    reachability: JoinReachability,
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    *,
+    gated_feature: str | None,
+    errors: list[str],
+) -> None:
+    for source_name, source_meta in reachability.glyph_meta.items():
+        if source_meta.is_noentry:
+            continue
+        _check_one_source(
+            reachability,
+            glyph_meta,
+            base_to_variants,
+            source_name,
+            source_meta,
+            anchor_meta=source_meta,
+            gated_feature=gated_feature,
+            end_of_word=False,
+            errors=errors,
+        )
+        wf_name = reachability.word_final_pairs.get(source_meta.base_name)
+        if wf_name and wf_name != source_name:
+            wf_meta = reachability.glyph_meta[wf_name]
+            _check_one_source(
+                reachability,
+                glyph_meta,
+                base_to_variants,
+                source_name,
+                source_meta,
+                anchor_meta=wf_meta,
+                gated_feature=gated_feature,
+                end_of_word=True,
+                errors=errors,
+            )
+
+
+def _check_one_source(
+    reachability: JoinReachability,
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    source_name: str,
+    source_meta: JoinGlyph,
+    *,
+    anchor_meta: JoinGlyph,
+    gated_feature: str | None,
+    end_of_word: bool,
+    errors: list[str],
+) -> None:
+    source_family = source_meta.family or source_meta.base_name
+
+    if source_meta.before and anchor_meta.exit:
+        exit_y = anchor_meta.exit[0][1]
+        for t_name in source_meta.before:
+            t_family = _resolve_family(reachability, t_name)
+            if not _family_has_candidates(reachability, t_family):
+                continue
+            if gated_feature is not None and not _gated_right_match(
+                reachability, t_family, source_family, gated_feature
+            ):
+                continue
+            candidates = _reachable_right_variants(
+                reachability,
+                glyph_meta,
+                base_to_variants,
+                t_family,
+                gated_feature,
+                source_family,
+            )
+            entry_ys = {
+                anchor[1]
+                for _, meta in candidates
+                for anchor in (*meta.entry, *meta.entry_curs_only)
+            }
+            if exit_y not in entry_ys:
+                errors.append(
+                    _format_forward_error(
+                        source_name,
+                        exit_y,
+                        t_family,
+                        candidates,
+                        entry_ys,
+                        gated_feature,
+                        end_of_word,
+                    )
+                )
+
+    if source_meta.after and (anchor_meta.entry or anchor_meta.entry_curs_only):
+        entry_anchors = anchor_meta.entry or anchor_meta.entry_curs_only
+        entry_y = entry_anchors[0][1]
+        for t_name in source_meta.after:
+            t_family = _resolve_family(reachability, t_name)
+            if not _family_has_candidates(reachability, t_family):
+                continue
+            if gated_feature is not None and not _gated_left_match(
+                reachability, t_family, source_family, gated_feature
+            ):
+                continue
+            candidates = _reachable_left_variants(
+                reachability,
+                glyph_meta,
+                base_to_variants,
+                t_family,
+                gated_feature,
+                source_family,
+            )
+            exit_ys = {
+                anchor[1] for _, meta in candidates for anchor in meta.exit
+            }
+            if entry_y not in exit_ys:
+                errors.append(
+                    _format_backward_error(
+                        source_name,
+                        entry_y,
+                        t_family,
+                        candidates,
+                        exit_ys,
+                        gated_feature,
+                        end_of_word,
+                    )
+                )
+
+
+def _reachable_right_variants(
+    reachability: JoinReachability,
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    t_family: str,
+    gated_feature: str | None,
+    source_family: str,
+) -> list[tuple[str, JoinGlyph]]:
+    if gated_feature is not None:
+        gated_match = {
+            variant
+            for variant, after_glyphs, tag in reachability.gated_pair_overrides.get(
+                t_family, ()
+            )
+            if tag == gated_feature and source_family in after_glyphs
+        }
+        if gated_match:
+            candidate_names = gated_match
+        else:
+            candidate_names = _candidate_names_for_family(
+                reachability, t_family, side="right"
+            )
+    else:
+        candidate_names = _candidate_names_for_family(
+            reachability, t_family, side="right"
+        )
+
+    resolved: list[tuple[str, JoinGlyph]] = []
+    seen: set[str] = set()
+    for name in candidate_names:
+        resolved_name = _resolve_noentry_replacement(
+            glyph_meta, base_to_variants, name, name
+        )
+        if resolved_name is None:
+            continue
+        if resolved_name in seen:
+            continue
+        seen.add(resolved_name)
+        meta = reachability.glyph_meta[resolved_name]
+        if source_family in meta.noentry_after:
+            continue
+        resolved.append((resolved_name, meta))
+    return resolved
+
+
+def _reachable_left_variants(
+    reachability: JoinReachability,
+    glyph_meta: dict[str, JoinGlyph],
+    base_to_variants: dict[str, set[str]],
+    t_family: str,
+    gated_feature: str | None,
+    source_family: str,
+) -> list[tuple[str, JoinGlyph]]:
+    if gated_feature is not None:
+        gated_match = {
+            variant
+            for variant, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(
+                t_family, ()
+            )
+            if tag == gated_feature and source_family in before_glyphs
+        }
+        if gated_match:
+            candidate_names = gated_match
+        else:
+            candidate_names = _candidate_names_for_family(
+                reachability, t_family, side="left"
+            )
+    else:
+        candidate_names = _candidate_names_for_family(
+            reachability, t_family, side="left"
+        )
+
+    resolved: list[tuple[str, JoinGlyph]] = []
+    seen: set[str] = set()
+    for name in candidate_names:
+        resolved_name = _resolve_noentry_replacement(
+            glyph_meta, base_to_variants, name, name
+        )
+        if resolved_name is None:
+            continue
+        if resolved_name in seen:
+            continue
+        seen.add(resolved_name)
+        meta = reachability.glyph_meta[resolved_name]
+        resolved.append((resolved_name, meta))
+    return resolved
+
+
+def _candidate_names_for_family(
+    reachability: JoinReachability,
+    t_family: str,
+    *,
+    side: str,
+) -> set[str]:
+    candidates: set[str] = set()
+    candidates.update(reachability.base_to_variants.get(t_family, frozenset()))
+
+    for lig_name, components in reachability.ligatures:
+        if not components:
+            continue
+        if side == "right":
+            first = reachability.glyph_meta.get(components[0])
+            if first and first.family == t_family:
+                candidates.add(lig_name)
+            if (
+                lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS
+                and len(components) >= 2
+            ):
+                second = reachability.glyph_meta.get(components[1])
+                if second and second.family == t_family:
+                    candidates.add(lig_name)
+        else:  # left
+            last = reachability.glyph_meta.get(components[-1])
+            if last and last.family == t_family:
+                candidates.add(lig_name)
+    return candidates
+
+
+def _resolve_family(reachability: JoinReachability, t_name: str) -> str:
+    """Resolve a selector reference to a family name.
+
+    Selectors compile to glyph names (`{family: qsTea}` → `"qsTea"`,
+    `{family: qsTea, traits: [alt]}` → `"qsTea.alt"`); the validator's
+    family-bucket lookups key on `base_name`.
+    """
+    meta = reachability.glyph_meta.get(t_name)
+    if meta is not None:
+        return meta.base_name
+    return t_name.split(".")[0]
+
+
+def _gated_right_match(
+    reachability: JoinReachability,
+    t_family: str,
+    source_family: str,
+    gated_feature: str,
+) -> bool:
+    return any(
+        tag == gated_feature and source_family in after_glyphs
+        for _, after_glyphs, tag in reachability.gated_pair_overrides.get(
+            t_family, ()
+        )
+    )
+
+
+def _gated_left_match(
+    reachability: JoinReachability,
+    t_family: str,
+    source_family: str,
+    gated_feature: str,
+) -> bool:
+    return any(
+        tag == gated_feature and source_family in before_glyphs
+        for _, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(
+            t_family, ()
+        )
+    )
+
+
+def _family_has_candidates(reachability: JoinReachability, t_family: str) -> bool:
+    if t_family in reachability.base_to_variants:
+        return True
+    for _, components in reachability.ligatures:
+        if not components:
+            continue
+        first = reachability.glyph_meta.get(components[0])
+        if first and first.family == t_family:
+            return True
+        last = reachability.glyph_meta.get(components[-1])
+        if last and last.family == t_family:
+            return True
+    return False
+
+
+def _format_forward_error(
+    source_name: str,
+    exit_y: int,
+    t_family: str,
+    candidates: list[tuple[str, JoinGlyph]],
+    entry_ys: set[int],
+    gated_feature: str | None,
+    end_of_word: bool,
+) -> str:
+    witness = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
+    ys_repr = "{" + ", ".join(str(y) for y in sorted(entry_ys)) + "}" if entry_ys else "∅"
+    gate_note = f" under {gated_feature}" if gated_feature else ""
+    wf_note = " (word-final)" if end_of_word else ""
+    return (
+        f"{source_name}{wf_note} expects to exit at y={exit_y} toward "
+        f"{t_family}{gate_note}, but reachable variants of {t_family} "
+        f"({witness}) carry entry Ys {ys_repr} — no y={exit_y} entry"
+    )
+
+
+def _format_backward_error(
+    source_name: str,
+    entry_y: int,
+    t_family: str,
+    candidates: list[tuple[str, JoinGlyph]],
+    exit_ys: set[int],
+    gated_feature: str | None,
+    end_of_word: bool,
+) -> str:
+    witness = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
+    ys_repr = "{" + ", ".join(str(y) for y in sorted(exit_ys)) + "}" if exit_ys else "∅"
+    gate_note = f" under {gated_feature}" if gated_feature else ""
+    wf_note = " (word-final)" if end_of_word else ""
+    return (
+        f"{source_name}{wf_note} expects to receive entry at y={entry_y} from "
+        f"{t_family}{gate_note}, but reachable variants of {t_family} "
+        f"({witness}) carry exit Ys {ys_repr} — no y={entry_y} exit"
+    )
