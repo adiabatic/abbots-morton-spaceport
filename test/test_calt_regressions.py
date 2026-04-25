@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 ZWNJ = "\u200C"
+_SS03_FEATURE = (("ss03", True),)
 _SS05_FEATURE = (("ss05", True),)
 _SS07_FEATURE = (("ss07", True),)
 sys.path.insert(0, str(ROOT / "tools"))
@@ -583,6 +584,97 @@ def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
     _assert_no_failures(_owe_terminal_invariant_failures())
+
+
+def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
+    # Word-initial qsOwe + qsFee must shape with the exit-only form
+    # (shape_2). The previous bug promoted qsOwe to shape_3, leaving a
+    # phantom left tail / entry anchor pointing at nothing.
+    glyphs = _shape_qs("qsOwe", "qsFee")
+    assert glyphs == ["qsOwe.exit-xheight.exit-extended", "qsFee.entry-xheight"]
+    assert _entry_ys(glyphs[0]) == set()
+    assert _pair_join_ys(glyphs, 0) == {5}
+
+
+def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
+    # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into
+    # the same forward-pair lookup that promotes qsOwe to shape_3.
+    glyphs = _shape_qs("qsOwe", "qsTea", features=_SS03_FEATURE)
+    assert _entry_ys(glyphs[0]) == set(), (
+        f"word-initial qsOwe must not gain an entry anchor under ss03; "
+        f"got glyphs={glyphs}"
+    )
+
+
+def _word_initial_promoted_entry_failures(
+    feature_items: tuple[tuple[str, bool], ...] = (),
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    for left_name, left_char in _plain_quikscript_letters():
+        for right_name, right_char in _plain_quikscript_letters():
+            if left_name == right_name:
+                continue
+            text = left_char + right_char
+            glyphs = (
+                _shape_with_features(text, feature_items)
+                if feature_items
+                else _shape(text)
+            )
+            if not glyphs:
+                continue
+            head = glyphs[0]
+            head_meta = meta_map.get(head)
+            if head_meta is None or not head_meta.entry:
+                continue
+            base_meta = meta_map.get(head_meta.base_name)
+            if base_meta is None or base_meta.entry:
+                # Family's bare form already carries an entry anchor as part
+                # of its natural design — that's fine at word start.
+                continue
+            target_bitmap = head_meta.bitmap
+            has_natural_no_entry_match = any(
+                sibling_meta.bitmap == target_bitmap
+                and not sibling_meta.entry
+                and not sibling_meta.entry_curs_only
+                and sibling_meta.noentry_for is None
+                for sibling_name, sibling_meta in meta_map.items()
+                if (
+                    sibling_meta.base_name == head_meta.base_name
+                    and sibling_name != head
+                )
+            )
+            if has_natural_no_entry_match:
+                # The entry anchor is purely positional: a natural sibling
+                # has the same bitmap with no entry, so picking the variant
+                # with the entry anchor doesn't add any visible left tail.
+                continue
+            head_entry_ys = sorted({anchor[1] for anchor in head_meta.entry})
+            failures.append(
+                f"word-initial {left_name} + {right_name} "
+                f"(features={dict(feature_items) or None}) "
+                f"shaped {head!r} with entry_ys={head_entry_ys}; "
+                f"base {head_meta.base_name!r} has no entry anchor and no "
+                f"sibling shares this bitmap, so this variant is a "
+                f"phantom-entry promotion. Glyphs: {glyphs}"
+            )
+    return failures
+
+
+def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor():
+    _assert_no_failures(_word_initial_promoted_entry_failures())
+
+
+def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss03():
+    _assert_no_failures(_word_initial_promoted_entry_failures(_SS03_FEATURE))
+
+
+def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss05():
+    _assert_no_failures(_word_initial_promoted_entry_failures(_SS05_FEATURE))
+
+
+def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor_under_ss07():
+    _assert_no_failures(_word_initial_promoted_entry_failures(_SS07_FEATURE))
 
 
 def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
