@@ -935,9 +935,11 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWay", "qsSee", id="way-see"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
         pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWay", "qsVie", id="way-vie"),
+        pytest.param("qsWhy", "qsSee", id="why-see"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
         pytest.param("qsWhy", "qsVie", id="why-vie"),
@@ -965,9 +967,11 @@ def test_qs_she_stays_plain_before_qs_thaw():
 @pytest.mark.parametrize(
     ("left_base", "right_base"),
     [
+        pytest.param("qsWay", "qsSee", id="way-before-see"),
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
         pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWay", "qsVie", id="way-before-vie"),
+        pytest.param("qsWhy", "qsSee", id="why-before-see"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
         pytest.param("qsWhy", "qsVie", id="why-before-vie"),
@@ -985,9 +989,11 @@ def test_qs_way_and_qs_why_stay_full_before_right_base(left_base: str, right_bas
 @pytest.mark.parametrize(
     ("left_base", "right_base"),
     [
+        pytest.param("qsWay", "qsSee", id="way-before-see"),
         pytest.param("qsWay", "qsTea", id="way-before-tea"),
         pytest.param("qsWay", "qsThaw", id="way-before-thaw"),
         pytest.param("qsWay", "qsVie", id="way-before-vie"),
+        pytest.param("qsWhy", "qsSee", id="why-before-see"),
         pytest.param("qsWhy", "qsTea", id="why-before-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
         pytest.param("qsWhy", "qsVie", id="why-before-vie"),
@@ -1011,8 +1017,10 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWay", "qsSee", id="way-see"),
         pytest.param("qsWay", "qsThaw", id="way-thaw"),
         pytest.param("qsWay", "qsVie", id="way-vie"),
+        pytest.param("qsWhy", "qsSee", id="why-see"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
         pytest.param("qsWhy", "qsVie", id="why-vie"),
     ],
@@ -1883,12 +1891,14 @@ def test_qs_way_full_before_any_non_bridging_middle():
 
 
 # ---------------------------------------------------------------------------
-# ·Way and ·Why must stay full before ·Vie, the pair must not connect, and
-# ·Vie must not change shape because of a preceding ·Way / ·Why.
+# ·Way and ·Why must stay full before ·Vie and ·See, the pair must not
+# connect, and the right glyph must not change shape because of a preceding
+# ·Way / ·Why.
 #
-# Way's prop exits only at y=5; Why's prop has no exit. Vie's prop enters
-# only at y=0. With the half-form fix in place, neither pair forms a join
-# and neither side reaches across the seam — these tests pin that down.
+# Way's prop exits only at y=5; Why's prop has no exit. Both Vie's and
+# See's prop enter only at y=0. With the half-form fix in place, neither
+# pair forms a join and neither side reaches across the seam — these tests
+# pin that down.
 # ---------------------------------------------------------------------------
 
 
@@ -1899,30 +1909,40 @@ def test_qs_way_full_before_any_non_bridging_middle():
         pytest.param("qsWhy", id="why"),
     ],
 )
-def test_qs_vie_glyph_unchanged_after_qs_way_or_qs_why(left_base: str):
-    isolated_vie = _shape_qs("qsVie")[0]
+@pytest.mark.parametrize(
+    "right_base",
+    [
+        pytest.param("qsVie", id="vie"),
+        pytest.param("qsSee", id="see"),
+    ],
+)
+def test_qs_right_glyph_unchanged_after_qs_way_or_qs_why(
+    left_base: str, right_base: str
+):
+    isolated_right = _shape_qs(right_base)[0]
     failures: list[str] = []
 
-    pair = _shape_qs(left_base, "qsVie")
-    pair_vie_index = _find_base_index(pair, "qsVie")
-    if pair_vie_index is None:
-        failures.append(f"{left_base} / qsVie: qsVie missing from {pair}")
-    elif pair[pair_vie_index] != isolated_vie:
+    pair = _shape_qs(left_base, right_base)
+    pair_right_index = _find_base_index(pair, right_base)
+    if pair_right_index is None:
+        failures.append(f"{left_base} / {right_base}: {right_base} missing from {pair}")
+    elif pair[pair_right_index] != isolated_right:
         failures.append(
-            f"{left_base} / qsVie: Vie glyph leaks "
-            f"(isolated={isolated_vie}, after-{left_base}={pair[pair_vie_index]})"
+            f"{left_base} / {right_base}: {right_base} glyph leaks "
+            f"(isolated={isolated_right}, after-{left_base}={pair[pair_right_index]})"
         )
 
-    for right_name, _ in _plain_quikscript_letters():
-        with_left = _shape_qs(left_base, "qsVie", right_name)
-        without_left = _shape_qs("qsVie", right_name)
-        with_index = _find_base_index(with_left, "qsVie")
-        without_index = _find_base_index(without_left, "qsVie")
+    for outer_right_name, _ in _plain_quikscript_letters():
+        with_left = _shape_qs(left_base, right_base, outer_right_name)
+        without_left = _shape_qs(right_base, outer_right_name)
+        with_index = _find_base_index(with_left, right_base)
+        without_index = _find_base_index(without_left, right_base)
         if with_index is None or without_index is None:
             continue
         if with_left[with_index] != without_left[without_index]:
             failures.append(
-                f"{left_base} / qsVie / {right_name}: Vie glyph leaks "
+                f"{left_base} / {right_base} / {outer_right_name}: "
+                f"{right_base} glyph leaks "
                 f"({with_left[with_index]} with {left_base} prefix vs "
                 f"{without_left[without_index]} without)"
             )
@@ -1947,7 +1967,7 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
     Only the "not half" half of the invariant is universal: families end
     up in ``not_before`` for two distinct reasons — either the full form
     legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is
-    meant to stay disconnected (qsTea, qsThaw, qsVie). Connection
+    meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection
     behaviour is asserted in the targeted parametrizations above; this
     test covers the part they share.
     """
