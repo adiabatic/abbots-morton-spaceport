@@ -64,7 +64,7 @@
 
         select {
           font-family: var(--font-stack);
-          font-size: 11px;
+          font-size: var(--font-size);
           padding: 0.25rem 0.5rem;
           background: light-dark(#fafafa, #1e1e1e);
           color: light-dark(#222, #e0e0e0);
@@ -218,7 +218,7 @@
       for (const [i, letter] of LETTERS.entries()) {
         const option = document.createElement('option');
         option.value = i;
-        option.textContent = letter.name;
+        option.textContent = letter.name.replace("'", "’");
         select.appendChild(option);
       }
 
