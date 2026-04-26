@@ -102,13 +102,12 @@
       }
 
       .matrix {
-        border-collapse: separate;
-        border-spacing: 0;
+        border-collapse: collapse;
 
         th, td {
           padding: 2px 4px;
           text-align: center;
-          border: 1px solid light-dark(#ddd, #444);
+          border: 2px solid light-dark(#ddd, #444);
           font-size: var(--font-size);
           font-family: var(--font-stack);
           font-weight: var(--font-weight, 400);
@@ -147,6 +146,24 @@
 
         td.highlighted {
           background: light-dark(#fff3cd, #5a4800);
+        }
+
+        .boundary-left {
+          border-left-width: 3px;
+          border-left-color: light-dark(#999, #666);
+        }
+
+        .boundary-right {
+          border-right-width: 3px;
+          border-right-color: light-dark(#999, #666);
+        }
+
+        .boundary-top {
+          border-top-color: light-dark(#999, #666);
+        }
+
+        .boundary-bottom {
+          border-bottom-color: light-dark(#999, #666);
         }
       }
     </style>
@@ -343,6 +360,8 @@
       function buildTable() {
         const idx = Number(select.value);
         const selected = LETTERS[idx];
+        const VOWEL_FIRST_CODE = 0xE670;
+        const CONSONANT_LAST_CODE = 0xE66C;
 
         activeHeader = null;
         strip.hidden = true;
@@ -358,6 +377,8 @@
           const th = document.createElement('th');
           th.textContent = String.fromCodePoint(col.code);
           th.title = `·${col.name}`;
+          if (col.code === VOWEL_FIRST_CODE) th.classList.add('boundary-left');
+          if (col.code === CONSONANT_LAST_CODE) th.classList.add('boundary-right');
           headerRow.appendChild(th);
         }
         thead.appendChild(headerRow);
@@ -366,9 +387,13 @@
         const tbody = document.createElement('tbody');
         for (const [ri, row] of LETTERS.entries()) {
           const tr = document.createElement('tr');
+          const rowAtVowelStart = row.code === VOWEL_FIRST_CODE;
+          const rowAtConsonantEnd = row.code === CONSONANT_LAST_CODE;
           const th = document.createElement('th');
           th.textContent = String.fromCodePoint(row.code);
           th.title = `·${row.name}`;
+          if (rowAtVowelStart) th.classList.add('boundary-top');
+          if (rowAtConsonantEnd) th.classList.add('boundary-bottom');
           tr.appendChild(th);
           for (const [ci, col] of LETTERS.entries()) {
             const td = document.createElement('td');
@@ -376,6 +401,10 @@
             td.title = `·${col.name}·${selected.name}·${row.name}`;
             td.dataset.row = ri;
             td.dataset.col = ci;
+            if (col.code === VOWEL_FIRST_CODE) td.classList.add('boundary-left');
+            if (col.code === CONSONANT_LAST_CODE) td.classList.add('boundary-right');
+            if (rowAtVowelStart) td.classList.add('boundary-top');
+            if (rowAtConsonantEnd) td.classList.add('boundary-bottom');
             const key = cellKey(selected.name, ri, ci);
             if (highlighted.has(key)) {
               td.classList.add('highlighted');
