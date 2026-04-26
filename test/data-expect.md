@@ -52,8 +52,8 @@ Use `+?` or `+|` when the font may or may not ligate two letters:
 | Syntax          | Meaning                                                      |
 | --------------- | ------------------------------------------------------------ |
 | `·Day+Utter`    | Must ligate into one glyph                                   |
-| `·Day+?Utter`   | May ligate; if separate, connection between them unasserted   |
-| `·Day+\|Utter`  | May ligate; if separate, assert a break between them          |
+| `·Day+?Utter`   | May ligate; if separate, connection between them unasserted  |
+| `·Day+\|Utter`  | May ligate; if separate, assert a break between them         |
 
 The test runner tries both interpretations (ligated and separated) and passes if either matches. When the token carries variant assertions, those assertions apply to the ligature glyph in the ligated interpretation and are dropped in the separated interpretation.
 
@@ -99,6 +99,8 @@ Three levels of duplicate exist between two elements that both carry a `data-exp
 "Same assertions" means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
 
 When the same word (text content) appears more than once in the test corpus, only one occurrence should carry the `data-expect` attribute, preferably the earliest. Later occurrences keep their text content but lose the attribute, and bare `<span>` wrappers are unwrapped.
+
+Feature context is part of the test case. The same text content under a different `data-stylistic-set`, inner feature span, or mixed Senior/Junior run is not automatically redundant; remove the later assertion only when the shaped context and expected semantics are the same.
 
 ## Full examples
 
