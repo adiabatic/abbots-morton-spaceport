@@ -87,6 +87,41 @@ context_sets:
   # cannot form anyway.
   no_baseline_join_after_tall:
   - {family: qsThaw}
+  # Quikscript families whose default cursive exit lands at y=0. Used to
+  # gate ·Excite into its wide-with-stub form only when there is a real
+  # baseline join coming in from the left. qsYe, qsPea, qsTea drive their
+  # own ·Excite stand-in chain (noentry_after_*) and qsExcite/qsExam are
+  # excluded so the gate stays one-sided.
+  excite_baseline_join_after:
+  - {family: qsAwe}
+  - {family: qsBay}
+  - {family: qsCheer}
+  - {family: qsDay}
+  - {family: qsEat}
+  - {family: qsEight}
+  - {family: qsEt}
+  - {family: qsGay}
+  - {family: qsHe}
+  - {family: qsIng}
+  - {family: qsIt}
+  - {family: qsJai}
+  - {family: qsJay}
+  - {family: qsKey}
+  - {family: qsLlan}
+  - {family: qsMay}
+  - {family: qsNo}
+  - {family: qsOoze}
+  - {family: qsOx}
+  - {family: qsOy}
+  - {family: qsRoe}
+  - {family: qsSee}
+  - {family: qsShe}
+  - {family: qsThaw}
+  - {family: qsUtter}
+  - {family: qsVie}
+  - {family: qsWay}
+  - {family: qsWhy}
+  - {family: qsZoo}
 glyph_families:
   space:
     mono:
@@ -1919,6 +1954,15 @@ glyph_families:
         - "#   # "
         - "#   # "  #
     forms:
+      exit_baseline_before_vertical_after_baseline_letter:
+        shape: wide_at_baseline
+        anchors:
+          entry: [1, 0]
+          exit: [8, 0]
+        select:
+          after: [{context_set: excite_baseline_join_after}]
+          not_before: [{context_set: no_baseline_join_after_tall}]
+        modifiers: [exit-baseline, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
         anchors:
@@ -1933,7 +1977,7 @@ glyph_families:
         anchors:
           entry: [1, 0]
         select:
-          not_after: [space, uni200C, periodcentered]
+          after: [{context_set: excite_baseline_join_after}]
           before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [entry-baseline, noexit]
       noentry_exit_baseline:
