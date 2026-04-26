@@ -656,8 +656,6 @@ glyph_families:
           exit: [4, 0]
         select:
           before: [{family: qsIng}]
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsIng}]}
         modifiers: [exit-baseline]
       # qsIng is in the `talls` context set, so without this narrow override
       # `noentry_after_tall` would strip Thaw's entry anchor and the
