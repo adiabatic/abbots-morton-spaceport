@@ -1704,6 +1704,8 @@ glyph_families:
           exit: [5, 5]
         select:
           before: [{family: qsJai}]
+        derive:
+          extend_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [exit-xheight, before-jai]
       exit_baseline:
         shape: exits_at_baseline

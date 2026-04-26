@@ -679,7 +679,7 @@ def test_qs_ing_before_thaw_uses_triply_extended_exit():
 
 def test_qs_thaw_before_ing_uses_doubly_extended_entry_ing():
     assert _shape_qs("qsThaw", "qsIng") == [
-        "qsThaw.exit-baseline",
+        "qsThaw.exit-baseline.exit-extended",
         "qsIng.after-thaw.entry-doubly-extended",
     ]
 
