@@ -866,7 +866,7 @@ glyph_families:
       exit_xheight_before_jai:
         shape: mono
         anchors:
-          exit: [6, 5]
+          exit: [5, 5]
         select:
           before: [{family: qsJai}]
         modifiers: [exit-xheight, before-jai]
@@ -1214,6 +1214,7 @@ glyph_families:
           - {family: qsUtter}
           - {family: qsOut}
           - {family: qsFoot}
+          - {family: qsOoze}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
@@ -1710,6 +1711,13 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
         modifiers: [entry-baseline]
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
       exit_baseline:
         shape: exits_at_baseline
         anchors:
@@ -1791,6 +1799,14 @@ glyph_families:
         - mono
         - junior
         - senior
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 5]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsLow:
     mono:
       bitmap:
@@ -1810,6 +1826,15 @@ glyph_families:
         extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
+    forms:
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsRoe:
     mono:
       bitmap:
@@ -2277,6 +2302,15 @@ glyph_families:
         exit: [6, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
+    forms:
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsAt_qsMay:
     sequence:
     - qsAt
@@ -2348,6 +2382,14 @@ glyph_families:
         select:
           after: [{family: qsRoe, modifiers: [exit-baseline]}]
         modifiers: [entry-baseline, smaller-loop]
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsAh:
     mono:
       bitmap:
@@ -2372,6 +2414,15 @@ glyph_families:
         extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsFee}, {family: qsMay}, {family: qsThey}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
+    forms:
+      exit_xheight_before_jai:
+        shape: prop
+        anchors:
+          entry: [1, 0]
+          exit: [7, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsAwe:
     mono:
       bitmap:
@@ -2509,6 +2560,14 @@ glyph_families:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         traits: [alt]
         modifiers: [reaches-way-back]
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
       alt_before_may:
         shape: alt
         anchors:
@@ -2596,7 +2655,7 @@ glyph_families:
         shape: shape_3
         anchors:
           entry: [1, 0]
-          exit: [6, 5]
+          exit: [5, 5]
         select:
           before: [{family: qsJai}]
         modifiers: [exit-xheight, before-jai]
@@ -2734,6 +2793,15 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+    forms:
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 5]
+          exit: [5, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsOoze:
     mono:
       bitmap:
@@ -2748,3 +2816,12 @@ glyph_families:
       anchors:
         entry: [1, 0]
         exit: [6, 0]
+    forms:
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          entry: [1, 0]
+          exit: [3, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]

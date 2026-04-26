@@ -2498,6 +2498,39 @@ _OWE_DAY_PARAMS, _OWE_DAY_IDS = _params(_owe_day_cases())
 _THEY_JAY_PARAMS, _THEY_JAY_IDS = _params(_they_jay_cases())
 
 
+def _ink_bounds_at_y(glyph_name: str, y: int) -> tuple[int, int] | None:
+    meta = _compiled_meta()[glyph_name]
+    top_y = meta.y_offset + len(meta.bitmap) - 1
+    row_index = top_y - y
+    if row_index < 0 or row_index >= len(meta.bitmap):
+        return None
+    row = meta.bitmap[row_index]
+    if isinstance(row, str):
+        ink_xs = [index for index, value in enumerate(row) if value == "#"]
+    else:
+        ink_xs = [index for index, value in enumerate(row) if value]
+    if not ink_xs:
+        return None
+    return min(ink_xs), max(ink_xs)
+
+
+def _bitmap_join_gap(glyphs: list[str], index: int, y: int) -> int | None:
+    meta = _compiled_meta()
+    left = meta[glyphs[index]]
+    right = meta[glyphs[index + 1]]
+    left_anchor = next(anchor for anchor in left.exit if anchor[1] == y)
+    right_anchor = next(
+        anchor for anchor in (*right.entry, *right.entry_curs_only) if anchor[1] == y
+    )
+    left_bounds = _ink_bounds_at_y(glyphs[index], y)
+    right_bounds = _ink_bounds_at_y(glyphs[index + 1], y)
+    if left_bounds is None or right_bounds is None:
+        return None
+    _, left_max = left_bounds
+    right_min, _ = right_bounds
+    return (right_min - right_anchor[0]) - (left_max - left_anchor[0]) - 1
+
+
 @pytest.mark.parametrize(("text", "expect"), _TEA_TEA_PARAMS, ids=_TEA_TEA_IDS)
 def test_tea_tea_no_double_halves(shaping_env: dict, text: str, expect: str) -> None:
     _run(shaping_env, text, expect)
@@ -2533,16 +2566,33 @@ def test_they_jay_never_joins(shaping_env: dict, text: str, expect: str) -> None
     _run(shaping_env, text, expect)
 
 
+_JAI_XHEIGHT_LEFTS = [
+    "qsFee",
+    "qsMay",
+    "qsNo",
+    "qsRoe",
+    "qsLow",
+    "qsAt",
+    "qsI",
+    "qsAh",
+    "qsUtter",
+    "qsOut",
+    "qsFoot",
+    "qsOoze",
+]
+
+
 @pytest.mark.parametrize(
     "left_base",
-    ["qsFee", "qsMay", "qsNo", "qsRoe", "qsLow", "qsAt",
-     "qsI", "qsAh", "qsUtter", "qsOut", "qsFoot"],
+    _JAI_XHEIGHT_LEFTS,
 )
 def test_qs_jai_joins_designated_left_letters_at_xheight(left_base: str) -> None:
     glyphs = _shape_qs(left_base, "qsJai")
     assert len(glyphs) == 2, glyphs
-    assert "entry-xheight" in glyphs[1], glyphs
+    assert glyphs[0] != _shape_qs(left_base)[0], glyphs
+    assert glyphs[1] == "qsJai.entry-xheight", glyphs
     assert _pair_join_ys(glyphs, 0) == {5}, glyphs
+    assert _bitmap_join_gap(glyphs, 0, 5) == 0, glyphs
 
 
 def test_qs_jai_does_not_take_xheight_entry_after_undesignated_letters() -> None:

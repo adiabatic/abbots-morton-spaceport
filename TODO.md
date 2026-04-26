@@ -39,6 +39,8 @@ If a cluster of those exists, propose a top-level `joins:` (or similar) section 
 
 Don't design this until the Phase A complaints (and Phase B derivation gaps) tell us where the current source language is genuinely inadequate.
 
+Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` now floods senior builds with `join-selection-one-sided` and `join-bitmap-gap` warnings. Burn this list down before promoting the warnings to errors or replacing source-side declarations with a top-level `joins:` section.
+
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)

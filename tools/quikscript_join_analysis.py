@@ -28,9 +28,11 @@ from quikscript_fea import (
 __all__ = [
     "DerivedBkGuard",
     "JoinReachability",
+    "collect_join_warnings",
     "derive_pending_bk_entry_guards",
     "derive_pending_liga_entry_guards",
     "validate_join_consistency",
+    "warn_join_contract_issues",
 ]
 
 
@@ -38,6 +40,14 @@ __all__ = [
 class DerivedBkGuard:
     guard_glyphs: tuple[str, ...]
     before_bases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _PairIntent:
+    variant_name: str
+    left_family: str
+    right_family: str
+    y: int
 
 
 # Authoritative override of structural derivation. The structural pass in
@@ -261,6 +271,234 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
             "Join consistency mismatches:\n"
             + "\n".join(f"  - {e}" for e in errors)
         )
+
+
+def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ...]:
+    """Return non-fatal diagnostics for joins that are still source-fragile."""
+    reachability = JoinReachability.from_join_glyphs(join_glyphs)
+    forward_intents, backward_intents = _collect_pair_intents(reachability)
+    warnings: list[str] = []
+    warnings.extend(
+        _collect_one_sided_join_warnings(forward_intents, backward_intents)
+    )
+    warnings.extend(
+        _collect_bitmap_gap_warnings(reachability, forward_intents, backward_intents)
+    )
+    return tuple(sorted(dict.fromkeys(warnings)))
+
+
+def warn_join_contract_issues(join_glyphs: Mapping[str, JoinGlyph]) -> None:
+    for warning in collect_join_warnings(join_glyphs):
+        print(f"WARN: {warning}", file=sys.stderr)
+
+
+def _collect_pair_intents(
+    reachability: JoinReachability,
+) -> tuple[list[_PairIntent], list[_PairIntent]]:
+    forward_intents: list[_PairIntent] = []
+    backward_intents: list[_PairIntent] = []
+    for name, meta in reachability.glyph_meta.items():
+        if meta.generated_from is not None or meta.is_noentry:
+            continue
+        source_family = meta.family or meta.base_name
+        for anchor in meta.exit:
+            for target in meta.before:
+                forward_intents.append(
+                    _PairIntent(
+                        variant_name=name,
+                        left_family=source_family,
+                        right_family=_resolve_family(reachability, target),
+                        y=anchor[1],
+                    )
+                )
+        for anchor in (*meta.entry, *meta.entry_curs_only):
+            for target in meta.after:
+                backward_intents.append(
+                    _PairIntent(
+                        variant_name=name,
+                        left_family=_resolve_family(reachability, target),
+                        right_family=source_family,
+                        y=anchor[1],
+                    )
+                )
+    return forward_intents, backward_intents
+
+
+def _pair_intent_key(intent: _PairIntent) -> tuple[str, str, int]:
+    return (intent.left_family, intent.right_family, intent.y)
+
+
+def _collect_one_sided_join_warnings(
+    forward_intents: list[_PairIntent],
+    backward_intents: list[_PairIntent],
+) -> list[str]:
+    forward_keys = {_pair_intent_key(intent) for intent in forward_intents}
+    backward_keys = {_pair_intent_key(intent) for intent in backward_intents}
+    warnings: list[str] = []
+
+    for intent in sorted(forward_intents, key=lambda i: (i.variant_name, i.right_family, i.y)):
+        if _pair_intent_key(intent) in backward_keys:
+            continue
+        warnings.append(
+            "join-selection-one-sided: "
+            f"{intent.variant_name} exits y={intent.y} before {intent.right_family}, "
+            f"but {intent.right_family} has no matching after-selector for "
+            f"{intent.left_family} at y={intent.y}"
+        )
+
+    for intent in sorted(backward_intents, key=lambda i: (i.variant_name, i.left_family, i.y)):
+        if _pair_intent_key(intent) in forward_keys:
+            continue
+        warnings.append(
+            "join-selection-one-sided: "
+            f"{intent.variant_name} enters y={intent.y} after {intent.left_family}, "
+            f"but {intent.left_family} has no matching before-selector for "
+            f"{intent.right_family} at y={intent.y}"
+        )
+
+    return warnings
+
+
+def _collect_bitmap_gap_warnings(
+    reachability: JoinReachability,
+    forward_intents: list[_PairIntent],
+    backward_intents: list[_PairIntent],
+) -> list[str]:
+    warnings: list[str] = []
+    forward_by_key = _intents_by_pair(forward_intents)
+    backward_by_key = _intents_by_pair(backward_intents)
+    keys = sorted(set(forward_by_key) | set(backward_by_key))
+    seen: set[tuple[str, str, int]] = set()
+
+    for key in keys:
+        left_family, right_family, y = key
+        left_names = {
+            intent.variant_name
+            for intent in forward_by_key.get(key, ())
+        } or _candidate_names_with_exit(reachability, left_family, y)
+        right_names = {
+            intent.variant_name
+            for intent in backward_by_key.get(key, ())
+        } or _candidate_names_with_entry(reachability, right_family, y)
+
+        for left_name in sorted(left_names):
+            left_meta = reachability.glyph_meta.get(left_name)
+            if left_meta is None:
+                continue
+            left_anchor = _first_anchor_at(left_meta.exit, y)
+            if left_anchor is None:
+                continue
+            for right_name in sorted(right_names):
+                right_meta = reachability.glyph_meta.get(right_name)
+                if right_meta is None:
+                    continue
+                right_anchor = _first_anchor_at(
+                    (*right_meta.entry, *right_meta.entry_curs_only), y
+                )
+                if right_anchor is None:
+                    continue
+                pair_key = (left_name, right_name, y)
+                if pair_key in seen:
+                    continue
+                seen.add(pair_key)
+                gap = _bitmap_join_gap(left_meta, left_anchor, right_meta, right_anchor)
+                if gap is None:
+                    warnings.append(
+                        "join-bitmap-gap: "
+                        f"{left_name} -> {right_name} at y={y} has no ink on "
+                        "one side of the join row"
+                    )
+                elif gap > 0:
+                    warnings.append(
+                        "join-bitmap-gap: "
+                        f"{left_name} -> {right_name} at y={y} leaves "
+                        f"{gap}px blank between strokes"
+                    )
+
+    return warnings
+
+
+def _intents_by_pair(
+    intents: list[_PairIntent],
+) -> dict[tuple[str, str, int], list[_PairIntent]]:
+    by_pair: dict[tuple[str, str, int], list[_PairIntent]] = {}
+    for intent in intents:
+        by_pair.setdefault(_pair_intent_key(intent), []).append(intent)
+    return by_pair
+
+
+def _candidate_names_with_exit(
+    reachability: JoinReachability,
+    family: str,
+    y: int,
+) -> set[str]:
+    return {
+        name
+        for name in reachability.base_to_variants.get(family, frozenset())
+        if _is_source_authored_join_candidate(reachability.glyph_meta[name])
+        and y in reachability.glyph_meta[name].exit_ys
+    }
+
+
+def _candidate_names_with_entry(
+    reachability: JoinReachability,
+    family: str,
+    y: int,
+) -> set[str]:
+    return {
+        name
+        for name in reachability.base_to_variants.get(family, frozenset())
+        if _is_source_authored_join_candidate(reachability.glyph_meta[name])
+        and y in reachability.glyph_meta[name].all_entry_ys
+    }
+
+
+def _is_source_authored_join_candidate(meta: JoinGlyph) -> bool:
+    return meta.generated_from is None and not meta.is_noentry
+
+
+def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int, int] | None:
+    return next((anchor for anchor in anchors if anchor[1] == y), None)
+
+
+def _bitmap_join_gap(
+    left_meta: JoinGlyph,
+    left_anchor: tuple[int, int],
+    right_meta: JoinGlyph,
+    right_anchor: tuple[int, int],
+) -> int | None:
+    left_bounds = _ink_bounds_at_y(left_meta, left_anchor[1])
+    right_bounds = _ink_bounds_at_y(right_meta, right_anchor[1])
+    if left_bounds is None or right_bounds is None:
+        return None
+    _, left_max = left_bounds
+    right_min, _ = right_bounds
+    left_ink_to_exit = left_max - left_anchor[0]
+    right_ink_to_entry = right_min - right_anchor[0]
+    return right_ink_to_entry - left_ink_to_exit - 1
+
+
+def _ink_bounds_at_y(meta: JoinGlyph, y: int) -> tuple[int, int] | None:
+    row = _bitmap_row_at_y(meta, y)
+    if row is None:
+        return None
+    ink_xs = [index for index, has_ink in enumerate(row) if has_ink]
+    if not ink_xs:
+        return None
+    return min(ink_xs), max(ink_xs)
+
+
+def _bitmap_row_at_y(meta: JoinGlyph, y: int) -> tuple[bool, ...] | None:
+    if not meta.bitmap:
+        return None
+    top_y = meta.y_offset + len(meta.bitmap) - 1
+    row_index = top_y - y
+    if row_index < 0 or row_index >= len(meta.bitmap):
+        return None
+    row = meta.bitmap[row_index]
+    if isinstance(row, str):
+        return tuple(char == "#" for char in row)
+    return tuple(bool(value) for value in row)
 
 
 def _ss_tags(reachability: JoinReachability) -> list[str]:
