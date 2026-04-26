@@ -88,6 +88,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - To remove a duplicate test: remove the `data-expect` attribute. If the element is a `span` with no remaining attributes, unwrap the `span` (remove the tags but keep the text content in place). Never remove the text inside the element — it must remain identical before and after. The text frequently contains invisible PUA code points, so verify with a program (e.g., compare hex dumps of each modified line before and after) that only the attribute and/or tags were removed.
 - When adding `data-expect` attributes, always check for content duplicates first — do not wrap a word that is already tested elsewhere in the document unless explicitly told to.
 - Do not wrap one-letter Quikscript words in `data-expect` attributes unless explicitly told to — there is no point in testing joins when there is only one letter.
+- When consolidating redundant tests, do not rewrite existing `data-expect` values in `test/the-manual.html`; preserve the manual corpus and remove redundant coverage elsewhere instead.
 
 ## Markdown-document style
 
