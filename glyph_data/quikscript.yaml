@@ -314,8 +314,10 @@ glyph_families:
           entry_curs_only: [1, 8]
           exit: [2, 5]
         select:
-          not_after: [{family: qsTea}]
+          not_after: [{family: qsEt}, {family: qsTea}]
           not_before: [{family: qsCheer}, {family: qsFee}, {family: qsFoot}, {family: qsOwe}, {family: qsTea}, {family: qsYe}]
+        derive:
+          contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
         modifiers: [exit-xheight]
       half_entry_top_exit_xheight:

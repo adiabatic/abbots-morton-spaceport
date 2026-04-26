@@ -125,6 +125,10 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             pass
         elif meta.extended_exit_suffix is not None:
             pass
+        elif meta.contracted_entry_suffix is not None:
+            pass
+        elif meta.contracted_exit_suffix is not None:
+            pass
         else:
             if "half" in meta.traits and not meta.exit:
                 continue
@@ -215,6 +219,10 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         if meta.extended_entry_suffix is not None:
             continue
         if meta.extended_exit_suffix is not None and not meta.before and not meta.gated_before:
+            continue
+        if meta.contracted_entry_suffix is not None and not meta.after:
+            continue
+        if meta.contracted_exit_suffix is not None and not meta.before and not meta.gated_before:
             continue
         if meta.is_entry_variant and not meta.before:
             continue
