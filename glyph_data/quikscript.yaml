@@ -1920,10 +1920,10 @@ glyph_families:
         - "#   # "  #
     forms:
       exit_baseline_before_vertical:
-        shape: wide_at_baseline
+        shape: wide_on_right_at_baseline
         anchors:
           entry: [1, 0]
-          exit: [8, 0]
+          exit: [7, 0]
         select:
           not_after: [space, uni200C, periodcentered]
           not_before: [{context_set: no_baseline_join_after_tall}]
