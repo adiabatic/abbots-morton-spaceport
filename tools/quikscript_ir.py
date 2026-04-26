@@ -1807,6 +1807,215 @@ def _generate_contracted_variants(
     return variants
 
 
+def expand_selectors_for_ligatures(
+    join_glyphs: dict[str, JoinGlyph],
+) -> dict[str, JoinGlyph]:
+    """Expand positive calt selectors so they fire on the first/last component
+    of any ligature whose non-first/non-last components were named explicitly.
+
+    `before:` / `gated_before:` are forward-context lookups in `calt`, which
+    runs before `calt_liga` collapses sequences into ligature glyphs. So a
+    selector that names a ligature's second (or later) component misses,
+    because the immediate next glyph in the pre-liga stream is the ligature's
+    *first* component. Likewise backward-context `after:` lookups only see the
+    ligature's *last* component pre-liga.
+
+    This pass adds the missing endpoints so the YAML can stay declarative
+    ("fire before qsUtter") and stay correct as new ligatures land. Each
+    candidate addition is gated by Y compatibility: an endpoint family is only
+    added when at least one of its reachable variants (or the ligature's
+    canonical record) carries a matching cursive anchor on the side the
+    source needs. This keeps spurious entries out of the join-consistency
+    check while still covering the cases where the ligature's half/baseline
+    form actually accepts the source.
+
+    Negative selectors (`not_before:` / `not_after:`) are left untouched: the
+    intent of those lists is almost always literal ("don't fire before this
+    specific glyph"), and expanding them tends to suppress shaping in cases
+    where the original author wanted the lookup to keep firing. If a
+    negative-side ligature exception is genuinely needed it can be authored by
+    hand.
+    """
+    ligature_records: list[JoinGlyph] = []
+    for record in join_glyphs.values():
+        if len(record.sequence) < 2:
+            continue
+        if record.name != record.base_name:
+            continue
+        if record.is_noentry:
+            continue
+        if record.extended_entry_suffix is not None:
+            continue
+        if record.extended_exit_suffix is not None:
+            continue
+        if not all(component in join_glyphs for component in record.sequence):
+            continue
+        ligature_records.append(record)
+
+    if not ligature_records:
+        return join_glyphs
+
+    base_to_variants: dict[str, set[str]] = {}
+    for record in join_glyphs.values():
+        base_to_variants.setdefault(record.base_name, set()).add(record.name)
+
+    def _ligature_entry_ys(lig_base: str) -> frozenset[int]:
+        ys: set[int] = set()
+        for variant_name in base_to_variants.get(lig_base, ()):
+            variant = join_glyphs[variant_name]
+            for anchor in (*variant.entry, *variant.entry_curs_only):
+                ys.add(anchor[1])
+        return frozenset(ys)
+
+    def _ligature_exit_ys(lig_base: str) -> frozenset[int]:
+        ys: set[int] = set()
+        for variant_name in base_to_variants.get(lig_base, ()):
+            variant = join_glyphs[variant_name]
+            for anchor in variant.exit:
+                ys.add(anchor[1])
+        return frozenset(ys)
+
+    def _canonical_entry_ys(family: str) -> frozenset[int]:
+        canonical = join_glyphs.get(family)
+        if canonical is None or canonical.name != canonical.base_name:
+            return frozenset()
+        return frozenset(
+            anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only)
+        )
+
+    def _canonical_exit_ys(family: str) -> frozenset[int]:
+        canonical = join_glyphs.get(family)
+        if canonical is None or canonical.name != canonical.base_name:
+            return frozenset()
+        return frozenset(anchor[1] for anchor in canonical.exit)
+
+    # Forward expansion entries: keyed by component name (base or variant),
+    # value is a list of (first_component_family, candidate_entry_ys,
+    # canonical_entry_ys) triples.
+    #
+    # candidate_entry_ys are the Ys reachable through the *ligature's* own
+    # variants — those are the Ys the source actually meets after `calt_liga`
+    # collapses the components. canonical_entry_ys are the Ys the first
+    # component's canonical (uncontextual) form already provides on its own.
+    # The expansion only earns its keep when the ligature opens up a Y the
+    # canonical form does not already cover; otherwise the lookup would just
+    # over-fire on adjacent first-components without unlocking any new join,
+    # crowding out broader fallback forms in the process.
+    forward_entries_by_component: dict[
+        str, list[tuple[str, frozenset[int], frozenset[int]]]
+    ] = {}
+    backward_entries_by_component: dict[
+        str, list[tuple[str, frozenset[int], frozenset[int]]]
+    ] = {}
+
+    for record in ligature_records:
+        sequence = tuple(record.sequence)
+        first, last = sequence[0], sequence[-1]
+        lig_entry_ys = _ligature_entry_ys(record.base_name)
+        lig_exit_ys = _ligature_exit_ys(record.base_name)
+        first_canonical_entry_ys = _canonical_entry_ys(first)
+        last_canonical_exit_ys = _canonical_exit_ys(last)
+
+        for component in sequence[1:]:
+            keys = {component, *base_to_variants.get(component, ())}
+            for key in keys:
+                forward_entries_by_component.setdefault(key, []).append(
+                    (first, lig_entry_ys, first_canonical_entry_ys)
+                )
+        for component in sequence[:-1]:
+            keys = {component, *base_to_variants.get(component, ())}
+            for key in keys:
+                backward_entries_by_component.setdefault(key, []).append(
+                    (last, lig_exit_ys, last_canonical_exit_ys)
+                )
+
+    def _additions(
+        field: tuple[str, ...],
+        index: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]],
+        anchor_ys: frozenset[int],
+    ) -> set[str]:
+        existing = set(field)
+        additions: set[str] = set()
+        for glyph in field:
+            for endpoint, candidate_ys, canonical_ys in index.get(glyph, ()):
+                if endpoint in existing:
+                    continue
+                novel_ys = (anchor_ys & candidate_ys) - canonical_ys
+                if not novel_ys:
+                    continue
+                additions.add(endpoint)
+        return additions
+
+    def _expand_filtered(
+        field: tuple[str, ...],
+        index: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]],
+        anchor_ys: frozenset[int] | None,
+    ) -> tuple[str, ...]:
+        # An empty anchor set means the source has no cursive anchor on the
+        # side the selector cares about, so a ligature-bridged join can never
+        # form. Skip expansion entirely; the selector keeps its original
+        # literal interpretation.
+        if not field or not anchor_ys:
+            return field
+        new_additions = _additions(field, index, anchor_ys)
+        if not new_additions:
+            return field
+        return tuple([*field, *sorted(new_additions)])
+
+    def _expand_gated(
+        gated: tuple[tuple[str, tuple[str, ...]], ...],
+        anchor_ys: frozenset[int] | None,
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        if not gated:
+            return gated
+        rebuilt: list[tuple[str, tuple[str, ...]]] = []
+        changed = False
+        for feature_tag, families in gated:
+            new_families = _expand_filtered(
+                families, forward_entries_by_component, anchor_ys
+            )
+            if new_families is not families:
+                changed = True
+            rebuilt.append((feature_tag, new_families))
+        if not changed:
+            return gated
+        return tuple(rebuilt)
+
+    updated: dict[str, JoinGlyph] = {}
+    for name, record in join_glyphs.items():
+        source_exit_ys = (
+            frozenset(anchor[1] for anchor in record.exit) if record.exit else None
+        )
+        source_entry_ys = (
+            frozenset(
+                anchor[1] for anchor in (*record.entry, *record.entry_curs_only)
+            )
+            if record.entry or record.entry_curs_only
+            else None
+        )
+        new_before = _expand_filtered(
+            record.before, forward_entries_by_component, source_exit_ys
+        )
+        new_gated_before = _expand_gated(record.gated_before, source_exit_ys)
+        new_after = _expand_filtered(
+            record.after, backward_entries_by_component, source_entry_ys
+        )
+        if (
+            new_before is record.before
+            and new_gated_before is record.gated_before
+            and new_after is record.after
+        ):
+            updated[name] = record
+            continue
+        updated[name] = replace(
+            record,
+            before=new_before,
+            gated_before=new_gated_before,
+            after=new_after,
+        )
+    return updated
+
+
 def expand_join_transforms(
     join_glyphs: dict[str, JoinGlyph],
     *,
@@ -1876,6 +2085,7 @@ def compile_quikscript_ir(
             join_glyphs,
             has_zwnj="uni200C" in glyph_data.get("glyphs", {}),
         )
+    join_glyphs = expand_selectors_for_ligatures(join_glyphs)
     return join_glyphs, transforms
 
 
@@ -1889,6 +2099,7 @@ __all__ = [
     "compile_glyph_families",
     "compile_quikscript_ir",
     "expand_join_transforms",
+    "expand_selectors_for_ligatures",
     "flatten_join_glyphs",
     "generate_noentry_variants",
     "get_base_glyph_name",
