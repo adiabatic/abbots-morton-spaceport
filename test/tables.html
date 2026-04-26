@@ -189,24 +189,19 @@
       import { LETTERS, initToggles, initEscapeToClear } from './shared.js';
 
       const STORAGE_KEY = 'ams-joins-highlights';
-      const SELECTED_KEY = 'ams-joins-selected';
-      const STRIP_KEY = 'ams-joins-strip';
 
       const select = document.getElementById('letter-select');
       const table = document.getElementById('matrix-table');
       const strip = document.getElementById('preview-strip');
       let activeHeader = null;
+      let renderedLetterIndex = -1;
+      let renderedStripKey = null;
 
       for (const [i, letter] of LETTERS.entries()) {
         const option = document.createElement('option');
         option.value = i;
         option.textContent = letter.name;
         select.appendChild(option);
-      }
-
-      const saved = localStorage.getItem(SELECTED_KEY);
-      if (saved != null && LETTERS[Number(saved)]) {
-        select.value = saved;
       }
 
       function loadHighlights() {
@@ -227,14 +222,44 @@
         return `${letterName}-${row}-${col}`;
       }
 
-      function hideStrip() {
+      function parseHash() {
+        const raw = location.hash.startsWith('#') ? location.hash.slice(1) : location.hash;
+        const params = new URLSearchParams(raw);
+        const letterName = params.get('letter');
+        const col = params.get('col');
+        const row = params.get('row');
+        const letterIndex = LETTERS.findIndex(l => l.name === letterName);
+        let mode = null;
+        let headerIdx = -1;
+        if (col != null) {
+          mode = 'column';
+          headerIdx = LETTERS.findIndex(l => l.name === col);
+        } else if (row != null) {
+          mode = 'row';
+          headerIdx = LETTERS.findIndex(l => l.name === row);
+        }
+        return {
+          letterIndex: letterIndex >= 0 ? letterIndex : 0,
+          mode: mode && headerIdx >= 0 ? mode : null,
+          headerIndex: mode && headerIdx >= 0 ? headerIdx : -1,
+        };
+      }
+
+      function writeHash({ letterIndex, mode, headerIndex }) {
+        const params = new URLSearchParams();
+        params.set('letter', LETTERS[letterIndex].name);
+        if (mode === 'column') params.set('col', LETTERS[headerIndex].name);
+        else if (mode === 'row') params.set('row', LETTERS[headerIndex].name);
+        location.hash = params.toString();
+      }
+
+      function clearStrip() {
         strip.hidden = true;
         strip.innerHTML = '';
         activeHeader = null;
-        localStorage.removeItem(STRIP_KEY);
       }
 
-      function headerIndex(headerEl, mode) {
+      function headerIndexInTable(headerEl, mode) {
         if (mode === 'column') {
           const ths = table.querySelectorAll('thead th');
           for (let i = 1; i < ths.length; i++) {
@@ -249,13 +274,8 @@
         return -1;
       }
 
-      function showStrip(headerEl, mode) {
-        if (activeHeader === headerEl) {
-          hideStrip();
-          return;
-        }
+      function renderStrip(headerEl, mode) {
         activeHeader = headerEl;
-        localStorage.setItem(STRIP_KEY, JSON.stringify({ mode, index: headerIndex(headerEl, mode) }));
         strip.innerHTML = '';
         strip.hidden = false;
 
@@ -310,25 +330,9 @@
         }
       }
 
-      function restoreStrip() {
-        try {
-          const data = JSON.parse(localStorage.getItem(STRIP_KEY));
-          if (!data) return;
-          const { mode, index } = data;
-          let headerEl;
-          if (mode === 'column') {
-            headerEl = table.querySelectorAll('thead th')[index + 1];
-          } else {
-            headerEl = table.querySelectorAll('tbody tr')[index]?.querySelector('th');
-          }
-          if (headerEl) showStrip(headerEl, mode);
-        } catch {}
-      }
-
       function buildTable() {
         const idx = Number(select.value);
         const selected = LETTERS[idx];
-        localStorage.setItem(SELECTED_KEY, idx);
 
         activeHeader = null;
         strip.hidden = true;
@@ -373,15 +377,49 @@
         table.appendChild(tbody);
       }
 
+      function applyHashState() {
+        const { letterIndex, mode, headerIndex } = parseHash();
+        if (letterIndex !== renderedLetterIndex) {
+          renderedLetterIndex = letterIndex;
+          select.value = String(letterIndex);
+          buildTable();
+          renderedStripKey = null;
+        }
+        const newKey = mode ? `${mode}-${headerIndex}` : null;
+        if (newKey !== renderedStripKey) {
+          renderedStripKey = newKey;
+          if (newKey) {
+            const headerEl = mode === 'column'
+              ? table.querySelectorAll('thead th')[headerIndex + 1]
+              : table.querySelectorAll('tbody tr')[headerIndex]?.querySelector('th');
+            if (headerEl) renderStrip(headerEl, mode);
+            else clearStrip();
+          } else {
+            clearStrip();
+          }
+        }
+      }
+
+      function toggleStripInHash(headerEl, mode) {
+        const current = parseHash();
+        const newIndex = headerIndexInTable(headerEl, mode);
+        const sameAsActive = current.mode === mode && current.headerIndex === newIndex;
+        writeHash({
+          letterIndex: current.letterIndex,
+          mode: sameAsActive ? null : mode,
+          headerIndex: sameAsActive ? -1 : newIndex,
+        });
+      }
+
       table.addEventListener('click', (e) => {
         const th = e.target.closest('th');
         if (th) {
           const corner = table.querySelector('thead th:first-child');
           if (th === corner) return;
           if (th.closest('thead')) {
-            showStrip(th, 'column');
+            toggleStripInHash(th, 'column');
           } else if (th.closest('tbody')) {
-            showStrip(th, 'row');
+            toggleStripInHash(th, 'row');
           }
           return;
         }
@@ -403,18 +441,24 @@
       });
 
       function clearAllHighlights() {
-        for (const el of table.querySelectorAll('.highlighted')) {
+        for (const el of document.querySelectorAll('.highlighted')) {
           el.classList.remove('highlighted');
         }
         highlighted.clear();
         saveHighlights(highlighted);
-        hideStrip();
+        const current = parseHash();
+        if (current.mode) {
+          writeHash({ letterIndex: current.letterIndex, mode: null, headerIndex: -1 });
+        }
       }
 
       document.getElementById('clear-highlights').addEventListener('click', clearAllHighlights);
       initEscapeToClear(clearAllHighlights);
 
-      select.addEventListener('change', () => { buildTable(); restoreStrip(); });
+      select.addEventListener('change', () => {
+        const { mode, headerIndex } = parseHash();
+        writeHash({ letterIndex: Number(select.value), mode, headerIndex });
+      });
 
       initToggles({
         fontOrderToggle: 'font-order-toggle',
@@ -423,12 +467,12 @@
         weightToggle: 'weight-toggle',
         titleEl: 'h1',
         onApply: (state) => {
-          document.title = `Tables \u2014 ${state.fontTitle}`;
+          document.title = `Tables — ${state.fontTitle}`;
         },
       });
 
-      buildTable();
-      restoreStrip();
+      window.addEventListener('hashchange', applyHashState);
+      applyHashState();
     </script>
   </body>
 </html>
