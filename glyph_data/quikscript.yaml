@@ -863,6 +863,13 @@ glyph_families:
         select:
           before: [{family: qsUtter}]
         modifiers: [exit-xheight, before-utter]
+      exit_xheight_before_jai:
+        shape: mono
+        anchors:
+          exit: [6, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsFee_qsMay:
     sequence:
     - qsFee
@@ -1175,7 +1182,39 @@ glyph_families:
       - "# #   "
       - " #    "
       y_offset: -3
+    shapes:
+      joined_at_xheight:
+        bitmap:
+        - "##### "  #
+        - "     #"
+        - "     #"
+        - "    # "
+        - "    # "
+        - "  ####"  #
+        - " # #  "
+        - "# #   "
+        - " #    "
+        y_offset: -3
     forms:
+      entry_xheight:
+        shape: joined_at_xheight
+        anchors:
+          entry: [0, 5]
+          exit: [7, 0]
+        select:
+          after:
+          - {family: qsFee}
+          - {family: qsMay}
+          - {family: qsNo}
+          - {family: qsRoe}
+          - {family: qsLow}
+          - {family: qsAt}
+          - {family: qsI}
+          - {family: qsAh}
+          - {family: qsUtter}
+          - {family: qsOut}
+          - {family: qsFoot}
+        modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
         anchors:
@@ -1857,7 +1896,7 @@ glyph_families:
           entry: [1, 0]
           exit: [7, 5]
         select:
-          before: [{family: qsAwe}, {family: qsNo}, {family: qsOx}]
+          before: [{family: qsAwe}, {family: qsJai}, {family: qsNo}, {family: qsOx}]
         modifiers: [exit-xheight]
       exit_xheight_before_eight:
         inherits: exit_xheight
@@ -2553,6 +2592,14 @@ glyph_families:
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
+      exit_xheight_before_jai:
+        shape: shape_3
+        anchors:
+          entry: [1, 0]
+          exit: [6, 5]
+        select:
+          before: [{family: qsJai}]
+        modifiers: [exit-xheight, before-jai]
   qsOut_qsTea:
     sequence:
     - qsOut

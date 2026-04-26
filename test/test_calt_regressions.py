@@ -2531,3 +2531,21 @@ def test_owe_day_never_joins(shaping_env: dict, text: str, expect: str) -> None:
 @pytest.mark.parametrize(("text", "expect"), _THEY_JAY_PARAMS, ids=_THEY_JAY_IDS)
 def test_they_jay_never_joins(shaping_env: dict, text: str, expect: str) -> None:
     _run(shaping_env, text, expect)
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    ["qsFee", "qsMay", "qsNo", "qsRoe", "qsLow", "qsAt",
+     "qsI", "qsAh", "qsUtter", "qsOut", "qsFoot"],
+)
+def test_qs_jai_joins_designated_left_letters_at_xheight(left_base: str) -> None:
+    glyphs = _shape_qs(left_base, "qsJai")
+    assert len(glyphs) == 2, glyphs
+    assert "entry-xheight" in glyphs[1], glyphs
+    assert _pair_join_ys(glyphs, 0) == {5}, glyphs
+
+
+def test_qs_jai_does_not_take_xheight_entry_after_undesignated_letters() -> None:
+    glyphs = _shape_qs("qsHe", "qsJai")
+    assert _pair_join_ys(glyphs, 0) == set(), glyphs
+    assert "entry-xheight" not in glyphs[1], glyphs
