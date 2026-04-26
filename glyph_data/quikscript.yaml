@@ -1925,6 +1925,7 @@ glyph_families:
           entry: [1, 0]
           exit: [8, 0]
         select:
+          not_after: [space, uni200C, periodcentered]
           not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [exit-baseline, before-vertical]
       entry_baseline_noexit:
@@ -1932,6 +1933,7 @@ glyph_families:
         anchors:
           entry: [1, 0]
         select:
+          not_after: [space, uni200C, periodcentered]
           before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [entry-baseline, noexit]
       noentry_exit_baseline:
