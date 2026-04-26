@@ -725,6 +725,11 @@ def _compat_assertions_from_modifiers(
                 if modifier.startswith(prefix):
                     compat.update({side, "contracted", suffix, prefix})
                     break
+        for side in ("entry", "exit"):
+            prefix = f"{side}-trimmed"
+            if modifier.startswith(prefix):
+                compat.update({side, "trimmed", prefix})
+                break
     return frozenset(compat)
 
 
@@ -1001,6 +1006,57 @@ def _widen_bitmap_right_with_connector(
             else:
                 new_bitmap.append(row)
     return tuple(new_bitmap), widen_by
+
+
+def _row_index_for_y(bitmap: tuple[BitmapRow, ...], y: int, y_offset: int) -> int | None:
+    if not bitmap:
+        return None
+    height = len(bitmap)
+    row_from_bottom = y - y_offset
+    row_idx = (height - 1) - row_from_bottom
+    if 0 <= row_idx < height:
+        return row_idx
+    return None
+
+
+def _leftward_stub_at(
+    bitmap: tuple[BitmapRow, ...],
+    entry_x: int,
+    entry_y: int,
+    y_offset: int,
+) -> int:
+    row_idx = _row_index_for_y(bitmap, entry_y, y_offset)
+    if row_idx is None or entry_x <= 0:
+        return 0
+    row = bitmap[row_idx]
+    limit = min(entry_x, len(row))
+    if isinstance(row, str):
+        return sum(1 for ch in row[:limit] if ch == "#")
+    return sum(1 for i in range(limit) if row[i])
+
+
+def _trim_bitmap_left_at(
+    bitmap: tuple[BitmapRow, ...],
+    entry_y: int,
+    y_offset: int,
+    trim: int,
+) -> tuple[BitmapRow, ...]:
+    if trim <= 0:
+        return bitmap
+    row_idx = _row_index_for_y(bitmap, entry_y, y_offset)
+    if row_idx is None:
+        return bitmap
+    row = bitmap[row_idx]
+    limit = min(trim, len(row))
+    if limit <= 0:
+        return bitmap
+    if isinstance(row, str):
+        new_row: BitmapRow = " " * limit + row[limit:]
+    else:
+        new_row = tuple([0] * limit + list(row[limit:]))
+    return tuple(
+        new_row if i == row_idx else existing for i, existing in enumerate(bitmap)
+    )
 
 
 _UNSET = object()
@@ -1634,6 +1690,68 @@ def _add_exit_contraction_variant(
     )
 
 
+def _add_entry_trimmed_variant(
+    variants: dict[str, JoinGlyph],
+    join_glyphs: dict[str, JoinGlyph],
+    *,
+    source_contracted_name: str,
+    receiver_name: str,
+    receiver_glyph: JoinGlyph,
+    join_y: int,
+    count: int,
+    transforms: list[JoinTransform] | None,
+) -> None:
+    if receiver_glyph.entry_suffix is not None:
+        return
+    for entry_anchor in receiver_glyph.entry:
+        if entry_anchor[1] != join_y:
+            continue
+        entry_x, entry_y = entry_anchor
+        stub = _leftward_stub_at(
+            receiver_glyph.bitmap, entry_x, entry_y, receiver_glyph.y_offset
+        )
+        if count <= stub:
+            continue
+        trim = count - stub
+        modifier = f"entry-trimmed-by-{trim}"
+        variant_name = f"{receiver_name}.{modifier}"
+
+        existing = variants.get(variant_name)
+        if existing is not None:
+            if source_contracted_name in existing.after:
+                continue
+            merged_after = tuple(sorted({*existing.after, source_contracted_name}))
+            variants[variant_name] = replace(existing, after=merged_after)
+            continue
+        if variant_name in join_glyphs:
+            continue
+
+        new_bitmap = _trim_bitmap_left_at(
+            receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, trim
+        )
+        kwargs = {
+            "bitmap": new_bitmap,
+            "add_modifiers": (modifier,),
+            "generated_from": receiver_name,
+            "transform_kind": "entry-trimmed",
+        }
+        kwargs.update(_cleared_extension_context())
+        kwargs["after"] = (source_contracted_name,)
+        variants[variant_name] = derive_join_glyph(
+            receiver_glyph,
+            name=variant_name,
+            **kwargs,
+        )
+        _record_transform(
+            transforms,
+            kind="entry-trimmed",
+            source_name=receiver_name,
+            target_name=variant_name,
+            count=trim,
+            restricted_y=entry_y,
+        )
+
+
 def _generate_contracted_variants(
     join_glyphs: dict[str, JoinGlyph],
     *,
@@ -1687,6 +1805,37 @@ def _generate_contracted_variants(
                     transforms=transforms,
                     is_source=is_source,
                 )
+
+        if side == "exit":
+            contracted_source_name = f"{name}.exit-{suffix_word}"
+            if contracted_source_name in variants:
+                join_y = join_glyph.exit[0][1]
+                for receiver_family in context_glyphs:
+                    family_glyph = join_glyphs.get(receiver_family)
+                    if family_glyph is None:
+                        continue
+                    for receiver_name, receiver_glyph, _is_receiver_source in (
+                        _iter_related_extension_targets(
+                            join_glyphs,
+                            source_name=receiver_family,
+                            source_glyph=family_glyph,
+                            side="entry",
+                            kind="contracted",
+                        )
+                    ):
+                        _add_entry_trimmed_variant(
+                            variants,
+                            join_glyphs,
+                            source_contracted_name=contracted_source_name,
+                            receiver_name=receiver_name,
+                            receiver_glyph=receiver_glyph,
+                            join_y=join_y,
+                            count=count,
+                            transforms=transforms,
+                        )
+        # TODO(contract_entry_after): mirror the receiver-trim pass on the
+        # entry side when a use case appears (clear the rightmost
+        # `(by - rightward_stub)` pixels at the receiver's exit-Y row).
 
     return variants
 
