@@ -270,6 +270,21 @@ def test_structured_family_selectors_resolve_to_compiled_names():
     assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
 
 
+def test_qs_he_half_exit_contracted_fires_only_before_qs_zoo():
+    compiled = _compiled_set()
+    meta = compiled.glyph_meta
+    glyphs = compiled.glyph_definitions
+
+    contracted = meta["qsHe.half.exit-contracted"]
+    plain_half = meta["qsHe.half"]
+    assert contracted.bitmap == plain_half.bitmap
+    assert contracted.exit == ((1, 5),)
+    assert plain_half.exit == ((2, 5),)
+    assert contracted.before == ("qsZoo",)
+    assert "half" in contracted.traits
+    assert glyphs["qsHe.half.exit-contracted"]["calt_before"] == ["qsZoo"]
+
+
 def test_context_sets_expand_and_compose_inside_select_and_derive():
     glyphs = _compiled_set(
         {

@@ -11,6 +11,7 @@ GlyphDef = dict[str, Any]
 
 
 _EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended", 4: "quadruply-extended"}
+_CONTRACTION_SUFFIX = {1: "contracted", 2: "doubly-contracted", 3: "triply-contracted", 4: "quadruply-contracted"}
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,10 @@ class JoinGlyph:
     gate_feature: str | None = None
     replaces_family_feature: str | None = None
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    contracted_entry_suffix: str | None = None
+    contracted_exit_suffix: str | None = None
+    contract_entry_after: ExtensionSpec | None = None
+    contract_exit_before: ExtensionSpec | None = None
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -516,7 +521,12 @@ def _family_form_to_glyph_def(
                 field_name=source_key,
             )
 
-    for key in ("extend_entry_after", "extend_exit_before"):
+    for key in (
+        "extend_entry_after",
+        "extend_exit_before",
+        "contract_entry_after",
+        "contract_exit_before",
+    ):
         if key not in derive:
             continue
         raw = derive[key]
@@ -710,6 +720,11 @@ def _compat_assertions_from_modifiers(
                 if modifier.startswith(prefix):
                     compat.update({side, "extended", suffix, prefix})
                     break
+            for suffix in _CONTRACTION_SUFFIX.values():
+                prefix = f"{side}-{suffix}"
+                if modifier.startswith(prefix):
+                    compat.update({side, "contracted", suffix, prefix})
+                    break
     return frozenset(compat)
 
 
@@ -729,6 +744,8 @@ def _exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
 
 _EXTENDED_ENTRY_PREFIXES = tuple(f"entry-{s}" for s in _EXTENSION_SUFFIX.values())
 _EXTENDED_EXIT_PREFIXES = tuple(f"exit-{s}" for s in _EXTENSION_SUFFIX.values())
+_CONTRACTED_ENTRY_PREFIXES = tuple(f"entry-{s}" for s in _CONTRACTION_SUFFIX.values())
+_CONTRACTED_EXIT_PREFIXES = tuple(f"exit-{s}" for s in _CONTRACTION_SUFFIX.values())
 
 
 def _extended_entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
@@ -745,15 +762,30 @@ def _extended_exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     return None
 
 
+def _contracted_entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith(_CONTRACTED_ENTRY_PREFIXES):
+            return "." + modifier
+    return None
+
+
+def _contracted_exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
+    for modifier in modifiers:
+        if modifier.startswith(_CONTRACTED_EXIT_PREFIXES):
+            return "." + modifier
+    return None
+
+
 def _entry_restriction_y_from_modifiers(modifiers: list[str]) -> int | None:
     for modifier in modifiers:
-        if not modifier.startswith("entry-extended-at-"):
-            continue
-        label = modifier.removeprefix("entry-extended-at-")
-        return next(
-            (y for y, known_label in _EXTENDED_HEIGHT_LABELS.items() if known_label == label),
-            None,
-        )
+        for prefix in ("entry-extended-at-", "entry-contracted-at-"):
+            if not modifier.startswith(prefix):
+                continue
+            label = modifier.removeprefix(prefix)
+            return next(
+                (y for y, known_label in _EXTENDED_HEIGHT_LABELS.items() if known_label == label),
+                None,
+            )
     return None
 
 
@@ -829,6 +861,10 @@ def _glyph_def_to_join_glyph(
         revert_feature=glyph_def.get("revert_feature"),
         gate_feature=glyph_def.get("gate_feature"),
         replaces_family_feature=glyph_def.get("replaces_family_feature"),
+        contracted_entry_suffix=_contracted_entry_suffix_from_modifiers(list(resolved_modifiers)),
+        contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(list(resolved_modifiers)),
+        contract_entry_after=glyph_def.get("contract_entry_after"),
+        contract_exit_before=glyph_def.get("contract_exit_before"),
     )
 
 
@@ -1024,7 +1060,12 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
         join_glyph.reverse_upgrade_from,
     )
     _set_optional_list(glyph_def, "preferred_over", join_glyph.preferred_over)
-    for key in ("extend_entry_after", "extend_exit_before"):
+    for key in (
+        "extend_entry_after",
+        "extend_exit_before",
+        "contract_entry_after",
+        "contract_exit_before",
+    ):
         spec: ExtensionSpec | None = getattr(join_glyph, key)
         if spec is not None:
             glyph_def[key] = {"by": spec.by, "targets": list(spec.targets)}
@@ -1059,6 +1100,8 @@ def derive_join_glyph(
     extend_exit_before: ExtensionSpec | None | object = _UNSET,
     extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
+    contract_entry_after: ExtensionSpec | None | object = _UNSET,
+    contract_exit_before: ExtensionSpec | None | object = _UNSET,
     noentry_after: tuple[str, ...] | object = _UNSET,
     extend_exit_no_entry: bool | object = _UNSET,
     add_modifiers: Sequence[str] = (),
@@ -1102,6 +1145,12 @@ def derive_join_glyph(
     )
     resolved_gated_before = (
         source.gated_before if gated_before is _UNSET else gated_before
+    )
+    resolved_contract_entry_after = (
+        source.contract_entry_after if contract_entry_after is _UNSET else contract_entry_after
+    )
+    resolved_contract_exit_before = (
+        source.contract_exit_before if contract_exit_before is _UNSET else contract_exit_before
     )
     resolved_noentry_after = source.noentry_after if noentry_after is _UNSET else noentry_after
     resolved_extend_exit_no_entry = (
@@ -1157,6 +1206,14 @@ def derive_join_glyph(
         noentry_for=resolved_noentry_for,
         generated_from=generated_from,
         transform_kind=transform_kind,
+        contracted_entry_suffix=_contracted_entry_suffix_from_modifiers(
+            list(resolved_modifiers)
+        ),
+        contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(
+            list(resolved_modifiers)
+        ),
+        contract_entry_after=resolved_contract_entry_after,
+        contract_exit_before=resolved_contract_exit_before,
     )
 
 
@@ -1217,6 +1274,8 @@ def generate_noentry_variants(
             extend_exit_before=None,
             extend_exit_before_gated=(),
             gated_before=(),
+            contract_entry_after=None,
+            contract_exit_before=None,
             add_modifiers=("noentry",),
             is_noentry=True,
             generated_from=name,
@@ -1239,8 +1298,9 @@ def _iter_related_extension_targets(
     source_name: str,
     source_glyph: JoinGlyph,
     side: str,
+    kind: str = "extended",
 ) -> list[tuple[str, JoinGlyph, bool]]:
-    suffix_attr = "extended_entry_suffix" if side == "entry" else "extended_exit_suffix"
+    suffix_attr = f"{kind}_{side}_suffix"
     anchor_attr = side
     targets = [(source_name, source_glyph, True)]
     base_name = source_glyph.base_name
@@ -1275,6 +1335,8 @@ def _cleared_extension_context() -> dict[str, object]:
         "extend_exit_before": None,
         "extend_exit_before_gated": (),
         "gated_before": (),
+        "contract_entry_after": None,
+        "contract_exit_before": None,
         "noentry_after": (),
     }
 
@@ -1465,6 +1527,170 @@ def _generate_extended_variants(
     return variants
 
 
+def _add_entry_contraction_variants(
+    variants: dict[str, JoinGlyph],
+    join_glyphs: dict[str, JoinGlyph],
+    *,
+    target_name: str,
+    target_glyph: JoinGlyph,
+    source_after: tuple[str, ...],
+    use_height_specific_names: bool,
+    count: int,
+    suffix_word: str,
+    transforms: list[JoinTransform] | None,
+    is_source: bool,
+) -> None:
+    entries = target_glyph.entry
+    kind = f"entry-{suffix_word}"
+
+    for anchor in entries if use_height_specific_names else (entries[0],):
+        y = anchor[1]
+        if use_height_specific_names:
+            label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
+            modifier = f"entry-{suffix_word}-at-{label}"
+            variant_name = f"{target_name}.entry-{suffix_word}-at-{label}"
+        else:
+            modifier = f"entry-{suffix_word}"
+            variant_name = f"{target_name}.entry-{suffix_word}"
+
+        if variant_name in join_glyphs or (not is_source and variant_name in variants):
+            continue
+
+        contracted_anchor = (anchor[0] + count, anchor[1])
+        kwargs = {
+            "add_modifiers": (modifier,),
+            "generated_from": target_name,
+            "transform_kind": kind,
+        }
+        if use_height_specific_names:
+            kwargs["entry"] = (contracted_anchor,)
+        else:
+            kwargs["entry"] = _shift_anchors(target_glyph.entry, dx=count)
+
+        if is_source:
+            kwargs["after"] = source_after
+            kwargs["contract_entry_after"] = None
+        else:
+            kwargs.update(_cleared_extension_context())
+
+        variants[variant_name] = derive_join_glyph(
+            target_glyph,
+            name=variant_name,
+            **kwargs,
+        )
+        _record_transform(
+            transforms,
+            kind=kind,
+            source_name=target_name,
+            target_name=variant_name,
+            count=count,
+            restricted_y=y if use_height_specific_names else None,
+            preserves_exit=bool(target_glyph.exit),
+        )
+
+
+def _add_exit_contraction_variant(
+    variants: dict[str, JoinGlyph],
+    join_glyphs: dict[str, JoinGlyph],
+    *,
+    target_name: str,
+    target_glyph: JoinGlyph,
+    source_before: tuple[str, ...],
+    count: int,
+    suffix_word: str,
+    transforms: list[JoinTransform] | None,
+    is_source: bool,
+) -> None:
+    kind = f"exit-{suffix_word}"
+    variant_name = f"{target_name}.exit-{suffix_word}"
+    if variant_name in join_glyphs or (not is_source and variant_name in variants):
+        return
+
+    exit_y = target_glyph.exit[0][1]
+    kwargs = {
+        "exit": _shift_anchors(target_glyph.exit, dx=-count),
+        "add_modifiers": (f"exit-{suffix_word}",),
+        "generated_from": target_name,
+        "transform_kind": kind,
+    }
+    if is_source:
+        kwargs["before"] = source_before
+        kwargs["contract_exit_before"] = None
+    else:
+        kwargs.update(_cleared_extension_context())
+
+    variants[variant_name] = derive_join_glyph(
+        target_glyph,
+        name=variant_name,
+        **kwargs,
+    )
+    _record_transform(
+        transforms,
+        kind=kind,
+        source_name=target_name,
+        target_name=variant_name,
+        count=count,
+        restricted_y=exit_y if is_source else None,
+    )
+
+
+def _generate_contracted_variants(
+    join_glyphs: dict[str, JoinGlyph],
+    *,
+    side: str,
+    transforms: list[JoinTransform] | None = None,
+) -> dict[str, JoinGlyph]:
+    field = "contract_entry_after" if side == "entry" else "contract_exit_before"
+    variants: dict[str, JoinGlyph] = {}
+    for name, join_glyph in sorted(join_glyphs.items()):
+        spec: ExtensionSpec | None = getattr(join_glyph, field)
+        if spec is None:
+            continue
+        context_glyphs = spec.targets
+        if not context_glyphs:
+            continue
+        if not getattr(join_glyph, side):
+            continue
+
+        count = spec.by
+        suffix_word = _CONTRACTION_SUFFIX[count]
+
+        for target_name, target_glyph, is_source in _iter_related_extension_targets(
+            join_glyphs,
+            source_name=name,
+            source_glyph=join_glyph,
+            side=side,
+            kind="contracted",
+        ):
+            if side == "entry":
+                _add_entry_contraction_variants(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_after=context_glyphs if is_source else (),
+                    use_height_specific_names=len(join_glyph.entry) > 1,
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
+            else:
+                _add_exit_contraction_variant(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_before=context_glyphs if is_source else (),
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
+
+    return variants
+
+
 def expand_join_transforms(
     join_glyphs: dict[str, JoinGlyph],
     *,
@@ -1478,6 +1704,10 @@ def expand_join_transforms(
     for side in ("entry", "exit"):
         expanded.update(
             _generate_extended_variants(expanded, side=side, transforms=transforms)
+        )
+    for side in ("entry", "exit"):
+        expanded.update(
+            _generate_contracted_variants(expanded, side=side, transforms=transforms)
         )
     return expanded, transforms
 

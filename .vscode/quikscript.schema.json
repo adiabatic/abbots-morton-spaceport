@@ -248,6 +248,18 @@
             "$ref": "#/definitions/selectorListOrNull"
           }
         },
+        "contract_entry_after": {
+          "oneOf": [
+            { "$ref": "#/definitions/extensionSpec" },
+            { "type": "null" }
+          ]
+        },
+        "contract_exit_before": {
+          "oneOf": [
+            { "$ref": "#/definitions/extensionSpec" },
+            { "type": "null" }
+          ]
+        },
         "noentry_after": {
           "$ref": "#/definitions/selectorListOrNull"
         },

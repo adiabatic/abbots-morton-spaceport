@@ -72,7 +72,12 @@ def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[
                 changed = True
             glyph_def[key] = renamed
 
-        for key in ("extend_entry_after", "extend_exit_before"):
+        for key in (
+            "extend_entry_after",
+            "extend_exit_before",
+            "contract_entry_after",
+            "contract_exit_before",
+        ):
             spec = glyph_def.get(key)
             if not spec:
                 continue
@@ -147,7 +152,12 @@ def _validate_compiled_glyph_references(
             continue
         for key in (*_JOIN_REF_KEYS, "preferred_over"):
             _validate_refs(glyph_name, key, glyph_def.get(key, ()))
-        for key in ("extend_entry_after", "extend_exit_before"):
+        for key in (
+            "extend_entry_after",
+            "extend_exit_before",
+            "contract_entry_after",
+            "contract_exit_before",
+        ):
             spec = glyph_def.get(key)
             if spec:
                 _validate_refs(glyph_name, key, spec.get("targets", ()))
@@ -164,6 +174,14 @@ def _validate_compiled_glyph_references(
         if join_glyph.extend_exit_before is not None:
             _validate_refs(
                 glyph_name, "extend_exit_before", join_glyph.extend_exit_before.targets
+            )
+        if join_glyph.contract_entry_after is not None:
+            _validate_refs(
+                glyph_name, "contract_entry_after", join_glyph.contract_entry_after.targets
+            )
+        if join_glyph.contract_exit_before is not None:
+            _validate_refs(
+                glyph_name, "contract_exit_before", join_glyph.contract_exit_before.targets
             )
         _validate_refs(glyph_name, "noentry_after", join_glyph.noentry_after)
         _validate_refs(
