@@ -1199,7 +1199,6 @@ glyph_families:
           - {family: qsUtter}
           - {family: qsOut}
           - {family: qsFoot}
-          - {family: qsOoze}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
@@ -2803,12 +2802,3 @@ glyph_families:
       anchors:
         entry: [1, 0]
         exit: [6, 0]
-    forms:
-      exit_xheight_before_jai:
-        shape: mono
-        anchors:
-          entry: [1, 0]
-          exit: [3, 5]
-        select:
-          before: [{family: qsJai}]
-        modifiers: [exit-xheight, before-jai]

@@ -2578,7 +2578,6 @@ _JAI_XHEIGHT_LEFTS = [
     "qsUtter",
     "qsOut",
     "qsFoot",
-    "qsOoze",
 ]
 
 
