@@ -6,6 +6,10 @@
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
 - In this repository only, it’s OK to have multiline commit messages, although by no means mandatory.
+- Prefer commit messages that either:
+  - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
+  - describe how the font’s letters will look different (“Reduce the half-·He extension at the x-height”, “Don’t join ·Way·Thaw ever”)
+- Contrariwise, messages that describe the mechanism are anti-preferred.
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.
 
 ## HTML/CSS/JS
