@@ -1008,43 +1008,18 @@ def _widen_bitmap_right_with_connector(
     return tuple(new_bitmap), widen_by
 
 
-def _row_index_for_y(bitmap: tuple[BitmapRow, ...], y: int, y_offset: int) -> int | None:
-    if not bitmap:
-        return None
-    height = len(bitmap)
-    row_from_bottom = y - y_offset
-    row_idx = (height - 1) - row_from_bottom
-    if 0 <= row_idx < height:
-        return row_idx
-    return None
-
-
-def _leftward_stub_at(
-    bitmap: tuple[BitmapRow, ...],
-    entry_x: int,
-    entry_y: int,
-    y_offset: int,
-) -> int:
-    row_idx = _row_index_for_y(bitmap, entry_y, y_offset)
-    if row_idx is None or entry_x <= 0:
-        return 0
-    row = bitmap[row_idx]
-    limit = min(entry_x, len(row))
-    if isinstance(row, str):
-        return sum(1 for ch in row[:limit] if ch == "#")
-    return sum(1 for i in range(limit) if row[i])
-
-
 def _trim_bitmap_left_at(
     bitmap: tuple[BitmapRow, ...],
     entry_y: int,
     y_offset: int,
     trim: int,
 ) -> tuple[BitmapRow, ...]:
-    if trim <= 0:
+    if trim <= 0 or not bitmap:
         return bitmap
-    row_idx = _row_index_for_y(bitmap, entry_y, y_offset)
-    if row_idx is None:
+    height = len(bitmap)
+    row_from_bottom = entry_y - y_offset
+    row_idx = (height - 1) - row_from_bottom
+    if not (0 <= row_idx < height):
         return bitmap
     row = bitmap[row_idx]
     limit = min(trim, len(row))
@@ -1701,19 +1676,11 @@ def _add_entry_trimmed_variant(
     count: int,
     transforms: list[JoinTransform] | None,
 ) -> None:
-    if receiver_glyph.entry_suffix is not None:
-        return
     for entry_anchor in receiver_glyph.entry:
         if entry_anchor[1] != join_y:
             continue
-        entry_x, entry_y = entry_anchor
-        stub = _leftward_stub_at(
-            receiver_glyph.bitmap, entry_x, entry_y, receiver_glyph.y_offset
-        )
-        if count <= stub:
-            continue
-        trim = count - stub
-        modifier = f"entry-trimmed-by-{trim}"
+        entry_y = entry_anchor[1]
+        modifier = f"entry-trimmed-by-{count}"
         variant_name = f"{receiver_name}.{modifier}"
 
         existing = variants.get(variant_name)
@@ -1727,7 +1694,7 @@ def _add_entry_trimmed_variant(
             continue
 
         new_bitmap = _trim_bitmap_left_at(
-            receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, trim
+            receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, count
         )
         kwargs = {
             "bitmap": new_bitmap,
@@ -1747,7 +1714,7 @@ def _add_entry_trimmed_variant(
             kind="entry-trimmed",
             source_name=receiver_name,
             target_name=variant_name,
-            count=trim,
+            count=count,
             restricted_y=entry_y,
         )
 
