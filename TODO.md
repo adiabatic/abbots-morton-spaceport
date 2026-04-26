@@ -18,6 +18,8 @@
 
 ## Other
 
+- Some glyphs have an `exit:` of +1 past the end, while most have +2 past the end. We should look into regularizing this, especially since we have extend.by now
+
 - Make lists of letters like "goes straight up and down on the left" and put these letters in the list, and declare that ·Owe never joins to it:
   - ·Tea
   - ·Day
