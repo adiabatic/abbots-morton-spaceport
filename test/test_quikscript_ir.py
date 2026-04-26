@@ -16,9 +16,11 @@ from quikscript_fea import (
     emit_quikscript_senior_features,
 )
 from quikscript_ir import (
+    JoinGlyph,
     _widen_bitmap_right_with_connector,
     compile_quikscript_ir,
     expand_join_transforms,
+    expand_selectors_for_ligatures,
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
@@ -680,3 +682,296 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
     monkeypatch.setattr(build_font, "emit_quikscript_senior_features", fake_emit)
 
     build_font.build_font(data, variant="senior")
+
+
+def _make_join_glyph(
+    name: str,
+    *,
+    base_name: str | None = None,
+    sequence: tuple[str, ...] = (),
+    before: tuple[str, ...] = (),
+    not_before: tuple[str, ...] = (),
+    after: tuple[str, ...] = (),
+    not_after: tuple[str, ...] = (),
+    gated_before: tuple[tuple[str, tuple[str, ...]], ...] = (),
+    is_noentry: bool = False,
+    extended_entry_suffix: str | None = None,
+    extended_exit_suffix: str | None = None,
+    entry: tuple[tuple[int, int], ...] = (),
+    exit: tuple[tuple[int, int], ...] = (),
+) -> JoinGlyph:
+    return JoinGlyph(
+        name=name,
+        base_name=base_name or name.split(".")[0],
+        family=None,
+        sequence=tuple(sequence),
+        traits=frozenset(),
+        modifiers=(),
+        compat_assertions=frozenset(),
+        entry=tuple(entry),
+        entry_curs_only=(),
+        exit=tuple(exit),
+        after=tuple(after),
+        before=tuple(before),
+        not_after=tuple(not_after),
+        not_before=tuple(not_before),
+        reverse_upgrade_from=(),
+        preferred_over=(),
+        word_final=False,
+        is_contextual=False,
+        is_entry_variant=False,
+        entry_suffix=None,
+        exit_suffix=None,
+        extended_entry_suffix=extended_entry_suffix,
+        extended_exit_suffix=extended_exit_suffix,
+        entry_restriction_y=None,
+        is_noentry=is_noentry,
+        bitmap=(),
+        y_offset=0,
+        advance_width=None,
+        extend_entry_after=None,
+        extend_exit_before=None,
+        noentry_after=(),
+        extend_exit_no_entry=False,
+        gated_before=tuple(gated_before),
+    )
+
+
+def test_expand_selectors_adds_first_component_to_forward_selector():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsB", "qsA")
+
+
+def test_expand_selectors_does_not_add_first_component_when_only_first_named():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsA",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsA",)
+
+
+def test_expand_selectors_skips_when_source_has_no_exit_anchor():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB",)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsB",)
+
+
+def test_expand_selectors_skips_endpoint_when_ligature_lacks_matching_entry():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 5),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsB",)
+
+
+def test_expand_selectors_adds_last_component_to_backward_selector():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsA",), entry=((0, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsRight"].after == ("qsA", "qsB")
+
+
+def test_expand_selectors_does_not_add_last_when_only_last_named():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsRight"].after == ("qsB",)
+
+
+def test_expand_selectors_skips_when_source_has_no_entry_anchor():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsA",)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsRight"].after == ("qsA",)
+
+
+def test_expand_selectors_recognizes_family_variants_in_selector_lists():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB.alt",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsB.alt": _make_join_glyph("qsB.alt", base_name="qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsB.alt", "qsA")
+
+
+def test_expand_selectors_handles_multi_component_ligatures():
+    metadata = {
+        "qsLeftBeforeMid": _make_join_glyph(
+            "qsLeftBeforeMid", before=("qsB",), exit=((1, 0),)
+        ),
+        "qsLeftBeforeLast": _make_join_glyph(
+            "qsLeftBeforeLast", before=("qsC",), exit=((1, 0),)
+        ),
+        "qsRightAfterMid": _make_join_glyph(
+            "qsRightAfterMid", after=("qsB",), entry=((0, 0),)
+        ),
+        "qsRightAfterFirst": _make_join_glyph(
+            "qsRightAfterFirst", after=("qsA",), entry=((0, 0),)
+        ),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsC": _make_join_glyph("qsC"),
+        "qsA_qsB_qsC": _make_join_glyph(
+            "qsA_qsB_qsC",
+            sequence=("qsA", "qsB", "qsC"),
+            entry=((0, 0),),
+            exit=((3, 0),),
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeftBeforeMid"].before == ("qsB", "qsA")
+    assert expanded["qsLeftBeforeLast"].before == ("qsC", "qsA")
+    assert expanded["qsRightAfterMid"].after == ("qsB", "qsC")
+    assert expanded["qsRightAfterFirst"].after == ("qsA", "qsC")
+
+
+def test_expand_selectors_leaves_negative_selectors_untouched():
+    metadata = {
+        "qsLeft": _make_join_glyph(
+            "qsLeft", not_before=("qsB",), not_after=("qsA",)
+        ),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB")),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].not_before == ("qsB",)
+    assert expanded["qsLeft"].not_after == ("qsA",)
+
+
+def test_expand_selectors_preserves_gated_before_keys_and_expands_per_tag():
+    metadata = {
+        "qsLeft": _make_join_glyph(
+            "qsLeft",
+            gated_before=(("ss03", ("qsB",)),),
+            exit=((1, 0),),
+        ),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].gated_before == (("ss03", ("qsB", "qsA")),)
+
+
+def test_expand_selectors_is_idempotent():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    once = expand_selectors_for_ligatures(metadata)
+    twice = expand_selectors_for_ligatures(once)
+
+    assert twice["qsLeft"].before == once["qsLeft"].before == ("qsB", "qsA")
+
+
+def test_expand_selectors_skips_noentry_and_extended_ligature_records():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB.noentry": _make_join_glyph(
+            "qsA_qsB.noentry",
+            base_name="qsA_qsB",
+            sequence=("qsA", "qsB"),
+            is_noentry=True,
+            entry=((0, 0),),
+        ),
+        "qsA_qsB.entry-extended": _make_join_glyph(
+            "qsA_qsB.entry-extended",
+            base_name="qsA_qsB",
+            sequence=("qsA", "qsB"),
+            extended_entry_suffix="entry-extended",
+            entry=((0, 0),),
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert expanded["qsLeft"].before == ("qsB",)
+
+
+def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    record = join_glyphs["qsIt.before-utter"]
+    assert "qsUtter" in record.before
+    assert "qsDay" in record.before
