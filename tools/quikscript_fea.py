@@ -1678,7 +1678,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
-            for variant_name, before_glyphs, not_after_glyphs in fwd_pair_overrides[base_name]:
+            sorted_overrides = sorted(
+                fwd_pair_overrides[base_name],
+                key=lambda item: _backward_pair_sort_key(glyph_meta, item[0], item[1]),
+            )
+            for variant_name, before_glyphs, not_after_glyphs in sorted_overrides:
                 expanded_before = _expand_all_variants(before_glyphs)
                 before_list = " ".join(sorted(expanded_before))
 
