@@ -781,7 +781,7 @@ glyph_families:
     prop:
       shape: mono
     shapes:
-      shape_1:
+      connect_from_short_height:
         bitmap:
         - "  #  "
         - "   # "
@@ -792,7 +792,7 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
-      shape_2:
+      continues_stroke_from_top:
         bitmap:
         - "###  "
         - "   # "
@@ -805,7 +805,7 @@ glyph_families:
         - " ### "  #
     forms:
       entry_xheight:
-        shape: shape_1
+        shape: connect_from_short_height
         anchors:
           entry: [2, 5]
         select:
@@ -827,7 +827,7 @@ glyph_families:
             modifiers: [exit-xheight, exit-extended]
         modifiers: [entry-xheight]
       entry_top:
-        shape: shape_2
+        shape: continues_stroke_from_top
         anchors:
           entry: [1, 8]
           exit: [6, 5]
@@ -917,7 +917,7 @@ glyph_families:
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
     shapes:
-      shape_1:
+      exits_at_baseline:
         bitmap:
         - "  ###   "  #
         - " #   #  "
@@ -931,7 +931,7 @@ glyph_families:
         y_offset: -3
     forms:
       exit_baseline:
-        shape: shape_1
+        shape: exits_at_baseline
         anchors:
           entry: [1, 0]
           exit: [8, 0]
@@ -978,7 +978,7 @@ glyph_families:
         entry: [1, 0]
         exit: [6, 8]
     shapes:
-      shape_1:
+      exits_at_y6:
         bitmap:
         - "   ## "
         - "  #  #"
@@ -989,7 +989,8 @@ glyph_families:
         - "   #  "
         - "   #  "
         - "###   "  #
-      shape_2:
+      # One-pixel difference in the last row vs. exit_baseline_extra_straight is intentional — drives different exit-anchor X values.
+      exit_baseline:
         bitmap:
         - "   #"
         - "  # "
@@ -1000,7 +1001,8 @@ glyph_families:
         - "   #"
         - "   #"
         - "  # "  #
-      shape_3:
+      # See exit_baseline above; the last-row offset is intentional.
+      exit_baseline_extra_straight:
         bitmap:
         - "   #"
         - "  # "
@@ -1013,13 +1015,13 @@ glyph_families:
         - "   #"  #
     forms:
       exit_y6:
-        shape: shape_1
+        shape: exits_at_y6
         anchors:
           entry: [1, 0]
           exit: [7, 6]
         modifiers: [exit-y6]
       exit_baseline:
-        shape: shape_2
+        shape: exit_baseline
         anchors:
           exit: [3, 0]
         select:
@@ -1036,7 +1038,7 @@ glyph_families:
           after: [{family: qsYe}]
         modifiers: [after-ye]
       exit_baseline_right:
-        shape: shape_3
+        shape: exit_baseline_extra_straight
         anchors:
           exit: [4, 0]
         select:
@@ -1637,7 +1639,7 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
-      shape_1:
+      pulled_back_a_bit_for_entry_at_short_height:
         bitmap:
         - "   # "  #
         - "  #  "
@@ -1663,7 +1665,7 @@ glyph_families:
         y_offset: -3
     forms:
       entry_xheight:
-        shape: shape_1
+        shape: pulled_back_a_bit_for_entry_at_short_height
         anchors:
           entry: [4, 5]
         select:
@@ -1853,7 +1855,7 @@ glyph_families:
         - "     #"
         - "    # "
         - "  ##  "  #
-      shape_3:
+      giga_extended_baseline:
         bitmap:
         - "###   "  #
         - "   #  "
@@ -1861,7 +1863,7 @@ glyph_families:
         - "    # "
         - "   #  "
         - "######"  #
-      short_top_that_exits_at_short_height:
+      giga_extended_short_height:
         bitmap:
         - "  #####"  #
         - "    #  "
@@ -1892,7 +1894,7 @@ glyph_families:
           after: [{family: qsPea, traits: [half]}]
         modifiers: [entry-xheight]
       exit_baseline:
-        shape: shape_3
+        shape: giga_extended_baseline
         anchors:
           entry: [[1, 5]]
           exit: [6, 0]
@@ -1902,7 +1904,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsI}, {family: qsLow}]}
         modifiers: [exit-baseline]
       exit_xheight:
-        shape: short_top_that_exits_at_short_height
+        shape: giga_extended_short_height
         anchors:
           entry: [1, 0]
           exit: [7, 5]
@@ -2351,7 +2353,7 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
-      shape_1:
+      smaller_loop:
         bitmap:
         - "  # #"  #
         - " # # "
@@ -2361,7 +2363,7 @@ glyph_families:
         - "#    "  #
     forms:
       entry_baseline_smaller_loop:
-        shape: shape_1
+        shape: smaller_loop
         anchors:
           entry: [1, 0]
           exit: [6, 5]
@@ -2587,7 +2589,7 @@ glyph_families:
       anchors:
         entry: [1, 0]
     shapes:
-      shape_1:
+      after_see_extended:
         bitmap:
         - "     ### "  #
         - "    ##  #"
@@ -2595,7 +2597,7 @@ glyph_families:
         - "  #   ## "
         - " #       "
         - "#        "  #
-      shape_2:
+      exit_xheight_after_see:
         bitmap:
         - "     ##"  #
         - "    #  "
@@ -2603,7 +2605,7 @@ glyph_families:
         - "  # #  "
         - " #     "
         - "#      "  #
-      shape_3:
+      exit_xheight:
         bitmap:
         - "   ##"  #
         - "  #  "
@@ -2613,14 +2615,14 @@ glyph_families:
         - "#    "  #
     forms:
       after_see:
-        shape: shape_1
+        shape: after_see_extended
         anchors:
           entry: [1, 0]
         select:
           after: [{family: qsSee}]
         modifiers: [after-see]
       exit_xheight_after_see:
-        shape: shape_2
+        shape: exit_xheight_after_see
         anchors:
           entry: [1, 0]
           exit: [7, 5]
@@ -2628,7 +2630,7 @@ glyph_families:
           after: [{family: qsSee}]
         modifiers: [exit-xheight, after-see]
       exit_xheight:
-        shape: shape_3
+        shape: exit_xheight
         anchors:
           entry: [1, 0]
           exit: [6, 5]
@@ -2638,7 +2640,7 @@ glyph_families:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
       exit_xheight_before_jai:
-        shape: shape_3
+        shape: exit_xheight
         anchors:
           entry: [1, 0]
           exit: [5, 5]
@@ -2674,7 +2676,7 @@ glyph_families:
       - "#   #"
       - " ### "  #
     shapes:
-      shape_1:
+      entry_xheight:
         bitmap:
         - "### # "  #
         - "  #  #"
@@ -2682,7 +2684,7 @@ glyph_families:
         - " #   #"
         - " #   #"
         - "  ### "  #
-      shape_2:
+      exit_xheight:
         bitmap:
         - " # ###"  #
         - "#  #  "
@@ -2690,7 +2692,7 @@ glyph_families:
         - "#   # "
         - "#   # "
         - " ###  "  #
-      shape_3:
+      entry_xheight_exit_xheight:
         bitmap:
         - "### ###"  #
         - "  # #  "
@@ -2700,7 +2702,7 @@ glyph_families:
         - "  ###  "  #
     forms:
       entry_xheight:
-        shape: shape_1
+        shape: entry_xheight
         anchors:
           entry: [1, 5]
         select:
@@ -2709,7 +2711,7 @@ glyph_families:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_xheight:
-        shape: shape_2
+        shape: exit_xheight
         anchors:
           exit: [7, 5]
         select:
@@ -2720,7 +2722,7 @@ glyph_families:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
       entry_xheight_exit_xheight:
-        shape: shape_3
+        shape: entry_xheight_exit_xheight
         anchors:
           entry: [1, 5]
           exit: [8, 5]
@@ -2734,7 +2736,7 @@ glyph_families:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-xheight]
       entry_xheight_exit_xheight_before_day_ss07:
-        shape: shape_3
+        shape: entry_xheight_exit_xheight
         anchors:
           entry: [1, 5]
           exit: [8, 5]
@@ -2743,7 +2745,7 @@ glyph_families:
         gate_feature_behind: ss07
         modifiers: [entry-xheight, exit-xheight, before-day]
       exit_xheight_before_day_ss07:
-        shape: shape_2
+        shape: exit_xheight
         anchors:
           exit: [7, 5]
         select:
