@@ -274,7 +274,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                 resolved = resolve_known_glyph_names(not_before, plan.glyph_names)
                 fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
             not_after = meta.not_after
-            if not_after and "half" in meta.traits:
+            if not_after:
                 resolved_bk = resolve_known_glyph_names(not_after, plan.glyph_names)
                 plan.fwd_bk_exclusions.setdefault(base_name, {})[exit_y] = resolved_bk
 
@@ -1200,7 +1200,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         expanded = set()
         for excluded_glyph in excluded_glyphs:
             excluded_base = _base_name(excluded_glyph)
-            expanded.update(base_to_variants.get(excluded_base, ()))
+            variants = base_to_variants.get(excluded_base)
+            if variants:
+                expanded.update(variants)
+            else:
+                expanded.add(excluded_glyph)
         return expanded
 
     def _emit_pending_bk_entry_guards(
