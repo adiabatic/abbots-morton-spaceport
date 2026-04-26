@@ -284,18 +284,18 @@ def test_qs_he_half_doubly_contracted_pairs_with_trimmed_qs_zoo():
     assert "half" in contracted.traits
     assert glyphs["qsHe.half.exit-doubly-contracted"]["calt_before"] == ["qsZoo"]
 
-    trimmed = meta["qsZoo.entry-trimmed-by-1"]
-    plain_zoo = meta["qsZoo"]
-    assert plain_zoo.bitmap[0] == "###  "
-    assert trimmed.bitmap[0] == " ##  "
-    assert trimmed.bitmap[1:] == plain_zoo.bitmap[1:]
-    assert trimmed.entry == plain_zoo.entry
-    assert trimmed.exit == plain_zoo.exit
-    assert trimmed.y_offset == plain_zoo.y_offset
+    extended_zoo = meta["qsZoo.entry-extended"]
+    trimmed = meta["qsZoo.entry-extended.entry-trimmed-by-2"]
+    assert extended_zoo.bitmap[0] == "####  "
+    assert trimmed.bitmap[0] == "  ##  "
+    assert trimmed.bitmap[1:] == extended_zoo.bitmap[1:]
+    assert trimmed.entry == extended_zoo.entry
+    assert trimmed.exit == extended_zoo.exit
+    assert trimmed.y_offset == extended_zoo.y_offset
     assert trimmed.after == ("qsHe.half.exit-doubly-contracted",)
     assert trimmed.transform_kind == "entry-trimmed"
-    assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-1"} <= trimmed.compat_assertions
-    assert glyphs["qsZoo.entry-trimmed-by-1"]["calt_after"] == [
+    assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-2"} <= trimmed.compat_assertions
+    assert glyphs["qsZoo.entry-extended.entry-trimmed-by-2"]["calt_after"] == [
         "qsHe.half.exit-doubly-contracted"
     ]
 

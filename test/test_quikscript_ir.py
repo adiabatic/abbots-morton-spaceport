@@ -237,52 +237,7 @@ def test_contract_exit_before_shifts_anchor_left_without_widening_bitmap():
     assert any(t.kind == "exit-contracted" for t in transforms)
 
 
-def test_contract_exit_before_does_not_trim_when_within_stub():
-    glyphs, _ = compile_quikscript_ir(
-        {
-            "metadata": {},
-            "glyphs": {},
-            "glyph_families": {
-                "qsLead": {
-                    "prop": {
-                        "bitmap": [" ##", "#  ", "#  "],
-                        "anchors": {
-                            "entry": [0, 0],
-                            "exit": [2, 2],
-                        },
-                        "derive": {
-                            "contract_exit_before": {"by": 1, "targets": [{"family": "qsFollow"}]},
-                        },
-                    },
-                },
-                "qsFollow": {
-                    "prop": {
-                        "bitmap": ["##  ", "##  ", "##  "],
-                        "anchors": {
-                            "entry": [1, 2],
-                            "exit": [3, 0],
-                        },
-                    },
-                },
-            },
-            "context_sets": {},
-            "kerning": {},
-        },
-        "junior",
-    )
-
-    expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
-
-    assert "qsLead.exit-contracted" in expanded
-    assert expanded["qsLead.exit-contracted"].exit == ((1, 2),)
-    assert "qsFollow.entry-trimmed-by-1" not in expanded
-    assert all(
-        not name.startswith("qsFollow.entry-trimmed") for name in expanded
-    )
-    assert expanded["qsFollow"].bitmap == ("##  ", "##  ", "##  ")
-
-
-def test_contract_exit_before_trims_receiver_when_beyond_stub():
+def test_contract_exit_before_emits_paired_trimmed_receiver():
     glyphs, _ = compile_quikscript_ir(
         {
             "metadata": {},
@@ -324,26 +279,62 @@ def test_contract_exit_before_trims_receiver_when_beyond_stub():
     assert contracted.before == ("qsFollow",)
     assert "qsLead.exit-contracted" not in expanded
 
-    assert "qsFollow.entry-trimmed-by-1" in expanded
-    trimmed = expanded["qsFollow.entry-trimmed-by-1"]
-    assert trimmed.bitmap == (" #  ", "##  ", "##  ")
+    assert "qsFollow.entry-trimmed-by-2" in expanded
+    trimmed = expanded["qsFollow.entry-trimmed-by-2"]
+    assert trimmed.bitmap == ("    ", "##  ", "##  ")
     assert trimmed.entry == ((1, 2),)
     assert trimmed.exit == ((3, 0),)
     assert trimmed.y_offset == 0
     assert trimmed.after == ("qsLead.exit-doubly-contracted",)
     assert trimmed.before == ()
     assert trimmed.transform_kind == "entry-trimmed"
-    assert "entry-trimmed-by-1" in trimmed.modifiers
+    assert "entry-trimmed-by-2" in trimmed.modifiers
     assert {
         "entry",
         "trimmed",
         "entry-trimmed",
-        "entry-trimmed-by-1",
+        "entry-trimmed-by-2",
     } <= trimmed.compat_assertions
     assert any(
-        t.kind == "entry-trimmed" and t.target_name == "qsFollow.entry-trimmed-by-1"
+        t.kind == "entry-trimmed" and t.target_name == "qsFollow.entry-trimmed-by-2"
         for t in transforms
     )
+
+
+def test_contract_exit_before_trim_depth_matches_by():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": [" ##", "#  ", "#  "],
+                        "anchors": {"entry": [0, 0], "exit": [2, 2]},
+                        "derive": {
+                            "contract_exit_before": {"by": 1, "targets": [{"family": "qsFollow"}]},
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["###  ", "###  ", "###  "],
+                        "anchors": {"entry": [1, 2], "exit": [4, 0]},
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "junior",
+    )
+
+    expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
+
+    assert "qsFollow.entry-trimmed-by-1" in expanded
+    trimmed = expanded["qsFollow.entry-trimmed-by-1"]
+    assert trimmed.bitmap == (" ##  ", "###  ", "###  ")
+    assert trimmed.after == ("qsLead.exit-contracted",)
 
 
 def test_contract_exit_before_merges_trimmed_receivers_across_sources():
@@ -385,13 +376,13 @@ def test_contract_exit_before_merges_trimmed_receivers_across_sources():
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsFollow.entry-trimmed-by-1" in expanded
-    trimmed = expanded["qsFollow.entry-trimmed-by-1"]
+    assert "qsFollow.entry-trimmed-by-2" in expanded
+    trimmed = expanded["qsFollow.entry-trimmed-by-2"]
     assert trimmed.after == (
         "qsLeadA.exit-doubly-contracted",
         "qsLeadB.exit-doubly-contracted",
     )
-    assert trimmed.bitmap == (" #  ", "##  ", "##  ")
+    assert trimmed.bitmap == ("    ", "##  ", "##  ")
 
 
 def test_contract_entry_after_shifts_entry_right_without_widening_bitmap():
