@@ -1874,7 +1874,7 @@ glyph_families:
       anchors:
         entry: [1, 0]
     shapes:
-      wide:
+      wide_at_baseline:
         bitmap:
         - " #     "
         - " #     "
@@ -1885,9 +1885,42 @@ glyph_families:
         - "  # #  "
         - " #   # "
         - "#     #"  #
+      wide_on_left_at_baseline:
+        bitmap:
+        - " #    "
+        - " #    "
+        - " #    "
+        - "  #  #"  #
+        - "  # # "
+        - "   #  "
+        - "  # # "
+        - " #   #"
+        - "#    #"  #
+      wide_on_right_at_baseline:
+        bitmap:
+        - "#     "
+        - "#     "
+        - "#     "
+        - " #  # "  #
+        - " # #  "
+        - "  #   "
+        - " # #  "
+        - "#   # "
+        - "#    #"  #
+      wide_on_right_at_short_height:
+        bitmap:
+        - "#     "
+        - "#     "
+        - "#     "
+        - " #  ##"  #
+        - " # #  "
+        - "  #   "
+        - " # #  "
+        - "#   # "
+        - "#   # "  #
     forms:
       exit_baseline_before_vertical:
-        shape: wide
+        shape: wide_at_baseline
         anchors:
           entry: [1, 0]
           exit: [8, 0]
