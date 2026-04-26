@@ -10,7 +10,7 @@ from quikscript_ir import (
     flatten_join_glyphs,
     get_base_glyph_name,
 )
-from quikscript_join_analysis import validate_join_consistency
+from quikscript_join_analysis import validate_join_consistency, warn_join_contract_issues
 
 _JOIN_REF_KEYS = (
     "calt_after",
@@ -298,6 +298,7 @@ def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:
         _validate_compiled_glyph_references(legacy_glyphs, join_glyphs)
         _validate_extensions_reach_targets(join_glyphs)
         validate_join_consistency(join_glyphs)
+        warn_join_contract_issues(join_glyphs)
 
     glyph_meta = build_join_glyphs(legacy_glyphs)
     glyph_meta.update(join_glyphs)
