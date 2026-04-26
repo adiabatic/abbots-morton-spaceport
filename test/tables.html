@@ -196,6 +196,7 @@
       let activeHeader = null;
       let renderedLetterIndex = -1;
       let renderedStripKey = null;
+      let currentFontTitle = '';
 
       for (const [i, letter] of LETTERS.entries()) {
         const option = document.createElement('option');
@@ -251,6 +252,15 @@
         if (mode === 'column') params.set('col', LETTERS[headerIndex].name);
         else if (mode === 'row') params.set('row', LETTERS[headerIndex].name);
         location.hash = params.toString();
+      }
+
+      function updateTitle() {
+        const { letterIndex, mode, headerIndex } = parseHash();
+        const letterName = LETTERS[letterIndex].name;
+        let inner = `•${letterName}`;
+        if (mode === 'column') inner = `·${LETTERS[headerIndex].name}•${letterName}`;
+        else if (mode === 'row') inner = `•${letterName}·${LETTERS[headerIndex].name}`;
+        document.title = `Tables (${inner}) — ${currentFontTitle}`;
       }
 
       function clearStrip() {
@@ -398,6 +408,7 @@
             clearStrip();
           }
         }
+        updateTitle();
       }
 
       function toggleStripInHash(headerEl, mode) {
@@ -467,7 +478,8 @@
         weightToggle: 'weight-toggle',
         titleEl: 'h1',
         onApply: (state) => {
-          document.title = `Tables — ${state.fontTitle}`;
+          currentFontTitle = state.fontTitle;
+          updateTitle();
         },
       });
 
