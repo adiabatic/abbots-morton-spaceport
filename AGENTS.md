@@ -57,14 +57,11 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 - The standard x-value for `cursive_exit` is one pixel to the right of the stroke. Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
-- When preserving a rare established join against a later substitution, scope the guard to the specific right-context families that need the exception; do not let a prohibited pair globally freeze each other's shaping.
 - When deciding whether a preserved join may survive later context, account for downstream ligatures too; if the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit.
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
 - When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
 - After `·Et`, keep `·Tea` on its left baseline join and suppress its ordinary right joins; preserve `·Tea·Oy` through the ligature rules instead of an `·Et`-specific `qsTea` form that joins on both sides.
 - Use `ss05` to opt back into `·Et ~b~ ·Tea ~b~ ...` baseline double-joins when needed; the default shaping should still suppress Tea's ordinary right joins after `·Et`.
-- When a left glyph only "could" gain a needed exit through a guarded forward substitution, backward pair lookups on the follower must inherit those same guards; otherwise `·Et·Tea·X` can wrongly pick joining/extended right-hand forms even though `·Tea` cannot join them.
-- When a forward-exit substitution would be invalidated because the next glyph later strips the matching entry, derive the guard from the generator's right-context classes and the next glyph's own forward substitutions; do not add hand-curated per-pair guard tables.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
@@ -85,10 +82,6 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 
 - See @test/data-expect.md for the `data-expect` attribute syntax (glyph tokens, connection operators, variant assertions, ligature notation, and duplicate rules).
 - See @test/span-wrapping.md for how to wrap QS words in `data-expect` spans in passage blockquotes.
-- Three levels of duplicate exist for elements with a `data-expect` attribute:
-  - **Content duplicate:** two elements whose text content is byte-identical (same code points in the same order).
-  - **Total duplicate:** a content duplicate where the two `data-expect` values also express the same sequence of assertions (identical after collapsing whitespace).
-  - **Exact duplicate:** a total duplicate where the raw `data-expect` strings are character-for-character identical (whitespace and all).
 - To remove a duplicate test: remove the `data-expect` attribute. If the element is a `span` with no remaining attributes, unwrap the `span` (remove the tags but keep the text content in place). Never remove the text inside the element — it must remain identical before and after. The text frequently contains invisible PUA code points, so verify with a program (e.g., compare hex dumps of each modified line before and after) that only the attribute and/or tags were removed.
 - When adding `data-expect` attributes, always check for content duplicates first — do not wrap a word that is already tested elsewhere in the document unless explicitly told to.
 - Do not wrap one-letter Quikscript words in `data-expect` attributes unless explicitly told to — there is no point in testing joins when there is only one letter.
