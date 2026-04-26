@@ -1416,6 +1416,8 @@ glyph_families:
           exit: [2, 5]
         select:
           not_before: [{family: qsFee}, {family: qsYe}]
+        derive:
+          contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
       exit_baseline:
         shape: prop
