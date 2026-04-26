@@ -255,7 +255,7 @@ def _validate_source_modifier(
             f"{family_name} {context} uses trait-like token {modifier!r} in modifiers; "
             "put it under traits instead"
         )
-    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry", "gapped"}:
+    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry", "noexit", "gapped"}:
         return
     if _ENTRY_EXIT_MODIFIER_RE.fullmatch(modifier):
         return
