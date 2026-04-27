@@ -1197,6 +1197,17 @@ glyph_families:
           - {family: qsFoot}
         derive:
           extend_entry_after: {by: 2, targets: [{family: qsMay}]}
+          extend_exit_before:
+            by: 1
+            targets:
+            - family: qsIng
+            - family: qsLow
+            - family: qsNo
+            - family: qsRoe
+            - family: qsSee
+            - family: qsTea
+            - family: qsThaw
+            - family: qsVie
         modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
