@@ -1141,6 +1141,7 @@ glyph_families:
       extend_exit_before:
         by: 1
         targets:
+        - family: qsExam
         - family: qsI
         - family: qsIng
         - family: qsIt
@@ -1178,7 +1179,7 @@ glyph_families:
         anchors:
           exit: [7, 0]
         select:
-          not_before: [{family: qsAt}, {family: qsExam}, {family: qsEat}]
+          not_before: [{family: qsAt}, {family: qsEat}]
         modifiers: [exit-baseline]
   qsJai_qsUtter:
     sequence:
