@@ -1178,8 +1178,6 @@ glyph_families:
         shape: prop
         anchors:
           exit: [7, 0]
-        select:
-          not_before: [{family: qsAt}, {family: qsEat}]
         modifiers: [exit-baseline]
   qsJai_qsUtter:
     sequence:
