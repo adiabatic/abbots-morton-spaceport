@@ -776,12 +776,15 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
 @pytest.mark.parametrize(
     ("left_base", "right_base"),
     [
+        pytest.param("qsHe", "qsExcite", id="he-excite"),
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
+        pytest.param("qsWay", "qsExcite", id="way-excite"),
         pytest.param("qsWay", "qsSee", id="way-see"),
         pytest.param("qsWay", "qsTea", id="way-tea"),
         pytest.param("qsWay", "qsVie", id="way-vie"),
+        pytest.param("qsWhy", "qsExcite", id="why-excite"),
         pytest.param("qsWhy", "qsSee", id="why-see"),
         pytest.param("qsWhy", "qsTea", id="why-tea"),
         pytest.param("qsWhy", "qsThaw", id="why-thaw"),
@@ -1090,6 +1093,56 @@ def test_qs_excite_tea_connect_at_baseline():
     assert 0 in (excite_exits & tea_entries), (
         f"Excite exits={sorted(excite_exits)} should overlap Tea entries={sorted(tea_entries)} at Y=0 in {glyphs}"
     )
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsShe", id="after-she"),
+        pytest.param("qsDay", id="after-day"),
+    ],
+)
+def test_qs_excite_reaches_left_only_before_xheight_entry_letters(left_base: str):
+    glyphs = _shape_qs(left_base, "qsExcite", "qsBay")
+    assert _base_names(glyphs) == (left_base, "qsExcite", "qsBay")
+    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsShe", id="after-she"),
+        pytest.param("qsDay", id="after-day"),
+    ],
+)
+def test_qs_excite_reaches_both_sides_when_neighbors_offer_baseline(left_base: str):
+    glyphs = _shape_qs(left_base, "qsExcite", "qsTea")
+    assert _base_names(glyphs) == (left_base, "qsExcite", "qsTea")
+    assert "after-baseline-letter" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert _pair_join_ys(glyphs, 1) == {0}
+
+
+def test_qs_excite_reaches_left_only_at_word_end_after_baseline_exit():
+    glyphs = _shape_qs("qsShe", "qsExcite")
+    assert _base_names(glyphs) == ("qsShe", "qsExcite")
+    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}
+
+
+def test_qs_excite_stays_mono_at_word_start_before_xheight_entry():
+    glyphs = _shape_qs("qsExcite", "qsBay")
+    assert glyphs == ["qsExcite", "qsBay"]
+
+
+def test_qs_excite_reaches_left_only_before_qs_thaw():
+    glyphs = _shape_qs("qsShe", "qsExcite", "qsThaw")
+    assert _base_names(glyphs) == ("qsShe", "qsExcite", "qsThaw")
+    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
 
 
 @pytest.mark.parametrize(

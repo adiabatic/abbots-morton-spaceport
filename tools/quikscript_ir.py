@@ -121,6 +121,43 @@ _KNOWN_DERIVE_DIRECTIVES = frozenset({
 })
 
 
+_ANCHOR_SENTINEL_PREFIX = "<<anchor "
+
+
+def _make_anchor_sentinel(
+    kind: str,
+    y: int,
+    excluded_families: tuple[str, ...] = (),
+) -> str:
+    if excluded_families:
+        suffix = "|except=" + ",".join(excluded_families)
+    else:
+        suffix = ""
+    return f"{_ANCHOR_SENTINEL_PREFIX}{kind}={y}{suffix}>>"
+
+
+def _parse_anchor_sentinel(
+    value: str,
+) -> tuple[str, int, tuple[str, ...]] | None:
+    if not value.startswith(_ANCHOR_SENTINEL_PREFIX) or not value.endswith(">>"):
+        return None
+    body = value[len(_ANCHOR_SENTINEL_PREFIX):-2]
+    head, _, except_part = body.partition("|except=")
+    kind, _, y_str = head.partition("=")
+    if kind not in {"exit_y", "entry_y"} or not y_str:
+        return None
+    try:
+        y = int(y_str)
+    except ValueError:
+        return None
+    excluded = tuple(except_part.split(",")) if except_part else ()
+    return kind, y, excluded
+
+
+def is_anchor_sentinel(value: str) -> bool:
+    return _parse_anchor_sentinel(value) is not None
+
+
 def get_base_glyph_name(prop_glyph_name: str) -> str:
     if prop_glyph_name.endswith(".prop"):
         return prop_glyph_name[:-5]
@@ -602,6 +639,37 @@ def _normalize_family_refs(
         raise ValueError(f"{context_family} {context_label} {field_name} must be a list")
 
     def _expand_value(value, stack: tuple[str, ...]) -> list[str]:
+        if isinstance(value, dict) and ("exit_y" in value or "entry_y" in value):
+            keys = set(value)
+            anchor_keys = keys & {"exit_y", "entry_y"}
+            allowed = anchor_keys | {"except"}
+            if len(anchor_keys) != 1 or not keys <= allowed:
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} anchor selector "
+                    "must have exactly one of exit_y/entry_y and an optional 'except' list"
+                )
+            kind = next(iter(anchor_keys))
+            y = value[kind]
+            if not isinstance(y, int) or isinstance(y, bool):
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} {kind} must be an integer"
+                )
+            excluded_families: list[str] = []
+            for excluded in value.get("except", []):
+                if not isinstance(excluded, dict) or set(excluded) != {"family"}:
+                    raise ValueError(
+                        f"{context_family} {context_label} {field_name} anchor selector "
+                        "'except' entries must be {family: <name>} mappings"
+                    )
+                family_name = excluded["family"]
+                if not isinstance(family_name, str) or family_name not in family_names:
+                    raise ValueError(
+                        f"{context_family} {context_label} {field_name} anchor selector "
+                        f"'except' refers to unknown family {family_name!r}"
+                    )
+                excluded_families.append(family_name)
+            return [_make_anchor_sentinel(kind, y, tuple(excluded_families))]
+
         if isinstance(value, dict) and "context_set" in value:
             if set(value) != {"context_set"}:
                 extra = ", ".join(sorted(set(value) - {"context_set"}))
@@ -1106,7 +1174,76 @@ def build_join_glyphs(glyphs_def: dict) -> dict[str, JoinGlyph]:
         if glyph_def is None:
             continue
         metadata[glyph_name] = _glyph_def_to_join_glyph(glyph_name, glyph_def)
-    return metadata
+    return _expand_anchor_sentinels(metadata)
+
+
+def _collect_anchor_classes(
+    metadata: dict[str, JoinGlyph],
+) -> tuple[dict[int, list[str]], dict[int, list[str]]]:
+    exit_classes: dict[int, set[str]] = {}
+    entry_classes: dict[int, set[str]] = {}
+    for glyph_name, meta in metadata.items():
+        for anchor in meta.exit:
+            exit_classes.setdefault(anchor[1], set()).add(glyph_name)
+        for anchor in meta.entry:
+            entry_classes.setdefault(anchor[1], set()).add(glyph_name)
+    return (
+        {y: sorted(members) for y, members in exit_classes.items()},
+        {y: sorted(members) for y, members in entry_classes.items()},
+    )
+
+
+def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
+    exit_classes, entry_classes = _collect_anchor_classes(metadata)
+
+    def _expand_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
+        if not values:
+            return values
+        if not any(is_anchor_sentinel(v) for v in values):
+            return values
+        expanded: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            parsed = _parse_anchor_sentinel(value)
+            if parsed is None:
+                if value not in seen:
+                    seen.add(value)
+                    expanded.append(value)
+                continue
+            kind, y, excluded_families = parsed
+            members = (exit_classes if kind == "exit_y" else entry_classes).get(y, ())
+            for member in members:
+                if excluded_families:
+                    member_family = metadata[member].family if member in metadata else None
+                    if member_family in excluded_families:
+                        continue
+                if member not in seen:
+                    seen.add(member)
+                    expanded.append(member)
+        return tuple(expanded)
+
+    expanded_metadata: dict[str, JoinGlyph] = {}
+    for glyph_name, meta in metadata.items():
+        new_after = _expand_tuple(meta.after)
+        new_before = _expand_tuple(meta.before)
+        new_not_after = _expand_tuple(meta.not_after)
+        new_not_before = _expand_tuple(meta.not_before)
+        if (
+            new_after is meta.after
+            and new_before is meta.before
+            and new_not_after is meta.not_after
+            and new_not_before is meta.not_before
+        ):
+            expanded_metadata[glyph_name] = meta
+            continue
+        expanded_metadata[glyph_name] = replace(
+            meta,
+            after=new_after,
+            before=new_before,
+            not_after=new_not_after,
+            not_before=new_not_before,
+        )
+    return expanded_metadata
 
 
 def _shift_anchors(anchors: tuple[Anchor, ...], *, dx: int = -1) -> tuple[Anchor, ...]:
@@ -2348,6 +2485,7 @@ def compile_quikscript_ir(
             has_zwnj="uni200C" in glyph_data.get("glyphs", {}),
         )
     join_glyphs = expand_selectors_for_ligatures(join_glyphs)
+    join_glyphs = _expand_anchor_sentinels(join_glyphs)
     return join_glyphs, transforms
 
 

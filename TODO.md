@@ -18,6 +18,7 @@
 
 ## Other
 
+- Use `{exit_y: N}` / `{entry_y: N}` (added for `·Excite`) to clean up other letters in `glyph_data/quikscript.yaml` whose `after:` / `before:` / `not_after:` / `not_before:` selectors enumerate every letter that has a particular anchor Y. Likely candidates: half-form `not_before:` lists, `extend_*` targets that mirror anchor classes, and any context_set whose name reads as "letters with y=N exit/entry".
 - Some glyphs have an `exit:` of +1 past the end, while most have +2 past the end. We should look into regularizing this, especially since we have extend.by now
 
 - Make lists of letters like "goes straight up and down on the left" and put these letters in the list, and declare that ·Owe never joins to it:
