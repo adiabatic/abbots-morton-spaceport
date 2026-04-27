@@ -1176,6 +1176,7 @@ glyph_families:
       extend_exit_before:
         by: 1
         targets:
+        - family: qsI
         - family: qsIng
         - family: qsLow
         - family: qsNo
