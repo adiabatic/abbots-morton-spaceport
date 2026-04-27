@@ -2357,7 +2357,7 @@ glyph_families:
         extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsFee}, {family: qsMay}, {family: qsThey}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
+        contract_exit_before: {by: 2, targets: [{family: qsJai}]}
   qsAwe:
     mono:
       bitmap:
@@ -2453,7 +2453,7 @@ glyph_families:
         extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsFee}, {family: qsGay}, {family: qsThey}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
+        contract_exit_before: {by: 2, targets: [{family: qsJai}]}
     shapes:
       alt:
         bitmap:
@@ -2578,7 +2578,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
-          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
+          contract_exit_before: {by: 2, targets: [{family: qsJai}]}
         modifiers: [exit-xheight]
   qsOut_qsTea:
     sequence:
