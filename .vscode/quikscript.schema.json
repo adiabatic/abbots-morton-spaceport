@@ -60,6 +60,44 @@
         }
       }
     },
+    "anchorYExceptItem": {
+      "type": "object",
+      "description": "A family to drop from a resolved exit_y / entry_y selector set.",
+      "required": ["family"],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "type": "string",
+          "description": "Family name to exclude from the resolved selector."
+        }
+      }
+    },
+    "anchorYSelector": {
+      "type": "object",
+      "description": "Selects every variant whose exit (exit_y) or entry (entry_y) anchor sits at the given Y. Mirrors the FEA @exit_y{N} / @entry_y{N} classes without hand-curating a context_set. Use exactly one of exit_y or entry_y, with an optional except list of {family: <name>} mappings to drop families from the resolved set.",
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["exit_y"] },
+        { "required": ["entry_y"] }
+      ],
+      "properties": {
+        "exit_y": {
+          "type": "integer",
+          "description": "Match every variant whose cursive_exit anchor sits at this Y."
+        },
+        "entry_y": {
+          "type": "integer",
+          "description": "Match every variant whose cursive_entry anchor sits at this Y."
+        },
+        "except": {
+          "type": "array",
+          "description": "Families to drop from the resolved selector set.",
+          "items": {
+            "$ref": "#/definitions/anchorYExceptItem"
+          }
+        }
+      }
+    },
     "traitList": {
       "type": "array",
       "description": "Semantic Quikscript traits. Use traits for real concepts like alt and half; use modifiers for implementation-level suffixes.",
@@ -115,6 +153,9 @@
         },
         {
           "$ref": "#/definitions/contextSetRef"
+        },
+        {
+          "$ref": "#/definitions/anchorYSelector"
         }
       ]
     },
