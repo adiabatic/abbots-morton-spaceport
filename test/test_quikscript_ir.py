@@ -1115,6 +1115,102 @@ def test_inherits_does_not_leak_parent_derive_to_child():
     assert "derive" not in child or child["derive"] == {}
 
 
+def test_family_level_derive_filters_unreachable_targets_per_form():
+    glyph_families = {
+        "qsSource": {
+            "prop": {
+                "bitmap": [" ### ", " ### "],
+                "y_offset": 0,
+            },
+            "derive": {
+                "extend_exit_before": {
+                    "by": 1,
+                    "targets": [{"family": "qsBaseline"}, {"family": "qsXheight"}],
+                },
+            },
+            "forms": {
+                "exits_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [3, 0]},
+                    "modifiers": ["exits-baseline"],
+                },
+                "exits_xheight": {
+                    "shape": "prop",
+                    "anchors": {"exit": [3, 5]},
+                    "modifiers": ["exits-xheight"],
+                },
+            },
+        },
+        "qsBaseline": {
+            "prop": {
+                "bitmap": [" ### "],
+                "y_offset": 0,
+                "anchors": {"entry": [1, 0]},
+            },
+        },
+        "qsXheight": {
+            "prop": {
+                "bitmap": [" ### "],
+                "y_offset": 0,
+                "anchors": {"entry": [1, 5]},
+            },
+        },
+    }
+    source_def = glyph_families["qsSource"]
+
+    exits_baseline = _resolve_family_record(
+        "qsSource", source_def, "exits_baseline", {}, [],
+        glyph_families=glyph_families,
+    )
+    exits_xheight = _resolve_family_record(
+        "qsSource", source_def, "exits_xheight", {}, [],
+        glyph_families=glyph_families,
+    )
+
+    assert exits_baseline["derive"]["extend_exit_before"]["targets"] == [
+        {"family": "qsBaseline"},
+    ]
+    assert exits_xheight["derive"]["extend_exit_before"]["targets"] == [
+        {"family": "qsXheight"},
+    ]
+
+
+def test_family_level_derive_drops_directive_when_no_targets_reachable():
+    glyph_families = {
+        "qsSource": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+            "derive": {
+                "extend_exit_before": {
+                    "by": 1,
+                    "targets": [{"family": "qsXheightOnly"}],
+                },
+            },
+            "forms": {
+                "exits_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [3, 0]},
+                    "modifiers": ["exits-baseline"],
+                },
+            },
+        },
+        "qsXheightOnly": {
+            "prop": {
+                "bitmap": [" ### "],
+                "y_offset": 0,
+                "anchors": {"entry": [1, 5]},
+            },
+        },
+    }
+    source_def = glyph_families["qsSource"]
+
+    resolved = _resolve_family_record(
+        "qsSource", source_def, "exits_baseline", {}, [],
+        glyph_families=glyph_families,
+    )
+
+    assert "extend_exit_before" not in resolved.get("derive", {})
+
+
 def test_unknown_family_level_derive_directive_errors_at_compile_time():
     family_def = {
         "prop": {"bitmap": [" ### "], "y_offset": 0},
