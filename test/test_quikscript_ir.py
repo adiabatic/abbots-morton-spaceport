@@ -17,7 +17,9 @@ from quikscript_fea import (
 )
 from quikscript_ir import (
     JoinGlyph,
+    _resolve_family_record,
     _widen_bitmap_right_with_connector,
+    compile_glyph_families,
     compile_quikscript_ir,
     expand_join_transforms,
     expand_selectors_for_ligatures,
@@ -975,3 +977,158 @@ def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
     record = join_glyphs["qsIt.before-utter"]
     assert "qsUtter" in record.before
     assert "qsDay" in record.before
+
+
+def _family_level_derive_fixture():
+    base_bitmap = [
+        " ### ",
+        "#   #",
+        "#   #",
+        "#   #",
+        "#   #",
+        " ### ",
+    ]
+    return {
+        "prop": {"bitmap": list(base_bitmap), "y_offset": 0},
+        "derive": {
+            "extend_exit_before": {
+                "by": 1,
+                "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
+            },
+        },
+        "forms": {
+            "plain": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "modifiers": ["plain"],
+            },
+            "with_form_derive": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "derive": {
+                    "extend_entry_after": {
+                        "by": 1,
+                        "targets": [{"family": "qsMay"}],
+                    },
+                },
+                "modifiers": ["with-form-derive"],
+            },
+            "overrides_family_derive": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "derive": {
+                    "extend_exit_before": {
+                        "by": 2,
+                        "targets": [{"family": "qsSee"}],
+                    },
+                },
+                "modifiers": ["overrides-family-derive"],
+            },
+            "opts_out_of_family_derive": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "derive": {"extend_exit_before": None},
+                "modifiers": ["opts-out-of-family-derive"],
+            },
+        },
+    }
+
+
+def test_family_level_derive_merges_into_each_form():
+    family_def = _family_level_derive_fixture()
+
+    plain = _resolve_family_record("qsTest", family_def, "plain", {}, [])
+    with_form = _resolve_family_record("qsTest", family_def, "with_form_derive", {}, [])
+
+    assert plain["derive"]["extend_exit_before"] == {
+        "by": 1,
+        "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
+    }
+    assert with_form["derive"]["extend_exit_before"] == {
+        "by": 1,
+        "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
+    }
+    assert with_form["derive"]["extend_entry_after"] == {
+        "by": 1,
+        "targets": [{"family": "qsMay"}],
+    }
+
+
+def test_form_level_derive_overrides_family_level():
+    family_def = _family_level_derive_fixture()
+
+    overridden = _resolve_family_record(
+        "qsTest", family_def, "overrides_family_derive", {}, []
+    )
+
+    assert overridden["derive"]["extend_exit_before"] == {
+        "by": 2,
+        "targets": [{"family": "qsSee"}],
+    }
+
+
+def test_form_level_null_clears_family_level_derive():
+    family_def = _family_level_derive_fixture()
+
+    cleared = _resolve_family_record(
+        "qsTest", family_def, "opts_out_of_family_derive", {}, []
+    )
+
+    assert "extend_exit_before" not in cleared.get("derive", {})
+
+
+def test_family_level_derive_applies_to_bare_record():
+    family_def = _family_level_derive_fixture()
+
+    bare = _resolve_family_record("qsTest", family_def, "prop", {}, [])
+
+    assert bare["derive"]["extend_exit_before"] == {
+        "by": 1,
+        "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
+    }
+
+
+def test_inherits_does_not_leak_parent_derive_to_child():
+    family_def = {
+        "prop": {"bitmap": [" ### "], "y_offset": 0},
+        "forms": {
+            "parent": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "derive": {
+                    "extend_exit_before": {
+                        "by": 1,
+                        "targets": [{"family": "qsTea"}],
+                    },
+                },
+                "modifiers": ["parent"],
+            },
+            "child": {
+                "inherits": "parent",
+                "modifiers": ["child"],
+            },
+        },
+    }
+
+    child = _resolve_family_record("qsTest", family_def, "child", {}, [])
+
+    assert "derive" not in child or child["derive"] == {}
+
+
+def test_unknown_family_level_derive_directive_errors_at_compile_time():
+    family_def = {
+        "prop": {"bitmap": [" ### "], "y_offset": 0},
+        "derive": {"not_a_real_directive": {"foo": "bar"}},
+        "forms": {
+            "plain": {
+                "shape": "prop",
+                "anchors": {"exit": [5, 0]},
+                "modifiers": ["plain"],
+            },
+        },
+    }
+
+    import pytest
+
+    with pytest.raises(ValueError, match="not_a_real_directive"):
+        compile_glyph_families({"qsTest": family_def}, "senior")

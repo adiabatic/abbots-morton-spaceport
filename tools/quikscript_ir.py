@@ -109,6 +109,16 @@ _ENTRY_EXIT_MODIFIER_RE = re.compile(
 )
 _BEFORE_AFTER_MODIFIER_RE = re.compile(r"^(?:before|after)-[a-z0-9]+(?:-[a-z0-9]+)*$")
 _EXTENDED_HEIGHT_LABELS = {0: "baseline", 5: "xheight", 6: "y6", 8: "top"}
+_KNOWN_DERIVE_DIRECTIVES = frozenset({
+    "extend_entry_after",
+    "extend_exit_before",
+    "extend_exit_before_gated",
+    "contract_entry_after",
+    "contract_exit_before",
+    "noentry_after",
+    "reverse_upgrade_from",
+    "preferred_over",
+})
 
 
 def get_base_glyph_name(prop_glyph_name: str) -> str:
@@ -124,6 +134,23 @@ def resolve_known_glyph_names(
     glyph_names: set[str],
 ) -> list[str]:
     return [value if value in glyph_names else get_base_glyph_name(value) for value in values]
+
+
+def _validate_family_derive(family_name: str, family_def: dict[str, Any]) -> None:
+    family_derive = family_def.get("derive")
+    if family_derive is None:
+        return
+    if not isinstance(family_derive, dict):
+        raise ValueError(
+            f"Glyph family {family_name!r} family-level derive must be a mapping"
+        )
+    unknown = sorted(set(family_derive) - _KNOWN_DERIVE_DIRECTIVES)
+    if unknown:
+        raise ValueError(
+            f"Glyph family {family_name!r} family-level derive has unknown "
+            f"directives {unknown!r}; expected keys from "
+            f"{sorted(_KNOWN_DERIVE_DIRECTIVES)!r}"
+        )
 
 
 def _merge_family_records(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -173,6 +200,11 @@ def _resolve_family_record(
 
     stack.append(record_name)
     resolved: dict[str, Any] = {}
+
+    family_derive = family_def.get("derive")
+    if family_derive:
+        resolved = _merge_family_records(resolved, {"derive": family_derive})
+
     inherits = raw.get("inherits")
     if inherits:
         parents = [inherits] if isinstance(inherits, str) else inherits
@@ -588,6 +620,7 @@ def _iter_compiled_family_forms(
     context_sets = context_sets or {}
 
     for family_name, family_def in glyph_families.items():
+        _validate_family_derive(family_name, family_def)
         cache: dict[str, dict[str, Any]] = {}
 
         if variant == "mono":
