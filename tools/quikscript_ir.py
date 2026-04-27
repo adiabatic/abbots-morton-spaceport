@@ -2120,15 +2120,35 @@ def expand_selectors_for_ligatures(
         canonical = join_glyphs.get(family)
         if canonical is None or canonical.name != canonical.base_name:
             return frozenset()
-        return frozenset(
+        canonical_ys = frozenset(
             anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only)
         )
+        if canonical_ys:
+            return canonical_ys
+        # Some families (e.g., qsJai) carry no anchors on the canonical record
+        # itself and split entry coverage across forms. Fall back to the union
+        # of form-level anchors so the novelty filter still recognizes Ys that
+        # the family already reaches as a non-ligature.
+        ys: set[int] = set()
+        for variant_name in base_to_variants.get(family, ()):
+            variant = join_glyphs[variant_name]
+            for anchor in (*variant.entry, *variant.entry_curs_only):
+                ys.add(anchor[1])
+        return frozenset(ys)
 
     def _canonical_exit_ys(family: str) -> frozenset[int]:
         canonical = join_glyphs.get(family)
         if canonical is None or canonical.name != canonical.base_name:
             return frozenset()
-        return frozenset(anchor[1] for anchor in canonical.exit)
+        canonical_ys = frozenset(anchor[1] for anchor in canonical.exit)
+        if canonical_ys:
+            return canonical_ys
+        ys: set[int] = set()
+        for variant_name in base_to_variants.get(family, ()):
+            variant = join_glyphs[variant_name]
+            for anchor in variant.exit:
+                ys.add(anchor[1])
+        return frozenset(ys)
 
     # Forward expansion entries: keyed by component name (base or variant),
     # value is a list of (first_component_family, candidate_entry_ys,
@@ -2137,11 +2157,12 @@ def expand_selectors_for_ligatures(
     # candidate_entry_ys are the Ys reachable through the *ligature's* own
     # variants — those are the Ys the source actually meets after `calt_liga`
     # collapses the components. canonical_entry_ys are the Ys the first
-    # component's canonical (uncontextual) form already provides on its own.
-    # The expansion only earns its keep when the ligature opens up a Y the
-    # canonical form does not already cover; otherwise the lookup would just
-    # over-fire on adjacent first-components without unlocking any new join,
-    # crowding out broader fallback forms in the process.
+    # component's own variants already provide pre-liga (across the canonical
+    # record and any forms). The expansion only earns its keep when the
+    # ligature opens up a Y the first component's variants do not already
+    # cover; otherwise the lookup would just over-fire on adjacent
+    # first-components without unlocking any new join, crowding out broader
+    # fallback forms in the process.
     forward_entries_by_component: dict[
         str, list[tuple[str, frozenset[int], frozenset[int]]]
     ] = {}
