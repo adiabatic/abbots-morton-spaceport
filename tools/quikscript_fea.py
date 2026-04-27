@@ -2949,34 +2949,39 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.extend(_format_post_liga_cleanup_rules(post_liga_cleanup_rules))
             lines.append("    } calt_post_liga_cleanup;")
 
-        if post_liga_rules:
+        # Each variant gets its own FEA lookup. In OpenType GSUB type-6 lookups
+        # an `ignore` rule that matches at a position blocks every later
+        # subtable in the same lookup, so sharing one lookup across variants is
+        # unsafe whenever any variant carries a `not_before` — one variant's
+        # ignore can swallow another variant's substitution.
+        for base_name, variant_name, after_glyphs in post_liga_rules:
+            after_list = " ".join(sorted(after_glyphs))
+            variant_meta = _meta(variant_name)
+            lookahead = ""
+            if variant_meta.before:
+                before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
+                if not before_list:
+                    continue
+                lookahead = f" [{before_list}]"
+            not_before_glyphs: list[str] = []
+            if variant_meta.not_before:
+                resolved_nb = resolve_known_glyph_names(
+                    variant_meta.not_before, glyph_names
+                )
+                not_before_glyphs = sorted(_expand_exclusions(resolved_nb))
+            targets = {base_name}
+            if base_name in bk_replacements:
+                targets.update(bk_replacements[base_name].values())
+            safe = variant_name.replace(".", "_").replace("-", "_")
             lines.append("")
-            lines.append("    lookup calt_post_liga {")
-            for base_name, variant_name, after_glyphs in post_liga_rules:
-                after_list = " ".join(sorted(after_glyphs))
-                variant_meta = _meta(variant_name)
-                lookahead = ""
-                if variant_meta.before:
-                    before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
-                    if not before_list:
-                        continue
-                    lookahead = f" [{before_list}]"
-                not_before_glyphs: list[str] = []
-                if variant_meta.not_before:
-                    resolved_nb = resolve_known_glyph_names(
-                        variant_meta.not_before, glyph_names
+            lines.append(f"    lookup calt_post_liga_{safe} {{")
+            for target in sorted(targets):
+                for nb_glyph in not_before_glyphs:
+                    lines.append(
+                        f"        ignore sub [{after_list}] {target}' {nb_glyph};"
                     )
-                    not_before_glyphs = sorted(_expand_exclusions(resolved_nb))
-                targets = {base_name}
-                if base_name in bk_replacements:
-                    targets.update(bk_replacements[base_name].values())
-                for target in sorted(targets):
-                    for nb_glyph in not_before_glyphs:
-                        lines.append(
-                            f"        ignore sub [{after_list}] {target}' {nb_glyph};"
-                        )
-                    lines.append(f"        sub [{after_list}] {target}'{lookahead} by {variant_name};")
-            lines.append("    } calt_post_liga;")
+                lines.append(f"        sub [{after_list}] {target}'{lookahead} by {variant_name};")
+            lines.append(f"    }} calt_post_liga_{safe};")
 
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
