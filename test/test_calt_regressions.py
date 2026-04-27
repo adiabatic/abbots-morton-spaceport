@@ -2601,3 +2601,18 @@ def test_qs_jai_does_not_take_xheight_entry_after_undesignated_letters() -> None
     glyphs = _shape_qs("qsHe", "qsJai")
     assert _pair_join_ys(glyphs, 0) == set(), glyphs
     assert "entry-xheight" not in glyphs[1], glyphs
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    _JAI_XHEIGHT_LEFTS,
+)
+def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
+    left_base: str,
+) -> None:
+    glyphs = _shape_qs(left_base, "qsJai", "qsUtter")
+    assert len(glyphs) == 2, glyphs
+    assert glyphs[1].startswith("qsJai_qsUtter"), glyphs
+    assert _pair_join_ys(glyphs, 0) == {5}, glyphs
+    gap = _bitmap_join_gap(glyphs, 0, 5)
+    assert gap is not None and gap <= 0, glyphs
