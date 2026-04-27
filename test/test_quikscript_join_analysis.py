@@ -238,7 +238,100 @@ def test_warning_collector_reports_one_sided_backward_selection():
         name="qsPea",
         base_name="qsPea",
         family="qsPea",
+        exit=((4, 0),),
+        bitmap=("#",),
+        y_offset=0,
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
         exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        exit=((4, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsTea": qs_tea,
+            "qsTea.after-pea": qs_tea_after_pea,
+        }
+    )
+
+    assert any(
+        warning
+        == (
+            "join-selection-one-sided: qsTea.after-pea enters y=5 after qsPea, "
+            "but qsPea has no matching before-selector for qsTea at y=5"
+        )
+        for warning in warnings
+    )
+
+
+def test_default_exit_silences_one_sided_backward_selection():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        exit=((4, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsTea": qs_tea,
+            "qsTea.after-pea": qs_tea_after_pea,
+        }
+    )
+
+    assert not any(
+        "qsPea has no matching before-selector for qsTea" in warning
+        for warning in warnings
+    )
+
+
+def test_default_exit_blocked_by_not_before_still_warns():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        not_before=("qsTea",),
         bitmap=("#",),
         y_offset=5,
     )

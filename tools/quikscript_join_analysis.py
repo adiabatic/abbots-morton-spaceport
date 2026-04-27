@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from quikscript_ir import JoinGlyph
+from quikscript_ir import Anchor, JoinGlyph
 from quikscript_fea import (
     _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS,
     _resolve_noentry_replacement,
@@ -279,7 +279,9 @@ def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ..
     forward_intents, backward_intents = _collect_pair_intents(reachability)
     warnings: list[str] = []
     warnings.extend(
-        _collect_one_sided_join_warnings(forward_intents, backward_intents)
+        _collect_one_sided_join_warnings(
+            reachability, forward_intents, backward_intents
+        )
     )
     warnings.extend(
         _collect_bitmap_gap_warnings(reachability, forward_intents, backward_intents)
@@ -328,7 +330,50 @@ def _pair_intent_key(intent: _PairIntent) -> tuple[str, str, int]:
     return (intent.left_family, intent.right_family, intent.y)
 
 
+def _has_default_join_coverage(
+    reachability: JoinReachability,
+    family: str,
+    y: int,
+    opposite_family: str,
+    *,
+    direction: str,
+) -> bool:
+    """Whether ``family`` has a default form that joins with ``opposite_family`` at y.
+
+    A default form is one that carries the right anchor (``exit`` for
+    ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``)
+    but no matching ``before:`` / ``after:`` selector — meaning the form
+    fires whenever its base does, with no per-pair gating. Such a form
+    silently covers every right-hand (or left-hand) family that isn't
+    excluded by ``not_before:`` / ``not_after:``.
+    """
+    variant_names = reachability.base_to_variants.get(family, frozenset())
+    for variant_name in variant_names:
+        meta = reachability.glyph_meta.get(variant_name)
+        if meta is None or meta.generated_from is not None or meta.is_noentry:
+            continue
+        if direction == "exit":
+            anchors: tuple[Anchor, ...] = meta.exit
+            selectors: tuple[str, ...] = meta.before
+            negated: tuple[str, ...] = meta.not_before
+        else:
+            anchors = (*meta.entry, *meta.entry_curs_only)
+            selectors = meta.after
+            negated = meta.not_after
+        if not any(anchor[1] == y for anchor in anchors):
+            continue
+        if selectors:
+            continue
+        if any(
+            _resolve_family(reachability, n) == opposite_family for n in negated
+        ):
+            continue
+        return True
+    return False
+
+
 def _collect_one_sided_join_warnings(
+    reachability: JoinReachability,
     forward_intents: list[_PairIntent],
     backward_intents: list[_PairIntent],
 ) -> list[str]:
@@ -339,6 +384,14 @@ def _collect_one_sided_join_warnings(
     for intent in sorted(forward_intents, key=lambda i: (i.variant_name, i.right_family, i.y)):
         if _pair_intent_key(intent) in backward_keys:
             continue
+        if _has_default_join_coverage(
+            reachability,
+            intent.right_family,
+            intent.y,
+            intent.left_family,
+            direction="entry",
+        ):
+            continue
         warnings.append(
             "join-selection-one-sided: "
             f"{intent.variant_name} exits y={intent.y} before {intent.right_family}, "
@@ -348,6 +401,14 @@ def _collect_one_sided_join_warnings(
 
     for intent in sorted(backward_intents, key=lambda i: (i.variant_name, i.left_family, i.y)):
         if _pair_intent_key(intent) in forward_keys:
+            continue
+        if _has_default_join_coverage(
+            reachability,
+            intent.left_family,
+            intent.y,
+            intent.right_family,
+            direction="exit",
+        ):
             continue
         warnings.append(
             "join-selection-one-sided: "
