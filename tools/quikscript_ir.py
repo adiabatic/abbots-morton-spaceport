@@ -178,7 +178,8 @@ def _resolve_family_record(
         parents = [inherits] if isinstance(inherits, str) else inherits
         for parent_name in parents:
             parent = _resolve_family_record(family_name, family_def, parent_name, cache, stack)
-            resolved = _merge_family_records(resolved, parent)
+            parent_for_merge = {k: v for k, v in parent.items() if k != "derive"}
+            resolved = _merge_family_records(resolved, parent_for_merge)
 
     own = {k: v for k, v in raw.items() if k != "inherits"}
     resolved = _merge_family_records(resolved, own)
@@ -1727,6 +1728,27 @@ def _add_entry_trimmed_variant(
         )
 
 
+def _contraction_source_matches_after(
+    after_tuple: tuple[str, ...],
+    source_name: str,
+    source_family: str | None,
+) -> bool:
+    """True if the contraction source belongs in an extended receiver's after-list.
+
+    A receiver variant whose `extended_entry_suffix` is set has a bitmap
+    authored for a specific set of left-context families/forms (the receiver's
+    `extend_entry_after.targets`). The trim sibling is only meaningful when
+    the contracting source is one of those — otherwise the trimmed bitmap
+    geometry doesn't correspond to the actual left context the trim will fire
+    in.
+    """
+    if source_name in after_tuple:
+        return True
+    if source_family is not None and source_family in after_tuple:
+        return True
+    return False
+
+
 def _generate_contracted_variants(
     join_glyphs: dict[str, JoinGlyph],
     *,
@@ -1800,6 +1822,11 @@ def _generate_contracted_variants(
                     ):
                         if receiver_glyph.extended_exit_suffix is not None:
                             continue
+                        if receiver_glyph.extended_entry_suffix is not None:
+                            if not _contraction_source_matches_after(
+                                receiver_glyph.after, name, join_glyph.family
+                            ):
+                                continue
                         _add_entry_trimmed_variant(
                             variants,
                             join_glyphs,
