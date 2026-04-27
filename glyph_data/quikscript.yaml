@@ -1827,20 +1827,20 @@ glyph_families:
         - "  ##  "  #
       giga_extended_baseline:
         bitmap:
-        - "###   "  #
-        - "   #  "
-        - "    # "
-        - "    # "
-        - "   #  "
-        - "######"  #
+        - "###  "  #
+        - "   # "
+        - "    #"
+        - "    #"
+        - "   # "
+        - "#####"  #
       giga_extended_short_height:
         bitmap:
-        - "  #####"  #
-        - "    #  "
-        - "     # "
-        - "     # "
-        - "    #  "
-        - "####   "  #
+        - "  ####"  #
+        - "    # "
+        - "     #"
+        - "     #"
+        - "    # "
+        - "####  "  #
     forms:
       entry_extended_at_baseline:
         shape: shortened_top
@@ -1867,7 +1867,7 @@ glyph_families:
         shape: giga_extended_baseline
         anchors:
           entry: [[1, 5]]
-          exit: [6, 0]
+          exit: [5, 0]
         select:
           before: [{family: qsAh}, {family: qsAt}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsSee}, {family: qsThaw}, {family: qsVie}]
         derive:
@@ -1877,7 +1877,7 @@ glyph_families:
         shape: giga_extended_short_height
         anchors:
           entry: [1, 0]
-          exit: [7, 5]
+          exit: [6, 5]
         select:
           before: [{family: qsAwe}, {family: qsJai}, {family: qsNo}, {family: qsOx}]
         modifiers: [exit-xheight]
