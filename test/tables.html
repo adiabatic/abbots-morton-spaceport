@@ -311,7 +311,8 @@
         const letterName = headerEl.title;
         const label = document.createElement('span');
         label.className = 'preview-label';
-        label.textContent = `${letterName} (${mode}):`;
+        const modeLabel = mode === 'column' ? 'before' : 'after';
+        label.textContent = `${letterName} (${modeLabel}):`;
         strip.appendChild(label);
 
         const rows = table.querySelectorAll('tbody tr');
