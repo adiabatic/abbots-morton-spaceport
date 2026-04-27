@@ -447,6 +447,10 @@
           },
           "additionalProperties": false
         },
+        "derive": {
+          "$ref": "#/definitions/deriveRules",
+          "description": "Family-level derive block shared by every form in this family. Per-form derive blocks still merge on top."
+        },
         "forms": {
           "type": "object",
           "description": "Additional forms keyed by local labels. These keys are local authoring labels, not the compiled glyph naming API.",
