@@ -4,6 +4,49 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 14.002
+
+One can summarize the actual font work as “improve lots of things, but certainly not all of them, and likely break one or two things”. The `Tooling` section is far more understandable and less of an avalanche of minutiae.
+
+That said, I _am_ legitimately proud of my J’ai work; I expect this font to be able to write “Dvořák” with only one penlift by the time I’m done.
+
+#### Quikscript Senior
+
+- ·J’ai joining overhaul:
+  - Connect ·Fee, ·May, ·No, ·Roe, ·Low, ·At, ·I, ·Ah, ·Utter, ·Out, and ·Foot into ·J’ai at the x-height
+  - Tighten ·Ah·J’ai, ·Utter·J’ai, and ·Out·J’ai by one more pixel
+  - Get the ·May·J’ai distance I always wanted
+  - Don’t join ·Ooze·J’ai
+  - Drop ·J’ai’s baked-in extra-length bitmap; reach is now contextual
+  - Have ·J’ai’s exit reach one pixel further before ·-ing, ·Low, ·No, ·Roe, ·See, ·Tea, ·Thaw, and ·Vie
+- ·Thaw and ·-ing cleanup:
+  - Stop flattening ·She before ·Thaw
+  - Don’t join ·Way·Thaw ever
+  - Have ·May·Thaw and ·No·Thaw look right when next to ·-ing (no more half-·May or alt-·No dangling under an entryless ·Thaw)
+  - Add another pixel of breathing room between ·Thaw·-ing
+  - Move ·Thaw’s exit anchor inward by one pixel so following letters land in the right spot
+  - Retire the specialized ·Thaw and ·-ing variants that only existed to handle each other
+- ·Owe and ·Fee cleanup:
+  - Stop ·Owe in word-initial ·Owe·Fee from sprouting a phantom leftward stub
+  - Fix ·Owe·Fee·May (and similar ·X-into-ligature shapes) so ·X no longer keeps a forward exit that orphans into the ligature; ·He·Day·Y now picks half-·He at the x-height when ·Day+·Y has no half form
+- Don’t join ·They·Jay
+- Don’t join ·May·They+Utter, ·No·They+Utter, or ·Foot·They+Utter
+- Don’t use half-·Way or half-·Why before ·Vie or ·See
+- Trim half-·He’s x-height extension by one pixel (drop the bottom-right pixel of the joining stub)
+- Trim ·Roe’s giga-extended joins by one column — tighter into ·Ah, ·At, ·-ing, ·May, ·No, ·See, ·Thaw, ·Vie at baseline and ·Awe, ·J’ai, ·No, ·Ox at the x-height
+- ·Excite work:
+  - Add a wide-on-both-sides ·Excite for ·It·Excite·Tea-style contexts
+  - Pick a wide-on-the-right ·Excite at the start of a word (no leading join)
+  - Pick a wide-on-the-left ·Excite before ·Thaw
+- Pull ·He.half·Zoo two pixels closer; pull ·Tea.half·Zoo one pixel closer (and stop ·Et·Tea from picking the half form)
+- Stop pulling in ·Roe’s long x-height entry stub after ·Ye
+- Add a new ss07-gated ·Owe form so ss07 stops accidentally promoting word-initial ·Owe to the entry-having shape
+
+#### Tooling
+
+- `test/the-manual.html` gains `id` attributes for deep-linking to specific passages
+- `test/tables.html` keeps the top row sticky, separates the consonant and vowel blocks with thicker borders, stores selected-letter and strip state in the URL hash (so the page is shareable), and puts the focused letter pair into the document `<title>`
+
 ### 14.001
 
 #### Quikscript Senior
