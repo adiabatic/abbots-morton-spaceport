@@ -1682,8 +1682,6 @@ glyph_families:
         inherits: entry_xheight
         select:
           after: [{family: qsI}]
-        derive:
-          extend_entry_after: null
         modifiers: [after-i]
       entry_baseline:
         shape: mono
