@@ -11,7 +11,7 @@ from functools import lru_cache
 
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
-from quikscript_ir import JoinGlyph
+from quikscript_ir import ExtensionSpec, JoinGlyph
 from quikscript_join_analysis import (
     DerivedBkGuard,
     JoinReachability,
@@ -420,6 +420,162 @@ def test_warning_collector_reports_bitmap_gap_for_bilateral_selection():
             "qsTea.after-pea": qs_tea_after_pea,
         }
     )
+
+    assert any(
+        warning
+        == (
+            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
+            "leaves 3px blank between strokes"
+        )
+        for warning in warnings
+    )
+
+
+def _bitmap_gap_fixture(
+    *,
+    pea_before_tea_overrides: dict[str, Any] | None = None,
+) -> dict[str, JoinGlyph]:
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_pea_before_tea_kwargs: dict[str, Any] = {
+        "name": "qsPea.before-tea",
+        "base_name": "qsPea",
+        "family": "qsPea",
+        "modifiers": ("before-tea",),
+        "exit": ((4, 5),),
+        "before": ("qsTea",),
+        "bitmap": ("#",),
+        "y_offset": 5,
+    }
+    if pea_before_tea_overrides:
+        qs_pea_before_tea_kwargs.update(pea_before_tea_overrides)
+    qs_pea_before_tea = _make_glyph(**qs_pea_before_tea_kwargs)
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    return {
+        "qsPea": qs_pea,
+        "qsPea.before-tea": qs_pea_before_tea,
+        "qsTea": qs_tea,
+        "qsTea.after-pea": qs_tea_after_pea,
+    }
+
+
+def test_contract_exit_before_silences_bitmap_gap_warning():
+    glyphs = _bitmap_gap_fixture(
+        pea_before_tea_overrides={
+            "contract_exit_before": ExtensionSpec(by=3, targets=("qsTea",)),
+        }
+    )
+
+    warnings = collect_join_warnings(glyphs)
+
+    assert not any(
+        "qsPea.before-tea -> qsTea.after-pea" in warning
+        and warning.startswith("join-bitmap-gap")
+        for warning in warnings
+    )
+
+
+def test_bitmap_gap_warning_still_fires_when_target_family_unrelated():
+    glyphs = _bitmap_gap_fixture(
+        pea_before_tea_overrides={
+            "contract_exit_before": ExtensionSpec(by=3, targets=("qsZed",)),
+        }
+    )
+
+    warnings = collect_join_warnings(glyphs)
+
+    assert any(
+        warning
+        == (
+            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
+            "leaves 3px blank between strokes"
+        )
+        for warning in warnings
+    )
+
+
+def test_extend_exit_before_does_not_silence_bitmap_gap_warning():
+    glyphs = _bitmap_gap_fixture(
+        pea_before_tea_overrides={
+            "extend_exit_before": ExtensionSpec(by=3, targets=("qsTea",)),
+        }
+    )
+
+    warnings = collect_join_warnings(glyphs)
+
+    assert any(
+        warning
+        == (
+            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
+            "leaves 3px blank between strokes"
+        )
+        for warning in warnings
+    )
+
+
+def test_contract_entry_after_silences_bitmap_gap_warning():
+    glyphs = _bitmap_gap_fixture()
+    qs_tea_after_pea = glyphs["qsTea.after-pea"]
+    glyphs["qsTea.after-pea"] = _make_glyph(
+        name=qs_tea_after_pea.name,
+        base_name=qs_tea_after_pea.base_name,
+        family=qs_tea_after_pea.family,
+        modifiers=qs_tea_after_pea.modifiers,
+        entry=qs_tea_after_pea.entry,
+        after=qs_tea_after_pea.after,
+        bitmap=qs_tea_after_pea.bitmap,
+        y_offset=qs_tea_after_pea.y_offset,
+        contract_entry_after=ExtensionSpec(by=3, targets=("qsPea",)),
+    )
+
+    warnings = collect_join_warnings(glyphs)
+
+    assert not any(
+        "qsPea.before-tea -> qsTea.after-pea" in warning
+        and warning.startswith("join-bitmap-gap")
+        for warning in warnings
+    )
+
+
+def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
+    glyphs = _bitmap_gap_fixture()
+    qs_tea_after_pea = glyphs["qsTea.after-pea"]
+    glyphs["qsTea.after-pea"] = _make_glyph(
+        name=qs_tea_after_pea.name,
+        base_name=qs_tea_after_pea.base_name,
+        family=qs_tea_after_pea.family,
+        modifiers=qs_tea_after_pea.modifiers,
+        entry=qs_tea_after_pea.entry,
+        after=qs_tea_after_pea.after,
+        bitmap=qs_tea_after_pea.bitmap,
+        y_offset=qs_tea_after_pea.y_offset,
+        extend_entry_after=ExtensionSpec(by=3, targets=("qsPea",)),
+    )
+
+    warnings = collect_join_warnings(glyphs)
 
     assert any(
         warning

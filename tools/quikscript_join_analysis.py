@@ -462,7 +462,14 @@ def _collect_bitmap_gap_warnings(
                 if pair_key in seen:
                     continue
                 seen.add(pair_key)
-                gap = _bitmap_join_gap(left_meta, left_anchor, right_meta, right_anchor)
+                gap = _bitmap_join_gap(
+                    left_meta,
+                    left_anchor,
+                    right_meta,
+                    right_anchor,
+                    left_family=left_family,
+                    right_family=right_family,
+                )
                 if gap is None:
                     warnings.append(
                         "join-bitmap-gap: "
@@ -522,11 +529,39 @@ def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int,
     return next((anchor for anchor in anchors if anchor[1] == y), None)
 
 
+def _effective_exit_x(
+    meta: JoinGlyph, anchor_x: int, right_family: str | None
+) -> int:
+    # `extend_exit_before` widens the bitmap rightward by the same amount it
+    # shifts the exit anchor, so the visible gap is unchanged — skip it.
+    if right_family is None:
+        return anchor_x
+    if meta.contract_exit_before and right_family in meta.contract_exit_before.targets:
+        anchor_x -= meta.contract_exit_before.by
+    return anchor_x
+
+
+def _effective_entry_x(
+    meta: JoinGlyph, anchor_x: int, left_family: str | None
+) -> int:
+    # `extend_entry_after` prepends ink to the receiver's bitmap, capped by the
+    # original gap — modeling that without the bitmap rewrite would over-correct,
+    # so skip it.
+    if left_family is None:
+        return anchor_x
+    if meta.contract_entry_after and left_family in meta.contract_entry_after.targets:
+        anchor_x += meta.contract_entry_after.by
+    return anchor_x
+
+
 def _bitmap_join_gap(
     left_meta: JoinGlyph,
     left_anchor: tuple[int, int],
     right_meta: JoinGlyph,
     right_anchor: tuple[int, int],
+    *,
+    left_family: str | None = None,
+    right_family: str | None = None,
 ) -> int | None:
     left_bounds = _ink_bounds_at_y(left_meta, left_anchor[1])
     right_bounds = _ink_bounds_at_y(right_meta, right_anchor[1])
@@ -534,8 +569,10 @@ def _bitmap_join_gap(
         return None
     _, left_max = left_bounds
     right_min, _ = right_bounds
-    left_ink_to_exit = left_max - left_anchor[0]
-    right_ink_to_entry = right_min - right_anchor[0]
+    eff_left_x = _effective_exit_x(left_meta, left_anchor[0], right_family)
+    eff_right_x = _effective_entry_x(right_meta, right_anchor[0], left_family)
+    left_ink_to_exit = left_max - eff_left_x
+    right_ink_to_entry = right_min - eff_right_x
     return right_ink_to_entry - left_ink_to_exit - 1
 
 
