@@ -292,6 +292,8 @@ glyph_families:
         - " "
         - " "
         - " "  #
+    derive:
+      extend_exit_before: {by: 1, targets: [{family: qsI}]}
     forms:
       exit_baseline:
         shape: prop
@@ -300,8 +302,6 @@ glyph_families:
         select:
           not_after: [{family: qsEt}]
           not_before: [{family: qsExam}, {family: qsExcite}, {family: qsThaw}]
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [exit-baseline]
       half:
         shape: half
@@ -376,8 +376,6 @@ glyph_families:
           exit: [2, 0]
         select:
           not_before: [{family: qsExam}, {family: qsExcite}, {family: qsThaw}]
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [entry-top, exit-baseline]
       entry_baseline:
         shape: prop
@@ -396,8 +394,6 @@ glyph_families:
         select:
           after: [{family: qsEt}]
         gate_feature_behind: ss05
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [entry-baseline, exit-baseline]
       entry_xheight:
         shape: prop

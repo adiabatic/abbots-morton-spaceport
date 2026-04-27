@@ -180,6 +180,8 @@ def _resolve_family_record(
     record_name: str,
     cache: dict[str, dict[str, Any]],
     stack: list[str],
+    *,
+    glyph_families: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if record_name in cache:
         return cache[record_name]
@@ -198,18 +200,24 @@ def _resolve_family_record(
     if raw is None:
         raise ValueError(f"Unknown form '{record_name}' in glyph family '{family_name}'")
 
+    raw_derive = raw.get("derive") if isinstance(raw, dict) else None
+    explicit_null_derive_keys: set[str] = (
+        {k for k, v in raw_derive.items() if v is None}
+        if isinstance(raw_derive, dict)
+        else set()
+    )
+
     stack.append(record_name)
     resolved: dict[str, Any] = {}
-
-    family_derive = family_def.get("derive")
-    if family_derive:
-        resolved = _merge_family_records(resolved, {"derive": family_derive})
 
     inherits = raw.get("inherits")
     if inherits:
         parents = [inherits] if isinstance(inherits, str) else inherits
         for parent_name in parents:
-            parent = _resolve_family_record(family_name, family_def, parent_name, cache, stack)
+            parent = _resolve_family_record(
+                family_name, family_def, parent_name, cache, stack,
+                glyph_families=glyph_families,
+            )
             parent_for_merge = {k: v for k, v in parent.items() if k != "derive"}
             resolved = _merge_family_records(resolved, parent_for_merge)
 
@@ -229,6 +237,7 @@ def _resolve_family_record(
                 shape_name,
                 cache,
                 stack,
+                glyph_families=glyph_families,
             )
             shape_def = {
                 key: deepcopy(source_record[key])
@@ -239,9 +248,167 @@ def _resolve_family_record(
             raise ValueError(f"Unknown shape '{shape_name}' in glyph family '{family_name}'")
         resolved = _merge_family_records(shape_def, resolved)
 
+    family_derive = family_def.get("derive")
+    if family_derive:
+        applicable = _select_applicable_family_derive(
+            family_derive,
+            form_anchors=resolved.get("anchors", {}) or {},
+            explicit_null_keys=explicit_null_derive_keys,
+            glyph_families=glyph_families,
+        )
+        if applicable:
+            resolved = _merge_family_records({"derive": applicable}, resolved)
+
     cache[record_name] = resolved
     stack.pop()
     return resolved
+
+
+def _anchor_ys(anchor: Any) -> tuple[int, ...]:
+    if not anchor:
+        return ()
+    if isinstance(anchor[0], list):
+        return tuple(a[1] for a in anchor if isinstance(a, list) and len(a) >= 2)
+    if len(anchor) >= 2 and not isinstance(anchor[0], list):
+        return (anchor[1],)
+    return ()
+
+
+def _form_anchor_ys(form_anchors: dict[str, Any]) -> tuple[set[int], set[int]]:
+    entry_ys = set(_anchor_ys(form_anchors.get("entry")))
+    entry_ys.update(_anchor_ys(form_anchors.get("entry_curs_only")))
+    exit_ys = set(_anchor_ys(form_anchors.get("exit")))
+    return entry_ys, exit_ys
+
+
+def _collect_family_anchor_ys(
+    family_def: dict[str, Any],
+) -> tuple[set[int], set[int]]:
+    records: dict[str, Any] = {}
+    if family_def.get("mono"):
+        records["mono"] = family_def["mono"]
+    if family_def.get("prop"):
+        records["prop"] = family_def["prop"]
+    records.update(family_def.get("forms", {}) or {})
+
+    entry_ys: set[int] = set()
+    exit_ys: set[int] = set()
+
+    def walk(record_name: str, visited: set[str]) -> tuple[set[int], set[int]]:
+        if record_name in visited:
+            return set(), set()
+        visited.add(record_name)
+        raw = records.get(record_name)
+        if not isinstance(raw, dict):
+            return set(), set()
+        rec_entry: set[int] = set()
+        rec_exit: set[int] = set()
+        inherits = raw.get("inherits")
+        if inherits:
+            parents = [inherits] if isinstance(inherits, str) else inherits
+            for parent_name in parents:
+                p_entry, p_exit = walk(parent_name, visited)
+                rec_entry.update(p_entry)
+                rec_exit.update(p_exit)
+        anchors = raw.get("anchors", {}) or {}
+        rec_entry.update(_anchor_ys(anchors.get("entry")))
+        rec_entry.update(_anchor_ys(anchors.get("entry_curs_only")))
+        rec_exit.update(_anchor_ys(anchors.get("exit")))
+        return rec_entry, rec_exit
+
+    for record_name in records:
+        rec_entry, rec_exit = walk(record_name, set())
+        entry_ys.update(rec_entry)
+        exit_ys.update(rec_exit)
+
+    return entry_ys, exit_ys
+
+
+def _filter_targets_by_reachability(
+    targets: list[Any] | tuple[Any, ...],
+    *,
+    form_ys: set[int],
+    glyph_families: dict[str, Any],
+    target_anchor: str,
+) -> list[Any]:
+    kept: list[Any] = []
+    for target in targets:
+        family = target.get("family") if isinstance(target, dict) else None
+        if not family:
+            kept.append(target)
+            continue
+        target_def = glyph_families.get(family)
+        if target_def is None:
+            kept.append(target)
+            continue
+        entry_ys, exit_ys = _collect_family_anchor_ys(target_def)
+        target_ys = entry_ys if target_anchor == "entry" else exit_ys
+        if form_ys & target_ys:
+            kept.append(target)
+    return kept
+
+
+def _select_applicable_family_derive(
+    family_derive: dict[str, Any],
+    *,
+    form_anchors: dict[str, Any],
+    explicit_null_keys: set[str],
+    glyph_families: dict[str, Any] | None,
+) -> dict[str, Any]:
+    form_entry_ys, form_exit_ys = _form_anchor_ys(form_anchors)
+
+    applicable: dict[str, Any] = {}
+    for key, value in family_derive.items():
+        if key in explicit_null_keys or value is None:
+            continue
+
+        if glyph_families is None:
+            applicable[key] = deepcopy(value)
+            continue
+
+        if key in {"extend_exit_before", "contract_exit_before"}:
+            if not form_exit_ys:
+                continue
+            kept_targets = _filter_targets_by_reachability(
+                value.get("targets", ()),
+                form_ys=form_exit_ys,
+                glyph_families=glyph_families,
+                target_anchor="entry",
+            )
+            if not kept_targets:
+                continue
+            applicable[key] = {**deepcopy(value), "targets": kept_targets}
+        elif key in {"extend_entry_after", "contract_entry_after"}:
+            if not form_entry_ys:
+                continue
+            kept_targets = _filter_targets_by_reachability(
+                value.get("targets", ()),
+                form_ys=form_entry_ys,
+                glyph_families=glyph_families,
+                target_anchor="exit",
+            )
+            if not kept_targets:
+                continue
+            applicable[key] = {**deepcopy(value), "targets": kept_targets}
+        elif key == "extend_exit_before_gated":
+            if not form_exit_ys or not isinstance(value, dict):
+                continue
+            kept_gated: dict[str, list[Any]] = {}
+            for tag, refs in value.items():
+                kept_refs = _filter_targets_by_reachability(
+                    refs or (),
+                    form_ys=form_exit_ys,
+                    glyph_families=glyph_families,
+                    target_anchor="entry",
+                )
+                if kept_refs:
+                    kept_gated[tag] = kept_refs
+            if kept_gated:
+                applicable[key] = kept_gated
+        else:
+            applicable[key] = deepcopy(value)
+
+    return applicable
 
 
 def _is_contextual_family_form(form_def: dict[str, Any], *, is_base_record: bool = False) -> bool:
@@ -640,6 +807,7 @@ def _iter_compiled_family_forms(
                     base_record_name,
                     cache,
                     [],
+                    glyph_families=glyph_families,
                 ),
                 "form_name": None,
                 "output_name": family_name,
@@ -649,7 +817,10 @@ def _iter_compiled_family_forms(
             }
 
         for form_name in family_def.get("forms", {}):
-            resolved = _resolve_family_record(family_name, family_def, form_name, cache, [])
+            resolved = _resolve_family_record(
+                family_name, family_def, form_name, cache, [],
+                glyph_families=glyph_families,
+            )
             traits = _normalize_source_traits(
                 resolved.get("traits", ()),
                 family_name=family_name,
