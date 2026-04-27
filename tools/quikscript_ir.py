@@ -1026,8 +1026,12 @@ def _trim_bitmap_left_at(
     if limit <= 0:
         return bitmap
     if isinstance(row, str):
+        if all(ch == " " for ch in row[:limit]):
+            return bitmap
         new_row: BitmapRow = " " * limit + row[limit:]
     else:
+        if all(value == 0 for value in row[:limit]):
+            return bitmap
         new_row = tuple([0] * limit + list(row[limit:]))
     return tuple(
         new_row if i == row_idx else existing for i, existing in enumerate(bitmap)
@@ -1420,6 +1424,7 @@ def _add_entry_extension_variants(
         if is_source:
             kwargs["after"] = source_after
             kwargs["extend_entry_after"] = None
+            kwargs["contract_entry_after"] = None
         else:
             kwargs.update(_cleared_extension_context())
 
@@ -1479,6 +1484,7 @@ def _add_exit_extension_variant(
         kwargs["extend_exit_before"] = None
         kwargs["extend_exit_before_gated"] = ()
         kwargs["gated_before"] = source_gated_before
+        kwargs["contract_exit_before"] = None
     else:
         kwargs.update(_cleared_extension_context())
 
@@ -1696,6 +1702,8 @@ def _add_entry_trimmed_variant(
         new_bitmap = _trim_bitmap_left_at(
             receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, count
         )
+        if new_bitmap is receiver_glyph.bitmap:
+            continue
         kwargs = {
             "bitmap": new_bitmap,
             "add_modifiers": (modifier,),
