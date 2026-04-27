@@ -1798,6 +1798,8 @@ def _generate_contracted_variants(
                             kind="contracted",
                         )
                     ):
+                        if receiver_glyph.extended_exit_suffix is not None:
+                            continue
                         _add_entry_trimmed_variant(
                             variants,
                             join_glyphs,
