@@ -853,6 +853,7 @@ glyph_families:
             - family: qsRoe
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
+          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [exit-xheight]
       exit_xheight_before_utter:
         shape: mono
@@ -861,13 +862,6 @@ glyph_families:
         select:
           before: [{family: qsUtter}]
         modifiers: [exit-xheight, before-utter]
-      exit_xheight_before_jai:
-        shape: mono
-        anchors:
-          exit: [5, 5]
-        select:
-          before: [{family: qsJai}]
-        modifiers: [exit-xheight, before-jai]
   qsFee_qsMay:
     sequence:
     - qsFee
@@ -1807,15 +1801,7 @@ glyph_families:
         extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-    forms:
-      exit_xheight_before_jai:
-        shape: mono
-        anchors:
-          entry: [1, 0]
-          exit: [5, 5]
-        select:
-          before: [{family: qsJai}]
-        modifiers: [exit-xheight, before-jai]
+        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
   qsRoe:
     mono:
       bitmap:
@@ -2283,15 +2269,7 @@ glyph_families:
         exit: [6, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
-    forms:
-      exit_xheight_before_jai:
-        shape: mono
-        anchors:
-          entry: [1, 0]
-          exit: [5, 5]
-        select:
-          before: [{family: qsJai}]
-        modifiers: [exit-xheight, before-jai]
+        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
   qsAt_qsMay:
     sequence:
     - qsAt
@@ -2745,15 +2723,7 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-    forms:
-      exit_xheight_before_jai:
-        shape: mono
-        anchors:
-          entry: [1, 5]
-          exit: [5, 5]
-        select:
-          before: [{family: qsJai}]
-        modifiers: [exit-xheight, before-jai]
+        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
   qsOoze:
     mono:
       bitmap:
