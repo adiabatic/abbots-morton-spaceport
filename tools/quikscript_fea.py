@@ -1199,6 +1199,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _expand_exclusions(excluded_glyphs: list[str]) -> set[str]:
         expanded = set()
         for excluded_glyph in excluded_glyphs:
+            if excluded_glyph in glyph_meta and excluded_glyph != _base_name(excluded_glyph):
+                expanded.add(excluded_glyph)
+                continue
             excluded_base = _base_name(excluded_glyph)
             variants = base_to_variants.get(excluded_base)
             if variants:
@@ -2951,11 +2954,28 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append("    lookup calt_post_liga {")
             for base_name, variant_name, after_glyphs in post_liga_rules:
                 after_list = " ".join(sorted(after_glyphs))
+                variant_meta = _meta(variant_name)
+                lookahead = ""
+                if variant_meta.before:
+                    before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
+                    if not before_list:
+                        continue
+                    lookahead = f" [{before_list}]"
+                not_before_glyphs: list[str] = []
+                if variant_meta.not_before:
+                    resolved_nb = resolve_known_glyph_names(
+                        variant_meta.not_before, glyph_names
+                    )
+                    not_before_glyphs = sorted(_expand_exclusions(resolved_nb))
                 targets = {base_name}
                 if base_name in bk_replacements:
                     targets.update(bk_replacements[base_name].values())
                 for target in sorted(targets):
-                    lines.append(f"        sub [{after_list}] {target}' by {variant_name};")
+                    for nb_glyph in not_before_glyphs:
+                        lines.append(
+                            f"        ignore sub [{after_list}] {target}' {nb_glyph};"
+                        )
+                    lines.append(f"        sub [{after_list}] {target}'{lookahead} by {variant_name};")
             lines.append("    } calt_post_liga;")
 
         for base_name in sorted(lig_fwd_bases):

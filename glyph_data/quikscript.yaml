@@ -87,36 +87,6 @@ context_sets:
   # cannot form anyway.
   no_baseline_join_after_tall:
   - {family: qsThaw}
-  # Quikscript families whose default cursive exit lands at y=0. Used to
-  # gate ·Excite into its wide-with-stub form only when there is a real
-  # baseline join coming in from the left. qsYe, qsPea, qsTea drive their
-  # own ·Excite stand-in chain (noentry_after_*) and qsExcite/qsExam are
-  # excluded so the gate stays one-sided.
-  excite_baseline_join_after:
-  - {family: qsAwe}
-  - {family: qsBay}
-  - {family: qsCheer}
-  - {family: qsDay}
-  - {family: qsEat}
-  - {family: qsEight}
-  - {family: qsEt}
-  - {family: qsHe}
-  - {family: qsIng}
-  - {family: qsIt}
-  - {family: qsJai}
-  - {family: qsJay}
-  - {family: qsKey}
-  - {family: qsLlan}
-  - {family: qsMay}
-  - {family: qsNo}
-  - {family: qsOoze}
-  - {family: qsOx}
-  - {family: qsOy}
-  - {family: qsShe}
-  - {family: qsUtter}
-  - {family: qsWay}
-  - {family: qsWhy}
-  - {family: qsZoo}
 glyph_families:
   space:
     mono:
@@ -1400,7 +1370,7 @@ glyph_families:
         anchors:
           exit: [4, 0]
         select:
-          not_before: [{family: qsDay}, {family: qsEat}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
+          not_before: [{family: qsDay}, {family: qsEat}, {family: qsExcite}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
@@ -1475,7 +1445,7 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
-          not_before: [{family: qsSee}, {family: qsTea}, {family: qsThaw}]
+          not_before: [{family: qsExcite}, {family: qsSee}, {family: qsTea}, {family: qsThaw}]
         modifiers: [exit-baseline]
       exit_baseline_before_day:
         shape: prop
@@ -1544,7 +1514,7 @@ glyph_families:
         anchors:
           exit: [5, 0]
         select:
-          not_before: [{family: qsI}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
+          not_before: [{family: qsExcite}, {family: qsI}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
         traits: [half]
   qsWhy_qsUtter:
     sequence:
@@ -1974,8 +1944,9 @@ glyph_families:
           entry: [1, 0]
           exit: [8, 0]
         select:
-          after: [{context_set: excite_baseline_join_after}]
-          not_before: [{context_set: no_baseline_join_after_tall}]
+          after: [{exit_y: 0, except: [{family: qsYe}, {family: qsPea}, {family: qsTea}]}]
+          before: [{entry_y: 0, except: [{family: qsThaw}]}]
+          not_before: [{family: qsThaw}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
@@ -1991,8 +1962,8 @@ glyph_families:
         anchors:
           entry: [1, 0]
         select:
-          after: [{context_set: excite_baseline_join_after}]
-          before: [{context_set: no_baseline_join_after_tall}]
+          after: [{exit_y: 0, except: [{family: qsYe}, {family: qsPea}, {family: qsTea}]}]
+          not_before: [{entry_y: 0, except: [{family: qsThaw}]}]
         modifiers: [entry-baseline, noexit]
       noentry_exit_baseline:
         shape: wide_on_right_at_baseline
