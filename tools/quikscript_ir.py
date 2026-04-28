@@ -2486,7 +2486,64 @@ def compile_quikscript_ir(
         )
     join_glyphs = expand_selectors_for_ligatures(join_glyphs)
     join_glyphs = _expand_anchor_sentinels(join_glyphs)
+    join_glyphs = _propagate_noentry_after_to_not_before(join_glyphs)
     return join_glyphs, transforms
+
+
+def _propagate_noentry_after_to_not_before(
+    join_glyphs: dict[str, JoinGlyph],
+) -> dict[str, JoinGlyph]:
+    """Mirror `derive.noentry_after` into `not_before` on the left families.
+
+    For every glyph ``V_R`` carrying ``noentry_after: [F_1, …]`` and at
+    least one entry-side anchor at Y, append ``V_R``'s family name to
+    ``not_before`` on every variant of every named family ``F_i`` whose
+    exit Y matches — making the joining-shape selection on the left side
+    impossible whenever ``V_R``'s `.noentry` substitution would void the
+    join. This subsumes the manual ``not_before`` edits that previously
+    had to accompany each `noentry_after` directive.
+    """
+    base_to_variants: dict[str, set[str]] = {}
+    for name, glyph in join_glyphs.items():
+        base_to_variants.setdefault(glyph.base_name, set()).add(name)
+
+    additions: dict[str, set[str]] = {}
+    for r_name, r_meta in join_glyphs.items():
+        if r_meta.generated_from is not None or r_meta.is_noentry:
+            continue
+        if not r_meta.noentry_after:
+            continue
+        r_family = r_meta.base_name
+        r_entry_ys = {
+            anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)
+        }
+        if not r_entry_ys:
+            continue
+        for f_family in r_meta.noentry_after:
+            for l_name in base_to_variants.get(f_family, frozenset()):
+                l_meta = join_glyphs.get(l_name)
+                if l_meta is None:
+                    continue
+                if l_meta.generated_from is not None or l_meta.is_noentry:
+                    continue
+                if r_family in l_meta.not_before:
+                    continue
+                if l_meta.before and r_family not in l_meta.before:
+                    continue
+                exit_ys = {anchor[1] for anchor in l_meta.exit}
+                if not (exit_ys & r_entry_ys):
+                    continue
+                additions.setdefault(l_name, set()).add(r_family)
+
+    if not additions:
+        return join_glyphs
+
+    updated = dict(join_glyphs)
+    for l_name, families_to_add in additions.items():
+        l_meta = updated[l_name]
+        merged = tuple(sorted(set(l_meta.not_before) | families_to_add))
+        updated[l_name] = replace(l_meta, not_before=merged)
+    return updated
 
 
 __all__ = [
