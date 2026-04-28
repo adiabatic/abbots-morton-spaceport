@@ -241,6 +241,81 @@ def test_contract_exit_before_shifts_anchor_left_without_widening_bitmap():
     assert any(t.kind == "exit-contracted" for t in transforms)
 
 
+def test_contract_exit_before_preserves_compatible_context_on_generated_sibling():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "exit": [3, 0],
+                        },
+                        "derive": {
+                            "contract_exit_before": {
+                                "by": 1,
+                                "targets": [{"family": "qsFollow"}],
+                            },
+                        },
+                    },
+                    "forms": {
+                        "entry_top": {
+                            "shape": "prop",
+                            "anchors": {
+                                "entry": [0, 0],
+                                "exit": [3, 0],
+                            },
+                            "select": {
+                                "before": [
+                                    {"family": "qsFollow"},
+                                    {"family": "qsOther"},
+                                ],
+                            },
+                            "modifiers": ["entry-top"],
+                        },
+                        "before_other": {
+                            "shape": "prop",
+                            "anchors": {
+                                "exit": [3, 0],
+                            },
+                            "select": {
+                                "before": [{"family": "qsOther"}],
+                            },
+                            "modifiers": ["before-other"],
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                },
+                "qsOther": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {
+                            "entry": [0, 0],
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
+
+    assert expanded["qsLead.entry-top.exit-contracted"].before == ("qsFollow",)
+    assert expanded["qsLead.before-other.exit-contracted"].before == ()
+
+
 def test_contract_exit_before_emits_paired_trimmed_receiver():
     glyphs, _ = compile_quikscript_ir(
         {
@@ -713,6 +788,7 @@ def _make_join_glyph(
         entry=tuple(entry),
         entry_curs_only=(),
         exit=tuple(exit),
+        exit_ink_y=None,
         after=tuple(after),
         before=tuple(before),
         not_after=tuple(not_after),
