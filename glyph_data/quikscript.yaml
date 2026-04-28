@@ -777,6 +777,22 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
+    derive:
+      extend_exit_before:
+        by: 1
+        targets:
+        - family: qsCheer
+        - family: qsDay
+        - family: qsEight
+        - family: qsEt
+        - family: qsFoot
+        - family: qsIt
+        - family: qsLlan
+        - family: qsNo
+        - family: qsRoe
+      extend_exit_before_gated:
+        ss03: [{family: qsTea}]
+      contract_exit_before: {by: 1, targets: [{family: qsJai}]}
     forms:
       entry_xheight:
         shape: connect_from_short_height
@@ -805,8 +821,6 @@ glyph_families:
         anchors:
           entry: [1, 8]
           exit: [6, 5]
-        derive:
-          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [entry-top]
       exit_xheight:
         shape: mono
@@ -814,22 +828,6 @@ glyph_families:
           exit: [6, 5]
         select:
           not_before: [{family: qsTea}]
-        derive:
-          extend_exit_before:
-            by: 1
-            targets:
-            - family: qsCheer
-            - family: qsDay
-            - family: qsEight
-            - family: qsEt
-            - family: qsFoot
-            - family: qsIt
-            - family: qsLlan
-            - family: qsNo
-            - family: qsRoe
-          extend_exit_before_gated:
-            ss03: [{family: qsTea}]
-          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [exit-xheight]
       exit_xheight_before_utter:
         shape: mono
