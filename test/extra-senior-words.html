@@ -16,6 +16,12 @@
         font-size: var(--font-size);
         line-height: calc((14 + 2) / 11);
       }
+
+      .word-list:not(.word-list--2col) dt {
+        width: auto;
+        flex-shrink: 1;
+        margin-right: 1em;
+      }
     </style>
     <script type="module">
       import { initToggles } from "./shared.js";
@@ -48,7 +54,7 @@
 
     <section class="panel">
       <div class="word-list-container">
-        <dl class="word-list word-list--2col sample">
+        <dl class="word-list sample">
           <div>
             <dt>which</dt>
             <dd data-expect-noncanonically="·Why ~x~ ·It | ·Cheer">&#xE663;&#xE670;&#xE65E;</dd>
