@@ -286,6 +286,7 @@ def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ..
     warnings.extend(
         _collect_bitmap_gap_warnings(reachability, forward_intents, backward_intents)
     )
+    warnings.extend(_collect_noentry_shape_leak_warnings(reachability))
     return tuple(sorted(dict.fromkeys(warnings)))
 
 
@@ -346,6 +347,11 @@ def _has_default_join_coverage(
     fires whenever its base does, with no per-pair gating. Such a form
     silently covers every right-hand (or left-hand) family that isn't
     excluded by ``not_before:`` / ``not_after:``.
+
+    On the entry-direction (forward-intent) branch, candidates whose
+    ``noentry_after`` lists ``opposite_family`` are also rejected: at runtime
+    they're displaced to their ``.noentry`` counterpart whenever the opposite
+    family precedes, so they don't actually cover the join.
     """
     variant_names = reachability.base_to_variants.get(family, frozenset())
     for variant_name in variant_names:
@@ -368,7 +374,47 @@ def _has_default_join_coverage(
             _resolve_family(reachability, n) == opposite_family for n in negated
         ):
             continue
+        if direction == "entry" and any(
+            _resolve_family(reachability, n) == opposite_family
+            for n in meta.noentry_after
+        ):
+            continue
         return True
+    return False
+
+
+def _right_family_displaces_via_noentry(
+    reachability: JoinReachability,
+    right_family: str,
+    left_family: str,
+    y: int,
+) -> bool:
+    """Whether the right family's entry-y=`y` variants are displaced by ``noentry_after``.
+
+    The backward-intent suppression call to ``_has_default_join_coverage``
+    inspects the *left* family (looking for a default exit at ``y``).
+    `noentry_after` lives on the *right* family, so this helper provides the
+    parallel check: if any right-family variant carrying entry y=`y` lists
+    ``left_family`` in its ``noentry_after``, the receiver is displaced to
+    its ``.noentry`` counterpart whenever ``left_family`` precedes — so the
+    left family's "default exit" does not actually support the join, and the
+    one-sided-selection warning should not be suppressed.
+    """
+    for variant_name in reachability.base_to_variants.get(right_family, frozenset()):
+        meta = reachability.glyph_meta.get(variant_name)
+        if meta is None or meta.generated_from is not None or meta.is_noentry:
+            continue
+        if not meta.noentry_after:
+            continue
+        if not any(
+            anchor[1] == y for anchor in (*meta.entry, *meta.entry_curs_only)
+        ):
+            continue
+        if any(
+            _resolve_family(reachability, n) == left_family
+            for n in meta.noentry_after
+        ):
+            return True
     return False
 
 
@@ -402,7 +448,9 @@ def _collect_one_sided_join_warnings(
     for intent in sorted(backward_intents, key=lambda i: (i.variant_name, i.left_family, i.y)):
         if _pair_intent_key(intent) in forward_keys:
             continue
-        if _has_default_join_coverage(
+        if not _right_family_displaces_via_noentry(
+            reachability, intent.right_family, intent.left_family, intent.y
+        ) and _has_default_join_coverage(
             reachability,
             intent.left_family,
             intent.y,
@@ -417,6 +465,74 @@ def _collect_one_sided_join_warnings(
             f"{intent.right_family} at y={intent.y}"
         )
 
+    return warnings
+
+
+def _collect_noentry_shape_leak_warnings(
+    reachability: JoinReachability,
+) -> list[str]:
+    """Variants whose joining shape is wasted because of a ``noentry_after``.
+
+    For every variant ``V_R`` carrying ``noentry_after: [F_1, …]`` and at
+    least one entry-side anchor at Y, find every variant ``V_L`` of every
+    named family ``F_i`` that
+
+    - exits at Y, and
+    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e.
+      ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before``
+      is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a
+      generated/``.noentry`` form.
+
+    These ``V_L`` variants choose a joining shape whose join is voided at
+    runtime by the ``noentry_after`` substitution — the joining stub is
+    visually rendered with nothing to attach to. Pairs are deduped on
+    ``(V_L, R_base, y)`` so multiple ``V_R`` siblings of one right family
+    surface a single warning.
+    """
+    pairs: dict[tuple[str, str, int], str] = {}
+
+    for r_name, r_meta in reachability.glyph_meta.items():
+        if r_meta.generated_from is not None or r_meta.is_noentry:
+            continue
+        if not r_meta.noentry_after:
+            continue
+        r_family = r_meta.base_name
+        r_entry_ys = {
+            anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)
+        }
+        if not r_entry_ys:
+            continue
+        for f_name in r_meta.noentry_after:
+            f_family = _resolve_family(reachability, f_name)
+            for l_name in reachability.base_to_variants.get(f_family, frozenset()):
+                l_meta = reachability.glyph_meta.get(l_name)
+                if l_meta is None:
+                    continue
+                if l_meta.generated_from is not None or l_meta.is_noentry:
+                    continue
+                if l_meta.before and not any(
+                    _resolve_family(reachability, n) == r_family
+                    for n in l_meta.before
+                ):
+                    continue
+                if any(
+                    _resolve_family(reachability, n) == r_family
+                    for n in l_meta.not_before
+                ):
+                    continue
+                for y in l_meta.exit_ys:
+                    if y not in r_entry_ys:
+                        continue
+                    pairs.setdefault((l_name, r_family, y), f_family)
+
+    warnings: list[str] = []
+    for (l_name, r_family, y), f_family in sorted(pairs.items()):
+        warnings.append(
+            "join-noentry-shape-leak: "
+            f"{l_name} exits y={y} before {r_family}, but {r_family}'s "
+            f"noentry_after lists {f_family} — {r_family}.noentry will fire "
+            f"and {l_name}'s joining shape will be visually unsupported"
+        )
     return warnings
 
 

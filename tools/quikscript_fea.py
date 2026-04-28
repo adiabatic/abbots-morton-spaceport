@@ -169,6 +169,24 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             resolved_fwd = resolve_known_glyph_names(not_before, plan.glyph_names)
             plan.bk_fwd_exclusions.setdefault(base_name, {})[entry_y] = resolved_fwd
 
+    # `derive.noentry_after` on a non-ligature family becomes a backward
+    # pair override that swaps the base glyph for its `.noentry` variant
+    # after the listed families. Ligatures route through the post-liga
+    # cleanup pipeline below; this branch keeps plain families one-line.
+    for glyph_name, meta in glyph_meta.items():
+        if glyph_name != meta.base_name:
+            continue
+        if not meta.noentry_after:
+            continue
+        if meta.sequence:
+            continue
+        noentry_name = glyph_name + ".noentry"
+        if noentry_name not in glyph_meta:
+            continue
+        pair_overrides.setdefault(glyph_name, []).append(
+            (noentry_name, list(meta.noentry_after))
+        )
+
     for base_name, overrides in pair_overrides.items():
         by_after: dict[tuple, list[tuple[str, list[str]]]] = {}
         for variant_name, after in overrides:
