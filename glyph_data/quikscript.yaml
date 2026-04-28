@@ -1226,6 +1226,7 @@ glyph_families:
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        noentry_after: [{family: qsHe}, {family: qsWay}, {family: qsWhy}]
   qsJay:
     mono:
       bitmap:

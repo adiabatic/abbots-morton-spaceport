@@ -374,6 +374,154 @@ def test_default_exit_blocked_by_not_before_still_warns():
     )
 
 
+def test_noentry_after_leak_warns_default_left_variant():
+    """A left variant whose default selector permits the right family but
+    whose joining shape will be voided by the right family's `noentry_after`
+    should produce a `join-noentry-shape-leak` warning."""
+    qs_he_half = _make_glyph(
+        name="qsHe.half",
+        base_name="qsHe",
+        family="qsHe",
+        modifiers=("half",),
+        traits=frozenset({"half"}),
+        exit=((2, 5),),
+        not_before=("qsFee",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_cheer = _make_glyph(
+        name="qsCheer",
+        base_name="qsCheer",
+        family="qsCheer",
+        entry=((1, 5),),
+        bitmap=("#",),
+        y_offset=5,
+        noentry_after=("qsHe",),
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsHe.half": qs_he_half,
+            "qsCheer": qs_cheer,
+        }
+    )
+
+    assert any(
+        warning
+        == (
+            "join-noentry-shape-leak: qsHe.half exits y=5 before qsCheer, but "
+            "qsCheer's noentry_after lists qsHe — qsCheer.noentry will fire "
+            "and qsHe.half's joining shape will be visually unsupported"
+        )
+        for warning in warnings
+    )
+
+
+def test_default_join_coverage_respects_noentry_after():
+    """Forward-intent suppression must not treat a covering default form as
+    valid coverage when that form's `noentry_after` displaces it for the
+    specific opposite family driving the intent."""
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_pea_before_tea = _make_glyph(
+        name="qsPea.before-tea",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-tea",),
+        exit=((4, 5),),
+        before=("qsTea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea = _make_glyph(
+        name="qsTea",
+        base_name="qsTea",
+        family="qsTea",
+        entry=((0, 5),),
+        bitmap=("#",),
+        y_offset=5,
+        noentry_after=("qsPea",),
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsPea.before-tea": qs_pea_before_tea,
+            "qsTea": qs_tea,
+        }
+    )
+
+    assert any(
+        warning
+        == (
+            "join-selection-one-sided: qsPea.before-tea exits y=5 before qsTea, "
+            "but qsTea has no matching after-selector for qsPea at y=5"
+        )
+        for warning in warnings
+    )
+
+
+def test_backward_intent_warns_when_right_family_has_noentry_after():
+    """Backward-intent suppression must not treat a left-side default exit as
+    valid coverage when the receiver carries `noentry_after` listing the left
+    family — the receiver is displaced to its `.noentry` counterpart and the
+    join is voided."""
+    qs_he_half = _make_glyph(
+        name="qsHe.half",
+        base_name="qsHe",
+        family="qsHe",
+        modifiers=("half",),
+        traits=frozenset({"half"}),
+        exit=((2, 5),),
+        not_before=("qsFee",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_cheer = _make_glyph(
+        name="qsCheer",
+        base_name="qsCheer",
+        family="qsCheer",
+        entry=((1, 5),),
+        bitmap=("#",),
+        y_offset=5,
+        noentry_after=("qsHe",),
+    )
+    qs_cheer_after_he_half = _make_glyph(
+        name="qsCheer.entry-extended",
+        base_name="qsCheer",
+        family="qsCheer",
+        modifiers=("entry-extended",),
+        entry=((1, 5),),
+        after=("qsHe.half",),
+        bitmap=("#",),
+        y_offset=5,
+        noentry_after=("qsHe",),
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsHe.half": qs_he_half,
+            "qsCheer": qs_cheer,
+            "qsCheer.entry-extended": qs_cheer_after_he_half,
+        }
+    )
+
+    assert any(
+        warning
+        == (
+            "join-selection-one-sided: qsCheer.entry-extended enters y=5 after qsHe, "
+            "but qsHe has no matching before-selector for qsCheer at y=5"
+        )
+        for warning in warnings
+    )
+
+
 def test_warning_collector_reports_bitmap_gap_for_bilateral_selection():
     qs_pea = _make_glyph(
         name="qsPea",
