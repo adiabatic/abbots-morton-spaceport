@@ -1736,6 +1736,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     partial_ignores: list[tuple[str, str]] = []
                     target_meta = _meta(target)
                     target_has_entry = bool(target_meta.entry)
+                    if target_meta.is_entry_variant and target_meta.exit:
+                        target_exit_ys = set(target_meta.exit_ys)
+                        before_entry_ys: set[int] = set()
+                        for before_glyph in expanded_before:
+                            before_meta = _meta(before_glyph)
+                            if before_meta.entry:
+                                before_entry_ys.update(before_meta.entry_ys)
+                        if before_entry_ys and not (target_exit_ys & before_entry_ys):
+                            continue
                     if variant_entry_ys is not None:
                         if target_has_entry:
                             target_entry_ys = set(target_meta.entry_ys)
@@ -1792,6 +1801,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                                         " ".join(sorted(ig_glyphs)),
                                                         " ".join(sorted(compatible)),
                                                     ))
+                                            else:
+                                                protect_ys.add(bk_y)
                                 if protect_ys:
                                     guard_glyphs = set()
                                     for protect_y in protect_ys:
@@ -2780,12 +2791,20 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 emitted_any = False
                 safe = fwd_var.replace(".", "_").replace("-", "_")
+                fwd_exit_ys = set(_meta(fwd_var).exit_ys)
                 for entry_y in sorted(variants.keys()):
                     bk_var = variants[entry_y]
                     combined = bk_var + ext_suffix
                     if combined not in glyph_names:
                         continue
                     if entry_y not in exit_classes:
+                        continue
+                    combined_exit_ys = set(_meta(combined).exit_ys)
+                    if (
+                        fwd_exit_ys
+                        and combined_exit_ys
+                        and not (fwd_exit_ys & combined_exit_ys)
+                    ):
                         continue
                     if not emitted_any:
                         lines.append("")

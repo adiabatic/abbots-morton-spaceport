@@ -607,6 +607,23 @@ def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extend
     )
 
 
+def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    assert "sub qsIt.entry-xheight' [qsCheer" not in fea
+    assert "sub qsIt.entry-xheight.entry-extended' [qsCheer" not in fea
+    assert "by qsIt.entry-xheight.exit-extended;" not in fea
+
+    assert (
+        "sub qsIt' [qsCheer qsCheer.entry-extended qsCheer.noentry]"
+        " by qsIt.exit-xheight.exit-extended;"
+    ) in fea
+
+
 def test_senior_feature_emitter_derives_mid_entry_strip_guards():
     join_glyphs, _ = compile_quikscript_ir(
         {
