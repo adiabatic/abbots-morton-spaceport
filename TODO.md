@@ -42,6 +42,10 @@ Don't design this until the Phase A complaints (and Phase B derivation gaps) tel
 
 Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` now floods senior builds with `join-selection-one-sided` and `join-bitmap-gap` warnings. Burn this list down before promoting the warnings to errors or replacing source-side declarations with a top-level `joins:` section.
 
+## `noentry_after` vs. backward selection
+
+When a right-side family declares `derive.noentry_after: [F1, …]`, the auto-propagated `not_before: <self>` we add to F_i's joining-shape forms suppresses *forward* selection — but it loses to *backward* selection. Concrete case from `test/leak-probes.html`: `·Roe ·May ·They ·Utter` still shapes as `qsRoe.exit-baseline | qsMay.entry-baseline | qsThey_qsUtter.noentry`. qsMay.entry-baseline is chosen because qsRoe needs an entry-baseline neighbor; its `not_before: qsThey_qsUtter` is overridden. The leftover y=5 exit stub on qsMay.entry-baseline is then visually unsupported. Decide whether `noentry_after` should also win against backward selection (likely by emitting an `ignore` rule earlier in the cascade), or whether this case needs a different tool.
+
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
