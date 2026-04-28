@@ -1352,8 +1352,6 @@ glyph_families:
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-      select:
-        not_before: [{family: qsCheer}]
     shapes:
       half:
         bitmap:
@@ -1439,7 +1437,7 @@ glyph_families:
         anchors:
           exit: [2, 5]
         select:
-          not_before: [{family: qsCheer}, {family: qsFee}, {family: qsYe}]
+          not_before: [{family: qsFee}, {family: qsYe}]
         derive:
           contract_exit_before: {by: 2, targets: [{family: qsZoo}]}
         traits: [half]
@@ -1510,7 +1508,7 @@ glyph_families:
         anchors:
           exit: [6, 5]
         select:
-          not_before: [{family: qsCheer}, {family: qsYe}]
+          not_before: [{family: qsYe}]
         modifiers: [exit-xheight]
       half:
         shape: half
