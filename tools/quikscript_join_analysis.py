@@ -276,11 +276,23 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
 def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ...]:
     """Return non-fatal diagnostics for joins that are still source-fragile."""
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
-    forward_intents, backward_intents = _collect_pair_intents(reachability)
+    forward_intents, backward_intents = _collect_pair_intents(
+        reachability,
+        include_gated_before=True,
+    )
+    coverage_forward_intents, coverage_backward_intents = _collect_pair_intents(
+        reachability,
+        include_generated=True,
+        include_gated_before=True,
+    )
     warnings: list[str] = []
     warnings.extend(
         _collect_one_sided_join_warnings(
-            reachability, forward_intents, backward_intents
+            reachability,
+            forward_intents,
+            backward_intents,
+            coverage_forward_intents,
+            coverage_backward_intents,
         )
     )
     warnings.extend(
@@ -297,15 +309,24 @@ def warn_join_contract_issues(join_glyphs: Mapping[str, JoinGlyph]) -> None:
 
 def _collect_pair_intents(
     reachability: JoinReachability,
+    *,
+    include_generated: bool = False,
+    include_gated_before: bool = False,
 ) -> tuple[list[_PairIntent], list[_PairIntent]]:
     forward_intents: list[_PairIntent] = []
     backward_intents: list[_PairIntent] = []
     for name, meta in reachability.glyph_meta.items():
-        if meta.generated_from is not None or meta.is_noentry:
+        if meta.is_noentry:
+            continue
+        if meta.generated_from is not None and not include_generated:
             continue
         source_family = meta.family or meta.base_name
+        before_targets = [*meta.before]
+        if include_gated_before:
+            for _feature_tag, gated_targets in meta.gated_before:
+                before_targets.extend(gated_targets)
         for anchor in meta.exit:
-            for target in meta.before:
+            for target in before_targets:
                 forward_intents.append(
                     _PairIntent(
                         variant_name=name,
@@ -422,9 +443,13 @@ def _collect_one_sided_join_warnings(
     reachability: JoinReachability,
     forward_intents: list[_PairIntent],
     backward_intents: list[_PairIntent],
+    coverage_forward_intents: list[_PairIntent] | None = None,
+    coverage_backward_intents: list[_PairIntent] | None = None,
 ) -> list[str]:
-    forward_keys = {_pair_intent_key(intent) for intent in forward_intents}
-    backward_keys = {_pair_intent_key(intent) for intent in backward_intents}
+    coverage_forward_intents = coverage_forward_intents or forward_intents
+    coverage_backward_intents = coverage_backward_intents or backward_intents
+    forward_keys = {_pair_intent_key(intent) for intent in coverage_forward_intents}
+    backward_keys = {_pair_intent_key(intent) for intent in coverage_backward_intents}
     warnings: list[str] = []
 
     for intent in sorted(forward_intents, key=lambda i: (i.variant_name, i.right_family, i.y)):
@@ -549,55 +574,83 @@ def _collect_bitmap_gap_warnings(
 
     for key in keys:
         left_family, right_family, y = key
-        left_names = {
+        source_left_names = {
             intent.variant_name
             for intent in forward_by_key.get(key, ())
-        } or _candidate_names_with_exit(reachability, left_family, y)
-        right_names = {
+        } or _candidate_names_with_exit(
+            reachability,
+            left_family,
+            y,
+            opposite_family=right_family,
+        )
+        source_right_names = {
             intent.variant_name
             for intent in backward_by_key.get(key, ())
-        } or _candidate_names_with_entry(reachability, right_family, y)
+        } or _candidate_names_with_entry(
+            reachability,
+            right_family,
+            y,
+            opposite_family=left_family,
+        )
 
-        for left_name in sorted(left_names):
-            left_meta = reachability.glyph_meta.get(left_name)
-            if left_meta is None:
-                continue
-            left_anchor = _first_anchor_at(left_meta.exit, y)
-            if left_anchor is None:
-                continue
-            for right_name in sorted(right_names):
-                right_meta = reachability.glyph_meta.get(right_name)
-                if right_meta is None:
-                    continue
-                right_anchor = _first_anchor_at(
-                    (*right_meta.entry, *right_meta.entry_curs_only), y
+        for source_left_name in sorted(source_left_names):
+            for source_right_name in sorted(source_right_names):
+                left_names = _replace_with_pair_specific_generated_variants(
+                    reachability,
+                    {source_left_name},
+                    opposite_family=right_family,
+                    opposite_names={source_right_name},
+                    y=y,
+                    side="exit",
                 )
-                if right_anchor is None:
-                    continue
-                pair_key = (left_name, right_name, y)
-                if pair_key in seen:
-                    continue
-                seen.add(pair_key)
-                gap = _bitmap_join_gap(
-                    left_meta,
-                    left_anchor,
-                    right_meta,
-                    right_anchor,
-                    left_family=left_family,
-                    right_family=right_family,
-                )
-                if gap is None:
-                    warnings.append(
-                        "join-bitmap-gap: "
-                        f"{left_name} -> {right_name} at y={y} has no ink on "
-                        "one side of the join row"
+                for left_name in sorted(left_names):
+                    left_meta = reachability.glyph_meta.get(left_name)
+                    if left_meta is None:
+                        continue
+                    left_anchor = _first_anchor_at(left_meta.exit, y)
+                    if left_anchor is None:
+                        continue
+                    right_names = _replace_with_pair_specific_generated_variants(
+                        reachability,
+                        {source_right_name},
+                        opposite_family=left_family,
+                        opposite_names={left_name},
+                        y=y,
+                        side="entry",
                     )
-                elif gap > 0:
-                    warnings.append(
-                        "join-bitmap-gap: "
-                        f"{left_name} -> {right_name} at y={y} leaves "
-                        f"{gap}px blank between strokes"
-                    )
+                    for right_name in sorted(right_names):
+                        right_meta = reachability.glyph_meta.get(right_name)
+                        if right_meta is None:
+                            continue
+                        right_anchor = _first_anchor_at(
+                            (*right_meta.entry, *right_meta.entry_curs_only), y
+                        )
+                        if right_anchor is None:
+                            continue
+                        pair_key = (left_name, right_name, y)
+                        if pair_key in seen:
+                            continue
+                        seen.add(pair_key)
+                        gap = _bitmap_join_gap(
+                            left_meta,
+                            left_anchor,
+                            right_meta,
+                            right_anchor,
+                            left_family=left_family,
+                            right_family=right_family,
+                        )
+                        if gap is None:
+                            warnings.append(
+                                "join-bitmap-gap: "
+                                f"{left_name} -> {right_name} at y={y} has no ink on "
+                                "one side of the join row"
+                            )
+                        elif gap > 0:
+                            warnings.append(
+                                "join-bitmap-gap: "
+                                f"{left_name} -> {right_name} at y={y} leaves "
+                                f"{gap}px blank between strokes"
+                            )
 
     return warnings
 
@@ -615,12 +668,19 @@ def _candidate_names_with_exit(
     reachability: JoinReachability,
     family: str,
     y: int,
+    *,
+    opposite_family: str,
 ) -> set[str]:
     return {
         name
         for name in reachability.base_to_variants.get(family, frozenset())
         if _is_source_authored_join_candidate(reachability.glyph_meta[name])
         and y in reachability.glyph_meta[name].exit_ys
+        and _exit_candidate_permits_family(
+            reachability,
+            reachability.glyph_meta[name],
+            opposite_family,
+        )
     }
 
 
@@ -628,17 +688,204 @@ def _candidate_names_with_entry(
     reachability: JoinReachability,
     family: str,
     y: int,
+    *,
+    opposite_family: str,
 ) -> set[str]:
     return {
         name
         for name in reachability.base_to_variants.get(family, frozenset())
         if _is_source_authored_join_candidate(reachability.glyph_meta[name])
         and y in reachability.glyph_meta[name].all_entry_ys
+        and _entry_candidate_permits_family(
+            reachability,
+            reachability.glyph_meta[name],
+            opposite_family,
+        )
     }
 
 
 def _is_source_authored_join_candidate(meta: JoinGlyph) -> bool:
     return meta.generated_from is None and not meta.is_noentry
+
+
+def _exit_candidate_permits_family(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+) -> bool:
+    if meta.before and not _before_context_matches_family(reachability, meta, family):
+        return False
+    return not any(
+        _resolve_family(reachability, selector) == family for selector in meta.not_before
+    )
+
+
+def _entry_candidate_permits_family(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+) -> bool:
+    if meta.after and not _after_context_matches_family(reachability, meta, family):
+        return False
+    if any(
+        _resolve_family(reachability, selector) == family for selector in meta.not_after
+    ):
+        return False
+    return not any(
+        _resolve_family(reachability, selector) == family for selector in meta.noentry_after
+    )
+
+
+def _replace_with_pair_specific_generated_variants(
+    reachability: JoinReachability,
+    names: set[str],
+    *,
+    opposite_family: str,
+    opposite_names: set[str],
+    y: int,
+    side: str,
+) -> set[str]:
+    replaced: set[str] = set()
+    for name in names:
+        generated = _pair_specific_generated_variants(
+            reachability,
+            name,
+            opposite_family=opposite_family,
+            opposite_names=opposite_names,
+            y=y,
+            side=side,
+        )
+        if generated:
+            replaced.update(generated)
+        else:
+            replaced.add(name)
+    return replaced
+
+
+def _pair_specific_generated_variants(
+    reachability: JoinReachability,
+    source_name: str,
+    *,
+    opposite_family: str,
+    opposite_names: set[str],
+    y: int,
+    side: str,
+) -> set[str]:
+    generated: set[str] = set()
+    for name, meta in reachability.glyph_meta.items():
+        if meta.generated_from != source_name or meta.is_noentry:
+            continue
+        if side == "exit":
+            if y not in meta.exit_ys:
+                continue
+            if not _before_context_matches_opposite(
+                reachability, meta, opposite_family, opposite_names
+            ):
+                continue
+        else:
+            if y not in meta.all_entry_ys:
+                continue
+            if not _after_context_matches_opposite(
+                reachability, meta, opposite_family, opposite_names
+            ):
+                continue
+        generated.add(name)
+    side_specific = {
+        name
+        for name in generated
+        if _has_generated_transform_on_side(reachability.glyph_meta[name], side)
+    }
+    if side_specific:
+        return side_specific
+    return generated
+
+
+def _has_generated_transform_on_side(meta: JoinGlyph, side: str) -> bool:
+    if side == "exit":
+        return meta.extended_exit_suffix is not None or meta.contracted_exit_suffix is not None
+    return meta.extended_entry_suffix is not None or meta.contracted_entry_suffix is not None
+
+
+def _before_context_matches_family(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+) -> bool:
+    if any(_resolve_family(reachability, selector) == family for selector in meta.before):
+        return True
+    return any(
+        _resolve_family(reachability, selector) == family
+        for _feature_tag, selectors in meta.gated_before
+        for selector in selectors
+    )
+
+
+def _after_context_matches_family(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+) -> bool:
+    return any(_resolve_family(reachability, selector) == family for selector in meta.after)
+
+
+def _before_context_matches_opposite(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+    names: set[str],
+) -> bool:
+    if any(
+        _selector_matches_family_or_name(reachability, selector, family, names)
+        for selector in meta.before
+    ):
+        return True
+    return any(
+        _selector_matches_family_or_name(reachability, selector, family, names)
+        for _feature_tag, selectors in meta.gated_before
+        for selector in selectors
+    )
+
+
+def _after_context_matches_opposite(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    family: str,
+    names: set[str],
+) -> bool:
+    return any(
+        _selector_matches_family_or_name(reachability, selector, family, names)
+        for selector in meta.after
+    )
+
+
+def _selector_matches_family_or_name(
+    reachability: JoinReachability,
+    selector: str,
+    family: str,
+    names: set[str],
+) -> bool:
+    meta = reachability.glyph_meta.get(selector)
+    if meta is not None and selector != meta.base_name:
+        return any(_name_matches_selector(reachability, name, selector) for name in names)
+    return _resolve_family(reachability, selector) == family
+
+
+def _name_matches_selector(
+    reachability: JoinReachability,
+    name: str,
+    selector: str,
+) -> bool:
+    current = name
+    seen: set[str] = set()
+    while current not in seen:
+        if current == selector:
+            return True
+        seen.add(current)
+        meta = reachability.glyph_meta.get(current)
+        if meta is None or meta.generated_from is None:
+            return False
+        current = meta.generated_from
+    return False
 
 
 def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int, int] | None:
@@ -680,6 +927,8 @@ def _bitmap_join_gap(
     right_family: str | None = None,
 ) -> int | None:
     left_bounds = _ink_bounds_at_y(left_meta, left_anchor[1])
+    if left_bounds is None and left_meta.exit_ink_y is not None:
+        left_bounds = _ink_bounds_at_y(left_meta, left_meta.exit_ink_y)
     right_bounds = _ink_bounds_at_y(right_meta, right_anchor[1])
     if left_bounds is None or right_bounds is None:
         return None

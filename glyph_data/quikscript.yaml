@@ -129,6 +129,17 @@ glyph_families:
         - "    "
         - "    "
         - "    "  #
+      half_dips_down_to_xheight:
+        bitmap:
+        - " ## "
+        - "#  #"
+        - "#  #"
+        - "#  #"  #
+        - "    "
+        - "    "
+        - "    "
+        - "    "
+        - "    "  #
       dips_down_to_short_height:
         bitmap:
         - " ## "
@@ -172,11 +183,13 @@ glyph_families:
         shape: half
         anchors:
           exit: [4, 5]
+          exit_ink_y: 6
         select:
           not_before: [{family: qsDay}, {family: qsFee}, {family: qsTea}, {family: qsYe}]
         traits: [half]
       half_entry_and_exit_at_xheight:
         inherits: half
+        shape: half_dips_down_to_xheight
         anchors:
           entry: [1, 5]
         select:
@@ -792,6 +805,8 @@ glyph_families:
         anchors:
           entry: [1, 8]
           exit: [6, 5]
+        derive:
+          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [entry-top]
       exit_xheight:
         shape: mono
@@ -1072,12 +1087,27 @@ glyph_families:
         - " ##  "
         y_offset: -3
     forms:
+      before_baseline_entry:
+        shape: mono
+        anchors:
+          entry: [1, 5]
+          exit: [3, 0]
+        select:
+          before: [{family: qsExcite}, {family: qsNo}]
+        modifiers: [before-baseline-entry]
       half:
         shape: half
         anchors:
           entry: [1, 0]
           exit: [6, 0]
         traits: [half]
+      half_before_baseline_entry:
+        inherits: half
+        anchors:
+          exit: [2, 0]
+        select:
+          before: [{family: qsExcite}, {family: qsNo}]
+        modifiers: [before-baseline-entry]
   qsShe:
     mono:
       bitmap:
@@ -2296,6 +2326,8 @@ glyph_families:
           exit: [6, 5]
         select:
           after: [{family: qsRoe, modifiers: [exit-baseline]}]
+        derive:
+          contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [entry-baseline, smaller-loop]
   qsAh:
     mono:
@@ -2532,6 +2564,8 @@ glyph_families:
           exit: [7, 5]
         select:
           after: [{family: qsSee}]
+        derive:
+          contract_exit_before: {by: 3, targets: [{family: qsJai}]}
         modifiers: [exit-xheight, after-see]
       exit_xheight:
         shape: exit_xheight

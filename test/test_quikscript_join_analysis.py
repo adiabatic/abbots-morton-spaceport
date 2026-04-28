@@ -54,6 +54,7 @@ _DEFAULTS: dict[str, Any] = {
     "entry": (),
     "entry_curs_only": (),
     "exit": (),
+    "exit_ink_y": None,
     "after": (),
     "before": (),
     "not_after": (),
@@ -374,6 +375,51 @@ def test_default_exit_blocked_by_not_before_still_warns():
     )
 
 
+def test_generated_forward_variant_covers_backward_selection():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        bitmap=("###",),
+        y_offset=5,
+    )
+    qs_pea_before_tea = _make_glyph(
+        name="qsPea.exit-contracted",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("exit-contracted",),
+        exit=((2, 5),),
+        before=("qsTea",),
+        bitmap=("###",),
+        y_offset=5,
+        generated_from="qsPea",
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsPea.exit-contracted": qs_pea_before_tea,
+            "qsTea.after-pea": qs_tea_after_pea,
+        }
+    )
+
+    assert not any(
+        "qsPea has no matching before-selector for qsTea" in warning
+        for warning in warnings
+    )
+
+
 def test_noentry_after_leak_warns_default_left_variant():
     """A left variant whose default selector permits the right family but
     whose joining shape will be voided by the right family's `noentry_after`
@@ -579,6 +625,122 @@ def test_warning_collector_reports_bitmap_gap_for_bilateral_selection():
     )
 
 
+def test_bitmap_gap_uses_pair_specific_generated_replacement():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_pea_contracted = _make_glyph(
+        name="qsPea.exit-contracted",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("exit-contracted",),
+        exit=((1, 5),),
+        before=("qsTea",),
+        bitmap=("#",),
+        y_offset=5,
+        generated_from="qsPea",
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsPea.exit-contracted": qs_pea_contracted,
+            "qsTea.after-pea": qs_tea_after_pea,
+        }
+    )
+
+    assert not any(warning.startswith("join-bitmap-gap") for warning in warnings)
+
+
+def test_bitmap_gap_fallback_ignores_unrelated_contextual_variants():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((1, 5),),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_pea_before_other = _make_glyph(
+        name="qsPea.before-other",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-other",),
+        exit=((4, 5),),
+        before=("qsOther",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+    qs_tea_after_pea = _make_glyph(
+        name="qsTea.after-pea",
+        base_name="qsTea",
+        family="qsTea",
+        modifiers=("after-pea",),
+        entry=((0, 5),),
+        after=("qsPea",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea": qs_pea,
+            "qsPea.before-other": qs_pea_before_other,
+            "qsTea.after-pea": qs_tea_after_pea,
+        }
+    )
+
+    assert not any("qsPea.before-other -> qsTea.after-pea" in warning for warning in warnings)
+
+
+def test_bitmap_gap_uses_exit_ink_y_hint():
+    qs_pea_half = _make_glyph(
+        name="qsPea.half",
+        base_name="qsPea",
+        family="qsPea",
+        traits=frozenset({"half"}),
+        modifiers=("half",),
+        exit=((4, 5),),
+        exit_ink_y=6,
+        bitmap=("###", "   ",),
+        y_offset=5,
+    )
+    qs_roe_after_pea = _make_glyph(
+        name="qsRoe.entry-xheight",
+        base_name="qsRoe",
+        family="qsRoe",
+        modifiers=("entry-xheight",),
+        entry=((1, 5),),
+        after=("qsPea.half",),
+        bitmap=("#",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsPea.half": qs_pea_half,
+            "qsRoe.entry-xheight": qs_roe_after_pea,
+        }
+    )
+
+    assert not any(warning.startswith("join-bitmap-gap") for warning in warnings)
+
+
 def _bitmap_gap_fixture(
     *,
     pea_before_tea_overrides: dict[str, Any] | None = None,
@@ -733,6 +895,10 @@ def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
         )
         for warning in warnings
     )
+
+
+def test_real_join_warning_collector_is_clean():
+    assert collect_join_warnings(_real_join_glyphs()) == ()
 
 
 def test_forward_intent_with_no_matching_backward_entry_raises():

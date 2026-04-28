@@ -40,6 +40,7 @@ class JoinGlyph:
     entry: tuple[Anchor, ...]
     entry_curs_only: tuple[Anchor, ...]
     exit: tuple[Anchor, ...]
+    exit_ink_y: int | None
     after: tuple[str, ...]
     before: tuple[str, ...]
     not_after: tuple[str, ...]
@@ -753,6 +754,8 @@ def _family_form_to_glyph_def(
         glyph_def["cursive_entry_curs_only"] = deepcopy(anchors["entry_curs_only"])
     if "exit" in anchors:
         glyph_def["cursive_exit"] = deepcopy(anchors["exit"])
+    if "exit_ink_y" in anchors:
+        glyph_def["cursive_exit_ink_y"] = deepcopy(anchors["exit_ink_y"])
 
     select = form_def.get("select", {})
     select_map = {
@@ -1110,6 +1113,7 @@ def _glyph_def_to_join_glyph(
             for a in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
         ),
         exit=tuple((a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_exit"))),
+        exit_ink_y=glyph_def.get("cursive_exit_ink_y"),
         after=tuple(glyph_def.get("calt_after", ())),
         before=tuple(glyph_def.get("calt_before", ())),
         not_after=tuple(glyph_def.get("calt_not_after", ())),
@@ -1466,6 +1470,7 @@ def derive_join_glyph(
     entry: tuple[Anchor, ...] | object = _UNSET,
     entry_curs_only: tuple[Anchor, ...] | object = _UNSET,
     exit: tuple[Anchor, ...] | object = _UNSET,
+    exit_ink_y: int | None | object = _UNSET,
     after: tuple[str, ...] | object = _UNSET,
     before: tuple[str, ...] | object = _UNSET,
     not_after: tuple[str, ...] | object = _UNSET,
@@ -1496,6 +1501,9 @@ def derive_join_glyph(
         source.entry_curs_only if entry_curs_only is _UNSET else entry_curs_only
     )
     resolved_exit = source.exit if exit is _UNSET else exit
+    resolved_exit_ink_y = source.exit_ink_y if exit_ink_y is _UNSET else exit_ink_y
+    if exit is not _UNSET and not resolved_exit:
+        resolved_exit_ink_y = None
     resolved_after = source.after if after is _UNSET else after
     resolved_before = source.before if before is _UNSET else before
     resolved_not_after = source.not_after if not_after is _UNSET else not_after
@@ -1552,6 +1560,7 @@ def derive_join_glyph(
         entry=resolved_entry,
         entry_curs_only=resolved_entry_curs_only,
         exit=resolved_exit,
+        exit_ink_y=resolved_exit_ink_y,
         after=resolved_after,
         before=resolved_before,
         not_after=resolved_not_after,
@@ -1718,6 +1727,103 @@ def _cleared_extension_context() -> dict[str, object]:
     }
 
 
+def _compatible_generated_context(
+    target_context: tuple[str, ...],
+    source_context: tuple[str, ...],
+) -> tuple[str, ...]:
+    if not source_context:
+        return ()
+    if not target_context:
+        return ()
+    source_names = set(source_context)
+    return tuple(name for name in target_context if name in source_names)
+
+
+def _compatible_generated_gated_context(
+    target_context: tuple[str, ...],
+    source_gated_context: tuple[tuple[str, tuple[str, ...]], ...],
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if not source_gated_context:
+        return ()
+    if not target_context:
+        return ()
+    target_names = set(target_context)
+    rebuilt: list[tuple[str, tuple[str, ...]]] = []
+    for feature_tag, names in source_gated_context:
+        kept = tuple(name for name in names if name in target_names)
+        if kept:
+            rebuilt.append((feature_tag, kept))
+    return tuple(rebuilt)
+
+
+def _selector_has_anchor_y(
+    join_glyphs: dict[str, JoinGlyph],
+    selector: str,
+    y: int,
+    *,
+    side: str,
+) -> bool:
+    sentinel = _parse_anchor_sentinel(selector)
+    if sentinel is not None:
+        sentinel_kind, sentinel_y, _excluded = sentinel
+        return sentinel_kind == f"{side}_y" and sentinel_y == y
+
+    meta = join_glyphs.get(selector)
+    if meta is not None:
+        anchors = meta.exit if side == "exit" else (*meta.entry, *meta.entry_curs_only)
+        if any(anchor[1] == y for anchor in anchors):
+            return True
+        if selector != meta.base_name:
+            return False
+
+    family_name = selector.split(".")[0]
+    for candidate in join_glyphs.values():
+        if candidate.base_name != family_name:
+            continue
+        anchors = (
+            candidate.exit
+            if side == "exit"
+            else (*candidate.entry, *candidate.entry_curs_only)
+        )
+        if any(anchor[1] == y for anchor in anchors):
+            return True
+    return False
+
+
+def _filter_context_by_anchor_y(
+    join_glyphs: dict[str, JoinGlyph],
+    source_context: tuple[str, ...],
+    y: int,
+    *,
+    side: str,
+) -> tuple[str, ...]:
+    return tuple(
+        selector
+        for selector in source_context
+        if _selector_has_anchor_y(join_glyphs, selector, y, side=side)
+    )
+
+
+def _filter_gated_context_by_anchor_y(
+    join_glyphs: dict[str, JoinGlyph],
+    source_gated_context: tuple[tuple[str, tuple[str, ...]], ...],
+    y: int,
+    *,
+    side: str,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    rebuilt: list[tuple[str, tuple[str, ...]]] = []
+    for feature_tag, selectors in source_gated_context:
+        kept = _filter_context_by_anchor_y(
+            join_glyphs,
+            selectors,
+            y,
+            side=side,
+        )
+        if kept:
+            rebuilt.append((feature_tag, kept))
+    return tuple(rebuilt)
+
+
 def _add_entry_extension_variants(
     variants: dict[str, JoinGlyph],
     join_glyphs: dict[str, JoinGlyph],
@@ -1725,6 +1831,7 @@ def _add_entry_extension_variants(
     target_name: str,
     target_glyph: JoinGlyph,
     source_after: tuple[str, ...],
+    source_entry_ys: frozenset[int],
     use_height_specific_names: bool,
     count: int,
     suffix_word: str,
@@ -1763,12 +1870,23 @@ def _add_entry_extension_variants(
         if use_height_specific_names:
             kwargs["entry"] = (anchor,)
 
+        filtered_after = _filter_context_by_anchor_y(
+            join_glyphs,
+            source_after,
+            y,
+            side="exit",
+        )
         if is_source:
-            kwargs["after"] = source_after
+            kwargs["after"] = filtered_after
             kwargs["extend_entry_after"] = None
             kwargs["contract_entry_after"] = None
         else:
             kwargs.update(_cleared_extension_context())
+            if y in source_entry_ys:
+                kwargs["after"] = _compatible_generated_context(
+                    target_glyph.after,
+                    filtered_after,
+                )
 
         variants[variant_name] = derive_join_glyph(
             target_glyph,
@@ -1794,6 +1912,7 @@ def _add_exit_extension_variant(
     target_glyph: JoinGlyph,
     source_before: tuple[str, ...],
     source_gated_before: tuple[tuple[str, tuple[str, ...]], ...],
+    source_exit_ys: frozenset[int],
     count: int,
     suffix_word: str,
     transforms: list[JoinTransform] | None,
@@ -1822,13 +1941,44 @@ def _add_exit_extension_variant(
     }
     if is_source:
         kwargs["entry"] = () if target_glyph.extend_exit_no_entry else target_glyph.entry
-        kwargs["before"] = source_before
+        kwargs["before"] = _filter_context_by_anchor_y(
+            join_glyphs,
+            source_before,
+            exit_y,
+            side="entry",
+        )
         kwargs["extend_exit_before"] = None
         kwargs["extend_exit_before_gated"] = ()
-        kwargs["gated_before"] = source_gated_before
+        kwargs["gated_before"] = _filter_gated_context_by_anchor_y(
+            join_glyphs,
+            source_gated_before,
+            exit_y,
+            side="entry",
+        )
         kwargs["contract_exit_before"] = None
     else:
         kwargs.update(_cleared_extension_context())
+        if exit_y in source_exit_ys:
+            filtered_before = _filter_context_by_anchor_y(
+                join_glyphs,
+                source_before,
+                exit_y,
+                side="entry",
+            )
+            filtered_gated_before = _filter_gated_context_by_anchor_y(
+                join_glyphs,
+                source_gated_before,
+                exit_y,
+                side="entry",
+            )
+            kwargs["before"] = _compatible_generated_context(
+                target_glyph.before,
+                filtered_before,
+            )
+            kwargs["gated_before"] = _compatible_generated_gated_context(
+                target_glyph.before,
+                filtered_gated_before,
+            )
 
     variants[variant_name] = derive_join_glyph(
         target_glyph,
@@ -1869,6 +2019,7 @@ def _generate_extended_variants(
 
         count = spec.by if spec is not None else 1
         suffix_word = _EXTENSION_SUFFIX[count]
+        source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
 
         for target_name, target_glyph, is_source in _iter_related_extension_targets(
             join_glyphs,
@@ -1882,7 +2033,8 @@ def _generate_extended_variants(
                     join_glyphs,
                     target_name=target_name,
                     target_glyph=target_glyph,
-                    source_after=context_glyphs if is_source else (),
+                    source_after=context_glyphs,
+                    source_entry_ys=source_anchor_ys,
                     use_height_specific_names=len(join_glyph.entry) > 1,
                     count=count,
                     suffix_word=suffix_word,
@@ -1895,8 +2047,9 @@ def _generate_extended_variants(
                     join_glyphs,
                     target_name=target_name,
                     target_glyph=target_glyph,
-                    source_before=context_glyphs if is_source else (),
-                    source_gated_before=gated_entries if is_source else (),
+                    source_before=context_glyphs,
+                    source_gated_before=gated_entries,
+                    source_exit_ys=source_anchor_ys,
                     count=count,
                     suffix_word=suffix_word,
                     transforms=transforms,
@@ -1913,6 +2066,7 @@ def _add_entry_contraction_variants(
     target_name: str,
     target_glyph: JoinGlyph,
     source_after: tuple[str, ...],
+    source_entry_ys: frozenset[int],
     use_height_specific_names: bool,
     count: int,
     suffix_word: str,
@@ -1946,11 +2100,22 @@ def _add_entry_contraction_variants(
         else:
             kwargs["entry"] = _shift_anchors(target_glyph.entry, dx=count)
 
+        filtered_after = _filter_context_by_anchor_y(
+            join_glyphs,
+            source_after,
+            y,
+            side="exit",
+        )
         if is_source:
-            kwargs["after"] = source_after
+            kwargs["after"] = filtered_after
             kwargs["contract_entry_after"] = None
         else:
             kwargs.update(_cleared_extension_context())
+            if y in source_entry_ys:
+                kwargs["after"] = _compatible_generated_context(
+                    target_glyph.after,
+                    filtered_after,
+                )
 
         variants[variant_name] = derive_join_glyph(
             target_glyph,
@@ -1975,6 +2140,7 @@ def _add_exit_contraction_variant(
     target_name: str,
     target_glyph: JoinGlyph,
     source_before: tuple[str, ...],
+    source_exit_ys: frozenset[int],
     count: int,
     suffix_word: str,
     transforms: list[JoinTransform] | None,
@@ -1993,10 +2159,26 @@ def _add_exit_contraction_variant(
         "transform_kind": kind,
     }
     if is_source:
-        kwargs["before"] = source_before
+        kwargs["before"] = _filter_context_by_anchor_y(
+            join_glyphs,
+            source_before,
+            exit_y,
+            side="entry",
+        )
         kwargs["contract_exit_before"] = None
     else:
         kwargs.update(_cleared_extension_context())
+        if exit_y in source_exit_ys:
+            filtered_before = _filter_context_by_anchor_y(
+                join_glyphs,
+                source_before,
+                exit_y,
+                side="entry",
+            )
+            kwargs["before"] = _compatible_generated_context(
+                target_glyph.before,
+                filtered_before,
+            )
 
     variants[variant_name] = derive_join_glyph(
         target_glyph,
@@ -2110,6 +2292,7 @@ def _generate_contracted_variants(
 
         count = spec.by
         suffix_word = _CONTRACTION_SUFFIX[count]
+        source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
 
         for target_name, target_glyph, is_source in _iter_related_extension_targets(
             join_glyphs,
@@ -2124,7 +2307,8 @@ def _generate_contracted_variants(
                     join_glyphs,
                     target_name=target_name,
                     target_glyph=target_glyph,
-                    source_after=context_glyphs if is_source else (),
+                    source_after=context_glyphs,
+                    source_entry_ys=source_anchor_ys,
                     use_height_specific_names=len(join_glyph.entry) > 1,
                     count=count,
                     suffix_word=suffix_word,
@@ -2137,7 +2321,8 @@ def _generate_contracted_variants(
                     join_glyphs,
                     target_name=target_name,
                     target_glyph=target_glyph,
-                    source_before=context_glyphs if is_source else (),
+                    source_before=context_glyphs,
+                    source_exit_ys=source_anchor_ys,
                     count=count,
                     suffix_word=suffix_word,
                     transforms=transforms,
