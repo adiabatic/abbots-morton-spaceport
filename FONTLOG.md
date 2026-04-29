@@ -4,6 +4,16 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 14.003
+
+The main reason I’m publishing this is to push out the addition of page numbers to The Manual. Still, there’s:
+
+- ·J’ai-joining cleanup
+- ·Excite work
+- ·Cheer cleanup
+- Tighten ·Zoo·Excite and ·Zoo·No, for both full and half-·Zoo
+- Have every ·Fee shape — not just the most common one — reach further into ·Cheer, ·Day, ·Eight, ·Et, ·Foot, ·It, ·Llan, ·No, and ·Roe, pull back from ·J’ai, and (under `ss03`) reach into ·Tea
+
 ### 14.002
 
 One can summarize the actual font work as “improve lots of things, but certainly not all of them, and likely break one or two things”. The `Tooling` section is far more understandable and less of an avalanche of minutiae.
