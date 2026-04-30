@@ -13,7 +13,7 @@ ordering, cycle detection, and the FEA emitter's policy-specific gates stay in
 ``quikscript_fea`` where they belong.
 """
 
-import sys
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -25,9 +25,21 @@ from quikscript_fea import (
 )
 
 
+class JoinContractWarning(UserWarning):
+    """A glyph's join-contract metadata fails one of the consistency checks
+    in `collect_join_warnings`."""
+
+
+class OrphanAnchorWarning(UserWarning):
+    """An entry or exit anchor at some Y has no counterpart at that Y on any
+    other glyph, so no cursive attachment can ever fire there."""
+
+
 __all__ = [
     "DerivedBkGuard",
+    "JoinContractWarning",
     "JoinReachability",
+    "OrphanAnchorWarning",
     "collect_join_warnings",
     "derive_pending_bk_entry_guards",
     "derive_pending_liga_entry_guards",
@@ -304,7 +316,7 @@ def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ..
 
 def warn_join_contract_issues(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     for warning in collect_join_warnings(join_glyphs):
-        print(f"WARN: {warning}", file=sys.stderr)
+        warnings.warn(str(warning), JoinContractWarning, stacklevel=2)
 
 
 def _collect_pair_intents(
@@ -1042,15 +1054,17 @@ def _warn_orphans(reachability: JoinReachability) -> None:
             entry_owners.setdefault(anchor[1], []).append(name)
     for y in sorted(set(entry_owners) - set(exit_owners)):
         for name in entry_owners[y]:
-            print(
-                f"WARN: orphan entry_y={y} on {name} (no exit_y={y} anywhere)",
-                file=sys.stderr,
+            warnings.warn(
+                f"orphan entry_y={y} on {name} (no exit_y={y} anywhere)",
+                OrphanAnchorWarning,
+                stacklevel=2,
             )
     for y in sorted(set(exit_owners) - set(entry_owners)):
         for name in sorted(exit_owners[y]):
-            print(
-                f"WARN: orphan exit_y={y} on {name} (no entry_y={y} anywhere)",
-                file=sys.stderr,
+            warnings.warn(
+                f"orphan exit_y={y} on {name} (no entry_y={y} anywhere)",
+                OrphanAnchorWarning,
+                stacklevel=2,
             )
 
 
