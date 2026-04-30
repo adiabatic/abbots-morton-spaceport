@@ -465,19 +465,19 @@ glyph_families:
     - qsUtter
     prop:
       bitmap:
-      - "#    ###"  #
-      - "#   #   "
-      - "#  #    "
-      - "#  #    "
-      - "# #     "
-      - "# #     "  #
-      - "##      "
-      - "##      "
-      - "#       "
+      - "#    ##"  #
+      - "#   #  "
+      - "#  #   "
+      - "#  #   "
+      - "# #    "
+      - "# #    "  #
+      - "##     "
+      - "##     "
+      - "#      "
       y_offset: -3
       anchors:
         entry: [1, 5]
-        exit: [9, 5]
+        exit: [8, 5]
       derive:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
