@@ -846,7 +846,7 @@ def test_expand_selectors_adds_first_component_to_forward_selector():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsLeft"].before == ("qsB", "qsA")
+    assert expanded["qsLeft"].before == ("qsB", "qsA", "qsA_qsB")
 
 
 def test_expand_selectors_does_not_add_first_component_when_only_first_named():
@@ -861,7 +861,7 @@ def test_expand_selectors_does_not_add_first_component_when_only_first_named():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsLeft"].before == ("qsA",)
+    assert expanded["qsLeft"].before == ("qsA", "qsA_qsB")
 
 
 def test_expand_selectors_skips_when_source_has_no_exit_anchor():
@@ -906,7 +906,7 @@ def test_expand_selectors_adds_last_component_to_backward_selector():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsRight"].after == ("qsA", "qsB")
+    assert expanded["qsRight"].after == ("qsA", "qsA_qsB", "qsB")
 
 
 def test_expand_selectors_does_not_add_last_when_only_last_named():
@@ -921,7 +921,7 @@ def test_expand_selectors_does_not_add_last_when_only_last_named():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsRight"].after == ("qsB",)
+    assert expanded["qsRight"].after == ("qsB", "qsA_qsB")
 
 
 def test_expand_selectors_skips_when_source_has_no_entry_anchor():
@@ -952,6 +952,11 @@ def test_expand_selectors_recognizes_family_variants_in_selector_lists():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
+    # `qsB.alt` is a specific trailing-component variant. With suffix-aware
+    # ligature keying, it doesn't match the base `qsA_qsB` (which doesn't
+    # represent an `alt` state). The existing pre-liga expansion still adds
+    # the lead component `qsA` so the selector fires when qsA literally
+    # precedes pre-liga.
     assert expanded["qsLeft"].before == ("qsB.alt", "qsA")
 
 
@@ -982,10 +987,10 @@ def test_expand_selectors_handles_multi_component_ligatures():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsLeftBeforeMid"].before == ("qsB", "qsA")
-    assert expanded["qsLeftBeforeLast"].before == ("qsC", "qsA")
-    assert expanded["qsRightAfterMid"].after == ("qsB", "qsC")
-    assert expanded["qsRightAfterFirst"].after == ("qsA", "qsC")
+    assert expanded["qsLeftBeforeMid"].before == ("qsB", "qsA", "qsA_qsB_qsC")
+    assert expanded["qsLeftBeforeLast"].before == ("qsC", "qsA", "qsA_qsB_qsC")
+    assert expanded["qsRightAfterMid"].after == ("qsB", "qsA_qsB_qsC", "qsC")
+    assert expanded["qsRightAfterFirst"].after == ("qsA", "qsA_qsB_qsC", "qsC")
 
 
 def test_expand_selectors_leaves_negative_selectors_untouched():
@@ -1020,7 +1025,7 @@ def test_expand_selectors_preserves_gated_before_keys_and_expands_per_tag():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    assert expanded["qsLeft"].gated_before == (("ss03", ("qsB", "qsA")),)
+    assert expanded["qsLeft"].gated_before == (("ss03", ("qsB", "qsA", "qsA_qsB")),)
 
 
 def test_expand_selectors_is_idempotent():
@@ -1036,7 +1041,11 @@ def test_expand_selectors_is_idempotent():
     once = expand_selectors_for_ligatures(metadata)
     twice = expand_selectors_for_ligatures(once)
 
-    assert twice["qsLeft"].before == once["qsLeft"].before == ("qsB", "qsA")
+    assert (
+        twice["qsLeft"].before
+        == once["qsLeft"].before
+        == ("qsB", "qsA", "qsA_qsB")
+    )
 
 
 def test_expand_selectors_skips_noentry_and_extended_ligature_records():
@@ -1063,6 +1072,89 @@ def test_expand_selectors_skips_noentry_and_extended_ligature_records():
     expanded = expand_selectors_for_ligatures(metadata)
 
     assert expanded["qsLeft"].before == ("qsB",)
+
+
+def test_expand_selectors_adds_ligature_glyph_to_trailing_after_for_post_liga_match():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert "qsA_qsB" in expanded["qsRight"].after
+
+
+def test_expand_selectors_adds_ligature_glyph_to_leading_before_for_post_liga_match():
+    metadata = {
+        "qsLeft": _make_join_glyph("qsLeft", before=("qsA",), exit=((1, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert "qsA_qsB" in expanded["qsLeft"].before
+
+
+def test_expand_selectors_adds_ligature_variants_to_trailing_after():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+        "qsA_qsB.exit-extended": _make_join_glyph(
+            "qsA_qsB.exit-extended",
+            base_name="qsA_qsB",
+            sequence=("qsA", "qsB"),
+            exit=((3, 0),),
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert "qsA_qsB" in expanded["qsRight"].after
+    assert "qsA_qsB.exit-extended" in expanded["qsRight"].after
+
+
+def test_expand_selectors_skips_ligature_glyph_when_anchor_y_does_not_match():
+    metadata = {
+        "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 5),)),
+        "qsA": _make_join_glyph("qsA"),
+        "qsB": _make_join_glyph("qsB"),
+        "qsA_qsB": _make_join_glyph(
+            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
+        ),
+    }
+
+    expanded = expand_selectors_for_ligatures(metadata)
+
+    assert "qsA_qsB" not in expanded["qsRight"].after
+
+
+def test_qs_jai_entry_xheight_after_picks_up_qs_jay_qs_utter_via_expansion_pass():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    # qsUtter has `contract_exit_before: { by: 2, targets: [{family: qsJai}] }`,
+    # so the qsUtter that precedes qsJai at runtime is always
+    # `qsUtter.exit-doubly-contracted`. After `calt_liga` collapses, the
+    # ligature glyph that actually precedes qsJai is the matching variant
+    # `qsJay_qsUtter.exit-doubly-contracted`. The runtime-aware filter in
+    # `expand_selectors_for_ligatures` keeps that variant in the after list
+    # but drops the unreachable base `qsJay_qsUtter`.
+    record = join_glyphs["qsJai.entry-xheight"]
+    assert "qsJay_qsUtter.exit-doubly-contracted" in record.after
+    assert "qsJay_qsUtter" not in record.after
 
 
 def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():

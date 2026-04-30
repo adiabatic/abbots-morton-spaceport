@@ -20,6 +20,14 @@ GlyphDef = dict[str, Any]
 _EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended", 4: "quadruply-extended"}
 _CONTRACTION_SUFFIX = {1: "contracted", 2: "doubly-contracted", 3: "triply-contracted", 4: "quadruply-contracted"}
 
+# Sentinel used by `expand_selectors_for_ligatures` to mark a ligature-glyph
+# endpoint addition. The novelty filter inside `_additions` subtracts this set
+# from the candidate Y intersection; an empty set leaves the intersection alone
+# so the addition fires whenever the ligature has an anchor Y the source can
+# meet. Pre-liga literal endpoints carry the canonical component's Ys here
+# instead, which lets the novelty filter suppress redundant additions.
+_LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
+
 
 @dataclass(frozen=True)
 class ExtensionSpec:
@@ -2541,10 +2549,173 @@ def expand_selectors_for_ligatures(
                     (last, lig_exit_ys, last_canonical_exit_ys)
                 )
 
+        # Post-liga matching: register every variant of the ligature itself
+        # under the component-variant key it represents, so a successor's
+        # selector that names that component variant matches the ligature
+        # glyph after `calt_liga` collapses it. Without this, the post-liga
+        # cleanup at `quikscript_fea.py::_collect_post_liga_right_cleanup_rules`
+        # finds no ligature glyph in the source's `after_glyphs` and downgrades
+        # the variant back to base. Adding the ligature glyphs also unlocks
+        # the calt-post-liga forward-rule emission, which only fires when a
+        # ligature glyph already appears in `after_glyphs`.
+        #
+        # Each ligature variant is keyed under the trailing component's base
+        # name (covers `after: [qsY]` which means "any qsY variant") and, if
+        # the variant carries an exit-side suffix (`extended_exit_suffix` or
+        # `contracted_exit_suffix`), also under the trailing component variant
+        # carrying that same suffix (covers `after: [qsY.exit-extended]` etc.,
+        # which discriminate by component state). Symmetric for entry-side
+        # suffix and the lead component on the forward side. This mirrors the
+        # `calt_liga` glyph-selection rule that maps `(qsX, qsY.<suffix>)` to
+        # `qsX_qsY.<suffix>`: the same suffix carries from component-variant
+        # to ligature-variant, so the inverse mapping is unambiguous.
+        for lig_variant_name in sorted(base_to_variants.get(record.base_name, {record.name})):
+            lig_variant = join_glyphs[lig_variant_name]
+            lig_variant_entry_ys = frozenset(
+                anchor[1]
+                for anchor in (*lig_variant.entry, *lig_variant.entry_curs_only)
+            )
+            lig_variant_exit_ys = frozenset(
+                anchor[1] for anchor in lig_variant.exit
+            )
+
+            # Register under every component-base name in the sequence so a
+            # selector that mentions any component matches the ligature
+            # post-liga. For example, a 3-component ligature qsA_qsB_qsC is
+            # exposed under qsA, qsB, and qsC equally — pre-liga, calt only
+            # ever sees qsA at the boundary, but post-liga the ligature glyph
+            # should satisfy any of the component selectors.
+            forward_keys: set[str] = set(sequence)
+            backward_keys: set[str] = set(sequence)
+
+            # Suffix-aware keying lets a selector that names a specific
+            # component variant (e.g., `qsUtter.exit-doubly-contracted`)
+            # match only the ligature variants that represent the same
+            # state — `calt_liga` maps `(qsX, qsUtter.exit-doubly-contracted)`
+            # to `qsX_qsUtter.exit-doubly-contracted`, so the same suffix
+            # carries through. Without this, a base ligature like
+            # `qsX_qsUtter` would also match `qsUtter.exit-doubly-contracted`
+            # selectors and leave bitmap-misalignment warnings.
+            entry_suffix = lig_variant.extended_entry_suffix or ""
+            if entry_suffix:
+                first_variant = first + entry_suffix
+                if first_variant in join_glyphs:
+                    forward_keys.add(first_variant)
+
+            exit_suffix = (
+                lig_variant.extended_exit_suffix
+                or lig_variant.contracted_exit_suffix
+                or ""
+            )
+            if exit_suffix:
+                last_variant = last + exit_suffix
+                if last_variant in join_glyphs:
+                    backward_keys.add(last_variant)
+
+            if lig_variant_entry_ys:
+                for key in forward_keys:
+                    forward_entries_by_component.setdefault(key, []).append(
+                        (lig_variant_name, lig_variant_entry_ys, _LIG_ENDPOINT_BYPASS)
+                    )
+            if lig_variant_exit_ys:
+                for key in backward_keys:
+                    backward_entries_by_component.setdefault(key, []).append(
+                        (lig_variant_name, lig_variant_exit_ys, _LIG_ENDPOINT_BYPASS)
+                    )
+
+    def _expected_runtime_exit_suffix(source_family: str, last_family: str) -> str:
+        """When source family `source_family` follows a glyph in family
+        `last_family`, what exit suffix does `last_family`'s base form mutate
+        into at runtime? Return "" if no rule applies. Used to filter ligature
+        endpoints so a source whose family triggers contraction/extension on
+        the trailing component only matches ligature variants representing the
+        same runtime state. Without this filter, a base ligature like
+        `qsX_qsUtter` would be added to `qsJai`'s after list even though the
+        runtime `qsUtter.exit-doubly-contracted` always wins before `qsJai`."""
+        last_meta = join_glyphs.get(last_family)
+        if last_meta is None:
+            return ""
+        if last_meta.contract_exit_before and source_family in last_meta.contract_exit_before.targets:
+            suffix_word = _CONTRACTION_SUFFIX.get(last_meta.contract_exit_before.by)
+            if suffix_word:
+                return f".exit-{suffix_word}"
+        if last_meta.extend_exit_before and source_family in last_meta.extend_exit_before.targets:
+            suffix_word = _EXTENSION_SUFFIX.get(last_meta.extend_exit_before.by)
+            if suffix_word:
+                return f".exit-{suffix_word}"
+        return ""
+
+    def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
+        """Mirror of `_expected_runtime_exit_suffix` for the lead-component
+        side. When source family `source_family` precedes a ligature whose
+        first component is in family `first_family`, this is the entry suffix
+        that `first_family`'s base form mutates into."""
+        first_meta = join_glyphs.get(first_family)
+        if first_meta is None:
+            return ""
+        if first_meta.contract_entry_after and source_family in first_meta.contract_entry_after.targets:
+            suffix_word = _CONTRACTION_SUFFIX.get(first_meta.contract_entry_after.by)
+            if suffix_word:
+                return f".entry-{suffix_word}"
+        if first_meta.extend_entry_after and source_family in first_meta.extend_entry_after.targets:
+            suffix_word = _EXTENSION_SUFFIX.get(first_meta.extend_entry_after.by)
+            if suffix_word:
+                return f".entry-{suffix_word}"
+        return ""
+
+    def _selector_families(selectors: tuple[str, ...]) -> set[str]:
+        families: set[str] = set()
+        for selector in selectors:
+            meta = join_glyphs.get(selector)
+            if meta is not None:
+                families.add(meta.base_name)
+            else:
+                families.add(selector.split(".", 1)[0])
+        return families
+
+    def _endpoint_accepts_source_family(
+        endpoint_meta: JoinGlyph, source_family: str, side: str
+    ) -> bool:
+        # When the source's `before` adds a ligature endpoint, the source
+        # precedes the ligature. The ligature must accept the source as a
+        # left-side neighbor — i.e., source_family must be in the ligature's
+        # own `after` (positive selector) or the ligature must have no
+        # `after` constraint at all. Mirror for the `after` side.
+        if side == "entry":
+            if endpoint_meta.after:
+                if source_family not in _selector_families(endpoint_meta.after):
+                    return False
+        else:  # side == "exit"
+            if endpoint_meta.before:
+                if source_family not in _selector_families(endpoint_meta.before):
+                    return False
+        return True
+
+    def _ligature_variant_matches_runtime(
+        endpoint_meta: JoinGlyph, source_family: str, side: str
+    ) -> bool:
+        sequence = endpoint_meta.sequence
+        if not sequence:
+            return True
+        if side == "exit":
+            expected = _expected_runtime_exit_suffix(source_family, sequence[-1])
+            actual = (
+                endpoint_meta.contracted_exit_suffix
+                or endpoint_meta.extended_exit_suffix
+                or ""
+            )
+        else:
+            expected = _expected_runtime_entry_suffix(source_family, sequence[0])
+            actual = endpoint_meta.extended_entry_suffix or ""
+        return actual == expected
+
     def _additions(
         field: tuple[str, ...],
         index: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]],
         anchor_ys: frozenset[int],
+        *,
+        source_family: str | None,
+        side: str,
     ) -> set[str]:
         existing = set(field)
         additions: set[str] = set()
@@ -2555,6 +2726,42 @@ def expand_selectors_for_ligatures(
                 novel_ys = (anchor_ys & candidate_ys) - canonical_ys
                 if not novel_ys:
                     continue
+                if source_family is not None:
+                    endpoint_meta = join_glyphs.get(endpoint)
+                    if endpoint_meta is not None:
+                        if (
+                            side == "entry"
+                            and source_family in endpoint_meta.noentry_after
+                        ):
+                            # The ligature drops its entry when this source
+                            # family precedes it, so the source can never
+                            # actually join forward into it. Adding it to
+                            # the source's `before` would just confuse the
+                            # join validator and emit dead post-liga rules.
+                            continue
+                        if endpoint_meta.sequence and not _ligature_variant_matches_runtime(
+                            endpoint_meta, source_family, side
+                        ):
+                            # The trailing (or lead) component's base form
+                            # mutates into a specific suffix variant when
+                            # this source family follows (or precedes), so
+                            # only the matching ligature variant can actually
+                            # appear in the buffer at runtime. Skip ligature
+                            # variants whose state can't be reached.
+                            continue
+                        if not _endpoint_accepts_source_family(
+                            endpoint_meta, source_family, side
+                        ):
+                            # Some ligatures carry their own `select.after`
+                            # / `select.before` constraint that gates whether
+                            # the ligature ever fires (e.g.,
+                            # `qsThey_qsUtter` only collapses when its
+                            # `after` lists a context-set match). If the
+                            # source's family isn't in that list, the
+                            # ligature never appears in the buffer next to
+                            # this source — adding it to the selector list
+                            # would generate a one-sided join warning.
+                            continue
                 additions.add(endpoint)
         return additions
 
@@ -2562,6 +2769,9 @@ def expand_selectors_for_ligatures(
         field: tuple[str, ...],
         index: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]],
         anchor_ys: frozenset[int] | None,
+        *,
+        source_family: str | None,
+        side: str,
     ) -> tuple[str, ...]:
         # An empty anchor set means the source has no cursive anchor on the
         # side the selector cares about, so a ligature-bridged join can never
@@ -2569,7 +2779,13 @@ def expand_selectors_for_ligatures(
         # literal interpretation.
         if not field or not anchor_ys:
             return field
-        new_additions = _additions(field, index, anchor_ys)
+        new_additions = _additions(
+            field,
+            index,
+            anchor_ys,
+            source_family=source_family,
+            side=side,
+        )
         if not new_additions:
             return field
         return tuple([*field, *sorted(new_additions)])
@@ -2577,6 +2793,8 @@ def expand_selectors_for_ligatures(
     def _expand_gated(
         gated: tuple[tuple[str, tuple[str, ...]], ...],
         anchor_ys: frozenset[int] | None,
+        *,
+        source_family: str | None,
     ) -> tuple[tuple[str, tuple[str, ...]], ...]:
         if not gated:
             return gated
@@ -2584,7 +2802,11 @@ def expand_selectors_for_ligatures(
         changed = False
         for feature_tag, families in gated:
             new_families = _expand_filtered(
-                families, forward_entries_by_component, anchor_ys
+                families,
+                forward_entries_by_component,
+                anchor_ys,
+                source_family=source_family,
+                side="entry",
             )
             if new_families is not families:
                 changed = True
@@ -2605,12 +2827,25 @@ def expand_selectors_for_ligatures(
             if record.entry or record.entry_curs_only
             else None
         )
+        source_family = record.family or record.base_name
         new_before = _expand_filtered(
-            record.before, forward_entries_by_component, source_exit_ys
+            record.before,
+            forward_entries_by_component,
+            source_exit_ys,
+            source_family=source_family,
+            side="entry",
         )
-        new_gated_before = _expand_gated(record.gated_before, source_exit_ys)
+        new_gated_before = _expand_gated(
+            record.gated_before,
+            source_exit_ys,
+            source_family=source_family,
+        )
         new_after = _expand_filtered(
-            record.after, backward_entries_by_component, source_entry_ys
+            record.after,
+            backward_entries_by_component,
+            source_entry_ys,
+            source_family=source_family,
+            side="exit",
         )
         if (
             new_before is record.before
