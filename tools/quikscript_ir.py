@@ -2,7 +2,14 @@ from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
+import warnings
 from typing import Any, TypedDict, cast
+
+
+class LigatureEntryInheritanceWarning(UserWarning):
+    """A ligature's explicit `entry` anchor duplicates (or contradicts) what
+    `_inherit_ligature_entries_from_lead` would supply. Surface it so we can
+    eventually strip the redundant declarations."""
 
 
 Anchor = tuple[int, int]
@@ -1690,6 +1697,12 @@ def _iter_related_extension_targets(
     anchor_attr = side
     targets = [(source_name, source_glyph, True)]
     base_name = source_glyph.base_name
+    # Entry-side rules flow from the lead component (sequence[0]) of a
+    # ligature; exit-side rules flow from the trailing component
+    # (sequence[-1]). The other end of the ligature is buried internally
+    # and its anchor never reaches a joining boundary, so propagating
+    # there would only generate dead variants.
+    ligature_position = -1 if side == "exit" else 0
 
     for other_name, other_join_glyph in sorted(join_glyphs.items()):
         if other_name == source_name:
@@ -1702,7 +1715,22 @@ def _iter_related_extension_targets(
         other_base = other_join_glyph.base_name
         other_sequence = other_join_glyph.sequence
         is_variant = other_base == base_name and bool(other_join_glyph.modifiers)
-        is_ligature = bool(other_sequence) and other_sequence[0] == base_name
+        is_ligature = (
+            bool(other_sequence) and other_sequence[ligature_position] == base_name
+        )
+        # A ligature that declares its own `noentry_after` is taking
+        # explicit responsibility for its exit-side behavior; the post-liga
+        # cleanup that routes `lig → lig.noentry` after specific
+        # predecessors is only emitted for the base ligature glyph, so
+        # propagating an extension/contraction here would generate a
+        # variant that bypasses that cleanup. Stick with the explicit
+        # YAML-declared rules in that case.
+        if (
+            is_ligature
+            and side == "exit"
+            and other_join_glyph.noentry_after
+        ):
+            continue
         if is_variant or is_ligature:
             targets.append((other_name, other_join_glyph, False))
 
@@ -2665,6 +2693,7 @@ def compile_quikscript_ir(
         )
     transforms: list[JoinTransform] = []
     if variant == "senior":
+        join_glyphs = _inherit_ligature_entries_from_lead(join_glyphs)
         join_glyphs, transforms = expand_join_transforms(
             join_glyphs,
             has_zwnj="uni200C" in glyph_data.get("glyphs", {}),
@@ -2673,6 +2702,202 @@ def compile_quikscript_ir(
     join_glyphs = _expand_anchor_sentinels(join_glyphs)
     join_glyphs = _propagate_noentry_after_to_not_before(join_glyphs)
     return join_glyphs, transforms
+
+
+def _format_anchor(anchor: Anchor) -> str:
+    return f"[{anchor[0]}, {anchor[1]}]"
+
+
+def _format_anchors(anchors: tuple[Anchor, ...]) -> str:
+    if len(anchors) == 1:
+        return _format_anchor(anchors[0])
+    return "[" + ", ".join(_format_anchor(a) for a in anchors) + "]"
+
+
+def _leftmost_ink_column(row: BitmapRow) -> int | None:
+    """Return the column index of the leftmost ink pixel in a bitmap row,
+    or ``None`` if the row is entirely blank."""
+    if isinstance(row, str):
+        for i, ch in enumerate(row):
+            if ch == "#":
+                return i
+        return None
+    for i, value in enumerate(row):
+        if value:
+            return i
+    return None
+
+
+def _bitmap_row_at_y(
+    bitmap: tuple[BitmapRow, ...],
+    y_offset: int,
+    y: int,
+) -> BitmapRow | None:
+    """Return the bitmap row that lives at glyph-space ``y``, or ``None``
+    if no such row exists. Top row is at ``y = (len(bitmap) - 1) + y_offset``;
+    bottom row is at ``y = y_offset``."""
+    if not bitmap:
+        return None
+    top_y = (len(bitmap) - 1) + y_offset
+    index = top_y - y
+    if index < 0 or index >= len(bitmap):
+        return None
+    return bitmap[index]
+
+
+def _bitmaps_align_at_y(
+    source_glyph: JoinGlyph,
+    target_glyph: JoinGlyph,
+    y: int,
+) -> bool:
+    """Check that ``source_glyph`` and ``target_glyph`` share the same
+    leftmost-ink column at glyph-space ``y``. Used as a safety guard before
+    copying an entry anchor's x-coordinate from one glyph onto another:
+    if the lead's entry coordinates land in different bitmap territory on
+    the ligature, the join would leave a visible bitmap gap."""
+    source_row = _bitmap_row_at_y(source_glyph.bitmap, source_glyph.y_offset, y)
+    target_row = _bitmap_row_at_y(target_glyph.bitmap, target_glyph.y_offset, y)
+    if source_row is None or target_row is None:
+        return False
+    return _leftmost_ink_column(source_row) == _leftmost_ink_column(target_row)
+
+
+def _find_lead_entry_source(
+    join_glyphs: dict[str, JoinGlyph],
+    lead_family: str,
+) -> tuple[tuple[Anchor, ...], JoinGlyph] | None:
+    """Pick the entry anchor a ligature should inherit from its lead.
+
+    Preference order:
+      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its
+         entry is non-empty. The prop is the unrestricted default form, so
+         its entry coordinates are always safe to copy.
+      2. The compiled glyph named ``f"{lead_family}.entry-xheight"`` if it
+         exists, has an entry, and **has no ``after`` constraint**. An
+         ``after``-restricted entry-xheight form (e.g. ``qsFee.entry-xheight``,
+         ``qsJai.entry-xheight``) only fires for specific predecessors;
+         copying its anchor onto a ligature would silently grant the
+         ligature an entry it isn't supposed to advertise to other
+         predecessors. The current explicit declarations on
+         ``qsThey_qsUtter`` / ``qsJai_qsUtter`` reflect that nuance and
+         must keep their own ``select.after`` to remain context-equivalent.
+
+    More-specific entry forms (e.g. ``qsTea.entry-xheight.after-fee``) are
+    intentionally **not** candidates: they layer extra context on top of the
+    canonical form. We only need *one* unconditional anchor to seed the
+    ligature; ``_iter_related_extension_targets`` will still propagate
+    `extend_entry_after` rules from any compatible source by matching on
+    ``base_name``.
+
+    Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry
+    exists.
+    """
+    lead_prop = join_glyphs.get(lead_family)
+    if lead_prop is not None and lead_prop.entry:
+        return lead_prop.entry, lead_prop
+
+    canonical = join_glyphs.get(f"{lead_family}.entry-xheight")
+    if canonical is not None and canonical.entry and not canonical.after:
+        return canonical.entry, canonical
+
+    return None
+
+
+def _inherit_ligature_entries_from_lead(
+    join_glyphs: dict[str, JoinGlyph],
+) -> dict[str, JoinGlyph]:
+    """Fill in missing entry anchors on ligatures from the lead component.
+
+    For every JoinGlyph whose ``sequence`` has length ≥ 2 and whose ``entry``
+    is empty, copy the entry anchor from the lead component's compiled glyph
+    (see ``_find_lead_entry_source`` for the lookup rule). This lets the
+    existing ``_iter_related_extension_targets`` machinery propagate
+    ``extend_entry_after`` rules onto the ligature without YAML duplication.
+
+    Also emits ``LigatureEntryInheritanceWarning`` for every ligature that
+    declares its own ``entry`` anchor — the explicit declaration is now a
+    candidate for cleanup (matching inheritance) or a drift hazard
+    (mismatched). The warning is informational; the explicit YAML always
+    wins until manually removed.
+
+    Half/alt-trait ligature variants (e.g. ``qsDay_qsUtter.half``) are
+    skipped: their entry coordinates legitimately differ from the lead's
+    prop entry (a half lead exits at the baseline, not x-height), so prop
+    inheritance is never the right rule for them.
+
+    Bitmap alignment is checked at the entry's Y row: if the ligature's
+    leftmost ink column at that row differs from the lead's, inheritance
+    would create a join with a visible gap, so we skip it. The ligature
+    stays entry-less unless its YAML explicitly declares one.
+    """
+    updated = dict(join_glyphs)
+    for name, glyph in sorted(join_glyphs.items()):
+        if len(glyph.sequence) < 2:
+            continue
+        if glyph.generated_from is not None:
+            continue
+        if glyph.traits:
+            continue
+        lead = glyph.sequence[0]
+        inheritable = _find_lead_entry_source(join_glyphs, lead)
+
+        if not glyph.entry:
+            if inheritable is None:
+                continue
+            inherited_entries, source_glyph = inheritable
+            entry_y = inherited_entries[0][1]
+            if not _bitmaps_align_at_y(source_glyph, glyph, entry_y):
+                continue
+            updated[name] = replace(glyph, entry=inherited_entries)
+            continue
+
+        if inheritable is None:
+            warnings.warn(
+                f"{name}: declares entry {_format_anchors(glyph.entry)}; "
+                f"lead {lead} has no auto-inheritable entry-bearing form. "
+                f"The explicit declaration is therefore load-bearing; "
+                f"consider adding an entry-xheight form on {lead} or "
+                f"documenting why this ligature is special.",
+                LigatureEntryInheritanceWarning,
+                stacklevel=2,
+            )
+            continue
+
+        inherited_entries, source_glyph = inheritable
+        entry_y = inherited_entries[0][1]
+        if not _bitmaps_align_at_y(source_glyph, glyph, entry_y):
+            warnings.warn(
+                f"{name}: declares entry {_format_anchors(glyph.entry)}; "
+                f"lead {lead} has an inheritable entry "
+                f"{_format_anchors(inherited_entries)} from {source_glyph.name}, "
+                f"but the ligature's bitmap at y={entry_y} doesn't align with "
+                f"the lead's. The explicit declaration is therefore "
+                f"load-bearing; review whether the bitmap or the entry is "
+                f"correct.",
+                LigatureEntryInheritanceWarning,
+                stacklevel=2,
+            )
+            continue
+
+        if tuple(glyph.entry) == tuple(inherited_entries):
+            warnings.warn(
+                f"{name}: declares entry {_format_anchors(glyph.entry)}; "
+                f"would inherit {_format_anchors(inherited_entries)} from "
+                f"{source_glyph.name}. Consider removing the explicit "
+                f"declaration.",
+                LigatureEntryInheritanceWarning,
+                stacklevel=2,
+            )
+        else:
+            warnings.warn(
+                f"{name}: declares entry {_format_anchors(glyph.entry)}; "
+                f"would inherit {_format_anchors(inherited_entries)} from "
+                f"{source_glyph.name} (differs!). Either fix the YAML or "
+                f"document why the override is intentional.",
+                LigatureEntryInheritanceWarning,
+                stacklevel=2,
+            )
+    return updated
 
 
 def _propagate_noentry_after_to_not_before(
@@ -2737,6 +2962,7 @@ __all__ = [
     "GlyphDef",
     "JoinGlyph",
     "JoinTransform",
+    "LigatureEntryInheritanceWarning",
     "build_join_glyphs",
     "compile_glyph_families",
     "compile_quikscript_ir",

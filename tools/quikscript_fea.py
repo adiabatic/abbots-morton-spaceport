@@ -2947,6 +2947,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     ext_lig = actual_lig + ".exit-extended"
                     if ext_lig in glyph_names:
                         actual_lig = ext_lig
+                contracted_suffix = _meta(combo[-1]).contracted_exit_suffix
+                if contracted_suffix:
+                    contracted_lig = actual_lig + contracted_suffix
+                    if contracted_lig in glyph_names:
+                        actual_lig = contracted_lig
                 lines.append(f"        sub {component_str} by {actual_lig};")
         lines.append("    } calt_liga;")
 
