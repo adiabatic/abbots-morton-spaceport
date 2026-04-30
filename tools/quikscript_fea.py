@@ -2966,9 +2966,25 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             for variant_name, after_glyphs in pair_overrides[base_name]:
                 if not any(glyph in lig_glyph_names for glyph in after_glyphs):
                     continue
-                expanded_after = sorted(_expanded_pair_after(variant_name, after_glyphs))
-                if expanded_after:
-                    post_liga_rules.append((base_name, variant_name, expanded_after))
+                expanded_after = _expanded_pair_after(variant_name, after_glyphs)
+                # Narrow the post-liga trigger class to ligature-derived glyphs
+                # only. The whole point of this lookup is to re-fire form
+                # selection when a ligature glyph is the new immediate
+                # predecessor; including the variant's non-ligature after
+                # entries here would over-fire on plain pre-liga sequences
+                # whose predecessor mutated during `calt_cycle` (e.g.,
+                # `qsUtter qsThey qsJay` where forward extension turns qsUtter
+                # into qsUtter.exit-extended *after* qsThey's backward lookup
+                # already declined to fire). Ligature-only ensures the rule
+                # truly only triggers post-collapse.
+                ligature_after = sorted(
+                    glyph
+                    for glyph in expanded_after
+                    if glyph in glyph_meta
+                    and glyph_meta[glyph].base_name in lig_glyph_names
+                )
+                if ligature_after:
+                    post_liga_rules.append((base_name, variant_name, ligature_after))
 
         for lig_name in sorted(lig_glyph_names):
             noentry_after = _meta(lig_name).noentry_after

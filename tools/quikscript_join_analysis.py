@@ -681,6 +681,11 @@ def _candidate_names_with_exit(
             reachability.glyph_meta[name],
             opposite_family,
         )
+        and not _ligature_base_mutates_at_exit(
+            reachability,
+            reachability.glyph_meta[name],
+            opposite_family,
+        )
     }
 
 
@@ -701,7 +706,59 @@ def _candidate_names_with_entry(
             reachability.glyph_meta[name],
             opposite_family,
         )
+        and not _ligature_base_mutates_at_entry(
+            reachability,
+            reachability.glyph_meta[name],
+            opposite_family,
+        )
     }
+
+
+def _ligature_base_mutates_at_exit(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    opposite_family: str,
+) -> bool:
+    """A base ligature glyph (no exit/entry suffix) never appears at runtime
+    when its trailing component has an `extend_exit_before` or
+    `contract_exit_before` rule that fires for the right-side family — the
+    rule mutates the trailing component pre-liga, then `calt_liga` collapses
+    into the corresponding ligature variant. Skipping such bases here keeps
+    the bitmap-gap warning collector from flagging theoretical pairs that
+    can't form at runtime."""
+    if not meta.sequence:
+        return False
+    if meta.extended_exit_suffix or meta.contracted_exit_suffix:
+        return False
+    last_meta = reachability.glyph_meta.get(meta.sequence[-1])
+    if last_meta is None:
+        return False
+    if last_meta.contract_exit_before and opposite_family in last_meta.contract_exit_before.targets:
+        return True
+    if last_meta.extend_exit_before and opposite_family in last_meta.extend_exit_before.targets:
+        return True
+    return False
+
+
+def _ligature_base_mutates_at_entry(
+    reachability: JoinReachability,
+    meta: JoinGlyph,
+    opposite_family: str,
+) -> bool:
+    """Mirror of `_ligature_base_mutates_at_exit` for the lead-component
+    side."""
+    if not meta.sequence:
+        return False
+    if meta.extended_entry_suffix:
+        return False
+    first_meta = reachability.glyph_meta.get(meta.sequence[0])
+    if first_meta is None:
+        return False
+    if first_meta.contract_entry_after and opposite_family in first_meta.contract_entry_after.targets:
+        return True
+    if first_meta.extend_entry_after and opposite_family in first_meta.extend_entry_after.targets:
+        return True
+    return False
 
 
 def _is_source_authored_join_candidate(meta: JoinGlyph) -> bool:
