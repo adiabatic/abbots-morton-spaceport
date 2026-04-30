@@ -578,7 +578,7 @@ glyph_families:
         select:
           not_before: [{family: qsEt}, {family: qsOwe}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsIt}]}
+          extend_exit_before: {by: 1, targets: [{family: qsCheer}, {family: qsIt}]}
         modifiers: [exit-xheight]
       exit_baseline:
         shape: mono
@@ -676,7 +676,7 @@ glyph_families:
         anchors:
           exit: [4, 5]
         select:
-          not_before: [{family: qsDay}, {family: qsJay}, {family: qsTea}, {family: qsYe}]
+          not_before: [{family: qsCheer}, {family: qsDay}, {family: qsJay}, {family: qsTea}, {family: qsYe}]
         modifiers: [exit-xheight]
   qsThey_qsMay:
     sequence:
@@ -1272,6 +1272,8 @@ glyph_families:
       shape: mono
       anchors:
         exit: [6, 0]
+    derive:
+      extend_exit_before: {by: 1, targets: [{family: qsI}]}
     forms:
       entry_xheight:
         shape: mono
@@ -1622,7 +1624,7 @@ glyph_families:
       anchors:
         exit: [6, 5]
       derive:
-        extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsFee}, {family: qsIt}, {family: qsRoe}]}
+        extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsFee}, {family: qsIt}, {family: qsJay}, {family: qsRoe}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:

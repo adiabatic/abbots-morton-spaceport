@@ -16,7 +16,9 @@ from quikscript_fea import (
     emit_quikscript_senior_features,
 )
 from quikscript_ir import (
+    GlyphData,
     JoinGlyph,
+    LigatureEntryInheritanceWarning,
     _resolve_family_record,
     _widen_bitmap_right_with_connector,
     compile_glyph_families,
@@ -1321,3 +1323,209 @@ def test_unknown_family_level_derive_directive_errors_at_compile_time():
 
     with pytest.raises(ValueError, match="not_a_real_directive"):
         compile_glyph_families({"qsTest": family_def}, "senior")
+
+
+def _ligature_inheritance_glyph_data(
+    *,
+    lead_family: dict,
+    ligature_prop: dict,
+) -> GlyphData:
+    return {
+        "metadata": {},
+        "glyphs": {},
+        "glyph_families": {
+            "qsLead": lead_family,
+            "qsFollow": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"entry": [0, 0]},
+                },
+            },
+            "qsLead_qsFollow": {
+                "sequence": ["qsLead", "qsFollow"],
+                "prop": ligature_prop,
+            },
+        },
+        "context_sets": {},
+        "kerning": {},
+    }
+
+
+def test_inherit_ligature_entry_from_lead_prop():
+    glyphs, _ = compile_quikscript_ir(
+        _ligature_inheritance_glyph_data(
+            lead_family={
+                "prop": {
+                    "bitmap": ["##"],
+                    "anchors": {"entry": [1, 0], "exit": [3, 0]},
+                },
+            },
+            ligature_prop={
+                "bitmap": ["####"],
+                "anchors": {"exit": [5, 0]},
+            },
+        ),
+        "senior",
+    )
+    assert glyphs["qsLead_qsFollow"].entry == ((1, 0),)
+
+
+def test_inherit_ligature_entry_from_entry_xheight_form():
+    glyphs, _ = compile_quikscript_ir(
+        _ligature_inheritance_glyph_data(
+            lead_family={
+                "prop": {
+                    "bitmap": ["##    ", "##    ", "##    ", "##    ", "##    ", "##    "],
+                    "anchors": {"exit": [3, 0]},
+                },
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [1, 5], "exit": [3, 0]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+            ligature_prop={
+                "bitmap": ["##    ##", "##    ##", "##    ##", "##    ##", "##    ##", "##    ##"],
+                "anchors": {"exit": [9, 5]},
+            },
+        ),
+        "senior",
+    )
+    assert glyphs["qsLead_qsFollow"].entry == ((1, 5),)
+
+
+def test_no_inheritance_when_entry_xheight_is_after_restricted():
+    glyphs, _ = compile_quikscript_ir(
+        _ligature_inheritance_glyph_data(
+            lead_family={
+                "prop": {
+                    "bitmap": ["##    ", "##    ", "##    ", "##    ", "##    ", "##    "],
+                    "anchors": {"exit": [3, 0]},
+                },
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [1, 5], "exit": [3, 0]},
+                        "select": {"after": [{"family": "qsFollow"}]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+            ligature_prop={
+                "bitmap": ["##    ##", "##    ##", "##    ##", "##    ##", "##    ##", "##    ##"],
+                "anchors": {"exit": [9, 5]},
+            },
+        ),
+        "senior",
+    )
+    assert glyphs["qsLead_qsFollow"].entry == ()
+
+
+def test_no_inheritance_when_lead_has_no_entry_form():
+    glyphs, _ = compile_quikscript_ir(
+        _ligature_inheritance_glyph_data(
+            lead_family={
+                "prop": {
+                    "bitmap": ["##"],
+                    "anchors": {"exit": [3, 0]},
+                },
+            },
+            ligature_prop={
+                "bitmap": ["####"],
+                "anchors": {"exit": [5, 0]},
+            },
+        ),
+        "senior",
+    )
+    assert glyphs["qsLead_qsFollow"].entry == ()
+
+
+def test_explicit_entry_matching_inheritance_warns():
+    import pytest
+
+    with pytest.warns(LigatureEntryInheritanceWarning, match="Consider removing"):
+        compile_quikscript_ir(
+            _ligature_inheritance_glyph_data(
+                lead_family={
+                    "prop": {
+                        "bitmap": ["##"],
+                        "anchors": {"entry": [1, 0], "exit": [3, 0]},
+                    },
+                },
+                ligature_prop={
+                    "bitmap": ["####"],
+                    "anchors": {"entry": [1, 0], "exit": [5, 0]},
+                },
+            ),
+            "senior",
+        )
+
+
+def test_explicit_entry_differing_from_inheritance_warns_sharply():
+    import pytest
+
+    with pytest.warns(LigatureEntryInheritanceWarning, match="differs!"):
+        compile_quikscript_ir(
+            _ligature_inheritance_glyph_data(
+                lead_family={
+                    "prop": {
+                        "bitmap": ["##"],
+                        "anchors": {"entry": [1, 0], "exit": [3, 0]},
+                    },
+                },
+                ligature_prop={
+                    "bitmap": ["####"],
+                    "anchors": {"entry": [2, 0], "exit": [5, 0]},
+                },
+            ),
+            "senior",
+        )
+
+
+def test_bitmap_misalignment_blocks_inheritance():
+    glyphs, _ = compile_quikscript_ir(
+        _ligature_inheritance_glyph_data(
+            lead_family={
+                "prop": {
+                    # Lead has ink starting at column 0 at y=0.
+                    "bitmap": ["##"],
+                    "anchors": {"entry": [1, 0], "exit": [3, 0]},
+                },
+            },
+            ligature_prop={
+                # Ligature's bitmap leftmost ink at y=0 is column 1, not 0,
+                # so copying entry x=1 onto it would create a join gap.
+                "bitmap": [" #####"],
+                "anchors": {"exit": [7, 0]},
+            },
+        ),
+        "senior",
+    )
+    assert glyphs["qsLead_qsFollow"].entry == ()
+
+
+def test_inheritance_skipped_in_junior_variant():
+    # Junior has no contextual entry-xheight forms compiled, and ligatures
+    # are not formed there anyway, so the pass shouldn't run and shouldn't
+    # warn about ligatures whose explicit YAML entry can't be reconciled.
+    import warnings as _warnings
+
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("error", LigatureEntryInheritanceWarning)
+        compile_quikscript_ir(
+            _ligature_inheritance_glyph_data(
+                lead_family={
+                    "prop": {
+                        "bitmap": ["##"],
+                        "anchors": {"entry": [1, 0], "exit": [3, 0]},
+                    },
+                },
+                ligature_prop={
+                    "bitmap": ["####"],
+                    "anchors": {"entry": [1, 0], "exit": [5, 0]},
+                },
+            ),
+            "junior",
+        )
