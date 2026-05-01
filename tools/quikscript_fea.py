@@ -1023,6 +1023,26 @@ def _format_post_liga_cleanup_rules(
     return lines
 
 
+def _format_post_liga_left_cleanup_rules(
+    rules: list[tuple[str, str, str]],
+) -> list[str]:
+    grouped_rules: dict[tuple[str, str], list[str]] = {}
+    for lig_target, candidate, replacement in rules:
+        key = (candidate, replacement)
+        grouped_rules.setdefault(key, []).append(lig_target)
+
+    lines = []
+    for (candidate, replacement), lig_targets in grouped_rules.items():
+        unique_lig_targets = sorted(set(lig_targets))
+        if len(unique_lig_targets) == 1:
+            lig_target = unique_lig_targets[0]
+            lines.append(f"        sub {candidate}' {lig_target} by {replacement};")
+        else:
+            lig_target_list = " ".join(unique_lig_targets)
+            lines.append(f"        sub {candidate}' [{lig_target_list}] by {replacement};")
+    return lines
+
+
 def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     plan = analysis
     glyph_meta = plan.glyph_meta
@@ -2858,6 +2878,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         return base_name
 
+    def _post_liga_left_fallback(lig_target: str, base_name: str) -> str:
+        if base_name not in fwd_replacements:
+            return base_name
+
+        lig_entry_ys = set(_meta(lig_target).entry_ys)
+        exclusions = fwd_exclusions.get(base_name, {})
+        for exit_y in sorted(fwd_replacements[base_name]):
+            if exit_y not in lig_entry_ys:
+                continue
+            excluded = set(_expand_exclusions(exclusions.get(exit_y, [])))
+            if lig_target in excluded:
+                continue
+            return fwd_replacements[base_name][exit_y]
+
+        return base_name
+
     def _collect_post_liga_right_cleanup_rules(
         lig_name: str,
         components: tuple[str, ...],
@@ -2899,6 +2935,82 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     variant_name
                     for variant_name, after_glyphs in pair_overrides.get(base_name, [])
                     if lig_target in _expanded_pair_after(variant_name, after_glyphs)
+                }
+                for candidate in sorted(candidates):
+                    if candidate in protected:
+                        continue
+                    replacement = _resolve_entryless_replacement(
+                        glyph_meta,
+                        base_to_variants,
+                        candidate,
+                        fallback,
+                    )
+                    if replacement is None or replacement == candidate:
+                        continue
+                    rule = (lig_target, candidate, replacement)
+                    if rule in seen:
+                        continue
+                    seen.add(rule)
+                    rules.append(rule)
+
+        return rules
+
+    def _collect_post_liga_left_cleanup_rules(
+        lig_name: str,
+        components: tuple[str, ...],
+    ) -> list[tuple[str, str, str]]:
+        if not components:
+            return []
+
+        lead_targets = set(
+            _ligature_component_variants(lig_name, components[0], 0)
+        )
+        lig_targets = sorted(base_to_variants.get(lig_name, {lig_name}))
+        seen: set[tuple[str, str, str]] = set()
+        rules: list[tuple[str, str, str]] = []
+        affected_bases = sorted(
+            set(fwd_replacements) | set(fwd_pair_overrides) | set(pair_overrides)
+        )
+
+        for base_name in affected_bases:
+            candidates: set[str] = set()
+
+            for variant_name, after_glyphs in pair_overrides.get(base_name, []):
+                if _expanded_pair_after(variant_name, after_glyphs) & lead_targets:
+                    candidates.add(variant_name)
+
+            for variant_name, before_glyphs, _not_after_glyphs in fwd_pair_overrides.get(
+                base_name, []
+            ):
+                if _expand_all_variants(before_glyphs) & lead_targets:
+                    candidates.add(variant_name)
+
+            exclusions = fwd_exclusions.get(base_name, {})
+            for exit_y, variant_name in fwd_replacements.get(base_name, {}).items():
+                excluded = set(_expand_exclusions(exclusions.get(exit_y, [])))
+                if any(
+                    exit_y in set(_meta(lead_target).entry_ys)
+                    and lead_target not in excluded
+                    for lead_target in lead_targets
+                ):
+                    candidates.add(variant_name)
+
+            if not candidates:
+                continue
+
+            for lig_target in lig_targets:
+                fallback = _post_liga_left_fallback(lig_target, base_name)
+                protected = {
+                    variant_name
+                    for variant_name, after_glyphs in pair_overrides.get(base_name, [])
+                    if lig_target in _expanded_pair_after(variant_name, after_glyphs)
+                }
+                protected |= {
+                    variant_name
+                    for variant_name, before_glyphs, _ in fwd_pair_overrides.get(
+                        base_name, []
+                    )
+                    if lig_target in _expand_all_variants(before_glyphs)
                 }
                 for candidate in sorted(candidates):
                     if candidate in protected:
@@ -3040,6 +3152,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     )
                 lines.append(f"        sub [{after_list}] {target}'{lookahead} by {variant_name};")
             lines.append(f"    }} calt_post_liga_{safe};")
+
+        post_liga_left_cleanup_rules: list[tuple[str, str, str]] = []
+        for lig_name, components in sorted(ligatures):
+            if not _meta(lig_name).entry_explicitly_none:
+                continue
+            post_liga_left_cleanup_rules.extend(
+                _collect_post_liga_left_cleanup_rules(lig_name, components)
+            )
+
+        if post_liga_left_cleanup_rules:
+            lines.append("")
+            lines.append("    lookup calt_post_liga_left_cleanup {")
+            lines.extend(
+                _format_post_liga_left_cleanup_rules(post_liga_left_cleanup_rules)
+            )
+            lines.append("    } calt_post_liga_left_cleanup;")
 
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
