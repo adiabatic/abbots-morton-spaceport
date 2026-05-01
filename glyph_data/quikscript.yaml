@@ -1391,11 +1391,17 @@ glyph_families:
         shape: half
         anchors:
           exit: [4, 0]
+          exit_ink_y: -1
         select:
           not_before: [{family: qsDay}, {family: qsEat}, {family: qsExcite}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
+      half_before_roe:
+        inherits: half
+        select:
+          before: [{family: qsRoe}]
+        modifiers: [before-roe]
   qsWay_qsUtter:
     sequence:
     - qsWay
