@@ -111,16 +111,14 @@ _RESIDUAL_BK_GUARDS: dict[
 # Bitmap-gap pairs the structural collector flags but we knowingly accept.
 # Two flavors live here:
 #
-# (A) Analyzer-only false positives. The qsJai_qsUtter block below is the
-#     canonical example: `qsJai.entry_xheight.derive.contract_entry_after`
-#     mints a `qsJai.entry-xheight.entry-contracted` for every flagged
-#     predecessor, and `calt_liga` then routes
-#     `(qsJai.entry-xheight.entry-contracted, qsUtter)` to
-#     `qsJai_qsUtter.entry-contracted` (gap=0 in real shaping). The
-#     analyzer's `_candidate_names_with_entry` only looks at source-authored
-#     ligature variants, so the runtime resolution past `calt_liga` isn't
-#     visible to it and the base ligature still reads as gapped. TODO: teach
-#     the analyzer to swap the lead's contracted variant onto its ligatures.
+# (A) qsThey_qsUtter declares its own `noentry_after`, which (per CLAUDE.md)
+#     skips the trailing-component propagation of qsUtter's
+#     `contract_exit_before: {targets: [qsJai]}`. So
+#     `qsThey_qsUtter.exit-doubly-contracted` is never created, and at
+#     runtime `(qsThey_qsUtter, qsJai_qsUtter)` shapes to the base ligatures
+#     with a real 1px gap at y=5. TODO: hand-author a `contract_exit_before`
+#     directly on qsThey_qsUtter (or widen its rightmost ink at y=5) to
+#     close the gap, then drop this entry.
 #
 # (B) Modeling-gap noise the analyzer can't yet see through. The qsZoo /
 #     qsZoo.half block is the canonical example: the descender curl below
@@ -132,29 +130,9 @@ _RESIDUAL_BK_GUARDS: dict[
 #     `exit_ink_y` when declared even if the anchor's row has ink, or
 #     introduce a per-glyph "anchor sits past last ink" flag.
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset({
-    # (A) qsJai_qsUtter analyzer false positives — runtime resolves to
-    #     qsJai_qsUtter.entry-contracted via calt_liga.
-    ("qsAt_qsMay", "qsJai_qsUtter", 5),
-    ("qsDay_qsUtter", "qsJai_qsUtter", 5),
-    ("qsDay_qsUtter.half", "qsJai_qsUtter", 5),
-    ("qsGay.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsHe.half", "qsJai_qsUtter", 5),
-    ("qsIt.entry-baseline", "qsJai_qsUtter", 5),
-    ("qsIt.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsJai_qsUtter", "qsJai_qsUtter", 5),
-    ("qsJay_qsUtter", "qsJai_qsUtter", 5),
-    ("qsMay", "qsJai_qsUtter", 5),
-    ("qsMay.entry-baseline", "qsJai_qsUtter", 5),
-    ("qsOwe.entry-xheight.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsOwe.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsSee_qsUtter", "qsJai_qsUtter", 5),
-    ("qsTea.half.entry-top.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsTea.half.exit-xheight", "qsJai_qsUtter", 5),
-    ("qsThey.exit-xheight", "qsJai_qsUtter", 5),
+    # (A) qsThey_qsUtter's own `noentry_after` blocks qsUtter's
+    #     `contract_exit_before` from propagating onto the ligature.
     ("qsThey_qsUtter", "qsJai_qsUtter", 5),
-    ("qsVie_qsUtter", "qsJai_qsUtter", 5),
-    ("qsWay_qsUtter", "qsJai_qsUtter", 5),
-    ("qsWhy_qsUtter", "qsJai_qsUtter", 5),
     # (B) qsZoo descender-curl modeling — gap function reads the baseline
     #     row only, but the visual stroke is at y=-1. Pending an extension
     #     of `_bitmap_join_gap` / `exit_ink_y` semantics.
@@ -978,6 +956,7 @@ def _pair_specific_generated_variants(
     y: int,
     side: str,
 ) -> set[str]:
+    source_meta = reachability.glyph_meta.get(source_name)
     generated: set[str] = set()
     for name, meta in reachability.glyph_meta.items():
         if meta.generated_from != source_name or meta.is_noentry:
@@ -987,6 +966,8 @@ def _pair_specific_generated_variants(
                 continue
             if not _before_context_matches_opposite(
                 reachability, meta, opposite_family, opposite_names
+            ) and not _ligature_component_propagates_context(
+                reachability, source_meta, meta, opposite_family, side="exit"
             ):
                 continue
         else:
@@ -994,6 +975,8 @@ def _pair_specific_generated_variants(
                 continue
             if not _after_context_matches_opposite(
                 reachability, meta, opposite_family, opposite_names
+            ) and not _ligature_component_propagates_context(
+                reachability, source_meta, meta, opposite_family, side="entry"
             ):
                 continue
         generated.add(name)
@@ -1063,6 +1046,69 @@ def _after_context_matches_opposite(
         _selector_matches_family_or_name(reachability, selector, family, names)
         for selector in meta.after
     )
+
+
+def _ligature_component_propagates_context(
+    reachability: JoinReachability,
+    source_meta: JoinGlyph | None,
+    candidate_meta: JoinGlyph,
+    opposite_family: str,
+    side: str,
+) -> bool:
+    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and
+    # the symmetric exit-side helpers) in `quikscript_ir` propagate a
+    # component's contract / extend rule onto the matching ligature variant
+    # but leave the variant's own `after` / `before` empty (the propagated
+    # context is intersected with the base ligature's, which is `()`). At
+    # runtime `calt_liga` still routes through that variant whenever the
+    # component form's contraction / extension fires, so accept it as a swap
+    # candidate when the relevant component family carries a matching rule
+    # whose targets include `opposite_family`. The lead component drives
+    # entry-side propagation; the trailing component drives exit-side.
+    #
+    # Ligature inheritance (mirroring `expand_selectors_for_ligatures`)
+    # applies to the rule's `targets` list too: a target family `qsZ` matches
+    # `opposite_family` directly *or* matches when `opposite_family` is a
+    # ligature whose lead (entry side) or trailing (exit side) component is
+    # `qsZ`, because runtime context lookups see that boundary component
+    # pre-liga.
+    if source_meta is None or not source_meta.sequence:
+        return False
+    if side == "entry":
+        component_index = 0
+        opposite_match_index = -1
+        if candidate_meta.contracted_entry_suffix is not None:
+            spec_attr = "contract_entry_after"
+        elif candidate_meta.extended_entry_suffix is not None:
+            spec_attr = "extend_entry_after"
+        else:
+            return False
+    else:
+        component_index = -1
+        opposite_match_index = 0
+        if candidate_meta.contracted_exit_suffix is not None:
+            spec_attr = "contract_exit_before"
+        elif candidate_meta.extended_exit_suffix is not None:
+            spec_attr = "extend_exit_before"
+        else:
+            return False
+
+    opposite_targets = {opposite_family}
+    opposite_meta = reachability.glyph_meta.get(opposite_family)
+    if opposite_meta is not None and opposite_meta.sequence:
+        opposite_targets.add(opposite_meta.sequence[opposite_match_index])
+
+    component_family = source_meta.sequence[component_index]
+    for variant_name in reachability.base_to_variants.get(component_family, frozenset()):
+        variant_meta = reachability.glyph_meta.get(variant_name)
+        if variant_meta is None:
+            continue
+        spec = getattr(variant_meta, spec_attr)
+        if spec is None:
+            continue
+        if any(target in spec.targets for target in opposite_targets):
+            return True
+    return False
 
 
 def _selector_matches_family_or_name(
