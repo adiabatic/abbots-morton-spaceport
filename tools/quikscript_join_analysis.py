@@ -109,89 +109,17 @@ _RESIDUAL_BK_GUARDS: dict[
 }
 
 # Bitmap-gap pairs the structural collector flags but we knowingly accept.
-# Two flavors live here:
 #
-# (A) qsThey_qsUtter declares its own `noentry_after`, which (per CLAUDE.md)
-#     skips the trailing-component propagation of qsUtter's
-#     `contract_exit_before: {targets: [qsJai]}`. So
-#     `qsThey_qsUtter.exit-doubly-contracted` is never created, and at
-#     runtime `(qsThey_qsUtter, qsJai_qsUtter)` shapes to the base ligatures
-#     with a real 1px gap at y=5. TODO: hand-author a `contract_exit_before`
-#     directly on qsThey_qsUtter (or widen its rightmost ink at y=5) to
-#     close the gap, then drop this entry.
-#
-# (B) Modeling-gap noise the analyzer can't yet see through. The qsZoo /
-#     qsZoo.half block is the canonical example: the descender curl below
-#     the baseline visually carries the stroke past column 4 at y=-1 to
-#     meet the next letter, but `_bitmap_join_gap` only consults
-#     `exit_ink_y` when the anchor's row is *empty* of ink. qsZoo has one
-#     pixel at (1, 0), so the fallback never fires and the analyzer reads a
-#     wide gap on the baseline row. TODO: extend the gap function to honor
-#     `exit_ink_y` when declared even if the anchor's row has ink, or
-#     introduce a per-glyph "anchor sits past last ink" flag.
+# qsThey_qsUtter declares its own `noentry_after`, which (per CLAUDE.md)
+# skips the trailing-component propagation of qsUtter's
+# `contract_exit_before: {targets: [qsJai]}`. So
+# `qsThey_qsUtter.exit-doubly-contracted` is never created, and at runtime
+# `(qsThey_qsUtter, qsJai_qsUtter)` shapes to the base ligatures with a real
+# 1px gap at y=5. TODO: hand-author a `contract_exit_before` directly on
+# qsThey_qsUtter (or widen its rightmost ink at y=5) to close the gap, then
+# drop this entry.
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset({
-    # (A) qsThey_qsUtter's own `noentry_after` blocks qsUtter's
-    #     `contract_exit_before` from propagating onto the ligature.
     ("qsThey_qsUtter", "qsJai_qsUtter", 5),
-    # (B) qsZoo descender-curl modeling — gap function reads the baseline
-    #     row only, but the visual stroke is at y=-1. Pending an extension
-    #     of `_bitmap_join_gap` / `exit_ink_y` semantics.
-    ("qsZoo", "qsAh", 0),
-    ("qsZoo", "qsAt", 0),
-    ("qsZoo", "qsDay.half", 0),
-    ("qsZoo", "qsDay_qsUtter.half", 0),
-    ("qsZoo", "qsEat", 0),
-    ("qsZoo", "qsExam", 0),
-    ("qsZoo", "qsI", 0),
-    ("qsZoo", "qsIng", 0),
-    ("qsZoo", "qsLow", 0),
-    ("qsZoo", "qsMay.entry-baseline", 0),
-    ("qsZoo", "qsOoze", 0),
-    ("qsZoo", "qsOut", 0),
-    ("qsZoo", "qsOut.exit-xheight", 0),
-    ("qsZoo", "qsOut_qsTea", 0),
-    ("qsZoo", "qsRoe", 0),
-    ("qsZoo", "qsRoe.exit-xheight", 0),
-    ("qsZoo", "qsRoe.exit-xheight.before-eight", 0),
-    ("qsZoo", "qsSee", 0),
-    ("qsZoo", "qsSee.exit-y6", 0),
-    ("qsZoo", "qsSee_qsUtter", 0),
-    ("qsZoo", "qsTea.entry-baseline", 0),
-    ("qsZoo", "qsThaw", 0),
-    ("qsZoo", "qsUtter", 0),
-    ("qsZoo", "qsVie", 0),
-    ("qsZoo", "qsVie.exit-baseline", 0),
-    ("qsZoo", "qsVie_qsUtter", 0),
-    ("qsZoo", "qsZoo.half", 0),
-    ("qsZoo", "qsZoo.half.before-baseline-entry", 0),
-    ("qsZoo.half", "qsAh", 0),
-    ("qsZoo.half", "qsAt", 0),
-    ("qsZoo.half", "qsDay.half", 0),
-    ("qsZoo.half", "qsDay_qsUtter.half", 0),
-    ("qsZoo.half", "qsEat", 0),
-    ("qsZoo.half", "qsExam", 0),
-    ("qsZoo.half", "qsI", 0),
-    ("qsZoo.half", "qsIng", 0),
-    ("qsZoo.half", "qsLow", 0),
-    ("qsZoo.half", "qsMay.entry-baseline", 0),
-    ("qsZoo.half", "qsOoze", 0),
-    ("qsZoo.half", "qsOut", 0),
-    ("qsZoo.half", "qsOut.exit-xheight", 0),
-    ("qsZoo.half", "qsOut_qsTea", 0),
-    ("qsZoo.half", "qsRoe", 0),
-    ("qsZoo.half", "qsRoe.exit-xheight", 0),
-    ("qsZoo.half", "qsRoe.exit-xheight.before-eight", 0),
-    ("qsZoo.half", "qsSee", 0),
-    ("qsZoo.half", "qsSee.exit-y6", 0),
-    ("qsZoo.half", "qsSee_qsUtter", 0),
-    ("qsZoo.half", "qsTea.entry-baseline", 0),
-    ("qsZoo.half", "qsThaw", 0),
-    ("qsZoo.half", "qsUtter", 0),
-    ("qsZoo.half", "qsVie", 0),
-    ("qsZoo.half", "qsVie.exit-baseline", 0),
-    ("qsZoo.half", "qsVie_qsUtter", 0),
-    ("qsZoo.half", "qsZoo.half", 0),
-    ("qsZoo.half", "qsZoo.half.before-baseline-entry", 0),
 })
 
 
@@ -1179,9 +1107,10 @@ def _bitmap_join_gap(
     left_family: str | None = None,
     right_family: str | None = None,
 ) -> int | None:
-    left_bounds = _ink_bounds_at_y(left_meta, left_anchor[1])
-    if left_bounds is None and left_meta.exit_ink_y is not None:
+    if left_meta.exit_ink_y is not None:
         left_bounds = _ink_bounds_at_y(left_meta, left_meta.exit_ink_y)
+    else:
+        left_bounds = _ink_bounds_at_y(left_meta, left_anchor[1])
     right_bounds = _ink_bounds_at_y(right_meta, right_anchor[1])
     if left_bounds is None or right_bounds is None:
         return None
