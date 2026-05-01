@@ -1263,7 +1263,7 @@ glyph_families:
       anchors:
         exit: [6, 0]
     derive:
-      extend_exit_before: {by: 1, targets: [{family: qsI}]}
+      extend_exit_before: {by: 1, targets: [{family: qsExam}, {family: qsI}]}
     forms:
       entry_xheight:
         shape: mono
