@@ -1482,7 +1482,7 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
-          before: [{family: qsDay}, {family: qsMay}]
+          before: [{family: qsDay}]
         modifiers: [exit-baseline, before-half]
   qsWhy:
     mono:
