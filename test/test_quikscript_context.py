@@ -274,33 +274,37 @@ def test_structured_family_selectors_resolve_to_compiled_names():
     assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
 
 
-def test_qs_he_half_doubly_contracted_pairs_with_trimmed_qs_zoo():
+def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     compiled = _compiled_set()
     meta = compiled.glyph_meta
     glyphs = compiled.glyph_definitions
 
-    contracted = meta["qsHe.half.exit-doubly-contracted"]
+    contracted = meta["qsHe.half.exit-contracted"]
     plain_half = meta["qsHe.half"]
     assert contracted.bitmap == plain_half.bitmap
-    assert contracted.exit == ((0, 5),)
+    assert contracted.exit == ((1, 5),)
     assert plain_half.exit == ((2, 5),)
     assert contracted.before == ("qsZoo",)
     assert "half" in contracted.traits
-    assert glyphs["qsHe.half.exit-doubly-contracted"]["calt_before"] == ["qsZoo"]
+    assert glyphs["qsHe.half.exit-contracted"]["calt_before"] == ["qsZoo"]
 
     extended_zoo = meta["qsZoo.entry-extended"]
-    trimmed = meta["qsZoo.entry-extended.entry-trimmed-by-2"]
+    trimmed = meta["qsZoo.entry-extended.entry-trimmed-by-1"]
     assert extended_zoo.bitmap[0] == "####  "
-    assert trimmed.bitmap[0] == "  ##  "
+    assert trimmed.bitmap[0] == " ###  "
     assert trimmed.bitmap[1:] == extended_zoo.bitmap[1:]
     assert trimmed.entry == extended_zoo.entry
     assert trimmed.exit == extended_zoo.exit
     assert trimmed.y_offset == extended_zoo.y_offset
-    assert trimmed.after == ("qsHe.half.exit-doubly-contracted",)
+    assert trimmed.after == (
+        "qsHe.half.exit-contracted",
+        "qsTea.half.exit-xheight.exit-contracted",
+    )
     assert trimmed.transform_kind == "entry-trimmed"
-    assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-2"} <= trimmed.compat_assertions
-    assert glyphs["qsZoo.entry-extended.entry-trimmed-by-2"]["calt_after"] == [
-        "qsHe.half.exit-doubly-contracted"
+    assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-1"} <= trimmed.compat_assertions
+    assert glyphs["qsZoo.entry-extended.entry-trimmed-by-1"]["calt_after"] == [
+        "qsHe.half.exit-contracted",
+        "qsTea.half.exit-xheight.exit-contracted",
     ]
 
 
