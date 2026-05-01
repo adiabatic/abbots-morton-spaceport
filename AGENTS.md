@@ -72,6 +72,26 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - A successor's `select.after: [{family: qsY}]` clause implicitly matches every ligature whose trailing component is `qsY` (and the symmetric `before: [{family: qsX}]` implicitly matches every ligature whose lead is `qsX`). `expand_selectors_for_ligatures` handles this at IR time: it adds the matching ligature variants to the selector list so the post-liga form-selection survives `calt_liga`. Don't hand-list ligature names like `qsJay_qsUtter` in `select.after` / `select.before` — the pass takes runtime-state into account (it skips base ligatures whose trailing component would mutate before the source's family, e.g., `qsJai`'s after only picks up `qsX_qsUtter.exit-doubly-contracted`, not the base `qsX_qsUtter`) and also skips ligatures whose own `select.after` / `select.before` excludes the source. The companion FEA emission narrows `calt_post_liga_*` trigger classes to ligature glyphs only, so `calt_cycle`'s pre-liga form-selection isn't disturbed.
 - A ligature can opt out of all left-side joins by declaring `entry: null` on its `prop.anchors`. The merge preserves the `null` sentinel, `JoinGlyph.entry_explicitly_none` becomes True, and `_inherit_ligature_entries_from_lead` skips inheritance from the lead. `calt_post_liga_left_cleanup` then reverts any predecessor whose lead-component-targeted form was selected pre-liga back to its default (or its entryless sibling), so neither cursive attachment nor visual abutment survives the ligature collapse — `qsAt_qsMay` is the running example. `expand_selectors_for_ligatures` also skips these ligatures, so no later `calt` rule can re-apply a lead-targeted form against the ligature glyph. Don't hand-author `not_before: [qsX_qsY]` clauses on predecessor variants for new no-entry ligatures — the FEA emitter handles it data-driven off the flag, mirroring the trailing-side `calt_post_liga_cleanup` pass.
 
+## How to do simple changes
+
+Most one-line cursive-attachment tweaks fit one of the patterns below. Don't reach for a new form before checking these first.
+
+### Make ·X·Y use Y's `<shape>` shape
+
+Add `{family: qsX}` to the `select.after` list of the qsY form that uses that shape. If qsY's `prop.derive.extend_entry_after.targets` mirrors the same `select.after` list, add `{family: qsX}` there too to keep them in lockstep. Example: making ·Jay·Roe use Roe's `shortened_top` shape adds `{family: qsJay}` to both `qsRoe.forms.entry_extended_at_baseline.select.after` and `qsRoe.prop.derive.extend_entry_after.targets`.
+
+### Extend the ·X·Y connection by N pixels
+
+Add `{family: qsY}` to qsX's family-level `derive.extend_exit_before.targets` (creating the dict with `by: N` if it doesn't exist). The build widens X's exit stroke and shifts the exit anchor by the same amount, so the receiver moves right and the connecting stroke gains N pixels of ink. Example: extending ·Jay·Exam by a pixel adds `{family: qsExam}` to `qsJay.derive.extend_exit_before.targets`.
+
+### Contract (opposite-of-extend) the ·X·Y connection by N pixels
+
+Add `contract_entry_after: {by: N, targets: [{family: qsX}]}` to qsY's joining form's `derive` (typically `entry_xheight` for xheight joins, `entry_baseline` for baseline joins). Don't make a new form, even when qsY already has an `extend_entry_after` whose targets implicitly include qsX (e.g., through `halves_exit_xheight`) — the narrow contract rule (a single family) wins over the broad extend rule because the build orders narrower selectors first. Example: contracting ·He·Jay by a pixel adds `contract_entry_after: {by: 1, targets: [{family: qsHe}]}` to `qsJay.forms.entry_xheight.derive`, alongside the existing `extend_entry_after`.
+
+### Conflicting `by` values
+
+A single `derive` block holds at most one each of `extend_entry_after`, `extend_exit_before`, `contract_entry_after`, and `contract_exit_before`, with a single `by` and a list of targets per directive. When you'd need a different `by` for a new target on a directive that's already in use (e.g., `qsHe.forms.half` already has `contract_exit_before: {by: 2, targets: [{family: qsZoo}]}` and you want `by: 1` for a different target), put the new rule on the other side of the join (e.g., contract Y's entry-after instead of X's exit-before).
+
 ## Bumping the version number
 
 1. Update `version` in `glyph_data/metadata.yaml` (e.g., `3.000`)
