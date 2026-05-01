@@ -1458,6 +1458,8 @@ glyph_families:
         - "   "
         - "   "
         - "   "  #
+    derive:
+      extend_exit_before: {by: 1, targets: [{family: qsExam}]}
     forms:
       half:
         shape: half
