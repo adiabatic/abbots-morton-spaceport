@@ -20,8 +20,10 @@ from quikscript_join_analysis import (
     OrphanAnchorWarning,
     _compute_derived_bk_guards,
     _compute_derived_liga_guards,
+    _RESIDUAL_BITMAP_GAPS,
     _RESIDUAL_BK_GUARDS,
     _RESIDUAL_LIGA_GUARDS,
+    _bitmap_join_gap,
     collect_join_warnings,
     derive_pending_bk_entry_guards,
     derive_pending_liga_entry_guards,
@@ -908,6 +910,82 @@ def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
 
 def test_real_join_warning_collector_is_clean():
     assert collect_join_warnings(_real_join_glyphs()) == ()
+
+
+def test_default_default_pair_warns_on_bitmap_gap():
+    """Two families with no explicit `before:` / `after:` selectors but with
+    matching exit / entry Ys must still be checked for bitmap gaps. Before
+    the default-default sweep landed, this case slipped through silently
+    because no pair-intent key referenced it. The synthetic shapes mirror
+    the real qsHe.half → qsJai.entry-xheight pair: a left exit with the
+    anchor two columns past its rightmost ink, and a right bitmap whose
+    leftmost ink sits one column past the entry anchor."""
+    qs_left = _make_glyph(
+        name="qsLeft",
+        base_name="qsLeft",
+        family="qsLeft",
+        exit=((2, 5),),
+        bitmap=("#  ",),
+        y_offset=5,
+    )
+    qs_right = _make_glyph(
+        name="qsRight",
+        base_name="qsRight",
+        family="qsRight",
+        entry=((1, 5),),
+        bitmap=(" ####",),
+        y_offset=5,
+    )
+
+    warnings = collect_join_warnings(
+        {
+            "qsLeft": qs_left,
+            "qsRight": qs_right,
+        }
+    )
+
+    assert any(
+        warning
+        == "join-bitmap-gap: qsLeft -> qsRight at y=5 leaves 1px blank between strokes"
+        for warning in warnings
+    )
+
+
+def test_residual_bitmap_gaps_are_real():
+    """`_RESIDUAL_BITMAP_GAPS` is a known-bug list, not a wishlist: every
+    entry must correspond to a pair the analyzer would otherwise flag.
+    When a Phase B fix lands, the corresponding line should be removed
+    from the table; this test catches stale entries that no longer
+    suppress anything."""
+    glyph_meta = _real_join_glyphs()
+    spurious: list[tuple[str, str, int]] = []
+    for left_name, right_name, y in sorted(_RESIDUAL_BITMAP_GAPS):
+        left_meta = glyph_meta.get(left_name)
+        right_meta = glyph_meta.get(right_name)
+        if left_meta is None or right_meta is None:
+            spurious.append((left_name, right_name, y))
+            continue
+        left_anchor = next((a for a in left_meta.exit if a[1] == y), None)
+        right_anchor = next(
+            (a for a in (*right_meta.entry, *right_meta.entry_curs_only) if a[1] == y),
+            None,
+        )
+        if left_anchor is None or right_anchor is None:
+            spurious.append((left_name, right_name, y))
+            continue
+        gap = _bitmap_join_gap(
+            left_meta,
+            left_anchor,
+            right_meta,
+            right_anchor,
+            left_family=left_meta.family,
+            right_family=right_meta.family,
+        )
+        if gap is not None and gap <= 0:
+            spurious.append((left_name, right_name, y))
+    assert not spurious, (
+        f"_RESIDUAL_BITMAP_GAPS entries no longer flag a gap and should be removed: {spurious}"
+    )
 
 
 def test_forward_intent_with_no_matching_backward_entry_raises():

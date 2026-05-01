@@ -1192,6 +1192,16 @@ glyph_families:
           exit: [7, 0]
         derive:
           extend_entry_after: {by: 2, targets: [{family: qsMay}]}
+          contract_entry_after:
+            by: 1
+            targets:
+            - {family: qsAt_qsMay}
+            - {family: qsGay}
+            - {family: qsHe}
+            - {family: qsIt}
+            - {family: qsOwe}
+            - {family: qsTea}
+            - {family: qsThey}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
@@ -1536,6 +1546,7 @@ glyph_families:
         shape: half
         anchors:
           exit: [5, 0]
+          exit_ink_y: -1
         select:
           not_before: [{family: qsExcite}, {family: qsI}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
         traits: [half]
