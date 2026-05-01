@@ -1183,19 +1183,6 @@ glyph_families:
         anchors:
           entry: [1, 5]
           exit: [7, 0]
-        select:
-          after:
-          - {family: qsFee}
-          - {family: qsMay}
-          - {family: qsNo}
-          - {family: qsRoe}
-          - {family: qsLow}
-          - {family: qsAt}
-          - {family: qsI}
-          - {family: qsAh}
-          - {family: qsUtter}
-          - {family: qsOut}
-          - {family: qsFoot}
         derive:
           extend_entry_after: {by: 2, targets: [{family: qsMay}]}
         modifiers: [entry-xheight]
@@ -1221,7 +1208,6 @@ glyph_families:
       - " ##       "
       y_offset: -3
       anchors:
-        entry: [1, 5]
         exit: [11, 5]
   qsCheer:
     mono:
