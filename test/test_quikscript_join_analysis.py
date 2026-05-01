@@ -1,3 +1,5 @@
+import warnings
+from collections.abc import Mapping
 from pathlib import Path
 import sys
 from typing import Any
@@ -15,6 +17,7 @@ from quikscript_ir import ExtensionSpec, JoinGlyph
 from quikscript_join_analysis import (
     DerivedBkGuard,
     JoinReachability,
+    OrphanAnchorWarning,
     _compute_derived_bk_guards,
     _compute_derived_liga_guards,
     _RESIDUAL_BK_GUARDS,
@@ -24,6 +27,12 @@ from quikscript_join_analysis import (
     derive_pending_liga_entry_guards,
     validate_join_consistency,
 )
+
+
+def _validate_synthetic(glyph_meta: Mapping[str, JoinGlyph]) -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OrphanAnchorWarning)
+        validate_join_consistency(glyph_meta)
 
 
 @lru_cache(maxsize=1)
@@ -225,7 +234,7 @@ def test_validator_accepts_known_good_pair():
         exit=((4, 5),),
     )
 
-    validate_join_consistency(
+    _validate_synthetic(
         {
             "qsPea": qs_pea,
             "qsPea.before-tea": qs_pea_before_tea,
@@ -925,7 +934,7 @@ def test_forward_intent_with_no_matching_backward_entry_raises():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsPea": qs_pea,
                 "qsPea.before-tea": qs_pea_before_tea,
@@ -963,7 +972,7 @@ def test_backward_intent_with_no_matching_forward_exit_raises():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsPea": qs_pea,
                 "qsTea": qs_tea,
@@ -1008,7 +1017,7 @@ def test_ligature_only_path_with_mismatched_anchor_raises():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsOut": qs_out,
                 "qsOut.before-tea": qs_out_before_tea,
@@ -1050,7 +1059,7 @@ def test_noentry_after_strip_creates_a_mismatch():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsSee": qs_see,
                 "qsSee.before-out-tea": qs_see_before_out_tea,
@@ -1096,7 +1105,7 @@ def test_ss_gated_swap_adds_a_mismatch():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsPea": qs_pea,
                 "qsPea.before-tea": qs_pea_before_tea,
@@ -1151,7 +1160,7 @@ def test_regression_075d485_fee_exits_xheight_before_utter():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsFee": qs_fee,
                 "qsFee.exit-xheight": qs_fee_exit_xheight,
@@ -1204,7 +1213,7 @@ def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsIt": qs_it,
                 "qsVie": qs_vie,
@@ -1254,7 +1263,7 @@ def test_regression_d641641_tea_x_must_not_pick_joining_x():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsTea": qs_tea,
                 "qsTea.exit-baseline": qs_tea_exit_baseline,
@@ -1312,7 +1321,7 @@ def test_regression_714a2d5_tea_oy_ligature_after_tea():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsX": qs_x,
                 "qsX.before-tea-oy": qs_x_before_tea_oy,
@@ -1371,7 +1380,7 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
     )
 
     with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
-        validate_join_consistency(
+        _validate_synthetic(
             {
                 "qsIng": qs_ing,
                 "qsIng.exit-extended": qs_ing_exit_extended,
