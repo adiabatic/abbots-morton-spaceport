@@ -244,6 +244,10 @@
         },
         "exit": {
           "$ref": "#/definitions/anchorValueOrNull"
+        },
+        "exit_ink_y": {
+          "type": "integer",
+          "description": "Fallback Y row used by the join-gap analysis when the exit anchor's own Y has no ink in the bitmap. Set this when the stroke's exit ink ends one or more rows above or below the exit anchor (e.g. a half form whose exit anchor sits at y=5 while the stroke's last inked row is y=6, or a form whose exit anchor sits at the baseline while the stroke dips to y=-1). The analyzer falls back to this Y to locate the rightmost inked column for computing inter-glyph gaps."
         }
       }
     },
