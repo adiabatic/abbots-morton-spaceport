@@ -1272,6 +1272,7 @@ glyph_families:
           exit: [6, 0]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight}]}
+          contract_entry_after: {by: 1, targets: [{family: qsHe}]}
         modifiers: [entry-xheight]
   qsJay_qsUtter:
     sequence:
