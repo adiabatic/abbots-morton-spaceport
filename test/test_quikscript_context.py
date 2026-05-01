@@ -1,4 +1,5 @@
 import sys
+import warnings
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -9,12 +10,15 @@ from typing import Any
 from build_font import load_glyph_data
 from glyph_compiler import CompiledGlyphSet, compile_glyph_set
 from quikscript_ir import JoinGlyph, generate_noentry_variants
+from quikscript_join_analysis import OrphanAnchorWarning
 
 
 def _compiled_set(data: Any = None) -> CompiledGlyphSet:
     if data is None:
-        data = load_glyph_data(ROOT / "glyph_data")
-    return compile_glyph_set(data, "senior")
+        return compile_glyph_set(load_glyph_data(ROOT / "glyph_data"), "senior")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", OrphanAnchorWarning)
+        return compile_glyph_set(data, "senior")
 
 def _compiled_meta() -> dict[str, JoinGlyph]:
     return _compiled_set().glyph_meta
