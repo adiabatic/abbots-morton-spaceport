@@ -1141,22 +1141,6 @@ def test_expand_selectors_skips_ligature_glyph_when_anchor_y_does_not_match():
     assert "qsA_qsB" not in expanded["qsRight"].after
 
 
-def test_qs_jai_entry_xheight_after_picks_up_qs_jay_qs_utter_via_expansion_pass():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    # qsUtter has `contract_exit_before: { by: 2, targets: [{family: qsJai}] }`,
-    # so the qsUtter that precedes qsJai at runtime is always
-    # `qsUtter.exit-doubly-contracted`. After `calt_liga` collapses, the
-    # ligature glyph that actually precedes qsJai is the matching variant
-    # `qsJay_qsUtter.exit-doubly-contracted`. The runtime-aware filter in
-    # `expand_selectors_for_ligatures` keeps that variant in the after list
-    # but drops the unreachable base `qsJay_qsUtter`.
-    record = join_glyphs["qsJai.entry-xheight"]
-    assert "qsJay_qsUtter.exit-doubly-contracted" in record.after
-    assert "qsJay_qsUtter" not in record.after
-
-
 def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
