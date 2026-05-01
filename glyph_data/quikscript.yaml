@@ -1477,20 +1477,13 @@ glyph_families:
         select:
           not_before: [{family: qsExcite}, {family: qsSee}, {family: qsTea}, {family: qsThaw}]
         modifiers: [exit-baseline]
-      exit_baseline_before_day:
+      exit_baseline_before_half:
         shape: prop
         anchors:
           exit: [2, 0]
         select:
-          before: [{family: qsDay}]
-        modifiers: [exit-baseline, before-day]
-      exit_baseline_before_may:
-        shape: prop
-        anchors:
-          exit: [2, 0]
-        select:
-          before: [{family: qsMay}]
-        modifiers: [exit-baseline, before-may]
+          before: [{family: qsDay}, {family: qsMay}]
+        modifiers: [exit-baseline, before-half]
   qsWhy:
     mono:
       bitmap:
