@@ -29,9 +29,6 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 ## Adding glyphs
 
 - Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
-
-## Generating glyphs for the first time in `glyph_data/quikscript.yaml`
-
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - When looking at @reference/manual-page-2.pdf, ignore the hyphens in the names when looking up the names (like `T-ea` for ·Tea).
 - Tall letters have a height of 9 pixels (9 entries in `bitmap`).
@@ -41,15 +38,12 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 
 ## Inspiration
 
-- This is a font that’s supposed to match Departure Mono’s metrics.
-- When in doubt, look at @test/DepartureMono-Regular.otf to check metrics.
 - When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
 - Use @reference/csur/index.html to find out what Quikscript letters go with what code points.
-- To understand a Quikscript letter shape, zoom/crop @reference/manual-page-2.pdf (the colons between the letters show the vertical dimension of a Short letter) and, if needed, compare against @reference/csur/kingsley.ttf, then translate the stroke path into the 5×6 or 5×9 pixel grid.
 
 ## Cursive attachment (`curs`)
 
-- Quikscript source data now lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `forms` records. Put `entry` / `exit` anchors (under an `anchors:` mapping) in the proportional record or form that should compile into the proportional font; mono-only records do not carry `curs` anchors.
+- Quikscript source data lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `forms` records. Put `entry` / `exit` anchors (under an `anchors:` mapping) in the proportional record or form that should compile into the proportional font; mono-only records do not carry `curs` anchors.
 - Shared Quikscript bitmaps belong under a family's `shapes`, and contextual/alternate forms belong under `forms` with `anchors`, `select`, `derive`, `traits`, and `modifiers`. Preserve `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes belong under ordered `modifiers`.
 - Quikscript form keys are local labels, not the compiled glyph naming API. The build now seeds compiled glyph identity and compatibility metadata from each form's explicit `traits` and `modifiers`, while `select` / `derive` family references use structured selectors like `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
 - Repeated `select` / `derive` reference lists belong under top-level `context_sets` and are referenced inline as `{context_set: some_name}`. `context_sets` may include other `context_set` references when composing a larger list from smaller ones keeps the source clearer.
@@ -61,10 +55,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - When deciding whether a preserved join may survive later context, account for downstream ligatures too; if the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit.
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
 - When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
-- After `·Et`, keep `·Tea` on its left baseline join and suppress its ordinary right joins; preserve `·Tea·Oy` through the ligature rules instead of an `·Et`-specific `qsTea` form that joins on both sides.
-- Use `ss05` to opt back into `·Et ~b~ ·Tea ~b~ ...` baseline double-joins when needed; the default shaping should still suppress Tea's ordinary right joins after `·Et`.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
-- For `·-ing` before `·Thaw`, extend `qsIng`'s exit rather than shifting `qsThaw`'s entry left.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 - During `calt`, a ZWNJ boundary is still the literal `uni200C` glyph; if a selector needs to block or require a ZWNJ boundary, target `uni200C` in `after` / `not_after` rather than `space`.
 - Two-glyph ligatures (`qsX_qsY`) inherit their entry anchor from the lead `qsX` automatically: the build copies the entry coords from `qsX`'s prop (or, if the prop has no entry, from `qsX.entry-xheight` when that form is unrestricted), and `_iter_related_extension_targets` then propagates `qsX`'s `extend_entry_after` rules onto the ligature with no further YAML. Don't restate the entry on the ligature, and don't duplicate `extend_entry_after` there — adjustments to `qsX`'s entry-side joins will track automatically. Declare an explicit entry on the ligature only when the lead's inheritable form is intentionally context-restricted (e.g., `qsThey.entry-xheight`) or the ligature's bitmap doesn't share the lead's leftmost-ink column at the entry's Y; the build emits a `LigatureEntryInheritanceWarning` whenever an explicit declaration could otherwise be removed.
