@@ -1705,6 +1705,8 @@ glyph_families:
       - " # # "
       - " # # "
       - "  #  "  #
+      ductus: |
+        Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
     prop:
       shape: mono
       anchors:
