@@ -214,7 +214,14 @@ def _merge_family_records(base: dict[str, Any], override: dict[str, Any]) -> dic
             merged.setdefault(key, {})
             for nested_key, nested_value in value.items():
                 if nested_value is None:
-                    merged[key].pop(nested_key, None)
+                    if key == "anchors":
+                        # Preserve None as an explicit opt-out sentinel so
+                        # downstream code can distinguish "this form declares
+                        # no entry/exit" from "this form said nothing about
+                        # entry/exit". Drives entry_explicitly_none.
+                        merged[key][nested_key] = None
+                    else:
+                        merged[key].pop(nested_key, None)
                 else:
                     merged[key][nested_key] = deepcopy(nested_value)
             if not merged[key]:
@@ -2446,6 +2453,8 @@ def expand_selectors_for_ligatures(
         if record.name != record.base_name:
             continue
         if record.is_noentry:
+            continue
+        if record.entry_explicitly_none:
             continue
         if record.extended_entry_suffix is not None:
             continue

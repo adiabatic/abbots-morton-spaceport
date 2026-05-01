@@ -2669,3 +2669,47 @@ def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
     assert _pair_join_ys(glyphs, 0) == {5}, glyphs
     gap = _bitmap_join_gap(glyphs, 0, 5)
     assert gap is not None and gap <= 0, glyphs
+
+
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsRoe", id="roe"),
+        pytest.param("qsSee", id="see"),
+    ],
+)
+def test_predecessors_never_join_to_qs_at_qs_may(left_base: str):
+    _assert_no_failures(
+        _collect_nonjoining_left_ligature_failures(
+            left_base,
+            "qsAt_qsMay",
+            ("qsAt", "qsMay"),
+        ),
+        limit=None,
+    )
+
+
+def test_qs_roe_returns_to_base_before_qs_at_qs_may():
+    # Pre-liga, qsRoe.exit-baseline.select.before matches the literal qsAt.
+    # calt_post_liga_left_cleanup must revert qsRoe to its default form
+    # once qsAt qsMay collapses to qsAt_qsMay (which has no entry anchor).
+    glyphs = _shape_qs("qsRoe", "qsAt", "qsMay")
+    assert glyphs == ["qsRoe", "qsAt_qsMay"], glyphs
+    assert not _pair_join_ys(glyphs, 0), glyphs
+
+
+def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
+    # qsRoe.exit-baseline is also legitimately triggered by {family: qsAh}.
+    # The post-liga cleanup must NOT over-fire when the right neighbor is
+    # not a no-entry ligature.
+    glyphs = _shape_qs("qsRoe", "qsAh")
+    assert glyphs[0] == "qsRoe.exit-baseline", glyphs
+
+
+def test_qs_at_qs_may_has_no_entry_anchor():
+    # The whole left-cleanup mechanism is gated on entry_explicitly_none.
+    # If qsAt_qsMay ever silently regains an entry anchor, the cleanup
+    # stops emitting and predecessors revert to baseline-joining behavior.
+    meta = _compiled_meta()["qsAt_qsMay"]
+    assert meta.entry_explicitly_none, meta
+    assert meta.entry == (), meta
