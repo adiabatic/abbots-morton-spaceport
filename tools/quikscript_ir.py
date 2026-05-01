@@ -90,6 +90,7 @@ class JoinGlyph:
     contracted_exit_suffix: str | None = None
     contract_entry_after: ExtensionSpec | None = None
     contract_exit_before: ExtensionSpec | None = None
+    entry_explicitly_none: bool = False
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -1162,6 +1163,9 @@ def _glyph_def_to_join_glyph(
         contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(list(resolved_modifiers)),
         contract_entry_after=glyph_def.get("contract_entry_after"),
         contract_exit_before=glyph_def.get("contract_exit_before"),
+        entry_explicitly_none=(
+            "cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None
+        ),
     )
 
 
@@ -3064,6 +3068,13 @@ def _inherit_ligature_entries_from_lead(
     leftmost ink column at that row differs from the lead's, inheritance
     would create a join with a visible gap, so we skip it. The ligature
     stays entry-less unless its YAML explicitly declares one.
+
+    A ligature can opt out of inheritance entirely by writing ``entry: null``
+    in its ``prop.anchors``. This is distinct from omitting the key (which
+    means "inherit if possible"); ``null`` means "this ligature has no entry
+    anchor, do not inherit, do not warn." Use this when the ligature
+    legitimately has no entry even though the lead has one (e.g. stroke
+    direction in the joined form precludes any incoming join).
     """
     updated = dict(join_glyphs)
     for name, glyph in sorted(join_glyphs.items()):
@@ -3077,6 +3088,8 @@ def _inherit_ligature_entries_from_lead(
         inheritable = _find_lead_entry_source(join_glyphs, lead)
 
         if not glyph.entry:
+            if glyph.entry_explicitly_none:
+                continue
             if inheritable is None:
                 continue
             inherited_entries, source_glyph = inheritable

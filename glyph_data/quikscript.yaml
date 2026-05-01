@@ -2272,7 +2272,7 @@ glyph_families:
       - "       ## "
       y_offset: -3
       anchors:
-        entry: [1, 0]
+        entry: null
         exit: [11, 5]
       derive:
         extend_exit_before_gated:
