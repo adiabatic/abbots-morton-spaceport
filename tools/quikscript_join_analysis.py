@@ -108,6 +108,115 @@ _RESIDUAL_BK_GUARDS: dict[
     ),
 }
 
+# Bitmap-gap pairs the structural collector flags but we knowingly accept.
+# Two flavors live here:
+#
+# (A) Analyzer-only false positives. The qsJai_qsUtter block below is the
+#     canonical example: `qsJai.entry_xheight.derive.contract_entry_after`
+#     mints a `qsJai.entry-xheight.entry-contracted` for every flagged
+#     predecessor, and `calt_liga` then routes
+#     `(qsJai.entry-xheight.entry-contracted, qsUtter)` to
+#     `qsJai_qsUtter.entry-contracted` (gap=0 in real shaping). The
+#     analyzer's `_candidate_names_with_entry` only looks at source-authored
+#     ligature variants, so the runtime resolution past `calt_liga` isn't
+#     visible to it and the base ligature still reads as gapped. TODO: teach
+#     the analyzer to swap the lead's contracted variant onto its ligatures.
+#
+# (B) Modeling-gap noise the analyzer can't yet see through. The qsZoo /
+#     qsZoo.half block is the canonical example: the descender curl below
+#     the baseline visually carries the stroke past column 4 at y=-1 to
+#     meet the next letter, but `_bitmap_join_gap` only consults
+#     `exit_ink_y` when the anchor's row is *empty* of ink. qsZoo has one
+#     pixel at (1, 0), so the fallback never fires and the analyzer reads a
+#     wide gap on the baseline row. TODO: extend the gap function to honor
+#     `exit_ink_y` when declared even if the anchor's row has ink, or
+#     introduce a per-glyph "anchor sits past last ink" flag.
+_RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset({
+    # (A) qsJai_qsUtter analyzer false positives — runtime resolves to
+    #     qsJai_qsUtter.entry-contracted via calt_liga.
+    ("qsAt_qsMay", "qsJai_qsUtter", 5),
+    ("qsDay_qsUtter", "qsJai_qsUtter", 5),
+    ("qsDay_qsUtter.half", "qsJai_qsUtter", 5),
+    ("qsGay.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsHe.half", "qsJai_qsUtter", 5),
+    ("qsIt.entry-baseline", "qsJai_qsUtter", 5),
+    ("qsIt.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsJai_qsUtter", "qsJai_qsUtter", 5),
+    ("qsJay_qsUtter", "qsJai_qsUtter", 5),
+    ("qsMay", "qsJai_qsUtter", 5),
+    ("qsMay.entry-baseline", "qsJai_qsUtter", 5),
+    ("qsOwe.entry-xheight.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsOwe.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsSee_qsUtter", "qsJai_qsUtter", 5),
+    ("qsTea.half.entry-top.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsTea.half.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsThey.exit-xheight", "qsJai_qsUtter", 5),
+    ("qsThey_qsUtter", "qsJai_qsUtter", 5),
+    ("qsVie_qsUtter", "qsJai_qsUtter", 5),
+    ("qsWay_qsUtter", "qsJai_qsUtter", 5),
+    ("qsWhy_qsUtter", "qsJai_qsUtter", 5),
+    # (B) qsZoo descender-curl modeling — gap function reads the baseline
+    #     row only, but the visual stroke is at y=-1. Pending an extension
+    #     of `_bitmap_join_gap` / `exit_ink_y` semantics.
+    ("qsZoo", "qsAh", 0),
+    ("qsZoo", "qsAt", 0),
+    ("qsZoo", "qsDay.half", 0),
+    ("qsZoo", "qsDay_qsUtter.half", 0),
+    ("qsZoo", "qsEat", 0),
+    ("qsZoo", "qsExam", 0),
+    ("qsZoo", "qsI", 0),
+    ("qsZoo", "qsIng", 0),
+    ("qsZoo", "qsLow", 0),
+    ("qsZoo", "qsMay.entry-baseline", 0),
+    ("qsZoo", "qsOoze", 0),
+    ("qsZoo", "qsOut", 0),
+    ("qsZoo", "qsOut.exit-xheight", 0),
+    ("qsZoo", "qsOut_qsTea", 0),
+    ("qsZoo", "qsRoe", 0),
+    ("qsZoo", "qsRoe.exit-xheight", 0),
+    ("qsZoo", "qsRoe.exit-xheight.before-eight", 0),
+    ("qsZoo", "qsSee", 0),
+    ("qsZoo", "qsSee.exit-y6", 0),
+    ("qsZoo", "qsSee_qsUtter", 0),
+    ("qsZoo", "qsTea.entry-baseline", 0),
+    ("qsZoo", "qsThaw", 0),
+    ("qsZoo", "qsUtter", 0),
+    ("qsZoo", "qsVie", 0),
+    ("qsZoo", "qsVie.exit-baseline", 0),
+    ("qsZoo", "qsVie_qsUtter", 0),
+    ("qsZoo", "qsZoo.half", 0),
+    ("qsZoo", "qsZoo.half.before-baseline-entry", 0),
+    ("qsZoo.half", "qsAh", 0),
+    ("qsZoo.half", "qsAt", 0),
+    ("qsZoo.half", "qsDay.half", 0),
+    ("qsZoo.half", "qsDay_qsUtter.half", 0),
+    ("qsZoo.half", "qsEat", 0),
+    ("qsZoo.half", "qsExam", 0),
+    ("qsZoo.half", "qsI", 0),
+    ("qsZoo.half", "qsIng", 0),
+    ("qsZoo.half", "qsLow", 0),
+    ("qsZoo.half", "qsMay.entry-baseline", 0),
+    ("qsZoo.half", "qsOoze", 0),
+    ("qsZoo.half", "qsOut", 0),
+    ("qsZoo.half", "qsOut.exit-xheight", 0),
+    ("qsZoo.half", "qsOut_qsTea", 0),
+    ("qsZoo.half", "qsRoe", 0),
+    ("qsZoo.half", "qsRoe.exit-xheight", 0),
+    ("qsZoo.half", "qsRoe.exit-xheight.before-eight", 0),
+    ("qsZoo.half", "qsSee", 0),
+    ("qsZoo.half", "qsSee.exit-y6", 0),
+    ("qsZoo.half", "qsSee_qsUtter", 0),
+    ("qsZoo.half", "qsTea.entry-baseline", 0),
+    ("qsZoo.half", "qsThaw", 0),
+    ("qsZoo.half", "qsUtter", 0),
+    ("qsZoo.half", "qsVie", 0),
+    ("qsZoo.half", "qsVie.exit-baseline", 0),
+    ("qsZoo.half", "qsVie_qsUtter", 0),
+    ("qsZoo.half", "qsZoo.half", 0),
+    ("qsZoo.half", "qsZoo.half.before-baseline-entry", 0),
+})
+
+
 _RESIDUAL_LIGA_GUARDS: dict[
     tuple[str, str, int], tuple[DerivedBkGuard, ...]
 ] = {
@@ -581,7 +690,8 @@ def _collect_bitmap_gap_warnings(
     warnings: list[str] = []
     forward_by_key = _intents_by_pair(forward_intents)
     backward_by_key = _intents_by_pair(backward_intents)
-    keys = sorted(set(forward_by_key) | set(backward_by_key))
+    default_keys = _default_default_pair_keys(reachability)
+    keys = sorted(set(forward_by_key) | set(backward_by_key) | default_keys)
     seen: set[tuple[str, str, int]] = set()
 
     for key in keys:
@@ -651,6 +761,8 @@ def _collect_bitmap_gap_warnings(
                             left_family=left_family,
                             right_family=right_family,
                         )
+                        if (left_name, right_name, y) in _RESIDUAL_BITMAP_GAPS:
+                            continue
                         if gap is None:
                             warnings.append(
                                 "join-bitmap-gap: "
@@ -665,6 +777,32 @@ def _collect_bitmap_gap_warnings(
                             )
 
     return warnings
+
+
+def _default_default_pair_keys(
+    reachability: JoinReachability,
+) -> set[tuple[str, str, int]]:
+    """Family triples where both sides could theoretically join at y, with no
+    explicit `before:` / `after:` gating. The intent-keyed pass only walks
+    pairs where one side declared a pair selector; this fills in the rest so
+    the bitmap-gap collector sees default-default joins too."""
+    exit_ys: dict[str, set[int]] = {}
+    entry_ys: dict[str, set[int]] = {}
+    for family, variants in reachability.base_to_variants.items():
+        for name in variants:
+            meta = reachability.glyph_meta.get(name)
+            if meta is None or meta.is_noentry:
+                continue
+            for anchor in meta.exit:
+                exit_ys.setdefault(family, set()).add(anchor[1])
+            for anchor in (*meta.entry, *meta.entry_curs_only):
+                entry_ys.setdefault(family, set()).add(anchor[1])
+    keys: set[tuple[str, str, int]] = set()
+    for left_family, left_ys in exit_ys.items():
+        for right_family, right_ys in entry_ys.items():
+            for y in left_ys & right_ys:
+                keys.add((left_family, right_family, y))
+    return keys
 
 
 def _intents_by_pair(

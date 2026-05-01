@@ -3050,6 +3050,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         ext_lig = lig_name + ".entry-extended"
                     if ext_lig in glyph_names:
                         actual_lig = ext_lig
+                contracted_entry_suffix = _meta(combo[0]).contracted_entry_suffix
+                if contracted_entry_suffix:
+                    contracted_lig = lig_name + contracted_entry_suffix
+                    if contracted_lig in glyph_names:
+                        actual_lig = contracted_lig
                 if "half" in _meta(combo[0]).traits:
                     half_lig = lig_name + ".half"
                     if half_lig in glyph_names:
