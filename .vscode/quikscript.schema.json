@@ -189,6 +189,10 @@
         "$ref": "#/definitions/bitmapRow"
       }
     },
+    "ductus": {
+      "type": "string",
+      "description": "Free-form note describing the stroke order and direction of the glyph (its 'ductus'). Typically authored as a YAML literal block (|) with one stroke per line. Primarily aimed at agents reasoning about the glyph, since they don't draw it themselves; useful for human readers too. Not consumed by the build."
+    },
     "coordinatePair": {
       "type": "array",
       "description": "Anchor coordinate pair as [x, y] in glyph pixel space.",
@@ -350,6 +354,9 @@
         "bitmap": {
           "$ref": "#/definitions/bitmap"
         },
+        "ductus": {
+          "$ref": "#/definitions/ductus"
+        },
         "y_offset": {
           "type": "integer",
           "description": "Vertical offset in pixels. Deep letters typically use -3."
@@ -442,6 +449,9 @@
       "properties": {
         "bitmap": {
           "$ref": "#/definitions/bitmap"
+        },
+        "ductus": {
+          "$ref": "#/definitions/ductus"
         },
         "y_offset": {
           "type": "integer",
