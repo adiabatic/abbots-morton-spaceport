@@ -34,6 +34,7 @@ If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `
 - Tall letters have a height of 9 pixels (9 entries in `bitmap`).
 - Short letters have a height of 6 pixels (6 entries in `bitmap`).
 - Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
+- "Ink" is a filled bitmap pixel — a `#` cell, as opposed to a space. The font's strokes are made of ink. The cursive-attachment tooling talks about a row's "leftmost-ink column" (the leftmost `#` in that row), "no ink at y=N" (the row at glyph-space y=N is all spaces), and `exit_ink_y` (the fallback row to scan when the exit anchor's own Y has no ink).
 - For bitmap data in `glyph_data/quikscript.yaml`, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
 
 ## Inspiration
