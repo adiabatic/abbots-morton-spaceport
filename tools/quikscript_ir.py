@@ -3013,6 +3013,7 @@ def _bitmaps_align_at_y(
 def _find_lead_entry_source(
     join_glyphs: dict[str, JoinGlyph],
     lead_family: str,
+    ligature_after: frozenset[str] = frozenset(),
 ) -> tuple[tuple[Anchor, ...], JoinGlyph] | None:
     """Pick the entry anchor a ligature should inherit from its lead.
 
@@ -3021,14 +3022,17 @@ def _find_lead_entry_source(
          entry is non-empty. The prop is the unrestricted default form, so
          its entry coordinates are always safe to copy.
       2. The compiled glyph named ``f"{lead_family}.entry-xheight"`` if it
-         exists, has an entry, and **has no ``after`` constraint**. An
-         ``after``-restricted entry-xheight form (e.g. ``qsFee.entry-xheight``,
-         ``qsJai.entry-xheight``) only fires for specific predecessors;
-         copying its anchor onto a ligature would silently grant the
-         ligature an entry it isn't supposed to advertise to other
-         predecessors. The current explicit declarations on
-         ``qsThey_qsUtter`` / ``qsJai_qsUtter`` reflect that nuance and
-         must keep their own ``select.after`` to remain context-equivalent.
+         exists and has an entry, when one of:
+           a. It has no ``after`` constraint (the form is unrestricted).
+           b. The ligature carries a ``select.after`` whose compiled set
+              equals the lead's ``entry-xheight.after`` set. Mirroring the
+              restriction means the ligature only fires for the same
+              predecessors the lead's entry-xheight fires for, so the
+              inherited entry is context-equivalent.
+         An ``after``-restricted ``entry-xheight`` whose restriction the
+         ligature does NOT mirror is rejected: copying its anchor would
+         silently grant the ligature an entry for predecessors the lead
+         wouldn't accept.
 
     More-specific entry forms (e.g. ``qsTea.entry-xheight.after-fee``) are
     intentionally **not** candidates: they layer extra context on top of the
@@ -3045,8 +3049,11 @@ def _find_lead_entry_source(
         return lead_prop.entry, lead_prop
 
     canonical = join_glyphs.get(f"{lead_family}.entry-xheight")
-    if canonical is not None and canonical.entry and not canonical.after:
-        return canonical.entry, canonical
+    if canonical is not None and canonical.entry:
+        if not canonical.after:
+            return canonical.entry, canonical
+        if frozenset(canonical.after) == ligature_after:
+            return canonical.entry, canonical
 
     return None
 
@@ -3094,7 +3101,9 @@ def _inherit_ligature_entries_from_lead(
         if glyph.traits:
             continue
         lead = glyph.sequence[0]
-        inheritable = _find_lead_entry_source(join_glyphs, lead)
+        inheritable = _find_lead_entry_source(
+            join_glyphs, lead, frozenset(glyph.after)
+        )
 
         if not glyph.entry:
             if glyph.entry_explicitly_none:
