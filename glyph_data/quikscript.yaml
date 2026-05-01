@@ -1596,13 +1596,13 @@ glyph_families:
         derive:
           extend_entry_after: {by: 2, targets: [{family: qsThaw}]}
         modifiers: [after-thaw]
-      noentry_after_ye:
+      noentry_after_he_or_ye:
         shape: mono
         anchors:
           entry: null
         select:
-          after: [{family: qsYe}]
-        modifiers: [after-ye]
+          after: [{family: qsHe}, {family: qsYe}]
+        modifiers: [after-he-or-ye]
   qsMay:
     mono:
       bitmap:

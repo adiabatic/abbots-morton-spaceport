@@ -761,7 +761,7 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
         pytest.param(("qsWhy", "qsYe"), ["qsWhy", "qsYe"], id="why-ye"),
         pytest.param(("qsYe", "qsExam"), ["qsYe", "qsExam.after-ye"], id="ye-exam"),
         pytest.param(("qsYe", "qsExcite"), ["qsYe", "qsExcite.after-ye"], id="ye-excite"),
-        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-ye"], id="ye-ing"),
+        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-he-or-ye"], id="ye-ing"),
         pytest.param(("qsYe", "qsIt"), ["qsYe", "qsIt"], id="ye-it"),
         pytest.param(("qsYe", "qsSee"), ["qsYe", "qsSee.after-ye"], id="ye-see"),
     ],
