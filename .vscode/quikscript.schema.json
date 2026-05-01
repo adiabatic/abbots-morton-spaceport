@@ -221,7 +221,7 @@
       ]
     },
     "anchorValueOrNull": {
-      "description": "Anchor value, or null to clear an inherited anchor from a parent form.",
+      "description": "Anchor value, or null for an explicit opt-out at this position. On a child form, null clears an anchor inherited from a parent. On a ligature's prop.anchors.entry, null sets entry_explicitly_none on the JoinGlyph: it skips entry inheritance from the lead component and triggers calt_post_liga_left_cleanup, which reverts predecessors out of any lead-component-targeted form.",
       "oneOf": [
         {
           "$ref": "#/definitions/anchorValue"
