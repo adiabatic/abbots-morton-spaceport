@@ -10,7 +10,7 @@ from typing import Any
 from build_font import load_glyph_data
 from glyph_compiler import CompiledGlyphSet, compile_glyph_set
 from quikscript_ir import JoinGlyph, generate_noentry_variants
-from quikscript_join_analysis import OrphanAnchorWarning
+from quikscript_join_analysis import JoinContractWarning, OrphanAnchorWarning
 
 
 def _compiled_set(data: Any = None) -> CompiledGlyphSet:
@@ -18,6 +18,7 @@ def _compiled_set(data: Any = None) -> CompiledGlyphSet:
         return compile_glyph_set(load_glyph_data(ROOT / "glyph_data"), "senior")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", OrphanAnchorWarning)
+        warnings.simplefilter("ignore", JoinContractWarning)
         return compile_glyph_set(data, "senior")
 
 def _compiled_meta() -> dict[str, JoinGlyph]:
