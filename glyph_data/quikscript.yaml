@@ -2649,6 +2649,7 @@ glyph_families:
           not_after: [{family: qsLow}, {family: qsTea}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          contract_entry_after: {by: 1, targets: [{family: qsHe}]}
         modifiers: [entry-xheight]
       exit_xheight:
         shape: exit_xheight
@@ -2674,6 +2675,7 @@ glyph_families:
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          contract_entry_after: {by: 1, targets: [{family: qsHe}]}
         modifiers: [entry-xheight, exit-xheight]
       entry_and_exit_at_xheight_before_day_ss07:
         shape: entry_and_exit_at_xheight
