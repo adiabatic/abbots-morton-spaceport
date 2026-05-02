@@ -12,6 +12,7 @@ dependencies = [
 dev = [
     "uharfbuzz>=0.43.0",
     "pytest>=8.0.0",
+    "pytest-xdist>=3.6.1",
     "livereload>=2.7.1",
     "pyright>=1.1.408",
 ]

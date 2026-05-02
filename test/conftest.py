@@ -15,9 +15,25 @@ ROOT = Path(__file__).resolve().parent.parent
 _shaping_cache: dict[str, Any] = {}
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    # Under xdist, the controller dispatches but doesn't run tests, so the
+    # lazy build in _ensure_shaping_cache would never fire on it. Build here
+    # before workers spawn, and mark built so each worker skips the no-op
+    # `make all` it would otherwise spawn on first shaping test.
+    if hasattr(config, "workerinput"):
+        _shaping_cache["_built"] = True
+        return
+    if config.getoption("dist", "no") == "no":
+        return
+    subprocess.run(["make", "all"], cwd=ROOT, check=True)
+    _shaping_cache["_built"] = True
+
+
 def _ensure_shaping_cache() -> dict[str, Any]:
     if "fonts" not in _shaping_cache:
-        subprocess.run(["make", "all"], cwd=ROOT, check=True)
+        if "_built" not in _shaping_cache:
+            subprocess.run(["make", "all"], cwd=ROOT, check=True)
+            _shaping_cache["_built"] = True
         from test_shaping import load_font, build_anchor_map
 
         fonts = {}
