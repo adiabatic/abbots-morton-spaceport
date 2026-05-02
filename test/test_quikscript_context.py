@@ -488,7 +488,7 @@ def test_alt_and_half_are_semantic_traits():
     meta = _compiled_meta()
 
     assert "alt" in meta["qsNo.alt"].traits
-    assert "half" in meta["qsTea.half"].traits
+    assert "half" in meta["qsPea.half"].traits
     assert "alt" in meta["qsUtter.alt.reaches-way-back"].traits
     assert "reaches-way-back" in meta["qsUtter.alt.reaches-way-back"].compat_assertions
 
