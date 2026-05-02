@@ -161,6 +161,8 @@ glyph_families:
         inherits: entry_y6
         anchors:
           exit: [5, 0]
+        select:
+          not_before: [{entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]}]
         modifiers: [entry-y6, exit-baseline]
       entry_xheight:
         shape: dips_down_to_short_height
