@@ -14,6 +14,7 @@ wheels/
 /test/AbbotsMortonSpaceport*.otf
 /test/AbbotsMortonSpaceport*.fea
 /test/print.pdf
+/test/before/
 
 # Scratch files
 tmp/
