@@ -456,6 +456,17 @@ def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     )
 
 
+def test_qs_way_does_not_join_qs_tea_under_ss03():
+    # ·Way·Tea must stay separate even with ss03 on. qsWay was previously in
+    # qsTea.half_entry_xheight_ss03's after-list and qsWay carried a gated
+    # exit-extension toward qsTea; both were dropped so the pair no longer
+    # connects.
+    glyphs = _shape_qs("qsWay", "qsTea", features=_SS03_FEATURE)
+    assert _pair_join_ys(glyphs, 0) == set(), (
+        f"·Way·Tea must not connect under ss03; got {glyphs}"
+    )
+
+
 def test_qs_owe_fee_may_owe_does_not_reach_for_ligature():
     # ·Owe·Fee·May ligates ·Fee+·May into qsFee_qsMay (no entry anchor).
     # ·Owe must not pick a forward-extending variant whose exit anchor
