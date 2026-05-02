@@ -85,6 +85,10 @@ Add `contract_entry_after: {by: N, targets: [{family: qsX}]}` to qsY's joining f
 
 A single `derive` block holds at most one each of `extend_entry_after`, `extend_exit_before`, `contract_entry_after`, and `contract_exit_before`, with a single `by` and a list of targets per directive. When you'd need a different `by` for a new target on a directive that's already in use (e.g., `qsHe.forms.half` already has `contract_exit_before: {by: 2, targets: [{family: qsZoo}]}` and you want `by: 1` for a different target), put the new rule on the other side of the join (e.g., contract Y's entry-after instead of X's exit-before).
 
+### Mix `before:` and `not_before:` on a single form
+
+When a form needs both a forced positive trigger ("fire before any variant of family Y, regardless of its entry-anchor Y") and a broad anchor-class fallback ("also fire before any other follower whose resolved variant has a matching entry anchor, except these families"), declare both `before:` and `not_before:` on the same form rather than splitting into two near-duplicates. The same family may not appear in both lists — the IR build raises an error. Example: `qsGay.forms.exit_baseline` carries `before: [{family: qsNo}]` (forces the baseline-exit before bare `qsNo`, whose default prop has entry at y=5) plus `not_before: [{family: qsExcite}, {family: qsOoze}]` (broad fallback for any other entry-y=0 follower). The same applies symmetrically to `after:` / `not_after:` on backward-pair forms.
+
 ## Bumping the version number
 
 1. Update `version` in `glyph_data/metadata.yaml` (e.g., `3.000`)

@@ -739,6 +739,38 @@ def _normalize_family_refs(
     return expanded
 
 
+def _check_select_family_overlap(
+    select: dict[str, Any],
+    *,
+    family_name: str,
+    form_name: str | None,
+) -> None:
+    def _literal_families(values) -> set[str]:
+        if not isinstance(values, list):
+            return set()
+        families: set[str] = set()
+        for value in values:
+            if isinstance(value, dict) and set(value) == {"family"}:
+                fam = value["family"]
+                if isinstance(fam, str):
+                    families.add(fam)
+        return families
+
+    context = f"form {form_name!r}" if form_name else "base record"
+    for positive_key, negative_key in (("before", "not_before"), ("after", "not_after")):
+        positive = _literal_families(select.get(positive_key))
+        negative = _literal_families(select.get(negative_key))
+        overlap = positive & negative
+        if overlap:
+            family_list = ", ".join(sorted(overlap))
+            raise ValueError(
+                f"{family_name} {context}: select.{positive_key} and "
+                f"select.{negative_key} both list family {family_list}; "
+                f"a single form cannot list the same family in both a "
+                f"positive and a negative selector"
+            )
+
+
 def _family_form_to_glyph_def(
     family_name: str,
     family_def: dict[str, Any],
@@ -781,6 +813,7 @@ def _family_form_to_glyph_def(
         glyph_def["cursive_exit_ink_y"] = deepcopy(anchors["exit_ink_y"])
 
     select = form_def.get("select", {})
+    _check_select_family_overlap(select, family_name=family_name, form_name=form_name)
     select_map = {
         "after": "calt_after",
         "before": "calt_before",

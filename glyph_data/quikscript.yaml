@@ -579,19 +579,11 @@ glyph_families:
         anchors:
           exit: [6, 0]
         select:
-          not_before: [{family: qsNo}, {family: qsExcite}, {family: qsOoze}]
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
-        modifiers: [exit-baseline]
-      exit_baseline_before_deep:
-        shape: mono
-        anchors:
-          exit: [6, 0]
-        select:
           before: [{family: qsNo}]
+          not_before: [{family: qsExcite}, {family: qsOoze}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsZoo}, {family: qsRoe}]}
-        modifiers: [exit-baseline, before-deep]
+          extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
+        modifiers: [exit-baseline]
       entry_xheight:
         shape: mono
         anchors:
@@ -1400,15 +1392,11 @@ glyph_families:
           exit: [4, 0]
           exit_ink_y: -1
         select:
+          before: [{family: qsRoe}]
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
-      half_before_roe:
-        inherits: half
-        select:
-          before: [{family: qsRoe}]
-        modifiers: [before-roe]
   qsWay_qsUtter:
     sequence:
     - qsWay
@@ -1482,15 +1470,9 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
+          before: [{family: qsDay}]
           not_before: [{family: qsTea}, {family: qsThaw}, {family: qsSee}, {family: qsExcite}]
         modifiers: [exit-baseline]
-      exit_baseline_before_half:
-        shape: prop
-        anchors:
-          exit: [2, 0]
-        select:
-          before: [{family: qsDay}]
-        modifiers: [exit-baseline, before-half]
   qsWhy:
     mono:
       bitmap:
@@ -1876,13 +1858,8 @@ glyph_families:
           entry: [1, 0]
           exit: [6, 5]
         select:
-          before: [{family: qsJai}, {family: qsNo}, {family: qsAwe}, {family: qsOx}]
+          before: [{family: qsJai}, {family: qsNo}, {family: qsEight}, {family: qsAwe}, {family: qsOx}]
         modifiers: [exit-xheight]
-      exit_xheight_before_eight:
-        inherits: exit_xheight
-        select:
-          before: [{family: qsEight}]
-        modifiers: [exit-xheight, before-eight]
   qsLoch:
     mono:
       bitmap:

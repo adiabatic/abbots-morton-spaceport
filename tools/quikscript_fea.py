@@ -295,6 +295,18 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             if not_after:
                 resolved_bk = resolve_known_glyph_names(not_after, plan.glyph_names)
                 plan.fwd_bk_exclusions.setdefault(base_name, {})[exit_y] = resolved_bk
+        elif (
+            meta.not_before
+            and meta.extended_exit_suffix is None
+            and meta.contracted_exit_suffix is None
+        ):
+            fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
+            resolved = resolve_known_glyph_names(meta.not_before, plan.glyph_names)
+            fwd_exclusions.setdefault(base_name, {})[exit_y] = resolved
+            not_after = meta.not_after
+            if not_after:
+                resolved_bk = resolve_known_glyph_names(not_after, plan.glyph_names)
+                plan.fwd_bk_exclusions.setdefault(base_name, {})[exit_y] = resolved_bk
 
     reverse_only_upgrades = plan.reverse_only_upgrades
     for glyph_name, meta in glyph_meta.items():
