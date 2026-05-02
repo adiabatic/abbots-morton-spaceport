@@ -181,8 +181,7 @@ glyph_families:
           entry: [3, 0]
           exit: [5, 0]
         select:
-          after: [{family: qsEt}, {family: qsAwe}, {family: qsOy}]
-          not_after: [{family: qsOy, modifiers: [entry-xheight]}]
+          after: [{family: qsEt}, {family: qsAwe}]
           not_before: [{family: qsZoo}, {family: qsCheer}, {family: qsJay}, {family: qsNo}, {family: qsRoe}, {family: qsLlan}, {family: qsIt}, {family: qsEt}, {family: qsEight}, {family: qsAwe}, {family: qsOx}, {family: qsOwe}, {family: qsFoot}]
         modifiers: [entry-baseline]
       half_entry_y6:
