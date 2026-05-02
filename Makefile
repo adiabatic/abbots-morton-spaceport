@@ -16,8 +16,8 @@ snapshot-before: all
 typecheck:
 	uv run pyright tools/ test/
 
-test: all typecheck
-	uv run pytest test/ -v
+test: typecheck
+	uv run pytest test/ -n auto
 
 print-job: all
 	lp test/print.pdf
