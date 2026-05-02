@@ -2618,28 +2618,28 @@ glyph_families:
     shapes:
       entry_xheight:
         bitmap:
-        - "### # "  #
-        - "  #  #"
-        - " #   #"
-        - " #   #"
-        - " #   #"
-        - "  ### "  #
+        - "## # "  #
+        - " #  #"
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
       exit_xheight:
         bitmap:
-        - " # ###"  #
-        - "#  #  "
-        - "#   # "
-        - "#   # "
-        - "#   # "
-        - " ###  "  #
+        - " # ##"  #
+        - "#  # "
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
       entry_and_exit_at_xheight:
         bitmap:
-        - "### ###"  #
-        - "  # #  "
-        - " #   # "
-        - " #   # "
-        - " #   # "
-        - "  ###  "  #
+        - "## ##"  #
+        - " # # "
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
     forms:
       entry_xheight:
         shape: entry_xheight
@@ -2653,7 +2653,7 @@ glyph_families:
       exit_xheight:
         shape: exit_xheight
         anchors:
-          exit: [7, 5]
+          exit: [6, 5]
         select:
           not_before: [{family: qsDay}, {family: qsLlan}, {family: qsTea}]
         derive:
@@ -2665,7 +2665,7 @@ glyph_families:
         shape: entry_and_exit_at_xheight
         anchors:
           entry: [1, 5]
-          exit: [8, 5]
+          exit: [6, 5]
         select:
           not_after: [{family: qsLow}, {family: qsTea}]
           not_before: [{family: qsDay}, {family: qsLlan}, {family: qsTea}]
@@ -2679,7 +2679,7 @@ glyph_families:
         shape: entry_and_exit_at_xheight
         anchors:
           entry: [1, 5]
-          exit: [8, 5]
+          exit: [6, 5]
         select:
           before: [{family: qsDay}]
         gate_feature_behind: ss07
@@ -2687,7 +2687,7 @@ glyph_families:
       exit_xheight_before_day_ss07:
         shape: exit_xheight
         anchors:
-          exit: [7, 5]
+          exit: [6, 5]
         select:
           before: [{family: qsDay}]
         gate_feature_behind: ss07
