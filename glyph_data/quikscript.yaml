@@ -302,7 +302,6 @@ glyph_families:
           - {family: qsVie_qsUtter}
           - {family: qsSee_qsUtter}
           - {family: qsJay_qsUtter}
-          - {family: qsWay}
           - {family: qsWay_qsUtter}
           - {family: qsWhy_qsUtter}
           - {family: qsMay}
@@ -1381,9 +1380,6 @@ glyph_families:
       y_offset: -3
       anchors:
         exit: [4, 5]
-      derive:
-        extend_exit_before_gated:
-          ss03: [{family: qsTea}]
     shapes:
       half:
         bitmap:
