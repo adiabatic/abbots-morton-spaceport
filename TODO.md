@@ -50,6 +50,15 @@ When a right-side family declares `derive.noentry_after: [F1, …]`, the auto-pr
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
 
+## Mixed `before:` / `not_before:` follow-ups
+
+After the mixed-selector consolidation lands (qsGay / qsHe / qsRoe / qsWay), some cleanup remains:
+
+- Sweep the compiled glyph repertoire for orphaned cross-product names whose left-side compatibility modifier no longer corresponds to a YAML form — e.g. `qsGay.exit-baseline.before-deep.exit-extended`, `qsHe.exit-baseline.before-half.exit-contracted`, etc. These should drop out automatically once their parent forms are gone, but verify nothing else in the build pipeline still emits them.
+- Audit any remaining uses of the `before-deep` / `before-half` / `before-eight` / `before-roe` modifier strings elsewhere in `glyph_data/quikscript.yaml` and decide whether to rename or remove them.
+- If a ligature ever needs a mixed `before:` + `not_before:` selector and the forward-path emission misbehaves (e.g. the pair-override doesn't reach the ligature's lead), revisit the `expand_selectors_for_ligatures` interaction in `tools/quikscript_ir.py`. Today only positive selectors are expanded for ligatures by design, and the mixed-selector change doesn't alter that.
+- Consider adding an IR diagnostic for the case where a merged form's resolved `not_before:` exclusion list subsumes its resolved `before:` list (i.e. the form can never fire). Skipped initially because the existing missing-glyph errors already catch typos and the failure mode is a silent no-op rather than a wrong shape.
+
 ## Automate `before` selectors for ligature components
 
 When a glyph form uses `before: [{family: qsUtter}]` to select an exit variant (e.g. `qsIt.before_utter` exits at baseline so ·Utter can pick its alt form), the `before` selector only sees the _immediate next glyph_ in the stream. Ligature formation (`calt_liga`) runs later, so a `before: [{family: qsUtter}]` selector will never match a pre-liga `qsDay qsUtter` sequence — the next glyph is `qsDay`, not `qsUtter`.

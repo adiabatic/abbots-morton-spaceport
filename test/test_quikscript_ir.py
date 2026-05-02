@@ -1401,6 +1401,97 @@ def test_unknown_family_level_derive_directive_errors_at_compile_time():
         compile_glyph_families({"qsTest": family_def}, "senior")
 
 
+def test_select_before_and_not_before_cannot_share_family():
+    families = {
+        "qsLeft": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+            "forms": {
+                "exit_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [5, 0]},
+                    "select": {
+                        "before": [{"family": "qsRight"}],
+                        "not_before": [{"family": "qsRight"}],
+                    },
+                    "modifiers": ["exit-baseline"],
+                },
+            },
+        },
+        "qsRight": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+        },
+    }
+
+    import pytest
+
+    with pytest.raises(
+        ValueError,
+        match=r"qsLeft form 'exit_baseline'.*select\.before.*select\.not_before.*qsRight",
+    ):
+        compile_glyph_families(families, "senior")
+
+
+def test_select_after_and_not_after_cannot_share_family():
+    families = {
+        "qsLeft": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+        },
+        "qsRight": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+            "forms": {
+                "entry_baseline": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 0]},
+                    "select": {
+                        "after": [{"family": "qsLeft"}],
+                        "not_after": [{"family": "qsLeft"}],
+                    },
+                    "modifiers": ["entry-baseline"],
+                },
+            },
+        },
+    }
+
+    import pytest
+
+    with pytest.raises(
+        ValueError,
+        match=r"qsRight form 'entry_baseline'.*select\.after.*select\.not_after.*qsLeft",
+    ):
+        compile_glyph_families(families, "senior")
+
+
+def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_family():
+    families = {
+        "qsLeft": {
+            "prop": {"bitmap": [" ### "], "y_offset": 0},
+            "forms": {
+                "exit_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [5, 0]},
+                    "select": {
+                        "before": [{"family": "qsRight"}],
+                        "not_before": [
+                            {"entry_y": 0, "except": [{"family": "qsRight"}]}
+                        ],
+                    },
+                    "modifiers": ["exit-baseline"],
+                },
+            },
+        },
+        "qsRight": {
+            "prop": {
+                "bitmap": [" ### "],
+                "y_offset": 0,
+                "anchors": {"entry": [0, 0]},
+            },
+        },
+    }
+
+    compiled = compile_glyph_families(families, "senior")
+    assert "qsLeft.exit-baseline" in compiled
+
+
 def _ligature_inheritance_glyph_data(
     *,
     lead_family: dict,
