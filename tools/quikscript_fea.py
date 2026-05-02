@@ -25,6 +25,9 @@ class _JoinAnalysis:
     bk_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
     bk_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
     bk_fwd_exclusions: dict[str, dict[int, list[str]]] = field(default_factory=dict)
+    bk_fwd_exclusion_sequences: dict[str, dict[int, list[tuple[str, ...]]]] = field(
+        default_factory=dict
+    )
     pair_overrides: dict[str, list[tuple[str, list[str]]]] = field(default_factory=dict)
     fwd_upgrades: dict[str, list[tuple[str, str, int, list[str]]]] = field(default_factory=dict)
     fwd_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
@@ -160,14 +163,37 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             if not_after:
                 resolved = resolve_known_glyph_names(not_after, plan.glyph_names)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
-            not_before = meta.not_before
-            if not_before and "half" in meta.traits:
-                bk_fwd_candidates.append((base_name, entry_y, glyph_name, list(not_before)))
+            if "half" in meta.traits and meta.not_before:
+                bk_fwd_candidates.append(
+                    (base_name, entry_y, glyph_name, list(meta.not_before))
+                )
+            elif meta.not_before_from_noentry_after:
+                bk_fwd_candidates.append(
+                    (
+                        base_name,
+                        entry_y,
+                        glyph_name,
+                        list(meta.not_before_from_noentry_after),
+                    )
+                )
 
     for base_name, entry_y, glyph_name, not_before in bk_fwd_candidates:
         if bk_replacements.get(base_name, {}).get(entry_y) == glyph_name:
             resolved_fwd = resolve_known_glyph_names(not_before, plan.glyph_names)
             plan.bk_fwd_exclusions.setdefault(base_name, {})[entry_y] = resolved_fwd
+            sequences: list[tuple[str, ...]] = []
+            seen_sequences: set[tuple[str, ...]] = set()
+            for family in not_before:
+                family_meta = glyph_meta.get(family)
+                if family_meta is None or not family_meta.sequence:
+                    continue
+                seq = tuple(family_meta.sequence)
+                if seq in seen_sequences:
+                    continue
+                seen_sequences.add(seq)
+                sequences.append(seq)
+            if sequences:
+                plan.bk_fwd_exclusion_sequences.setdefault(base_name, {})[entry_y] = sequences
 
     # `derive.noentry_after` on a non-ligature family becomes a backward
     # pair override that swaps the base glyph for its `.noentry` variant
@@ -1275,6 +1301,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 expanded.add(excluded_glyph)
         return expanded
 
+    def _excl_tokens(
+        fwd_excl: list[str] | None,
+        fwd_excl_sequences: list[tuple[str, ...]],
+    ) -> list[str]:
+        tokens: list[str] = []
+        if fwd_excl:
+            tokens.extend(sorted(_expand_exclusions(fwd_excl)))
+        tokens.extend(" ".join(seq) for seq in fwd_excl_sequences)
+        return tokens
+
     def _emit_pending_bk_entry_guards(
         source_name: str,
         replacement_name: str,
@@ -2198,6 +2234,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         lines.append("")
         lines.append("    lookup calt_cycle {")
         bk_fwd_excl = plan.bk_fwd_exclusions
+        bk_fwd_excl_seq = plan.bk_fwd_exclusion_sequences
         for base_name in bases:
             if base_name not in bk_replacements:
                 continue
@@ -2208,13 +2245,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if entry_y in exit_classes:
                     excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                     fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
+                    fwd_excl_sequences = bk_fwd_excl_seq.get(base_name, {}).get(entry_y, [])
+                    excl_tokens = _excl_tokens(fwd_excl, fwd_excl_sequences)
                     if excluded:
                         filtered = sorted(exit_classes[entry_y] - excluded)
                         if filtered:
                             member_list = " ".join(filtered)
-                            if fwd_excl:
-                                for fg in sorted(_expand_exclusions(fwd_excl)):
-                                    lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
+                            for tok in excl_tokens:
+                                lines.append(f"        ignore sub [{member_list}] {base_name}' {tok};")
                             _emit_entry_strip_guards_for_replacement_exit(
                                 base_name,
                                 variant_name,
@@ -2222,9 +2260,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
                             for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                                if fwd_excl:
-                                    for fg in sorted(_expand_exclusions(fwd_excl)):
-                                        lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                                for tok in excl_tokens:
+                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
                                 _emit_entry_strip_guards_for_replacement_exit(
                                     fpt,
                                     variant_name,
@@ -2232,9 +2269,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 )
                                 lines.append(f"        sub [{member_list}] {fpt}' by {variant_name};")
                     else:
-                        if fwd_excl:
-                            for fg in sorted(_expand_exclusions(fwd_excl)):
-                                lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {tok};")
                         _emit_entry_strip_guards_for_replacement_exit(
                             base_name,
                             variant_name,
@@ -2242,9 +2278,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                            if fwd_excl:
-                                for fg in sorted(_expand_exclusions(fwd_excl)):
-                                    lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                            for tok in excl_tokens:
+                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
                             _emit_entry_strip_guards_for_replacement_exit(
                                 fpt,
                                 variant_name,
@@ -2327,17 +2362,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append("")
             exclusions = bk_exclusions.get(base_name, {})
             bk_fwd_excl = plan.bk_fwd_exclusions
+            bk_fwd_excl_seq = plan.bk_fwd_exclusion_sequences
             lines.append(f"    lookup calt_post_upgrade_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
                 excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                 fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
+                fwd_excl_sequences = bk_fwd_excl_seq.get(base_name, {}).get(entry_y, [])
+                excl_tokens = _excl_tokens(fwd_excl, fwd_excl_sequences)
                 if excluded:
                     filtered = sorted(exit_classes[entry_y] - excluded)
                     if filtered:
                         member_list = " ".join(filtered)
-                        if fwd_excl:
-                            for fg in sorted(_expand_exclusions(fwd_excl)):
-                                lines.append(f"        ignore sub [{member_list}] {base_name}' {fg};")
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub [{member_list}] {base_name}' {tok};")
                         _emit_entry_strip_guards_for_replacement_exit(
                             base_name,
                             relevant[entry_y],
@@ -2345,9 +2382,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         lines.append(f"        sub [{member_list}] {base_name}' by {relevant[entry_y]};")
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                            if fwd_excl:
-                                for fg in sorted(_expand_exclusions(fwd_excl)):
-                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                            for tok in excl_tokens:
+                                lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
                             _emit_entry_strip_guards_for_replacement_exit(
                                 fpt,
                                 relevant[entry_y],
@@ -2355,9 +2391,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
-                    if fwd_excl:
-                        for fg in sorted(_expand_exclusions(fwd_excl)):
-                            lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {fg};")
+                    for tok in excl_tokens:
+                        lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {tok};")
                     _emit_entry_strip_guards_for_replacement_exit(
                         base_name,
                         relevant[entry_y],
@@ -2365,9 +2400,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     )
                     lines.append(f"        sub @exit_y{entry_y} {base_name}' by {relevant[entry_y]};")
                     for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                        if fwd_excl:
-                            for fg in sorted(_expand_exclusions(fwd_excl)):
-                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
                         _emit_entry_strip_guards_for_replacement_exit(
                             fpt,
                             relevant[entry_y],
@@ -2773,17 +2807,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             exclusions = bk_exclusions.get(cycle_base, {})
             lines.append("")
             bk_fwd_excl = plan.bk_fwd_exclusions
+            bk_fwd_excl_seq = plan.bk_fwd_exclusion_sequences
             lines.append(f"    lookup calt_post_pair_bk_{safe} {{")
             for entry_y in sorted(relevant.keys()):
                 excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                 fwd_excl = bk_fwd_excl.get(cycle_base, {}).get(entry_y)
+                fwd_excl_sequences = bk_fwd_excl_seq.get(cycle_base, {}).get(entry_y, [])
+                excl_tokens = _excl_tokens(fwd_excl, fwd_excl_sequences)
                 if excluded:
                     filtered = sorted(exit_classes[entry_y] - excluded)
                     if filtered:
                         member_list = " ".join(filtered)
-                        if fwd_excl:
-                            for fg in sorted(_expand_exclusions(fwd_excl)):
-                                lines.append(f"        ignore sub [{member_list}] {cycle_base}' {fg};")
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub [{member_list}] {cycle_base}' {tok};")
                         _emit_entry_strip_guards_for_replacement_exit(
                             cycle_base,
                             relevant[entry_y],
@@ -2791,9 +2827,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         lines.append(f"        sub [{member_list}] {cycle_base}' by {relevant[entry_y]};")
                         for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
-                            if fwd_excl:
-                                for fg in sorted(_expand_exclusions(fwd_excl)):
-                                    lines.append(f"        ignore sub [{member_list}] {fpt}' {fg};")
+                            for tok in excl_tokens:
+                                lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
                             _emit_entry_strip_guards_for_replacement_exit(
                                 fpt,
                                 relevant[entry_y],
@@ -2801,9 +2836,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
-                    if fwd_excl:
-                        for fg in sorted(_expand_exclusions(fwd_excl)):
-                            lines.append(f"        ignore sub @exit_y{entry_y} {cycle_base}' {fg};")
+                    for tok in excl_tokens:
+                        lines.append(f"        ignore sub @exit_y{entry_y} {cycle_base}' {tok};")
                     _emit_entry_strip_guards_for_replacement_exit(
                         cycle_base,
                         relevant[entry_y],
@@ -2811,9 +2845,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     )
                     lines.append(f"        sub @exit_y{entry_y} {cycle_base}' by {relevant[entry_y]};")
                     for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
-                        if fwd_excl:
-                            for fg in sorted(_expand_exclusions(fwd_excl)):
-                                lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {fg};")
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
                         _emit_entry_strip_guards_for_replacement_exit(
                             fpt,
                             relevant[entry_y],
