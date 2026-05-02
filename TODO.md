@@ -40,7 +40,7 @@ If a cluster of those exists, propose a top-level `joins:` (or similar) section 
 
 Don't design this until the Phase A complaints (and Phase B derivation gaps) tell us where the current source language is genuinely inadequate.
 
-Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` now floods senior builds with `join-selection-one-sided` and `join-bitmap-gap` warnings. Burn this list down before promoting the warnings to errors or replacing source-side declarations with a top-level `joins:` section.
+Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is clean for the real senior glyph set, and `test_real_join_warning_collector_is_clean` locks that in. Only revisit a top-level `joins:` section if future real-data warnings show repeated bilateral source-maintenance pain.
 
 ## Bare-form bitmap stubs from `noentry_after` predecessors
 

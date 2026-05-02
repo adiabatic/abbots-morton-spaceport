@@ -909,7 +909,8 @@ def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
 
 
 def test_real_join_warning_collector_is_clean():
-    assert collect_join_warnings(_real_join_glyphs()) == ()
+    warnings = collect_join_warnings(_real_join_glyphs())
+    assert warnings == (), "\n".join(warnings)
 
 
 def test_default_default_pair_warns_on_bitmap_gap():
