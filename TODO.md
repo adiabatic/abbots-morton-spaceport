@@ -52,10 +52,8 @@ When a right-side family declares `derive.noentry_after: [F1, …]`, the auto-pr
 
 ## Mixed `before:` / `not_before:` follow-ups
 
-After the mixed-selector consolidation lands (qsGay / qsHe / qsRoe / qsWay), some cleanup remains:
+After the mixed-selector consolidation landed in 25c8649 (qsGay / qsHe / qsRoe / qsWay), some cleanup remains:
 
-- Sweep the compiled glyph repertoire for orphaned cross-product names whose left-side compatibility modifier no longer corresponds to a YAML form — e.g. `qsGay.exit-baseline.before-deep.exit-extended`, `qsHe.exit-baseline.before-half.exit-contracted`, etc. These should drop out automatically once their parent forms are gone, but verify nothing else in the build pipeline still emits them.
-- Audit any remaining uses of the `before-deep` / `before-half` / `before-eight` / `before-roe` modifier strings elsewhere in `glyph_data/quikscript.yaml` and decide whether to rename or remove them.
 - If a ligature ever needs a mixed `before:` + `not_before:` selector and the forward-path emission misbehaves (e.g. the pair-override doesn't reach the ligature's lead), revisit the `expand_selectors_for_ligatures` interaction in `tools/quikscript_ir.py`. Today only positive selectors are expanded for ligatures by design, and the mixed-selector change doesn't alter that.
 - Consider adding an IR diagnostic for the case where a merged form's resolved `not_before:` exclusion list subsumes its resolved `before:` list (i.e. the form can never fire). Skipped initially because the existing missing-glyph errors already catch typos and the failure mode is a silent no-op rather than a wrong shape.
 
