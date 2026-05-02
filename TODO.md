@@ -56,16 +56,3 @@ After the mixed-selector consolidation landed in 25c8649 (qsGay / qsHe / qsRoe /
 
 - If a ligature ever needs a mixed `before:` + `not_before:` selector and the forward-path emission misbehaves (e.g. the pair-override doesn't reach the ligature's lead), revisit the `expand_selectors_for_ligatures` interaction in `tools/quikscript_ir.py`. Today only positive selectors are expanded for ligatures by design, and the mixed-selector change doesn't alter that.
 - Consider adding an IR diagnostic for the case where a merged form's resolved `not_before:` exclusion list subsumes its resolved `before:` list (i.e. the form can never fire). Skipped initially because the existing missing-glyph errors already catch typos and the failure mode is a silent no-op rather than a wrong shape.
-
-## Automate `before` selectors for ligature components
-
-When a glyph form uses `before: [{family: qsUtter}]` to select an exit variant (e.g. `qsIt.before_utter` exits at baseline so ·Utter can pick its alt form), the `before` selector only sees the _immediate next glyph_ in the stream. Ligature formation (`calt_liga`) runs later, so a `before: [{family: qsUtter}]` selector will never match a pre-liga `qsDay qsUtter` sequence — the next glyph is `qsDay`, not `qsUtter`.
-
-This means every `before` selector that targets a family which is also the _second_ component of a ligature must manually list the first component too, or the exit variant won't fire before the ligature's first component. We hit this with `qsIt.before_utter`: standalone ·It before ·Day·Utter was picking `exit_xheight` (y=5) instead of `before_utter` (y=0), so ·Day never became ·Day.half, so `calt_liga` produced `qsDay_qsUtter` instead of `qsDay_qsUtter.half`.
-
-The fix was to add `{family: qsDay}` to the `before` list, but this is fragile — every new `_qsUtter` ligature (·Bay·Utter, ·Gay·Utter, etc.) would need the same treatment for every form that uses `before: [{family: qsUtter}]`. The same class of bug could appear for any family that appears as a later component of a ligature.
-
-Possible approaches:
-
-- **Build-time expansion**: have the compiler automatically expand `before: [{family: qsX}]` to include every family whose ligature sequence _starts with_ a glyph that precedes `qsX`. For each ligature `A_B`, if `B == qsX`, add `A` to the resolved `before` set. This keeps the YAML source clean and prevents the bug from recurring when new ligatures are added.
-- **Lint/warning**: at minimum, emit a warning during compilation when a `before` selector targets a family that is a non-first ligature component and the first component is missing from the selector.
