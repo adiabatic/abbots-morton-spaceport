@@ -109,18 +109,7 @@ _RESIDUAL_BK_GUARDS: dict[
 }
 
 # Bitmap-gap pairs the structural collector flags but we knowingly accept.
-#
-# qsThey_qsUtter declares its own `noentry_after`, which (per CLAUDE.md)
-# skips the trailing-component propagation of qsUtter's
-# `contract_exit_before: {targets: [qsJai]}`. So
-# `qsThey_qsUtter.exit-doubly-contracted` is never created, and at runtime
-# `(qsThey_qsUtter, qsJai_qsUtter)` shapes to the base ligatures with a real
-# 1px gap at y=5. TODO: hand-author a `contract_exit_before` directly on
-# qsThey_qsUtter (or widen its rightmost ink at y=5) to close the gap, then
-# drop this entry.
-_RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset({
-    ("qsThey_qsUtter", "qsJai_qsUtter", 5),
-})
+_RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
 _RESIDUAL_LIGA_GUARDS: dict[

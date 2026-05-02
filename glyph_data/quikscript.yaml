@@ -743,6 +743,7 @@ glyph_families:
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        contract_exit_before: {by: 1, targets: [{family: qsJai}]}
       select:
         after: [{context_set: extended_exit_utter_ah}]
   qsFee:
