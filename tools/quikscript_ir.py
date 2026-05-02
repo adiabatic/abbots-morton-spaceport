@@ -91,6 +91,7 @@ class JoinGlyph:
     contract_entry_after: ExtensionSpec | None = None
     contract_exit_before: ExtensionSpec | None = None
     entry_explicitly_none: bool = False
+    not_before_from_noentry_after: tuple[str, ...] = ()
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -3308,7 +3309,14 @@ def _propagate_noentry_after_to_not_before(
     for l_name, families_to_add in additions.items():
         l_meta = updated[l_name]
         merged = tuple(sorted(set(l_meta.not_before) | families_to_add))
-        updated[l_name] = replace(l_meta, not_before=merged)
+        propagated = tuple(
+            sorted(set(l_meta.not_before_from_noentry_after) | families_to_add)
+        )
+        updated[l_name] = replace(
+            l_meta,
+            not_before=merged,
+            not_before_from_noentry_after=propagated,
+        )
     return updated
 
 
