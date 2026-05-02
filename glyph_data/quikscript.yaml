@@ -158,9 +158,8 @@ glyph_families:
           entry: [1, 6]
         modifiers: [entry-y6]
       entry_y6_exit_baseline:
-        shape: prop
+        inherits: entry_y6
         anchors:
-          entry: [1, 6]
           exit: [5, 0]
         modifiers: [entry-y6, exit-baseline]
       entry_xheight:
@@ -199,9 +198,8 @@ glyph_families:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight, exit-xheight]
       half_entry_y6_exit_y6:
-        inherits: half
+        inherits: half_entry_y6
         anchors:
-          entry: [1, 6]
           exit: [4, 6]
         select:
           not_before: null
