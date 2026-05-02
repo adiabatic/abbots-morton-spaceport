@@ -617,22 +617,14 @@ glyph_families:
         select:
           before: [{family: qsIng}]
         modifiers: [exit-baseline]
-      # qsIng is in the `talls` context set, so without this narrow override
-      # `noentry_after_tall` would strip Thaw's entry anchor and the
-      # ·-ing·Thaw baseline join would break.
-      after_ing:
-        shape: mono
-        anchors:
-          entry: [3, 0]
-        select:
-          after: [{family: qsIng}]
-        modifiers: [after-ing]
       noentry_after_tall:
         shape: mono
         anchors:
           entry: null
         select:
           after: [{context_set: talls}]
+          # qsIng is in `talls`, but ·-ing·Thaw must keep its baseline join.
+          not_after: [{family: qsIng}]
         modifiers: [after-tall]
   qsThey:
     mono:

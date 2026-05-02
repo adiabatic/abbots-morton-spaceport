@@ -831,6 +831,25 @@ def _family_form_to_glyph_def(
                 field_name=source_key,
             )
 
+    # When a form mixes `after: [{context_set: …}]` with `not_after:
+    # [{family: X}]` (and likewise for `before` / `not_before`), the
+    # context_set's expansion can include the negatively-listed family;
+    # subtract it now so downstream emitters can treat `after` as a clean
+    # trigger list. The build's literal-overlap check rejects the case
+    # where both lists name the same family directly, so we only have to
+    # handle the context_set-vs-literal mismatch here.
+    for positive_key, negative_key in (
+        ("calt_after", "calt_not_after"),
+        ("calt_before", "calt_not_before"),
+    ):
+        positive = glyph_def.get(positive_key)
+        negative = glyph_def.get(negative_key)
+        if positive and negative:
+            excluded = set(negative)
+            filtered = tuple(family for family in positive if family not in excluded)
+            if filtered != tuple(positive):
+                glyph_def[positive_key] = filtered
+
     derive = form_def.get("derive", {})
     derive_map = {
         "noentry_after": "noentry_after",
@@ -1603,6 +1622,44 @@ def derive_join_glyph(
         else extend_exit_no_entry
     )
     resolved_noentry_for = source.noentry_for if noentry_for is _UNSET else noentry_for
+
+    # When the caller explicitly sets `after` (or `before`) but lets the
+    # negative selector inherit from `source`, drop any inherited
+    # `not_after` / `not_before` family that overlaps the explicit positive
+    # list. The explicit selector is the form's reason to exist; an
+    # inherited negative for the same family would silently suppress it.
+    # Extension generators (e.g. `_add_entry_extension_variants`) hit this:
+    # `qsDay.half.entry-extended` gets `after = (qsTea, qsYe, …)` from the
+    # `extend_entry_after` directive while inheriting `qsDay.half`'s
+    # `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
+    if (
+        after is not _UNSET
+        and not_after is _UNSET
+        and isinstance(after, tuple)
+        and after
+        and isinstance(resolved_not_after, tuple)
+        and resolved_not_after
+    ):
+        after_set = set(after)
+        filtered_not_after = tuple(
+            family for family in resolved_not_after if family not in after_set
+        )
+        if filtered_not_after != resolved_not_after:
+            resolved_not_after = filtered_not_after
+    if (
+        before is not _UNSET
+        and not_before is _UNSET
+        and isinstance(before, tuple)
+        and before
+        and isinstance(resolved_not_before, tuple)
+        and resolved_not_before
+    ):
+        before_set = set(before)
+        filtered_not_before = tuple(
+            family for family in resolved_not_before if family not in before_set
+        )
+        if filtered_not_before != resolved_not_before:
+            resolved_not_before = filtered_not_before
 
     resolved_modifiers = tuple([*source.modifiers, *add_modifiers])
     resolved_is_noentry = ("noentry" in resolved_modifiers) if is_noentry is None else is_noentry

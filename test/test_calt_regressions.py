@@ -684,7 +684,7 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
 def test_qs_ing_before_thaw_uses_triply_extended_exit():
     assert _shape_qs("qsIng", "qsThaw") == [
         "qsIng.exit-triply-extended",
-        "qsThaw.after-ing",
+        "qsThaw",
     ]
 
 
