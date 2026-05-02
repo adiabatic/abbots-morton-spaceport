@@ -1385,7 +1385,7 @@ glyph_families:
           exit_ink_y: -1
         select:
           before: [{family: qsRoe}]
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}, {family: qsOoze}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
