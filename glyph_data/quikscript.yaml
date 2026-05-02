@@ -281,9 +281,6 @@ glyph_families:
           not_after: [{family: qsEt}]
           not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
         modifiers: [exit-baseline]
-      half:
-        shape: half
-        traits: [half]
       half_entry_xheight:
         shape: half
         anchors:
