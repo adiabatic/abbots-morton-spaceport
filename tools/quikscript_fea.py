@@ -862,6 +862,21 @@ def _expand_backward_after_variants(
             if _can_eventually_exit_at(glyph_meta, base_to_variants, candidate, entry_y)
         }
 
+    if variant_meta.not_after:
+        excluded: set[str] = set()
+        for excluded_glyph in variant_meta.not_after:
+            base = (
+                glyph_meta[excluded_glyph].base_name
+                if excluded_glyph in glyph_meta
+                else excluded_glyph
+            )
+            variants = base_to_variants.get(base)
+            if variants:
+                excluded.update(variants)
+            else:
+                excluded.add(excluded_glyph)
+        expanded -= excluded
+
     return expanded
 
 

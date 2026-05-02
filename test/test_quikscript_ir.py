@@ -569,15 +569,32 @@ def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
     ]
 
 
-def test_senior_feature_emitter_prefers_narrower_pair_overrides():
+def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_class():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert fea.index("lookup calt_pair_qsThaw_after-ing {") < fea.index(
-        "lookup calt_pair_qsThaw_after-tall {"
+    start = fea.index("lookup calt_pair_qsThaw_after-tall {")
+    end = fea.index("} calt_pair_qsThaw_after-tall;", start)
+    block = fea[start:end]
+
+    sub_line = next(
+        line for line in block.splitlines()
+        if line.strip().startswith("sub [") and line.rstrip().endswith("by qsThaw.after-tall;")
+    )
+    after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
+    after_glyphs = after_class.split()
+
+    qsing_variants = {
+        glyph for glyph in join_glyphs
+        if glyph == "qsIng" or glyph.startswith("qsIng.")
+    }
+    assert qsing_variants  # sanity check the family exists
+    assert not (set(after_glyphs) & qsing_variants), (
+        f"calt_pair_qsThaw_after-tall must not fire after qsIng variants; "
+        f"found {sorted(set(after_glyphs) & qsing_variants)}"
     )
 
 
