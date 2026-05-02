@@ -1473,7 +1473,7 @@ glyph_families:
         - "   "
         - "   "  #
     derive:
-      extend_exit_before: {by: 1, targets: [{family: qsExam}]}
+      extend_exit_before: {by: 1, targets: [{family: qsExam}, {family: qsI}]}
     forms:
       half:
         shape: half
@@ -1544,7 +1544,7 @@ glyph_families:
         anchors:
           exit: [6, 5]
         select:
-          not_before: [{family: qsYe}]
+          not_before: [{family: qsAh}, {family: qsAt}, {family: qsEat}, {family: qsExam}, {family: qsIng}, {family: qsLow}, {family: qsMay}, {family: qsOoze}, {family: qsOut}, {family: qsYe}]
         modifiers: [exit-xheight]
       half:
         shape: half
@@ -1552,7 +1552,7 @@ glyph_families:
           exit: [5, 0]
           exit_ink_y: -1
         select:
-          not_before: [{family: qsExcite}, {family: qsI}, {family: qsIt}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
+          not_before: [{family: qsAh}, {family: qsAt}, {family: qsEat}, {family: qsExam}, {family: qsExcite}, {family: qsI}, {family: qsIng}, {family: qsIt}, {family: qsLow}, {family: qsMay}, {family: qsOoze}, {family: qsOut}, {family: qsSee}, {family: qsTea}, {family: qsThaw}, {family: qsVie}]
         traits: [half]
   qsWhy_qsUtter:
     sequence:
