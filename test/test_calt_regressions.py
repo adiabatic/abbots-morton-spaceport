@@ -2784,3 +2784,15 @@ def test_qs_at_qs_may_has_no_entry_anchor():
     meta = _compiled_meta()["qsAt_qsMay"]
     assert meta.entry_explicitly_none, meta
     assert meta.entry == (), meta
+
+
+def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
+    glyphs = _shape_qs("qsRoe", "qsMay", "qsThey", "qsUtter")
+    assert glyphs[1:] == ["qsMay.exit-noentry", "qsThey_qsUtter.noentry"], glyphs
+    assert not _pair_join_ys(glyphs, 1), glyphs
+
+
+def test_qs_at_qs_may_stays_whole_before_qs_they_qs_utter_noentry():
+    glyphs = _shape_qs("qsAt", "qsMay", "qsThey", "qsUtter")
+    assert glyphs == ["qsAt_qsMay", "qsThey_qsUtter.noentry"], glyphs
+    assert not _pair_join_ys(glyphs, 0), glyphs
