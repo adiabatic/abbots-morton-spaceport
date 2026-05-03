@@ -1156,6 +1156,71 @@ def test_qs_excite_reaches_left_only_before_qs_thaw():
     assert not _pair_join_ys(glyphs, 1)
 
 
+def test_qs_it_excite_uses_the_visible_baseline_entry_shape():
+    assert _shape_qs("qsIt", "qsExcite") == [
+        "qsIt.exit-baseline",
+        "qsExcite.entry-baseline.noexit",
+    ]
+
+
+def test_qs_pea_excite_excite_uses_the_visible_final_excite_entry_shape():
+    glyphs = _shape_qs("qsPea", "qsExcite", "qsExcite")
+    assert glyphs == [
+        "qsPea",
+        "qsExcite.exit-baseline.before-vertical.noentry",
+        "qsExcite.entry-baseline.noexit",
+    ]
+    assert not _pair_join_ys(glyphs, 0)
+    assert _pair_join_ys(glyphs, 1) == {0}
+
+
+def _excite_baseline_receiver_shape_failures() -> list[str]:
+    failures: list[str] = []
+    meta = _compiled_meta()
+    sequences: list[tuple[str, ...]] = []
+    plain = [name for name, _ in _plain_quikscript_letters()]
+
+    for left_name in plain:
+        sequences.append((left_name, "qsExcite"))
+    for left_name in plain:
+        for right_name in plain:
+            sequences.append((left_name, "qsExcite", right_name))
+            sequences.append((left_name, right_name, "qsExcite"))
+
+    for parts in sequences:
+        glyphs = _shape_qs(*parts)
+        for index, glyph_name in enumerate(glyphs[:-1]):
+            left_meta = meta.get(glyph_name)
+            if left_meta is None or left_meta.after or left_meta.before:
+                continue
+            right_name = glyphs[index + 1]
+            right_meta = meta.get(right_name)
+            if right_meta is None or right_meta.base_name != "qsExcite":
+                continue
+            if 0 not in _pair_join_ys(glyphs, index):
+                continue
+
+            assertions = right_meta.compat_assertions
+            joins_right_at_baseline = 0 in _pair_join_ys(glyphs, index + 1)
+            if joins_right_at_baseline:
+                if "after-baseline-letter" not in assertions:
+                    failures.append(
+                        f"{' / '.join(parts)}: {right_name} joins left and right at "
+                        f"baseline but is not the both-side visible shape in {glyphs}"
+                    )
+            elif "entry-baseline" not in assertions and "after-baseline-letter" not in assertions:
+                failures.append(
+                    f"{' / '.join(parts)}: {right_name} joins left at baseline but "
+                    f"does not use a visible baseline-entry shape in {glyphs}"
+                )
+
+    return failures
+
+
+def test_qs_excite_baseline_receivers_use_visible_entry_shapes():
+    _assert_no_failures(_excite_baseline_receiver_shape_failures(), limit=None)
+
+
 @pytest.mark.parametrize(
     "right_base",
     [
