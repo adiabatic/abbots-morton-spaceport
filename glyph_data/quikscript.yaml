@@ -1822,9 +1822,9 @@ glyph_families:
         anchors:
           entry: [0, 5]
         select:
-          after: [{family: qsPea, traits: [half]}, {family: qsHe, traits: [half]}]
+          after: [{context_set: halves_exit_xheight}]
         derive:
-          contract_entry_after: {by: 1, targets: [{family: qsHe}]}
+          contract_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsHe}]}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: giga_extended_baseline
