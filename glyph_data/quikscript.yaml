@@ -1086,7 +1086,7 @@ glyph_families:
           exit: [3, 0]
           exit_ink_y: -1
         select:
-          before: [{family: qsNo}, {family: qsExcite}]
+          before: [{family: qsNo}]
         modifiers: [before-baseline-entry]
       half:
         shape: half
@@ -1100,7 +1100,7 @@ glyph_families:
         anchors:
           exit: [2, 0]
         select:
-          before: [{family: qsNo}, {family: qsExcite}]
+          before: [{family: qsNo}]
         modifiers: [before-baseline-entry]
   qsShe:
     mono:
