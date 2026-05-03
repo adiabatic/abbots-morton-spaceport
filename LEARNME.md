@@ -6,39 +6,16 @@ A reading list, sorted from most general / easy to most specific / thorny. Each 
 
 Items lower in the list usually depend on items higher in the list. Within a section, ordering is roughly easiest-first.
 
-## 1. Quikscript and its world
-
-- **What Quikscript is.** A phonetic script for English, designed by Read in 1966 as a faster successor to Shavian.
-- **"Orthodox" English.** What we call English written in the Latin script. Used pervasively in source comments and commit messages.
-- **Junior vs Senior Quikscript.** Junior keeps letters separate; Senior ligates, uses half-letters, and uses alternate forms. The font ships both as separate families.
-- **The 45 Quikscript letters.** Their names, sounds, code points (U+E650–U+E67E), and shapes. `reference/csur/index.html` is the canonical map; `postscript_glyph_names.yaml` is the build-side mirror.
-- **Letter heights.** Shorts (6 px, sit on the baseline), talls (9 px, baseline to cap), deeps (9 px with `y_offset: -3`, descend below baseline). Drives nearly every layout decision.
-- **The namer dot (U+00B7).** Marks proper nouns. Lives inside `data-expect` spans, not outside.
-- **Half-letters and alternate letterforms.** The Senior speed-aids that this font implements with OpenType features rather than dedicated code points.
-- **The Quikscript Manual.** `reference/Quikscript Manual.pdf` and `test/the-manual.html` (its transcription). The "Common words to be fully spelt" and "Contractions" word lists are the source of truth for spelling.
-
 ## 2. Typography fundamentals
 
-- **Glyph vs character vs code point.** A code point is a Unicode number; a character is its abstract identity; a glyph is one drawn shape. One code point can map to many glyphs (default form, alt, half, ligature components, …).
 - **Em square and font units.** The internal grid a font is drawn on. Here UPM is 550, pixel size is 50, so 11 px = 1 em.
-- **Ascender, descender, cap height, x-height, baseline.** All set in `glyph_data/metadata.yaml`. They define where shorts/talls/deeps live and what "x-height" / "baseline" mean for joins.
 - **Advance width and side bearings.** Drives mono vs proportional behavior.
 - **Kerning.** Pair-level horizontal adjustment. We use it sparingly in Latin (`opentype-features.yaml`) and structurally for `qsHe` before noentry letters.
 - **Bold by overstrike.** Bold is the Regular with each "on" pixel rendered 1.5 px wide. No separate bold drawings exist.
 
-## 3. Unicode plumbing relevant to this font
-
-- **The CSUR.** ConScript Unicode Registry — the unofficial PUA assignment Quikscript uses (U+E650–U+E67F).
-- **Private Use Area.** Why we can't rely on system-level fallback for these letters and need our own coverage.
-- **PostScript glyph names vs `uniXXXX`.** Standard glyph names (e.g., `space`, `period`) come from AGL; everything else uses `uniXXXX`. Both map to code points in `postscript_glyph_names.yaml`.
-- **ZWNJ (U+200C).** A zero-width non-joiner. In `calt`, this is still a real glyph (`uni200C`), so selectors blocking on a ZWNJ boundary must target `uni200C`, not `space`.
-- **Variation selectors (VS1 = U+FE00, VS2 = U+FE01).** How users force `.alt` or `.half` shapes. Configured under `metadata.variation_sequences`.
-- **cmap format 14.** The cmap subtable that encodes variation sequences.
-
 ## 4. Font formats and the OpenType table model
 
-- **OTF vs TrueType.** We ship OTF (CFF outlines built from bitmap pixels via `T2CharStringPen`).
-- **WOFF / WOFF2.** Web wrappers around OTF/TTF. We don't generate them — `make all` only emits OTFs; releases handle the conversion.
+- **Outline flavors.** Both TrueType (`glyf`, quadratic Béziers) and CFF (`CFF`/`CFF2`, cubic Béziers via PostScript Type 2 CharStrings) ride inside the same SFNT container, and OpenType layout tables (`GSUB`, `GPOS`, `GDEF`) work the same on either. We ship CFF outlines built from bitmap pixels via `T2CharStringPen`; the `.otf` extension is a consequence, not a meaningful axis.
 - **The SFNT table set.** `name`, `cmap`, `GSUB`, `GPOS`, `GDEF`, `OS/2`, `hhea`, `hmtx`, `post`, etc. Worth recognizing each by name when something goes wrong.
 - **The OpenType `name` table.** Where font name, version, designer, sample text, etc. live.
 - **GSUB vs GPOS.** Substitution (one-to-one, many-to-one, contextual) vs positioning (kerning, anchor attachment, cursive attachment).
