@@ -6,12 +6,6 @@ A reading list, sorted from most general / easy to most specific / thorny. Each 
 
 Items lower in the list usually depend on items higher in the list. Within a section, ordering is roughly easiest-first.
 
-## 2. Typography fundamentals
-
-- **Em square and font units.** The internal grid a font is drawn on. Here UPM is 550, pixel size is 50, so 11 px = 1 em.
-- **Kerning.** Pair-level horizontal adjustment. We use it sparingly in Latin (`opentype-features.yaml`) and structurally for `qsHe` before noentry letters.
-- **Bold by overstrike.** Bold is the Regular with each "on" pixel rendered 1.5 px wide. No separate bold drawings exist.
-
 ## 4. Font formats and the OpenType table model
 
 - **Outline flavors.** Both TrueType (`glyf`, quadratic Béziers) and CFF (`CFF`/`CFF2`, cubic Béziers via PostScript Type 2 CharStrings) ride inside the same SFNT container, and OpenType layout tables (`GSUB`, `GPOS`, `GDEF`) work the same on either. We ship CFF outlines built from bitmap pixels via `T2CharStringPen`; the `.otf` extension is a consequence, not a meaningful axis.
@@ -30,14 +24,10 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 ## 6. Shaping engines and rendering
 
-- **HarfBuzz.** The de-facto OpenType shaping engine; what current browsers, Typst, and our tests use. If something works in HarfBuzz it will probably work everywhere modern.
-- **uharfbuzz.** The Python binding the test suite uses to shape buffers and verify output. Custom typings live in `typings/uharfbuzz/`.
 - **What "shape" means.** Run a sequence of code points through the engine and emit a sequence of glyph IDs with positions. `data-expect` describes the expected output of this.
-- **Why feature support varies.** `curs` works in WebKit, Gecko, Blink, Typst, anything HarfBuzz-backed. Microsoft Word 365 doesn't support it (yet).
 
 ## 7. The build pipeline at a glance
 
-- **Top-level flow.** `make all` → `uv run python tools/build_font.py glyph_data/ test/` → six OTFs in `test/`. `make test` runs pyright then pytest. `make explainer` builds the Typst explainer.
 - **`tools/build_font.py`.** Loads YAML, calls the compiler, walks variants into FontBuilder, emits FEA via `quikscript_fea.py`, writes Mono / Junior / Senior × Regular / Bold.
 - **`tools/glyph_compiler.py`.** Owns `CompiledGlyphSet` and `JoinGlyph`. Carries legacy flat `glyphs:` data, compiled Quikscript joins, and merged metadata. `JoinGlyph` is the canonical variant-level result.
 - **`tools/quikscript_ir.py`.** The intermediate representation: family schema → resolved variants with selectors, anchors, ligature inheritance, derive rules.
@@ -47,8 +37,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 ## 8. Source-data schema
 
-- **`glyph_data/` layout.** One YAML per script / category: `quikscript.yaml`, `latin_letters.yaml`, `numbers.yaml`, `punctuation.yaml`, `composites.yaml`, `exotics.yaml`, `shavian.yaml`, plus `metadata.yaml` and `opentype-features.yaml`.
-- **`glyph_families:` structure.** Each family has up to four sibling records: `mono`, `prop`, `shapes`, `forms`. Anchors live on the proportional side only.
 - **`shapes`.** Bitmaps shared by multiple forms in the same family.
 - **`forms`.** Contextual / alternate variants. Carry `traits`, `modifiers`, `select`, `derive`, `anchors`, `inherits`.
 - **`traits` vs `modifiers`.** `traits` are stable semantic concepts (`alt`, `half`); `modifiers` are everything else, ordered, and feed the compiled glyph name. Test assertions distinguish stable trait checks from compatibility-only modifier checks.
@@ -56,7 +44,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 - **Family selectors.** `{family: qsX, traits: [...], modifiers: [...]}` picks specific variants. Anchor selectors `{exit_y: N}` / `{entry_y: N}` (with optional `except:`) expand to every variant carrying that anchor.
 - **`context_sets`.** Top-level reusable selector lists, referenced as `{context_set: name}`. May nest. Keep entries in code-point order.
 - **`inherits`.** A form references another form's scaffolding. Use `null` to clear inherited keys.
-- **Bitmap conventions.** Double-quoted rows in `quikscript.yaml`; trailing bare `#` comment markers on the rows whose glyph-space y is 5 and 0; "ink" = `#`; "leftmost-ink column" / "no ink at y=N" / `exit_ink_y` are the cursive-attachment vocabulary.
 - **Standard exit anchor x.** One pixel past the right edge of the stroke — usually outside the bitmap, occasionally inside (·He, ·Ye, `qsThey.exit-xheight`).
 
 ## 9. Cursive attachment (`curs`) in this codebase
