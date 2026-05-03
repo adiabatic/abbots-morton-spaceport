@@ -18,7 +18,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from quikscript_ir import Anchor, JoinGlyph
+from quikscript_ir import (
+    Anchor,
+    JoinGlyph,
+    has_entry_preserving_exit_noentry_sibling,
+)
 from quikscript_fea import (
     _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS,
     _resolve_noentry_replacement,
@@ -559,6 +563,15 @@ def _collect_noentry_shape_leak_warnings(
                 if any(
                     _resolve_family(reachability, n) == r_family
                     for n in l_meta.not_before
+                ):
+                    continue
+                if has_entry_preserving_exit_noentry_sibling(
+                    l_meta,
+                    {
+                        base: set(variants)
+                        for base, variants in reachability.base_to_variants.items()
+                    },
+                    dict(reachability.glyph_meta),
                 ):
                     continue
                 for y in l_meta.exit_ys:

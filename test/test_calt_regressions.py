@@ -2788,11 +2788,17 @@ def test_qs_at_qs_may_has_no_entry_anchor():
 
 def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
     glyphs = _shape_qs("qsRoe", "qsMay", "qsThey", "qsUtter")
-    # qsRoe must revert to bare: its `before: qsMay` clause picked
-    # qsRoe.exit-baseline pre-liga, but qsMay's demotion to .exit-noentry
-    # leaves qsRoe extending toward an entry that no longer exists.
-    assert glyphs == ["qsRoe", "qsMay.exit-noentry", "qsThey_qsUtter.noentry"], glyphs
-    assert not _pair_join_ys(glyphs, 0), glyphs
+    # ·Roe·May joins at the baseline in isolation, so the same join
+    # should survive when ·They+Utter follows. qsMay routes to its
+    # entry-preserving `.exit-noentry` form, dropping the dangling
+    # x-height exit but keeping the baseline entry that receives
+    # qsRoe.exit-baseline. The ligature is entryless on the right.
+    assert glyphs == [
+        "qsRoe.exit-baseline",
+        "qsMay.entry-baseline.exit-noentry",
+        "qsThey_qsUtter.noentry",
+    ], glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}, glyphs
     assert not _pair_join_ys(glyphs, 1), glyphs
 
 
