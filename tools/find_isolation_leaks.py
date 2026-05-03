@@ -377,6 +377,12 @@ CSS_BLOCK = """
       .isolation-leaks .qs.in-context,
       .isolation-leaks .qs.isolated {
         font-family: var(--after-font);
+        --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+        background-image:
+          linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+          linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
+        background-size: 16px 16px;
+        background-position: 0 5.6px, 8px 13.6px;
       }
 
       .isolation-leaks .qs.isolated .half {
