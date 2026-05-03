@@ -97,6 +97,14 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             continue
         if meta.is_noentry:
             continue
+        if "exit-noentry" in meta.modifiers:
+            # exit-noentry forms exist only as post-liga substitution
+            # targets (the calt cleanup pass routes the predecessor of a
+            # noentry_after ligature here). They must not enter
+            # bk_replacements / fwd_upgrades — the entry-bearing variants
+            # of these forms would otherwise displace the regular
+            # entry-only forms from pre-liga selection.
+            continue
         if not meta.is_entry_variant:
             if not meta.entry and not meta.after:
                 continue
@@ -3045,19 +3053,33 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if not fallback_meta.exit:
             return None
 
+        # Match the candidate's entry side so a baseline-joining input (e.g.
+        # qsMay.entry-baseline) routes to a baseline-joining replacement
+        # (qsMay.entry-baseline.exit-noentry), not the entryless fallback.
+        # The replacement's modifier set should match the input's minus any
+        # exit-* modifiers (those describe the exit shape we're discarding)
+        # plus 'exit-noentry'.
+        expected_modifiers = frozenset(
+            m for m in fallback_meta.modifiers if not m.startswith("exit-")
+        ) | {"exit-noentry"}
+
         candidates: list[tuple[tuple, str]] = []
         for candidate_name in sorted(base_to_variants.get(base_name, ())):
             candidate_meta = glyph_meta[candidate_name]
-            if candidate_meta.generated_from is not None or candidate_meta.is_noentry:
+            if candidate_meta.is_noentry:
                 continue
             if "exit-noentry" not in candidate_meta.modifiers:
                 continue
-            if candidate_meta.entry or candidate_meta.entry_curs_only or candidate_meta.exit:
+            if candidate_meta.exit:
+                continue
+            if candidate_meta.entry != fallback_meta.entry:
+                continue
+            if candidate_meta.entry_curs_only != fallback_meta.entry_curs_only:
                 continue
             if candidate_meta.after or candidate_meta.before or candidate_meta.not_after or candidate_meta.not_before:
                 continue
             score = (
-                candidate_meta.modifiers == ("exit-noentry",),
+                frozenset(candidate_meta.modifiers) == expected_modifiers,
                 candidate_meta.bitmap != fallback_meta.bitmap,
                 -len(candidate_meta.modifiers),
             )
@@ -3245,9 +3267,17 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # context of the demoted replacement so the would-be join stroke
         # doesn't dangle. Runs as its own lookup after the demotion pass
         # so the lookahead can match the freshly substituted replacement.
+        # Skip when the replacement still carries an entry: the
+        # pre-predecessor's exit can still attach there, so the
+        # `before:`-driven shape selection remains correct.
         seen: set[tuple[str, str, str]] = set()
         rules: list[tuple[str, str, str]] = []
         for _lig_target, candidate, replacement in demotion_rules:
+            replacement_meta = glyph_meta.get(replacement)
+            if replacement_meta is None:
+                continue
+            if replacement_meta.entry or replacement_meta.entry_curs_only:
+                continue
             candidate_meta = glyph_meta.get(candidate)
             if candidate_meta is None:
                 continue

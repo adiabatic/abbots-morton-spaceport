@@ -3257,6 +3257,38 @@ def _inherit_ligature_entries_from_lead(
     return updated
 
 
+def has_entry_preserving_exit_noentry_sibling(
+    l_meta: JoinGlyph,
+    base_to_variants: dict[str, set[str]],
+    join_glyphs: dict[str, JoinGlyph],
+) -> bool:
+    """True if ``l_meta`` has a sibling form that preserves its entry side
+    and drops the exit (the ``.exit-noentry`` companion). The post-liga
+    cleanup routes here cleanly when a downstream ``noentry_after``
+    ligature voids the right-hand join, so the calt_cycle guard that
+    would otherwise block the upgrade is unnecessary."""
+    expected_modifiers = frozenset(
+        m for m in l_meta.modifiers if not m.startswith("exit-")
+    ) | {"exit-noentry"}
+    for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
+        sibling = join_glyphs.get(sibling_name)
+        if sibling is None or sibling.is_noentry:
+            continue
+        if sibling.exit:
+            continue
+        if sibling.entry != l_meta.entry:
+            continue
+        if sibling.entry_curs_only != l_meta.entry_curs_only:
+            continue
+        if sibling.after or sibling.before or sibling.not_after or sibling.not_before:
+            continue
+        if "exit-noentry" not in sibling.modifiers:
+            continue
+        if frozenset(sibling.modifiers) == expected_modifiers:
+            return True
+    return False
+
+
 def _propagate_noentry_after_to_not_before(
     join_glyphs: dict[str, JoinGlyph],
 ) -> dict[str, JoinGlyph]:
@@ -3269,6 +3301,11 @@ def _propagate_noentry_after_to_not_before(
     impossible whenever ``V_R``'s `.noentry` substitution would void the
     join. This subsumes the manual ``not_before`` edits that previously
     had to accompany each `noentry_after` directive.
+
+    Skipped when the left variant has an entry-preserving ``.exit-noentry``
+    sibling: the post-liga cleanup will route there cleanly, so blocking
+    calt_cycle's selection would only deprive the predecessor of a usable
+    baseline join with no benefit on the right.
     """
     base_to_variants: dict[str, set[str]] = {}
     for name, glyph in join_glyphs.items():
@@ -3299,6 +3336,10 @@ def _propagate_noentry_after_to_not_before(
                     continue
                 exit_ys = {anchor[1] for anchor in l_meta.exit}
                 if not (exit_ys & r_entry_ys):
+                    continue
+                if has_entry_preserving_exit_noentry_sibling(
+                    l_meta, base_to_variants, join_glyphs
+                ):
                     continue
                 additions.setdefault(l_name, set()).add(r_family)
 
@@ -3335,5 +3376,6 @@ __all__ = [
     "flatten_join_glyphs",
     "generate_noentry_variants",
     "get_base_glyph_name",
+    "has_entry_preserving_exit_noentry_sibling",
     "resolve_known_glyph_names",
 ]
