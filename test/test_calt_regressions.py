@@ -2089,9 +2089,9 @@ def test_qs_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
     assert gay_exit_ys & target_entry_ys, (
         f"qsGay.exit {gay.exit} and {target_base}.entry {target.entry} share no y-coordinate"
     )
-    assert gay.exit == ((7, 0),), (
-        f"qsGay exit anchor should be shifted one pixel right by the extension, "
-        f"got {gay.exit}"
+    assert gay.exit == ((6, 0),), (
+        f"qsGay extended baseline exit should land at x=6, y=0 "
+        f"(max_ink_x+1 of the extended bitmap), got {gay.exit}"
     )
 
 
@@ -2099,8 +2099,8 @@ def test_qs_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
 def test_qs_gay_exit_baseline_extended_targets_include_joining_followers(target_base):
     meta = _compiled_meta()
     variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert variant.exit == ((7, 0),), (
-        f"qsGay.exit-baseline.exit-extended should exit at x=7, y=0; got {variant.exit}"
+    assert variant.exit == ((6, 0),), (
+        f"qsGay.exit-baseline.exit-extended should exit at x=6, y=0; got {variant.exit}"
     )
     assert target_base in set(variant.before), (
         f"qsGay.exit-baseline.exit-extended should name {target_base} in `before`; "
@@ -2111,8 +2111,8 @@ def test_qs_gay_exit_baseline_extended_targets_include_joining_followers(target_
 def test_qs_gay_exit_xheight_extended_exists_for_it():
     meta = _compiled_meta()
     variant = meta["qsGay.exit-xheight.exit-extended"]
-    assert variant.exit == ((7, 5),), (
-        f"qsGay.exit-xheight.exit-extended should exit at x=7, y=5; got {variant.exit}"
+    assert variant.exit == ((6, 5),), (
+        f"qsGay.exit-xheight.exit-extended should exit at x=6, y=5; got {variant.exit}"
     )
     assert "qsIt" in set(variant.before), (
         f"qsGay.exit-xheight.exit-extended should name qsIt in `before`; "

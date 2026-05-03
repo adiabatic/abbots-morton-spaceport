@@ -39,8 +39,6 @@ Tight × tight → flush. Loose × loose → flush. Cross-convention pairs leak 
 ### Remaining
 
 - **`extend_*` derive directives.** Now that the base anchors are tight, some of the `extend_exit_before` / `extend_entry_after` rules may be preserving (or having been chosen to fight) the old loose geometry. Spot check on next few feature additions; nothing to do speculatively.
-- **Test fallout from the exit pass.** 9 tests failing after the tightening: `test_qs_gay_joining_targets_share_shifted_baseline_anchor[it/i/exam]`, `test_qs_gay_exit_baseline_extended_targets_include_joining_followers[tea/it/i/exam]`, `test_qs_gay_exit_xheight_extended_exists_for_it`, and `test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo`. Each pins a specific anchor x in the compiled IR — update the expected values to match the new tight geometry. (No new test failures from the entry pass.)
-- **Stray loose exits.** The exit pass missed 7 forms in `qsZoo.before-baseline-entry` (and 5 wide-gap +3 exits on `qsZoo` base/variants); `tools/audit_anchor_geometry.py --side exit` lists them. Audit and decide whether to tighten or document as intentional.
 
 - Make lists of letters like "goes straight up and down on the left" and put these letters in the list, and declare that ·Owe never joins to it:
   - ·Tea
