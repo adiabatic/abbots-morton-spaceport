@@ -1606,7 +1606,7 @@ glyph_families:
       anchors:
         exit: [5, 5]
       derive:
-        extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsFee}, {family: qsJay}, {family: qsRoe}, {family: qsIt}]}
+        extend_exit_before: {by: 1, targets: [{family: qsDay}, {family: qsFee}, {family: qsJai}, {family: qsJay}, {family: qsRoe}, {family: qsIt}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
     shapes:
