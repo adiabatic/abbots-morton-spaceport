@@ -28,7 +28,6 @@
   - ·Pea
   - ·Tea
   - ·It
-- Document why ligatures live in `calt` (not `liga`): contextual alternates must run first and be able to block ligatures by changing glyph identity (e.g. in ·Day·Utter·Low, the forward rule replaces ·Utter with ·Utter.alt before the ligature lookup sees it, preventing the ·Day·Utter ligature from firing)
 
 ## Restructure source so join mismatches are inexpressible
 

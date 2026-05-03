@@ -3178,6 +3178,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     if ligatures:
         from itertools import product
 
+        # Ligation lives inside `calt`, not the dedicated `liga` feature, so it
+        # runs after `calt_cycle`'s contextual form selection within the same
+        # feature pass. That ordering lets a forward `calt` rule change a
+        # component's glyph identity (e.g., qsUtter -> qsUtter.alt in
+        # ·Day·Utter·Low) before the ligature lookup sees it, which in turn
+        # blocks the `qsDay qsUtter` ligature from firing because the matched
+        # sequence is now `qsDay qsUtter.alt`. Putting these rules in `liga`
+        # would force ligation to run as its own feature pass and lose that
+        # interleaving.
         lines.append("")
         lines.append("    lookup calt_liga {")
         for lig_name, components in sorted(ligatures):

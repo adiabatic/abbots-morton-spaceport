@@ -16,7 +16,7 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 ## 5. OpenType layout features used here
 
-- **Lookup ordering.** Why `calt` running before `liga` matters (a `calt` rule can substitute glyph identity to suppress a `liga` rule from firing) — see TODO.md's note about ·Day·Utter·Low.
+- **Lookup ordering.** Why `calt` running before `liga` matters (a `calt` rule can substitute glyph identity to suppress a `liga` rule from firing). The Senior FEA goes one step further and keeps the ligature substitutions inside the `calt` feature itself, so `calt_cycle`'s form selection and `calt_liga`'s collapse run interleaved within a single feature pass — see the comment on `calt_liga` in `tools/quikscript_fea.py` and ·Day·Utter·Low for the canonical example.
 - **FEA syntax.** Feature files: classes, lookup blocks, contextual rules. We generate them with `tools/quikscript_fea.py` and load them via `feaLib.builder.addOpenTypeFeaturesFromString`.
 - **Anchor classes in FEA.** `@exit_y{N}` / `@entry_y{N}` collect every variant carrying that anchor. Source-side selectors `{exit_y: N}` / `{entry_y: N}` mirror these classes.
 - **Cursive attachment (`curs`).** A GPOS feature that snaps each glyph's entry anchor to the previous glyph's exit anchor. Designed for Arabic / Mongolian; less universally implemented for LTR scripts. This is why Senior doesn't render in Word.
@@ -62,7 +62,7 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 ## 10. Ligatures and the calt cycle
 
 - **`calt_cycle`, `calt_liga`, `calt_post_liga_*`.** The four-stage shape-selection / ligation / cleanup pass that Senior runs. Each stage has a specific job; mixing rules across stages is how regressions sneak in.
-- **Why ligatures live in `calt`, not `liga`.** Contextual alternates must run first so they can change identity (and thus block) ligature lookups. Document this in the source when it matters.
+- **Why ligatures live in `calt`, not `liga`.** Contextual alternates must run first so they can change identity (and thus block) ligature lookups. Keeping the ligature substitutions in the same `calt` feature lets `calt_cycle` and `calt_liga` interleave within one feature pass; ·Day·Utter·Low is the canonical example, and the rationale lives in the comment above `calt_liga` in `tools/quikscript_fea.py`.
 - **Two-glyph ligature entry inheritance.** `qsX_qsY` inherits the entry anchor and `extend_entry_after` rules from `qsX`'s prop (or from `qsX.entry-xheight` if the prop has none). Don't restate them on the ligature — `LigatureEntryInheritanceWarning` will yell at you if you do.
 - **Two-glyph ligature exit inheritance.** Mirror image: `extend_exit_before` / `contract_exit_before` from the trailing component propagate via `_iter_related_extension_targets`, and `calt_liga` routes `(qsX, qsY.<exit-modifier>)` to `qsX_qsY.<exit-modifier>`. Don't restate trailing exit rules on the ligature.
 - **`expand_selectors_for_ligatures`.** A successor's `select.after: [{family: qsY}]` implicitly matches every ligature whose trailing component is `qsY`. Don't hand-list ligature names.
@@ -100,4 +100,3 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 - **Mixed `before:` / `not_before:` follow-ups.** Possible IR diagnostic for forms whose resolved exclusion subsumes their inclusion (silent no-op). Possible `expand_selectors_for_ligatures` interaction work if a mixed-selector ligature ever misbehaves.
 - **The Manual page-number markers.** Reserve a column on the right for PDF-page links and button targets.
 - **Ligature backlog.** ·Bay·Utter, ·Gay·Utter ("waggon"), ·Gay·Out — plus the standalone ·I that drags along the baseline before going up sharply (for ·Way.half compatibility).
-- **Why ligatures live in `calt` (not `liga`).** Document this in the source. The example to cite is ·Day·Utter·Low: the forward rule replaces ·Utter with ·Utter.alt before the ligature lookup sees it, blocking the ·Day·Utter ligature.
