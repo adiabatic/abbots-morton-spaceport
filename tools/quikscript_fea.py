@@ -2782,7 +2782,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
-            if base_name not in early_pair_upgrade_bases and base_name not in early_pair_fwd_general:
+            if base_name not in early_pair_upgrade_bases:
                 _emit_bk_pairs(base_name)
         for base_name in bases:
             if base_name in early_fwd_pairs:
@@ -2822,7 +2822,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     for base_name in plan.early_pair_fwd_general:
         if base_name in early_pair_upgrade_bases:
             continue
-        _emit_bk_pairs(base_name)
         _emit_fwd_general(
             base_name,
             only_exit_ys=early_pair_fwd_general[base_name],

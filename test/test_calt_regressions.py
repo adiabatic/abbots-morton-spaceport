@@ -2581,7 +2581,7 @@ def _they_jay_cases() -> list[tuple[str, str, str]]:
         )
     )
     for name, code in LETTERS:
-        left_connection = "|?|" if name == "Utter" else "?"
+        left_connection = "~x~" if name == "Utter" else "?"
         out.append(
             (
                 _case_id(name, "They", "Jay"),
