@@ -9,7 +9,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 ## 2. Typography fundamentals
 
 - **Em square and font units.** The internal grid a font is drawn on. Here UPM is 550, pixel size is 50, so 11 px = 1 em.
-- **Advance width and side bearings.** Drives mono vs proportional behavior.
 - **Kerning.** Pair-level horizontal adjustment. We use it sparingly in Latin (`opentype-features.yaml`) and structurally for `qsHe` before noentry letters.
 - **Bold by overstrike.** Bold is the Regular with each "on" pixel rendered 1.5 px wide. No separate bold drawings exist.
 
@@ -17,14 +16,12 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 - **Outline flavors.** Both TrueType (`glyf`, quadratic Béziers) and CFF (`CFF`/`CFF2`, cubic Béziers via PostScript Type 2 CharStrings) ride inside the same SFNT container, and OpenType layout tables (`GSUB`, `GPOS`, `GDEF`) work the same on either. We ship CFF outlines built from bitmap pixels via `T2CharStringPen`; the `.otf` extension is a consequence, not a meaningful axis.
 - **The SFNT table set.** `name`, `cmap`, `GSUB`, `GPOS`, `GDEF`, `OS/2`, `hhea`, `hmtx`, `post`, etc. Worth recognizing each by name when something goes wrong.
-- **The OpenType `name` table.** Where font name, version, designer, sample text, etc. live.
 - **GSUB vs GPOS.** Substitution (one-to-one, many-to-one, contextual) vs positioning (kerning, anchor attachment, cursive attachment).
 - **Anchors.** Named points on glyphs (`entry`, `exit`, mark anchors). Drive cursive attachment and mark positioning.
-- **GDEF.** Where glyph categories (base, ligature, mark) live so layout features know what they're looking at.
+- **GDEF.** Glyph categories (base, ligature, mark, component), mark attachment classes, ligature caret positions, and mark glyph sets. feaLib auto-builds it from our FEA — ligature-substitution targets (`qsX_qsY`) get classified as ligatures, `markClass` declarations land combiners in the mark class — so we don't author GDEF directly and `tools/quikscript_fea.py` has no `table GDEF` block. The `mark` feature reads the mark class to attach combiners to bases, and shaping engines use the classification when interpreting cursive chains across marks. HarfBuzz infers around gaps; Word/Uniscribe doesn't, so a font that joins fine in browsers but misbehaves there puts GDEF on the suspect list. Dump with `ttx -t GDEF test/<font>.otf`. `LigCaretList` (caret positions inside ligatures for text-selection UIs) is the one piece feaLib won't infer — if selecting inside a `qsX_qsY` ever feels wrong, that's the gap.
 
 ## 5. OpenType layout features used here
 
-- **Feature tags overview.** `liga` (standard ligatures), `calt` (contextual alternates), `curs` (cursive attachment), `kern`, stylistic sets `ssXX`. Each has its own conventions and ordering implications.
 - **Lookup ordering.** Why `calt` running before `liga` matters (a `calt` rule can substitute glyph identity to suppress a `liga` rule from firing) — see TODO.md's note about ·Day·Utter·Low.
 - **FEA syntax.** Feature files: classes, lookup blocks, contextual rules. We generate them with `tools/quikscript_fea.py` and load them via `feaLib.builder.addOpenTypeFeaturesFromString`.
 - **Anchor classes in FEA.** `@exit_y{N}` / `@entry_y{N}` collect every variant carrying that anchor. Source-side selectors `{exit_y: N}` / `{entry_y: N}` mirror these classes.
@@ -96,16 +93,10 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 ## 12. Test infrastructure
 
-- **`test/index.html`.** Browser-based interactive smoke test. Toggle Junior/Senior, Mono/Sans, weights, sizes.
 - **`test/the-manual.html`.** Full transcription of Read's Quikscript Manual. The corpus we measure ourselves against. Don't rewrite existing `data-expect` values — preserve the manual.
 - **The two manual word lists.** "Common words to be fully spelt" and "Contractions" are the spelling source of truth.
-- **`test/extra-senior-words.html`, `test/specimen.html`, `test/tables.html`, `test/exotics.html`, `test/check.html`, `test/glyph-editor.html`.** Other test pages and tools.
-- **`test/wip.json`.** A list of in-progress letter sequences highlighted in the Manual. Empty (`[]`) when no work is in flight.
-- **`data-expect` attribute syntax.** Glyph tokens (`·LetterName`, `\X`, `◊name`), ligature operators (`+`, `+?`, `+|`), variant assertions (`.alt`, `.half`, `.!alt`, `.!half`, plus compatibility-only modifiers), connection operators (` `, `~x~`, `~b~`, `~t~`, `~6~`, `|`, `|?|`, `?`). See `test/data-expect.md`.
-- **`data-expect-noncanonically`.** Same syntax; flags joins that aren't in the manual but we still want to lock down.
 - **The break-isolation invariant.** A `|` or non-joining `?` between two letter tokens additionally asserts each side shapes the same in isolation. `|?|` opts out for the rare cosmetic-only cross-break rule.
 - **Duplicate levels.** Content / total / exact duplicates between two `data-expect` elements. The dedup workflow removes the attribute, then unwraps a bare `<span>` if nothing else is left.
-- **Span-wrapping rules.** Multi-letter QS words get spans; single-letter QS words don't; punctuation stays outside; namer dots stay inside; compounds are one span. See `test/span-wrapping.md`.
 - **Coverage checking.** `doc/checking-data-expect-coverage.md` — the documented Codex-driven workflow for finding manual-only words missing `data-expect` elsewhere.
 - **`test/test_shaping.py`.** Parses `data-expect` and verifies HarfBuzz output against compiled glyph metadata.
 - **`test/test_calt_regressions.py`, `test_quikscript_ir.py`, `test_quikscript_fea.py` (if present), `test_quikscript_context.py`, `test_quikscript_join_analysis.py`, `test_combining_marks.py`, `test_static_bold.py`, `test_shared.py`.** What each suite locks down.
@@ -115,18 +106,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 - **Pyright.** Type checks `tools/` and `test/`. `make typecheck` runs it; `make test` runs it before pytest. New code must pass.
 - **`pytest -n auto`.** Parallel pytest, configured via `pytest-xdist` in `pyproject.toml`.
 - **Typst.** Used for `print.typ` (the printable manual snapshot) and `doc/explainer/`.
-- **Departure Mono.** The companion font we extend. Several glyphs are direct copies, lightly-modified copies, or independently-drawn lookalikes. The `copy-from-departure-mono` skill encodes the workflow.
-- **markdownlint-cli2.** Markdown style enforcement. Sentence-case titles, no hard wrap, well-aligned tables.
-- **The custom skills.** `scaffold`, `make-ligature`, `copy-glyph`, `copy-from-departure-mono`, `bump-major` / `bump-minor`, `summarize-for-FONTLOG`. These encode the standard workflows; reach for them before reinventing.
-
-## 14. Project-specific conventions and habits
-
-- **Commit-message taste.** Describe the author/reader experience or the visual change in the font. Anti-prefer mechanism-only messages. Multiline is allowed in this repo only.
-- **Markdown style.** Sentence-case titles; no hard wrapping; table columns aligned; pass markdownlint-cli2.
-- **HTML/CSS/JS taste.** Nested CSS over flat; for-of over `.forEach`; modern range queries (`(width > 40em)`).
-- **Version-bump procedure.** Update `glyph_data/metadata.yaml`, `pyproject.toml`, then `uv sync` to refresh `uv.lock`.
-- **Glyph-add invariants.** Mirror new glyphs into `postscript_glyph_names.yaml` if they take a standard PS name; keep YAML alphabetized by code point.
-- **Why we don't commit without explicit approval.** Project rule. Always show the diff and wait.
 
 ## 15. Standing open problems (read TODO.md before planning here)
 
