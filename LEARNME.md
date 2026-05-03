@@ -38,20 +38,17 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 ## 7. The build pipeline at a glance
 
 - **Top-level flow.** `make all` → `uv run python tools/build_font.py glyph_data/ test/` → six OTFs in `test/`. `make test` runs pyright then pytest. `make explainer` builds the Typst explainer.
-- **Why `uv run`.** Project deps are managed by `uv` (`pyproject.toml` + `uv.lock`). Never invoke `python` or `pytest` directly.
 - **`tools/build_font.py`.** Loads YAML, calls the compiler, walks variants into FontBuilder, emits FEA via `quikscript_fea.py`, writes Mono / Junior / Senior × Regular / Bold.
 - **`tools/glyph_compiler.py`.** Owns `CompiledGlyphSet` and `JoinGlyph`. Carries legacy flat `glyphs:` data, compiled Quikscript joins, and merged metadata. `JoinGlyph` is the canonical variant-level result.
 - **`tools/quikscript_ir.py`.** The intermediate representation: family schema → resolved variants with selectors, anchors, ligature inheritance, derive rules.
 - **`tools/quikscript_fea.py`.** Senior feature emission: `curs`, `calt_cycle`, `calt_liga`, `calt_post_liga_*`, gated stylistic sets.
 - **`tools/quikscript_join_analysis.py`.** Static validator (`validate_join_consistency`, `collect_join_warnings`). The thing that locks down join correctness.
-- **`tools/serve.py`.** Local dev server for the test HTML.
 - **`tools/inspect_join.py` / `extract_glyph.py` / `shape_sequences.py`.** Diagnostics for one-off questions about a join, a glyph, or a shaping run.
 
 ## 8. Source-data schema
 
 - **`glyph_data/` layout.** One YAML per script / category: `quikscript.yaml`, `latin_letters.yaml`, `numbers.yaml`, `punctuation.yaml`, `composites.yaml`, `exotics.yaml`, `shavian.yaml`, plus `metadata.yaml` and `opentype-features.yaml`.
 - **`glyph_families:` structure.** Each family has up to four sibling records: `mono`, `prop`, `shapes`, `forms`. Anchors live on the proportional side only.
-- **`mono` vs `prop`.** Mono is monospace-only and carries no `curs` anchors; prop is the Senior side and the only one with entry/exit anchors.
 - **`shapes`.** Bitmaps shared by multiple forms in the same family.
 - **`forms`.** Contextual / alternate variants. Carry `traits`, `modifiers`, `select`, `derive`, `anchors`, `inherits`.
 - **`traits` vs `modifiers`.** `traits` are stable semantic concepts (`alt`, `half`); `modifiers` are everything else, ordered, and feed the compiled glyph name. Test assertions distinguish stable trait checks from compatibility-only modifier checks.
