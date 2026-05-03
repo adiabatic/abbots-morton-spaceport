@@ -161,7 +161,7 @@ glyph_families:
           exit: [4, 0]
         select:
           not_before: [{entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]}]
-        modifiers: [entry-y6, exit-baseline]
+        modifiers: [exit-baseline]
       entry_xheight:
         shape: dips_down_to_short_height
         anchors:
@@ -213,7 +213,7 @@ glyph_families:
         select:
           not_before: null
           before: [{family: qsPea}]
-        modifiers: [entry-y6, exit-y6]
+        modifiers: [exit-y6]
   qsBay:
     mono:
       bitmap:
@@ -299,9 +299,7 @@ glyph_families:
         traits: [half]
         modifiers: [entry-xheight]
       half_entry_xheight_ss03:
-        shape: half
-        anchors:
-          entry: [0, 5]
+        inherits: half_entry_xheight
         select:
           after:
           - {family: qsDay_qsUtter}
@@ -320,10 +318,8 @@ glyph_families:
           - {family: qsOut}
           - {family: qsOwe}
           - {family: qsFoot}
-          not_before: [{family: qsTea}]
         gate_feature_behind: ss03
-        traits: [half]
-        modifiers: [entry-xheight, after-xheight-exit]
+        modifiers: [after-xheight-exit]
       half_exit_xheight:
         shape: half
         anchors:
@@ -351,13 +347,12 @@ glyph_families:
           entry: [0, 8]
         modifiers: [entry-top]
       entry_top_exit_baseline:
-        shape: prop
+        inherits: entry_top
         anchors:
-          entry: [0, 8]
           exit: [1, 0]
         select:
           not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
-        modifiers: [entry-top, exit-baseline]
+        modifiers: [exit-baseline]
       entry_baseline:
         shape: prop
         anchors:
@@ -368,14 +363,14 @@ glyph_families:
           extend_entry_after: {by: 1, targets: [{family: qsKey}, {family: qsJay}, {family: qsEight}]}
         modifiers: [entry-baseline]
       entry_baseline_exit_baseline_ss05:
-        shape: prop
+        inherits: entry_baseline
         anchors:
-          entry: [0, 0]
           exit: [1, 0]
         select:
+          not_after: null
           after: [{family: qsEt}]
         gate_feature_behind: ss05
-        modifiers: [entry-baseline, exit-baseline]
+        modifiers: [exit-baseline]
       entry_xheight:
         shape: prop
         anchors:
@@ -390,7 +385,7 @@ glyph_families:
         select:
           after: [{family: qsFee}]
         gate_feature_behind: ss03
-        modifiers: [entry-xheight, after-fee]
+        modifiers: [after-fee]
   qsTea_qsOy:
     sequence:
     - qsTea
@@ -823,12 +818,11 @@ glyph_families:
           not_before: [{family: qsTea}]
         modifiers: [exit-xheight]
       exit_xheight_before_utter:
-        shape: mono
-        anchors:
-          exit: [5, 5]
+        inherits: exit_xheight
         select:
+          not_before: null
           before: [{family: qsUtter}]
-        modifiers: [exit-xheight, before-utter]
+        modifiers: [before-utter]
   qsFee_qsMay:
     sequence:
     - qsFee
@@ -1708,32 +1702,18 @@ glyph_families:
         - junior
         - senior
       alt_after_it_and_vie:
-        shape: alt
-        anchors:
-          entry: [0, 0]
-          exit: [5, 0]
+        inherits: alt
         select:
+          not_after: null
           after: [{family: qsVie}, {family: qsIt}]
-        traits: [alt]
         modifiers: [after-it-and-vie]
-        variants:
-        - mono
-        - junior
-        - senior
       alt_after_zoo:
-        shape: alt
-        anchors:
-          entry: [0, 0]
-          exit: [5, 0]
+        inherits: alt
         select:
+          not_after: null
           after: [{family: qsZoo}]
           not_before: [{family: qsEt}]
-        traits: [alt]
         modifiers: [after-zoo]
-        variants:
-        - mono
-        - junior
-        - senior
   qsLow:
     mono:
       bitmap:
@@ -2105,24 +2085,22 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
         modifiers: [entry-baseline]
       entry_baseline_after_day:
-        shape: prop
+        inherits: entry_baseline
         anchors:
-          entry: [0, 0]
           exit: [1, 0]
         select:
+          not_after: null
           after: [{family: qsDay}]
         gate_feature_behind: ss04
-        modifiers: [entry-baseline, after-day]
+        modifiers: [after-day]
       entry_baseline_before_low:
-        shape: prop
+        inherits: entry_baseline
         anchors:
-          entry: [0, 0]
           exit: [1, 0]
         select:
           before: [{family: qsLow}]
-          not_after: [{family: qsZoo}, {family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEat}]
         gate_feature_behind: ss04
-        modifiers: [entry-baseline, before-low]
+        modifiers: [before-low]
       exit_xheight:
         shape: prop
         anchors:
@@ -2146,13 +2124,12 @@ glyph_families:
           not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}]
         modifiers: [before-utter]
       exit_baseline_before_ing:
-        shape: prop
-        anchors:
-          exit: [1, 0]
+        inherits: exit_baseline
         select:
+          not_before: null
           before: [{family: qsZoo}, {family: qsIng}]
           not_after: [{family: qsBay}]
-        modifiers: [exit-baseline, before-ing]
+        modifiers: [before-ing]
   qsEat:
     mono:
       bitmap:
@@ -2460,18 +2437,12 @@ glyph_families:
         traits: [alt]
         modifiers: [reaches-way-back]
       alt_before_may:
-        shape: alt
-        anchors:
-          exit: [5, 0]
+        inherits: alt
         select:
+          not_before: null
           before: [{context_set: utter_before_may}]
           not_after: [space, uni200C]
-        traits: [alt]
         modifiers: [before-may]
-        variants:
-        - mono
-        - junior
-        - senior
   qsOut:
     mono:
       bitmap:
@@ -2617,40 +2588,32 @@ glyph_families:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
         modifiers: [exit-xheight]
       entry_and_exit_at_xheight:
+        inherits: [entry_xheight, exit_xheight]
         shape: entry_and_exit_at_xheight
-        anchors:
-          entry: [0, 5]
-          exit: [5, 5]
-        select:
-          not_after: [{family: qsTea}, {family: qsLow}]
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}
-        modifiers: [entry-xheight, exit-xheight]
       entry_and_exit_at_xheight_before_day_ss07:
-        shape: entry_and_exit_at_xheight
-        anchors:
-          entry: [0, 5]
-          exit: [5, 5]
+        inherits: entry_and_exit_at_xheight
         select:
+          not_after: null
+          not_before: null
           before: [{family: qsDay}]
         derive:
           extend_exit_before: null
           extend_exit_before_gated: null
         gate_feature_behind: ss07
-        modifiers: [entry-xheight, exit-xheight, before-day]
+        modifiers: [before-day]
       exit_xheight_before_day_ss07:
-        shape: exit_xheight
-        anchors:
-          exit: [5, 5]
+        inherits: exit_xheight
         select:
+          not_before: null
           before: [{family: qsDay}]
         derive:
           extend_exit_before: null
           extend_exit_before_gated: null
         gate_feature_behind: ss07
-        modifiers: [exit-xheight, before-day]
+        modifiers: [before-day]
       gapped:
         bitmap:
         - " # # "  #
