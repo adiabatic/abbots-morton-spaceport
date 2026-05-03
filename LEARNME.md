@@ -2,6 +2,8 @@
 
 A reading list, sorted from most general / easy to most specific / thorny. Each item is a concept I want to be able to reason about when planning changes — not a recipe. Delete an entry once I'm confident I can answer "how should we do this?" questions about it without reaching for a reference.
 
+(This means that one can track progress by viewing this file’s Git history.)
+
 Items lower in the list usually depend on items higher in the list. Within a section, ordering is roughly easiest-first.
 
 ## 1. Quikscript and its world
