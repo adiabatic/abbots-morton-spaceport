@@ -53,7 +53,7 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 - **`extend_entry_after` / `extend_exit_before`.** Lengthen the connecting stroke by N pixels, shifting anchors and bitmaps in lockstep.
 - **`contract_entry_after` / `contract_exit_before`.** The opposite. Narrow contract rules beat broad extend rules because narrower selectors get ordered first.
 - **Conflicting `by` values.** A single `derive` block holds at most one each of the four directives. If a new target needs a different `by`, put the rule on the other side of the join.
-- **`noentry_after`.** A successor opts out of a left-side join after specific predecessors. Predecessors get reverted to bare-prop in `calt_post_liga_left_cleanup`.
+- **`noentry_after`.** A successor opts out of a left-side join after specific predecessors. If the right glyph is a ligature that becomes `.noentry`, `calt_post_liga_left_cleanup` can also route predecessors to explicit `.exit-noentry` forms when the predecessor's own bare bitmap would leave an unsupported exit-side stub. Do not pull back a later component inside a ligature to satisfy a left-side context; `qsAt_qsMay` stays whole before `qsThey_qsUtter.noentry`.
 - **`entry: null` on a ligature.** Ligature opts out of all left-side joins (`qsAt_qsMay`). Triggers `entry_explicitly_none`, blocks lead-inheritance, and tells `calt_post_liga_left_cleanup` to revert any predecessor.
 - **Narrow vs broad selector competition.** `qsThaw.after-ing` must beat `qsThaw.after-tall`. The build orders narrower selectors first, so a single-family contract rule beats a context-set extend rule.
 - **Mixing `before:` and `not_before:` on one form.** A form can demand a positive trigger for one family and a broad fallback for everything-else-with-matching-anchor. Same family in both lists is an error.
@@ -95,7 +95,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 - **Inconsistent exit anchor x offsets.** Most glyphs sit one pixel past the right edge; some sit two. Regularizing these is open work, especially with `extend.by` available.
 - **Restructure source so join mismatches are inexpressible.** Phase A static validator is in; Phase B derived guards in progress. The eventual goal is a `joins:` section declaring bilateral edges. Don't design until validator complaints prove the current source language is inadequate.
-- **Bare-form bitmap stubs from `noentry_after` predecessors.** Reverted bare forms still carry exit-side ink that overhangs into the entryless follower. Audit which families need `.exit-noentry` shape variants.
 - **Mixed `before:` / `not_before:` follow-ups.** Possible IR diagnostic for forms whose resolved exclusion subsumes their inclusion (silent no-op). Possible `expand_selectors_for_ligatures` interaction work if a mixed-selector ligature ever misbehaves.
 - **The Manual page-number markers.** Reserve a column on the right for PDF-page links and button targets.
 - **Ligature backlog.** ·Bay·Utter, ·Gay·Utter ("waggon"), ·Gay·Out — plus the standalone ·I that drags along the baseline before going up sharply (for ·Way.half compatibility).

@@ -1644,6 +1644,9 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
         modifiers: [entry-baseline]
+      exit_noentry:
+        shape: pulled_back_a_bit_for_entry_at_short_height
+        modifiers: [exit-noentry]
       exit_baseline:
         shape: exits_at_baseline
         anchors:

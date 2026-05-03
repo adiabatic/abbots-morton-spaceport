@@ -3038,6 +3038,37 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         return base_name
 
+    def _exit_noentry_fallback(base_name: str, fallback_name: str) -> str | None:
+        fallback_meta = glyph_meta.get(fallback_name)
+        if fallback_meta is None:
+            return None
+        if not fallback_meta.exit:
+            return None
+
+        candidates: list[tuple[tuple, str]] = []
+        for candidate_name in sorted(base_to_variants.get(base_name, ())):
+            candidate_meta = glyph_meta[candidate_name]
+            if candidate_meta.generated_from is not None or candidate_meta.is_noentry:
+                continue
+            if "exit-noentry" not in candidate_meta.modifiers:
+                continue
+            if candidate_meta.entry or candidate_meta.entry_curs_only or candidate_meta.exit:
+                continue
+            if candidate_meta.after or candidate_meta.before or candidate_meta.not_after or candidate_meta.not_before:
+                continue
+            score = (
+                candidate_meta.modifiers == ("exit-noentry",),
+                candidate_meta.bitmap != fallback_meta.bitmap,
+                -len(candidate_meta.modifiers),
+            )
+            candidates.append((score, candidate_name))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return candidates[0][1]
+
     def _collect_post_liga_right_cleanup_rules(
         lig_name: str,
         components: tuple[str, ...],
@@ -3172,6 +3203,34 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         continue
                     seen.add(rule)
                     rules.append(rule)
+
+        return rules
+
+    def _collect_noentry_after_left_cleanup_rules(
+        lig_name: str,
+    ) -> list[tuple[str, str, str]]:
+        lig_meta = _meta(lig_name)
+        if not lig_meta.noentry_after:
+            return []
+
+        noentry_name = lig_name + ".noentry"
+        if noentry_name not in glyph_names:
+            return []
+
+        seen: set[tuple[str, str, str]] = set()
+        rules: list[tuple[str, str, str]] = []
+        for candidate in sorted(_expand_all_variants(lig_meta.noentry_after, include_base=True)):
+            candidate_meta = glyph_meta.get(candidate)
+            if candidate_meta is None or not candidate_meta.exit:
+                continue
+            replacement = _exit_noentry_fallback(candidate_meta.base_name, candidate)
+            if replacement is None or replacement == candidate:
+                continue
+            rule = (noentry_name, candidate, replacement)
+            if rule in seen:
+                continue
+            seen.add(rule)
+            rules.append(rule)
 
         return rules
 
@@ -3313,10 +3372,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         post_liga_left_cleanup_rules: list[tuple[str, str, str]] = []
         for lig_name, components in sorted(ligatures):
-            if not _meta(lig_name).entry_explicitly_none:
-                continue
+            if _meta(lig_name).entry_explicitly_none:
+                post_liga_left_cleanup_rules.extend(
+                    _collect_post_liga_left_cleanup_rules(lig_name, components)
+                )
             post_liga_left_cleanup_rules.extend(
-                _collect_post_liga_left_cleanup_rules(lig_name, components)
+                _collect_noentry_after_left_cleanup_rules(lig_name)
             )
 
         if post_liga_left_cleanup_rules:

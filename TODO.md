@@ -38,10 +38,6 @@ Don't design this until the Phase A complaints (and Phase B derivation gaps) tel
 
 Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is clean for the real senior glyph set, and `test_real_join_warning_collector_is_clean` locks that in. Only revisit a top-level `joins:` section if future real-data warnings show repeated bilateral source-maintenance pain.
 
-## Bare-form bitmap stubs from `noentry_after` predecessors
-
-Now that `noentry_after`-driven `not_before` blocks backward selection (a `qsX qsY` ligature with `qsM` in its `noentry_after` reverts qsM to its bare `prop` form), the bare bitmap may still carry the same exit-side ink as the joining-shape variant. Concrete case: `·Roe ·May ·They ·Utter` reverts qsMay to bare instead of qsMay.entry-baseline, but qsMay's `prop.shape: mono` and qsMay.entry-baseline's `shape: mono` are the same bitmap — so the y=5 exit ink (`   ##` in the top row) still hangs over qsThey_qsUtter.noentry's empty top-left. Audit which `noentry_after`-fed families need an `.exit-noentry` shape variant (with the exit-side ink trimmed) and how to route the cleanup to choose it over the bare form.
-
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
