@@ -19,6 +19,7 @@
 ## Other
 
 - Use `{exit_y: N}` / `{entry_y: N}` only where the replacement is proven equivalent after variant expansion. A quick audit at `72f7466` of long family-only `select.after` / `select.before` / `select.not_after` / `select.not_before` lists found no safe shorter replacements: the promising `qsTea.half_entry_xheight_ss03.select.after` and `qsWhy.half.select.not_before` rewrites changed generated Senior FEA, and the `qsTea` rewrite introduced a join warning. Remaining possible cleanup should focus on `derive.extend_*` targets that truly mirror anchor classes, with generated FEA or shaping-test proof before committing.
+
 ## Anchor-geometry regularization
 
 Audit (run `tools/audit_anchor_geometry.py` if saved, otherwise the inline script in the original audit thread): the codebase historically mixed two internally consistent conventions for cursive anchor placement.
