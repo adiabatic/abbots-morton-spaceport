@@ -112,6 +112,10 @@ When a form needs both a forced positive trigger ("fire before any variant of fa
 - Do not wrap one-letter Quikscript words in `data-expect` attributes unless explicitly told to — there is no point in testing joins when there is only one letter.
 - When consolidating redundant tests, do not rewrite existing `data-expect` values in `test/the-manual.html`; preserve the manual corpus and remove redundant coverage elsewhere instead.
 
+## Visual before/after diffs
+
+- `test/check.html` is a side-by-side rendering harness for eyeballing glyph changes. On the baseline branch, run `make snapshot-before` to capture the "before" OTFs into `test/before/` (gitignored); make your changes on a branch, run `make all`, and reload. Edit the section(s) inside `test/check.html` to cover sequences relevant to the current change. The file itself documents the workflow in more detail.
+
 ## Markdown-document style
 
 - Use sentence case for titles, not title case.
