@@ -90,8 +90,16 @@ def _normalize_anchors(raw):
     return [raw]
 
 
-def collect(side, defs, family_filter=None):
-    """Side is 'entry' or 'exit'. Returns list of (gap, name, (x, y), family, ink_x, row)."""
+def collect(side, defs, meta, family_filter=None):
+    """Side is 'entry' or 'exit'. Returns list of (gap, name, (x, y), family, ink_x, row, ink_y).
+
+    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals
+    the anchor's y. For exits it equals the form's ``exit_ink_y`` override when the
+    JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key
+    ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like
+    qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0"
+    without the audit flagging it as loose.
+    """
     if side == "entry":
         fields = ("cursive_entry", "cursive_entry_curs_only")
     else:
@@ -111,11 +119,17 @@ def collect(side, defs, family_filter=None):
         family = gdef.get("family") or name.split(".")[0]
         if family_filter and family != family_filter:
             continue
+        join_glyph = meta.get(name) if meta else None
+        exit_ink_y_override = getattr(join_glyph, "exit_ink_y", None) if join_glyph else None
         for anc in anchors:
             if not anc or anc[0] is None:
                 continue
             ax, ay = anc
-            row = bitmap_row_at_y(gdef, ay)
+            if side == "exit" and exit_ink_y_override is not None:
+                ink_y = exit_ink_y_override
+            else:
+                ink_y = ay
+            row = bitmap_row_at_y(gdef, ink_y)
             if row is None:
                 skipped_no_bitmap.append((name, ax, ay))
                 continue
@@ -131,7 +145,7 @@ def collect(side, defs, family_filter=None):
                     skipped_no_ink.append((name, ax, ay, row))
                     continue
                 gap = ax - (ink_x + 1)
-            rows.append((gap, name, (ax, ay), family, ink_x, row))
+            rows.append((gap, name, (ax, ay), family, ink_x, row, ink_y))
 
     return rows, skipped_no_bitmap, skipped_no_ink
 
@@ -217,18 +231,21 @@ def report(side, rows, skipped_no_bitmap, skipped_no_ink, *, verbose=False):
             if verbose:
                 print()
                 print("  source forms:")
-                for gap, name, (ax, ay), family, ink_x, row in source_bucket:
-                    print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}")
+                for gap, name, (ax, ay), family, ink_x, row, ink_y in source_bucket:
+                    override = f"  [exit_ink_y={ink_y}]" if ink_y != ay else ""
+                    print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{override}")
                 if derived_bucket:
                     print("  derived forms (extension / contraction / trim, intentional at +1):")
-                    for gap, name, (ax, ay), family, ink_x, row in derived_bucket:
-                        print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}")
+                    for gap, name, (ax, ay), family, ink_x, row, ink_y in derived_bucket:
+                        override = f"  [exit_ink_y={ink_y}]" if ink_y != ay else ""
+                        print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{override}")
             print()
         else:
             print(f"--- gap {g:+d} ({len(bucket)} anchors) ---")
-            for gap, name, (ax, ay), family, ink_x, row in bucket:
+            for gap, name, (ax, ay), family, ink_x, row, ink_y in bucket:
                 tag = "  [derived]" if is_derived_variant(name, side) else ""
-                print(f"  {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{tag}")
+                override = f"  [exit_ink_y={ink_y}]" if ink_y != ay else ""
+                print(f"  {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{override}{tag}")
             print()
 
     if skipped_no_ink:
@@ -260,10 +277,11 @@ def main():
     glyph_data = load_glyph_data(REPO / "glyph_data")
     compiled = compile_glyph_set(glyph_data, "senior")
     defs = compiled.glyph_definitions
+    meta = compiled.glyph_meta
 
     sides = ("entry", "exit") if args.side == "both" else (args.side,)
     for side in sides:
-        rows, skipped_no_bitmap, skipped_no_ink = collect(side, defs, args.family)
+        rows, skipped_no_bitmap, skipped_no_ink = collect(side, defs, meta, args.family)
         report(side, rows, skipped_no_bitmap, skipped_no_ink, verbose=args.verbose)
 
 

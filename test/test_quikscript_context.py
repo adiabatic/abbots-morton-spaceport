@@ -283,8 +283,8 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     contracted = meta["qsHe.half.exit-contracted"]
     plain_half = meta["qsHe.half"]
     assert contracted.bitmap == plain_half.bitmap
-    assert contracted.exit == ((1, 5),)
-    assert plain_half.exit == ((2, 5),)
+    assert contracted.exit == ((0, 5),)
+    assert plain_half.exit == ((1, 5),)
     assert contracted.before == ("qsZoo",)
     assert "half" in contracted.traits
     assert glyphs["qsHe.half.exit-contracted"]["calt_before"] == ["qsZoo"]
