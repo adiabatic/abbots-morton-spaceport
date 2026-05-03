@@ -648,10 +648,24 @@ def _collect_bitmap_gap_warnings(
                         if pair_key in seen:
                             continue
                         seen.add(pair_key)
+                        right_bounds_meta = right_meta
+                        if (
+                            right_meta.transform_kind == "entry-trimmed"
+                            and right_meta.generated_from is not None
+                            and _ink_bounds_at_y(right_meta, y) is None
+                        ):
+                            # The trim removed every ink cell at the join row.
+                            # Fall back to the pre-trim parent bitmap so the gap
+                            # check sees the ink position the predecessor's exit
+                            # is meant to overlap, instead of flagging the empty
+                            # row as a missing-side join.
+                            parent = reachability.glyph_meta.get(right_meta.generated_from)
+                            if parent is not None:
+                                right_bounds_meta = parent
                         gap = _bitmap_join_gap(
                             left_meta,
                             left_anchor,
-                            right_meta,
+                            right_bounds_meta,
                             right_anchor,
                             left_family=left_family,
                             right_family=right_family,
