@@ -93,7 +93,6 @@ Items lower in the list usually depend on items higher in the list. Within a sec
 
 ## 15. Standing open problems (read TODO.md before planning here)
 
-- **Audit `{exit_y: N}` / `{entry_y: N}` substitutions.** Anchor selectors expand at compile time; mechanical replacement of long family lists has historically broken things. Prove equivalence with generated FEA or shaping tests.
 - **Inconsistent exit anchor x offsets.** Most glyphs sit one pixel past the right edge; some sit two. Regularizing these is open work, especially with `extend.by` available.
 - **Restructure source so join mismatches are inexpressible.** Phase A static validator is in; Phase B derived guards in progress. The eventual goal is a `joins:` section declaring bilateral edges. Don't design until validator complaints prove the current source language is inadequate.
 - **Bare-form bitmap stubs from `noentry_after` predecessors.** Reverted bare forms still carry exit-side ink that overhangs into the entryless follower. Audit which families need `.exit-noentry` shape variants.
