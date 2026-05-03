@@ -1,5 +1,5 @@
 context_sets:
-  extended_exit_utter_ah:
+  reaches_up_and_way_over_at_least_part_of_the_next_letter:
   - {family: qsAh, modifiers: [exit-extended]}
   - {family: qsUtter, modifiers: [exit-extended]}
   vie_may_entry_extend_triggers:
@@ -238,7 +238,7 @@ glyph_families:
           entry: [4, 5]
           exit: [6, 0]
         select:
-          after: [{context_set: extended_exit_utter_ah}]
+          after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
@@ -652,7 +652,7 @@ glyph_families:
         anchors:
           entry: [3, 5]
         select:
-          after: [{context_set: extended_exit_utter_ah}]
+          after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
@@ -732,7 +732,7 @@ glyph_families:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
       select:
-        after: [{context_set: extended_exit_utter_ah}]
+        after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
   qsFee:
     mono:
       bitmap:
@@ -1648,7 +1648,7 @@ glyph_families:
           - {family: qsJay_qsUtter}
           - {family: qsWay_qsUtter}
           - {family: qsWhy_qsUtter}
-          - {context_set: extended_exit_utter_ah}
+          - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
