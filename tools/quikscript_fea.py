@@ -3234,6 +3234,40 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         return rules
 
+    def _collect_noentry_after_pre_predecessor_revert_rules(
+        demotion_rules: list[tuple[str, str, str]],
+    ) -> list[tuple[str, str, str]]:
+        # When `_collect_noentry_after_left_cleanup_rules` demotes a
+        # predecessor (e.g. qsMay.entry-baseline -> qsMay.exit-noentry),
+        # any glyph whose `before:` clause selected its variant on the
+        # demoted family is now extending toward an entryless follower.
+        # Revert those pre-predecessor variants to their bare base in the
+        # context of the demoted replacement so the would-be join stroke
+        # doesn't dangle. Runs as its own lookup after the demotion pass
+        # so the lookahead can match the freshly substituted replacement.
+        seen: set[tuple[str, str, str]] = set()
+        rules: list[tuple[str, str, str]] = []
+        for _lig_target, candidate, replacement in demotion_rules:
+            candidate_meta = glyph_meta.get(candidate)
+            if candidate_meta is None:
+                continue
+            candidate_base = candidate_meta.base_name
+            for pre_pred_base, entries in fwd_pair_overrides.items():
+                if pre_pred_base not in glyph_names:
+                    continue
+                for variant_name, before_glyphs, _not_after_glyphs in entries:
+                    expanded = _expand_all_variants(before_glyphs, include_base=True)
+                    if candidate not in expanded and candidate_base not in expanded:
+                        continue
+                    if variant_name == pre_pred_base:
+                        continue
+                    rule = (replacement, variant_name, pre_pred_base)
+                    if rule in seen:
+                        continue
+                    seen.add(rule)
+                    rules.append(rule)
+        return rules
+
     if ligatures:
         from itertools import product
 
@@ -3371,13 +3405,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    }} calt_post_liga_{safe};")
 
         post_liga_left_cleanup_rules: list[tuple[str, str, str]] = []
+        post_liga_left_cleanup_pred_rules: list[tuple[str, str, str]] = []
         for lig_name, components in sorted(ligatures):
             if _meta(lig_name).entry_explicitly_none:
                 post_liga_left_cleanup_rules.extend(
                     _collect_post_liga_left_cleanup_rules(lig_name, components)
                 )
-            post_liga_left_cleanup_rules.extend(
-                _collect_noentry_after_left_cleanup_rules(lig_name)
+            noentry_rules = _collect_noentry_after_left_cleanup_rules(lig_name)
+            post_liga_left_cleanup_rules.extend(noentry_rules)
+            post_liga_left_cleanup_pred_rules.extend(
+                _collect_noentry_after_pre_predecessor_revert_rules(noentry_rules)
             )
 
         if post_liga_left_cleanup_rules:
@@ -3387,6 +3424,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 _format_post_liga_left_cleanup_rules(post_liga_left_cleanup_rules)
             )
             lines.append("    } calt_post_liga_left_cleanup;")
+
+        if post_liga_left_cleanup_pred_rules:
+            lines.append("")
+            lines.append("    lookup calt_post_liga_left_cleanup_pred {")
+            lines.extend(
+                _format_post_liga_left_cleanup_rules(post_liga_left_cleanup_pred_rules)
+            )
+            lines.append("    } calt_post_liga_left_cleanup_pred;")
 
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
