@@ -153,7 +153,7 @@ glyph_families:
       entry_y6:
         shape: prop
         anchors:
-          entry: [1, 6]
+          entry: [0, 6]
         modifiers: [entry-y6]
       entry_y6_exit_baseline:
         inherits: entry_y6
@@ -165,7 +165,7 @@ glyph_families:
       entry_xheight:
         shape: dips_down_to_short_height
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [4, 0]
         select:
           after: [{family: qsMay}, {family: qsUtter}]
@@ -185,7 +185,7 @@ glyph_families:
       half_entry_y6:
         inherits: half
         anchors:
-          entry: [1, 6]
+          entry: [0, 6]
         modifiers: [entry-y6]
       half:
         shape: half
@@ -199,7 +199,7 @@ glyph_families:
         inherits: half
         shape: half_dips_down_to_xheight
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           after: [{family: qsMay}, {family: qsUtter}]
         derive:
@@ -235,7 +235,7 @@ glyph_families:
       entry_xheight:
         shape: mono
         anchors:
-          entry: [4, 5]
+          entry: [3, 5]
           exit: [5, 0]
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
@@ -291,7 +291,7 @@ glyph_families:
       half_entry_xheight:
         shape: half
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           not_before: [{family: qsTea}]
         derive:
@@ -301,7 +301,7 @@ glyph_families:
       half_entry_xheight_ss03:
         shape: half
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           after:
           - {family: qsDay_qsUtter}
@@ -327,7 +327,7 @@ glyph_families:
       half_exit_xheight:
         shape: half
         anchors:
-          entry_curs_only: [1, 8]
+          entry_curs_only: [0, 8]
           exit: [1, 5]
         select:
           not_after: [{family: qsTea}, {family: qsEt}]
@@ -339,7 +339,7 @@ glyph_families:
       half_entry_top_exit_xheight:
         shape: half
         anchors:
-          entry: [1, 8]
+          entry: [0, 8]
           exit: [1, 5]
         select:
           not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
@@ -348,12 +348,12 @@ glyph_families:
       entry_top:
         shape: prop
         anchors:
-          entry: [1, 8]
+          entry: [0, 8]
         modifiers: [entry-top]
       entry_top_exit_baseline:
         shape: prop
         anchors:
-          entry: [1, 8]
+          entry: [0, 8]
           exit: [1, 0]
         select:
           not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
@@ -361,7 +361,7 @@ glyph_families:
       entry_baseline:
         shape: prop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
         select:
           not_after: [{family: qsPea}, {family: qsTea}, {family: qsYe}, {family: qsHe}, {family: qsExam}, {family: qsIt}, {family: qsEat}]
         derive:
@@ -370,7 +370,7 @@ glyph_families:
       entry_baseline_exit_baseline_ss05:
         shape: prop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [1, 0]
         select:
           after: [{family: qsEt}]
@@ -379,7 +379,7 @@ glyph_families:
       entry_xheight:
         shape: prop
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [1, 0]
         select:
           after: [{family: qsI}]
@@ -434,7 +434,7 @@ glyph_families:
       - "#   "
       y_offset: -3
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [4, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -455,7 +455,7 @@ glyph_families:
       half:
         shape: half
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [4, 0]
         select:
           not_after: [{family: qsTea}, {family: qsYe}, {family: qsWay}]
@@ -501,7 +501,7 @@ glyph_families:
       half:
         shape: half
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [8, 5]
         select:
           not_after: [{family: qsTea}, {family: qsYe}]
@@ -554,7 +554,7 @@ glyph_families:
       - "#   "
       - " ###"  #
       anchors:
-        entry: [1, 8]
+        entry: [0, 8]
         exit: [4, 0]
   qsGay:
     mono:
@@ -615,7 +615,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [3, 0]
+        entry: [2, 0]
     forms:
       exit_baseline:
         shape: mono
@@ -650,7 +650,7 @@ glyph_families:
       entry_xheight:
         shape: mono
         anchors:
-          entry: [3, 5]
+          entry: [2, 5]
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
@@ -790,7 +790,7 @@ glyph_families:
       entry_xheight:
         shape: connect_from_short_height
         anchors:
-          entry: [2, 5]
+          entry: [1, 5]
         select:
           after:
           - family: qsMay
@@ -812,7 +812,7 @@ glyph_families:
       entry_top:
         shape: continues_stroke_from_top
         anchors:
-          entry: [1, 8]
+          entry: [0, 8]
           exit: [5, 5]
         modifiers: [entry-top]
       exit_xheight:
@@ -874,7 +874,7 @@ glyph_families:
       - "  ### "
       y_offset: -3
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
     shapes:
@@ -894,7 +894,7 @@ glyph_families:
       exit_baseline:
         shape: exits_at_baseline
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [8, 0]
         select:
           before: [{family: qsIng}, {family: qsNo}, {family: qsLow}, {family: qsRoe}, {family: qsExcite}]
@@ -935,7 +935,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 8]
     shapes:
       exits_at_y6:
@@ -977,7 +977,7 @@ glyph_families:
       exit_y6:
         shape: exits_at_y6
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [6, 6]
         modifiers: [exit-y6]
       exit_baseline:
@@ -1059,7 +1059,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 0]
         exit_ink_y: -1
       derive:
@@ -1081,7 +1081,7 @@ glyph_families:
       before_baseline_entry:
         shape: mono
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [3, 0]
           exit_ink_y: -1
         select:
@@ -1090,7 +1090,7 @@ glyph_families:
       half:
         shape: half
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 0]
           exit_ink_y: -1
         traits: [half]
@@ -1241,7 +1241,7 @@ glyph_families:
       - "#   "
       - " ###"  #
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [4, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -1269,7 +1269,7 @@ glyph_families:
       entry_xheight:
         shape: mono
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [5, 0]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight}]}
@@ -1337,7 +1337,7 @@ glyph_families:
       entry_xheight_exit_baseline:
         shape: from_short_height
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [2, 0]
         select:
           not_after: [{family: qsPea}, {family: qsTea}, {family: qsThey}, {family: qsWay}, {family: qsWhy}]
@@ -1564,7 +1564,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsTea}]}
@@ -1573,7 +1573,7 @@ glyph_families:
       after_thaw:
         shape: mono
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 0]
         select:
           after: [{family: qsThaw}]
@@ -1637,7 +1637,7 @@ glyph_families:
       entry_xheight:
         shape: pulled_back_a_bit_for_entry_at_short_height
         anchors:
-          entry: [4, 5]
+          entry: [3, 5]
         select:
           after:
           - {family: qsDay_qsUtter}
@@ -1660,7 +1660,7 @@ glyph_families:
       entry_baseline:
         shape: mono
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 5]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
@@ -1694,7 +1694,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 5]
       derive:
         extend_exit_before: {by: 1, targets: [{family: qsFee}]}
@@ -1713,7 +1713,7 @@ glyph_families:
       alt:
         shape: alt
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 0]
         select:
           not_after: [{family: qsZoo}]
@@ -1725,7 +1725,7 @@ glyph_families:
       alt_after_it_and_vie:
         shape: alt
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 0]
         select:
           after: [{family: qsVie}, {family: qsIt}]
@@ -1738,7 +1738,7 @@ glyph_families:
       alt_after_zoo:
         shape: alt
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 0]
         select:
           after: [{family: qsZoo}]
@@ -1761,7 +1761,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
@@ -1781,7 +1781,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [[1, 0], [1, 5]]
+        entry: [[0, 0], [0, 5]]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}, {context_set: halves_exit_xheight}]}
     shapes:
@@ -1821,21 +1821,21 @@ glyph_families:
       entry_extended_at_baseline:
         shape: shortened_top
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
         select:
           after: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}]
         modifiers: [entry-extended-at-baseline]
       entry_extended_at_xheight:
         shape: shortened_bottom
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           after: [{family: qsMay}, {family: qsIt}]
         modifiers: [entry-extended-at-xheight]
       entry_xheight:
         shape: mono
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           after: [{family: qsPea, traits: [half]}, {family: qsHe, traits: [half]}]
         derive:
@@ -1844,7 +1844,7 @@ glyph_families:
       exit_baseline:
         shape: giga_extended_baseline
         anchors:
-          entry: [[1, 5]]
+          entry: [[0, 5]]
           exit: [5, 0]
         select:
           before: [{family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsExcite}, {family: qsAt}, {family: qsAh}]
@@ -1854,7 +1854,7 @@ glyph_families:
       exit_xheight:
         shape: giga_extended_short_height
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [6, 5]
         select:
           before: [{family: qsJai}, {family: qsNo}, {family: qsEight}, {family: qsAwe}, {family: qsOx}]
@@ -1883,7 +1883,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -1902,7 +1902,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
     shapes:
       wide_at_baseline:
         bitmap:
@@ -1952,7 +1952,7 @@ glyph_families:
       exit_baseline_before_vertical_after_baseline_letter:
         shape: wide_at_baseline
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [7, 0]
         select:
           after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}]}]
@@ -1962,7 +1962,7 @@ glyph_families:
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [6, 0]
         select:
           not_after: [space, uni200C, periodcentered]
@@ -1971,7 +1971,7 @@ glyph_families:
       entry_baseline_noexit:
         shape: wide_on_left_at_baseline
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
         select:
           after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}]}]
           not_before: [{entry_y: 0, except: [{family: qsThaw}]}]
@@ -2027,7 +2027,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
     forms:
       noentry_after_ye:
         shape: mono
@@ -2101,7 +2101,7 @@ glyph_families:
       entry_xheight:
         shape: prop
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [1, 0]
         select:
           not_after: [{family: qsIt}]
@@ -2111,7 +2111,7 @@ glyph_families:
       entry_baseline:
         shape: prop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [1, 5]
         select:
           not_after: [{family: qsZoo}, {family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEat}]
@@ -2122,7 +2122,7 @@ glyph_families:
       entry_baseline_after_day:
         shape: prop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [1, 0]
         select:
           after: [{family: qsDay}]
@@ -2131,7 +2131,7 @@ glyph_families:
       entry_baseline_before_low:
         shape: prop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [1, 0]
         select:
           before: [{family: qsLow}]
@@ -2186,7 +2186,7 @@ glyph_families:
       - "#  #"
       - "#  #"  #
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [4, 0]
   qsEt:
     mono:
@@ -2200,7 +2200,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -2216,7 +2216,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -2232,7 +2232,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
@@ -2271,7 +2271,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsYe}]}
@@ -2304,7 +2304,7 @@ glyph_families:
       entry_baseline_smaller_loop:
         shape: smaller_loop
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 5]
         select:
           after: [{family: qsRoe, modifiers: [exit-baseline]}]
@@ -2329,7 +2329,7 @@ glyph_families:
       - "  #    "
       - "##     "  #
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [7, 5]
       derive:
         extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsThey}, {family: qsFee}, {family: qsMay}]}
@@ -2354,7 +2354,7 @@ glyph_families:
       - "    #  "
       - "     ##"  #
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [7, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -2370,7 +2370,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -2406,7 +2406,7 @@ glyph_families:
       entry_xheight:
         shape: connects_on_both_sides
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [5, 0]
         select:
           after: [{family: qsNo}, {family: qsLow}]
@@ -2425,7 +2425,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 5]
       derive:
         extend_exit_before: {by: 1, targets: [{family: qsBay}, {family: qsGay}, {family: qsThey}, {family: qsFee}]}
@@ -2464,7 +2464,7 @@ glyph_families:
       alt_reaches_way_back:
         shape: alt_connects_from_short_height
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [6, 0]
         select:
           after: [{context_set: utter_reaches_way_back_after}]
@@ -2505,7 +2505,7 @@ glyph_families:
       - "#       "
       - "#       "  #
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
     shapes:
       after_see_extended:
         bitmap:
@@ -2535,14 +2535,14 @@ glyph_families:
       after_see:
         shape: after_see_extended
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
         select:
           after: [{family: qsSee}]
         modifiers: [after-see]
       exit_xheight_after_see:
         shape: exit_xheight_after_see
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [6, 5]
         select:
           after: [{family: qsSee}]
@@ -2552,7 +2552,7 @@ glyph_families:
       exit_xheight:
         shape: exit_xheight
         anchors:
-          entry: [1, 0]
+          entry: [0, 0]
           exit: [5, 5]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsFee}]}
@@ -2615,7 +2615,7 @@ glyph_families:
       entry_xheight:
         shape: entry_xheight
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
         select:
           not_after: [{family: qsTea}, {family: qsLow}]
         derive:
@@ -2636,7 +2636,7 @@ glyph_families:
       entry_and_exit_at_xheight:
         shape: entry_and_exit_at_xheight
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [5, 5]
         select:
           not_after: [{family: qsTea}, {family: qsLow}]
@@ -2651,7 +2651,7 @@ glyph_families:
       entry_and_exit_at_xheight_before_day_ss07:
         shape: entry_and_exit_at_xheight
         anchors:
-          entry: [1, 5]
+          entry: [0, 5]
           exit: [5, 5]
         select:
           before: [{family: qsDay}]
@@ -2688,7 +2688,7 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 5]
+        entry: [0, 5]
         exit: [5, 5]
       derive:
         extend_exit_before_gated:
@@ -2707,5 +2707,5 @@ glyph_families:
     prop:
       shape: mono
       anchors:
-        entry: [1, 0]
+        entry: [0, 0]
         exit: [5, 0]
