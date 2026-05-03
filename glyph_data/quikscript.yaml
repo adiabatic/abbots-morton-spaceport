@@ -8,8 +8,6 @@ context_sets:
   - {family: qsYe}
   - {family: qsHe}
   - {family: qsIt}
-  fee_entry_top:
-  - {family: qsFee}
   utter_reaches_way_back_after:
   - {family: qsFee, modifiers: [exit-xheight, before-utter]}
   - {family: qsMay}
@@ -1699,7 +1697,7 @@ glyph_families:
         entry: [1, 5]
         exit: [6, 5]
       derive:
-        extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+        extend_exit_before: {by: 1, targets: [{family: qsFee}]}
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
     shapes:
@@ -1767,7 +1765,7 @@ glyph_families:
         exit: [6, 5]
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
-        extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+        extend_exit_before: {by: 1, targets: [{family: qsFee}]}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
@@ -2557,7 +2555,7 @@ glyph_families:
           entry: [1, 0]
           exit: [6, 5]
         derive:
-          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+          extend_exit_before: {by: 1, targets: [{family: qsFee}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
           contract_exit_before: {by: 2, targets: [{family: qsJai}]}
@@ -2631,7 +2629,7 @@ glyph_families:
         select:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
         derive:
-          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+          extend_exit_before: {by: 1, targets: [{family: qsFee}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
@@ -2644,7 +2642,7 @@ glyph_families:
           not_after: [{family: qsTea}, {family: qsLow}]
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
         derive:
-          extend_exit_before: {by: 1, targets: [{context_set: fee_entry_top}]}
+          extend_exit_before: {by: 1, targets: [{family: qsFee}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
