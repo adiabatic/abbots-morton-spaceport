@@ -2697,6 +2697,89 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"        sub {source_variant}' {cls} by {actual_variant};")
                 lines.append(f"    }} calt_fwd_override_{safe};")
 
+    def _late_context_glyphs() -> set[str]:
+        """Variants that can appear after the first backward-pair pass.
+
+        Keep this to generic entry/exit substitutions. Pair-specific variants
+        already encode their own right-context policy, and replaying them here
+        can revive joins that later context intentionally blocks.
+        """
+        late: set[str] = set()
+        for replacements in bk_replacements.values():
+            late.update(replacements.values())
+        for replacements in fwd_replacements.values():
+            late.update(replacements.values())
+        for upgrades in fwd_upgrades.values():
+            late.update(entry_exit_var for entry_exit_var, _, _, _ in upgrades)
+
+        changed = True
+        while changed:
+            changed = False
+            for glyph_name, meta in glyph_meta.items():
+                if meta.generated_from in late and glyph_name not in late:
+                    late.add(glyph_name)
+                    changed = True
+        return late
+
+    def _emit_post_context_bk_pairs():
+        late_contexts = _late_context_glyphs()
+        if not late_contexts:
+            return
+
+        for base_name in sorted(pair_overrides):
+            for variant_name, after_glyphs in sorted(
+                pair_overrides[base_name],
+                key=lambda item: _backward_pair_sort_key(glyph_meta, item[0], item[1]),
+            ):
+                variant_meta = _meta(variant_name)
+                expanded_after = _expand_backward_after_variants(
+                    variant_name,
+                    after_glyphs,
+                    expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                    glyph_meta=glyph_meta,
+                    base_to_variants=base_to_variants,
+                )
+                expanded_after &= late_contexts
+                if not expanded_after:
+                    continue
+                after_list = " ".join(sorted(expanded_after))
+                safe = variant_name.replace(".", "_").replace("-", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_post_context_pair_{safe} {{")
+                not_before = list(variant_meta.not_before)
+                if not_before:
+                    resolved = resolve_known_glyph_names(not_before, glyph_names)
+                    for not_before_glyph in sorted(_expand_exclusions(resolved)):
+                        lines.append(f"        ignore sub [{after_list}] {base_name}' {not_before_glyph};")
+                entry_ys = set(variant_meta.entry_ys)
+                if entry_ys:
+                    for candidate_name in sorted(expanded_after):
+                        guard_glyphs = _collect_pending_bk_pair_guards(
+                            candidate_name,
+                            entry_ys,
+                            variant_meta.base_name,
+                        )
+                        if guard_glyphs:
+                            guard_list = " ".join(sorted(guard_glyphs))
+                            lines.append(
+                                f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
+                            )
+                lookahead = ""
+                if variant_meta.before:
+                    before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
+                    if not before_list:
+                        continue
+                    lookahead = f" [{before_list}]"
+                for terminal in sorted(expanded_after & plan.terminal_entry_only):
+                    lines.append(f"        ignore sub {terminal} {base_name}';")
+                _emit_entry_strip_guards_for_replacement_exit(
+                    base_name,
+                    variant_name,
+                    left_context=f"[{after_list}]",
+                )
+                lines.append(f"        sub [{after_list}] {base_name}'{lookahead} by {variant_name};")
+                lines.append(f"    }} calt_post_context_pair_{safe};")
+
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
             if base_name not in early_pair_upgrade_bases and base_name not in early_pair_fwd_general:
@@ -2854,6 +2937,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         lines.append(f"        sub @exit_y{entry_y} {fpt}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_pair_bk_{safe};")
+
+    _emit_post_context_bk_pairs()
 
     _emit_reverse_upgrades()
 
