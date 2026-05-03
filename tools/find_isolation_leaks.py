@@ -42,34 +42,74 @@ TEST = ROOT / "test"
 if str(TEST) not in sys.path:
     sys.path.insert(0, str(TEST))
 
+import uharfbuzz as hb  # noqa: E402
+
 from quikscript_shaping_helpers import (  # noqa: E402
     _char_map,
     _compiled_meta,
+    _font,
     _pair_join_ys,
     _plain_quikscript_letters,
+    _qs_text,
     _shape_qs,
 )
 
 
 def _visual_signature(name: str) -> tuple:
-    """Pixel-rendering signature: (bitmap, y_offset, advance_width).
-
-    Two non-attaching glyphs render identically iff their signatures match
-    on each side of the break — the inline-block layout in the "halves"
-    column lays each glyph's box out at its `advance_width` with the
-    bitmap centered, exactly mirroring HarfBuzz's spacing between two
-    non-attaching glyphs in a single buffer.
-    """
+    """Pixel-rendering signature for one glyph: (bitmap, y_offset, advance_width)."""
     g = _compiled_meta()[name]
     return (tuple(g.bitmap), g.y_offset, g.advance_width)
 
 
-def _visual_status(leak: "Leak") -> str:
-    same = (
-        _visual_signature(leak.left_chosen) == _visual_signature(leak.left_iso)
-        and _visual_signature(leak.right_chosen) == _visual_signature(leak.right_iso)
-    )
-    return "same" if same else "diff"
+def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
+    """Shape *parts* and return per-glyph render signatures plus the
+    sequence's total advance.
+
+    Each entry is ``(visual_signature, abs_x, abs_y)``: the glyph's pixel
+    pattern plus its absolute origin in font units (``cumulative x_advance
+    + this glyph's x_offset``). This captures both glyph identity *and*
+    GPOS positioning (cursive attachment, kerning), so two arrangements
+    that pick different glyphs but land them at the same spots — or pick
+    the same-name glyph but cursively shift its neighbor — are
+    distinguishable. The trailing total advance lets the caller stitch
+    two independent shapings into a single coordinate space, mirroring
+    how the two ``display: inline-block`` halves butt up against each
+    other in the rendered HTML.
+    """
+    font = _font()
+    buf = hb.Buffer()
+    buf.add_str(_qs_text(*parts))
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+    pen_x = 0
+    pen_y = 0
+    sigs: list[tuple] = []
+    for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
+        name = font.glyph_to_string(info.codepoint)
+        sigs.append((_visual_signature(name), pen_x + pos.x_offset, pen_y + pos.y_offset))
+        pen_x += pos.x_advance
+        pen_y += pos.y_advance
+    return sigs, pen_x, pen_y
+
+
+def _visual_status(witness: "Witness") -> str:
+    """Classify a leak as visually ``same`` or ``diff`` by comparing the
+    in-context render of the witness sequence to the concatenation of
+    its two independently-shaped halves.
+
+    Looking at glyph metadata alone misses cursive-positioning leaks —
+    e.g., ``qsIt`` vs ``qsIt.exit-xheight`` have identical bitmaps but
+    the latter's exit anchor pulls the next glyph leftward via GPOS
+    ``curs``, visibly bunching the in-context render against the halves.
+    """
+    full_sigs, _, _ = _abs_render_signature(witness.families)
+    (l0, l1), (r0, r1) = _shaped_input_spans(witness)
+    left_sigs, left_x, left_y = _abs_render_signature(witness.families[l0:l1])
+    right_sigs, _, _ = _abs_render_signature(witness.families[r0:r1])
+    halves_sigs = left_sigs + [
+        (sig, x + left_x, y + left_y) for sig, x, y in right_sigs
+    ]
+    return "same" if full_sigs == halves_sigs else "diff"
 
 
 @dataclass(frozen=True)
@@ -249,7 +289,7 @@ def _format_row(leak: Leak, witness: Witness) -> str:
         f'<span class="half">{left_entities}</span>'
         f'<span class="half">{right_entities}</span>'
     )
-    visual = _visual_status(leak)
+    visual = _visual_status(witness)
     return (
         f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
@@ -304,13 +344,18 @@ def _build_section(items: list[tuple[Leak, Witness]], max_len: int) -> str:
         "      </p>\n"
         "      <p>\n"
         "        Each row is tagged <code>same</code> or <code>diff</code>\n"
-        "        based on whether the in-context and isolated halves render\n"
-        "        identical pixels — computed by comparing\n"
-        "        <code>(bitmap, y_offset, advance_width)</code> of the\n"
-        "        chosen vs. isolated variant on each side. <code>same</code>\n"
-        "        rows are typically <code>after-tall</code>-style trims\n"
-        "        whose only effect is the glyph-name signature; reach for\n"
-        "        the <code>diff</code> rows first when hunting real bugs.\n"
+        "        based on whether the in-context buffer and the\n"
+        "        concatenation of the two independently-shaped halves\n"
+        "        produce the same per-glyph (pixels, absolute origin)\n"
+        "        sequence. Comparing absolute origins (not just pixels)\n"
+        "        catches cursive-positioning leaks: e.g.\n"
+        "        <code>qsIt</code> vs <code>qsIt.exit-xheight</code> have\n"
+        "        identical bitmaps but the latter's exit anchor pulls the\n"
+        "        next glyph leftward via GPOS <code>curs</code>. Reach for\n"
+        "        the <code>diff</code> rows first when hunting real bugs;\n"
+        "        <code>same</code> rows are typically\n"
+        "        <code>after-tall</code>-style trims whose only effect is\n"
+        "        the glyph-name signature.\n"
         "      </p>\n"
         '      <div class="col-headers">\n'
         "        <span>Sequence</span>\n"

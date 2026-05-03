@@ -27,7 +27,7 @@ Open `test/check.html` and scroll to the auto-generated section. Each row shows 
 
 If columns 2 and 3 look identical, the leak is purely a glyph-name signature change with no visible effect (typical for `qsThaw.after-tall`-style trim rules). If the columns differ visually, decide whether the in-context shape is the one you want; if not, that's a bug to fix.
 
-Each row carries a `same` or `diff` badge in the Sequence column (and a matching `data-visual="same"|"diff"` attribute on the row, for filtering via DevTools). The classifier compares the `(bitmap, y_offset, advance_width)` of the chosen vs. isolated variant on each side: matching on both sides means the inline-block "halves" render the exact same pixels as the in-context buffer, so the leak is cosmetic. Reach for the `diff` rows first when hunting real bugs.
+Each row carries a `same` or `diff` badge in the Sequence column (and a matching `data-visual="same"|"diff"` attribute on the row, for filtering via DevTools). The classifier shapes the witness sequence in context, then shapes the two halves independently and concatenates them at the left half's cumulative advance — exactly what the inline-block layout does. The two views are `same` iff every glyph has the same pixels (`bitmap`, `y_offset`, `advance_width`) **and** the same absolute origin (`pen_x + pos.x_offset`). Comparing origins catches cursive-positioning leaks where the chosen variant has the same bitmap but a different exit/entry anchor — e.g. `qsIt` vs `qsIt.exit-xheight` are pixel-identical but the latter's exit anchor pulls the next glyph leftward via GPOS `curs`. Reach for the `diff` rows first when hunting real bugs.
 
 ## Re-running
 
