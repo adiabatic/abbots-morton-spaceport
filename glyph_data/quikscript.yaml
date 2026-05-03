@@ -2585,6 +2585,10 @@ glyph_families:
       - "#   #"
       - "#   #"
       - " ### "  #
+    derive:
+      extend_exit_before: {by: 1, targets: [{family: qsFee}, {family: qsRoe}]}
+      extend_exit_before_gated:
+        ss03: [{family: qsTea}]
     shapes:
       entry_xheight:
         bitmap:
@@ -2627,10 +2631,6 @@ glyph_families:
           exit: [5, 5]
         select:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
-        derive:
-          extend_exit_before: {by: 1, targets: [{family: qsFee}]}
-          extend_exit_before_gated:
-            ss03: [{family: qsTea}]
         modifiers: [exit-xheight]
       entry_and_exit_at_xheight:
         shape: entry_and_exit_at_xheight
@@ -2641,9 +2641,6 @@ glyph_families:
           not_after: [{family: qsTea}, {family: qsLow}]
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsFee}]}
-          extend_exit_before_gated:
-            ss03: [{family: qsTea}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}
         modifiers: [entry-xheight, exit-xheight]
@@ -2654,6 +2651,9 @@ glyph_families:
           exit: [5, 5]
         select:
           before: [{family: qsDay}]
+        derive:
+          extend_exit_before: null
+          extend_exit_before_gated: null
         gate_feature_behind: ss07
         modifiers: [entry-xheight, exit-xheight, before-day]
       exit_xheight_before_day_ss07:
@@ -2662,6 +2662,9 @@ glyph_families:
           exit: [5, 5]
         select:
           before: [{family: qsDay}]
+        derive:
+          extend_exit_before: null
+          extend_exit_before_gated: null
         gate_feature_behind: ss07
         modifiers: [exit-xheight, before-day]
       gapped:
