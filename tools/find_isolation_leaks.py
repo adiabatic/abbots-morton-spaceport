@@ -51,6 +51,27 @@ from quikscript_shaping_helpers import (  # noqa: E402
 )
 
 
+def _visual_signature(name: str) -> tuple:
+    """Pixel-rendering signature: (bitmap, y_offset, advance_width).
+
+    Two non-attaching glyphs render identically iff their signatures match
+    on each side of the break — the inline-block layout in the "halves"
+    column lays each glyph's box out at its `advance_width` with the
+    bitmap centered, exactly mirroring HarfBuzz's spacing between two
+    non-attaching glyphs in a single buffer.
+    """
+    g = _compiled_meta()[name]
+    return (tuple(g.bitmap), g.y_offset, g.advance_width)
+
+
+def _visual_status(leak: "Leak") -> str:
+    same = (
+        _visual_signature(leak.left_chosen) == _visual_signature(leak.left_iso)
+        and _visual_signature(leak.right_chosen) == _visual_signature(leak.right_iso)
+    )
+    return "same" if same else "diff"
+
+
 @dataclass(frozen=True)
 class Leak:
     left_chosen: str
@@ -228,10 +249,11 @@ def _format_row(leak: Leak, witness: Witness) -> str:
         f'<span class="half">{left_entities}</span>'
         f'<span class="half">{right_entities}</span>'
     )
+    visual = _visual_status(leak)
     return (
-        '      <div class="row">\n'
+        f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
-        f"          {label}\n"
+        f'          <span class="visual-tag">{visual}</span>{label}\n'
         f"          <code>{code}</code>\n"
         "        </div>\n"
         f'        <div class="qs in-context">{full_entities}</div>\n'
@@ -280,6 +302,16 @@ def _build_section(items: list[tuple[Leak, Witness]], max_len: int) -> str:
         "        change with no visible effect; if they differ, decide\n"
         "        whether the in-context shape is intended.\n"
         "      </p>\n"
+        "      <p>\n"
+        "        Each row is tagged <code>same</code> or <code>diff</code>\n"
+        "        based on whether the in-context and isolated halves render\n"
+        "        identical pixels — computed by comparing\n"
+        "        <code>(bitmap, y_offset, advance_width)</code> of the\n"
+        "        chosen vs. isolated variant on each side. <code>same</code>\n"
+        "        rows are typically <code>after-tall</code>-style trims\n"
+        "        whose only effect is the glyph-name signature; reach for\n"
+        "        the <code>diff</code> rows first when hunting real bugs.\n"
+        "      </p>\n"
         '      <div class="col-headers">\n'
         "        <span>Sequence</span>\n"
         "        <span>In context</span>\n"
@@ -304,6 +336,27 @@ CSS_BLOCK = """
 
       .isolation-leaks .qs.isolated .half {
         display: inline-block;
+      }
+
+      .isolation-leaks .row .visual-tag {
+        display: inline-block;
+        margin-right: .5em;
+        padding: 0 .4em;
+        border-radius: 3px;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        vertical-align: 1px;
+      }
+
+      .isolation-leaks .row[data-visual="diff"] .visual-tag {
+        background: light-dark(#ffe0a8, #5a3a00);
+        color: light-dark(#5a3a00, #ffe0a8);
+      }
+
+      .isolation-leaks .row[data-visual="same"] .visual-tag {
+        background: light-dark(#e0e0e0, #444);
+        color: light-dark(#666, #aaa);
       }
 """
 
