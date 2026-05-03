@@ -989,6 +989,7 @@ glyph_families:
           not_after: [{family: qsIt}]
         derive:
           extend_exit_before: {by: 2, targets: [{family: qsLow}]}
+          contract_exit_before: {by: 1, targets: [{family: qsOut}]}
         modifiers: [exit-baseline]
       noentry_after_ye:
         shape: mono
@@ -2575,8 +2576,6 @@ glyph_families:
       - "#    ## "
       - "#       "
       - "#       "  #
-      derive:
-        noentry_after: [{family: qsSee}]
   qsOwe:
     mono:
       bitmap:
