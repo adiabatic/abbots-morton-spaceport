@@ -347,7 +347,7 @@ glyph_families:
           entry_curs_only: [0, 8]
           exit: [1, 5]
         select:
-          not_after: [{family: qsTea}, {family: qsEt}]
+          not_after: [{family: qsEt}]
           not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
