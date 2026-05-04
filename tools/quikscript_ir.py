@@ -2238,6 +2238,16 @@ def _add_entry_contraction_variants(
         else:
             kwargs["entry"] = _shift_anchors(target_glyph.entry, dx=count)
 
+        if count >= 2:
+            trimmed_bitmap = _trim_bitmap_left_at(
+                target_glyph.bitmap,
+                y,
+                target_glyph.y_offset,
+                anchor[0] + count - 1,
+            )
+            if trimmed_bitmap is not target_glyph.bitmap:
+                kwargs["bitmap"] = trimmed_bitmap
+
         filtered_after = _filter_context_by_anchor_y(
             join_glyphs,
             source_after,
