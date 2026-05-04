@@ -1796,31 +1796,34 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 require_mid_base_without_exit=True,
             )
 
-    def _exit_extension_refinement(
+    def _exit_extension_refinements(
         fwd_var: str, right_context_glyphs: set[str]
-    ) -> tuple[str, set[str]] | None:
-        # If `fwd_var` carries an `extend_exit_before` derive whose targets
-        # intersect `right_context_glyphs`, return (extended_fwd_var,
-        # trigger_glyphs) so the caller can emit a more specific rule that
-        # uses the extended variant for those triggers. Returns None when no
-        # refinement applies.
+    ) -> list[tuple[str, set[str]]]:
+        # If `fwd_var` carries an `extend_exit_before` derive, return one
+        # (extended_fwd_var, trigger_glyphs) per group whose targets intersect
+        # `right_context_glyphs`. Empty list means no refinement applies.
         fwd_meta = _meta(fwd_var)
         spec = fwd_meta.extend_exit_before
-        if spec is None or not spec.targets:
-            return None
-        suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(spec.by)
-        if suffix_word is None:
-            return None
-        extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
-        if extended_fwd_var not in glyph_meta:
-            return None
-        trigger_glyphs: set[str] = set()
-        for target in spec.targets:
-            trigger_glyphs.update(base_to_variants.get(target, ()))
-        trigger_glyphs &= right_context_glyphs
-        if not trigger_glyphs:
-            return None
-        return extended_fwd_var, trigger_glyphs
+        if spec is None or not spec.groups:
+            return []
+        refinements: list[tuple[str, set[str]]] = []
+        for group in spec.groups:
+            if not group.targets:
+                continue
+            suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(group.by)
+            if suffix_word is None:
+                continue
+            extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
+            if extended_fwd_var not in glyph_meta:
+                continue
+            trigger_glyphs: set[str] = set()
+            for target in group.targets:
+                trigger_glyphs.update(base_to_variants.get(target, ()))
+            trigger_glyphs &= right_context_glyphs
+            if not trigger_glyphs:
+                continue
+            refinements.append((extended_fwd_var, trigger_glyphs))
+        return refinements
 
     def _expand_not_after_set(replacement_name: str) -> set[str]:
         meta = _meta(replacement_name)
@@ -2734,11 +2737,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         fwd_exit_y,
                         effective_right_context_glyphs,
                     )
-                    refinement = _exit_extension_refinement(
+                    refinements = _exit_extension_refinements(
                         fwd_var, effective_right_context_glyphs
                     )
-                    if refinement is not None:
-                        ext_fwd_var, trigger_glyphs = refinement
+                    for ext_fwd_var, trigger_glyphs in refinements:
                         trigger_list = " ".join(sorted(trigger_glyphs))
                         lines.append(
                             f"        sub {bk_var}' [{trigger_list}] by {ext_fwd_var};"
@@ -2769,11 +2771,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             fwd_exit_y,
                             right_context_glyphs - not_before_excluded,
                         )
-                        ext_refinement = _exit_extension_refinement(
+                        ext_refinements = _exit_extension_refinements(
                             fwd_var, right_context_glyphs - not_before_excluded
                         )
-                        if ext_refinement is not None:
-                            ext_fwd_var, trigger_glyphs = ext_refinement
+                        for ext_fwd_var, trigger_glyphs in ext_refinements:
                             trigger_list = " ".join(sorted(trigger_glyphs))
                             lines.append(
                                 f"        sub {ext_bk}' [{trigger_list}] by {ext_fwd_var};"

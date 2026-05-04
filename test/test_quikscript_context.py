@@ -312,6 +312,47 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     assert "qsZoo.entry-extended.entry-trimmed-by-1" not in meta
 
 
+def test_qs_may_extends_qs_zoo_entry_by_one_unchanged():
+    compiled = _compiled_set()
+    meta = compiled.glyph_meta
+    glyphs = compiled.glyph_definitions
+
+    plain_zoo = meta["qsZoo"]
+    extended = meta["qsZoo.entry-extended"]
+    assert extended.bitmap[0] == "####  "
+    assert plain_zoo.bitmap[0] == "###  "
+    assert extended.entry == plain_zoo.entry
+    assert extended.exit == ((plain_zoo.exit[0][0] + 1, plain_zoo.exit[0][1]),)
+    assert extended.transform_kind == "entry-extended"
+    assert "qsMay" in extended.after
+    assert "qsPea.half" not in extended.after
+    assert glyphs["qsZoo.entry-extended"]["calt_after"] == list(extended.after)
+
+
+def test_qs_pea_half_extends_qs_zoo_entry_by_two():
+    compiled = _compiled_set()
+    meta = compiled.glyph_meta
+    glyphs = compiled.glyph_definitions
+
+    plain_zoo = meta["qsZoo"]
+    doubly = meta["qsZoo.entry-doubly-extended"]
+    assert doubly.bitmap[0] == "#####  "
+    assert doubly.entry == plain_zoo.entry
+    assert doubly.exit == ((plain_zoo.exit[0][0] + 2, plain_zoo.exit[0][1]),)
+    assert doubly.transform_kind == "entry-doubly-extended"
+    assert doubly.after == ("qsPea.half",)
+    assert {
+        "entry",
+        "extended",
+        "doubly-extended",
+        "entry-doubly-extended",
+    } <= doubly.compat_assertions
+    assert glyphs["qsZoo.entry-doubly-extended"]["calt_after"] == ["qsPea.half"]
+
+    extended = meta["qsZoo.entry-extended"]
+    assert "qsPea.half" not in extended.after
+
+
 def test_context_sets_expand_and_compose_inside_select_and_derive():
     glyphs = _compiled_set(
         {
