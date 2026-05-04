@@ -160,7 +160,7 @@ glyph_families:
         anchors:
           exit: [4, 0]
         select:
-          not_before: [{entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]}]
+          not_before: [{entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsMay}]}]
         modifiers: [exit-baseline]
       entry_xheight:
         shape: dips_down_to_short_height
