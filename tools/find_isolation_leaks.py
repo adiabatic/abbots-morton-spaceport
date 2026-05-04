@@ -292,21 +292,42 @@ def _tables_letter_name(family: str) -> str:
     return _FAMILY_TO_TABLES_NAME.get(family, family[2:])
 
 
-# Standard "open in new window" icon (Material-style external-link glyph).
+# Standard "open in new window" icon (Material-style external-link glyph)
+# used for 3-letter rows that point at one specific cell.
 _OPEN_IN_TABLES_ICON = (
     '<svg viewBox="0 0 24 24" aria-hidden="true">'
     '<path d="M14 3v2h3.59L9.29 13.29l1.42 1.42L19 6.41V10h2V3h-7zM19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7z"/>'
     "</svg>"
 )
 
+# Three cells with the leftmost two filled — points at a tables.html column
+# strip where the pair appears as the first two letters of every cell.
+_OPEN_IN_TABLES_FIRST_TWO_ICON = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<rect x="1" y="8" width="7" height="8"/>'
+    '<rect x="9" y="8" width="7" height="8"/>'
+    '<rect x="17" y="8" width="7" height="8" fill-opacity="0.25"/>'
+    "</svg>"
+)
 
-def _tables_anchor(params: list[tuple[str, str]], label: str) -> str:
+# Mirror image — points at a tables.html row strip where the pair appears
+# as the last two letters of every cell.
+_OPEN_IN_TABLES_LAST_TWO_ICON = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<rect x="1" y="8" width="7" height="8" fill-opacity="0.25"/>'
+    '<rect x="9" y="8" width="7" height="8"/>'
+    '<rect x="17" y="8" width="7" height="8"/>'
+    "</svg>"
+)
+
+
+def _tables_anchor(params: list[tuple[str, str]], label: str, icon: str) -> str:
     href = html.escape(f"tables.html#{urllib.parse.urlencode(params)}", quote=True)
     label_attr = html.escape(label, quote=True)
     return (
         f'<a class="open-in-tables" href="{href}" target="_blank" rel="noopener" '
         f'title="{label_attr}" aria-label="{label_attr}">'
-        f"{_OPEN_IN_TABLES_ICON}"
+        f"{icon}"
         "</a>"
     )
 
@@ -330,9 +351,11 @@ def _open_in_tables_link(families: tuple[str, ...]) -> str:
         return _tables_anchor(
             [("letter", second), ("col", first)],
             f"Open ·{first}·{second}·… in tables.html",
+            _OPEN_IN_TABLES_FIRST_TWO_ICON,
         ) + _tables_anchor(
             [("letter", first), ("row", second)],
             f"Open ·…·{first}·{second} in tables.html",
+            _OPEN_IN_TABLES_LAST_TWO_ICON,
         )
     if len(families) != 3:
         return ""
@@ -340,6 +363,7 @@ def _open_in_tables_link(families: tuple[str, ...]) -> str:
     return _tables_anchor(
         [("letter", middle), ("col", first), ("row", third)],
         f"Open ·{first}·{middle}·{third} in tables.html",
+        _OPEN_IN_TABLES_ICON,
     )
 
 
