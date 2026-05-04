@@ -148,6 +148,12 @@
           background: light-dark(#fff3cd, #5a4800);
         }
 
+        td.flashing {
+          position: relative;
+          z-index: 5;
+          animation: flash-cell 1s ease-in-out 5;
+        }
+
         .boundary-left {
           border-left-width: 3px;
           border-left-color: light-dark(#999, #666);
@@ -164,6 +170,17 @@
 
         .boundary-bottom {
           border-bottom-color: light-dark(#999, #666);
+        }
+      }
+
+      @keyframes flash-cell {
+        0%, 100% {
+          box-shadow: 0 0 0 0 transparent;
+          background: light-dark(#fff3cd, #5a4800);
+        }
+        50% {
+          box-shadow: 0 0 18px 6px light-dark(rgba(255, 180, 0, 0.85), rgba(255, 220, 100, 0.85));
+          background: light-dark(#ffd966, #8a6800);
         }
       }
     </style>
@@ -213,6 +230,7 @@
       let activeHeader = null;
       let renderedLetterIndex = -1;
       let renderedStripKey = null;
+      let renderedCellKey = null;
       let currentFontTitle = '';
 
       for (const [i, letter] of LETTERS.entries()) {
@@ -247,19 +265,28 @@
         const col = params.get('col');
         const row = params.get('row');
         const letterIndex = LETTERS.findIndex(l => l.name === letterName);
+        const colIndex = col != null ? LETTERS.findIndex(l => l.name === col) : -1;
+        const rowIndex = row != null ? LETTERS.findIndex(l => l.name === row) : -1;
         let mode = null;
-        let headerIdx = -1;
-        if (col != null) {
+        let headerIndex = -1;
+        let cellRow = -1;
+        let cellCol = -1;
+        if (colIndex >= 0 && rowIndex >= 0) {
+          cellCol = colIndex;
+          cellRow = rowIndex;
+        } else if (colIndex >= 0) {
           mode = 'column';
-          headerIdx = LETTERS.findIndex(l => l.name === col);
-        } else if (row != null) {
+          headerIndex = colIndex;
+        } else if (rowIndex >= 0) {
           mode = 'row';
-          headerIdx = LETTERS.findIndex(l => l.name === row);
+          headerIndex = rowIndex;
         }
         return {
           letterIndex: letterIndex >= 0 ? letterIndex : 0,
-          mode: mode && headerIdx >= 0 ? mode : null,
-          headerIndex: mode && headerIdx >= 0 ? headerIdx : -1,
+          mode,
+          headerIndex,
+          cellRow,
+          cellCol,
         };
       }
 
@@ -272,10 +299,12 @@
       }
 
       function updateTitle() {
-        const { letterIndex, mode, headerIndex } = parseHash();
+        const { letterIndex, mode, headerIndex, cellRow, cellCol } = parseHash();
         const letterName = LETTERS[letterIndex].name;
         let inner = `•${letterName}`;
-        if (mode === 'column') inner = `·${LETTERS[headerIndex].name}•${letterName}`;
+        if (cellRow >= 0 && cellCol >= 0) {
+          inner = `·${LETTERS[cellCol].name}•${letterName}·${LETTERS[cellRow].name}`;
+        } else if (mode === 'column') inner = `·${LETTERS[headerIndex].name}•${letterName}`;
         else if (mode === 'row') inner = `•${letterName}·${LETTERS[headerIndex].name}`;
         document.title = `Tables (${inner}) — ${currentFontTitle}`;
       }
@@ -417,18 +446,42 @@
         table.appendChild(tbody);
       }
 
+      function flashAndHighlightCell(rowIdx, colIdx) {
+        const tr = table.querySelectorAll('tbody tr')[rowIdx];
+        if (!tr) return;
+        const td = tr.querySelectorAll('td')[colIdx];
+        if (!td) return;
+        td.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+        td.classList.remove('flashing');
+        // Force a reflow so the animation restarts when re-applied to the same cell.
+        void td.offsetWidth;
+        td.classList.add('flashing');
+        const idx = Number(select.value);
+        const key = cellKey(LETTERS[idx].name, td.dataset.row, td.dataset.col);
+        const onAnimationEnd = () => {
+          td.classList.remove('flashing');
+          td.classList.add('highlighted');
+          highlighted.add(key);
+          saveHighlights(highlighted);
+        };
+        td.addEventListener('animationend', onAnimationEnd, { once: true });
+      }
+
       function applyHashState() {
-        const { letterIndex, mode, headerIndex } = parseHash();
+        const { letterIndex, mode, headerIndex, cellRow, cellCol } = parseHash();
         if (letterIndex !== renderedLetterIndex) {
           renderedLetterIndex = letterIndex;
           select.value = String(letterIndex);
           buildTable();
           renderedStripKey = null;
+          renderedCellKey = null;
         }
-        const newKey = mode ? `${mode}-${headerIndex}` : null;
-        if (newKey !== renderedStripKey) {
-          renderedStripKey = newKey;
-          if (newKey) {
+        const cellTarget = cellRow >= 0 && cellCol >= 0;
+        const newCellKey = cellTarget ? `${letterIndex}-${cellRow}-${cellCol}` : null;
+        const newStripKey = !cellTarget && mode ? `${mode}-${headerIndex}` : null;
+        if (newStripKey !== renderedStripKey) {
+          renderedStripKey = newStripKey;
+          if (newStripKey) {
             const headerEl = mode === 'column'
               ? table.querySelectorAll('thead th')[headerIndex + 1]
               : table.querySelectorAll('tbody tr')[headerIndex]?.querySelector('th');
@@ -437,6 +490,10 @@
           } else {
             clearStrip();
           }
+        }
+        if (newCellKey !== renderedCellKey) {
+          renderedCellKey = newCellKey;
+          if (newCellKey) flashAndHighlightCell(cellRow, cellCol);
         }
         updateTitle();
       }
