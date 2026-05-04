@@ -289,24 +289,27 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     assert "half" in contracted.traits
     assert glyphs["qsHe.half.exit-contracted"]["calt_before"] == ["qsZoo"]
 
-    extended_zoo = meta["qsZoo.entry-extended"]
-    trimmed = meta["qsZoo.entry-extended.entry-trimmed-by-1"]
-    assert extended_zoo.bitmap[0] == "####  "
-    assert trimmed.bitmap[0] == " ###  "
-    assert trimmed.bitmap[1:] == extended_zoo.bitmap[1:]
-    assert trimmed.entry == extended_zoo.entry
-    assert trimmed.exit == extended_zoo.exit
-    assert trimmed.y_offset == extended_zoo.y_offset
+    plain_zoo = meta["qsZoo"]
+    trimmed = meta["qsZoo.entry-trimmed-by-1"]
+    assert plain_zoo.bitmap[0] == "###  "
+    assert trimmed.bitmap[0] == " ##  "
+    assert trimmed.bitmap[1:] == plain_zoo.bitmap[1:]
+    assert trimmed.entry == plain_zoo.entry
+    assert trimmed.exit == plain_zoo.exit
+    assert trimmed.y_offset == plain_zoo.y_offset
     assert trimmed.after == (
         "qsHe.half.exit-contracted",
+        "qsTea.half.entry-top.exit-xheight.exit-contracted",
         "qsTea.half.exit-xheight.exit-contracted",
     )
     assert trimmed.transform_kind == "entry-trimmed"
     assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-1"} <= trimmed.compat_assertions
-    assert glyphs["qsZoo.entry-extended.entry-trimmed-by-1"]["calt_after"] == [
+    assert glyphs["qsZoo.entry-trimmed-by-1"]["calt_after"] == [
         "qsHe.half.exit-contracted",
+        "qsTea.half.entry-top.exit-xheight.exit-contracted",
         "qsTea.half.exit-xheight.exit-contracted",
     ]
+    assert "qsZoo.entry-extended.entry-trimmed-by-1" not in meta
 
 
 def test_context_sets_expand_and_compose_inside_select_and_derive():

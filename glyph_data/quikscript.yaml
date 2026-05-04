@@ -339,6 +339,8 @@ glyph_families:
           exit: [1, 5]
         select:
           not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
+        derive:
+          contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
         modifiers: [entry-top, exit-xheight]
       entry_top:
@@ -1059,7 +1061,7 @@ glyph_families:
         exit: [5, 0]
         exit_ink_y: -1
       derive:
-        extend_entry_after: {by: 1, targets: [{family: qsMay}, {context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{family: qsMay}, {family: qsPea, traits: [half]}]}
     shapes:
       half:
         bitmap:
