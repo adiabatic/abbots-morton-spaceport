@@ -806,7 +806,7 @@ def _bitmap_gap_fixture(
 def test_contract_exit_before_silences_bitmap_gap_warning():
     glyphs = _bitmap_gap_fixture(
         pea_before_tea_overrides={
-            "contract_exit_before": ExtensionSpec(by=3, targets=("qsTea",)),
+            "contract_exit_before": ExtensionSpec.single(by=3, targets=("qsTea",)),
         }
     )
 
@@ -822,7 +822,7 @@ def test_contract_exit_before_silences_bitmap_gap_warning():
 def test_bitmap_gap_warning_still_fires_when_target_family_unrelated():
     glyphs = _bitmap_gap_fixture(
         pea_before_tea_overrides={
-            "contract_exit_before": ExtensionSpec(by=3, targets=("qsZed",)),
+            "contract_exit_before": ExtensionSpec.single(by=3, targets=("qsZed",)),
         }
     )
 
@@ -841,7 +841,7 @@ def test_bitmap_gap_warning_still_fires_when_target_family_unrelated():
 def test_extend_exit_before_does_not_silence_bitmap_gap_warning():
     glyphs = _bitmap_gap_fixture(
         pea_before_tea_overrides={
-            "extend_exit_before": ExtensionSpec(by=3, targets=("qsTea",)),
+            "extend_exit_before": ExtensionSpec.single(by=3, targets=("qsTea",)),
         }
     )
 
@@ -869,7 +869,7 @@ def test_contract_entry_after_silences_bitmap_gap_warning():
         after=qs_tea_after_pea.after,
         bitmap=qs_tea_after_pea.bitmap,
         y_offset=qs_tea_after_pea.y_offset,
-        contract_entry_after=ExtensionSpec(by=3, targets=("qsPea",)),
+        contract_entry_after=ExtensionSpec.single(by=3, targets=("qsPea",)),
     )
 
     warnings = collect_join_warnings(glyphs)
@@ -893,7 +893,7 @@ def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
         after=qs_tea_after_pea.after,
         bitmap=qs_tea_after_pea.bitmap,
         y_offset=qs_tea_after_pea.y_offset,
-        extend_entry_after=ExtensionSpec(by=3, targets=("qsPea",)),
+        extend_entry_after=ExtensionSpec.single(by=3, targets=("qsPea",)),
     )
 
     warnings = collect_join_warnings(glyphs)

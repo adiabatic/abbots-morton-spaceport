@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 from quikscript_ir import (
     GlyphData,
@@ -81,14 +82,23 @@ def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[
             spec = glyph_def.get(key)
             if not spec:
                 continue
-            targets = spec["targets"]
-            renamed = [rename_map.get(value, value) for value in targets]
-            if renamed == list(targets):
+            spec_groups = spec if isinstance(spec, list) else [spec]
+            renamed_groups: list[dict[str, Any]] = []
+            group_changed = False
+            for group in spec_groups:
+                targets = group["targets"]
+                renamed = [rename_map.get(value, value) for value in targets]
+                if renamed != list(targets):
+                    group_changed = True
+                renamed_groups.append({"by": group["by"], "targets": renamed})
+            if not group_changed:
                 continue
             if not changed:
                 glyph_def = dict(glyph_def)
                 changed = True
-            glyph_def[key] = {"by": spec["by"], "targets": renamed}
+            glyph_def[key] = (
+                renamed_groups if isinstance(spec, list) else renamed_groups[0]
+            )
 
         for key in scalar_keys:
             value = glyph_def.get(key)
@@ -159,8 +169,11 @@ def _validate_compiled_glyph_references(
             "contract_exit_before",
         ):
             spec = glyph_def.get(key)
-            if spec:
-                _validate_refs(glyph_name, key, spec.get("targets", ()))
+            if not spec:
+                continue
+            spec_groups = spec if isinstance(spec, list) else [spec]
+            for group in spec_groups:
+                _validate_refs(glyph_name, key, group.get("targets", ()))
 
     for glyph_name, join_glyph in join_glyphs.items():
         _validate_refs(glyph_name, "calt_after", join_glyph.after)

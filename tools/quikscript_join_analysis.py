@@ -1096,8 +1096,10 @@ def _effective_exit_x(
     # shifts the exit anchor, so the visible gap is unchanged — skip it.
     if right_family is None:
         return anchor_x
-    if meta.contract_exit_before and right_family in meta.contract_exit_before.targets:
-        anchor_x -= meta.contract_exit_before.by
+    if meta.contract_exit_before:
+        by = meta.contract_exit_before.by_for(right_family)
+        if by is not None:
+            anchor_x -= by
     return anchor_x
 
 
@@ -1109,8 +1111,10 @@ def _effective_entry_x(
     # so skip it.
     if left_family is None:
         return anchor_x
-    if meta.contract_entry_after and left_family in meta.contract_entry_after.targets:
-        anchor_x += meta.contract_entry_after.by
+    if meta.contract_entry_after:
+        by = meta.contract_entry_after.by_for(left_family)
+        if by is not None:
+            anchor_x += by
     return anchor_x
 
 
