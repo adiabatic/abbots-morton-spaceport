@@ -300,29 +300,46 @@ _OPEN_IN_TABLES_ICON = (
 )
 
 
-def _open_in_tables_link(families: tuple[str, ...]) -> str:
-    """Anchor that opens tables.html with a cell-flash hash for 3-letter rows.
+def _tables_anchor(params: list[tuple[str, str]], label: str) -> str:
+    href = html.escape(f"tables.html#{urllib.parse.urlencode(params)}", quote=True)
+    label_attr = html.escape(label, quote=True)
+    return (
+        f'<a class="open-in-tables" href="{href}" target="_blank" rel="noopener" '
+        f'title="{label_attr}" aria-label="{label_attr}">'
+        f"{_OPEN_IN_TABLES_ICON}"
+        "</a>"
+    )
 
-    Returns "" for sequences with other lengths. The middle family is the
-    selected letter; the first and third map to the matrix column and row,
-    so the link points at the unique cell whose contents match the row's
-    in-context sequence.
+
+def _open_in_tables_link(families: tuple[str, ...]) -> str:
+    """Anchor(s) that open tables.html targeting the cells matching *families*.
+
+    Returns "" for sequences whose length isn't handled.
+
+    For 3-letter sequences, returns a single anchor that flashes the
+    unique cell whose contents match (the middle family is the selected
+    letter; the outer two map to the matrix column and row).
+
+    For 2-letter sequences, returns two anchors: the first highlights the
+    column whose every cell starts with the pair (col = first family,
+    letter = second); the second highlights the row whose every cell
+    ends with the pair (letter = first family, row = second).
     """
+    if len(families) == 2:
+        first, second = (_tables_letter_name(f) for f in families)
+        return _tables_anchor(
+            [("letter", second), ("col", first)],
+            f"Open ·{first}·{second}·… in tables.html",
+        ) + _tables_anchor(
+            [("letter", first), ("row", second)],
+            f"Open ·…·{first}·{second} in tables.html",
+        )
     if len(families) != 3:
         return ""
     first, middle, third = (_tables_letter_name(f) for f in families)
-    params = urllib.parse.urlencode(
-        [("letter", middle), ("col", first), ("row", third)]
-    )
-    href = html.escape(f"tables.html#{params}", quote=True)
-    label = html.escape(
-        f"Open ·{first}·{middle}·{third} in tables.html", quote=True
-    )
-    return (
-        f'<a class="open-in-tables" href="{href}" target="_blank" rel="noopener" '
-        f'title="{label}" aria-label="{label}">'
-        f"{_OPEN_IN_TABLES_ICON}"
-        "</a>"
+    return _tables_anchor(
+        [("letter", middle), ("col", first), ("row", third)],
+        f"Open ·{first}·{middle}·{third} in tables.html",
     )
 
 
