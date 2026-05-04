@@ -138,6 +138,17 @@ glyph_families:
         - "    "
         - "    "
         - "    "  #
+      half_right_dips_down_to_xheight:
+        bitmap:
+        - " ## "
+        - "#  #"
+        - "#  #"
+        - "   #"  #
+        - "    "
+        - "    "
+        - "    "
+        - "    "
+        - "    "  #
       dips_down_to_short_height:
         bitmap:
         - " ## "
@@ -195,6 +206,16 @@ glyph_families:
         select:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]
         traits: [half]
+      half_before_zoo:
+        inherits: half
+        shape: half_right_dips_down_to_xheight
+        anchors:
+          exit_ink_y: null
+        select:
+          not_before: null
+          not_after: [{family: qsMay}, {family: qsUtter}]
+          before: [{family: qsZoo}]
+        modifiers: [before-zoo]
       half_entry_and_exit_at_xheight:
         inherits: half
         shape: half_dips_down_to_xheight
@@ -1061,9 +1082,7 @@ glyph_families:
         exit: [5, 0]
         exit_ink_y: -1
       derive:
-        extend_entry_after:
-          - {by: 1, targets: [{family: qsMay}]}
-          - {by: 2, targets: [{family: qsPea, traits: [half]}]}
+        extend_entry_after: {by: 1, targets: [{family: qsMay}]}
     shapes:
       half:
         bitmap:
