@@ -30,37 +30,9 @@ _LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
-class ExtensionGroup:
+class ExtensionSpec:
     by: int
     targets: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ExtensionSpec:
-    groups: tuple[ExtensionGroup, ...]
-
-    @property
-    def targets(self) -> tuple[str, ...]:
-        return tuple(t for g in self.groups for t in g.targets)
-
-    def by_for(self, target: str) -> int | None:
-        for g in self.groups:
-            if target in g.targets:
-                return g.by
-        return None
-
-    @property
-    def by(self) -> int:
-        if len(self.groups) != 1:
-            raise ValueError(
-                f"ExtensionSpec.by requested on multi-group spec ({len(self.groups)} groups); "
-                "use by_for(target) instead"
-            )
-        return self.groups[0].by
-
-    @classmethod
-    def single(cls, by: int, targets: tuple[str, ...]) -> "ExtensionSpec":
-        return cls(groups=(ExtensionGroup(by=by, targets=tuple(targets)),))
 
 
 class GlyphData(TypedDict):
@@ -438,43 +410,6 @@ def _filter_targets_by_reachability(
     return kept
 
 
-def _filter_extension_groups_by_reachability(
-    value: Any,
-    *,
-    form_ys: set[int],
-    glyph_families: dict[str, Any],
-    target_anchor: str,
-) -> Any | None:
-    """Filter the targets inside one or more extension groups against
-    `form_ys`. Accepts either a single dict (legacy) or a list of dicts
-    (multi-by). Returns the filtered shape preserved on disk: a dict for
-    single-group input, a list for multi-group input. Returns None when
-    every group ends up empty so the caller can drop the directive."""
-    if isinstance(value, list):
-        kept_groups: list[dict[str, Any]] = []
-        for group in value:
-            kept_targets = _filter_targets_by_reachability(
-                group.get("targets", ()),
-                form_ys=form_ys,
-                glyph_families=glyph_families,
-                target_anchor=target_anchor,
-            )
-            if kept_targets:
-                kept_groups.append({**deepcopy(group), "targets": kept_targets})
-        if not kept_groups:
-            return None
-        return kept_groups
-    kept_targets = _filter_targets_by_reachability(
-        value.get("targets", ()),
-        form_ys=form_ys,
-        glyph_families=glyph_families,
-        target_anchor=target_anchor,
-    )
-    if not kept_targets:
-        return None
-    return {**deepcopy(value), "targets": kept_targets}
-
-
 def _select_applicable_family_derive(
     family_derive: dict[str, Any],
     *,
@@ -496,25 +431,27 @@ def _select_applicable_family_derive(
         if key in {"extend_exit_before", "contract_exit_before"}:
             if not form_exit_ys:
                 continue
-            filtered = _filter_extension_groups_by_reachability(
-                value,
+            kept_targets = _filter_targets_by_reachability(
+                value.get("targets", ()),
                 form_ys=form_exit_ys,
                 glyph_families=glyph_families,
                 target_anchor="entry",
             )
-            if filtered is not None:
-                applicable[key] = filtered
+            if not kept_targets:
+                continue
+            applicable[key] = {**deepcopy(value), "targets": kept_targets}
         elif key in {"extend_entry_after", "contract_entry_after"}:
             if not form_entry_ys:
                 continue
-            filtered = _filter_extension_groups_by_reachability(
-                value,
+            kept_targets = _filter_targets_by_reachability(
+                value.get("targets", ()),
                 form_ys=form_entry_ys,
                 glyph_families=glyph_families,
                 target_anchor="exit",
             )
-            if filtered is not None:
-                applicable[key] = filtered
+            if not kept_targets:
+                continue
+            applicable[key] = {**deepcopy(value), "targets": kept_targets}
         elif key == "extend_exit_before_gated":
             if not form_exit_ys or not isinstance(value, dict):
                 continue
@@ -943,35 +880,15 @@ def _family_form_to_glyph_def(
         if raw is None:
             glyph_def[key] = None
         else:
-            raw_groups = raw if isinstance(raw, list) else [raw]
-            if not raw_groups:
-                raise ValueError(
-                    f"{key} on {form_name or family_name} must have at least one group"
-                )
-            groups: list[ExtensionGroup] = []
-            seen_targets: dict[str, int] = {}
-            for raw_group in raw_groups:
-                targets = _normalize_family_refs(
-                    raw_group["targets"],
-                    family_names,
-                    context_sets=context_sets,
-                    context_family=family_name,
-                    context_label=f"form {form_name!r}" if form_name else "base record",
-                    field_name=key,
-                )
-                for target in targets:
-                    if target in seen_targets:
-                        raise ValueError(
-                            f"{key} on {form_name or family_name} lists target "
-                            f"{target!r} in multiple groups (by={seen_targets[target]} "
-                            f"and by={raw_group['by']}); each target may belong to "
-                            "at most one group"
-                        )
-                    seen_targets[target] = raw_group["by"]
-                groups.append(
-                    ExtensionGroup(by=raw_group["by"], targets=tuple(targets))
-                )
-            glyph_def[key] = ExtensionSpec(groups=tuple(groups))
+            targets = _normalize_family_refs(
+                raw["targets"],
+                family_names,
+                context_sets=context_sets,
+                context_family=family_name,
+                context_label=f"form {form_name!r}" if form_name else "base record",
+                field_name=key,
+            )
+            glyph_def[key] = ExtensionSpec(by=raw["by"], targets=tuple(targets))
 
     gated_exit = derive.get("extend_exit_before_gated")
     if gated_exit:
@@ -1610,16 +1527,8 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
         "contract_exit_before",
     ):
         spec: ExtensionSpec | None = getattr(join_glyph, key)
-        if spec is None:
-            continue
-        if len(spec.groups) == 1:
-            group = spec.groups[0]
-            glyph_def[key] = {"by": group.by, "targets": list(group.targets)}
-        else:
-            glyph_def[key] = [
-                {"by": group.by, "targets": list(group.targets)}
-                for group in spec.groups
-            ]
+        if spec is not None:
+            glyph_def[key] = {"by": spec.by, "targets": list(spec.targets)}
     if join_glyph.extend_exit_before_gated:
         glyph_def["extend_exit_before_gated"] = dict(join_glyph.extend_exit_before_gated)
     _set_optional_list(glyph_def, "noentry_after", join_glyph.noentry_after)
@@ -2240,65 +2149,50 @@ def _generate_extended_variants(
             if side == "exit" and spec is not None
             else ()
         )
-        spec_groups = spec.groups if spec is not None else ()
-        if not spec_groups and not gated_entries:
+        context_glyphs = spec.targets if spec is not None else ()
+        if not context_glyphs and not gated_entries:
             continue
         if not getattr(join_glyph, side):
             continue
 
-        if gated_entries and side == "exit" and len(spec_groups) > 1:
-            raise NotImplementedError(
-                f"{name}.extend_exit_before_gated combined with multi-group "
-                "extend_exit_before is not supported"
-            )
-
+        count = spec.by if spec is not None else 1
+        suffix_word = _EXTENSION_SUFFIX[count]
         source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
-        related_targets = _iter_related_extension_targets(
+
+        for target_name, target_glyph, is_source in _iter_related_extension_targets(
             join_glyphs,
             source_name=name,
             source_glyph=join_glyph,
             side=side,
-        )
-
-        if not spec_groups:
-            # Exit-side only: gated entries without a normal spec. Use count=1
-            # to match the historical default.
-            spec_groups = (ExtensionGroup(by=1, targets=()),)
-
-        for group in spec_groups:
-            count = group.by
-            suffix_word = _EXTENSION_SUFFIX[count]
-            context_glyphs = group.targets
-
-            for target_name, target_glyph, is_source in related_targets:
-                if side == "entry":
-                    _add_entry_extension_variants(
-                        variants,
-                        join_glyphs,
-                        target_name=target_name,
-                        target_glyph=target_glyph,
-                        source_after=context_glyphs,
-                        source_entry_ys=source_anchor_ys,
-                        use_height_specific_names=len(join_glyph.entry) > 1,
-                        count=count,
-                        suffix_word=suffix_word,
-                        transforms=transforms,
-                        is_source=is_source,
-                    )
-                else:
-                    _add_exit_extension_variant(
-                        variants,
-                        join_glyphs,
-                        target_name=target_name,
-                        target_glyph=target_glyph,
-                        source_before=context_glyphs,
-                        source_gated_before=gated_entries,
-                        source_exit_ys=source_anchor_ys,
-                        count=count,
-                        suffix_word=suffix_word,
-                        transforms=transforms,
-                        is_source=is_source,
-                    )
+        ):
+            if side == "entry":
+                _add_entry_extension_variants(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_after=context_glyphs,
+                    source_entry_ys=source_anchor_ys,
+                    use_height_specific_names=len(join_glyph.entry) > 1,
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
+            else:
+                _add_exit_extension_variant(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_before=context_glyphs,
+                    source_gated_before=gated_entries,
+                    source_exit_ys=source_anchor_ys,
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
 
     return variants
 
@@ -2526,93 +2420,90 @@ def _generate_contracted_variants(
     variants: dict[str, JoinGlyph] = {}
     for name, join_glyph in sorted(join_glyphs.items()):
         spec: ExtensionSpec | None = getattr(join_glyph, field)
-        if spec is None or not spec.groups:
+        if spec is None:
+            continue
+        context_glyphs = spec.targets
+        if not context_glyphs:
             continue
         if not getattr(join_glyph, side):
             continue
 
+        count = spec.by
+        suffix_word = _CONTRACTION_SUFFIX[count]
         source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
-        related_targets = _iter_related_extension_targets(
+
+        for target_name, target_glyph, is_source in _iter_related_extension_targets(
             join_glyphs,
             source_name=name,
             source_glyph=join_glyph,
             side=side,
             kind="contracted",
-        )
+        ):
+            if side == "entry":
+                _add_entry_contraction_variants(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_after=context_glyphs,
+                    source_entry_ys=source_anchor_ys,
+                    use_height_specific_names=len(join_glyph.entry) > 1,
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
+            else:
+                _add_exit_contraction_variant(
+                    variants,
+                    join_glyphs,
+                    target_name=target_name,
+                    target_glyph=target_glyph,
+                    source_before=context_glyphs,
+                    source_exit_ys=source_anchor_ys,
+                    count=count,
+                    suffix_word=suffix_word,
+                    transforms=transforms,
+                    is_source=is_source,
+                )
 
-        for group in spec.groups:
-            count = group.by
-            suffix_word = _CONTRACTION_SUFFIX[count]
-            context_glyphs = group.targets
-            if not context_glyphs:
-                continue
-
-            for target_name, target_glyph, is_source in related_targets:
-                if side == "entry":
-                    _add_entry_contraction_variants(
-                        variants,
-                        join_glyphs,
-                        target_name=target_name,
-                        target_glyph=target_glyph,
-                        source_after=context_glyphs,
-                        source_entry_ys=source_anchor_ys,
-                        use_height_specific_names=len(join_glyph.entry) > 1,
-                        count=count,
-                        suffix_word=suffix_word,
-                        transforms=transforms,
-                        is_source=is_source,
-                    )
-                else:
-                    _add_exit_contraction_variant(
-                        variants,
-                        join_glyphs,
-                        target_name=target_name,
-                        target_glyph=target_glyph,
-                        source_before=context_glyphs,
-                        source_exit_ys=source_anchor_ys,
-                        count=count,
-                        suffix_word=suffix_word,
-                        transforms=transforms,
-                        is_source=is_source,
-                    )
-
-            if side == "exit":
-                contracted_source_name = f"{name}.exit-{suffix_word}"
-                if contracted_source_name in variants:
-                    join_y = join_glyph.exit[0][1]
-                    for receiver_family in context_glyphs:
-                        family_glyph = join_glyphs.get(receiver_family)
-                        if family_glyph is None:
+        if side == "exit":
+            contracted_source_name = f"{name}.exit-{suffix_word}"
+            if contracted_source_name in variants:
+                join_y = join_glyph.exit[0][1]
+                for receiver_family in context_glyphs:
+                    family_glyph = join_glyphs.get(receiver_family)
+                    if family_glyph is None:
+                        continue
+                    for receiver_name, receiver_glyph, _is_receiver_source in (
+                        _iter_related_extension_targets(
+                            join_glyphs,
+                            source_name=receiver_family,
+                            source_glyph=family_glyph,
+                            side="entry",
+                            kind="contracted",
+                        )
+                    ):
+                        if receiver_glyph.extended_exit_suffix is not None:
                             continue
-                        for receiver_name, receiver_glyph, _is_receiver_source in (
-                            _iter_related_extension_targets(
-                                join_glyphs,
-                                source_name=receiver_family,
-                                source_glyph=family_glyph,
-                                side="entry",
-                                kind="contracted",
-                            )
-                        ):
-                            if receiver_glyph.extended_exit_suffix is not None:
+                        if receiver_glyph.extended_entry_suffix is not None:
+                            if not _contraction_source_matches_after(
+                                receiver_glyph.after, name, join_glyph.family
+                            ):
                                 continue
-                            if receiver_glyph.extended_entry_suffix is not None:
-                                if not _contraction_source_matches_after(
-                                    receiver_glyph.after, name, join_glyph.family
-                                ):
-                                    continue
-                            _add_entry_trimmed_variant(
-                                variants,
-                                join_glyphs,
-                                source_contracted_name=contracted_source_name,
-                                receiver_name=receiver_name,
-                                receiver_glyph=receiver_glyph,
-                                join_y=join_y,
-                                count=count,
-                                transforms=transforms,
-                            )
-            # TODO(contract_entry_after): mirror the receiver-trim pass on the
-            # entry side when a use case appears (clear the rightmost
-            # `(by - rightward_stub)` pixels at the receiver's exit-Y row).
+                        _add_entry_trimmed_variant(
+                            variants,
+                            join_glyphs,
+                            source_contracted_name=contracted_source_name,
+                            receiver_name=receiver_name,
+                            receiver_glyph=receiver_glyph,
+                            join_y=join_y,
+                            count=count,
+                            transforms=transforms,
+                        )
+        # TODO(contract_entry_after): mirror the receiver-trim pass on the
+        # entry side when a use case appears (clear the rightmost
+        # `(by - rightward_stub)` pixels at the receiver's exit-Y row).
 
     return variants
 
@@ -2848,18 +2739,14 @@ def expand_selectors_for_ligatures(
         last_meta = join_glyphs.get(last_family)
         if last_meta is None:
             return ""
-        if last_meta.contract_exit_before:
-            by = last_meta.contract_exit_before.by_for(source_family)
-            if by is not None:
-                suffix_word = _CONTRACTION_SUFFIX.get(by)
-                if suffix_word:
-                    return f".exit-{suffix_word}"
-        if last_meta.extend_exit_before:
-            by = last_meta.extend_exit_before.by_for(source_family)
-            if by is not None:
-                suffix_word = _EXTENSION_SUFFIX.get(by)
-                if suffix_word:
-                    return f".exit-{suffix_word}"
+        if last_meta.contract_exit_before and source_family in last_meta.contract_exit_before.targets:
+            suffix_word = _CONTRACTION_SUFFIX.get(last_meta.contract_exit_before.by)
+            if suffix_word:
+                return f".exit-{suffix_word}"
+        if last_meta.extend_exit_before and source_family in last_meta.extend_exit_before.targets:
+            suffix_word = _EXTENSION_SUFFIX.get(last_meta.extend_exit_before.by)
+            if suffix_word:
+                return f".exit-{suffix_word}"
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
@@ -2870,18 +2757,14 @@ def expand_selectors_for_ligatures(
         first_meta = join_glyphs.get(first_family)
         if first_meta is None:
             return ""
-        if first_meta.contract_entry_after:
-            by = first_meta.contract_entry_after.by_for(source_family)
-            if by is not None:
-                suffix_word = _CONTRACTION_SUFFIX.get(by)
-                if suffix_word:
-                    return f".entry-{suffix_word}"
-        if first_meta.extend_entry_after:
-            by = first_meta.extend_entry_after.by_for(source_family)
-            if by is not None:
-                suffix_word = _EXTENSION_SUFFIX.get(by)
-                if suffix_word:
-                    return f".entry-{suffix_word}"
+        if first_meta.contract_entry_after and source_family in first_meta.contract_entry_after.targets:
+            suffix_word = _CONTRACTION_SUFFIX.get(first_meta.contract_entry_after.by)
+            if suffix_word:
+                return f".entry-{suffix_word}"
+        if first_meta.extend_entry_after and source_family in first_meta.extend_entry_after.targets:
+            suffix_word = _EXTENSION_SUFFIX.get(first_meta.extend_entry_after.by)
+            if suffix_word:
+                return f".entry-{suffix_word}"
         return ""
 
     def _selector_families(selectors: tuple[str, ...]) -> set[str]:
