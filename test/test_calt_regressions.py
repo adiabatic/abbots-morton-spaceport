@@ -2406,7 +2406,7 @@ def _tea_tea_cases() -> list[tuple[str, str, str]]:
                 _case_id("Tea", "Tea", name),
                 chr(TEA) + chr(TEA) + chr(code),
                 _join_expect(
-                    [("Tea", tea_nhalf), ("Tea", tea_nhalf), (name, _expect_tok(name))]
+                    [("Tea", tea_nhalf), ("Tea", _expect_tok("Tea")), (name, _expect_tok(name))]
                 ),
             )
         )
