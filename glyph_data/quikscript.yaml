@@ -675,7 +675,8 @@ glyph_families:
       - " ###    ## "
       y_offset: -3
       anchors:
-        exit: [5, 0]
+        entry: [2, 5]
+        exit: [11, 5]
       select:
         before: [{family: qsMay}, {family: qsExcite}]
   qsThey_qsZoo:
