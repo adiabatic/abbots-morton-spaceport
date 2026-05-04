@@ -32,8 +32,10 @@ them.
 from __future__ import annotations
 
 import argparse
+import html
 import itertools
 import sys
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -277,6 +279,53 @@ def _shaped_input_spans(witness: Witness) -> tuple[tuple[int, int], tuple[int, i
     return (0, l_end), (r_start, len(witness.families))
 
 
+# Map plain-letter family names to the display names used by tables.html's
+# LETTERS array (test/shared.js). Most families are "qsX" -> "X"; the two
+# irregular cases below mirror the explicit entries in LETTERS.
+_FAMILY_TO_TABLES_NAME = {
+    "qsJai": "J'ai",
+    "qsIng": "-ing",
+}
+
+
+def _tables_letter_name(family: str) -> str:
+    return _FAMILY_TO_TABLES_NAME.get(family, family[2:])
+
+
+# Standard "open in new window" icon (Material-style external-link glyph).
+_OPEN_IN_TABLES_ICON = (
+    '<svg viewBox="0 0 24 24" aria-hidden="true">'
+    '<path d="M14 3v2h3.59L9.29 13.29l1.42 1.42L19 6.41V10h2V3h-7zM19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7z"/>'
+    "</svg>"
+)
+
+
+def _open_in_tables_link(families: tuple[str, ...]) -> str:
+    """Anchor that opens tables.html with a cell-flash hash for 3-letter rows.
+
+    Returns "" for sequences with other lengths. The middle family is the
+    selected letter; the first and third map to the matrix column and row,
+    so the link points at the unique cell whose contents match the row's
+    in-context sequence.
+    """
+    if len(families) != 3:
+        return ""
+    first, middle, third = (_tables_letter_name(f) for f in families)
+    params = urllib.parse.urlencode(
+        [("letter", middle), ("col", first), ("row", third)]
+    )
+    href = html.escape(f"tables.html#{params}", quote=True)
+    label = html.escape(
+        f"Open ·{first}·{middle}·{third} in tables.html", quote=True
+    )
+    return (
+        f'<a class="open-in-tables" href="{href}" target="_blank" rel="noopener" '
+        f'title="{label}" aria-label="{label}">'
+        f"{_OPEN_IN_TABLES_ICON}"
+        "</a>"
+    )
+
+
 def _format_row(leak: Leak, witness: Witness) -> str:
     label, code = _format_label(leak, witness)
     cp_map = _family_to_codepoint()
@@ -290,10 +339,11 @@ def _format_row(leak: Leak, witness: Witness) -> str:
         f'<span class="half">{right_entities}</span>'
     )
     visual = _visual_status(witness)
+    open_link = _open_in_tables_link(families)
     return (
         f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
-        f'          <span class="visual-tag">{visual}</span>{label}\n'
+        f'          {open_link}<span class="visual-tag">{visual}</span>{label}\n'
         f"          <code>{code}</code>\n"
         "        </div>\n"
         f'        <div class="qs in-context">{full_entities}</div>\n'
@@ -373,7 +423,7 @@ def _first_time_section(items: list[tuple[Leak, Witness]], max_len: int) -> str:
     return "    " + _build_section(items, max_len)
 
 
-CSS_BLOCK = """
+_ISOLATION_LEAKS_CSS = """
       .isolation-leaks .qs.in-context,
       .isolation-leaks .qs.isolated {
         font-family: var(--after-font);
@@ -412,13 +462,61 @@ CSS_BLOCK = """
 """
 
 
+_OPEN_IN_TABLES_CSS = """
+      .isolation-leaks .row .label .open-in-tables {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: .5em;
+        padding: 2px 5px;
+        font: inherit;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 3px;
+        cursor: pointer;
+        vertical-align: 1px;
+        line-height: 1;
+        text-decoration: none;
+      }
+
+      .isolation-leaks .row .label .open-in-tables:hover {
+        background: light-dark(#eee, #333);
+        border-color: light-dark(#888, #888);
+      }
+
+      .isolation-leaks .row .label .open-in-tables svg {
+        display: block;
+        width: 12px;
+        height: 12px;
+        fill: currentColor;
+      }
+"""
+
+
+# Each entry pairs a marker substring (used to detect that the block is
+# already present in check.html) with the CSS to inject before the
+# `.footer {` sentinel when the marker is missing. The blocks are
+# independent, so a fresh check.html receives both in one pass while an
+# existing file that's missing only the newer block gets it added in
+# isolation.
+_CSS_BLOCKS: tuple[tuple[str, str], ...] = (
+    (".isolation-leaks .qs.in-context", _ISOLATION_LEAKS_CSS),
+    (".isolation-leaks .row .label .open-in-tables", _OPEN_IN_TABLES_CSS),
+)
+
+
 def _ensure_css(check_html: str) -> str:
-    if ".isolation-leaks" in check_html:
-        return check_html
     sentinel = "      .footer {"
     if sentinel not in check_html:
         return check_html
-    return check_html.replace(sentinel, CSS_BLOCK.lstrip("\n") + "\n" + sentinel, 1)
+    for marker, block in _CSS_BLOCKS:
+        if marker in check_html:
+            continue
+        check_html = check_html.replace(
+            sentinel, block.lstrip("\n") + "\n" + sentinel, 1
+        )
+    return check_html
 
 
 def _splice_section(
