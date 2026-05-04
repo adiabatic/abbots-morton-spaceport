@@ -12,6 +12,14 @@ _ENTRY_EXTENSION_SUFFIXES = (
 )
 
 
+_EXIT_EXTENSION_WORD_BY_COUNT = {
+    1: "extended",
+    2: "doubly-extended",
+    3: "triply-extended",
+    4: "quadruply-extended",
+}
+
+
 _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
     "qsOut_qsTea",
 }
@@ -1788,6 +1796,129 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 require_mid_base_without_exit=True,
             )
 
+    def _exit_extension_refinement(
+        fwd_var: str, right_context_glyphs: set[str]
+    ) -> tuple[str, set[str]] | None:
+        # If `fwd_var` carries an `extend_exit_before` derive whose targets
+        # intersect `right_context_glyphs`, return (extended_fwd_var,
+        # trigger_glyphs) so the caller can emit a more specific rule that
+        # uses the extended variant for those triggers. Returns None when no
+        # refinement applies.
+        fwd_meta = _meta(fwd_var)
+        spec = fwd_meta.extend_exit_before
+        if spec is None or not spec.targets:
+            return None
+        suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(spec.by)
+        if suffix_word is None:
+            return None
+        extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
+        if extended_fwd_var not in glyph_meta:
+            return None
+        trigger_glyphs: set[str] = set()
+        for target in spec.targets:
+            trigger_glyphs.update(base_to_variants.get(target, ()))
+        trigger_glyphs &= right_context_glyphs
+        if not trigger_glyphs:
+            return None
+        return extended_fwd_var, trigger_glyphs
+
+    def _expand_not_after_set(replacement_name: str) -> set[str]:
+        meta = _meta(replacement_name)
+        if not meta.not_after:
+            return set()
+        resolved = resolve_known_glyph_names(list(meta.not_after), glyph_names)
+        return _expand_exclusions(resolved)
+
+    def _emit_fpt_revert(
+        fpt: str,
+        default_replacement: str,
+        *,
+        member_set: set[str],
+        member_list_token: str | None = None,
+    ) -> None:
+        # Emit the post-bk revert substitution(s) for fpt → some replacement.
+        # When `_refined_bk_replacement` returns a different glyph and that
+        # glyph carries `not_after` restrictions that intersect `member_set`,
+        # split into two rules so the restricted predecessors fall back to
+        # the default replacement and the rest get the refined one.
+        fpt_replacement = _refined_bk_replacement(fpt, default_replacement)
+        if fpt_replacement == default_replacement:
+            token = member_list_token or f"[{' '.join(sorted(member_set))}]"
+            _emit_entry_strip_guards_for_replacement_exit(
+                fpt, default_replacement, left_context=token,
+            )
+            lines.append(f"        sub {token} {fpt}' by {default_replacement};")
+            return
+        not_after_set = _expand_not_after_set(fpt_replacement)
+        excluded = member_set & not_after_set
+        usable = member_set - not_after_set
+        if not excluded:
+            token = member_list_token or f"[{' '.join(sorted(member_set))}]"
+            _emit_entry_strip_guards_for_replacement_exit(
+                fpt, fpt_replacement, left_context=token,
+            )
+            lines.append(f"        sub {token} {fpt}' by {fpt_replacement};")
+            return
+        if excluded:
+            excl_list = " ".join(sorted(excluded))
+            _emit_entry_strip_guards_for_replacement_exit(
+                fpt, default_replacement, left_context=f"[{excl_list}]",
+            )
+            lines.append(f"        sub [{excl_list}] {fpt}' by {default_replacement};")
+        if usable:
+            usable_list = " ".join(sorted(usable))
+            _emit_entry_strip_guards_for_replacement_exit(
+                fpt, fpt_replacement, left_context=f"[{usable_list}]",
+            )
+            lines.append(f"        sub [{usable_list}] {fpt}' by {fpt_replacement};")
+
+    def _refined_bk_replacement(fpt: str, default_replacement: str) -> str:
+        # When `fpt` (a fwd-pair-override variant) is being reverted to the
+        # bk_replacement `default_replacement` because its entry doesn't fit
+        # the preceding glyph, prefer a replacement that still carries fpt's
+        # exit-extension. First try `default_replacement + ext_suffix` (e.g.
+        # ``qsX.entry-baseline.exit-extended`` when the family declares such a
+        # variant); failing that, fall back to an entryless sibling of fpt
+        # whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for
+        # ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops
+        # the wrong entry — same bitmap, no cursive attachment to the
+        # preceding glyph either way — but preserves the join extension into
+        # the next glyph.
+        fpt_meta = _meta(fpt)
+        ext_suffix = fpt_meta.extended_exit_suffix
+        if not ext_suffix:
+            return default_replacement
+        fpt_exit_ys = set(fpt_meta.exit_ys)
+        candidate = default_replacement + ext_suffix
+        cand_meta = glyph_meta.get(candidate)
+        if cand_meta is not None:
+            cand_exit_ys = set(cand_meta.exit_ys)
+            if (
+                (not fpt_exit_ys or not cand_exit_ys or fpt_exit_ys & cand_exit_ys)
+                and cand_meta.bitmap == fpt_meta.bitmap
+                and cand_meta.y_offset == fpt_meta.y_offset
+            ):
+                return candidate
+        if fpt_meta.entry or fpt_meta.entry_curs_only:
+            for sibling in sorted(base_to_variants.get(fpt_meta.base_name, ())):
+                sib_meta = _meta(sibling)
+                if sib_meta.entry or sib_meta.entry_curs_only:
+                    continue
+                if sib_meta.is_noentry:
+                    continue
+                if sib_meta.gate_feature:
+                    continue
+                if sib_meta.extended_exit_suffix != ext_suffix:
+                    continue
+                if set(sib_meta.exit_ys) != fpt_exit_ys:
+                    continue
+                if sib_meta.bitmap != fpt_meta.bitmap:
+                    continue
+                if sib_meta.y_offset != fpt_meta.y_offset:
+                    continue
+                return sibling
+        return default_replacement
+
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
             sorted_overrides = sorted(
@@ -2216,12 +2347,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             )
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
                             for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                                _emit_entry_strip_guards_for_replacement_exit(
+                                _emit_fpt_revert(
                                     fpt,
                                     variant_name,
-                                    left_context=f"[{member_list}]",
+                                    member_set=set(filtered),
+                                    member_list_token=f"[{member_list}]",
                                 )
-                                lines.append(f"        sub [{member_list}] {fpt}' by {variant_name};")
                     else:
                         _emit_entry_strip_guards_for_replacement_exit(
                             base_name,
@@ -2230,12 +2361,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
-                            _emit_entry_strip_guards_for_replacement_exit(
+                            _emit_fpt_revert(
                                 fpt,
                                 variant_name,
-                                left_context=f"@exit_y{entry_y}",
+                                member_set=set(exit_classes.get(entry_y, set())),
+                                member_list_token=f"@exit_y{entry_y}",
                             )
-                            lines.append(f"        sub @exit_y{entry_y} {fpt}' by {variant_name};")
             lines.append(f"    }} {lookup_name};")
 
     def _emit_bk_cycle(bases: list[str]):
@@ -2270,12 +2401,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             for fpt in _fwd_pair_bk_targets(base_name, entry_y):
                                 for tok in excl_tokens:
                                     lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                                _emit_entry_strip_guards_for_replacement_exit(
+                                _emit_fpt_revert(
                                     fpt,
                                     variant_name,
-                                    left_context=f"[{member_list}]",
+                                    member_set=set(filtered),
+                                    member_list_token=f"[{member_list}]",
                                 )
-                                lines.append(f"        sub [{member_list}] {fpt}' by {variant_name};")
                     else:
                         for tok in excl_tokens:
                             lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {tok};")
@@ -2288,12 +2419,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
                             for tok in excl_tokens:
                                 lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                            _emit_entry_strip_guards_for_replacement_exit(
+                            _emit_fpt_revert(
                                 fpt,
                                 variant_name,
-                                left_context=f"@exit_y{entry_y}",
+                                member_set=set(exit_classes.get(entry_y, set())),
+                                member_list_token=f"@exit_y{entry_y}",
                             )
-                            lines.append(f"        sub @exit_y{entry_y} {fpt}' by {variant_name};")
         for base_name in bases:
             if base_name in fwd_replacements:
                 variants = fwd_replacements[base_name]
@@ -2392,12 +2523,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
                             for tok in excl_tokens:
                                 lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                            _emit_entry_strip_guards_for_replacement_exit(
+                            _emit_fpt_revert(
                                 fpt,
                                 relevant[entry_y],
-                                left_context=f"[{member_list}]",
+                                member_set=set(filtered),
+                                member_list_token=f"[{member_list}]",
                             )
-                            lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
                     for tok in excl_tokens:
                         lines.append(f"        ignore sub @exit_y{entry_y} {base_name}' {tok};")
@@ -2410,12 +2541,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     for fpt in _fwd_pair_bk_targets(base_name, entry_y):
                         for tok in excl_tokens:
                             lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                        _emit_entry_strip_guards_for_replacement_exit(
+                        _emit_fpt_revert(
                             fpt,
                             relevant[entry_y],
-                            left_context=f"@exit_y{entry_y}",
+                            member_set=set(exit_classes.get(entry_y, set())),
+                            member_list_token=f"@exit_y{entry_y}",
                         )
-                        lines.append(f"        sub @exit_y{entry_y} {fpt}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_upgrade_bk_{safe};")
 
     def _emit_post_override_bk(bases: list[str]):
@@ -2603,6 +2734,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         fwd_exit_y,
                         effective_right_context_glyphs,
                     )
+                    refinement = _exit_extension_refinement(
+                        fwd_var, effective_right_context_glyphs
+                    )
+                    if refinement is not None:
+                        ext_fwd_var, trigger_glyphs = refinement
+                        trigger_list = " ".join(sorted(trigger_glyphs))
+                        lines.append(
+                            f"        sub {bk_var}' [{trigger_list}] by {ext_fwd_var};"
+                        )
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
                     lines.append(f"    }} calt_fwd_override_{safe};")
                     for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
@@ -2629,6 +2769,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             fwd_exit_y,
                             right_context_glyphs - not_before_excluded,
                         )
+                        ext_refinement = _exit_extension_refinement(
+                            fwd_var, right_context_glyphs - not_before_excluded
+                        )
+                        if ext_refinement is not None:
+                            ext_fwd_var, trigger_glyphs = ext_refinement
+                            trigger_list = " ".join(sorted(trigger_glyphs))
+                            lines.append(
+                                f"        sub {ext_bk}' [{trigger_list}] by {ext_fwd_var};"
+                            )
                         lines.append(f"        sub {ext_bk}' {cls} by {fwd_var};")
                         lines.append(f"    }} calt_fwd_override_{ext_safe};")
 
@@ -2933,12 +3082,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
                             for tok in excl_tokens:
                                 lines.append(f"        ignore sub [{member_list}] {fpt}' {tok};")
-                            _emit_entry_strip_guards_for_replacement_exit(
+                            _emit_fpt_revert(
                                 fpt,
                                 relevant[entry_y],
-                                left_context=f"[{member_list}]",
+                                member_set=set(filtered),
+                                member_list_token=f"[{member_list}]",
                             )
-                            lines.append(f"        sub [{member_list}] {fpt}' by {relevant[entry_y]};")
                 else:
                     for tok in excl_tokens:
                         lines.append(f"        ignore sub @exit_y{entry_y} {cycle_base}' {tok};")
@@ -2951,12 +3100,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     for fpt in _fwd_pair_bk_targets(cycle_base, entry_y):
                         for tok in excl_tokens:
                             lines.append(f"        ignore sub @exit_y{entry_y} {fpt}' {tok};")
-                        _emit_entry_strip_guards_for_replacement_exit(
+                        _emit_fpt_revert(
                             fpt,
                             relevant[entry_y],
-                            left_context=f"@exit_y{entry_y}",
+                            member_set=set(exit_classes.get(entry_y, set())),
+                            member_list_token=f"@exit_y{entry_y}",
                         )
-                        lines.append(f"        sub @exit_y{entry_y} {fpt}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_post_pair_bk_{safe};")
 
     _emit_post_context_bk_pairs()
