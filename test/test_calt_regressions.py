@@ -446,6 +446,28 @@ def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
     assert _pair_join_ys(glyphs, 0) == {5}
 
 
+@pytest.mark.parametrize(
+    ("predecessor", "expected_left"),
+    [
+        pytest.param("qsMay", "qsMay.exit-extended", id="qsMay"),
+        pytest.param("qsNo", "qsNo.exit-extended", id="qsNo"),
+        pytest.param("qsLow", "qsLow.exit-extended", id="qsLow"),
+        pytest.param("qsAh", "qsAh.exit-extended", id="qsAh"),
+        pytest.param("qsUtter", "qsUtter.exit-extended", id="qsUtter"),
+    ],
+)
+def test_qs_fee_entry_xheight_after_extended_predecessor(predecessor, expected_left):
+    # When a predecessor extends its exit before qsFee, qsFee must take its
+    # entry-xheight form so the left stub bridges the extension. Previously
+    # the post-context bk-pair re-emission filtered out fwd_pair_overrides
+    # outputs (e.g., qsMay.exit-extended) from late_contexts, so the
+    # qsFee.entry-xheight substitution never matched and qsFee stayed bare,
+    # leaving a 1-pixel gap at x-height.
+    glyphs = _shape_qs(predecessor, "qsFee")
+    assert glyphs == [expected_left, "qsFee.entry-xheight"]
+    assert _pair_join_ys(glyphs, 0) == {5}
+
+
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into
     # the same forward-pair lookup that promotes qsOwe to shape_3.

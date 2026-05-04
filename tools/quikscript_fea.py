@@ -2708,9 +2708,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _late_context_glyphs() -> set[str]:
         """Variants that can appear after the first backward-pair pass.
 
-        Keep this to generic entry/exit substitutions. Pair-specific variants
-        already encode their own right-context policy, and replaying them here
-        can revive joins that later context intentionally blocks.
+        Seeds with outputs of every channel that can mutate a glyph during the
+        forward calt passes — generic entry/exit substitutions plus pair-specific
+        overrides (forward and backward, gated and ungated). Pair-specific
+        outputs are kept here so post-context bk-pair re-emission can match
+        consumers whose backtrack names a fwd-pair-override result (e.g.
+        ``qsFee.entry-xheight`` after ``qsMay.exit-extended``). The post-context
+        emitter still applies its own guards (``not_before``, entry-strip,
+        terminal-entry-only ignores), so a wider seed cannot revive a join that
+        the original ``calt_pair_*`` rule blocks.
         """
         late: set[str] = set()
         for replacements in bk_replacements.values():
@@ -2719,6 +2725,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             late.update(replacements.values())
         for upgrades in fwd_upgrades.values():
             late.update(entry_exit_var for entry_exit_var, _, _, _ in upgrades)
+        for overrides in fwd_pair_overrides.values():
+            late.update(variant_name for variant_name, _, _ in overrides)
+        for overrides in pair_overrides.values():
+            late.update(variant_name for variant_name, _ in overrides)
+        for overrides in plan.gated_fwd_pair_overrides.values():
+            late.update(variant_name for variant_name, _, _, _ in overrides)
+        for overrides in plan.gated_pair_overrides.values():
+            late.update(variant_name for variant_name, _, _ in overrides)
 
         changed = True
         while changed:
