@@ -504,6 +504,44 @@ def test_contract_entry_after_shifts_entry_right_without_widening_bitmap():
     assert contracted.transform_kind == "entry-contracted"
 
 
+def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 0]},
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["###  "],
+                        "anchors": {"entry": [0, 0]},
+                        "derive": {
+                            "contract_entry_after": {"by": 2, "targets": [{"family": "qsLead"}]},
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "junior",
+    )
+
+    expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
+
+    assert "qsFollow.entry-doubly-contracted" in expanded
+    contracted = expanded["qsFollow.entry-doubly-contracted"]
+    assert contracted.entry == ((2, 0),)
+    assert contracted.bitmap == (" ##  ",)
+    assert contracted.after == ("qsLead",)
+    assert contracted.transform_kind == "entry-doubly-contracted"
+
+
 def test_senior_feature_emitter_includes_join_and_gate_features():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")

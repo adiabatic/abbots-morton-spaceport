@@ -1083,6 +1083,7 @@ glyph_families:
         exit_ink_y: -1
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsMay}]}
+        contract_entry_after: {by: 2, targets: [{family: qsPea, traits: [half]}]}
     shapes:
       half:
         bitmap:
