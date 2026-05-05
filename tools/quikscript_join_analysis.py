@@ -41,11 +41,13 @@ class OrphanAnchorWarning(UserWarning):
 
 __all__ = [
     "DerivedBkGuard",
+    "FwdStripGuard",
     "JoinContractWarning",
     "JoinReachability",
     "OrphanAnchorWarning",
     "collect_join_warnings",
     "derive_pending_bk_entry_guards",
+    "derive_pending_fwd_strip_guards",
     "derive_pending_liga_entry_guards",
     "validate_join_consistency",
     "warn_join_contract_issues",
@@ -56,6 +58,19 @@ __all__ = [
 class DerivedBkGuard:
     guard_glyphs: tuple[str, ...]
     before_bases: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FwdStripGuard:
+    """A predecessor glyph (whose substitution would land an exit anchor at
+    ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself
+    forward-substitutes to a stripped form (no entry anchors). The reach lands
+    on nothing, so the predecessor's substitution should be suppressed.
+
+    Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base
+    skip on a per-(source, variant, exit_y) basis without the over-suppression
+    that an unconditional relaxation would cause."""
+    mid_base: str
 
 
 @dataclass(frozen=True)
@@ -1715,3 +1730,149 @@ def _apply_residual_override(
     # to match curated keys structurally.
     del out
     return {key: tuple(guards) for key, guards in residual.items()}
+
+
+def derive_pending_fwd_strip_guards(
+    reachability: JoinReachability,
+) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
+    """Forward-strip guards for predecessor substitutions.
+
+    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at
+    ``exit_y`` would land on a follower's stripped form, return the bare bases
+    ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA
+    emitter uses these guards to suppress the predecessor's substitution when
+    bare ``B`` follows and its forward upgrade would strip its only matching
+    entry, leaving the predecessor's reach pointing at nothing.
+
+    Predecessors come from both ``fwd_replacements`` and ``fwd_pair_overrides``;
+    the runtime emission decides whether to actually emit per call site.
+    """
+    return _compute_derived_fwd_strip_guards(reachability)
+
+
+def _compute_derived_fwd_strip_guards(
+    reachability: JoinReachability,
+) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
+    glyph_meta = reachability.glyph_meta
+
+    candidate_bases = _bases_with_stripped_fwd_per_y(reachability)
+    if not candidate_bases:
+        return {}
+
+    buf: dict[tuple[str, str, int], list[FwdStripGuard]] = {}
+
+    for source_base, fwd_at_y in reachability.fwd_replacements.items():
+        for predecessor_exit_y, predecessor_variant in fwd_at_y.items():
+            if not _predecessor_visually_reaches(glyph_meta, predecessor_variant):
+                continue
+            _add_fwd_strip_guards(
+                buf,
+                candidate_bases,
+                source_base,
+                predecessor_variant,
+                predecessor_exit_y,
+            )
+
+    for source_base, overrides in reachability.fwd_pair_overrides.items():
+        for predecessor_variant, _before, _not_after in overrides:
+            predecessor_meta = glyph_meta.get(predecessor_variant)
+            if predecessor_meta is None or not predecessor_meta.exit:
+                continue
+            if not _predecessor_visually_reaches(glyph_meta, predecessor_variant):
+                continue
+            for predecessor_exit_y in set(predecessor_meta.exit_ys):
+                _add_fwd_strip_guards(
+                    buf,
+                    candidate_bases,
+                    source_base,
+                    predecessor_variant,
+                    predecessor_exit_y,
+                )
+
+    out: dict[tuple[str, str, int], tuple[FwdStripGuard, ...]] = {}
+    for key, guards in buf.items():
+        deduped = sorted(set(guards), key=lambda g: g.mid_base)
+        out[key] = tuple(deduped)
+    return out
+
+
+def _predecessor_visually_reaches(
+    glyph_meta: Mapping[str, JoinGlyph],
+    variant_name: str,
+) -> bool:
+    """Whether the predecessor variant's exit stroke is a connector that
+    visually reaches toward the next glyph (deep-letter terminal arm).
+
+    The heuristic is "has ink below the exit anchor's row": a deep letter
+    that exits at the baseline (e.g. ``qsGay.exit-baseline``) has its body
+    continuing below y=0, so its y=0 stroke is a connector reaching out to
+    join the next glyph. A short letter that exits at its bottom row (e.g.
+    ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom
+    edge of the letter, terminating at its own bounding box; it sits cleanly
+    next to whatever follows even without a cursive join.
+
+    Only the connector variants leave a visibly dangling stroke when the
+    follower's runtime form strips its entry anchor."""
+    meta = glyph_meta.get(variant_name)
+    if meta is None or not meta.exit or not meta.bitmap:
+        return False
+    exit_y = meta.exit[0][1]
+    top_y = meta.y_offset + len(meta.bitmap) - 1
+    for row_idx, row in enumerate(meta.bitmap):
+        row_y = top_y - row_idx
+        if row_y >= exit_y:
+            continue
+        if isinstance(row, str):
+            if "#" in row:
+                return True
+        elif any(row):
+            return True
+    return False
+
+
+def _bases_with_stripped_fwd_per_y(
+    reachability: JoinReachability,
+) -> dict[int, frozenset[str]]:
+    """Index bare bases by exit Y where the bare base's forward upgrade
+    strips entries AND the base's family still has a sibling with an entry
+    at that Y. Both conditions are required for a guard to make sense:
+    the strip is what lands the predecessor's reach on nothing, and the
+    family's entry-bearing sibling is what makes the bare base appear in
+    the predecessor's @entry_y class in the first place."""
+    glyph_meta = reachability.glyph_meta
+    by_y: dict[int, set[str]] = {}
+    for base, fwd_at_y in reachability.fwd_replacements.items():
+        family_entry_ys: set[int] = set()
+        for variant in reachability.base_to_variants.get(base, frozenset()):
+            variant_meta = glyph_meta.get(variant)
+            if variant_meta is None:
+                continue
+            family_entry_ys.update(variant_meta.all_entry_ys)
+        if not family_entry_ys:
+            continue
+        for exit_y, replacement in fwd_at_y.items():
+            replacement_meta = glyph_meta.get(replacement)
+            if replacement_meta is None:
+                continue
+            if replacement_meta.all_entry_ys:
+                continue
+            if exit_y not in family_entry_ys:
+                continue
+            by_y.setdefault(exit_y, set()).add(base)
+    return {y: frozenset(bases) for y, bases in by_y.items()}
+
+
+def _add_fwd_strip_guards(
+    buf: dict[tuple[str, str, int], list[FwdStripGuard]],
+    candidate_bases: dict[int, frozenset[str]],
+    source_base: str,
+    predecessor_variant: str,
+    predecessor_exit_y: int,
+) -> None:
+    bases = candidate_bases.get(predecessor_exit_y)
+    if not bases:
+        return
+    key = (source_base, predecessor_variant, predecessor_exit_y)
+    bucket = buf.setdefault(key, [])
+    for mid_base in bases:
+        bucket.append(FwdStripGuard(mid_base=mid_base))

@@ -16,9 +16,11 @@ from glyph_compiler import compile_glyph_set
 from quikscript_ir import ExtensionSpec, JoinGlyph
 from quikscript_join_analysis import (
     DerivedBkGuard,
+    FwdStripGuard,
     JoinReachability,
     OrphanAnchorWarning,
     _compute_derived_bk_guards,
+    _compute_derived_fwd_strip_guards,
     _compute_derived_liga_guards,
     _RESIDUAL_BITMAP_GAPS,
     _RESIDUAL_BK_GUARDS,
@@ -26,6 +28,7 @@ from quikscript_join_analysis import (
     _bitmap_join_gap,
     collect_join_warnings,
     derive_pending_bk_entry_guards,
+    derive_pending_fwd_strip_guards,
     derive_pending_liga_entry_guards,
     validate_join_consistency,
 )
@@ -1748,3 +1751,51 @@ def test_structural_liga_guards_cover_coverable_residual():
     assert not missing, (
         f"Structurally-coverable residual liga guards missing from derivation: {sorted(missing)}"
     )
+
+
+def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
+    """·Gay·Tea·Ah is the motivating bug: qsGay's exit-baseline.exit-extended
+    reaches at y=0 onto qsTea, whose forward upgrade to qsTea.exit-baseline
+    strips the entry. The structural pass must emit a guard so the FEA emitter
+    can suppress qsGay's substitution when the predecessor's connector arm
+    would land on a stripped follower."""
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    fwd_strip = derive_pending_fwd_strip_guards(reach)
+
+    key = ("qsGay", "qsGay.exit-baseline.exit-extended", 0)
+    assert key in fwd_strip, sorted(fwd_strip)[:5]
+    mid_bases = {guard.mid_base for guard in fwd_strip[key]}
+    assert "qsTea" in mid_bases
+
+
+def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
+    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to
+    qsIt.exit-xheight (stripped) but its `bk_replacements[5]` upgrade to
+    qsIt.entry-xheight wins at runtime when qsTea's exit y=5 precedes. The
+    plain `qsTea.half.exit-xheight` predecessor has no extended exit arm, so
+    the structural pass should not emit a guard against qsIt for it."""
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    fwd_strip = derive_pending_fwd_strip_guards(reach)
+
+    key = ("qsTea", "qsTea.half.exit-xheight", 5)
+    mid_bases = {guard.mid_base for guard in fwd_strip.get(key, ())}
+    assert "qsIt" not in mid_bases
+
+
+def test_derive_fwd_strip_guards_skips_terminus_predecessors():
+    """qsUtter.alt is a short letter sitting cleanly at the baseline — its
+    exit y=0 stub has no ink below the exit row, so even when followed by
+    qsMay's stripped fwd_replacement the visual outcome is fine. The
+    structural pass should treat qsUtter.alt as a terminus and emit no guard
+    keyed on it."""
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    fwd_strip = derive_pending_fwd_strip_guards(reach)
+
+    key = ("qsUtter", "qsUtter.alt", 0)
+    assert key not in fwd_strip, fwd_strip.get(key, ())
