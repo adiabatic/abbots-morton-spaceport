@@ -1932,6 +1932,43 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
             for variant_name, before_glyphs, not_after_glyphs in sorted_overrides:
                 expanded_before = _expand_all_variants(before_glyphs)
+                source_meta = _meta(variant_name)
+                if source_meta.exit:
+                    source_exit_ys = set(source_meta.exit_ys)
+
+                    def _candidate_compatible(name: str) -> bool:
+                        cand_meta = _meta(name)
+                        cand_entry_ys = {
+                            anchor[1]
+                            for anchor in (
+                                *cand_meta.entry,
+                                *cand_meta.entry_curs_only,
+                            )
+                        }
+                        if not cand_entry_ys:
+                            return True
+                        if cand_entry_ys & source_exit_ys:
+                            return True
+                        if name == cand_meta.base_name:
+                            family_entry_ys: set[int] = set()
+                            for sibling in base_to_variants.get(name, ()):
+                                sib_meta = _meta(sibling)
+                                family_entry_ys.update(
+                                    anchor[1]
+                                    for anchor in (
+                                        *sib_meta.entry,
+                                        *sib_meta.entry_curs_only,
+                                    )
+                                )
+                            if family_entry_ys & source_exit_ys:
+                                return True
+                        return False
+
+                    expanded_before = {
+                        candidate
+                        for candidate in expanded_before
+                        if _candidate_compatible(candidate)
+                    }
                 before_list = " ".join(sorted(expanded_before))
 
                 targets = {base_name}
