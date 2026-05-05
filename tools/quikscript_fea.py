@@ -1748,6 +1748,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         exit_y,
                         replacement_name,
                     )
+                    if bare_base_relax:
+                        # The FEA emitter expands `entry_classes` to include
+                        # bare bases of entry-bearing variants and their
+                        # entry-stripped forward replacements (so post-cycle
+                        # rules see the runtime-promoted entry). For the
+                        # fwd-strip guard, that broader set is wrong: when
+                        # the third position is itself a bare base whose
+                        # `bk_replacements[mid_exit_y]` carries the entry,
+                        # the runtime picks bk over fwd at that slot, so
+                        # mid never actually forward-strips. Restricting to
+                        # glyphs that literally carry an entry at mid_exit_y
+                        # keeps `·Gay·Tea·Tea` joined while preserving the
+                        # ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
+                        trigger_contexts = {
+                            g
+                            for g in trigger_contexts
+                            if mid_exit_y in set(_meta(g).all_entry_ys)
+                        }
                     _emit_guard(mid_source, trigger_contexts)
                     for stripped_variant in sorted(_entry_stripped_variants(mid_replacement)):
                         _emit_guard(stripped_variant, trigger_contexts)
