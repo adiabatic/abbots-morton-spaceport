@@ -1131,6 +1131,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _derived_bk_guards = derive_pending_bk_entry_guards(_reachability)
     _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
 
+    generation_children: dict[str, list[str]] = defaultdict(list)
+    for _gen_name, _gen_meta in glyph_meta.items():
+        if _gen_meta.generated_from:
+            generation_children[_gen_meta.generated_from].append(_gen_name)
+
     def _meta(name: str) -> JoinGlyph:
         return glyph_meta[name]
 
@@ -1947,6 +1952,50 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 variant_meta = _meta(variant_name)
                 variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
 
+                # Walk extension/contraction/trim derivations on the side
+                # orthogonal to the variant's own modification, so pair
+                # overrides also fire on inputs already pre-modified by an
+                # earlier same-direction lookup (e.g. a Tea form that picked up
+                # `entry-extended` after `qsKey` should still receive the
+                # exit-side contraction before `qsZoo`).
+                variant_is_exit_side = bool(
+                    variant_meta.extended_exit_suffix
+                    or variant_meta.contracted_exit_suffix
+                )
+                variant_is_entry_side = bool(
+                    variant_meta.extended_entry_suffix
+                    or variant_meta.contracted_entry_suffix
+                )
+                orthogonal_derivations: set[str] = set()
+                if variant_is_exit_side != variant_is_entry_side:
+                    if variant_is_exit_side:
+                        orthogonal_kinds = {
+                            "entry-extended",
+                            "entry-contracted",
+                            "entry-trimmed",
+                        }
+                    else:
+                        orthogonal_kinds = {
+                            "exit-extended",
+                            "exit-contracted",
+                            "exit-trimmed",
+                        }
+                    derivation_seeds = set(targets)
+                    derivation_queue = deque(derivation_seeds)
+                    while derivation_queue:
+                        parent = derivation_queue.popleft()
+                        for child in generation_children.get(parent, ()):
+                            if child in orthogonal_derivations:
+                                continue
+                            child_meta = glyph_meta.get(child)
+                            if child_meta is None:
+                                continue
+                            if child_meta.transform_kind not in orthogonal_kinds:
+                                continue
+                            orthogonal_derivations.add(child)
+                            derivation_queue.append(child)
+                    targets.update(orthogonal_derivations)
+
                 expanded_not_after = _expand_all_variants(not_after_glyphs, include_base=True)
 
                 safe = variant_name.replace(".", "_")
@@ -1996,7 +2045,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                     if not filtered:
                                         continue
                                     target_before = filtered
-                            elif target_meta.after:
+                            elif target_meta.after and target not in orthogonal_derivations:
                                 continue
                         elif not target_has_entry:
                             if variant_meta.exit:
