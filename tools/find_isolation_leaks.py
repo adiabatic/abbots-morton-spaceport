@@ -385,7 +385,16 @@ def _format_row(leak: Leak, witness: Witness) -> str:
         f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
         f'          {open_link}<span class="visual-tag">{visual}</span>{label}\n'
-        f"          <code>{code}</code>\n"
+        '          <div class="codepoints">'
+        '<button type="button" class="copy-codepoints"'
+        ' title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard">'
+        '<svg viewBox="0 0 24 24" aria-hidden="true">'
+        '<path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2'
+        'v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/>'
+        "</svg>"
+        '<span class="copied-toast">Copied!</span>'
+        "</button>"
+        f"<code>{code}</code></div>\n"
         "        </div>\n"
         f'        <div class="qs in-context">{full_entities}</div>\n'
         f'        <div class="qs isolated">{isolated}</div>\n'
@@ -535,6 +544,59 @@ _OPEN_IN_TABLES_CSS = """
 """
 
 
+_COPY_CODEPOINTS_CSS = """
+      .row .label .copy-codepoints {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: .35em;
+        padding: 2px 5px;
+        font: inherit;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 3px;
+        cursor: pointer;
+        vertical-align: 1px;
+        line-height: 1;
+        position: relative;
+      }
+
+      .row .label .copy-codepoints:hover {
+        background: light-dark(#eee, #333);
+        border-color: light-dark(#888, #888);
+      }
+
+      .row .label .copy-codepoints svg {
+        display: block;
+        width: 12px;
+        height: 12px;
+        fill: currentColor;
+      }
+
+      .row .label .copy-codepoints .copied-toast {
+        display: none;
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 4px);
+        transform: translateX(-50%);
+        padding: 2px 6px;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+        color: light-dark(#fff, #111);
+        background: light-dark(#222, #ddd);
+        border-radius: 3px;
+        pointer-events: none;
+      }
+
+      .row .label .copy-codepoints.copied .copied-toast {
+        display: block;
+      }
+"""
+
+
 # Each entry pairs a marker substring (used to detect that the block is
 # already present in check.html) with the CSS to inject before the
 # `.footer {` sentinel when the marker is missing. The blocks are
@@ -544,6 +606,7 @@ _OPEN_IN_TABLES_CSS = """
 _CSS_BLOCKS: tuple[tuple[str, str], ...] = (
     (".isolation-leaks .qs.in-context", _ISOLATION_LEAKS_CSS),
     (".isolation-leaks .row .label .open-in-tables", _OPEN_IN_TABLES_CSS),
+    (".row .label .copy-codepoints", _COPY_CODEPOINTS_CSS),
 )
 
 
@@ -558,6 +621,47 @@ def _ensure_css(check_html: str) -> str:
             sentinel, block.lstrip("\n") + "\n" + sentinel, 1
         )
     return check_html
+
+
+_COPY_CODEPOINTS_SCRIPT = """    <script>
+      function copyCodepointQuote(button) {
+        const label = button.closest('.label');
+        if (!label) return;
+        const code = label.querySelector('code');
+        if (!code) return;
+        const codepoints = code.textContent.trim();
+        const quote = `I'm looking at test/check.html \\u2014 specifically, ${codepoints}. `;
+        const flash = () => {
+          button.classList.add('copied');
+          setTimeout(() => button.classList.remove('copied'), 1200);
+        };
+        try {
+          const result = navigator.clipboard && navigator.clipboard.writeText(quote);
+          if (result && typeof result.then === 'function') {
+            result.then(flash).catch((err) => console.warn('clipboard write failed', err));
+          } else {
+            flash();
+          }
+        } catch (err) {
+          console.warn('clipboard write failed', err);
+        }
+      }
+      document.addEventListener('click', (event) => {
+        const button = event.target.closest('.copy-codepoints');
+        if (button) copyCodepointQuote(button);
+      });
+    </script>
+"""
+
+
+def _ensure_script(check_html: str) -> str:
+    marker = "function copyCodepointQuote("
+    if marker in check_html:
+        return check_html
+    sentinel = "  </body>"
+    if sentinel not in check_html:
+        return check_html
+    return check_html.replace(sentinel, _COPY_CODEPOINTS_SCRIPT + sentinel, 1)
 
 
 def _splice_section(
@@ -613,6 +717,7 @@ def main() -> None:
         check_html_path = ROOT / "test" / "check.html"
         text = check_html_path.read_text()
         text = _ensure_css(text)
+        text = _ensure_script(text)
         text = _splice_section(text, items, args.max_len)
         check_html_path.write_text(text)
         print(
