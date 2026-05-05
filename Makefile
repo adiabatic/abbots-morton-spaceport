@@ -1,8 +1,11 @@
-.PHONY: all test typecheck print-job serve explainer snapshot-before
+.PHONY: all test typecheck print-job serve explainer snapshot-before check-html
 
 all:
 	uv run python tools/build_font.py glyph_data/ test/
 	cd test && typst compile --font-path . print.typ
+
+check-html: all
+	uv run python tools/find_isolation_leaks.py --write
 
 snapshot-before: all
 	mkdir -p test/before
