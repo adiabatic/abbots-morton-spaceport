@@ -216,6 +216,16 @@ glyph_families:
           not_after: [{family: qsMay}, {family: qsUtter}]
           before: [{family: qsZoo}]
         modifiers: [before-zoo]
+      half_entry_y6_before_zoo:
+        inherits: half_entry_y6
+        shape: half_right_dips_down_to_xheight
+        anchors:
+          exit_ink_y: null
+        select:
+          not_before: null
+        derive:
+          reverse_upgrade_from: [{family: qsPea, traits: [half], modifiers: [before-zoo]}]
+        modifiers: [entry-y6, before-zoo]
       half_entry_and_exit_at_xheight:
         inherits: half
         shape: half_dips_down_to_xheight
