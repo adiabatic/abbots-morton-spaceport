@@ -294,30 +294,18 @@ def _tables_letter_name(family: str) -> str:
 
 # Standard "open in new window" icon (Material-style external-link glyph)
 # used for 3-letter rows that point at one specific cell.
-_OPEN_IN_TABLES_ICON = (
-    '<svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<path d="M14 3v2h3.59L9.29 13.29l1.42 1.42L19 6.41V10h2V3h-7zM19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7z"/>'
-    "</svg>"
-)
+_OPEN_IN_TABLES_ICON = '<img src="icons/open-in-new.svg" alt="" width="12" height="12">'
 
 # Three cells with the leftmost two filled — points at a tables.html column
 # strip where the pair appears as the first two letters of every cell.
 _OPEN_IN_TABLES_FIRST_TWO_ICON = (
-    '<svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<rect x="1" y="8" width="7" height="8"/>'
-    '<rect x="9" y="8" width="7" height="8"/>'
-    '<rect x="17" y="8" width="7" height="8" fill-opacity="0.25"/>'
-    "</svg>"
+    '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
 )
 
 # Mirror image — points at a tables.html row strip where the pair appears
 # as the last two letters of every cell.
 _OPEN_IN_TABLES_LAST_TWO_ICON = (
-    '<svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<rect x="1" y="8" width="7" height="8" fill-opacity="0.25"/>'
-    '<rect x="9" y="8" width="7" height="8"/>'
-    '<rect x="17" y="8" width="7" height="8"/>'
-    "</svg>"
+    '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
 )
 
 
@@ -388,10 +376,7 @@ def _format_row(leak: Leak, witness: Witness) -> str:
         '          <div class="codepoints">'
         '<button type="button" class="copy-codepoints"'
         ' title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard">'
-        '<svg viewBox="0 0 24 24" aria-hidden="true">'
-        '<path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2'
-        'v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/>'
-        "</svg>"
+        '<img src="icons/copy.svg" alt="" width="12" height="12">'
         '<span class="copied-toast">Copied!</span>'
         "</button>"
         f"<code>{code}</code></div>\n"
@@ -535,11 +520,10 @@ _OPEN_IN_TABLES_CSS = """
         border-color: light-dark(#888, #888);
       }
 
-      .isolation-leaks .row .label .open-in-tables svg {
+      .isolation-leaks .row .label .open-in-tables img {
         display: block;
         width: 12px;
         height: 12px;
-        fill: currentColor;
       }
 """
 
@@ -567,11 +551,10 @@ _COPY_CODEPOINTS_CSS = """
         border-color: light-dark(#888, #888);
       }
 
-      .row .label .copy-codepoints svg {
+      .row .label .copy-codepoints img {
         display: block;
         width: 12px;
         height: 12px;
-        fill: currentColor;
       }
 
       .row .label .copy-codepoints .copied-toast {

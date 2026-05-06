@@ -264,10 +264,7 @@ _COPY_BUTTON_HTML = (
     '<button type="button" class="copy-codepoints"'
     ' title="Copy prompt preamble to clipboard"'
     ' aria-label="Copy prompt preamble to clipboard">'
-    '<svg viewBox="0 0 24 24" aria-hidden="true">'
-    '<path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2'
-    'v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/>'
-    "</svg>"
+    '<img src="icons/copy.svg" alt="" width="12" height="12">'
     '<span class="copied-toast">Copied!</span>'
     "</button>"
 )
