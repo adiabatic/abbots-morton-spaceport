@@ -529,6 +529,17 @@ _OPEN_IN_TABLES_CSS = """
 
 
 _COPY_CODEPOINTS_CSS = """
+      .row .label .codepoints {
+        display: flex;
+        align-items: center;
+        margin-top: .25rem;
+      }
+
+      .row .label .codepoints code {
+        display: inline;
+        margin-top: 0;
+      }
+
       .row .label .copy-codepoints {
         display: inline-flex;
         align-items: center;
