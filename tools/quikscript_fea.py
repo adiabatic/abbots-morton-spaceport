@@ -877,12 +877,34 @@ def _expand_backward_after_variants(
             if glyph_meta[candidate_name].is_noentry:
                 candidates.add(candidate_name)
         if entry_ys:
+
+            def _unstripped_is_candidate(name: str) -> bool:
+                parts = name.split(".")
+                if "noentry" not in parts:
+                    return True
+                unstripped = ".".join(p for p in parts if p != "noentry")
+                return unstripped in candidates
+
             candidates = {
                 candidate for candidate in candidates
                 if (
                     set(glyph_meta[candidate].exit_ys) & entry_ys
                     or (
                         not glyph_meta[candidate].exit
+                        # The "could eventually exit at Y" rescue is only safe
+                        # when this candidate would actually pick up the right
+                        # exit later. For `.noentry` strippers that fallback
+                        # is unreliable: a stripper of an unrelated family
+                        # member (e.g., bare `qsTea.noentry` of bare `qsTea`)
+                        # will never reach a half-form Tea exit, no matter
+                        # what siblings the family has. Require the
+                        # entry-bearing counterpart of the stripper to itself
+                        # be a candidate — meaning the rule already targets
+                        # that source — before trusting the rescue.
+                        and (
+                            not glyph_meta[candidate].is_noentry
+                            or _unstripped_is_candidate(candidate)
+                        )
                         and any(
                             _can_eventually_exit_at(
                                 glyph_meta,
@@ -3631,7 +3653,23 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if ext_lig not in glyph_names:
                         ext_lig = lig_name + ".entry-extended"
                     if ext_lig in glyph_names:
-                        actual_lig = ext_lig
+                        # Only inherit the entry-extension onto the ligature
+                        # when the source's entry Y matches the target's. The
+                        # `.entry-extended` suffix means different things on
+                        # forms with different entry geometries (e.g.,
+                        # `qsDay.half.entry-extended` extends entry at y=0
+                        # while `qsDay_qsEat.entry-extended` extends entry at
+                        # y=5) — copying it across mismatched Ys produces a
+                        # ligature variant whose extension is geometrically
+                        # unrelated to the predecessor join that triggered it.
+                        ext_lig_entry_ys = set(_meta(ext_lig).entry_ys)
+                        combo_entry_ys = set(_meta(combo[0]).entry_ys)
+                        if (
+                            not combo_entry_ys
+                            or not ext_lig_entry_ys
+                            or combo_entry_ys & ext_lig_entry_ys
+                        ):
+                            actual_lig = ext_lig
                 contracted_entry_suffix = _meta(combo[0]).contracted_entry_suffix
                 if contracted_entry_suffix:
                     contracted_lig = lig_name + contracted_entry_suffix
