@@ -468,6 +468,23 @@ def test_qs_fee_entry_xheight_after_extended_predecessor(predecessor, expected_l
     assert _pair_join_ys(glyphs, 0) == {5}
 
 
+@pytest.mark.parametrize(
+    "right_base",
+    ["qsJai", "qsCheer", "qsAwe", "qsUtter"],
+)
+def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
+    assert _shape_qs("qsOut", "qsFee") == [
+        "qsOut.exit-xheight.exit-extended",
+        "qsFee.entry-xheight",
+    ]
+
+    glyphs = _shape_qs("qsOut", "qsFee", right_base)
+    assert glyphs[0] == "qsOut"
+    assert _exit_ys(glyphs[0]) == set()
+    assert _pair_join_ys(glyphs, 0) == set()
+    assert glyphs[1:] == _shape_qs("qsFee", right_base)
+
+
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into
     # the same forward-pair lookup that promotes qsOwe to shape_3.
