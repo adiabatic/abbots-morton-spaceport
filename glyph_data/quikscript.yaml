@@ -814,7 +814,6 @@ glyph_families:
         - family: qsFoot
       extend_exit_before_gated:
         ss03: [{family: qsTea}]
-      contract_exit_before: {by: 1, targets: [{family: qsJai}]}
     forms:
       entry_xheight:
         shape: connect_from_short_height
