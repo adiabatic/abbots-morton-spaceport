@@ -1770,6 +1770,21 @@ def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
     assert "qsTea" in mid_bases
 
 
+def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
+    """·Out·Fee·Jai is the same orphaned-exit pattern through a pair-specific
+    forward strip: qsOut's x-height reach is valid for bare ·Out·Fee, but not
+    when qsFee immediately switches to an exit-only form for the next letter."""
+    glyph_meta = _real_join_glyphs()
+    reach = JoinReachability.from_join_glyphs(glyph_meta)
+
+    fwd_strip = derive_pending_fwd_strip_guards(reach)
+
+    key = ("qsOut", "qsOut.exit-xheight.exit-extended", 5)
+    assert key in fwd_strip, sorted(fwd_strip)[:5]
+    mid_bases = {guard.mid_base for guard in fwd_strip[key]}
+    assert "qsFee" in mid_bases
+
+
 def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
     """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to
     qsIt.exit-xheight (stripped) but its `bk_replacements[5]` upgrade to

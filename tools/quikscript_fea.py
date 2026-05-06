@@ -1156,9 +1156,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
     # Tracks whether the next emission belongs to a post-calt_cycle lookup.
     # `_emit_narrow_mid_entry_strip_guards` only relaxes its bare-base skip
-    # for fwd_strip_guards once cycle has finished — pre-cycle predecessors
-    # fire before mid's bk_replacement has run, so their mid_source still
-    # picks up an entry from `calt_cycle` and no guard is warranted.
+    # for generic fwd_strip_guards once cycle has finished — pre-cycle
+    # predecessors fire before mid's bk_replacement has run, so their
+    # mid_source still picks up an entry from `calt_cycle` and no generic
+    # guard is warranted. Pair-specific forward strips are checked separately
+    # because the same lookup can see the stripping right context in lookahead.
     _fwd_strip_guards_active = [False]
 
     generation_children: dict[str, list[str]] = defaultdict(list)
@@ -1705,16 +1707,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return None, set()
             return actual_variant, set(target_before if target_before is not None else expanded_before)
 
-        fwd_strip_bases: frozenset[str]
-        if _fwd_strip_guards_active[0]:
-            fwd_strip_bases = frozenset(
-                guard.mid_base
-                for guard in _derived_fwd_strip_guards.get(
-                    (source_name, replacement_name, exit_y), ()
-                )
+        derived_strip_bases = frozenset(
+            guard.mid_base
+            for guard in _derived_fwd_strip_guards.get(
+                (source_name, replacement_name, exit_y), ()
             )
-        else:
-            fwd_strip_bases = frozenset()
+        )
+        fwd_strip_bases = (
+            derived_strip_bases if _fwd_strip_guards_active[0] else frozenset()
+        )
 
         for mid_source in sorted(right_context_glyphs):
             if mid_source not in glyph_meta:
@@ -1724,24 +1725,29 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             has_entry_at_y = exit_y in set(mid_meta.all_entry_ys)
             # Bare bases never satisfy `has_entry_at_y` (their own entry list
             # is empty). When the structural pass identifies a bare base whose
-            # forward upgrade strips entries at this exit_y AND the
+            # generic forward upgrade strips entries at this exit_y AND the
             # predecessor's substitution fires after `calt_cycle` (so mid has
-            # already been forward-stripped), fall through to the inner
-            # `mid_source == mid_base` branch so it can emit the guard from
-            # `fwd_replacements`. The pair-override and ligature branches stay
-            # gated by the original entry check — they synthesize their own
-            # mid forms that the bare-base relaxation isn't about.
+            # already been forward-stripped), fall through to the
+            # `fwd_replacements` branch. Pair-specific strips may also need a
+            # bare-base guard before cycle because this lookup can see the
+            # stripping right context directly.
             bare_base_relax = (
                 not has_entry_at_y
                 and mid_source == mid_base
                 and mid_source in fwd_strip_bases
             )
-            if not has_entry_at_y and not bare_base_relax:
+            bare_base_pair_relax = (
+                not has_entry_at_y
+                and mid_source == mid_base
+                and mid_source in derived_strip_bases
+                and mid_base in fwd_pair_overrides
+            )
+            if not has_entry_at_y and not bare_base_relax and not bare_base_pair_relax:
                 continue
             if require_mid_base_without_exit and _meta(mid_base).exit:
                 continue
 
-            if mid_source == mid_base:
+            if mid_source == mid_base and (has_entry_at_y or bare_base_relax):
                 for mid_exit_y, mid_replacement in sorted(
                     fwd_replacements.get(mid_base, {}).items()
                 ):
@@ -1792,7 +1798,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     for stripped_variant in sorted(_entry_stripped_variants(mid_replacement)):
                         _emit_guard(stripped_variant, trigger_contexts)
 
-            if bare_base_relax:
+            if bare_base_relax and not bare_base_pair_relax:
                 continue
 
             pair_targets = _fwd_pair_targets(mid_base)

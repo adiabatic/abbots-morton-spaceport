@@ -1841,13 +1841,21 @@ def _bases_with_stripped_fwd_per_y(
     the predecessor's @entry_y class in the first place."""
     glyph_meta = reachability.glyph_meta
     by_y: dict[int, set[str]] = {}
+    family_entry_ys_by_base: dict[str, set[int]] = {}
+
+    def _family_entry_ys(base: str) -> set[int]:
+        if base not in family_entry_ys_by_base:
+            family_entry_ys: set[int] = set()
+            for variant in reachability.base_to_variants.get(base, frozenset()):
+                variant_meta = glyph_meta.get(variant)
+                if variant_meta is None:
+                    continue
+                family_entry_ys.update(variant_meta.all_entry_ys)
+            family_entry_ys_by_base[base] = family_entry_ys
+        return family_entry_ys_by_base[base]
+
     for base, fwd_at_y in reachability.fwd_replacements.items():
-        family_entry_ys: set[int] = set()
-        for variant in reachability.base_to_variants.get(base, frozenset()):
-            variant_meta = glyph_meta.get(variant)
-            if variant_meta is None:
-                continue
-            family_entry_ys.update(variant_meta.all_entry_ys)
+        family_entry_ys = _family_entry_ys(base)
         if not family_entry_ys:
             continue
         for exit_y, replacement in fwd_at_y.items():
@@ -1859,7 +1867,52 @@ def _bases_with_stripped_fwd_per_y(
             if exit_y not in family_entry_ys:
                 continue
             by_y.setdefault(exit_y, set()).add(base)
+
+    for base, overrides in reachability.fwd_pair_overrides.items():
+        family_entry_ys = _family_entry_ys(base)
+        if not family_entry_ys:
+            continue
+        for replacement, _before, _not_after in overrides:
+            replacement_meta = glyph_meta.get(replacement)
+            if replacement_meta is None:
+                continue
+            if replacement_meta.all_entry_ys:
+                continue
+            for exit_y in set(replacement_meta.exit_ys):
+                if exit_y not in family_entry_ys:
+                    continue
+                if _stripped_pair_replacement_keeps_entry_ink(
+                    reachability,
+                    base,
+                    replacement_meta,
+                    exit_y,
+                ):
+                    continue
+                by_y.setdefault(exit_y, set()).add(base)
     return {y: frozenset(bases) for y, bases in by_y.items()}
+
+
+def _stripped_pair_replacement_keeps_entry_ink(
+    reachability: JoinReachability,
+    base: str,
+    replacement_meta: JoinGlyph,
+    exit_y: int,
+) -> bool:
+    replacement_bounds = _ink_bounds_at_y(replacement_meta, exit_y)
+    if replacement_bounds is None:
+        return False
+    replacement_min_x, _ = replacement_bounds
+    for variant in reachability.base_to_variants.get(base, frozenset()):
+        variant_meta = reachability.glyph_meta.get(variant)
+        if variant_meta is None or exit_y not in variant_meta.all_entry_ys:
+            continue
+        variant_bounds = _ink_bounds_at_y(variant_meta, exit_y)
+        if variant_bounds is None:
+            continue
+        variant_min_x, _ = variant_bounds
+        if variant_min_x == replacement_min_x:
+            return True
+    return False
 
 
 def _add_fwd_strip_guards(
