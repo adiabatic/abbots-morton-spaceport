@@ -2424,6 +2424,104 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             for entry_y in entry_ys
         )
 
+    def _fwd_pair_source_slot(prior_base: str) -> set[str]:
+        # Mirrors the `targets` set built inside `_emit_fwd_pairs`: the glyph
+        # forms that the forward-pair rule's source slot accepts. These are
+        # the variants that could legitimately sit at [pos-1] when the bk-pair
+        # lookup fires, and that the later forward-pair rule will consume.
+        slot = {prior_base}
+        if prior_base in bk_replacements:
+            slot.update(bk_replacements[prior_base].values())
+        if prior_base in fwd_replacements:
+            slot.update(fwd_replacements[prior_base].values())
+        if prior_base in pair_overrides:
+            slot.update(variant for variant, _ in pair_overrides[prior_base])
+        if prior_base in fwd_upgrades:
+            slot.update(variant for variant, _, _, _ in fwd_upgrades[prior_base])
+        noentry_name = f"{prior_base}.noentry"
+        if noentry_name in glyph_names:
+            slot.add(noentry_name)
+        return slot
+
+    def _emit_two_glyph_lookbehind_guards(
+        member_iter,
+        base_name: str,
+        entry_ys: set[int],
+    ) -> None:
+        # Block when a chain of later forward-pair + bk_general rules would
+        # mutate the predecessor candidate's exit_y away from the follower's
+        # entry_ys; the bk_replacement / bk-pair rule would otherwise fire on
+        # a now-stale after-match. This is the two-glyph lookbehind variant
+        # of `_collect_pending_bk_pair_guards` — that helper only handles
+        # candidates with no exit, and short-circuits on entry-bearing ones.
+        if not entry_ys:
+            return
+        # Group candidates that share a prior slot so we emit one ignore
+        # rule per prior (with the candidate set as a class) instead of N
+        # near-duplicate lines.
+        by_prior: dict[frozenset[str], set[str]] = {}
+        for cand in member_iter:
+            for prior_slot, cand_name in _collect_two_glyph_lookbehind_guards(
+                cand, entry_ys
+            ):
+                by_prior.setdefault(prior_slot, set()).add(cand_name)
+        for prior_slot in sorted(by_prior, key=lambda slot: sorted(slot)):
+            cands = sorted(by_prior[prior_slot])
+            prior_list = " ".join(sorted(prior_slot))
+            cand_token = cands[0] if len(cands) == 1 else f"[{' '.join(cands)}]"
+            lines.append(
+                f"        ignore sub [{prior_list}] {cand_token} {base_name}';"
+            )
+
+    def _collect_two_glyph_lookbehind_guards(
+        candidate_name: str,
+        entry_ys: set[int],
+    ) -> list[tuple[frozenset[str], str]]:
+        # When a candidate sits at [pos] in a bk-pair rule but the candidate's
+        # own bk_replacement (firing later) would mutate it to a form that no
+        # longer supports the follower's entry_ys, the bk-pair rule is firing
+        # too early. Block it whenever a glyph at [pos-1] has a forward-pair
+        # rule whose target exit_y matches the bk_replacement's prev_exit_y
+        # *and* whose lookahead lists this candidate — because that chain will
+        # invalidate the after-match.
+        candidate_meta = _meta(candidate_name)
+        if candidate_meta.is_noentry:
+            return []
+        candidate_base = candidate_meta.base_name
+        bk_for_base = bk_replacements.get(candidate_base, {})
+        if not bk_for_base:
+            return []
+
+        # The bk_general rule keys on prev_exit_y; we only need to guard
+        # against the prev_exit_ys whose pending_variant fails the entry-ys
+        # support check (i.e., the chain would invalidate the after-match).
+        invalidating_prev_exit_ys: set[int] = set()
+        for prev_exit_y, pending_variant in bk_for_base.items():
+            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+                continue
+            invalidating_prev_exit_ys.add(prev_exit_y)
+        if not invalidating_prev_exit_ys:
+            return []
+
+        guards: list[tuple[frozenset[str], str]] = []
+        for prior_base, fwd_overrides in fwd_pair_overrides.items():
+            for fwd_variant, fwd_lookahead, _ in fwd_overrides:
+                fwd_meta = _meta(fwd_variant)
+                if not (set(fwd_meta.exit_ys) & invalidating_prev_exit_ys):
+                    continue
+                expanded_lookahead = _expand_all_variants(
+                    fwd_lookahead, include_base=True
+                )
+                if (
+                    candidate_name not in expanded_lookahead
+                    and candidate_base not in expanded_lookahead
+                ):
+                    continue
+                slot = _fwd_pair_source_slot(prior_base)
+                if slot:
+                    guards.append((frozenset(slot), candidate_name))
+        return guards
+
     def _emit_bk_pairs(base_name: str):
         if base_name in pair_overrides:
             for variant_name, after_glyphs in sorted(
@@ -2462,6 +2560,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(
                                 f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
                             )
+                    _emit_two_glyph_lookbehind_guards(
+                        expanded_after, base_name, entry_ys
+                    )
                 lookahead = ""
                 if variant_meta.before:
                     before_list = " ".join(sorted(_expand_all_variants(variant_meta.before)))
@@ -2507,6 +2608,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 base_name,
                                 variant_name,
                                 left_context=f"[{member_list}]",
+                            )
+                            _emit_two_glyph_lookbehind_guards(
+                                filtered, base_name, {entry_y}
                             )
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
                             for fpt in _fwd_pair_bk_targets(base_name, entry_y):
@@ -2559,6 +2663,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 base_name,
                                 variant_name,
                                 left_context=f"[{member_list}]",
+                            )
+                            _emit_two_glyph_lookbehind_guards(
+                                filtered, base_name, {entry_y}
                             )
                             lines.append(f"        sub [{member_list}] {base_name}' by {variant_name};")
                             for fpt in _fwd_pair_bk_targets(base_name, entry_y):
@@ -2681,6 +2788,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             base_name,
                             relevant[entry_y],
                             left_context=f"[{member_list}]",
+                        )
+                        _emit_two_glyph_lookbehind_guards(
+                            filtered, base_name, {entry_y}
                         )
                         lines.append(f"        sub [{member_list}] {base_name}' by {relevant[entry_y]};")
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
