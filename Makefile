@@ -6,6 +6,7 @@ all:
 
 check-html: all
 	uv run python tools/find_isolation_leaks.py --write
+	uv run python tools/find_render_diffs.py --write
 
 snapshot-before: all
 	mkdir -p test/before
