@@ -653,6 +653,26 @@ def _diff_sort_key(diff: SequenceDiff) -> tuple:
     return (len(diff.codepoints), diff.codepoints)
 
 
+def _render_diffs_disabled_section() -> str:
+    """Placeholder shown when corpus render diffs are commented out in
+    ``build()``. Keeps the section discoverable so future-you remembers to
+    flip it back on when working on something the diff sweep would catch."""
+    return (
+        '    <section class="render-diffs">\n'
+        "      <h2>Corpus render diffs (currently disabled)</h2>\n"
+        '      <p class="snapshot-missing">\n'
+        "        This section normally diffs every multi-letter Quikscript\n"
+        "        run in the test corpus between <code>test/before/</code>\n"
+        "        and the live build. It's commented out in\n"
+        "        <code>tools/build_check_html.py</code>'s <code>build()</code>\n"
+        "        right now — re-enable it (and delete this placeholder)\n"
+        "        when you next want to eyeball corpus-wide regressions\n"
+        "        rather than just isolation leaks.\n"
+        "      </p>\n"
+        "    </section>"
+    )
+
+
 def _render_diffs_section(
     diffs: list[SequenceDiff] | None,
     cp_to_family: dict[int, str],
@@ -1120,12 +1140,20 @@ def build(max_len: int) -> str:
     leak_items = sorted(leaks.items(), key=_leak_sort_key)
     leaks_section = _isolation_leaks_section(leak_items, max_len)
 
-    cp_to_family = _codepoint_to_family()
-    if BEFORE_FONT.exists():
-        diffs = sorted(find_diffs(), key=_diff_sort_key)
-        diffs_section = _render_diffs_section(diffs, cp_to_family)
-    else:
-        diffs_section = _render_diffs_section(None, cp_to_family)
+    # Corpus render diffs temporarily disabled — not the focus right now,
+    # and skipping the sweep avoids hashing every glyph outline in both
+    # snapshot + live OTFs and re-shaping every multi-letter run in the
+    # corpus on each `make check-html`. The placeholder section below is a
+    # breadcrumb in the rendered page so it stays discoverable; re-enable
+    # by uncommenting the real generation block (and removing the
+    # placeholder).
+    diffs_section = _render_diffs_disabled_section()
+    # cp_to_family = _codepoint_to_family()
+    # if BEFORE_FONT.exists():
+    #     diffs = sorted(find_diffs(), key=_diff_sort_key)
+    #     diffs_section = _render_diffs_section(diffs, cp_to_family)
+    # else:
+    #     diffs_section = _render_diffs_section(None, cp_to_family)
 
     return _render_page(diffs_section, leaks_section)
 
