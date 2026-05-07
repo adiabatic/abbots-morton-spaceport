@@ -2116,7 +2116,7 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
-      entry_baseline:
+      entry_baseline_exit_xheight:
         shape: prop
         anchors:
           entry: [0, 0]
@@ -2128,7 +2128,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
         modifiers: [entry-baseline]
       entry_baseline_after_day:
-        inherits: entry_baseline
+        inherits: entry_baseline_exit_xheight
         anchors:
           exit: [1, 0]
         select:
@@ -2137,7 +2137,7 @@ glyph_families:
         gate_feature_behind: ss04
         modifiers: [after-day]
       entry_baseline_before_low:
-        inherits: entry_baseline
+        inherits: entry_baseline_exit_xheight
         anchors:
           exit: [1, 0]
         select:
