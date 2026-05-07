@@ -317,7 +317,7 @@ glyph_families:
           exit: [1, 0]
         select:
           not_after: [{family: qsEt}]
-          not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
+          not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}, {family: qsIt}]
         modifiers: [exit-baseline]
       half_entry_xheight:
         shape: half
@@ -2149,13 +2149,15 @@ glyph_families:
         anchors:
           exit: [1, 5]
         select:
-          not_before: [{family: qsYe}]
+          not_before: [{family: qsYe}, {family: qsZoo}]
         modifiers: [exit-xheight]
       exit_baseline:
         shape: prop
         anchors:
           exit: [1, 0]
+        strip_entry_before: true
         select:
+          not_after: [{family: qsBay}, {family: qsDay}]
           not_before: [{family: qsTea}]
         modifiers: [exit-baseline]
       before_utter:
@@ -2166,13 +2168,6 @@ glyph_families:
           before: [{family: qsUtter}]
           not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}]
         modifiers: [before-utter]
-      exit_baseline_before_ing:
-        inherits: exit_baseline
-        select:
-          not_before: null
-          before: [{family: qsZoo}, {family: qsIng}]
-          not_after: [{family: qsBay}]
-        modifiers: [before-ing]
   qsEat:
     mono:
       bitmap:

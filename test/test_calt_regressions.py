@@ -734,6 +734,30 @@ def test_qs_thaw_before_ing_uses_doubly_extended_entry_ing():
     ]
 
 
+def test_qs_it_strips_entry_before_qs_ing_when_left_join_conflicts():
+    glyphs = _shape_qs("qsOoze", "qsIt", "qsIng")
+
+    assert glyphs == ["qsOoze", "qsIt.exit-baseline", "qsIng"]
+    assert not _pair_join_ys(glyphs, 0)
+    assert _pair_join_ys(glyphs, 1) == {0}
+
+
+def test_qs_it_preserves_baseline_entry_when_qs_ing_join_is_blocked():
+    glyphs = _shape_qs("qsBay", "qsIt", "qsIng")
+
+    assert glyphs == ["qsBay", "qsIt.entry-baseline", "qsIng"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert not _pair_join_ys(glyphs, 1)
+
+
+def test_qs_it_preserves_baseline_entry_before_qs_zoo():
+    glyphs = _shape_qs("qsBay", "qsIt", "qsZoo")
+
+    assert glyphs == ["qsBay", "qsIt.entry-baseline.exit-extended", "qsZoo"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+    assert _pair_join_ys(glyphs, 1) == {5}
+
+
 def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
     glyphs = _shape_qs("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe")
 
