@@ -387,6 +387,10 @@
           "type": "boolean",
           "description": "Override the build's default contextual/non-contextual classification for this record."
         },
+        "strip_entry_before": {
+          "type": "boolean",
+          "description": "On an entryless forward-exit form, when true, this form also replaces entry-bearing siblings before followers whose entry Y matches this form's exit Y, letting the right-side join win without authoring a near-duplicate before: form. Pair with select.not_after to preserve incoming joins that must beat the right-side join, and select.not_before to exclude followers that should keep a different exit Y."
+        },
         "kerning": {
           "type": "array",
           "description": "Kerning group tags attached to this glyph.",
