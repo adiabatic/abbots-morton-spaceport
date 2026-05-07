@@ -763,6 +763,8 @@ glyph_families:
       select:
         after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
   qsFee:
+    notes: |
+      No matter what, ·Fee cannot join both to and from at the x-height on the same letter.
     mono:
       bitmap:
       - "  #  "
