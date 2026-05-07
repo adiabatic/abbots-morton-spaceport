@@ -2106,7 +2106,7 @@ glyph_families:
     derive:
       extend_exit_before: {by: 1, targets: [{family: qsCheer}]}
     forms:
-      entry_xheight:
+      entry_xheight_exit_baseline:
         shape: prop
         anchors:
           entry: [0, 5]
