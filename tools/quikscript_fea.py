@@ -2289,6 +2289,31 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         emitted = False
         lines.append("")
         lines.append(f"    lookup {lookup_name} {{")
+
+        def _entry_bearing_strip_targets(exit_y: int, replacement_name: str) -> list[str]:
+            if not _meta(replacement_name).strip_entry_before:
+                return []
+
+            replacement_meta = _meta(replacement_name)
+            if _has_left_entry(replacement_meta):
+                return []
+
+            targets = []
+            for target_name in sorted(base_to_variants.get(base_name, ())):
+                target_meta = _meta(target_name)
+                if target_name == base_name:
+                    continue
+                if target_meta.is_noentry:
+                    continue
+                if target_meta.gate_feature:
+                    continue
+                if not _has_left_entry(target_meta):
+                    continue
+                if exit_y in set(target_meta.exit_ys):
+                    continue
+                targets.append(target_name)
+            return targets
+
         for exit_y in selected_exit_ys:
             variant_name = variants[exit_y]
             if exit_y not in entry_classes:
@@ -2322,6 +2347,23 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
+
+            for target_name in _entry_bearing_strip_targets(exit_y, variant_name):
+                for excluded_glyph in sorted(excluded):
+                    lines.append(f"        ignore sub {target_name}' {excluded_glyph};")
+                if fwd_bk_excl:
+                    for bg in sorted(_expand_exclusions(fwd_bk_excl)):
+                        lines.append(f"        ignore sub {bg} {target_name}' {cls};")
+                for terminal in sorted(effective_right_context_glyphs & plan.terminal_exit_only):
+                    lines.append(f"        ignore sub {target_name}' {terminal};")
+                _emit_narrow_mid_entry_strip_guards(
+                    target_name,
+                    variant_name,
+                    exit_y,
+                    effective_right_context_glyphs,
+                )
+                lines.append(f"        sub {target_name}' {cls} by {variant_name};")
+                emitted = True
         if base_name in fwd_preferred_lookahead:
             for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
                 if exit_y not in selected_exit_ys:
@@ -2345,7 +2387,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 cls = f"@entry_only_y{exit_y}" if use_excl else f"@entry_y{exit_y}"
                 fwd_bk_excl = plan.fwd_bk_exclusions.get(base_name, {}).get(exit_y)
-                if fwd_bk_excl:
+                if fwd_bk_excl and not _meta(variant_name).strip_entry_before:
                     for bg in sorted(_expand_exclusions(fwd_bk_excl)):
                         lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
                 actual_variant = _resolve_noentry_replacement(
@@ -2854,9 +2896,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if not relevant:
                 continue
             fwd_exit_only = []
+            fwd_exit_by_variant = {}
             for _, fwd_variant in fwd_replacements.get(base_name, {}).items():
                 if not _meta(fwd_variant).entry:
                     fwd_exit_only.append(fwd_variant)
+                    fwd_exit_by_variant[fwd_variant] = _meta(fwd_variant).exit[0][1]
             if not fwd_exit_only:
                 continue
             safe = f"post_override_{base_name}".replace(".", "_").replace("-", "_")
@@ -2874,6 +2918,33 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 for fwd_variant in sorted(fwd_exit_only):
                     for excluded_glyph in excluded:
                         lines.append(f"        ignore sub {excluded_glyph} {fwd_variant}';")
+                    fwd_exit_y = fwd_exit_by_variant.get(fwd_variant)
+                    if (
+                        fwd_exit_y == entry_y
+                        and _meta(fwd_variant).strip_entry_before
+                        and fwd_exit_y in entry_classes
+                    ):
+                        use_excl = (base_name, fwd_exit_y) in fwd_use_exclusive
+                        if not (
+                            use_excl
+                            and (
+                                fwd_exit_y not in entry_exclusive
+                                or not entry_exclusive[fwd_exit_y]
+                            )
+                        ):
+                            right_context = set(
+                                entry_exclusive[fwd_exit_y]
+                                if use_excl
+                                else entry_classes[fwd_exit_y]
+                            )
+                            right_context -= _expand_exclusions(
+                                fwd_exclusions.get(base_name, {}).get(fwd_exit_y, []),
+                            )
+                            if right_context:
+                                right_list = " ".join(sorted(right_context))
+                                lines.append(
+                                    f"        ignore sub @exit_y{entry_y} {fwd_variant}' [{right_list}];"
+                                )
                     lines.append(f"        sub @exit_y{entry_y} {fwd_variant}' by {relevant[entry_y]};")
             lines.append(f"    }} calt_{safe};")
 

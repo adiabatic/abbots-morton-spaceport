@@ -92,6 +92,7 @@ class JoinGlyph:
     contract_exit_before: ExtensionSpec | None = None
     entry_explicitly_none: bool = False
     not_before_from_noentry_after: tuple[str, ...] = ()
+    strip_entry_before: bool = False
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -918,6 +919,9 @@ def _family_form_to_glyph_def(
     if replaces_family_feature is not None:
         glyph_def["replaces_family_feature"] = replaces_family_feature
 
+    if form_def.get("strip_entry_before"):
+        glyph_def["strip_entry_before"] = True
+
     return glyph_def
 
 
@@ -1226,6 +1230,7 @@ def _glyph_def_to_join_glyph(
         entry_explicitly_none=(
             "cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None
         ),
+        strip_entry_before=bool(glyph_def.get("strip_entry_before")),
     )
 
 
@@ -1537,6 +1542,8 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
         glyph_def["calt_word_final"] = True
     if join_glyph.extend_exit_no_entry:
         glyph_def["extend_exit_no_entry"] = True
+    if join_glyph.strip_entry_before:
+        glyph_def["strip_entry_before"] = True
     return glyph_def
 
 
