@@ -2087,6 +2087,11 @@ glyph_families:
       - "#    "
       y_offset: -3
   qsIt:
+    ductus: |
+      - Either written from top to bottom or bottom to top.
+      - If it is joined to at the x-height, then it can only join to at the baseline.
+      - Similarly, if it is joined to at the baseline, then it can only join to at the x-height.
+      - …unless a stylistic set is enabled.
     mono:
       bitmap:
       - "  #  "  #
