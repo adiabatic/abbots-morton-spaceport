@@ -2151,7 +2151,7 @@ glyph_families:
         select:
           not_before: [{family: qsYe}, {family: qsZoo}]
         modifiers: [exit-xheight]
-      exit_baseline:
+      entry_nowhere_exit_baseline:
         shape: prop
         anchors:
           exit: [1, 0]
