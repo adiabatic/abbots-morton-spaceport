@@ -2160,7 +2160,7 @@ glyph_families:
           not_after: [{family: qsBay}, {family: qsDay}]
           not_before: [{family: qsTea}]
         modifiers: [exit-baseline]
-      before_utter:
+      before_utter: # needed to make words ending in -ian look right
         shape: prop
         anchors:
           exit: [1, 0]
