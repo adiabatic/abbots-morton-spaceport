@@ -521,12 +521,13 @@ def _format_leak_row(leak: Leak, witness: Witness) -> str:
     )
     visual = _visual_status(witness)
     open_link = _open_in_tables_link(families)
+    letters = html.escape("".join(_short_label(f) for f in families), quote=True)
     return (
         f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
         f'          {open_link}<span class="visual-tag">{visual}</span>{label}\n'
         '          <div class="codepoints">'
-        f"{_COPY_BUTTON_HTML}<code>{code}</code></div>\n"
+        f'{_COPY_BUTTON_HTML}<code data-letters="{letters}">{code}</code></div>\n'
         "        </div>\n"
         f'        <div class="qs in-context">{full_entities}</div>\n'
         f'        <div class="qs isolated">{isolated}</div>\n'
@@ -637,11 +638,16 @@ def _format_diff_row(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
     summary = _format_diff_summary(diff)
     code = _format_diff_codepoints(diff)
     rendered = _entities(diff.text)
+    letters = html.escape(
+        "".join(_short_label_for_codepoint(cp, cp_to_family) for cp in diff.codepoints),
+        quote=True,
+    )
     return (
         '      <div class="row">\n'
         '        <div class="label">\n'
         f"          {label} ({summary})\n"
-        f'          <div class="codepoints">{_COPY_BUTTON_HTML}<code>{code}</code></div>\n'
+        '          <div class="codepoints">'
+        f'{_COPY_BUTTON_HTML}<code data-letters="{letters}">{code}</code></div>\n'
         "        </div>\n"
         f'        <div class="qs before">{rendered}</div>\n'
         f'        <div class="qs after">{rendered}</div>\n'
@@ -1043,7 +1049,9 @@ _COPY_CODEPOINTS_SCRIPT = """    <script>
         const code = label.querySelector('code');
         if (!code) return;
         const codepoints = code.textContent.trim();
-        const quote = `I'm looking at test/check.html \\u2014 specifically, ${codepoints}. `;
+        const letters = (code.dataset.letters || '').trim();
+        const suffix = letters ? ` (${letters})` : '';
+        const quote = `I'm looking at test/check.html \\u2014 specifically, ${codepoints}${suffix}. `;
         const flash = () => {
           button.classList.add('copied');
           setTimeout(() => button.classList.remove('copied'), 1200);
