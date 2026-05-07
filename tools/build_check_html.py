@@ -1,0 +1,1161 @@
+"""Generate test/check.html — the side-by-side before/after rendering harness.
+
+One program, one file out. Replaces the previous arrangement where a static
+``test/check.html`` was mutated in place by two separate splicer tools.
+
+The page contains:
+
+* Standard page chrome (title, intro, workflow notes, footer).
+* A "corpus render diffs" section: every multi-letter Quikscript run harvested
+  from ``test/the-manual.html``, ``test/index.html``, and
+  ``test/extra-senior-words.html`` whose Senior-Regular render differs between
+  ``test/before/`` and the live build. Skipped with a notice when the snapshot
+  is missing.
+* An "isolation leaks" section: short sequences whose adjacent non-joining
+  pair changes shape when the pair is shaped together vs. independently —
+  the same invariant as ``_check_break_isolation`` in
+  ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead
+  of ``|``) in ``data-expect``.
+* A copy-codepoints click handler so each row's ``U+E6XX`` strip can be
+  copied as a prompt preamble.
+
+Run (after ``make all`` and, optionally, ``make snapshot-before`` on the
+baseline branch)::
+
+    uv run python tools/build_check_html.py
+
+``--max-len`` controls how deep the isolation-leaks sweep goes (default 3,
+which catches every pair plus single-letter context on either side; bump to
+4 for a slower deeper sweep).
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import html
+import itertools
+import re
+import sys
+import urllib.parse
+from dataclasses import dataclass
+from pathlib import Path
+
+import uharfbuzz as hb
+import yaml
+from fontTools.pens.basePen import BasePen
+from fontTools.ttLib import TTFont
+
+ROOT = Path(__file__).resolve().parent.parent
+TEST_DIR = ROOT / "test"
+PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
+CHECK_HTML_PATH = TEST_DIR / "check.html"
+
+# Reuse the test-suite shaping helpers so the isolation-leaks sweep matches
+# what ``test_shaping.py`` enforces.
+if str(TEST_DIR) not in sys.path:
+    sys.path.insert(0, str(TEST_DIR))
+
+from quikscript_shaping_helpers import (  # noqa: E402
+    _char_map,
+    _compiled_meta,
+    _font,
+    _pair_join_ys,
+    _plain_quikscript_letters,
+    _qs_text,
+    _shape_qs,
+)
+
+
+# ---------------------------------------------------------------------------
+# Isolation-leak detection (was tools/find_isolation_leaks.py).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Leak:
+    left_chosen: str
+    right_chosen: str
+    left_iso: str
+    right_iso: str
+
+    @property
+    def left_changed(self) -> bool:
+        return self.left_chosen != self.left_iso
+
+    @property
+    def right_changed(self) -> bool:
+        return self.right_chosen != self.right_iso
+
+
+@dataclass(frozen=True)
+class Witness:
+    families: tuple[str, ...]
+    break_index: int  # output-glyph position of the leaky break
+
+
+def _is_letter_glyph(name: str) -> bool:
+    """Whether *name* is a Quikscript letter glyph eligible for the
+    isolation check. Mirrors ``_is_qs_letter`` in ``test/test_shaping.py``."""
+    if not name.startswith("qs"):
+        return False
+    base = name.split(".", 1)[0]
+    return base not in {"qsAngleParenLeft", "qsAngleParenRight"}
+
+
+def _input_spans(full: list[str]) -> list[tuple[int, int]] | None:
+    """Map each output glyph to its [start, end) input-family slice."""
+    meta = _compiled_meta()
+    consumed = 0
+    spans: list[tuple[int, int]] = []
+    for g in full:
+        g_meta = meta.get(g)
+        seq_len = len(g_meta.sequence) if g_meta and g_meta.sequence else 1
+        spans.append((consumed, consumed + seq_len))
+        consumed += seq_len
+    return spans
+
+
+def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
+    """Return (break_index, Leak) pairs for every leaky non-join in *families*."""
+    full = _shape_qs(*families)
+    if len(full) < 2:
+        return []
+    spans = _input_spans(full)
+    if spans is None or spans[-1][1] != len(families):
+        return []
+    results: list[tuple[int, Leak]] = []
+    for i in range(len(full) - 1):
+        left = full[i]
+        right = full[i + 1]
+        if not (_is_letter_glyph(left) and _is_letter_glyph(right)):
+            continue
+        if _pair_join_ys(full, i):
+            continue
+        l_end = spans[i][1]
+        r_start = spans[i + 1][0]
+        if l_end != r_start:
+            continue
+        left_shaped = _shape_qs(*families[:l_end])
+        right_shaped = _shape_qs(*families[r_start:])
+        if not left_shaped or not right_shaped:
+            continue
+        split_left = left_shaped[-1]
+        split_right = right_shaped[0]
+        if left == split_left and right == split_right:
+            continue
+        results.append(
+            (
+                i,
+                Leak(
+                    left_chosen=left,
+                    right_chosen=right,
+                    left_iso=split_left,
+                    right_iso=split_right,
+                ),
+            ),
+        )
+    return results
+
+
+def find_leaks(max_len: int) -> dict[Leak, Witness]:
+    """Enumerate sequences up to *max_len* and collect unique leaks."""
+    letters = [name for name, _ in _plain_quikscript_letters()]
+    leaks: dict[Leak, Witness] = {}
+    for length in range(2, max_len + 1):
+        for families in itertools.product(letters, repeat=length):
+            for break_i, leak in _scan_sequence(families):
+                if leak not in leaks:
+                    leaks[leak] = Witness(families=families, break_index=break_i)
+    return leaks
+
+
+def _shaped_input_spans(witness: Witness) -> tuple[tuple[int, int], tuple[int, int]]:
+    full = _shape_qs(*witness.families)
+    spans = _input_spans(full)
+    if spans is None:
+        raise RuntimeError(f"could not map spans for {witness.families!r}")
+    l_end = spans[witness.break_index][1]
+    r_start = spans[witness.break_index + 1][0]
+    return (0, l_end), (r_start, len(witness.families))
+
+
+def _visual_signature(name: str) -> tuple:
+    g = _compiled_meta()[name]
+    return (tuple(g.bitmap), g.y_offset, g.advance_width)
+
+
+def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
+    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the
+    sequence's total advance — the single-buffer equivalent of how the
+    inline-block halves butt up in the rendered HTML."""
+    font = _font()
+    buf = hb.Buffer()
+    buf.add_str(_qs_text(*parts))
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+    pen_x = 0
+    pen_y = 0
+    sigs: list[tuple] = []
+    for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
+        name = font.glyph_to_string(info.codepoint)
+        sigs.append((_visual_signature(name), pen_x + pos.x_offset, pen_y + pos.y_offset))
+        pen_x += pos.x_advance
+        pen_y += pos.y_advance
+    return sigs, pen_x, pen_y
+
+
+def _visual_status(witness: Witness) -> str:
+    """Classify a leak as ``same`` or ``diff`` by comparing the in-context
+    render of the witness sequence against the concatenation of its two
+    independently-shaped halves."""
+    full_sigs, _, _ = _abs_render_signature(witness.families)
+    (l0, l1), (r0, r1) = _shaped_input_spans(witness)
+    left_sigs, left_x, left_y = _abs_render_signature(witness.families[l0:l1])
+    right_sigs, _, _ = _abs_render_signature(witness.families[r0:r1])
+    halves_sigs = left_sigs + [
+        (sig, x + left_x, y + left_y) for sig, x, y in right_sigs
+    ]
+    return "same" if full_sigs == halves_sigs else "diff"
+
+
+# ---------------------------------------------------------------------------
+# Render-diff detection (was tools/find_render_diffs.py).
+# ---------------------------------------------------------------------------
+
+
+CORPUS_FILES: tuple[Path, ...] = (
+    TEST_DIR / "the-manual.html",
+    TEST_DIR / "index.html",
+    TEST_DIR / "extra-senior-words.html",
+)
+SENIOR_FONT_NAME = "AbbotsMortonSpaceportSansSenior-Regular.otf"
+BEFORE_FONT = TEST_DIR / "before" / SENIOR_FONT_NAME
+AFTER_FONT = TEST_DIR / SENIOR_FONT_NAME
+
+QS_FIRST = 0xE650
+QS_LAST = 0xE67F
+QS_RUN_RE = re.compile("[\uE650-\uE67F\u200C]+")
+ENTITY_HEX_RE = re.compile(r"&#x([0-9A-Fa-f]+);")
+ENTITY_DEC_RE = re.compile(r"&#(\d+);")
+
+
+@dataclass(frozen=True)
+class GlyphRender:
+    name: str
+    outline_hash: str
+    x_advance: int
+    x_offset: int
+    y_offset: int
+
+
+@dataclass(frozen=True)
+class SequenceDiff:
+    text: str
+    before: tuple[GlyphRender, ...]
+    after: tuple[GlyphRender, ...]
+
+    @property
+    def codepoints(self) -> tuple[int, ...]:
+        return tuple(ord(c) for c in self.text)
+
+
+class _OutlineHashPen(BasePen):
+    """Record pen calls so two glyphs with the same outline produce the
+    same fingerprint regardless of how the font compiled them."""
+
+    def __init__(self, glyph_set):
+        super().__init__(glyph_set)
+        self.calls: list[tuple] = []
+
+    def _moveTo(self, pt):
+        self.calls.append(("M", pt))
+
+    def _lineTo(self, pt):
+        self.calls.append(("L", pt))
+
+    def _curveToOne(self, pt1, pt2, pt3):
+        self.calls.append(("C", pt1, pt2, pt3))
+
+    def _qCurveToOne(self, pt1, pt2):
+        self.calls.append(("Q", pt1, pt2))
+
+    def _closePath(self):
+        self.calls.append(("Z",))
+
+    def _endPath(self):
+        self.calls.append(("E",))
+
+
+def _outline_hashes(font_path: Path) -> dict[str, str]:
+    tt = TTFont(str(font_path))
+    glyph_set = tt.getGlyphSet()
+    result: dict[str, str] = {}
+    for name in tt.getGlyphOrder():
+        pen = _OutlineHashPen(glyph_set)
+        glyph_set[name].draw(pen)
+        result[name] = hashlib.sha1(repr(pen.calls).encode()).hexdigest()[:12]
+    tt.close()
+    return result
+
+
+def _hb_font(font_path: Path) -> hb.Font:
+    blob = hb.Blob.from_file_path(str(font_path))
+    return hb.Font(hb.Face(blob))
+
+
+def _render(
+    font: hb.Font, hashes: dict[str, str], text: str
+) -> tuple[GlyphRender, ...]:
+    buf = hb.Buffer()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+    glyphs: list[GlyphRender] = []
+    for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
+        name = font.glyph_to_string(info.codepoint)
+        glyphs.append(
+            GlyphRender(
+                name=name,
+                outline_hash=hashes.get(name, "<missing>"),
+                x_advance=pos.x_advance,
+                x_offset=pos.x_offset,
+                y_offset=pos.y_offset,
+            )
+        )
+    return tuple(glyphs)
+
+
+def _decode_entities(text: str) -> str:
+    text = ENTITY_HEX_RE.sub(lambda m: chr(int(m.group(1), 16)), text)
+    text = ENTITY_DEC_RE.sub(lambda m: chr(int(m.group(1))), text)
+    return text
+
+
+def _harvest_sequences(paths: tuple[Path, ...]) -> list[str]:
+    seen: set[str] = set()
+    for path in paths:
+        text = _decode_entities(path.read_text())
+        for run in QS_RUN_RE.findall(text):
+            qs_letters = sum(1 for c in run if QS_FIRST <= ord(c) <= QS_LAST)
+            if qs_letters >= 2:
+                seen.add(run)
+    return sorted(seen)
+
+
+def find_diffs() -> list[SequenceDiff]:
+    """Compare snapshot vs. live Senior-Regular renders for every harvested
+    multi-letter run. Caller is expected to confirm BEFORE_FONT exists."""
+    if not AFTER_FONT.exists():
+        raise SystemExit(
+            f"Live build missing: {AFTER_FONT.relative_to(ROOT)} not found.\n"
+            "Run `make all` first."
+        )
+    sequences = _harvest_sequences(CORPUS_FILES)
+    before_hashes = _outline_hashes(BEFORE_FONT)
+    after_hashes = _outline_hashes(AFTER_FONT)
+    before_font = _hb_font(BEFORE_FONT)
+    after_font = _hb_font(AFTER_FONT)
+    diffs: list[SequenceDiff] = []
+    for seq in sequences:
+        before = _render(before_font, before_hashes, seq)
+        after = _render(after_font, after_hashes, seq)
+        if before != after:
+            diffs.append(SequenceDiff(text=seq, before=before, after=after))
+    return diffs
+
+
+# ---------------------------------------------------------------------------
+# Shared formatting helpers.
+# ---------------------------------------------------------------------------
+
+
+_FAMILY_TO_LABEL = {"qsIng": "·-ing"}
+
+_FAMILY_TO_TABLES_NAME = {
+    "qsJai": "J'ai",
+    "qsIng": "-ing",
+}
+
+
+def _short_label(family: str) -> str:
+    """``qsRoe`` -> ``·Roe``; ``qsIng`` -> ``·-ing`` (matches data-expect style)."""
+    if family in _FAMILY_TO_LABEL:
+        return _FAMILY_TO_LABEL[family]
+    return "·" + family[2:]
+
+
+def _short_label_for_codepoint(codepoint: int, cp_to_family: dict[int, str]) -> str:
+    if codepoint == 0x200C:
+        return "◊ZWNJ"
+    family = cp_to_family.get(codepoint)
+    if family is None:
+        return f"U+{codepoint:04X}"
+    return _short_label(family)
+
+
+def _family_to_codepoint() -> dict[str, int]:
+    chars = _char_map()
+    return {
+        name: ord(chars[name])
+        for name in chars
+        if name.startswith("qs") and "_" not in name
+    }
+
+
+def _codepoint_to_family() -> dict[int, str]:
+    with PS_NAMES_PATH.open() as f:
+        ps_names = yaml.safe_load(f)
+    return {
+        codepoint: name
+        for name, codepoint in ps_names.items()
+        if name.startswith("qs") and "_" not in name
+    }
+
+
+def _entity_for(codepoint: int) -> str:
+    return f"&#x{codepoint:X};"
+
+
+def _entities(text: str) -> str:
+    return "".join(f"&#x{ord(c):X};" for c in text)
+
+
+def _tables_letter_name(family: str) -> str:
+    return _FAMILY_TO_TABLES_NAME.get(family, family[2:])
+
+
+# Standard "open in new window" icon, used for 3-letter rows that point at
+# one specific cell.
+_OPEN_IN_TABLES_ICON = '<img src="icons/open-in-new.svg" alt="" width="12" height="12">'
+
+# Three cells with the leftmost two filled — points at a tables.html column
+# strip where the pair appears as the first two letters of every cell.
+_OPEN_IN_TABLES_FIRST_TWO_ICON = (
+    '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
+)
+
+# Mirror image — points at a tables.html row strip where the pair appears
+# as the last two letters of every cell.
+_OPEN_IN_TABLES_LAST_TWO_ICON = (
+    '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
+)
+
+
+def _tables_anchor(params: list[tuple[str, str]], label: str, icon: str) -> str:
+    href = html.escape(f"tables.html#{urllib.parse.urlencode(params)}", quote=True)
+    label_attr = html.escape(label, quote=True)
+    return (
+        f'<a class="open-in-tables" href="{href}" target="_blank" rel="noopener" '
+        f'title="{label_attr}" aria-label="{label_attr}">'
+        f"{icon}"
+        "</a>"
+    )
+
+
+def _open_in_tables_link(families: tuple[str, ...]) -> str:
+    """Anchor(s) that open tables.html targeting the cells matching *families*."""
+    if len(families) == 2:
+        first, second = (_tables_letter_name(f) for f in families)
+        return _tables_anchor(
+            [("letter", second), ("col", first)],
+            f"Open ·{first}·{second}·… in tables.html",
+            _OPEN_IN_TABLES_FIRST_TWO_ICON,
+        ) + _tables_anchor(
+            [("letter", first), ("row", second)],
+            f"Open ·…·{first}·{second} in tables.html",
+            _OPEN_IN_TABLES_LAST_TWO_ICON,
+        )
+    if len(families) != 3:
+        return ""
+    first, middle, third = (_tables_letter_name(f) for f in families)
+    return _tables_anchor(
+        [("letter", middle), ("col", first), ("row", third)],
+        f"Open ·{first}·{middle}·{third} in tables.html",
+        _OPEN_IN_TABLES_ICON,
+    )
+
+
+_COPY_BUTTON_HTML = (
+    '<button type="button" class="copy-codepoints"'
+    ' title="Copy prompt preamble to clipboard"'
+    ' aria-label="Copy prompt preamble to clipboard">'
+    '<img src="icons/copy.svg" alt="" width="12" height="12">'
+    '<span class="copied-toast">Copied!</span>'
+    "</button>"
+)
+
+
+# ---------------------------------------------------------------------------
+# Row + section renderers.
+# ---------------------------------------------------------------------------
+
+
+def _format_leak_label(leak: Leak, witness: Witness) -> tuple[str, str]:
+    cp_map = _family_to_codepoint()
+    families = witness.families
+    label_parts = [_short_label(f) for f in families]
+    label_parts.insert(witness.break_index + 1, "|")
+    label = " ".join(label_parts)
+    diff_parts: list[str] = []
+    if leak.left_changed:
+        diff_parts.append(f"{leak.left_iso} → {leak.left_chosen}")
+    if leak.right_changed:
+        diff_parts.append(f"{leak.right_iso} → {leak.right_chosen}")
+    diff = "; ".join(diff_parts)
+    code = " ".join(f"U+{cp_map[f]:04X}" for f in families)
+    return f"{label} ({diff})", code
+
+
+def _format_leak_row(leak: Leak, witness: Witness) -> str:
+    label, code = _format_leak_label(leak, witness)
+    cp_map = _family_to_codepoint()
+    families = witness.families
+    (l0, l1), (r0, r1) = _shaped_input_spans(witness)
+    full_entities = "".join(_entity_for(cp_map[f]) for f in families)
+    left_entities = "".join(_entity_for(cp_map[f]) for f in families[l0:l1])
+    right_entities = "".join(_entity_for(cp_map[f]) for f in families[r0:r1])
+    isolated = (
+        f'<span class="half">{left_entities}</span>'
+        f'<span class="half">{right_entities}</span>'
+    )
+    visual = _visual_status(witness)
+    open_link = _open_in_tables_link(families)
+    return (
+        f'      <div class="row" data-visual="{visual}">\n'
+        '        <div class="label">\n'
+        f'          {open_link}<span class="visual-tag">{visual}</span>{label}\n'
+        '          <div class="codepoints">'
+        f"{_COPY_BUTTON_HTML}<code>{code}</code></div>\n"
+        "        </div>\n"
+        f'        <div class="qs in-context">{full_entities}</div>\n'
+        f'        <div class="qs isolated">{isolated}</div>\n'
+        "      </div>"
+    )
+
+
+def _leak_sort_key(item: tuple[Leak, Witness]) -> tuple:
+    leak, witness = item
+    cp_map = _family_to_codepoint()
+    return (
+        len(witness.families),
+        tuple(cp_map[f] for f in witness.families),
+        leak.left_chosen,
+        leak.right_chosen,
+    )
+
+
+def _isolation_leaks_section(items: list[tuple[Leak, Witness]], max_len: int) -> str:
+    rows = "\n".join(_format_leak_row(leak, w) for leak, w in items)
+    return (
+        '    <section class="isolation-leaks">\n'
+        "      <h2>Auto-generated: isolation leaks</h2>\n"
+        "      <p>\n"
+        "        Sequences whose adjacent pair does not cursive-attach but\n"
+        "        whose chosen glyphs differ when the pair is shaped together\n"
+        "        versus split into independent buffers. These are the\n"
+        "        cases that currently require <code>|?|</code> in\n"
+        "        <code>data-expect</code>; visually inspect each row to\n"
+        "        decide whether the cross-break shape change is cosmetic\n"
+        "        or a real bug. Generated with"
+        f" <code>--max-len {max_len}</code>.\n"
+        "      </p>\n"
+        "      <p>\n"
+        "        Columns: the middle column shapes the whole sequence as a\n"
+        "        single buffer (what you get in real text); the right\n"
+        "        column splits the sequence at the leaky break into two\n"
+        "        <code>display: inline-block</code> halves so HarfBuzz\n"
+        "        shapes each side independently. If the two columns look\n"
+        "        identical, the leak is purely a glyph-name signature\n"
+        "        change with no visible effect; if they differ, decide\n"
+        "        whether the in-context shape is intended.\n"
+        "      </p>\n"
+        "      <p>\n"
+        "        Each row is tagged <code>same</code> or <code>diff</code>\n"
+        "        based on whether the in-context buffer and the\n"
+        "        concatenation of the two independently-shaped halves\n"
+        "        produce the same per-glyph (pixels, absolute origin)\n"
+        "        sequence. Comparing absolute origins (not just pixels)\n"
+        "        catches cursive-positioning leaks: e.g.\n"
+        "        <code>qsIt</code> vs <code>qsIt.exit-xheight</code> have\n"
+        "        identical bitmaps but the latter's exit anchor pulls the\n"
+        "        next glyph leftward via GPOS <code>curs</code>. Reach for\n"
+        "        the <code>diff</code> rows first when hunting real bugs;\n"
+        "        <code>same</code> rows are typically\n"
+        "        <code>after-tall</code>-style trims whose only effect is\n"
+        "        the glyph-name signature.\n"
+        "      </p>\n"
+        '      <div class="col-headers">\n'
+        "        <span>Sequence</span>\n"
+        "        <span>In context</span>\n"
+        "        <span>Halves shaped separately</span>\n"
+        "      </div>\n"
+        f"{rows}\n"
+        "    </section>"
+    )
+
+
+def _format_diff_label(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
+    return " ".join(
+        _short_label_for_codepoint(cp, cp_to_family) for cp in diff.codepoints
+    )
+
+
+def _format_diff_summary(diff: SequenceDiff) -> str:
+    """Compact one-line summary of *what* changed in this sequence's render."""
+    before_names = tuple(g.name for g in diff.before)
+    after_names = tuple(g.name for g in diff.after)
+    parts: list[str] = []
+    if before_names != after_names:
+        parts.append(f"{' '.join(before_names)} → {' '.join(after_names)}")
+        return "; ".join(parts)
+    outline_changed = [
+        b.name
+        for b, a in zip(diff.before, diff.after)
+        if b.outline_hash != a.outline_hash
+    ]
+    if outline_changed:
+        parts.append(f"outline: {', '.join(outline_changed)}")
+    position_changed = [
+        b.name
+        for b, a in zip(diff.before, diff.after)
+        if b.outline_hash == a.outline_hash
+        and (b.x_advance, b.x_offset, b.y_offset)
+        != (a.x_advance, a.x_offset, a.y_offset)
+    ]
+    if position_changed:
+        parts.append(f"positions: {', '.join(position_changed)}")
+    return "; ".join(parts) if parts else "(unchanged glyphs, but tuple differs)"
+
+
+def _format_diff_codepoints(diff: SequenceDiff) -> str:
+    return " ".join(f"U+{cp:04X}" for cp in diff.codepoints)
+
+
+def _format_diff_row(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
+    label = _format_diff_label(diff, cp_to_family)
+    summary = _format_diff_summary(diff)
+    code = _format_diff_codepoints(diff)
+    rendered = _entities(diff.text)
+    return (
+        '      <div class="row">\n'
+        '        <div class="label">\n'
+        f"          {label} ({summary})\n"
+        f'          <div class="codepoints">{_COPY_BUTTON_HTML}<code>{code}</code></div>\n'
+        "        </div>\n"
+        f'        <div class="qs before">{rendered}</div>\n'
+        f'        <div class="qs after">{rendered}</div>\n'
+        "      </div>"
+    )
+
+
+def _diff_sort_key(diff: SequenceDiff) -> tuple:
+    return (len(diff.codepoints), diff.codepoints)
+
+
+def _render_diffs_section(
+    diffs: list[SequenceDiff] | None,
+    cp_to_family: dict[int, str],
+) -> str:
+    if diffs is None:
+        body = (
+            '      <p class="snapshot-missing">No <code>test/before/</code>\n'
+            "        snapshot present, so there's nothing to diff against.\n"
+            "        Switch to your baseline branch, run\n"
+            "        <code>make snapshot-before</code>, switch back, and rerun\n"
+            "        <code>make check-html</code>.</p>"
+        )
+    elif not diffs:
+        body = (
+            '      <p class="snapshot-missing">No differences found across the\n'
+            "        harvested corpus. Either the change is invisible at the\n"
+            "        Senior-Regular level, or <code>test/before/</code> is\n"
+            "        already in sync with the live build.</p>"
+        )
+    else:
+        rows = "\n".join(_format_diff_row(d, cp_to_family) for d in diffs)
+        body = (
+            '      <div class="col-headers">\n'
+            "        <span>Sequence (what changed)</span>\n"
+            "        <span>Before (snapshot)</span>\n"
+            "        <span>After (live build)</span>\n"
+            "      </div>\n"
+            f"{rows}"
+        )
+    return (
+        '    <section class="render-diffs">\n'
+        "      <h2>Auto-generated: corpus render diffs</h2>\n"
+        "      <p>\n"
+        "        Every multi-letter Quikscript run harvested from\n"
+        "        <code>test/the-manual.html</code>, <code>test/index.html</code>,\n"
+        "        and <code>test/extra-senior-words.html</code> whose Senior-Regular\n"
+        "        render differs between <code>test/before/</code> and the live\n"
+        "        build. A render is the per-glyph tuple\n"
+        "        <code>(glyph name, outline hash, x_advance, x_offset, y_offset)</code>,\n"
+        "        so this surfaces GSUB changes (different variant chosen), GPOS\n"
+        "        changes (cursive/kerning shifts), and outline edits to same-named\n"
+        "        glyphs.\n"
+        "      </p>\n"
+        "      <p>\n"
+        "        Each row's label names the change in glyph terms (e.g.\n"
+        "        <code>qsTea → qsTea.exit-xheight</code>). Scan for sequences you\n"
+        "        weren't intending to touch — those are the regressions.\n"
+        "      </p>\n"
+        f"{body}\n"
+        "    </section>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Page chrome (CSS, JS, top-level template).
+# ---------------------------------------------------------------------------
+
+
+_PAGE_CSS = """      /*
+        Pre-change snapshot. Run `make snapshot-before` on the master
+        branch (or any baseline you want to compare against) to refresh
+        these — the target builds the fonts and copies all six OTFs into
+        test/before/, which is gitignored.
+      */
+      @font-face {
+        font-family: "AMS Sans Senior — Before";
+        src: url("before/AbbotsMortonSpaceportSansSenior-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "AMS Sans Junior — Before";
+        src: url("before/AbbotsMortonSpaceportSansJunior-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "AMS Mono — Before";
+        src: url("before/AbbotsMortonSpaceportMono-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+
+      /*
+        Live-rebuild copy. `make all` rewrites these every time the
+        glyph data or compiler changes.
+      */
+      @font-face {
+        font-family: "AMS Sans Senior — After";
+        src: url("AbbotsMortonSpaceportSansSenior-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "AMS Sans Junior — After";
+        src: url("AbbotsMortonSpaceportSansJunior-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+      @font-face {
+        font-family: "AMS Mono — After";
+        src: url("AbbotsMortonSpaceportMono-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+      }
+
+      :root {
+        --font-size: 88px;
+        --before-font: "AMS Sans Senior — Before", "Departure Mono", monospace;
+        --after-font: "AMS Sans Senior — After", "Departure Mono", monospace;
+      }
+
+      html {
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: calc((22px + 11px) / 2);
+        -webkit-font-smoothing: subpixel-antialiased;
+        -moz-osx-font-smoothing: auto;
+        font-smooth: auto;
+      }
+
+      body {
+        max-width: 1400px;
+      }
+
+      .row {
+        display: grid;
+        grid-template-columns: 32ch 1fr 1fr;
+        gap: 1rem;
+        align-items: baseline;
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid light-dark(#ccc, #444);
+
+        &:last-child {
+          border-bottom: none;
+        }
+
+        .label {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 16px;
+          color: light-dark(#444, #ccc);
+          -webkit-font-smoothing: subpixel-antialiased;
+          -moz-osx-font-smoothing: auto;
+          font-smooth: auto;
+
+          code {
+            font-family: Menlo, Consolas, monospace;
+            font-size: 13px;
+            color: light-dark(#666, #aaa);
+            display: block;
+            margin-top: .25rem;
+          }
+        }
+
+        .qs {
+          font-size: var(--font-size);
+          line-height: 1.4;
+          -webkit-font-smoothing: none;
+          font-smooth: never;
+
+          &.before {
+            font-family: var(--before-font);
+          }
+
+          &.after {
+            font-family: var(--after-font);
+          }
+        }
+      }
+
+      .col-headers {
+        display: grid;
+        grid-template-columns: 32ch 1fr 1fr;
+        gap: 1rem;
+        padding: .75rem 1.5rem;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        color: light-dark(#222, #eee);
+        border-bottom: 2px solid light-dark(#888, #666);
+        position: sticky;
+        top: 0;
+        background: light-dark(#fff, #2a2a2a);
+      }
+
+      section {
+        background: light-dark(#fff, #2a2a2a);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+        margin: 1.5rem 0;
+      }
+
+      section > h2 {
+        margin: 0;
+        padding: 1rem 1.5rem;
+        font-size: 22px;
+        border-bottom: 1px solid light-dark(#ccc, #444);
+      }
+
+      section > p {
+        margin: 0;
+        padding: .75rem 1.5rem;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+        color: light-dark(#444, #ccc);
+        border-bottom: 1px solid light-dark(#ccc, #444);
+        -webkit-font-smoothing: subpixel-antialiased;
+        -moz-osx-font-smoothing: auto;
+        font-smooth: auto;
+      }
+
+      .render-diffs .snapshot-missing {
+        padding: 1rem 1.5rem;
+        margin: 0;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+      }
+
+      .isolation-leaks .qs.in-context,
+      .isolation-leaks .qs.isolated {
+        font-family: var(--after-font);
+        --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+        background-image:
+          linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+          linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
+        background-size: 16px 16px;
+        background-position: 0 5.6px, 8px 13.6px;
+      }
+
+      .isolation-leaks .qs.isolated .half {
+        display: inline-block;
+      }
+
+      .isolation-leaks .row .visual-tag {
+        display: inline-block;
+        margin-right: .5em;
+        padding: 0 .4em;
+        border-radius: 3px;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        vertical-align: 1px;
+      }
+
+      .isolation-leaks .row[data-visual="diff"] .visual-tag {
+        background: light-dark(#ffe0a8, #5a3a00);
+        color: light-dark(#5a3a00, #ffe0a8);
+      }
+
+      .isolation-leaks .row[data-visual="same"] .visual-tag {
+        background: light-dark(#e0e0e0, #444);
+        color: light-dark(#666, #aaa);
+      }
+
+      .isolation-leaks .row .label .open-in-tables {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: .5em;
+        padding: 2px 5px;
+        font: inherit;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 3px;
+        cursor: pointer;
+        vertical-align: 1px;
+        line-height: 1;
+        text-decoration: none;
+      }
+
+      .isolation-leaks .row .label .open-in-tables:hover {
+        background: light-dark(#eee, #333);
+        border-color: light-dark(#888, #888);
+      }
+
+      .isolation-leaks .row .label .open-in-tables img {
+        display: block;
+        width: 12px;
+        height: 12px;
+      }
+
+      .row .label .codepoints {
+        display: flex;
+        align-items: center;
+        margin-top: .25rem;
+      }
+
+      .row .label .codepoints code {
+        display: inline;
+        margin-top: 0;
+      }
+
+      .row .label .copy-codepoints {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: .35em;
+        padding: 2px 5px;
+        font: inherit;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 3px;
+        cursor: pointer;
+        vertical-align: 1px;
+        line-height: 1;
+        position: relative;
+      }
+
+      .row .label .copy-codepoints:hover {
+        background: light-dark(#eee, #333);
+        border-color: light-dark(#888, #888);
+      }
+
+      .row .label .copy-codepoints img {
+        display: block;
+        width: 12px;
+        height: 12px;
+      }
+
+      .row .label .copy-codepoints .copied-toast {
+        display: none;
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 4px);
+        transform: translateX(-50%);
+        padding: 2px 6px;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 11px;
+        line-height: 1;
+        white-space: nowrap;
+        color: light-dark(#fff, #111);
+        background: light-dark(#222, #ddd);
+        border-radius: 3px;
+        pointer-events: none;
+      }
+
+      .row .label .copy-codepoints.copied .copied-toast {
+        display: block;
+      }
+
+      .footer {
+        margin-top: 2rem;
+        padding: 1rem 1.5rem;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+        color: light-dark(#444, #ccc);
+        border-top: 1px solid light-dark(#ccc, #444);
+        -webkit-font-smoothing: subpixel-antialiased;
+
+        code {
+          font-family: Menlo, Consolas, monospace;
+          font-size: 13px;
+        }
+      }"""
+
+
+_COPY_CODEPOINTS_SCRIPT = """    <script>
+      function copyCodepointQuote(button) {
+        const label = button.closest('.label');
+        if (!label) return;
+        const code = label.querySelector('code');
+        if (!code) return;
+        const codepoints = code.textContent.trim();
+        const quote = `I'm looking at test/check.html \\u2014 specifically, ${codepoints}. `;
+        const flash = () => {
+          button.classList.add('copied');
+          setTimeout(() => button.classList.remove('copied'), 1200);
+        };
+        try {
+          const result = navigator.clipboard && navigator.clipboard.writeText(quote);
+          if (result && typeof result.then === 'function') {
+            result.then(flash).catch((err) => console.warn('clipboard write failed', err));
+          } else {
+            flash();
+          }
+        } catch (err) {
+          console.warn('clipboard write failed', err);
+        }
+      }
+      document.addEventListener('click', (event) => {
+        const button = event.target.closest('.copy-codepoints');
+        if (button) copyCodepointQuote(button);
+      });
+    </script>"""
+
+
+def _render_page(
+    diffs_section: str,
+    leaks_section: str,
+) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Check &mdash; before/after</title>
+    <link rel="stylesheet" href="shared.css">
+    <style>
+{_PAGE_CSS}
+    </style>
+  </head>
+  <body>
+    <h1>Check &mdash; before/after</h1>
+    <p>
+      Side-by-side rendering harness. Two auto-generated sections cover the
+      whole page: one diffs every multi-letter Quikscript run in the test
+      corpus between the snapshot under <code>test/before/</code> and the
+      live build under <code>test/</code>; the other lists every short
+      sequence whose adjacent non-joining pair changes shape between
+      single-buffer and split shaping.
+    </p>
+    <p>
+      Workflow:
+    </p>
+    <ol>
+      <li>
+        On the baseline you want to compare against (typically
+        <code>master</code>), run <code>make snapshot-before</code>. It
+        builds the fonts and copies all six OTFs into <code>test/before/</code>
+        (gitignored).
+      </li>
+      <li>
+        Make your code or YAML changes on a branch.
+      </li>
+      <li>
+        <code>make check-html</code> rebuilds the live OTFs and regenerates
+        this file end-to-end via <code>tools/build_check_html.py</code>.
+      </li>
+      <li>
+        Reload this page. Codepoint references live in
+        <code>reference/csur/index.html</code>; the family-to-codepoint
+        map is in <code>postscript_glyph_names.yaml</code>.
+      </li>
+    </ol>
+
+{diffs_section}
+
+{leaks_section}
+
+    <p class="footer">
+      Snapshot stale? Switch to the baseline branch, run
+      <code>make snapshot-before</code>, switch back, then run
+      <code>make check-html</code>.
+    </p>
+{_COPY_CODEPOINTS_SCRIPT}
+  </body>
+</html>
+"""
+
+
+# ---------------------------------------------------------------------------
+# Entry point.
+# ---------------------------------------------------------------------------
+
+
+def build(max_len: int) -> str:
+    leaks = find_leaks(max_len)
+    leak_items = sorted(leaks.items(), key=_leak_sort_key)
+    leaks_section = _isolation_leaks_section(leak_items, max_len)
+
+    cp_to_family = _codepoint_to_family()
+    if BEFORE_FONT.exists():
+        diffs = sorted(find_diffs(), key=_diff_sort_key)
+        diffs_section = _render_diffs_section(diffs, cp_to_family)
+    else:
+        diffs_section = _render_diffs_section(None, cp_to_family)
+
+    return _render_page(diffs_section, leaks_section)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--max-len",
+        type=int,
+        default=3,
+        help=(
+            "Maximum sequence length to enumerate for the isolation-leaks "
+            "sweep (default 3 — covers every pair plus single-letter "
+            "context on either side, which catches context-revealed leaks "
+            "without combinatorial blowup). Increase to 4 for a slower "
+            "(~30 s) but deeper sweep."
+        ),
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=CHECK_HTML_PATH,
+        help="Output path (default test/check.html).",
+    )
+    args = parser.parse_args()
+
+    output = build(args.max_len)
+    args.out.write_text(output)
+    out = args.out.resolve()
+    try:
+        rel = out.relative_to(ROOT)
+        display = str(rel)
+    except ValueError:
+        display = str(out)
+    print(f"Wrote {display}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
