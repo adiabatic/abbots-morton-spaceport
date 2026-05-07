@@ -5,8 +5,7 @@ all:
 	cd test && typst compile --font-path . print.typ
 
 check-html: all
-	uv run python tools/find_isolation_leaks.py --write
-	uv run python tools/find_render_diffs.py --write
+	uv run python tools/build_check_html.py
 
 snapshot-before: all
 	mkdir -p test/before
