@@ -2144,7 +2144,7 @@ glyph_families:
           before: [{family: qsLow}]
         gate_feature_behind: ss04
         modifiers: [before-low]
-      exit_xheight:
+      entry_nowhere_exit_xheight:
         shape: prop
         anchors:
           exit: [1, 5]
