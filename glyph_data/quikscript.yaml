@@ -774,6 +774,8 @@ glyph_families:
       - "#   #"
       - "#   #"
       - " ### "  #
+      ductus: |
+        Written clockwise from the top. Potentially exits at the x-height.
     prop:
       shape: mono
     shapes:
@@ -788,6 +790,8 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
+        ductus: |
+          Joined to at the x-height. Then loops around the bottom and exits at the top, going counter-clockwise. Cannot exit anywhere.
       continues_stroke_from_top:
         bitmap:
         - "###  "
@@ -799,6 +803,8 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
+        ductus: |
+          Connects to the previous letter at the top, then the stroke continues clockwise and ends at the x-height, where it may join to the next letter.
     derive:
       extend_exit_before:
         by: 1
