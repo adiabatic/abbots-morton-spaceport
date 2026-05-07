@@ -2546,6 +2546,7 @@ glyph_families:
           exit: [6, 5]
         select:
           after: [{family: qsSee}]
+          not_before: [{family: qsIt}]
         derive:
           contract_exit_before: {by: 3, targets: [{family: qsJai}]}
         modifiers: [exit-xheight, after-see]
@@ -2554,6 +2555,8 @@ glyph_families:
         anchors:
           entry: [0, 0]
           exit: [5, 5]
+        select:
+          not_before: [{family: qsIt}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsFee}]}
           extend_exit_before_gated:
