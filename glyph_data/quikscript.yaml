@@ -2149,6 +2149,7 @@ glyph_families:
         anchors:
           exit: [1, 5]
         select:
+          not_after: [{family: qsOwe}]
           not_before: [{family: qsYe}, {family: qsZoo}]
         modifiers: [exit-xheight]
       entry_nowhere_exit_baseline:
