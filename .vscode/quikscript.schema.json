@@ -193,6 +193,10 @@
       "type": "string",
       "description": "Free-form note describing the stroke order and direction of the glyph (its 'ductus'). Typically authored as a YAML literal block (|) with one stroke per line. Primarily aimed at agents reasoning about the glyph, since they don't draw it themselves; useful for human readers too. Not consumed by the build."
     },
+    "notes": {
+      "type": "string",
+      "description": "Free-form note about this family's joining behavior, constraints, or other family-wide design facts that aren't ductus (stroke formation). Typically authored as a YAML literal block (|). Primarily aimed at agents reasoning about the family. Not consumed by the build."
+    },
     "coordinatePair": {
       "type": "array",
       "description": "Anchor coordinate pair as [x, y] in glyph pixel space.",
@@ -498,6 +502,9 @@
         },
         "ductus": {
           "$ref": "#/definitions/ductus"
+        },
+        "notes": {
+          "$ref": "#/definitions/notes"
         },
         "shapes": {
           "type": "object",
