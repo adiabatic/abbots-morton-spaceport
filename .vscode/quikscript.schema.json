@@ -496,6 +496,9 @@
           ],
           "description": "Proportional/base source record for this family."
         },
+        "ductus": {
+          "$ref": "#/definitions/ductus"
+        },
         "shapes": {
           "type": "object",
           "description": "Reusable shape snippets shared by forms in this family.",
