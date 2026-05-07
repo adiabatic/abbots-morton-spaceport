@@ -2166,7 +2166,7 @@ glyph_families:
           exit: [1, 0]
         select:
           before: [{family: qsUtter}]
-          not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}]
+          not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}, {family: qsOwe}]
         modifiers: [before-utter]
   qsEat:
     mono:
