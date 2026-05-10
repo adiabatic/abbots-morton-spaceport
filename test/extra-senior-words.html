@@ -129,12 +129,12 @@
             <dd data-expect-noncanonically="·Ah ~x~ ·Jay+Utter.exit-extended ~x~ ·Fee">&#xE676;&#xE65F;&#xE67A;&#xE658;</dd>
           </div>
           <div>
-            <dt>·Roe reverts to its base form before ·At+May (no entry on the ligature)</dt>
-            <dd data-expect-noncanonically="·Roe | ·At+May">&#xE668;&#xE674;&#xE665;</dd>
+            <dt>·Roe stays bare before ·At·May (the contextual ·At before-may form has no entry, so qsRoe.exit-baseline never fires)</dt>
+            <dd data-expect-noncanonically="·Roe | ·At ~b~ ·May">&#xE668;&#xE674;&#xE665;</dd>
           </div>
           <div>
-            <dt>·See reverts to its base form before ·At+May (no entry on the ligature)</dt>
-            <dd data-expect-noncanonically="·See | ·At+May">&#xE65A;&#xE674;&#xE665;</dd>
+            <dt>·See stays bare before ·At·May (same mechanism — no entry on the contextual ·At form)</dt>
+            <dd data-expect-noncanonically="·See | ·At ~b~ ·May">&#xE65A;&#xE674;&#xE665;</dd>
           </div>
           <div>
             <dt>·May trims its exit before ·They+Utter (its noentry_after lists ·May)</dt>
