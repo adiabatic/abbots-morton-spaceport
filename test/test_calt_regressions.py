@@ -539,19 +539,23 @@ def test_qs_way_does_not_join_qs_tea_under_ss03():
     )
 
 
-def test_qs_fee_may_extends_to_quintuply():
+def test_qs_fee_may_uses_extension_pair():
     # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual
-    # is now reconstructed by piling a `by: 5` exit-extension onto ·Fee
-    # (qsFee.exit-xheight.before-may.exit-quintuply-extended) and selecting
-    # ·May.entry-xheight after it. If a future change weakens the reach or
-    # forgets to fire the entry-xheight form on ·May, this test catches it.
+    # is now reconstructed by extending ·Fee's exit at the x-height
+    # (qsFee.exit-xheight.before-may.*) and pairing it with ·May's
+    # narrower "pulled-back-more" entry shape (qsMay.entry-xheight.after-fee).
+    # If a future change forgets to fire the before-may form on ·Fee or the
+    # after-fee form on ·May, this test catches it. The exact extension
+    # rung (currently `triply-extended`) is left out of the assertion since
+    # it is a geometric tuning knob — the join Y and the form pair are the
+    # invariants worth pinning.
     glyphs = _shape_qs("qsFee", "qsMay")
     assert len(glyphs) == 2, f"·Fee·May should not ligate; got {glyphs}"
-    assert glyphs[0] == "qsFee.exit-xheight.before-may.exit-quintuply-extended", (
-        f"expected ·Fee to pick its before-may quintuply-extended variant; got {glyphs}"
+    assert glyphs[0].startswith("qsFee.exit-xheight.before-may"), (
+        f"expected ·Fee to pick its before-may form; got {glyphs}"
     )
-    assert glyphs[1] == "qsMay.entry-xheight", (
-        f"expected ·May.entry-xheight after the extended ·Fee; got {glyphs}"
+    assert glyphs[1] == "qsMay.entry-xheight.after-fee", (
+        f"expected ·May.entry-xheight.after-fee (the narrower shape); got {glyphs}"
     )
     assert _pair_join_ys(glyphs, 0) == {5}, (
         f"·Fee→·May must join at the x-height; got {glyphs}"
