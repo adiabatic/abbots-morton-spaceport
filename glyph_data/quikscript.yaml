@@ -674,9 +674,39 @@ glyph_families:
       - "#   #"
       - " ### "
       y_offset: -3
+    shapes:
+      before_may:
+        bitmap:
+        - "  #   "  #
+        - "  #   "
+        - " #    "
+        - " #    "
+        - " #    "
+        - "#     "  #
+        - "#    #"
+        - "#   # "
+        - " ###  "
+        y_offset: -3
     forms:
       entry_xheight:
         shape: mono
+        anchors:
+          entry: [2, 5]
+        select:
+          after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
+        derive:
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        modifiers: [entry-xheight]
+      exit_baseline_before_may:
+        shape: before_may
+        anchors:
+          exit: [6, 0]
+          exit_ink_y: -1
+        select:
+          before: [{family: qsMay}]
+        modifiers: [exit-baseline, before-may]
+      entry_xheight_exit_baseline_before_may:
+        inherits: exit_baseline_before_may
         anchors:
           entry: [2, 5]
         select:
@@ -689,28 +719,8 @@ glyph_families:
         anchors:
           exit: [3, 5]
         select:
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsCheer}, {family: qsJay}, {family: qsYe}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsCheer}, {family: qsJay}, {family: qsYe}, {family: qsMay}]
         modifiers: [exit-xheight]
-  qsThey_qsMay:
-    sequence:
-    - qsThey
-    - qsMay
-    prop:
-      bitmap:
-      - "  #      ##"  #
-      - "  #     #  "
-      - " #      #  "
-      - " #     #   "
-      - " #     #   "
-      - "#     #### "  #
-      - "#    # #  #"
-      - "#   #  #  #"
-      - " ###    ## "
-      y_offset: -3
-      anchors:
-        exit: [11, 5]
-      select:
-        after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
   qsThey_qsZoo:
     sequence:
     - qsThey
@@ -747,7 +757,6 @@ glyph_families:
         exit: [11, 5]
       derive:
         noentry_after:
-        - {family: qsThey_qsMay}
         - {family: qsWay}
         - {family: qsMay}
         - {family: qsNo}
@@ -2020,7 +2029,7 @@ glyph_families:
           entry: [0, 0]
           exit: [7, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}]}]
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}]}]
           before: [{entry_y: 0, except: [{family: qsPea}, {family: qsThaw}]}]
           not_before: [{family: qsThaw}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
@@ -2038,7 +2047,7 @@ glyph_families:
         anchors:
           entry: [0, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}]}]
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}]}]
           not_before: [{entry_y: 0, except: [{family: qsThaw}]}]
         modifiers: [entry-baseline, noexit]
       noentry_exit_baseline:
