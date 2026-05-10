@@ -254,8 +254,11 @@
           "$ref": "#/definitions/anchorValueOrNull"
         },
         "exit_ink_y": {
-          "type": "integer",
-          "description": "Fallback Y row used by the join-gap analysis when the exit anchor's own Y has no ink in the bitmap. Set this when the stroke's exit ink ends one or more rows above or below the exit anchor (e.g. a half form whose exit anchor sits at y=5 while the stroke's last inked row is y=6, or a form whose exit anchor sits at the baseline while the stroke dips to y=-1). The analyzer falls back to this Y to locate the rightmost inked column for computing inter-glyph gaps."
+          "description": "Fallback Y row used by the join-gap analysis when the exit anchor's own Y has no ink in the bitmap. Set this when the stroke's exit ink ends one or more rows above or below the exit anchor (e.g. a half form whose exit anchor sits at y=5 while the stroke's last inked row is y=6, or a form whose exit anchor sits at the baseline while the stroke dips to y=-1). The analyzer falls back to this Y to locate the rightmost inked column for computing inter-glyph gaps. Use null in a child form (with `inherits:`) to clear an inherited fallback when the child shape repaints the exit row.",
+          "oneOf": [
+            { "type": "integer" },
+            { "type": "null" }
+          ]
         }
       }
     },
@@ -296,10 +299,16 @@
           ]
         },
         "extend_exit_before_gated": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/selectorListOrNull"
-          }
+          "description": "Map of OpenType feature tag → selector list whose targets gain the family-level extension only when the feature is on. Use null in a child form (with `inherits:`) to clear an inherited gated map.",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/definitions/selectorListOrNull"
+              }
+            },
+            { "type": "null" }
+          ]
         },
         "contract_entry_after": {
           "oneOf": [
