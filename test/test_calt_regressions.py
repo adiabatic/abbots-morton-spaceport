@@ -2870,23 +2870,24 @@ def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
         pytest.param("qsSee", id="see"),
     ],
 )
-def test_predecessors_never_join_to_qs_at_qs_may(left_base: str):
-    _assert_no_failures(
-        _collect_nonjoining_left_ligature_failures(
-            left_base,
-            "qsAt_qsMay",
-            ("qsAt", "qsMay"),
-        ),
-        limit=None,
-    )
+def test_predecessors_never_join_to_qs_at_before_qs_may(left_base: str):
+    # Before the qsAt_qsMay ligature was retired, qsRoe and qsSee reverted
+    # to bare form before the ligature via calt_post_liga_left_cleanup.
+    # Now ·At·May is rendered by the entryless qsAt.exit-baseline.before-may
+    # form joining a bare qsMay, so the FEA backward-pair lookups simply
+    # never fire qsRoe/qsSee's exit-baseline forms (no matching y=0 entry
+    # on this qsAt variant).
+    glyphs = _shape_qs(left_base, "qsAt", "qsMay")
+    assert glyphs[0] == left_base, glyphs
+    assert glyphs[1].startswith("qsAt.exit-baseline.before-may"), glyphs
+    assert glyphs[2].startswith("qsMay.entry-baseline"), glyphs
+    assert not _pair_join_ys(glyphs, 0), glyphs
 
 
-def test_qs_roe_returns_to_base_before_qs_at_qs_may():
-    # Pre-liga, qsRoe.exit-baseline.select.before matches the literal qsAt.
-    # calt_post_liga_left_cleanup must revert qsRoe to its default form
-    # once qsAt qsMay collapses to qsAt_qsMay (which has no entry anchor).
+def test_qs_roe_stays_bare_before_new_qs_at_before_may():
     glyphs = _shape_qs("qsRoe", "qsAt", "qsMay")
-    assert glyphs == ["qsRoe", "qsAt_qsMay"], glyphs
+    assert glyphs[0] == "qsRoe", glyphs
+    assert glyphs[1].startswith("qsAt.exit-baseline.before-may"), glyphs
     assert not _pair_join_ys(glyphs, 0), glyphs
 
 
@@ -2898,13 +2899,15 @@ def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
     assert glyphs[0] == "qsRoe.exit-baseline", glyphs
 
 
-def test_qs_at_qs_may_has_no_entry_anchor():
-    # The whole left-cleanup mechanism is gated on entry_explicitly_none.
-    # If qsAt_qsMay ever silently regains an entry anchor, the cleanup
-    # stops emitting and predecessors revert to baseline-joining behavior.
-    meta = _compiled_meta()["qsAt_qsMay"]
-    assert meta.entry_explicitly_none, meta
-    assert meta.entry == (), meta
+def test_new_qs_at_before_may_has_no_entry_anchor():
+    # qsAt's contextual before-may form replaces the old qsAt_qsMay
+    # ligature. It has no entry anchor, which is what keeps predecessors
+    # like qsRoe and qsSee from cursive-binding to it.
+    meta_map = _compiled_meta()
+    base = meta_map["qsAt.exit-baseline.before-may"]
+    assert base.entry == (), base
+    extended = meta_map["qsAt.exit-baseline.before-may.exit-quintuply-extended"]
+    assert extended.entry == (), extended
 
 
 def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
@@ -2923,7 +2926,16 @@ def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
     assert not _pair_join_ys(glyphs, 1), glyphs
 
 
-def test_qs_at_qs_may_stays_whole_before_qs_they_qs_utter_noentry():
+def test_qs_at_before_may_chain_handles_qs_they_qs_utter_noentry():
+    # The retired qsAt_qsMay ligature used to stay whole before
+    # qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs:
+    # qsAt picks the before-may form, qsMay picks its entry-preserving
+    # exit-noentry form before the entryless qsThey+Utter ligature.
     glyphs = _shape_qs("qsAt", "qsMay", "qsThey", "qsUtter")
-    assert glyphs == ["qsAt_qsMay", "qsThey_qsUtter.noentry"], glyphs
-    assert not _pair_join_ys(glyphs, 0), glyphs
+    assert glyphs == [
+        "qsAt.exit-baseline.before-may.exit-quintuply-extended",
+        "qsMay.entry-baseline.exit-noentry",
+        "qsThey_qsUtter.noentry",
+    ], glyphs
+    assert _pair_join_ys(glyphs, 0) == {0}, glyphs
+    assert not _pair_join_ys(glyphs, 1), glyphs
