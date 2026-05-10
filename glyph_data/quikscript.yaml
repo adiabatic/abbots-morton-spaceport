@@ -1704,6 +1704,29 @@ glyph_families:
         select:
           after: [{family: qsI}]
         modifiers: [after-i]
+      entry_xheight_exit_baseline:
+        inherits: entry_xheight
+        shape: pulled_back_a_bit_for_entry_at_short_height_and_exits_at_baseline
+        anchors:
+          entry: [2, 5]
+          exit: [4, 0]
+        select:
+          not_before:
+          - family: qsDay
+          - family: qsThaw
+          - family: qsZoo
+          - family: qsNo
+          - family: qsRoe
+          - family: qsIt
+          - family: qsEat
+          - family: qsUtter
+          - family: qsOoze
+        modifiers: [exit-baseline]
+      entry_xheight_exit_baseline_after_i:
+        inherits: entry_xheight_exit_baseline
+        select:
+          after: [{family: qsI}]
+        modifiers: [after-i]
       entry_baseline:
         shape: mono
         anchors:
@@ -1724,7 +1747,7 @@ glyph_families:
       exit_baseline:
         shape: exits_at_baseline
         anchors:
-          exit: [5, 0]
+          exit: [4, 0]
         select:
           not_before:
           - family: qsDay

@@ -2958,13 +2958,39 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 exit_only_var = fwd_replacements.get(base_name, {}).get(exit_y)
                 if not exit_only_var or entry_y_val not in exit_classes:
                     continue
+                entry_exit_meta = _meta(entry_exit_var)
+                after_glyphs = list(entry_exit_meta.after) if entry_exit_meta.after else []
+                left_context_token = f"@exit_y{entry_y_val}"
+                if after_glyphs:
+                    expanded_after = _expand_backward_after_variants(
+                        entry_exit_var,
+                        after_glyphs,
+                        expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                        glyph_meta=glyph_meta,
+                        base_to_variants=base_to_variants,
+                    )
+                    expanded_after = {
+                        candidate for candidate in expanded_after
+                        if _can_eventually_exit_at(
+                            glyph_meta,
+                            base_to_variants,
+                            candidate,
+                            entry_y_val,
+                        )
+                    }
+                    if not expanded_after:
+                        continue
+                    left_context_token = f"[{' '.join(sorted(expanded_after))}]"
                 safe = entry_exit_var.replace(".", "_")
                 lines.append("")
                 lines.append(f"    lookup calt_reverse_upgrade_{safe} {{")
                 if not_before:
                     not_before_list = " ".join(sorted(_expand_all_variants(not_before, include_base=True)))
-                    lines.append(f"        ignore sub {exit_only_var}' [{not_before_list}];")
-                lines.append(f"        sub @exit_y{entry_y_val} {exit_only_var}' by {entry_exit_var};")
+                    if after_glyphs:
+                        lines.append(f"        ignore sub {left_context_token} {exit_only_var}' [{not_before_list}];")
+                    else:
+                        lines.append(f"        ignore sub {exit_only_var}' [{not_before_list}];")
+                lines.append(f"        sub {left_context_token} {exit_only_var}' by {entry_exit_var};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
         for variant_name, source_variants, entry_ys, after_glyphs, not_before in plan.reverse_only_upgrades:
