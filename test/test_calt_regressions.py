@@ -539,19 +539,38 @@ def test_qs_way_does_not_join_qs_tea_under_ss03():
     )
 
 
-def test_qs_owe_fee_may_owe_does_not_reach_for_ligature():
-    # ·Owe·Fee·May ligates ·Fee+·May into qsFee_qsMay (no entry anchor).
-    # ·Owe must not pick a forward-extending variant whose exit anchor
-    # would point at the missing entry.
+def test_qs_fee_may_extends_to_quintuply():
+    # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual
+    # is now reconstructed by piling a `by: 5` exit-extension onto ·Fee
+    # (qsFee.exit-xheight.before-may.exit-quintuply-extended) and selecting
+    # ·May.entry-xheight after it. If a future change weakens the reach or
+    # forgets to fire the entry-xheight form on ·May, this test catches it.
+    glyphs = _shape_qs("qsFee", "qsMay")
+    assert len(glyphs) == 2, f"·Fee·May should not ligate; got {glyphs}"
+    assert glyphs[0] == "qsFee.exit-xheight.before-may.exit-quintuply-extended", (
+        f"expected ·Fee to pick its before-may quintuply-extended variant; got {glyphs}"
+    )
+    assert glyphs[1] == "qsMay.entry-xheight", (
+        f"expected ·May.entry-xheight after the extended ·Fee; got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 0) == {5}, (
+        f"·Fee→·May must join at the x-height; got {glyphs}"
+    )
+
+
+def test_qs_owe_fee_may_owe_joins_fee_at_xheight():
+    # Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to:
+    #   ·Owe.exit-xheight.exit-extended → ·Fee.entry-xheight (joined at y=5)
+    #   ·Fee.entry-xheight is entryless on the right-hand side, so ·May
+    #   stays unconnected (·Fee can't join both to and from at the
+    #   x-height on the same letter — see the qsFee notes block).
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay")
-    assert glyphs[1] == "qsFee_qsMay", (
-        f"expected qsFee_qsMay ligature in second position; got {glyphs}"
+    assert len(glyphs) == 3, f"·Owe·Fee·May should not ligate; got {glyphs}"
+    assert _pair_join_ys(glyphs, 0) == {5}, (
+        f"·Owe must reach into ·Fee at the x-height; got {glyphs}"
     )
-    assert _exit_ys(glyphs[0]) == set(), (
-        f"·Owe must have no exit anchor before qsFee_qsMay; got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 0) == set(), (
-        f"·Owe must not join into qsFee_qsMay; got {glyphs}"
+    assert _pair_join_ys(glyphs, 1) == set(), (
+        f"·Fee.entry-xheight has no exit; ·Fee→·May must not join; got {glyphs}"
     )
 
 
@@ -565,17 +584,19 @@ def test_qs_owe_fee_may_owe_does_not_reach_for_ligature():
     ],
 )
 def test_qs_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
+    # The pair-extension path (·Fee.exit-xheight.before-may + ·May.entry-xheight)
+    # must keep working under every stylistic set, just like the old ligature did.
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay", features=feature_items)
-    assert glyphs[1] == "qsFee_qsMay", (
-        f"expected qsFee_qsMay ligature in second position under "
-        f"features={feature_label}; got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 0) == set(), (
-        f"·Owe joins into qsFee_qsMay under features={feature_label}; "
+    assert len(glyphs) == 3, (
+        f"·Owe·Fee·May should not ligate under features={feature_label}; "
         f"got {glyphs}"
     )
-    assert _exit_ys(glyphs[0]) == set(), (
-        f"·Owe gained an exit anchor before qsFee_qsMay under "
+    assert _pair_join_ys(glyphs, 0) == {5}, (
+        f"·Owe must reach into ·Fee at the x-height under features={feature_label}; "
+        f"got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 1) == set(), (
+        f"·Fee.entry-xheight has no exit; ·Fee→·May must not join under "
         f"features={feature_label}; got {glyphs}"
     )
 

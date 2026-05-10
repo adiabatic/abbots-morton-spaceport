@@ -11,6 +11,8 @@ context_sets:
   utter_reaches_way_back_after:
   - {family: qsFee, modifiers: [exit-xheight, before-utter]}
   - {family: qsMay}
+  xheight_exit_reaches_into_may:
+  - {family: qsFee, modifiers: [exit-xheight]}
   utter_reaches_way_back_before:
   - {family: qsSee}
   - {family: qsIng}
@@ -873,7 +875,6 @@ glyph_families:
           not_before: null
           before: [{family: qsUtter}]
           not_after:
-          - {family: qsMay}
           - {family: qsNo}
           - {family: qsLow}
           - {family: qsI}
@@ -882,25 +883,14 @@ glyph_families:
           - {family: qsOut}
           - {family: qsOwe}
         modifiers: [before-utter]
-  qsFee_qsMay:
-    sequence:
-    - qsFee
-    - qsMay
-    prop:
-      bitmap:
-      - "  #       "
-      - "   #      "
-      - "    #     "
-      - "  ########"  #
-      - " #  #  #  "
-      - "#   #  #  "
-      - "#   # #   "
-      - "#   # #   "
-      - " ###  ### "  #
-      - "      #  #"
-      - "      #  #"
-      - "       ## "
-      y_offset: -3
+      exit_xheight_before_may:
+        inherits: exit_xheight
+        select:
+          not_before: null
+          before: [{family: qsMay}]
+        derive:
+          extend_exit_before: {by: 5, targets: [{family: qsMay}]}
+        modifiers: [before-may]
   qsVie:
     mono:
       bitmap:
@@ -1705,6 +1695,7 @@ glyph_families:
           - {family: qsWay_qsUtter}
           - {family: qsWhy_qsUtter}
           - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
+          - {context_set: xheight_exit_reaches_into_may}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
