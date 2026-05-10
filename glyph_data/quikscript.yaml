@@ -1679,6 +1679,18 @@ glyph_families:
         - "#  #"
         - " ## "
         y_offset: -3
+      pulled_back_a_bit_for_entry_at_short_height_without_stubbie:
+        bitmap:
+        - "  # "  #
+        - " #  "
+        - " #  "
+        - "#   "
+        - "#   "
+        - "### "  #
+        - "#  #"
+        - "#  #"
+        - " ## "
+        y_offset: -3
     forms:
       entry_xheight:
         shape: pulled_back_a_bit_for_entry_at_short_height
@@ -1695,10 +1707,16 @@ glyph_families:
           - {family: qsWay_qsUtter}
           - {family: qsWhy_qsUtter}
           - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
-          - {context_set: xheight_exit_reaches_into_may}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
+      entry_xheight_after_fee:
+        shape: pulled_back_a_bit_for_entry_at_short_height_without_stubbie
+        anchors:
+          entry: [2, 5]
+        select:
+          after: [{context_set: xheight_exit_reaches_into_may}]
+        modifiers: [entry-xheight, after-fee]
       entry_xheight_after_i:
         inherits: entry_xheight
         select:
