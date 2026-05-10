@@ -1668,6 +1668,18 @@ glyph_families:
         - "#  # "
         - " ##  "
         y_offset: -3
+      pulled_back_a_bit_for_entry_at_short_height_and_exits_at_baseline:
+        bitmap:
+        - "  #  "  #
+        - " #   "
+        - " #   "
+        - "#    "
+        - "#    "
+        - "# ###"  #
+        - "#  # "
+        - "#  # "
+        - " ##  "
+        y_offset: -3
     forms:
       entry_xheight:
         shape: pulled_back_a_bit_for_entry_at_short_height
