@@ -470,7 +470,7 @@ def test_qs_fee_entry_xheight_after_extended_predecessor(predecessor, expected_l
 
 @pytest.mark.parametrize(
     "right_base",
-    ["qsJai", "qsCheer", "qsAwe", "qsUtter"],
+    ["qsJai", "qsCheer", "qsAwe"],
 )
 def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
     assert _shape_qs("qsOut", "qsFee") == [
@@ -482,7 +482,40 @@ def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
     assert glyphs[0] == "qsOut"
     assert _exit_ys(glyphs[0]) == set()
     assert _pair_join_ys(glyphs, 0) == set()
-    assert glyphs[1:] == _shape_qs("qsFee", right_base)
+    duo = _shape_qs("qsFee", right_base)
+    assert _base_names(glyphs[1:]) == _base_names(duo)
+    assert _pair_join_ys(glyphs, 1) == _pair_join_ys(duo, 0)
+
+
+def test_qs_out_fee_utter_lets_out_reach_for_fee():
+    # qsFee.exit_xheight_before_utter is gated by not_after on every family
+    # that joins into qsFee at x-height, so a bare ·Utter follower no longer
+    # forces Fee into an entry-less form. With the alt-reaches-way-back chain
+    # on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free
+    # to keep the ·Out·Fee join at x-height instead.
+    glyphs = _shape_qs("qsOut", "qsFee", "qsUtter")
+    assert glyphs == [
+        "qsOut.exit-xheight.exit-extended",
+        "qsFee.entry-xheight",
+        "qsUtter",
+    ]
+    assert _pair_join_ys(glyphs, 0) == {5}
+    assert _pair_join_ys(glyphs, 1) == set()
+
+
+def test_qs_ah_fee_utter_keeps_left_join():
+    # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously Fee was
+    # switched to exit_xheight_before_utter (no entry anchor) whenever Utter
+    # followed, breaking the left-side join even though Utter itself didn't
+    # gain anything from Fee being entry-less without further context.
+    glyphs = _shape_qs("qsAh", "qsFee", "qsUtter")
+    assert glyphs == [
+        "qsAh.exit-extended",
+        "qsFee.entry-xheight",
+        "qsUtter",
+    ]
+    assert _pair_join_ys(glyphs, 0) == {5}
+    assert _pair_join_ys(glyphs, 1) == set()
 
 
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
