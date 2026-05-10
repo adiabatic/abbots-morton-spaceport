@@ -889,7 +889,7 @@ glyph_families:
           not_before: null
           before: [{family: qsMay}]
         derive:
-          extend_exit_before: {by: 5, targets: [{family: qsMay}]}
+          extend_exit_before: {by: 3, targets: [{family: qsMay}]}
         modifiers: [before-may]
   qsVie:
     mono:
