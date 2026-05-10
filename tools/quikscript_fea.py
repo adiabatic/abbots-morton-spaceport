@@ -6,6 +6,9 @@ from quikscript_ir import JoinGlyph, resolve_known_glyph_names
 
 
 _ENTRY_EXTENSION_SUFFIXES = (
+    ".entry-sextuply-extended",
+    ".entry-quintuply-extended",
+    ".entry-quadruply-extended",
     ".entry-triply-extended",
     ".entry-doubly-extended",
     ".entry-extended",
@@ -17,6 +20,8 @@ _EXIT_EXTENSION_WORD_BY_COUNT = {
     2: "doubly-extended",
     3: "triply-extended",
     4: "quadruply-extended",
+    5: "quintuply-extended",
+    6: "sextuply-extended",
 }
 
 

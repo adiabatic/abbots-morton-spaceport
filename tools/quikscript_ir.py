@@ -17,8 +17,22 @@ BitmapRow = str | tuple[int, ...]
 GlyphDef = dict[str, Any]
 
 
-_EXTENSION_SUFFIX = {1: "extended", 2: "doubly-extended", 3: "triply-extended", 4: "quadruply-extended"}
-_CONTRACTION_SUFFIX = {1: "contracted", 2: "doubly-contracted", 3: "triply-contracted", 4: "quadruply-contracted"}
+_EXTENSION_SUFFIX = {
+    1: "extended",
+    2: "doubly-extended",
+    3: "triply-extended",
+    4: "quadruply-extended",
+    5: "quintuply-extended",
+    6: "sextuply-extended",
+}
+_CONTRACTION_SUFFIX = {
+    1: "contracted",
+    2: "doubly-contracted",
+    3: "triply-contracted",
+    4: "quadruply-contracted",
+    5: "quintuply-contracted",
+    6: "sextuply-contracted",
+}
 
 # Sentinel used by `expand_selectors_for_ligatures` to mark a ligature-glyph
 # endpoint addition. The novelty filter inside `_additions` subtracts this set
@@ -2163,7 +2177,15 @@ def _generate_extended_variants(
             continue
 
         count = spec.by if spec is not None else 1
-        suffix_word = _EXTENSION_SUFFIX[count]
+        suffix_word = _EXTENSION_SUFFIX.get(count)
+        if suffix_word is None:
+            raise ValueError(
+                f"by: {count} exceeds the supported extension ladder "
+                f"(max: {max(_EXTENSION_SUFFIX)}); add a new rung to "
+                f"_EXTENSION_SUFFIX (and the matching tables in "
+                f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
+                f"if a larger reach is needed."
+            )
         source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
 
         for target_name, target_glyph, is_source in _iter_related_extension_targets(
@@ -2446,7 +2468,15 @@ def _generate_contracted_variants(
             continue
 
         count = spec.by
-        suffix_word = _CONTRACTION_SUFFIX[count]
+        suffix_word = _CONTRACTION_SUFFIX.get(count)
+        if suffix_word is None:
+            raise ValueError(
+                f"by: {count} exceeds the supported contraction ladder "
+                f"(max: {max(_CONTRACTION_SUFFIX)}); add a new rung to "
+                f"_CONTRACTION_SUFFIX (and the matching tables in "
+                f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
+                f"if a larger reach is needed."
+            )
         source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
 
         for target_name, target_glyph, is_source in _iter_related_extension_targets(
