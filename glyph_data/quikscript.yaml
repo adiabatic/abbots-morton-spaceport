@@ -1618,6 +1618,9 @@ glyph_families:
           after: [{family: qsYe}, {family: qsHe}]
         modifiers: [after-he-or-ye]
   qsMay:
+    notes: |
+      - ·May can join to the preceding letter or subsequent letter at the baseline, but it can’t do both.
+      - ·May can join to the preceding letter or subsequent letter at the x-height, but it can’t do both.
     mono:
       bitmap:
       - "   ##"  #
@@ -1630,6 +1633,8 @@ glyph_families:
       - " #  #"
       - "  ## "
       y_offset: -3
+      ductus: |
+        Written clockwise, starting from the leftmost pixel at the baseline, Then it continues right, loops around underneath the baseline, and then exits at the x-height on the right.
     prop:
       shape: mono
       anchors:
