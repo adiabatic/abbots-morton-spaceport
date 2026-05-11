@@ -72,6 +72,10 @@ class _JoinAnalysis:
     word_final_pairs: dict[str, str] = field(default_factory=dict)
     gated_pair_overrides: dict[str, list[tuple[str, list[str], str]]] = field(default_factory=dict)
     gated_fwd_pair_overrides: dict[str, list[tuple[str, list[str], list[str], str]]] = field(default_factory=dict)
+    exit_reachability: dict[str, set[int]] = field(default_factory=dict)
+    exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
+    gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
 
 
 def _backward_pair_sort_key(
@@ -729,24 +733,423 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
     plan.word_final_pairs = word_final_pairs
     plan.ligatures = ligatures
 
+    _populate_exit_reachability(plan)
+
     return plan
 
 
+def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
+    glyph_meta = plan.glyph_meta
+    glyph_names = plan.glyph_names
+    base_to_variants = plan.base_to_variants
+
+    generation_children: dict[str, list[str]] = defaultdict(list)
+    for glyph_name, meta in glyph_meta.items():
+        if meta.generated_from:
+            generation_children[meta.generated_from].append(glyph_name)
+
+    def _meta(name: str) -> JoinGlyph:
+        return glyph_meta[name]
+
+    def _base_name(name: str) -> str:
+        if name in glyph_meta:
+            return _meta(name).base_name
+        return name
+
+    def _selector_bases(selectors: list[str] | tuple[str, ...]) -> set[str]:
+        return {_base_name(selector) for selector in selectors}
+
+    def _expand_all_variants(glyphs, *, include_base=False) -> set[str]:
+        expanded = set(glyphs)
+        for glyph in glyphs:
+            base = _base_name(glyph)
+            if base not in glyph_meta:
+                continue
+            form_specific = glyph != base
+            if include_base:
+                expanded.add(base)
+            all_variants: set[str] = set()
+            if base in plan.bk_replacements:
+                all_variants.update(plan.bk_replacements[base].values())
+            if base in plan.fwd_replacements:
+                all_variants.update(plan.fwd_replacements[base].values())
+            if base in plan.pair_overrides:
+                all_variants.update(
+                    variant_name for variant_name, _ in plan.pair_overrides[base]
+                )
+            if base in plan.fwd_pair_overrides:
+                all_variants.update(
+                    variant_name
+                    for variant_name, _, _ in plan.fwd_pair_overrides[base]
+                )
+            if form_specific:
+                prefix = glyph + "."
+                expanded.update(
+                    variant
+                    for variant in all_variants
+                    if variant == glyph or variant.startswith(prefix)
+                )
+            else:
+                expanded.update(all_variants)
+        return expanded
+
+    def _context_bases_for_entry_y(
+        base_name: str,
+        entry_y: int,
+        excluded_glyphs: set[str],
+    ) -> set[str]:
+        use_exclusive = (base_name, entry_y) in plan.fwd_use_exclusive
+        if use_exclusive and (
+            entry_y not in plan.entry_exclusive or not plan.entry_exclusive[entry_y]
+        ):
+            return set()
+        members = (
+            plan.entry_exclusive[entry_y]
+            if use_exclusive
+            else plan.entry_classes.get(entry_y, set())
+        )
+        excluded_bases = {_base_name(name) for name in excluded_glyphs}
+        return {_base_name(name) for name in members} - excluded_bases
+
+    def _add_exit_path(
+        source_name: str,
+        exit_y: int,
+        *,
+        before_bases: set[str] | None = None,
+        feature_tag: str | None = None,
+    ) -> None:
+        if source_name not in glyph_meta:
+            return
+        if before_bases is None:
+            if feature_tag is None:
+                plan.exit_reachability.setdefault(source_name, set()).add(exit_y)
+            else:
+                plan.gated_exit_reachability.setdefault(
+                    (feature_tag, source_name),
+                    set(),
+                ).add(exit_y)
+            return
+
+        for before_base in before_bases:
+            if feature_tag is None:
+                plan.exit_reachability_before.setdefault(
+                    (source_name, before_base),
+                    set(),
+                ).add(exit_y)
+            else:
+                plan.gated_exit_reachability_before.setdefault(
+                    (feature_tag, source_name, before_base),
+                    set(),
+                ).add(exit_y)
+
+    def _add_replacement_path(
+        source_name: str,
+        replacement_name: str | None,
+        *,
+        before_bases: set[str] | None = None,
+        feature_tag: str | None = None,
+    ) -> None:
+        if replacement_name is None or replacement_name not in glyph_meta:
+            return
+        for exit_y in _meta(replacement_name).exit_ys:
+            _add_exit_path(
+                source_name,
+                exit_y,
+                before_bases=before_bases,
+                feature_tag=feature_tag,
+            )
+
+    def _entry_bearing_strip_targets(
+        base_name: str,
+        exit_y: int,
+        replacement_name: str,
+    ) -> list[str]:
+        replacement_meta = _meta(replacement_name)
+        if not replacement_meta.strip_entry_before:
+            return []
+        if _has_left_entry(replacement_meta):
+            return []
+
+        targets = []
+        for target_name in sorted(base_to_variants.get(base_name, ())):
+            target_meta = _meta(target_name)
+            if target_name == base_name:
+                continue
+            if target_meta.is_noentry:
+                continue
+            if target_meta.gate_feature:
+                continue
+            if not _has_left_entry(target_meta):
+                continue
+            if exit_y in set(target_meta.exit_ys):
+                continue
+            targets.append(target_name)
+        return targets
+
+    def _fwd_pair_targets(base_name: str) -> set[str]:
+        targets = {base_name}
+        if base_name in plan.bk_replacements:
+            targets.update(plan.bk_replacements[base_name].values())
+        if base_name in plan.fwd_replacements:
+            targets.update(plan.fwd_replacements[base_name].values())
+        if base_name in plan.pair_overrides:
+            targets.update(
+                variant_name for variant_name, _ in plan.pair_overrides[base_name]
+            )
+        if base_name in plan.fwd_upgrades:
+            targets.update(
+                entry_exit_var
+                for entry_exit_var, _, _, _ in plan.fwd_upgrades[base_name]
+            )
+        noentry_name = f"{base_name}.noentry"
+        if noentry_name in glyph_names:
+            targets.add(noentry_name)
+        return targets
+
+    def _add_orthogonal_derivations(
+        targets: set[str],
+        variant_name: str,
+    ) -> set[str]:
+        variant_meta = _meta(variant_name)
+        variant_is_exit_side = bool(
+            variant_meta.extended_exit_suffix
+            or variant_meta.contracted_exit_suffix
+        )
+        variant_is_entry_side = bool(
+            variant_meta.extended_entry_suffix
+            or variant_meta.contracted_entry_suffix
+        )
+        if variant_is_exit_side == variant_is_entry_side:
+            return set()
+
+        if variant_is_exit_side:
+            orthogonal_kinds = {
+                "entry-extended",
+                "entry-contracted",
+                "entry-trimmed",
+            }
+        else:
+            orthogonal_kinds = {
+                "exit-extended",
+                "exit-contracted",
+                "exit-trimmed",
+            }
+
+        orthogonal_derivations: set[str] = set()
+        derivation_queue = deque(targets)
+        while derivation_queue:
+            parent = derivation_queue.popleft()
+            for child in generation_children.get(parent, ()):
+                if child in orthogonal_derivations:
+                    continue
+                child_meta = glyph_meta.get(child)
+                if child_meta is None:
+                    continue
+                if child_meta.transform_kind not in orthogonal_kinds:
+                    continue
+                orthogonal_derivations.add(child)
+                derivation_queue.append(child)
+        targets.update(orthogonal_derivations)
+        return orthogonal_derivations
+
+    def _actual_fwd_pair_replacement(
+        variant_name: str,
+        target_name: str,
+    ) -> str | None:
+        target_meta = _meta(target_name)
+        actual_variant = variant_name
+        suffix = target_meta.extended_entry_suffix
+        if suffix:
+            extended = variant_name + suffix
+            if extended not in glyph_names:
+                extended = variant_name + ".entry-extended"
+            if extended in glyph_names:
+                actual_variant = extended
+        return _resolve_noentry_replacement(
+            glyph_meta,
+            base_to_variants,
+            target_name,
+            actual_variant,
+        )
+
+    def _fwd_pair_target_emits(
+        variant_name: str,
+        target_name: str,
+        expanded_before: set[str],
+        orthogonal_derivations: set[str],
+    ) -> bool:
+        variant_meta = _meta(variant_name)
+        target_meta = _meta(target_name)
+        target_has_entry = bool(target_meta.entry)
+
+        if target_meta.is_entry_variant and target_meta.exit and variant_meta.exit:
+            target_exit_ys = set(target_meta.exit_ys)
+            before_entry_ys: set[int] = set()
+            for before_glyph in expanded_before:
+                before_meta = glyph_meta.get(before_glyph)
+                if before_meta and before_meta.entry:
+                    before_entry_ys.update(before_meta.entry_ys)
+            if before_entry_ys and not (target_exit_ys & before_entry_ys):
+                return False
+
+        variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
+        if variant_entry_ys is not None:
+            if target_has_entry:
+                target_entry_ys = set(target_meta.entry_ys)
+                if not target_entry_ys.issubset(variant_entry_ys):
+                    incompatible_ys = target_entry_ys - variant_entry_ys
+                    if incompatible_ys == target_entry_ys:
+                        return False
+            return True
+
+        if target_has_entry and target_meta.is_entry_variant:
+            if target_meta.exit:
+                target_exit_ys = set(target_meta.exit_ys)
+                variant_exit_ys = set(variant_meta.exit_ys)
+                if variant_exit_ys <= target_exit_ys:
+                    return False
+            elif target_meta.after and target_name not in orthogonal_derivations:
+                return False
+
+        return True
+
+    for base_name, variants in plan.fwd_replacements.items():
+        for exit_y, variant_name in variants.items():
+            excluded = set(
+                _expand_all_variants(
+                    plan.fwd_exclusions.get(base_name, {}).get(exit_y, []),
+                    include_base=True,
+                )
+            )
+            before_bases = _context_bases_for_entry_y(base_name, exit_y, excluded)
+            if not excluded:
+                _add_replacement_path(base_name, variant_name)
+            _add_replacement_path(base_name, variant_name, before_bases=before_bases)
+
+            noentry_name = f"{base_name}.noentry"
+            if noentry_name in glyph_names:
+                actual_variant = _resolve_noentry_replacement(
+                    glyph_meta,
+                    base_to_variants,
+                    noentry_name,
+                    variant_name,
+                )
+                if not excluded:
+                    _add_replacement_path(noentry_name, actual_variant)
+                _add_replacement_path(
+                    noentry_name,
+                    actual_variant,
+                    before_bases=before_bases,
+                )
+
+            for target_name in _entry_bearing_strip_targets(
+                base_name,
+                exit_y,
+                variant_name,
+            ):
+                if not excluded:
+                    _add_replacement_path(target_name, variant_name)
+                _add_replacement_path(
+                    target_name,
+                    variant_name,
+                    before_bases=before_bases,
+                )
+
+    for base_name, upgrades in plan.fwd_upgrades.items():
+        for entry_exit_var, entry_only_var, exit_y, not_before in upgrades:
+            excluded = set(_expand_all_variants(not_before, include_base=True))
+            before_bases = _context_bases_for_entry_y(base_name, exit_y, excluded)
+            if not excluded:
+                _add_replacement_path(entry_only_var, entry_exit_var)
+            _add_replacement_path(
+                entry_only_var,
+                entry_exit_var,
+                before_bases=before_bases,
+            )
+
+    def _record_fwd_pair_reachability(
+        overrides: dict[str, list[tuple[str, list[str], list[str]]]],
+        *,
+        feature_tag: str | None = None,
+    ) -> None:
+        for base_name, entries in overrides.items():
+            for variant_name, before_glyphs, _not_after_glyphs in entries:
+                before_bases = _selector_bases(before_glyphs)
+                if not before_bases:
+                    continue
+                expanded_before = _expand_all_variants(before_glyphs)
+                targets = _fwd_pair_targets(base_name)
+                orthogonal_derivations = _add_orthogonal_derivations(
+                    targets,
+                    variant_name,
+                )
+                for target_name in sorted(targets):
+                    if target_name not in glyph_meta:
+                        continue
+                    if not _fwd_pair_target_emits(
+                        variant_name,
+                        target_name,
+                        expanded_before,
+                        orthogonal_derivations,
+                    ):
+                        continue
+                    actual_variant = _actual_fwd_pair_replacement(
+                        variant_name,
+                        target_name,
+                    )
+                    _add_replacement_path(
+                        target_name,
+                        actual_variant,
+                        before_bases=before_bases,
+                        feature_tag=feature_tag,
+                    )
+
+    _record_fwd_pair_reachability(plan.fwd_pair_overrides)
+    for feature_tag, grouped in _group_gated_fwd_pair_overrides(
+        plan.gated_fwd_pair_overrides
+    ).items():
+        _record_fwd_pair_reachability(grouped, feature_tag=feature_tag)
+
+
+def _group_gated_fwd_pair_overrides(
+    overrides: dict[str, list[tuple[str, list[str], list[str], str]]],
+) -> dict[str, dict[str, list[tuple[str, list[str], list[str]]]]]:
+    grouped: dict[str, dict[str, list[tuple[str, list[str], list[str]]]]] = {}
+    for base_name, entries in overrides.items():
+        for variant_name, before_glyphs, not_after_glyphs, feature_tag in entries:
+            grouped.setdefault(feature_tag, {}).setdefault(base_name, []).append(
+                (variant_name, before_glyphs, not_after_glyphs)
+            )
+    return grouped
+
+
 def _can_eventually_exit_at(
-    glyph_meta: dict[str, JoinGlyph],
-    base_to_variants: dict[str, set[str]],
+    plan: _JoinAnalysis,
     name: str,
     y: int,
+    *,
+    before_base: str | None = None,
+    feature_tag: str | None = None,
 ) -> bool:
-    meta = glyph_meta[name]
+    meta = plan.glyph_meta[name]
     if y in meta.exit_ys:
         return True
-    if meta.exit:
-        return False
-    return any(
-        y in glyph_meta[candidate].exit_ys
-        for candidate in base_to_variants.get(meta.base_name, ())
-    )
+    if y in plan.exit_reachability.get(name, set()):
+        return True
+    if before_base is not None and y in plan.exit_reachability_before.get(
+        (name, before_base),
+        set(),
+    ):
+        return True
+    if feature_tag is not None:
+        if y in plan.gated_exit_reachability.get((feature_tag, name), set()):
+            return True
+        if before_base is not None and y in plan.gated_exit_reachability_before.get(
+            (feature_tag, name, before_base),
+            set(),
+        ):
+            return True
+    return False
 
 
 def _has_left_entry(meta: JoinGlyph) -> bool:
@@ -859,11 +1262,14 @@ def _expand_backward_after_variants(
     after_glyphs: list[str] | tuple[str, ...],
     *,
     expand_selector,
-    glyph_meta: dict[str, JoinGlyph],
-    base_to_variants: dict[str, set[str]],
+    analysis: _JoinAnalysis,
+    feature_tag: str | None = None,
 ) -> set[str]:
+    glyph_meta = analysis.glyph_meta
+    base_to_variants = analysis.base_to_variants
     variant_meta = glyph_meta[variant_name]
     entry_ys = set(variant_meta.entry_ys)
+    right_base = variant_meta.base_name
     expanded: set[str] = set()
 
     for after_glyph in after_glyphs:
@@ -912,10 +1318,11 @@ def _expand_backward_after_variants(
                         )
                         and any(
                             _can_eventually_exit_at(
-                                glyph_meta,
-                                base_to_variants,
+                                analysis,
                                 candidate,
                                 entry_y,
+                                before_base=right_base,
+                                feature_tag=feature_tag,
                             )
                             for entry_y in entry_ys
                         )
@@ -928,7 +1335,13 @@ def _expand_backward_after_variants(
         entry_y = variant_meta.entry_restriction_y
         expanded = {
             candidate for candidate in expanded
-            if _can_eventually_exit_at(glyph_meta, base_to_variants, candidate, entry_y)
+            if _can_eventually_exit_at(
+                analysis,
+                candidate,
+                entry_y,
+                before_base=right_base,
+                feature_tag=feature_tag,
+            )
         }
 
     if variant_meta.not_after:
@@ -2430,8 +2843,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         right_base_name: str,
     ) -> set[str]:
         candidate_meta = _meta(candidate_name)
-        if candidate_meta.exit:
-            return set()
         # .noentry variants only appear after calt_zwnj substitutes the base
         # form following a ZWNJ. They should not inherit the backward-guard
         # rules that would otherwise block the pair substitution, because the
@@ -2441,14 +2852,36 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         candidate_base = candidate_meta.base_name
         guards: set[str] = set()
+        if candidate_meta.exit:
+            if candidate_name != candidate_base or not (
+                set(candidate_meta.exit_ys) & entry_ys
+            ):
+                return set()
+            for pending_variant, prev_glyphs in pair_overrides.get(candidate_base, []):
+                if _candidate_can_support_entry_ys(
+                    pending_variant,
+                    entry_ys,
+                    right_base_name,
+                ):
+                    continue
+                guards.update(_expand_all_variants(prev_glyphs))
+            return guards
 
         for prev_exit_y, pending_variant in bk_replacements.get(candidate_base, {}).items():
-            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+            if _candidate_can_support_entry_ys(
+                pending_variant,
+                entry_ys,
+                right_base_name,
+            ):
                 continue
             guards.update(exit_classes.get(prev_exit_y, set()))
 
         for pending_variant, prev_glyphs in pair_overrides.get(candidate_base, []):
-            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+            if _candidate_can_support_entry_ys(
+                pending_variant,
+                entry_ys,
+                right_base_name,
+            ):
                 continue
             guards.update(_expand_all_variants(prev_glyphs))
 
@@ -2466,14 +2899,23 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         return guards
 
-    def _candidate_can_support_entry_ys(candidate_name: str, entry_ys: set[int]) -> bool:
+    def _candidate_can_support_entry_ys(
+        candidate_name: str,
+        entry_ys: set[int],
+        right_base_name: str | None,
+    ) -> bool:
         candidate_meta = _meta(candidate_name)
         if set(candidate_meta.exit_ys) & entry_ys:
             return True
         if candidate_meta.exit:
             return False
         return any(
-            _can_eventually_exit_at(glyph_meta, base_to_variants, candidate_name, entry_y)
+            _can_eventually_exit_at(
+                plan,
+                candidate_name,
+                entry_y,
+                before_base=right_base_name,
+            )
             for entry_y in entry_ys
         )
 
@@ -2515,7 +2957,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         by_prior: dict[frozenset[str], set[str]] = {}
         for cand in member_iter:
             for prior_slot, cand_name in _collect_two_glyph_lookbehind_guards(
-                cand, entry_ys
+                cand,
+                entry_ys,
+                base_name,
             ):
                 by_prior.setdefault(prior_slot, set()).add(cand_name)
         for prior_slot in sorted(by_prior, key=lambda slot: sorted(slot)):
@@ -2529,6 +2973,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _collect_two_glyph_lookbehind_guards(
         candidate_name: str,
         entry_ys: set[int],
+        right_base_name: str,
     ) -> list[tuple[frozenset[str], str]]:
         # When a candidate sits at [pos] in a bk-pair rule but the candidate's
         # own bk_replacement (firing later) would mutate it to a form that no
@@ -2550,7 +2995,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # support check (i.e., the chain would invalidate the after-match).
         invalidating_prev_exit_ys: set[int] = set()
         for prev_exit_y, pending_variant in bk_for_base.items():
-            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+            if _candidate_can_support_entry_ys(
+                pending_variant,
+                entry_ys,
+                right_base_name,
+            ):
                 continue
             invalidating_prev_exit_ys.add(prev_exit_y)
         if not invalidating_prev_exit_ys:
@@ -2586,8 +3035,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     variant_name,
                     after_glyphs,
                     expand_selector=lambda glyph: _expand_all_variants([glyph]),
-                    glyph_meta=glyph_meta,
-                    base_to_variants=base_to_variants,
+                    analysis=plan,
                 )
                 if not expanded_after:
                     continue
@@ -2971,16 +3419,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         entry_exit_var,
                         after_glyphs,
                         expand_selector=lambda glyph: _expand_all_variants([glyph]),
-                        glyph_meta=glyph_meta,
-                        base_to_variants=base_to_variants,
+                        analysis=plan,
                     )
                     expanded_after = {
                         candidate for candidate in expanded_after
                         if _can_eventually_exit_at(
-                            glyph_meta,
-                            base_to_variants,
+                            plan,
                             candidate,
                             entry_y_val,
+                            before_base=entry_exit_meta.base_name,
                         )
                     }
                     if not expanded_after:
@@ -3011,8 +3458,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     variant_name,
                     after_glyphs,
                     expand_selector=lambda glyph: _expand_all_variants([glyph]),
-                    glyph_meta=glyph_meta,
-                    base_to_variants=base_to_variants,
+                    analysis=plan,
                 )
                 if not expanded_after:
                     continue
@@ -3031,10 +3477,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 expanded_after_for_y = {
                     candidate for candidate in expanded_after
                     if _can_eventually_exit_at(
-                        glyph_meta,
-                        base_to_variants,
+                        plan,
                         candidate,
                         entry_y,
+                        before_base=_meta(variant_name).base_name,
                     )
                 }
                 if not expanded_after_for_y:
@@ -3288,8 +3734,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     variant_name,
                     after_glyphs,
                     expand_selector=lambda glyph: _expand_all_variants([glyph]),
-                    glyph_meta=glyph_meta,
-                    base_to_variants=base_to_variants,
+                    analysis=plan,
                 )
                 expanded_after &= late_contexts
                 if not expanded_after:
@@ -3554,8 +3999,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 variant_name,
                 after_glyphs,
                 expand_selector=lambda glyph: _expand_all_variants([glyph]),
-                glyph_meta=glyph_meta,
-                base_to_variants=base_to_variants,
+                analysis=plan,
             )
             pair_after_cache[key] = expanded
         return expanded
@@ -4126,32 +4570,75 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
     glyph_meta = plan.glyph_meta
     glyph_names = plan.glyph_names
 
-    def _candidate_can_support_entry_ys(candidate_name: str, entry_ys: set[int]) -> bool:
+    def _candidate_can_support_entry_ys(
+        candidate_name: str,
+        entry_ys: set[int],
+        right_base_name: str,
+        feature_tag: str,
+    ) -> bool:
         candidate_meta = glyph_meta[candidate_name]
         if set(candidate_meta.exit_ys) & entry_ys:
             return True
         if candidate_meta.exit:
             return False
         return any(
-            _can_eventually_exit_at(glyph_meta, plan.base_to_variants, candidate_name, entry_y)
+            _can_eventually_exit_at(
+                plan,
+                candidate_name,
+                entry_y,
+                before_base=right_base_name,
+                feature_tag=feature_tag,
+            )
             for entry_y in entry_ys
         )
 
-    def _collect_pending_bk_pair_guards(candidate_name: str, entry_ys: set[int]) -> set[str]:
+    def _collect_pending_bk_pair_guards(
+        candidate_name: str,
+        entry_ys: set[int],
+        right_base_name: str,
+        feature_tag: str,
+    ) -> set[str]:
         candidate_meta = glyph_meta[candidate_name]
-        if candidate_meta.exit:
-            return set()
 
         candidate_base = candidate_meta.base_name
         guards: set[str] = set()
+        if candidate_meta.exit:
+            if candidate_name != candidate_base or not (
+                set(candidate_meta.exit_ys) & entry_ys
+            ):
+                return set()
+            for pending_variant, prev_glyphs in plan.pair_overrides.get(candidate_base, []):
+                if _candidate_can_support_entry_ys(
+                    pending_variant,
+                    entry_ys,
+                    right_base_name,
+                    feature_tag,
+                ):
+                    continue
+                expanded_prev = set()
+                for prev_glyph in prev_glyphs:
+                    prev_base = glyph_meta[prev_glyph].base_name if prev_glyph in glyph_meta else prev_glyph
+                    expanded_prev.update(plan.base_to_variants.get(prev_base, ()))
+                guards.update(expanded_prev)
+            return guards
 
         for prev_exit_y, pending_variant in plan.bk_replacements.get(candidate_base, {}).items():
-            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+            if _candidate_can_support_entry_ys(
+                pending_variant,
+                entry_ys,
+                right_base_name,
+                feature_tag,
+            ):
                 continue
             guards.update(plan.exit_classes.get(prev_exit_y, set()))
 
         for pending_variant, prev_glyphs in plan.pair_overrides.get(candidate_base, []):
-            if _candidate_can_support_entry_ys(pending_variant, entry_ys):
+            if _candidate_can_support_entry_ys(
+                pending_variant,
+                entry_ys,
+                right_base_name,
+                feature_tag,
+            ):
                 continue
             expanded_prev = set()
             for prev_glyph in prev_glyphs:
@@ -4171,8 +4658,8 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                     glyph_meta[glyph].base_name if glyph in glyph_meta else glyph,
                     (),
                 ),
-                glyph_meta=glyph_meta,
-                base_to_variants=plan.base_to_variants,
+                analysis=plan,
+                feature_tag=feature_tag,
             )
             if not expanded:
                 continue
@@ -4249,7 +4736,12 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
             entry_ys = set(variant_meta.entry_ys)
             if entry_ys:
                 for candidate_name in after_list:
-                    guard_glyphs = _collect_pending_bk_pair_guards(candidate_name, entry_ys)
+                    guard_glyphs = _collect_pending_bk_pair_guards(
+                        candidate_name,
+                        entry_ys,
+                        variant_meta.base_name,
+                        tag,
+                    )
                     if guard_glyphs:
                         guard_list = " ".join(sorted(guard_glyphs))
                         lines.append(

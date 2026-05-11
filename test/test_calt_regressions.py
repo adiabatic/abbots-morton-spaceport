@@ -518,6 +518,16 @@ def test_qs_ah_fee_utter_keeps_left_join():
     assert _pair_join_ys(glyphs, 1) == set()
 
 
+def test_qs_ah_may_pea_does_not_join_pea_after_entry_only_may():
+    glyphs = _shape_qs("qsAh", "qsMay", "qsPea")
+
+    assert glyphs[0] == "qsAh.exit-extended"
+    assert glyphs[1] == "qsMay.entry-xheight"
+    assert glyphs[2] != "qsPea.entry-xheight"
+    assert _pair_join_ys(glyphs, 0) == {5}
+    assert _pair_join_ys(glyphs, 1) == set()
+
+
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into
     # the same forward-pair lookup that promotes qsOwe to shape_3.
