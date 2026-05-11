@@ -636,6 +636,44 @@ def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_clas
     )
 
 
+def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_class():
+    data = load_glyph_data(ROOT / "glyph_data")
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
+    assert fea is not None
+
+    start = fea.index("lookup calt_pair_qsPea_entry-xheight {")
+    end = fea.index("} calt_pair_qsPea_entry-xheight;", start)
+    block = fea[start:end]
+
+    sub_line = next(
+        line for line in block.splitlines()
+        if line.strip().startswith("sub [")
+        and line.rstrip().endswith("by qsPea.entry-xheight;")
+    )
+    after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
+    after_glyphs = set(after_class.split())
+
+    assert {
+        "qsMay",
+        "qsMay.entry-baseline",
+        "qsMay.entry-baseline.entry-extended",
+        "qsMay.exit-extended",
+    } <= after_glyphs
+    assert not (
+        {
+            "qsMay.entry-xheight",
+            "qsMay.entry-xheight.after-fee",
+            "qsMay.entry-xheight.after-fee.entry-extended",
+            "qsMay.entry-xheight.after-i",
+            "qsMay.entry-xheight.after-i.entry-extended",
+            "qsMay.entry-xheight.entry-extended",
+        }
+        & after_glyphs
+    )
+
+
 def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
