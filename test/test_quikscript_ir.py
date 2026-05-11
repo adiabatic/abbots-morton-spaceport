@@ -28,6 +28,7 @@ from quikscript_ir import (
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
+from suggest_scoped_anchor_selectors import suggest_scoped_anchor_selectors
 
 
 def test_widen_right_at_edge_widens_by_count():
@@ -1583,6 +1584,424 @@ def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_fami
 
     compiled = compile_glyph_families(families, "senior")
     assert "qsLeft.exit-baseline" in compiled
+
+
+def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 5]},
+                },
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                    "exit_baseline": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 0]},
+                        "modifiers": ["exit-baseline"],
+                    },
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "select": {"after": [{"family": "qsLeft", "exit_y": 5}]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsRight.entry-xheight"].after == ("qsLeft",)
+
+
+def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 5]},
+                },
+                "forms": {
+                    "alt": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 5]},
+                        "traits": ["alt"],
+                    },
+                    "alt_before_right": {
+                        "inherits": "alt",
+                        "modifiers": ["before-right"],
+                    },
+                    "half": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 5]},
+                        "traits": ["half"],
+                    },
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "select": {
+                            "after": [
+                                {
+                                    "family": "qsLeft",
+                                    "traits": ["alt"],
+                                    "exit_y": 5,
+                                }
+                            ]
+                        },
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsRight.entry-xheight"].after == (
+        "qsLeft.alt",
+        "qsLeft.alt.before-right",
+    )
+
+
+def test_family_scoped_anchor_selector_mirrors_ligature_family_expansion():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_baseline": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 0]},
+                        "select": {"after": [{"family": "qsA", "exit_y": 0}]},
+                        "modifiers": ["entry-baseline"],
+                    },
+                },
+            },
+            "qsA": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 0]},
+                },
+            },
+            "qsB": {
+                "prop": {"bitmap": ["#"]},
+            },
+            "qsA_qsB": {
+                "sequence": ["qsA", "qsB"],
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [2, 0]},
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsRight.entry-baseline"].after == ("qsA", "qsA_qsB", "qsB")
+
+
+def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "select": {"after": [{"family": "qsA", "exit_y": 5}]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+            "qsA": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 0]},
+                },
+            },
+            "qsB": {
+                "prop": {"bitmap": ["#"]},
+            },
+            "qsA_qsB": {
+                "sequence": ["qsA", "qsB"],
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [2, 0]},
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsRight.entry-xheight"].after == ()
+
+
+def test_family_scoped_anchor_selector_rejects_invalid_y():
+    import pytest
+
+    families = {
+        "qsLeft": {"prop": {"bitmap": ["#"]}},
+        "qsRight": {
+            "prop": {"bitmap": ["#"]},
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "select": {"after": [{"family": "qsLeft", "exit_y": "5"}]},
+                    "modifiers": ["entry-xheight"],
+                },
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="exit_y must be an integer"):
+        compile_glyph_families(families, "senior")
+
+
+def test_family_scoped_anchor_selector_rejects_unknown_family():
+    import pytest
+
+    families = {
+        "qsRight": {
+            "prop": {"bitmap": ["#"]},
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "select": {"after": [{"family": "qsMissing", "exit_y": 5}]},
+                    "modifiers": ["entry-xheight"],
+                },
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="unknown family 'qsMissing'"):
+        compile_glyph_families(families, "senior")
+
+
+def test_family_scoped_anchor_selector_rejects_invalid_trait():
+    import pytest
+
+    families = {
+        "qsLeft": {"prop": {"bitmap": ["#"]}},
+        "qsRight": {
+            "prop": {"bitmap": ["#"]},
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "select": {
+                        "after": [
+                            {
+                                "family": "qsLeft",
+                                "traits": ["not-a-real-trait"],
+                                "exit_y": 5,
+                            }
+                        ]
+                    },
+                    "modifiers": ["entry-xheight"],
+                },
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="unsupported trait 'not-a-real-trait'"):
+        compile_glyph_families(families, "senior")
+
+
+def test_family_scoped_anchor_selector_rejects_both_anchor_sides():
+    import pytest
+
+    families = {
+        "qsLeft": {"prop": {"bitmap": ["#"]}},
+        "qsRight": {
+            "prop": {"bitmap": ["#"]},
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "select": {
+                        "after": [{"family": "qsLeft", "exit_y": 5, "entry_y": 5}]
+                    },
+                    "modifiers": ["entry-xheight"],
+                },
+            },
+        },
+    }
+
+    with pytest.raises(ValueError, match="exactly one of exit_y/entry_y"):
+        compile_glyph_families(families, "senior")
+
+
+def test_family_scoped_anchor_selector_collides_with_negative_family_selector():
+    families = {
+        "qsLeft": {
+            "prop": {"bitmap": ["#"]},
+            "forms": {
+                "exit_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [1, 0]},
+                    "select": {
+                        "before": [{"family": "qsRight", "entry_y": 0}],
+                        "not_before": [{"family": "qsRight"}],
+                    },
+                    "modifiers": ["exit-baseline"],
+                },
+            },
+        },
+        "qsRight": {
+            "prop": {
+                "bitmap": ["#"],
+                "anchors": {"entry": [0, 0]},
+            },
+        },
+    }
+
+    import pytest
+
+    with pytest.raises(
+        ValueError,
+        match=r"select\.before.*select\.not_before.*qsRight",
+    ):
+        compile_glyph_families(families, "senior")
+
+
+def _scoped_selector_suggester_fixture(selector) -> GlyphData:
+    return {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {
+            "lefts": [{"family": "qsLeft"}],
+        },
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 5]},
+                },
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                    "exit_baseline": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 0]},
+                        "modifiers": ["exit-baseline"],
+                    },
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "select": {"after": [selector]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+        },
+    }
+
+
+def test_scoped_anchor_suggester_reports_overbroad_family_selector():
+    suggestions = suggest_scoped_anchor_selectors(
+        _scoped_selector_suggester_fixture({"family": "qsLeft"})
+    )
+
+    assert len(suggestions) == 1
+    suggestion = suggestions[0]
+    assert suggestion.path == "glyph_families.qsRight.forms.entry_xheight.select.after[0]"
+    assert suggestion.current == "{family: qsLeft}"
+    assert suggestion.suggested == "{family: qsLeft, exit_y: 5}"
+    assert "qsLeft.entry-xheight" in suggestion.incompatible
+
+
+def test_scoped_anchor_suggester_skips_already_scoped_selector():
+    suggestions = suggest_scoped_anchor_selectors(
+        _scoped_selector_suggester_fixture({"family": "qsLeft", "exit_y": 5})
+    )
+
+    assert suggestions == []
+
+
+def test_scoped_anchor_suggester_skips_context_set_refs():
+    suggestions = suggest_scoped_anchor_selectors(
+        _scoped_selector_suggester_fixture({"context_set": "lefts"})
+    )
+
+    assert suggestions == []
+
+
+def test_scoped_anchor_suggester_skips_all_compatible_family_selector():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {
+                    "bitmap": ["#"],
+                    "anchors": {"exit": [1, 5]},
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_xheight": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 5]},
+                        "select": {"after": [{"family": "qsLeft"}]},
+                        "modifiers": ["entry-xheight"],
+                    },
+                },
+            },
+        },
+    }
+
+    assert suggest_scoped_anchor_selectors(data) == []
 
 
 def _ligature_inheritance_glyph_data(
