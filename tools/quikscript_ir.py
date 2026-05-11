@@ -157,25 +157,38 @@ _KNOWN_DERIVE_DIRECTIVES = frozenset({
 _ANCHOR_SENTINEL_PREFIX = "<<anchor "
 
 
+@dataclass(frozen=True)
+class _AnchorSelector:
+    kind: str
+    y: int
+    excluded_families: tuple[str, ...] = ()
+    family_scope: str | None = None
+
+
 def _make_anchor_sentinel(
     kind: str,
     y: int,
     excluded_families: tuple[str, ...] = (),
+    *,
+    family_scope: str | None = None,
 ) -> str:
+    suffix_parts = []
+    if family_scope:
+        suffix_parts.append(f"family={family_scope}")
     if excluded_families:
-        suffix = "|except=" + ",".join(excluded_families)
-    else:
-        suffix = ""
+        suffix_parts.append("except=" + ",".join(excluded_families))
+    suffix = "|" + "|".join(suffix_parts) if suffix_parts else ""
     return f"{_ANCHOR_SENTINEL_PREFIX}{kind}={y}{suffix}>>"
 
 
 def _parse_anchor_sentinel(
     value: str,
-) -> tuple[str, int, tuple[str, ...]] | None:
+) -> _AnchorSelector | None:
     if not value.startswith(_ANCHOR_SENTINEL_PREFIX) or not value.endswith(">>"):
         return None
     body = value[len(_ANCHOR_SENTINEL_PREFIX):-2]
-    head, _, except_part = body.partition("|except=")
+    parts = body.split("|")
+    head = parts[0]
     kind, _, y_str = head.partition("=")
     if kind not in {"exit_y", "entry_y"} or not y_str:
         return None
@@ -183,8 +196,19 @@ def _parse_anchor_sentinel(
         y = int(y_str)
     except ValueError:
         return None
-    excluded = tuple(except_part.split(",")) if except_part else ()
-    return kind, y, excluded
+    excluded: tuple[str, ...] = ()
+    family_scope: str | None = None
+    for part in parts[1:]:
+        key, sep, raw_value = part.partition("=")
+        if sep != "=" or not raw_value:
+            return None
+        if key == "except":
+            excluded = tuple(raw_value.split(","))
+        elif key == "family":
+            family_scope = raw_value
+        else:
+            return None
+    return _AnchorSelector(kind, y, excluded, family_scope)
 
 
 def is_anchor_sentinel(value: str) -> bool:
@@ -682,17 +706,55 @@ def _normalize_family_refs(
         if isinstance(value, dict) and ("exit_y" in value or "entry_y" in value):
             keys = set(value)
             anchor_keys = keys & {"exit_y", "entry_y"}
-            allowed = anchor_keys | {"except"}
-            if len(anchor_keys) != 1 or not keys <= allowed:
+            kind = next(iter(anchor_keys))
+            if len(anchor_keys) != 1:
                 raise ValueError(
                     f"{context_family} {context_label} {field_name} anchor selector "
-                    "must have exactly one of exit_y/entry_y and an optional 'except' list"
+                    "must have exactly one of exit_y/entry_y"
                 )
-            kind = next(iter(anchor_keys))
             y = value[kind]
             if not isinstance(y, int) or isinstance(y, bool):
                 raise ValueError(
                     f"{context_family} {context_label} {field_name} {kind} must be an integer"
+                )
+
+            if "family" in value:
+                allowed = anchor_keys | {"family", "traits", "modifiers"}
+                if not keys <= allowed:
+                    extra = ", ".join(sorted(keys - allowed))
+                    raise ValueError(
+                        f"{context_family} {context_label} {field_name} "
+                        f"family-scoped anchor selector cannot include extra keys: {extra}"
+                    )
+                target_family = value.get("family")
+                if not isinstance(target_family, str) or not target_family:
+                    raise ValueError(
+                        f"{context_family} {context_label} {field_name} "
+                        "family-scoped anchor selector must include a family name"
+                    )
+                if target_family not in family_names:
+                    raise ValueError(
+                        f"{context_family} {context_label} {field_name} "
+                        f"family-scoped anchor selector refers to unknown family {target_family!r}"
+                    )
+                traits = _normalize_source_traits(
+                    value.get("traits", ()),
+                    family_name=context_family,
+                    context=f"{context_label} {field_name}",
+                )
+                modifiers = _normalize_source_modifiers(
+                    value.get("modifiers", ()),
+                    family_name=context_family,
+                    context=f"{context_label} {field_name}",
+                )
+                family_scope = _compiled_family_glyph_name(target_family, traits, modifiers)
+                return [_make_anchor_sentinel(kind, y, family_scope=family_scope)]
+
+            allowed = anchor_keys | {"except"}
+            if not keys <= allowed:
+                raise ValueError(
+                    f"{context_family} {context_label} {field_name} anchor selector "
+                    "must have exactly one of exit_y/entry_y and an optional 'except' list"
                 )
             excluded_families: list[str] = []
             for excluded in value.get("except", []):
@@ -767,6 +829,14 @@ def _check_select_family_overlap(
         families: set[str] = set()
         for value in values:
             if isinstance(value, dict) and set(value) == {"family"}:
+                fam = value["family"]
+                if isinstance(fam, str):
+                    families.add(fam)
+            elif (
+                isinstance(value, dict)
+                and "family" in value
+                and ({"entry_y", "exit_y"} & set(value))
+            ):
                 fam = value["family"]
                 if isinstance(fam, str):
                     families.add(fam)
@@ -1298,6 +1368,12 @@ def _collect_anchor_classes(
 def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
     exit_classes, entry_classes = _collect_anchor_classes(metadata)
 
+    def _member_matches_scope(member: str, scope: str) -> bool:
+        meta = metadata.get(member)
+        if "." not in scope:
+            return meta is not None and meta.base_name == scope
+        return member == scope or member.startswith(scope + ".")
+
     def _expand_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
         if not values:
             return values
@@ -1312,12 +1388,18 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
                     seen.add(value)
                     expanded.append(value)
                 continue
-            kind, y, excluded_families = parsed
-            members = (exit_classes if kind == "exit_y" else entry_classes).get(y, ())
+            members = (
+                exit_classes if parsed.kind == "exit_y" else entry_classes
+            ).get(parsed.y, ())
             for member in members:
-                if excluded_families:
+                if parsed.family_scope and not _member_matches_scope(
+                    member,
+                    parsed.family_scope,
+                ):
+                    continue
+                if parsed.excluded_families:
                     member_family = metadata[member].family if member in metadata else None
-                    if member_family in excluded_families:
+                    if member_family in parsed.excluded_families:
                         continue
                 if member not in seen:
                     seen.add(member)
@@ -1924,8 +2006,7 @@ def _selector_has_anchor_y(
 ) -> bool:
     sentinel = _parse_anchor_sentinel(selector)
     if sentinel is not None:
-        sentinel_kind, sentinel_y, _excluded = sentinel
-        return sentinel_kind == f"{side}_y" and sentinel_y == y
+        return sentinel.kind == f"{side}_y" and sentinel.y == y
 
     meta = join_glyphs.get(selector)
     if meta is not None:
@@ -2817,6 +2898,11 @@ def expand_selectors_for_ligatures(
     def _selector_families(selectors: tuple[str, ...]) -> set[str]:
         families: set[str] = set()
         for selector in selectors:
+            sentinel = _parse_anchor_sentinel(selector)
+            if sentinel is not None:
+                if sentinel.family_scope:
+                    families.add(sentinel.family_scope.split(".", 1)[0])
+                continue
             meta = join_glyphs.get(selector)
             if meta is not None:
                 families.add(meta.base_name)
@@ -2860,6 +2946,12 @@ def expand_selectors_for_ligatures(
             actual = endpoint_meta.extended_entry_suffix or ""
         return actual == expected
 
+    def _scoped_anchor_selector(selector: str) -> _AnchorSelector | None:
+        sentinel = _parse_anchor_sentinel(selector)
+        if sentinel is None or sentinel.family_scope is None:
+            return None
+        return sentinel
+
     def _additions(
         field: tuple[str, ...],
         index: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]],
@@ -2871,9 +2963,20 @@ def expand_selectors_for_ligatures(
         existing = set(field)
         additions: set[str] = set()
         for glyph in field:
-            for endpoint, candidate_ys, canonical_ys in index.get(glyph, ()):
+            scoped_anchor = _scoped_anchor_selector(glyph)
+            if scoped_anchor is None:
+                lookup_key = glyph
+            else:
+                assert scoped_anchor.family_scope is not None
+                lookup_key = scoped_anchor.family_scope
+            for endpoint, candidate_ys, canonical_ys in index.get(lookup_key, ()):
                 if endpoint in existing:
                     continue
+                if scoped_anchor is not None:
+                    if scoped_anchor.kind != f"{side}_y":
+                        continue
+                    if scoped_anchor.y not in candidate_ys:
+                        continue
                 novel_ys = (anchor_ys & candidate_ys) - canonical_ys
                 if not novel_ys:
                     continue
