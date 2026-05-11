@@ -93,6 +93,48 @@ def _backward_pair_sort_key(
     )
 
 
+def _expand_join_variants(
+    glyphs,
+    analysis: _JoinAnalysis,
+    *,
+    include_base: bool = False,
+) -> set[str]:
+    glyph_meta = analysis.glyph_meta
+    expanded = set(glyphs)
+    for glyph in glyphs:
+        glyph_meta_entry = glyph_meta.get(glyph)
+        base = glyph_meta_entry.base_name if glyph_meta_entry else glyph
+        if base not in glyph_meta:
+            continue
+        form_specific = glyph != base
+        if include_base:
+            expanded.add(base)
+        all_variants: set[str] = set()
+        if base in analysis.bk_replacements:
+            all_variants.update(analysis.bk_replacements[base].values())
+        if base in analysis.fwd_replacements:
+            all_variants.update(analysis.fwd_replacements[base].values())
+        if base in analysis.pair_overrides:
+            all_variants.update(
+                variant_name for variant_name, _ in analysis.pair_overrides[base]
+            )
+        if base in analysis.fwd_pair_overrides:
+            all_variants.update(
+                variant_name
+                for variant_name, _, _ in analysis.fwd_pair_overrides[base]
+            )
+        if form_specific:
+            prefix = glyph + "."
+            expanded.update(
+                variant
+                for variant in all_variants
+                if variant == glyph or variant.startswith(prefix)
+            )
+        else:
+            expanded.update(all_variants)
+    return expanded
+
+
 def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysis:
     glyph_meta = join_glyphs
 
@@ -760,38 +802,7 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
         return {_base_name(selector) for selector in selectors}
 
     def _expand_all_variants(glyphs, *, include_base=False) -> set[str]:
-        expanded = set(glyphs)
-        for glyph in glyphs:
-            base = _base_name(glyph)
-            if base not in glyph_meta:
-                continue
-            form_specific = glyph != base
-            if include_base:
-                expanded.add(base)
-            all_variants: set[str] = set()
-            if base in plan.bk_replacements:
-                all_variants.update(plan.bk_replacements[base].values())
-            if base in plan.fwd_replacements:
-                all_variants.update(plan.fwd_replacements[base].values())
-            if base in plan.pair_overrides:
-                all_variants.update(
-                    variant_name for variant_name, _ in plan.pair_overrides[base]
-                )
-            if base in plan.fwd_pair_overrides:
-                all_variants.update(
-                    variant_name
-                    for variant_name, _, _ in plan.fwd_pair_overrides[base]
-                )
-            if form_specific:
-                prefix = glyph + "."
-                expanded.update(
-                    variant
-                    for variant in all_variants
-                    if variant == glyph or variant.startswith(prefix)
-                )
-            else:
-                expanded.update(all_variants)
-        return expanded
+        return _expand_join_variants(glyphs, plan, include_base=include_base)
 
     def _context_bases_for_entry_y(
         base_name: str,
@@ -1362,6 +1373,63 @@ def _expand_backward_after_variants(
     return expanded
 
 
+def _expand_forward_before_variants(
+    variant_name: str,
+    before_glyphs: list[str] | tuple[str, ...],
+    *,
+    analysis: _JoinAnalysis,
+    feature_tag: str | None = None,
+) -> set[str]:
+    glyph_meta = analysis.glyph_meta
+    source_meta = glyph_meta[variant_name]
+    if feature_tag is None:
+        expanded_before = _expand_join_variants(before_glyphs, analysis)
+    else:
+        expanded_before: set[str] = set()
+        for glyph in before_glyphs:
+            base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
+            expanded_before.update(analysis.base_to_variants.get(base, ()))
+
+    if feature_tag is not None or not source_meta.exit:
+        return expanded_before
+
+    source_exit_ys = set(source_meta.exit_ys)
+
+    def _candidate_compatible(name: str) -> bool:
+        cand_meta = glyph_meta[name]
+        cand_entry_ys = {
+            anchor[1]
+            for anchor in (
+                *cand_meta.entry,
+                *cand_meta.entry_curs_only,
+            )
+        }
+        if not cand_entry_ys:
+            return True
+        if cand_entry_ys & source_exit_ys:
+            return True
+        if name == cand_meta.base_name:
+            family_entry_ys: set[int] = set()
+            for sibling in analysis.base_to_variants.get(name, ()):
+                sib_meta = glyph_meta[sibling]
+                family_entry_ys.update(
+                    anchor[1]
+                    for anchor in (
+                        *sib_meta.entry,
+                        *sib_meta.entry_curs_only,
+                    )
+                )
+            if family_entry_ys & source_exit_ys:
+                return True
+        return False
+
+    return {
+        candidate
+        for candidate in expanded_before
+        if candidate in glyph_meta and _candidate_compatible(candidate)
+    }
+
+
 def _split_fea_context_tokens(body: str) -> tuple[str, ...] | None:
     tokens = []
     i = 0
@@ -1626,29 +1694,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return None
 
     def _expand_all_variants(glyphs, *, include_base=False):
-        expanded = set(glyphs)
-        for glyph in glyphs:
-            base = _base_name(glyph)
-            if base not in glyph_meta:
-                continue
-            form_specific = glyph != base
-            if include_base:
-                expanded.add(base)
-            all_variants: set[str] = set()
-            if base in bk_replacements:
-                all_variants.update(bk_replacements[base].values())
-            if base in fwd_replacements:
-                all_variants.update(fwd_replacements[base].values())
-            if base in pair_overrides:
-                all_variants.update(variant_name for variant_name, _ in pair_overrides[base])
-            if base in fwd_pair_overrides:
-                all_variants.update(variant_name for variant_name, _, _ in fwd_pair_overrides[base])
-            if form_specific:
-                prefix = glyph + "."
-                expanded.update(v for v in all_variants if v == glyph or v.startswith(prefix))
-            else:
-                expanded.update(all_variants)
-        return expanded
+        return _expand_join_variants(glyphs, plan, include_base=include_base)
 
     def _ligature_component_variants(lig_name: str, component: str, index: int) -> set[str]:
         lig_variants: set[str] = {component}
@@ -2432,44 +2478,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 key=lambda item: _backward_pair_sort_key(glyph_meta, item[0], item[1]),
             )
             for variant_name, before_glyphs, not_after_glyphs in sorted_overrides:
-                expanded_before = _expand_all_variants(before_glyphs)
+                expanded_before = _expand_forward_before_variants(
+                    variant_name,
+                    before_glyphs,
+                    analysis=plan,
+                )
                 source_meta = _meta(variant_name)
-                if source_meta.exit:
-                    source_exit_ys = set(source_meta.exit_ys)
-
-                    def _candidate_compatible(name: str) -> bool:
-                        cand_meta = _meta(name)
-                        cand_entry_ys = {
-                            anchor[1]
-                            for anchor in (
-                                *cand_meta.entry,
-                                *cand_meta.entry_curs_only,
-                            )
-                        }
-                        if not cand_entry_ys:
-                            return True
-                        if cand_entry_ys & source_exit_ys:
-                            return True
-                        if name == cand_meta.base_name:
-                            family_entry_ys: set[int] = set()
-                            for sibling in base_to_variants.get(name, ()):
-                                sib_meta = _meta(sibling)
-                                family_entry_ys.update(
-                                    anchor[1]
-                                    for anchor in (
-                                        *sib_meta.entry,
-                                        *sib_meta.entry_curs_only,
-                                    )
-                                )
-                            if family_entry_ys & source_exit_ys:
-                                return True
-                        return False
-
-                    expanded_before = {
-                        candidate
-                        for candidate in expanded_before
-                        if _candidate_compatible(candidate)
-                    }
                 before_list = " ".join(sorted(expanded_before))
 
                 targets = {base_name}
@@ -4676,10 +4690,12 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
     fwd_features: dict[str, list[tuple[str, str, list[str], list[str], list[str], set[int] | None]]] = defaultdict(list)
     for base_name, overrides in plan.gated_fwd_pair_overrides.items():
         for variant_name, before_glyphs, not_after_glyphs, feature_tag in overrides:
-            expanded_before = set()
-            for glyph in before_glyphs:
-                base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
-                expanded_before.update(plan.base_to_variants.get(base, ()))
+            expanded_before = _expand_forward_before_variants(
+                variant_name,
+                before_glyphs,
+                analysis=plan,
+                feature_tag=feature_tag,
+            )
             for terminal in sorted(expanded_before & plan.terminal_exit_only):
                 expanded_before.discard(terminal)
 

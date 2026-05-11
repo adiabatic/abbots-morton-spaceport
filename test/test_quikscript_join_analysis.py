@@ -1067,6 +1067,147 @@ def test_backward_intent_with_no_matching_forward_exit_raises():
     assert "y=0" in message
 
 
+def test_concrete_after_selector_rejects_member_missing_required_exit():
+    qs_may = _make_glyph(
+        name="qsMay",
+        base_name="qsMay",
+        family="qsMay",
+        exit=((4, 0),),
+    )
+    qs_may_after_other = _make_glyph(
+        name="qsMay.after-other",
+        base_name="qsMay",
+        family="qsMay",
+        modifiers=("after-other",),
+        exit=((4, 5),),
+        after=("qsOther",),
+    )
+    qs_other = _make_glyph(
+        name="qsOther",
+        base_name="qsOther",
+        family="qsOther",
+        exit=((4, 0),),
+    )
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        entry=((0, 0),),
+    )
+    qs_pea_entry_both_after_may = _make_glyph(
+        name="qsPea.entry-both-after-may",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("entry-both-after-may",),
+        entry=((0, 0), (0, 5)),
+        after=("qsMay",),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        _validate_synthetic(
+            {
+                "qsMay": qs_may,
+                "qsMay.after-other": qs_may_after_other,
+                "qsOther": qs_other,
+                "qsPea": qs_pea,
+                "qsPea.entry-both-after-may": qs_pea_entry_both_after_may,
+            }
+        )
+
+    message = str(exc_info.value)
+    assert "concrete-selector-mismatch" in message
+    assert "qsPea.entry-both-after-may enters y=5 after qsMay" in message
+    assert "selector qsMay expands to qsMay with no y=5 exit" in message
+
+
+def test_concrete_before_selector_rejects_member_missing_required_entry():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 0),),
+    )
+    qs_pea_before_may = _make_glyph(
+        name="qsPea.before-may",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-may",),
+        exit=((4, 5),),
+        before=("qsMay.inert",),
+    )
+    qs_may = _make_glyph(
+        name="qsMay",
+        base_name="qsMay",
+        family="qsMay",
+        entry=((0, 5),),
+    )
+    qs_may_inert = _make_glyph(
+        name="qsMay.inert",
+        base_name="qsMay",
+        family="qsMay",
+        modifiers=("inert",),
+    )
+
+    with pytest.raises(ValueError, match="Join consistency mismatches") as exc_info:
+        _validate_synthetic(
+            {
+                "qsPea": qs_pea,
+                "qsPea.before-may": qs_pea_before_may,
+                "qsMay": qs_may,
+                "qsMay.inert": qs_may_inert,
+            }
+        )
+
+    message = str(exc_info.value)
+    assert "concrete-selector-mismatch" in message
+    assert "qsPea.before-may exits y=5 before qsMay.inert" in message
+    assert "selector qsMay.inert expands to qsMay.inert with no y=5 entry" in message
+
+
+def test_concrete_selector_allows_unexpanded_incompatible_sibling():
+    qs_pea = _make_glyph(
+        name="qsPea",
+        base_name="qsPea",
+        family="qsPea",
+        exit=((4, 0),),
+    )
+    qs_pea_before_may = _make_glyph(
+        name="qsPea.before-may",
+        base_name="qsPea",
+        family="qsPea",
+        modifiers=("before-may",),
+        exit=((4, 5),),
+        before=("qsMay",),
+    )
+    qs_may = _make_glyph(
+        name="qsMay",
+        base_name="qsMay",
+        family="qsMay",
+        entry=((0, 5),),
+    )
+    qs_may_entry_baseline = _make_glyph(
+        name="qsMay.entry-baseline",
+        base_name="qsMay",
+        family="qsMay",
+        modifiers=("entry-baseline",),
+        entry=((0, 0),),
+        is_entry_variant=True,
+    )
+
+    _validate_synthetic(
+        {
+            "qsPea": qs_pea,
+            "qsPea.before-may": qs_pea_before_may,
+            "qsMay": qs_may,
+            "qsMay.entry-baseline": qs_may_entry_baseline,
+        }
+    )
+
+
+def test_real_join_glyphs_pass_concrete_selector_validation():
+    _validate_synthetic(_real_join_glyphs())
+
+
 def test_ligature_only_path_with_mismatched_anchor_raises():
     qs_out = _make_glyph(
         name="qsOut",
