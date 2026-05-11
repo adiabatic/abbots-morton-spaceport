@@ -518,14 +518,34 @@ def test_qs_ah_fee_utter_keeps_left_join():
     assert _pair_join_ys(glyphs, 1) == set()
 
 
-def test_qs_ah_may_pea_does_not_join_pea_after_entry_only_may():
-    glyphs = _shape_qs("qsAh", "qsMay", "qsPea")
+@pytest.mark.parametrize(
+    "left_base",
+    [
+        pytest.param("qsAh", id="ah"),
+        pytest.param("qsFee", id="fee"),
+        pytest.param("qsI", id="i"),
+    ],
+)
+def test_may_pea_does_not_select_pea_entry_after_entry_only_may(left_base):
+    glyphs = _shape_qs(left_base, "qsMay", "qsPea")
+    label = f"{left_base} / qsMay / qsPea"
 
-    assert glyphs[0] == "qsAh.exit-extended"
-    assert glyphs[1] == "qsMay.entry-xheight"
-    assert glyphs[2] != "qsPea.entry-xheight"
-    assert _pair_join_ys(glyphs, 0) == {5}
-    assert _pair_join_ys(glyphs, 1) == set()
+    assert _base_names(glyphs) == (left_base, "qsMay", "qsPea"), (
+        f"{label}: expected the shaped sequence to remain three letters, got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 0) == {5}, (
+        f"{label}: expected the left letter to join May at y=5, got {glyphs}"
+    )
+    assert 5 not in _exit_ys(glyphs[1]), (
+        f"{label}: expected selected May to have no y=5 exit, got {glyphs}"
+    )
+    assert 5 not in _entry_ys(glyphs[2]), (
+        f"{label}: Pea must not select a y=5 entry after exitless May; "
+        f"got {glyphs}"
+    )
+    assert _pair_join_ys(glyphs, 1) == set(), (
+        f"{label}: May and Pea must have no shared join Y, got {glyphs}"
+    )
 
 
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
