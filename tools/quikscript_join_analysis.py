@@ -25,6 +25,11 @@ from quikscript_ir import (
 )
 from quikscript_fea import (
     _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS,
+    _analyze_quikscript_joins,
+    _can_eventually_exit_at,
+    _expand_backward_after_variants,
+    _expand_forward_before_variants,
+    _expand_join_variants,
     _resolve_noentry_replacement,
 )
 
@@ -300,6 +305,7 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
             gated_feature=ss_tag,
             errors=errors,
         )
+    _check_concrete_selector_consistency(glyph_meta_dict, errors)
     _warn_orphans(reachability)
     if errors:
         raise ValueError(
@@ -1210,6 +1216,394 @@ def _warn_orphans(reachability: JoinReachability) -> None:
                 OrphanAnchorWarning,
                 stacklevel=2,
             )
+
+
+def _check_concrete_selector_consistency(
+    glyph_meta: dict[str, JoinGlyph],
+    errors: list[str],
+) -> None:
+    plan = _analyze_quikscript_joins(glyph_meta)
+    seen_errors: set[str] = set()
+
+    def add_error(message: str) -> None:
+        if message in seen_errors:
+            return
+        seen_errors.add(message)
+        errors.append(message)
+
+    for _base_name, overrides in plan.pair_overrides.items():
+        for variant_name, after_glyphs in overrides:
+            _check_concrete_after_selectors(
+                plan,
+                variant_name,
+                after_glyphs,
+                feature_tag=None,
+                add_error=add_error,
+            )
+
+    for _base_name, overrides in plan.gated_pair_overrides.items():
+        for variant_name, after_glyphs, feature_tag in overrides:
+            _check_concrete_after_selectors(
+                plan,
+                variant_name,
+                after_glyphs,
+                feature_tag=feature_tag,
+                add_error=add_error,
+            )
+
+    for _base_name, overrides in plan.fwd_pair_overrides.items():
+        for variant_name, before_glyphs, _not_after_glyphs in overrides:
+            _check_concrete_before_selectors(
+                plan,
+                variant_name,
+                before_glyphs,
+                feature_tag=None,
+                add_error=add_error,
+            )
+
+    for _base_name, overrides in plan.gated_fwd_pair_overrides.items():
+        for variant_name, before_glyphs, _not_after_glyphs, feature_tag in overrides:
+            _check_concrete_before_selectors(
+                plan,
+                variant_name,
+                before_glyphs,
+                feature_tag=feature_tag,
+                add_error=add_error,
+            )
+
+
+def _check_concrete_after_selectors(
+    plan,
+    variant_name: str,
+    after_glyphs: list[str] | tuple[str, ...],
+    *,
+    feature_tag: str | None,
+    add_error,
+) -> None:
+    variant_meta = plan.glyph_meta[variant_name]
+    required_entry_ys = set(variant_meta.all_entry_ys)
+    if not required_entry_ys:
+        return
+
+    for selector in after_glyphs:
+        expanded = _expand_concrete_after_selector(
+            plan,
+            variant_name,
+            selector,
+            feature_tag=feature_tag,
+        )
+        expanded -= plan.terminal_entry_only
+        for candidate in sorted(expanded):
+            if candidate not in plan.glyph_meta:
+                continue
+            for entry_y in sorted(required_entry_ys):
+                if _can_eventually_exit_at(
+                    plan,
+                    candidate,
+                    entry_y,
+                    before_base=variant_meta.base_name,
+                    feature_tag=feature_tag,
+                ):
+                    continue
+                add_error(
+                    _format_concrete_after_error(
+                        variant_name,
+                        entry_y,
+                        selector,
+                        candidate,
+                        feature_tag,
+                    )
+                )
+
+
+def _check_concrete_before_selectors(
+    plan,
+    variant_name: str,
+    before_glyphs: list[str] | tuple[str, ...],
+    *,
+    feature_tag: str | None,
+    add_error,
+) -> None:
+    variant_meta = plan.glyph_meta[variant_name]
+    required_exit_ys = set(variant_meta.exit_ys)
+    if not required_exit_ys:
+        return
+
+    for selector in before_glyphs:
+        expanded = _expand_forward_before_variants(
+            variant_name,
+            (selector,),
+            analysis=plan,
+            feature_tag=feature_tag,
+        )
+        expanded -= plan.terminal_exit_only
+        for candidate in sorted(expanded):
+            if candidate not in plan.glyph_meta:
+                continue
+            if not _candidate_reachable_after_base(
+                plan,
+                candidate,
+                after_base=variant_meta.base_name,
+                feature_tag=feature_tag,
+            ):
+                continue
+            for exit_y in sorted(required_exit_ys):
+                candidate_entry_ys = set(plan.glyph_meta[candidate].all_entry_ys)
+                if (
+                    feature_tag is not None
+                    and candidate_entry_ys
+                    and exit_y not in candidate_entry_ys
+                ):
+                    continue
+                if _can_eventually_enter_at(
+                    plan,
+                    candidate,
+                    exit_y,
+                    after_base=variant_meta.base_name,
+                    feature_tag=feature_tag,
+                ):
+                    continue
+                if _candidate_has_runtime_entry_context(plan, candidate):
+                    continue
+                add_error(
+                    _format_concrete_before_error(
+                        variant_name,
+                        exit_y,
+                        selector,
+                        candidate,
+                        feature_tag,
+                    )
+                )
+
+
+def _expand_concrete_after_selector(
+    plan,
+    variant_name: str,
+    selector: str,
+    *,
+    feature_tag: str | None,
+) -> set[str]:
+    if feature_tag is None:
+        return _expand_backward_after_variants(
+            variant_name,
+            (selector,),
+            expand_selector=lambda glyph: _expand_join_variants([glyph], plan),
+            analysis=plan,
+        )
+
+    def expand_gated(glyph: str) -> set[str]:
+        base = plan.glyph_meta[glyph].base_name if glyph in plan.glyph_meta else glyph
+        return set(plan.base_to_variants.get(base, ()))
+
+    return _expand_backward_after_variants(
+        variant_name,
+        (selector,),
+        expand_selector=expand_gated,
+        analysis=plan,
+        feature_tag=feature_tag,
+    )
+
+
+def _can_eventually_enter_at(
+    plan,
+    name: str,
+    y: int,
+    *,
+    after_base: str | None,
+    feature_tag: str | None,
+) -> bool:
+    meta = plan.glyph_meta[name]
+    if y in meta.all_entry_ys:
+        return True
+    if name in plan.entry_classes.get(y, set()):
+        return True
+    for ancestor in _generation_ancestors(plan, name):
+        ancestor_meta = plan.glyph_meta[ancestor]
+        if y in ancestor_meta.all_entry_ys:
+            return True
+        if ancestor in plan.entry_classes.get(y, set()):
+            return True
+
+    base_name = meta.base_name
+    if name == base_name and y in plan.bk_replacements.get(base_name, {}):
+        return True
+
+    if after_base is not None and name == base_name:
+        for variant_name, selectors in plan.pair_overrides.get(base_name, ()):
+            variant_meta = plan.glyph_meta[variant_name]
+            if y in variant_meta.all_entry_ys and after_base in _selector_bases(
+                plan,
+                selectors,
+            ):
+                return True
+        if feature_tag is not None:
+            for variant_name, selectors, tag in plan.gated_pair_overrides.get(
+                base_name,
+                (),
+            ):
+                if tag != feature_tag:
+                    continue
+                variant_meta = plan.glyph_meta[variant_name]
+                if y in variant_meta.all_entry_ys and after_base in _selector_bases(
+                    plan,
+                    selectors,
+                ):
+                    return True
+
+    if y not in plan.bk_replacements.get(base_name, {}):
+        return False
+
+    for fwd_variant, _before_glyphs, _not_after_glyphs in plan.fwd_pair_overrides.get(
+        base_name,
+        (),
+    ):
+        if fwd_variant != name:
+            continue
+        fwd_meta = plan.glyph_meta[fwd_variant]
+        if fwd_meta.entry and y not in fwd_meta.entry_ys:
+            return True
+
+    if feature_tag is not None:
+        for (
+            fwd_variant,
+            _before_glyphs,
+            _not_after_glyphs,
+            tag,
+        ) in plan.gated_fwd_pair_overrides.get(base_name, ()):
+            if tag != feature_tag or fwd_variant != name:
+                continue
+            fwd_meta = plan.glyph_meta[fwd_variant]
+            if fwd_meta.entry and y not in fwd_meta.entry_ys:
+                return True
+
+    return False
+
+
+def _candidate_has_runtime_entry_context(plan, name: str) -> bool:
+    meta = plan.glyph_meta[name]
+    if meta.generated_from is not None or meta.noentry_for is not None:
+        return True
+    if meta.is_noentry:
+        return True
+    if meta.after or meta.before or meta.gated_before or meta.gate_feature:
+        return True
+    if meta.traits & {"alt", "half"}:
+        return True
+    for replacements in plan.fwd_replacements.values():
+        if name in replacements.values():
+            return True
+    for overrides in plan.fwd_pair_overrides.values():
+        if any(variant_name == name for variant_name, _before, _not_after in overrides):
+            return True
+    for overrides in plan.gated_fwd_pair_overrides.values():
+        if any(
+            variant_name == name
+            for variant_name, _before, _not_after, _tag in overrides
+        ):
+            return True
+    return False
+
+
+def _candidate_reachable_after_base(
+    plan,
+    name: str,
+    *,
+    after_base: str | None,
+    feature_tag: str | None,
+) -> bool:
+    if after_base is None:
+        return True
+
+    current = name
+    seen: set[str] = set()
+    while current not in seen:
+        seen.add(current)
+        meta = plan.glyph_meta.get(current)
+        if meta is None:
+            return True
+
+        if meta.after and after_base not in _selector_bases(plan, meta.after):
+            return False
+
+        for variant_name, selectors in plan.pair_overrides.get(meta.base_name, ()):
+            if variant_name != current:
+                continue
+            if after_base not in _selector_bases(plan, selectors):
+                return False
+
+        for variant_name, selectors, tag in plan.gated_pair_overrides.get(
+            meta.base_name,
+            (),
+        ):
+            if variant_name != current:
+                continue
+            if tag != feature_tag or after_base not in _selector_bases(plan, selectors):
+                return False
+
+        if meta.generated_from is not None:
+            current = meta.generated_from
+            continue
+        if meta.noentry_for is not None:
+            current = meta.noentry_for
+            continue
+        return True
+
+    return True
+
+
+def _generation_ancestors(plan, name: str) -> tuple[str, ...]:
+    ancestors: list[str] = []
+    current = name
+    seen: set[str] = set()
+    while current not in seen:
+        seen.add(current)
+        meta = plan.glyph_meta.get(current)
+        if meta is None:
+            break
+        parent = meta.generated_from or meta.noentry_for
+        if parent is None or parent not in plan.glyph_meta:
+            break
+        ancestors.append(parent)
+        current = parent
+    return tuple(ancestors)
+
+
+def _selector_bases(plan, selectors: list[str] | tuple[str, ...]) -> set[str]:
+    bases: set[str] = set()
+    for selector in selectors:
+        meta = plan.glyph_meta.get(selector)
+        bases.add(meta.base_name if meta is not None else selector)
+    return bases
+
+
+def _format_concrete_after_error(
+    variant_name: str,
+    entry_y: int,
+    selector: str,
+    candidate: str,
+    feature_tag: str | None,
+) -> str:
+    gate_note = f" under {feature_tag}" if feature_tag else ""
+    return (
+        f"concrete-selector-mismatch: {variant_name} enters y={entry_y} "
+        f"after {selector}{gate_note}, but selector {selector} expands to "
+        f"{candidate} with no y={entry_y} exit"
+    )
+
+
+def _format_concrete_before_error(
+    variant_name: str,
+    exit_y: int,
+    selector: str,
+    candidate: str,
+    feature_tag: str | None,
+) -> str:
+    gate_note = f" under {feature_tag}" if feature_tag else ""
+    return (
+        f"concrete-selector-mismatch: {variant_name} exits y={exit_y} "
+        f"before {selector}{gate_note}, but selector {selector} expands to "
+        f"{candidate} with no y={exit_y} entry"
+    )
 
 
 def _check_join_consistency(
