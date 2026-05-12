@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 import sys
+import warnings
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
@@ -28,8 +30,20 @@ from quikscript_ir import (
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
-from review_scoped_anchor_selectors import apply_suggestions_to_glyph_data
-from suggest_scoped_anchor_selectors import suggest_scoped_anchor_selectors
+from review_scoped_anchor_selectors import (
+    VariantExample,
+    VariantExampleFinder,
+    _build_review_font,
+    _hb_font,
+    _load_ps_names,
+    _plain_quikscript_families,
+    _rows_for_variants,
+    apply_suggestions_to_glyph_data,
+)
+from suggest_scoped_anchor_selectors import (
+    ScopedAnchorSuggestion,
+    suggest_scoped_anchor_selectors,
+)
 
 
 def test_widen_right_at_edge_widens_by_count():
@@ -1904,45 +1918,61 @@ def test_family_scoped_anchor_selector_collides_with_negative_family_selector():
         compile_glyph_families(families, "senior")
 
 
-def _scoped_selector_suggester_fixture(selector) -> GlyphData:
+def _scoped_selector_suggester_fixture(
+    selector,
+    *,
+    target_family: str = "qsLeft",
+    source_family: str = "qsRight",
+    bitmap: list[str] | None = None,
+    include_font_metadata: bool = False,
+) -> GlyphData:
+    bitmap = bitmap or ["#"]
+    glyph_families: dict[str, Any] = {
+        target_family: {
+            "prop": {
+                "bitmap": bitmap,
+                "anchors": {"exit": [1, 5]},
+            },
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "modifiers": ["entry-xheight"],
+                },
+                "exit_baseline": {
+                    "shape": "prop",
+                    "anchors": {"exit": [1, 0]},
+                    "modifiers": ["exit-baseline"],
+                },
+            },
+        },
+        source_family: {
+            "prop": {"bitmap": bitmap},
+            "forms": {
+                "entry_xheight": {
+                    "shape": "prop",
+                    "anchors": {"entry": [0, 5]},
+                    "select": {"after": [selector]},
+                    "modifiers": ["entry-xheight"],
+                },
+            },
+        },
+    }
+    if include_font_metadata:
+        glyph_families["space"] = {"mono": {"bitmap": [], "advance_width": 7}}
+    if include_font_metadata:
+        metadata = load_glyph_data(ROOT / "glyph_data")["metadata"]
+    else:
+        metadata = {}
+
     return {
-        "metadata": {},
+        "metadata": metadata,
         "glyphs": {},
         "context_sets": {
-            "lefts": [{"family": "qsLeft"}],
+            "lefts": [{"family": target_family}],
         },
         "kerning": {},
-        "glyph_families": {
-            "qsLeft": {
-                "prop": {
-                    "bitmap": ["#"],
-                    "anchors": {"exit": [1, 5]},
-                },
-                "forms": {
-                    "entry_xheight": {
-                        "shape": "prop",
-                        "anchors": {"entry": [0, 5]},
-                        "modifiers": ["entry-xheight"],
-                    },
-                    "exit_baseline": {
-                        "shape": "prop",
-                        "anchors": {"exit": [1, 0]},
-                        "modifiers": ["exit-baseline"],
-                    },
-                },
-            },
-            "qsRight": {
-                "prop": {"bitmap": ["#"]},
-                "forms": {
-                    "entry_xheight": {
-                        "shape": "prop",
-                        "anchors": {"entry": [0, 5]},
-                        "select": {"after": [selector]},
-                        "modifiers": ["entry-xheight"],
-                    },
-                },
-            },
-        },
+        "glyph_families": glyph_families,
     }
 
 
@@ -1982,6 +2012,91 @@ def test_scoped_anchor_reviewer_applies_suggestion_to_copy_only():
 
     join_glyphs, _ = compile_quikscript_ir(patched, "senior")
     assert join_glyphs["qsRight.entry-xheight"].after == ("qsLeft",)
+
+
+def _scoped_selector_review_fixture(selector) -> GlyphData:
+    return _scoped_selector_suggester_fixture(
+        selector,
+        target_family="qsMay",
+        source_family="qsPea",
+        bitmap=["#", "#", "#", "#", "#", "#"],
+        include_font_metadata=True,
+    )
+
+
+def _variant_example_finder(
+    data: GlyphData,
+    tmp_path: Path,
+) -> tuple[VariantExampleFinder, dict[str, JoinGlyph]]:
+    font_path = tmp_path / "review-font.otf"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _build_review_font(data, font_path)
+    ps_names = _load_ps_names()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        meta = compile_glyph_set(data, "senior").glyph_meta
+    return (
+        VariantExampleFinder(
+            glyph_data=data,
+            ps_names=ps_names,
+            context_families=_plain_quikscript_families(ps_names, data),
+            current_font=_hb_font(font_path),
+            current_meta=meta,
+            max_len=2,
+        ),
+        meta,
+    )
+
+
+def test_variant_example_finder_prefers_exact_suggestion_context(tmp_path):
+    data = _scoped_selector_review_fixture({"family": "qsMay"})
+    suggestion = suggest_scoped_anchor_selectors(data)[0]
+    finder, _ = _variant_example_finder(data, tmp_path)
+
+    example = finder.find(suggestion, "qsMay")
+
+    assert example.status == "exact"
+    assert example.families == ("qsMay", "qsPea")
+    assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
+
+
+def test_variant_example_finder_falls_back_to_variant_only_context(tmp_path):
+    data = _scoped_selector_review_fixture({"family": "qsMay"})
+    suggestion = suggest_scoped_anchor_selectors(data)[0]
+    finder, _ = _variant_example_finder(data, tmp_path)
+
+    example = finder.find(suggestion, "qsPea.entry-xheight")
+
+    assert example.status == "variant"
+    assert example.families == ("qsMay", "qsPea")
+    assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
+
+
+def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
+    names = tuple(f"qsMay.synthetic-{index}" for index in range(24))
+    examples = {
+        name: VariantExample(
+            status="internal",
+            label="Internal-only; no final typed-text example found",
+        )
+        for name in names
+    }
+    suggestion = ScopedAnchorSuggestion(
+        path="glyph_families.qsPea.forms.entry_xheight.select.after[0]",
+        current="{family: qsMay}",
+        suggested="{family: qsMay, exit_y: 5}",
+        incompatible=(),
+        family_name="qsPea",
+        target_family="qsMay",
+    )
+
+    rows = _rows_for_variants(names, {}, examples, suggestion)
+
+    assert "qsMay.synthetic-0" in rows
+    assert "qsMay.synthetic-23" in rows
+    assert "and 6 more" not in rows
+    assert "No final typed-text example" in rows
 
 
 def test_scoped_anchor_suggester_skips_already_scoped_selector():
