@@ -1,5 +1,7 @@
 .PHONY: all test typecheck print-job serve explainer snapshot-before check-html
 
+export UV_CACHE_DIR := .uv-cache
+
 all:
 	uv run python tools/build_font.py glyph_data/ test/
 	cd test && typst compile --font-path . print.typ

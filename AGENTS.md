@@ -20,11 +20,9 @@
 
 ## Python
 
-IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. For example:
+IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `python3` directly. The `UV_CACHE_DIR=.uv-cache` prefix points `uv` at a project-local cache so it works in sandboxed environments that can't reach the default `uv` cache (`~/.cache/uv` or `~/Library/Caches/uv`). For example:
 
-- `uv run pytest` not `pytest`
-
-If a sandbox prevents access to the default `uv` cache (e.g., `~/.cache/uv` or `~/Library/Caches/uv`), point `uv` at a project-local cache by setting `UV_CACHE_DIR=.uv-cache` (add `.uv-cache/` to `.gitignore` if it's not already covered).
+- `UV_CACHE_DIR=.uv-cache uv run pytest` not `pytest`
 
 ## Adding glyphs
 
