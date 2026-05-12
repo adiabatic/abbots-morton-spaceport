@@ -28,6 +28,7 @@ from quikscript_ir import (
     get_base_glyph_name,
     resolve_known_glyph_names,
 )
+from review_scoped_anchor_selectors import apply_suggestions_to_glyph_data
 from suggest_scoped_anchor_selectors import suggest_scoped_anchor_selectors
 
 
@@ -1955,7 +1956,32 @@ def test_scoped_anchor_suggester_reports_overbroad_family_selector():
     assert suggestion.path == "glyph_families.qsRight.forms.entry_xheight.select.after[0]"
     assert suggestion.current == "{family: qsLeft}"
     assert suggestion.suggested == "{family: qsLeft, exit_y: 5}"
+    assert suggestion.compatible == ("qsLeft",)
     assert "qsLeft.entry-xheight" in suggestion.incompatible
+    assert suggestion.family_name == "qsRight"
+    assert suggestion.record_name == "entry_xheight"
+    assert suggestion.record_kind == "forms"
+    assert suggestion.field_name == "after"
+    assert suggestion.selector_index == 0
+    assert suggestion.selected_name == "qsRight.entry-xheight"
+    assert suggestion.target_family == "qsLeft"
+    assert suggestion.anchor_key == "exit_y"
+    assert suggestion.required_y == 5
+
+
+def test_scoped_anchor_reviewer_applies_suggestion_to_copy_only():
+    data = _scoped_selector_suggester_fixture({"family": "qsLeft"})
+    suggestion = suggest_scoped_anchor_selectors(data)[0]
+
+    patched = apply_suggestions_to_glyph_data(data, [suggestion])
+
+    original_selector = data["glyph_families"]["qsRight"]["forms"]["entry_xheight"]["select"]["after"][0]
+    patched_selector = patched["glyph_families"]["qsRight"]["forms"]["entry_xheight"]["select"]["after"][0]
+    assert original_selector == {"family": "qsLeft"}
+    assert patched_selector == {"family": "qsLeft", "exit_y": 5}
+
+    join_glyphs, _ = compile_quikscript_ir(patched, "senior")
+    assert join_glyphs["qsRight.entry-xheight"].after == ("qsLeft",)
 
 
 def test_scoped_anchor_suggester_skips_already_scoped_selector():

@@ -41,6 +41,19 @@ class ScopedAnchorSuggestion:
     current: str
     suggested: str
     incompatible: tuple[str, ...]
+    compatible: tuple[str, ...] = ()
+    family_name: str = ""
+    record_name: str = ""
+    record_kind: str = ""
+    field_name: str = ""
+    selector_index: int = -1
+    selected_name: str = ""
+    target_family: str = ""
+    family_scope: str = ""
+    selected_side: str = ""
+    target_side: str = ""
+    anchor_key: str = ""
+    required_y: int | None = None
 
 
 def _selector_text(selector: dict[str, Any]) -> str:
@@ -114,13 +127,20 @@ def _iter_source_records(
     family_def: dict[str, Any],
 ):
     if family_def.get("prop"):
-        yield "prop", family_def["prop"], f"glyph_families.{family_name}.prop", family_name
+        yield (
+            "prop",
+            family_def["prop"],
+            f"glyph_families.{family_name}.prop",
+            family_name,
+            "prop",
+        )
     for form_name, raw in (family_def.get("forms") or {}).items():
         yield (
             form_name,
             raw,
             f"glyph_families.{family_name}.forms.{form_name}",
             None,
+            "forms",
         )
 
 
@@ -139,7 +159,7 @@ def suggest_scoped_anchor_selectors(
         if family_filter and family_name != family_filter:
             continue
         cache: dict[str, dict[str, Any]] = {}
-        for record_name, raw, path, base_output_name in _iter_source_records(
+        for record_name, raw, path, base_output_name, record_kind in _iter_source_records(
             family_name,
             family_def,
         ):
@@ -201,7 +221,9 @@ def suggest_scoped_anchor_selectors(
                     if not candidates:
                         continue
                     compatible = tuple(
-                        candidate for candidate in candidates if y in _anchor_ys(candidate, target_side)
+                        candidate
+                        for candidate in candidates
+                        if y in _anchor_ys(candidate, target_side)
                     )
                     if not compatible or len(compatible) == len(candidates):
                         continue
@@ -212,11 +234,24 @@ def suggest_scoped_anchor_selectors(
                             path=f"{path}.select.{field_name}[{index}]",
                             current=_selector_text(selector),
                             suggested=_selector_text(suggested_selector),
+                            compatible=tuple(candidate.name for candidate in compatible),
                             incompatible=tuple(
                                 candidate.name
                                 for candidate in candidates
                                 if y not in _anchor_ys(candidate, target_side)
                             ),
+                            family_name=family_name,
+                            record_name=record_name,
+                            record_kind=record_kind,
+                            field_name=field_name,
+                            selector_index=index,
+                            selected_name=selected.name,
+                            target_family=selector["family"],
+                            family_scope=scope,
+                            selected_side=selected_side,
+                            target_side=target_side,
+                            anchor_key=anchor_key,
+                            required_y=y,
                         )
                     )
 
