@@ -54,6 +54,16 @@ class ShapedRun:
 
 
 @dataclass(frozen=True)
+class VariantExample:
+    status: str
+    label: str
+    families: tuple[str, ...] = ()
+    text: str = ""
+    glyphs: tuple[str, ...] = ()
+    feature_tag: str | None = None
+
+
+@dataclass(frozen=True)
 class DroppedMatchCase:
     current: ShapedRun
     scoped: ShapedRun
@@ -193,6 +203,23 @@ def _feature_tag_for_suggestion(
     return selected.gate_feature if selected is not None else None
 
 
+def _feature_tag_for_variant(
+    name: str,
+    meta_map: dict[str, JoinGlyph],
+) -> str | None:
+    current: str | None = name
+    seen: set[str] = set()
+    while current and current not in seen:
+        seen.add(current)
+        meta = meta_map.get(current)
+        if meta is None:
+            return None
+        if meta.gate_feature:
+            return meta.gate_feature
+        current = meta.generated_from
+    return None
+
+
 def _sequence_candidates(
     glyph_data: GlyphData,
     suggestion: ScopedAnchorSuggestion,
@@ -232,6 +259,222 @@ def _sequence_candidates(
             for after_family in context_families:
                 add((before_family,), (after_family,))
     return results
+
+
+def _contextual_sequence_candidates(
+    base: tuple[str, ...],
+    context_families: tuple[str, ...],
+    max_len: int,
+) -> list[tuple[tuple[str, ...], int, int]]:
+    results: list[tuple[tuple[str, ...], int, int]] = []
+    seen: set[tuple[str, ...]] = set()
+
+    def add(prefix: tuple[str, ...], suffix: tuple[str, ...]) -> None:
+        families = prefix + base + suffix
+        if families in seen:
+            return
+        if len(families) > max_len and len(families) > len(base):
+            return
+        seen.add(families)
+        start = len(prefix)
+        results.append((families, start, start + len(base)))
+
+    add((), ())
+    if max_len >= len(base) + 1:
+        for context_family in context_families:
+            add((context_family,), ())
+            add((), (context_family,))
+    if max_len >= len(base) + 2:
+        for before_family in context_families:
+            for after_family in context_families:
+                add((before_family,), (after_family,))
+    return results
+
+
+def _typed_sequence_for_glyph(
+    name: str,
+    meta_map: dict[str, JoinGlyph],
+    ps_names: dict[str, int],
+) -> tuple[str, ...] | None:
+    meta = meta_map.get(name)
+    if meta is None:
+        return None
+    if meta.sequence:
+        sequence = meta.sequence
+    elif meta.base_name in ps_names:
+        sequence = (meta.base_name,)
+    elif meta.family and meta.family in ps_names:
+        sequence = (meta.family,)
+    elif name in ps_names:
+        sequence = (name,)
+    else:
+        return None
+    if all(family in ps_names for family in sequence):
+        return sequence
+    return None
+
+
+class VariantExampleFinder:
+    def __init__(
+        self,
+        *,
+        glyph_data: GlyphData,
+        ps_names: dict[str, int],
+        context_families: tuple[str, ...],
+        current_font: hb.Font,
+        current_meta: dict[str, JoinGlyph],
+        max_len: int,
+    ) -> None:
+        self.glyph_data = glyph_data
+        self.ps_names = ps_names
+        self.context_families = context_families
+        self.current_font = current_font
+        self.current_meta = current_meta
+        self.max_len = max_len
+        self._shape_cache: dict[
+            tuple[tuple[str, ...], tuple[tuple[str, bool], ...]],
+            ShapedRun | None,
+        ] = {}
+        self._variant_only_cache: dict[str, VariantExample | None] = {}
+
+    def find(
+        self,
+        suggestion: ScopedAnchorSuggestion,
+        variant_name: str,
+    ) -> VariantExample:
+        exact = self._find_exact_context(suggestion, variant_name)
+        if exact is not None:
+            return exact
+        variant_only = self._find_variant_only(variant_name)
+        if variant_only is not None:
+            return variant_only
+        return VariantExample(
+            status="internal",
+            label="Internal-only; no final typed-text example found",
+        )
+
+    def _shape_cached(
+        self,
+        families: tuple[str, ...],
+        features: dict[str, bool],
+    ) -> ShapedRun | None:
+        key = (families, tuple(sorted(features.items())))
+        if key not in self._shape_cache:
+            try:
+                self._shape_cache[key] = _shape_families(
+                    self.current_font,
+                    families,
+                    self.ps_names,
+                    features,
+                )
+            except ValueError:
+                self._shape_cache[key] = None
+        return self._shape_cache[key]
+
+    def _find_exact_context(
+        self,
+        suggestion: ScopedAnchorSuggestion,
+        variant_name: str,
+    ) -> VariantExample | None:
+        target_seq = _family_sequence(self.glyph_data, suggestion.target_family)
+        features = _features_for_suggestion(suggestion, self.current_meta)
+        feature_tag = _feature_tag_for_suggestion(suggestion, self.current_meta)
+
+        for families, source_start, source_end in _sequence_candidates(
+            self.glyph_data,
+            suggestion,
+            self.context_families,
+            self.max_len,
+        ):
+            run = self._shape_cached(families, features)
+            if run is None:
+                continue
+            spans = _input_spans(run.glyphs, self.current_meta)
+            if spans is None:
+                continue
+            if suggestion.field_name == "after":
+                target_start = source_start - len(target_seq)
+                target_end = source_start
+            else:
+                target_start = source_end
+                target_end = source_end + len(target_seq)
+
+            source_indices = tuple(
+                index
+                for index, glyph in enumerate(run.glyphs)
+                if spans[index] == (source_start, source_end)
+                and _is_selected_variant(glyph, suggestion.selected_name, self.current_meta)
+            )
+            target_indices = tuple(
+                index
+                for index, glyph in enumerate(run.glyphs)
+                if spans[index] == (target_start, target_end)
+                and glyph == variant_name
+            )
+            if not source_indices or not target_indices:
+                continue
+            if suggestion.field_name == "after":
+                is_adjacent = any(
+                    target_index + 1 == source_index
+                    for target_index in target_indices
+                    for source_index in source_indices
+                )
+            else:
+                is_adjacent = any(
+                    source_index + 1 == target_index
+                    for source_index in source_indices
+                    for target_index in target_indices
+                )
+            if is_adjacent:
+                return VariantExample(
+                    status="exact",
+                    label="Exact suggestion context",
+                    families=run.families,
+                    text=run.text,
+                    glyphs=run.glyphs,
+                    feature_tag=feature_tag,
+                )
+        return None
+
+    def _find_variant_only(self, variant_name: str) -> VariantExample | None:
+        if variant_name in self._variant_only_cache:
+            return self._variant_only_cache[variant_name]
+
+        base = _typed_sequence_for_glyph(variant_name, self.current_meta, self.ps_names)
+        if base is None:
+            self._variant_only_cache[variant_name] = None
+            return None
+
+        feature_tag = _feature_tag_for_variant(variant_name, self.current_meta)
+        features = {feature_tag: True} if feature_tag else {}
+        for families, start, end in _contextual_sequence_candidates(
+            base,
+            self.context_families,
+            self.max_len,
+        ):
+            run = self._shape_cached(families, features)
+            if run is None:
+                continue
+            spans = _input_spans(run.glyphs, self.current_meta)
+            if spans is None:
+                continue
+            if any(
+                glyph == variant_name and spans[index] == (start, end)
+                for index, glyph in enumerate(run.glyphs)
+            ):
+                example = VariantExample(
+                    status="variant",
+                    label="Variant-only context",
+                    families=run.families,
+                    text=run.text,
+                    glyphs=run.glyphs,
+                    feature_tag=feature_tag,
+                )
+                self._variant_only_cache[variant_name] = example
+                return example
+
+        self._variant_only_cache[variant_name] = None
+        return None
 
 
 def _candidate_incompatibility(
@@ -348,36 +591,155 @@ def _family_labels(families: tuple[str, ...]) -> str:
     return " ".join(_family_label(family) for family in families)
 
 
+def _family_labels_html(
+    families: tuple[str, ...],
+    *,
+    source_family: str,
+    target_family: str,
+) -> str:
+    parts = []
+    for family in families:
+        classes = ["family-label"]
+        if family == source_family:
+            classes.append("source-family")
+        if family == target_family:
+            classes.append("target-family")
+        label = html.escape(_family_label(family))
+        parts.append(
+            f"<span class=\"{' '.join(classes)}\">{label}</span>"
+        )
+    return " ".join(parts)
+
+
 def _glyphs_text(glyphs: tuple[str, ...]) -> str:
     return " | ".join(glyphs)
+
+
+def _glyph_relates_to_family(
+    glyph: str,
+    family: str,
+    meta_map: dict[str, JoinGlyph],
+) -> bool:
+    meta = meta_map.get(glyph)
+    if meta is None:
+        return glyph == family or glyph.startswith(family + ".")
+    return (
+        meta.family == family
+        or meta.base_name == family
+        or family in meta.sequence
+    )
+
+
+def _glyphs_html(
+    glyphs: tuple[str, ...],
+    meta_map: dict[str, JoinGlyph],
+    *,
+    source_family: str,
+    target_family: str,
+) -> str:
+    if not glyphs:
+        return '<span class="empty">No shaped glyph output</span>'
+    parts = []
+    for glyph in glyphs:
+        classes = ["glyph-token"]
+        if _glyph_relates_to_family(glyph, source_family, meta_map):
+            classes.append("source-glyph")
+        if _glyph_relates_to_family(glyph, target_family, meta_map):
+            classes.append("target-glyph")
+        parts.append(f"<code class=\"{' '.join(classes)}\">{html.escape(glyph)}</code>")
+    separator = '<span class="glyph-separator"> | </span>'
+    return '<span class="glyph-list">' + separator.join(parts) + "</span>"
 
 
 def _text_entities(text: str) -> str:
     return "".join(f"&#x{ord(char):X};" for char in text)
 
 
+def _variant_example_input_html(
+    example: VariantExample,
+    suggestion: ScopedAnchorSuggestion,
+) -> str:
+    if example.status == "internal":
+        return '<span class="empty">No final typed-text example</span>'
+    feature = (
+        f" <code>+{html.escape(example.feature_tag)}</code>"
+        if example.feature_tag
+        else ""
+    )
+    family_labels = _family_labels_html(
+        example.families,
+        source_family=suggestion.family_name,
+        target_family=suggestion.target_family,
+    )
+    return (
+        "<div class=\"example-families\">"
+        f"{family_labels}"
+        f"{feature}"
+        "</div>"
+        f"<span class=\"qs current variant-example-rendering\">{_text_entities(example.text)}</span>"
+    )
+
+
 def _rows_for_variants(
     names: tuple[str, ...],
     meta_map: dict[str, JoinGlyph],
-    *,
-    limit: int = 18,
+    examples: dict[str, VariantExample],
+    suggestion: ScopedAnchorSuggestion,
 ) -> str:
     rows = []
-    for name in names[:limit]:
+    for name in names:
+        example = examples.get(
+            name,
+            VariantExample(
+                status="internal",
+                label="Internal-only; no final typed-text example found",
+            ),
+        )
+        glyph_output = _glyphs_html(
+            example.glyphs,
+            meta_map,
+            source_family=suggestion.family_name,
+            target_family=suggestion.target_family,
+        )
         rows.append(
             "<tr>"
             f"<td><code>{html.escape(name)}</code></td>"
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
-            "</tr>"
-        )
-    remaining = len(names) - limit
-    if remaining > 0:
-        rows.append(
-            "<tr>"
-            f"<td colspan=\"2\">and {remaining} more</td>"
+            "<td>"
+            f"<span class=\"example-status example-status-{html.escape(example.status)}\">"
+            f"{html.escape(example.label)}"
+            "</span>"
+            "</td>"
+            f"<td>{_variant_example_input_html(example, suggestion)}</td>"
+            "<td>"
+            f"{glyph_output}"
+            "</td>"
             "</tr>"
         )
     return "\n".join(rows)
+
+
+def _variant_table(
+    names: tuple[str, ...],
+    meta_map: dict[str, JoinGlyph],
+    examples: dict[str, VariantExample],
+    suggestion: ScopedAnchorSuggestion,
+) -> str:
+    rows = _rows_for_variants(names, meta_map, examples, suggestion)
+    return (
+        "<table>"
+        "<thead>"
+        "<tr>"
+        "<th>Glyph</th>"
+        "<th>Anchors</th>"
+        "<th>Example status</th>"
+        "<th>QS input/rendering</th>"
+        "<th>Shaped glyph output</th>"
+        "</tr>"
+        "</thead>"
+        f"<tbody>{rows}</tbody>"
+        "</table>"
+    )
 
 
 def _dropped_match_rows(cases: list[DroppedMatchCase]) -> str:
@@ -415,9 +777,20 @@ def _suggestion_card(
     suggestion: ScopedAnchorSuggestion,
     cases: list[DroppedMatchCase],
     meta_map: dict[str, JoinGlyph],
+    variant_examples: dict[str, VariantExample],
 ) -> str:
-    compatible_rows = _rows_for_variants(suggestion.compatible, meta_map)
-    incompatible_rows = _rows_for_variants(suggestion.incompatible, meta_map)
+    compatible_table = _variant_table(
+        suggestion.compatible,
+        meta_map,
+        variant_examples,
+        suggestion,
+    )
+    incompatible_table = _variant_table(
+        suggestion.incompatible,
+        meta_map,
+        variant_examples,
+        suggestion,
+    )
     scoped_anchor = f"{suggestion.anchor_key}: {suggestion.required_y}"
     why = (
         f"<code>{html.escape(suggestion.selected_name)}</code> has "
@@ -434,11 +807,11 @@ def _suggestion_card(
   <div class="variant-grid">
     <section>
       <h3>Variants still matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.compatible)})</h3>
-      <table><tbody>{compatible_rows}</tbody></table>
+      {compatible_table}
     </section>
     <section>
       <h3>Variants no longer matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.incompatible)})</h3>
-      <table><tbody>{incompatible_rows}</tbody></table>
+      {incompatible_table}
     </section>
   </div>
   <h3>Dropped-match cases</h3>
@@ -451,6 +824,7 @@ def _html_page(
     *,
     suggestions: list[ScopedAnchorSuggestion],
     case_map: dict[str, list[DroppedMatchCase]],
+    variant_example_map: dict[str, dict[str, VariantExample]],
     meta_map: dict[str, JoinGlyph],
     current_font: Path,
     scoped_font: Path,
@@ -460,7 +834,12 @@ def _html_page(
     current_font_rel = os.path.relpath(current_font, output_path.parent)
     scoped_font_rel = os.path.relpath(scoped_font, output_path.parent)
     cards = "\n".join(
-        _suggestion_card(suggestion, case_map.get(suggestion.path, []), meta_map)
+        _suggestion_card(
+            suggestion,
+            case_map.get(suggestion.path, []),
+            meta_map,
+            variant_example_map.get(suggestion.path, {}),
+        )
         for suggestion in suggestions
     )
     case_count = sum(1 for suggestion in suggestions if case_map.get(suggestion.path))
@@ -571,11 +950,6 @@ def _html_page(
       gap: 16px;
       margin-block: 14px 18px;
     }}
-    @media (width > 760px) {{
-      .variant-grid {{
-        grid-template-columns: 1fr 1fr;
-      }}
-    }}
     .variant-grid section {{
       min-width: 0;
       background: var(--soft);
@@ -632,6 +1006,49 @@ def _html_page(
     .qs.scoped {{
       font-family: "AMS Scoped";
     }}
+    .variant-example-rendering {{
+      min-height: 34px;
+      margin-block: 4px 0;
+      font-size: 28px;
+    }}
+    .example-families {{
+      margin-bottom: 4px;
+      color: var(--muted);
+    }}
+    .family-label {{
+      display: inline-block;
+      border-bottom: 2px solid transparent;
+    }}
+    .source-family, .source-glyph {{
+      border-color: #2f7de1;
+      background: color-mix(in srgb, #2f7de1 16%, transparent);
+    }}
+    .target-family, .target-glyph {{
+      border-color: #c26900;
+      background: color-mix(in srgb, #c26900 16%, transparent);
+    }}
+    .source-family.target-family, .source-glyph.target-glyph {{
+      border-color: #7b51d1;
+      background: color-mix(in srgb, #7b51d1 18%, transparent);
+    }}
+    .glyph-list {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 2px;
+    }}
+    .glyph-token {{
+      border-bottom: 2px solid transparent;
+    }}
+    .glyph-separator {{
+      color: var(--muted);
+    }}
+    .example-status {{
+      font-weight: 650;
+    }}
+    .example-status-internal {{
+      color: var(--muted);
+    }}
     .empty {{
       margin: 8px 0 0;
       color: var(--muted);
@@ -672,8 +1089,17 @@ def build_review(
     current_meta = compile_glyph_set(glyph_data, "senior").glyph_meta
     current_font = _hb_font(current_font_path)
     scoped_font = _hb_font(scoped_font_path)
+    example_finder = VariantExampleFinder(
+        glyph_data=glyph_data,
+        ps_names=ps_names,
+        context_families=context_families,
+        current_font=current_font,
+        current_meta=current_meta,
+        max_len=max_len,
+    )
 
     case_map: dict[str, list[DroppedMatchCase]] = {}
+    variant_example_map: dict[str, dict[str, VariantExample]] = {}
     for suggestion in suggestions:
         case_map[suggestion.path] = find_dropped_match_cases(
             suggestion,
@@ -686,11 +1112,16 @@ def build_review(
             max_len=max_len,
             max_cases=max_cases,
         )
+        variant_example_map[suggestion.path] = {
+            name: example_finder.find(suggestion, name)
+            for name in (*suggestion.compatible, *suggestion.incompatible)
+        }
 
     output_path.write_text(
         _html_page(
             suggestions=suggestions,
             case_map=case_map,
+            variant_example_map=variant_example_map,
             meta_map=current_meta,
             current_font=current_font_path,
             scoped_font=scoped_font_path,
