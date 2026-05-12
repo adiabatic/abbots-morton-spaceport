@@ -98,6 +98,36 @@
         }
       }
     },
+    "familyAnchorYSelector": {
+      "type": "object",
+      "description": "Family-scoped anchor-Y selector: matches the named family, but only the compatible variants (including ligature/component expansions) whose exit (exit_y) or entry (entry_y) anchor sits at the given Y. Use in after lists as {family: qsMay, exit_y: 5} or in before lists as {family: qsTea, entry_y: 0}. Accepts optional traits/modifiers like a normal family selector. Cannot be combined with except (the family already scopes the match).",
+      "required": ["family"],
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["exit_y"] },
+        { "required": ["entry_y"] }
+      ],
+      "properties": {
+        "family": {
+          "type": "string",
+          "description": "Target glyph family name."
+        },
+        "exit_y": {
+          "type": "integer",
+          "description": "Restrict the family expansion to variants whose cursive_exit anchor sits at this Y."
+        },
+        "entry_y": {
+          "type": "integer",
+          "description": "Restrict the family expansion to variants whose cursive_entry anchor sits at this Y."
+        },
+        "traits": {
+          "$ref": "#/definitions/traitList"
+        },
+        "modifiers": {
+          "$ref": "#/definitions/modifierList"
+        }
+      }
+    },
     "traitList": {
       "type": "array",
       "description": "Semantic Quikscript traits. Use traits for real concepts like alt and half; use modifiers for implementation-level suffixes.",
@@ -156,6 +186,9 @@
         },
         {
           "$ref": "#/definitions/anchorYSelector"
+        },
+        {
+          "$ref": "#/definitions/familyAnchorYSelector"
         }
       ]
     },
