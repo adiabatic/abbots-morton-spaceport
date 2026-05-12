@@ -23,10 +23,10 @@ class NoCacheStaticHandler(StaticFileHandler):
 
 server = Server()
 server.SFH = NoCacheStaticHandler  # pyright: ignore[reportAttributeAccessIssue]
-server.watch(str(TEST_DIR / "*.html"))
-server.watch(str(TEST_DIR / "*.css"))
-server.watch(str(TEST_DIR / "*.otf"))
-server.watch(str(TEST_DIR / "*.js"))
+server.watch(str(TEST_DIR / "**/*.html"))
+server.watch(str(TEST_DIR / "**/*.css"))
+server.watch(str(TEST_DIR / "**/*.otf"))
+server.watch(str(TEST_DIR / "**/*.js"))
 server.serve(
     root=str(TEST_DIR),
     port=PORT,
