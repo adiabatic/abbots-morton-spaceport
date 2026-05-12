@@ -3,7 +3,7 @@
 The tool is read-only with respect to source data: it applies suggested
 ``entry_y`` / ``exit_y`` selector scopes to an in-memory copy of glyph data,
 builds temporary Senior-Regular fonts under ``tmp/``, and writes an HTML page
-showing selector expansion and shaping witnesses.
+showing selector expansion and dropped-match cases.
 
 Usage::
 
@@ -54,10 +54,10 @@ class ShapedRun:
 
 
 @dataclass(frozen=True)
-class Witness:
+class DroppedMatchCase:
     current: ShapedRun
     scoped: ShapedRun
-    incompatible_glyph: str
+    dropped_glyph: str
     feature_tag: str | None
 
 
@@ -263,7 +263,7 @@ def _candidate_incompatibility(
     return None
 
 
-def find_witnesses(
+def find_dropped_match_cases(
     suggestion: ScopedAnchorSuggestion,
     *,
     glyph_data: GlyphData,
@@ -273,11 +273,11 @@ def find_witnesses(
     scoped_font: hb.Font,
     current_meta: dict[str, JoinGlyph],
     max_len: int,
-    max_witnesses: int,
-) -> list[Witness]:
+    max_cases: int,
+) -> list[DroppedMatchCase]:
     features = _features_for_suggestion(suggestion, current_meta)
     feature_tag = _feature_tag_for_suggestion(suggestion, current_meta)
-    witnesses: list[Witness] = []
+    cases: list[DroppedMatchCase] = []
     for families, source_start, source_end in _sequence_candidates(
         glyph_data,
         suggestion,
@@ -298,17 +298,17 @@ def find_witnesses(
         if incompatible is None:
             continue
         scoped = _shape_families(scoped_font, families, ps_names, features)
-        witnesses.append(
-            Witness(
+        cases.append(
+            DroppedMatchCase(
                 current=current,
                 scoped=scoped,
-                incompatible_glyph=incompatible,
+                dropped_glyph=incompatible,
                 feature_tag=feature_tag,
             )
         )
-        if len(witnesses) >= max_witnesses:
+        if len(cases) >= max_cases:
             break
-    return witnesses
+    return cases
 
 
 def _build_review_font(glyph_data: GlyphData, output_path: Path) -> str:
@@ -380,39 +380,45 @@ def _rows_for_variants(
     return "\n".join(rows)
 
 
-def _witness_rows(witnesses: list[Witness]) -> str:
-    if not witnesses:
-        return '<p class="empty">No reachable witness found in the configured search depth.</p>'
-    rows = []
-    for witness in witnesses:
-        feature = f" +{witness.feature_tag}" if witness.feature_tag else ""
-        changed = "yes" if witness.current.glyphs != witness.scoped.glyphs else "no"
-        rows.append(
-            "<tr>"
-            f"<td>{html.escape(_family_labels(witness.current.families))}{html.escape(feature)}</td>"
-            f"<td><span class=\"qs current\">{_text_entities(witness.current.text)}</span>"
-            f"<code>{html.escape(_glyphs_text(witness.current.glyphs))}</code></td>"
-            f"<td><span class=\"qs scoped\">{_text_entities(witness.scoped.text)}</span>"
-            f"<code>{html.escape(_glyphs_text(witness.scoped.glyphs))}</code></td>"
-            f"<td>{changed}</td>"
-            f"<td><code>{html.escape(witness.incompatible_glyph)}</code></td>"
-            "</tr>"
+def _dropped_match_rows(cases: list[DroppedMatchCase]) -> str:
+    if not cases:
+        return '<p class="empty">No dropped-match case found in the configured search depth.</p>'
+    articles = []
+    for case in cases:
+        feature = f" +{case.feature_tag}" if case.feature_tag else ""
+        changed = "yes" if case.current.glyphs != case.scoped.glyphs else "no"
+        articles.append(
+            "<article class=\"dropped-match-case\">"
+            "<header class=\"case-meta\">"
+            f"<span><strong>Sequence</strong> {html.escape(_family_labels(case.current.families))}{html.escape(feature)}</span>"
+            f"<span><strong>Changed</strong> {changed}</span>"
+            f"<span><strong>Dropped match</strong> <code>{html.escape(case.dropped_glyph)}</code></span>"
+            "</header>"
+            "<div class=\"comparison-grid\">"
+            "<section>"
+            "<h4>Current</h4>"
+            f"<span class=\"qs current\">{_text_entities(case.current.text)}</span>"
+            f"<code>{html.escape(_glyphs_text(case.current.glyphs))}</code>"
+            "</section>"
+            "<section>"
+            "<h4>Scoped</h4>"
+            f"<span class=\"qs scoped\">{_text_entities(case.scoped.text)}</span>"
+            f"<code>{html.escape(_glyphs_text(case.scoped.glyphs))}</code>"
+            "</section>"
+            "</div>"
+            "</article>"
         )
-    return (
-        "<table class=\"witnesses\">"
-        "<thead><tr><th>Sequence</th><th>Current</th><th>Scoped</th>"
-        "<th>Changed</th><th>Incompatible neighbor</th></tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>"
-    )
+    return f"<div class=\"dropped-match-cases\">{''.join(articles)}</div>"
 
 
 def _suggestion_card(
     suggestion: ScopedAnchorSuggestion,
-    witnesses: list[Witness],
+    cases: list[DroppedMatchCase],
     meta_map: dict[str, JoinGlyph],
 ) -> str:
     compatible_rows = _rows_for_variants(suggestion.compatible, meta_map)
     incompatible_rows = _rows_for_variants(suggestion.incompatible, meta_map)
+    scoped_anchor = f"{suggestion.anchor_key}: {suggestion.required_y}"
     why = (
         f"<code>{html.escape(suggestion.selected_name)}</code> has "
         f"{html.escape(suggestion.selected_side)} y={suggestion.required_y}; "
@@ -427,16 +433,16 @@ def _suggestion_card(
   </header>
   <div class="variant-grid">
     <section>
-      <h3>Kept by the scoped selector ({len(suggestion.compatible)})</h3>
+      <h3>Variants still matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.compatible)})</h3>
       <table><tbody>{compatible_rows}</tbody></table>
     </section>
     <section>
-      <h3>Dropped by the scoped selector ({len(suggestion.incompatible)})</h3>
+      <h3>Variants no longer matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.incompatible)})</h3>
       <table><tbody>{incompatible_rows}</tbody></table>
     </section>
   </div>
-  <h3>Witnesses</h3>
-  {_witness_rows(witnesses)}
+  <h3>Dropped-match cases</h3>
+  {_dropped_match_rows(cases)}
 </section>
 """
 
@@ -444,7 +450,7 @@ def _suggestion_card(
 def _html_page(
     *,
     suggestions: list[ScopedAnchorSuggestion],
-    witness_map: dict[str, list[Witness]],
+    case_map: dict[str, list[DroppedMatchCase]],
     meta_map: dict[str, JoinGlyph],
     current_font: Path,
     scoped_font: Path,
@@ -454,10 +460,11 @@ def _html_page(
     current_font_rel = os.path.relpath(current_font, output_path.parent)
     scoped_font_rel = os.path.relpath(scoped_font, output_path.parent)
     cards = "\n".join(
-        _suggestion_card(suggestion, witness_map.get(suggestion.path, []), meta_map)
+        _suggestion_card(suggestion, case_map.get(suggestion.path, []), meta_map)
         for suggestion in suggestions
     )
-    witnessed_count = sum(1 for suggestion in suggestions if witness_map.get(suggestion.path))
+    case_count = sum(1 for suggestion in suggestions if case_map.get(suggestion.path))
+    suggestion_label = "suggestion" if len(suggestions) == 1 else "suggestions"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -547,6 +554,10 @@ def _html_page(
       margin-block: 16px 24px;
       color: var(--muted);
     }}
+    .dropped-match-note {{
+      max-width: 82ch;
+      margin-block: -8px 24px;
+    }}
     .suggestion {{
       border-top: 2px solid var(--rule);
       padding-block: 18px 28px;
@@ -572,14 +583,40 @@ def _html_page(
       border-radius: 6px;
       padding: 10px;
     }}
-    .witnesses td:nth-child(1) {{
-      width: 16%;
+    .dropped-match-cases {{
+      display: grid;
+      gap: 12px;
     }}
-    .witnesses td:nth-child(4) {{
-      width: 8%;
+    .dropped-match-case {{
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--soft);
+      padding: 10px;
     }}
-    .witnesses td:nth-child(5) {{
-      width: 18%;
+    .case-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }}
+    .comparison-grid {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }}
+    @media (width > 760px) {{
+      .comparison-grid {{
+        grid-template-columns: 1fr 1fr;
+      }}
+    }}
+    .comparison-grid section {{
+      min-width: 0;
+    }}
+    h4 {{
+      margin: 0 0 6px;
+      font-size: 13px;
+      color: var(--text);
     }}
     .qs {{
       display: block;
@@ -604,7 +641,9 @@ def _html_page(
 <body>
   <main>
     <h1>Scoped anchor selector review</h1>
-    <p class="summary">{len(suggestions)} suggestions; {witnessed_count} have witnesses at max length {max_len}. The scoped font is built from an in-memory copy of the YAML, not from edited source files.</p>
+    <p class="summary">{len(suggestions)} {suggestion_label}; dropped-match cases found for {case_count} at max length {max_len}. The scoped font is built from an in-memory copy of the YAML, not from edited source files.</p>
+    <p class="summary dropped-match-note">A scoped selector is a narrower selector like <code>{{family: qsMay, exit_y: 5}}</code> instead of <code>{{family: qsMay}}</code>; it still matches <code>qsMay</code> variants, but only the variants with the requested anchor Y.</p>
+    <p class="summary dropped-match-note">A dropped-match case is a concrete Quikscript input sequence where the current broad selector reaches a variant that the proposed scoped selector would no longer match. The Current and Scoped columns show how that same sequence shapes before and after the simulated selector change; Changed says whether the final glyph names differ.</p>
     {cards}
   </main>
 </body>
@@ -618,7 +657,7 @@ def build_review(
     *,
     output_path: Path,
     max_len: int,
-    max_witnesses: int,
+    max_cases: int,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     current_font_path = output_path.parent / "current" / SENIOR_FONT_NAME
@@ -634,9 +673,9 @@ def build_review(
     current_font = _hb_font(current_font_path)
     scoped_font = _hb_font(scoped_font_path)
 
-    witness_map: dict[str, list[Witness]] = {}
+    case_map: dict[str, list[DroppedMatchCase]] = {}
     for suggestion in suggestions:
-        witness_map[suggestion.path] = find_witnesses(
+        case_map[suggestion.path] = find_dropped_match_cases(
             suggestion,
             glyph_data=glyph_data,
             ps_names=ps_names,
@@ -645,13 +684,13 @@ def build_review(
             scoped_font=scoped_font,
             current_meta=current_meta,
             max_len=max_len,
-            max_witnesses=max_witnesses,
+            max_cases=max_cases,
         )
 
     output_path.write_text(
         _html_page(
             suggestions=suggestions,
-            witness_map=witness_map,
+            case_map=case_map,
             meta_map=current_meta,
             current_font=current_font_path,
             scoped_font=scoped_font_path,
@@ -682,13 +721,13 @@ def main() -> None:
         "--max-len",
         type=int,
         default=3,
-        help="Maximum input-family sequence length for witness search.",
+        help="Maximum input-family sequence length for dropped-match case search.",
     )
     parser.add_argument(
-        "--max-witnesses",
+        "--max-cases",
         type=int,
         default=6,
-        help="Maximum witnesses to show per suggestion.",
+        help="Maximum dropped-match cases to show per suggestion.",
     )
     parser.add_argument(
         "--output",
@@ -717,7 +756,7 @@ def main() -> None:
         suggestions,
         output_path=args.output,
         max_len=args.max_len,
-        max_witnesses=args.max_witnesses,
+        max_cases=args.max_cases,
     )
     print(f"Wrote {args.output}")
 
