@@ -15,6 +15,7 @@ wheels/
 /test/AbbotsMortonSpaceport*.fea
 /test/print.pdf
 /test/before/
+/test/scoped-anchor-review/
 
 # Scratch files
 tmp/
