@@ -1,9 +1,13 @@
-"""Build an HTML review page for scoped anchor selector suggestions.
+"""Build HTML review pages for scoped anchor selector suggestions.
 
 The tool is read-only with respect to source data: it applies suggested
 ``entry_y`` / ``exit_y`` selector scopes to an in-memory copy of glyph data,
-builds temporary Senior-Regular fonts under ``tmp/``, and writes an HTML page
+builds temporary Senior-Regular fonts under ``tmp/``, and writes HTML pages
 showing selector expansion and dropped-match cases.
+
+With no filters, writes ``index.html`` as a list of links to per-letter
+``<family>.html`` pages (one per family with suggestions). Pass ``--family``
+or ``--path`` to regenerate one per-letter page at a time.
 
 Usage::
 
@@ -41,7 +45,7 @@ from suggest_scoped_anchor_selectors import (
     suggest_scoped_anchor_selectors,
 )
 
-DEFAULT_OUTPUT = ROOT / "tmp" / "scoped-anchor-review" / "index.html"
+DEFAULT_OUTPUT_DIR = ROOT / "tmp" / "scoped-anchor-review"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 SENIOR_FONT_NAME = "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
@@ -791,11 +795,20 @@ def _suggestion_card(
         variant_examples,
         suggestion,
     )
-    scoped_anchor = f"{suggestion.anchor_key}: {suggestion.required_y}"
     why = (
         f"<code>{html.escape(suggestion.selected_name)}</code> has "
         f"{html.escape(suggestion.selected_side)} y={suggestion.required_y}; "
         f"the opposite side must provide {html.escape(suggestion.target_side)} y={suggestion.required_y}."
+    )
+    selector_locator = (
+        f"{suggestion.selected_name}.select."
+        f"{suggestion.field_name}[{suggestion.selector_index}]"
+    )
+    target_family_html = f"<code>{html.escape(suggestion.target_family)}</code>"
+    selector_locator_html = f"<code>{html.escape(selector_locator)}</code>"
+    swap_html = (
+        f"<code>{html.escape(suggestion.current)}</code> &rarr; "
+        f"<code>{html.escape(suggestion.suggested)}</code>"
     )
     return f"""
 <section class="suggestion" id="{html.escape(suggestion.path)}">
@@ -806,11 +819,11 @@ def _suggestion_card(
   </header>
   <div class="variant-grid">
     <section>
-      <h3>Variants still matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.compatible)})</h3>
+      <h3>{target_family_html} variants still matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.compatible)})</h3>
       {compatible_table}
     </section>
     <section>
-      <h3>Variants no longer matched if you add <code>{html.escape(scoped_anchor)}</code> ({len(suggestion.incompatible)})</h3>
+      <h3>{target_family_html} variants no longer matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.incompatible)})</h3>
       {incompatible_table}
     </section>
   </div>
@@ -1131,6 +1144,122 @@ def build_review(
     )
 
 
+def _index_html_page(entries: list[tuple[str, int]]) -> str:
+    if entries:
+        items_html = "\n".join(
+            "      <li>"
+            f'<a href="{html.escape(family)}.html">{html.escape(_family_label(family))}</a> '
+            '<span class="muted">('
+            f"<code>{html.escape(family)}</code>; "
+            f'{count} suggestion{"" if count == 1 else "s"}'
+            ")</span>"
+            "</li>"
+            for family, count in entries
+        )
+        total = sum(count for _, count in entries)
+        family_word = "family" if len(entries) == 1 else "families"
+        suggestion_word = "suggestion" if total == 1 else "suggestions"
+        summary = f"{total} {suggestion_word} across {len(entries)} {family_word}."
+    else:
+        items_html = '      <li class="empty">No scoped-anchor suggestions.</li>'
+        summary = "No suggestions to review."
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Scoped anchor selector review</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+      line-height: 1.4;
+      --bg: #fff;
+      --text: #16191f;
+      --muted: #5c6470;
+      --code-bg: #eceff3;
+
+      @media (prefers-color-scheme: dark) {{
+        --bg: #101318;
+        --text: #eceff3;
+        --muted: #a8b0bd;
+        --code-bg: #252b35;
+      }}
+    }}
+    body {{
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+    }}
+    main {{
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px;
+
+      h1 {{
+        margin-block: 0 8px;
+        font-size: 28px;
+        line-height: 1.2;
+      }}
+      p {{
+        color: var(--muted);
+      }}
+      ul {{
+        list-style: none;
+        padding: 0;
+        margin-block: 12px 0;
+
+        li {{
+          margin-block: 6px;
+        }}
+      }}
+      a {{
+        color: var(--text);
+        text-decoration: underline;
+      }}
+    }}
+    code {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 0.08em 0.28em;
+    }}
+    .muted, .empty {{
+      color: var(--muted);
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Scoped anchor selector review</h1>
+    <p>{html.escape(summary)} Regenerate a per-letter page with <code>tools/review_scoped_anchor_selectors.py --family qsXxx</code>.</p>
+    <ul>
+{items_html}
+    </ul>
+  </main>
+</body>
+</html>
+"""
+
+
+def build_review_index(
+    suggestions: list[ScopedAnchorSuggestion],
+    *,
+    index_path: Path,
+) -> None:
+    """Write ``index_path`` as a list of links to per-family review pages."""
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    ps_names = _load_ps_names()
+    counts: dict[str, int] = {}
+    for suggestion in suggestions:
+        counts[suggestion.family_name] = counts.get(suggestion.family_name, 0) + 1
+    entries = sorted(
+        counts.items(),
+        key=lambda item: (ps_names.get(item[0], 0xFFFF), item[0]),
+    )
+    index_path.write_text(_index_html_page(entries))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1163,8 +1292,12 @@ def main() -> None:
     parser.add_argument(
         "--output",
         type=Path,
-        default=DEFAULT_OUTPUT,
-        help="HTML output path (default: tmp/scoped-anchor-review/index.html).",
+        default=None,
+        help=(
+            "HTML output path. Defaults to "
+            "tmp/scoped-anchor-review/index.html, or "
+            "tmp/scoped-anchor-review/<family>.html when --family / --path is set."
+        ),
     )
     args = parser.parse_args()
 
@@ -1182,14 +1315,20 @@ def main() -> None:
         print("No family-scoped anchor selector suggestions.")
         return
 
-    build_review(
-        data,
-        suggestions,
-        output_path=args.output,
-        max_len=args.max_len,
-        max_cases=args.max_cases,
-    )
-    print(f"Wrote {args.output}")
+    if args.family or args.path:
+        family_for_default = args.family or suggestions[0].family_name
+        output_path = args.output or DEFAULT_OUTPUT_DIR / f"{family_for_default}.html"
+        build_review(
+            data,
+            suggestions,
+            output_path=output_path,
+            max_len=args.max_len,
+            max_cases=args.max_cases,
+        )
+    else:
+        output_path = args.output or DEFAULT_OUTPUT_DIR / "index.html"
+        build_review_index(suggestions, index_path=output_path)
+    print(f"Wrote {output_path}")
 
 
 if __name__ == "__main__":
