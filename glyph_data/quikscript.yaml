@@ -2321,7 +2321,7 @@ glyph_families:
         anchors:
           exit: [0, 0]
         select:
-          before: [{family: qsMay}]
+          before: [{family: qsMay, entry_y: 0}]
         derive:
           extend_exit_before: {by: 5, targets: [{family: qsMay}]}
         modifiers: [exit-baseline, before-may]
