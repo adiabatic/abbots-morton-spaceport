@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from collections.abc import Iterator
@@ -15,6 +16,18 @@ ROOT = Path(__file__).resolve().parent.parent
 _shaping_cache: dict[str, Any] = {}
 
 
+def _make_env() -> dict[str, str]:
+    # The outer `make test-and-review` runs with `-j2` and exports a jobserver
+    # pipe via MAKEFLAGS. Python's subprocess.run defaults to close_fds=True,
+    # so the inner `make all` would inherit the auth string but not the fds
+    # and emit "jobserver unavailable: using -j1". Drop MAKEFLAGS so it just
+    # runs standalone.
+    env = os.environ.copy()
+    env.pop("MAKEFLAGS", None)
+    env.pop("MFLAGS", None)
+    return env
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Under xdist, the controller dispatches but doesn't run tests, so the
     # lazy build in _ensure_shaping_cache would never fire on it. Build here
@@ -25,14 +38,14 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    subprocess.run(["make", "all"], cwd=ROOT, check=True)
+    subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
     _shaping_cache["_built"] = True
 
 
 def _ensure_shaping_cache() -> dict[str, Any]:
     if "fonts" not in _shaping_cache:
         if "_built" not in _shaping_cache:
-            subprocess.run(["make", "all"], cwd=ROOT, check=True)
+            subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
             _shaping_cache["_built"] = True
         from test_shaping import load_font, build_anchor_map
 
