@@ -603,7 +603,7 @@ def _family_label(family: str) -> str:
 
 
 def _family_labels(families: tuple[str, ...]) -> str:
-    return " ".join(_family_label(family) for family in families)
+    return "".join(_family_label(family) for family in families)
 
 
 def _family_labels_html(
@@ -623,7 +623,7 @@ def _family_labels_html(
         parts.append(
             f"<span class=\"{' '.join(classes)}\">{label}</span>"
         )
-    return " ".join(parts)
+    return "".join(parts)
 
 
 def _glyphs_text(glyphs: tuple[str, ...]) -> str:
