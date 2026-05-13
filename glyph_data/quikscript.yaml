@@ -654,7 +654,7 @@ glyph_families:
         anchors:
           exit: [3, 0]
         select:
-          before: [{family: qsIng}]
+          before: [{family: qsIng, entry_y: 0}]
         modifiers: [exit-baseline]
       noentry_after_tall:
         shape: mono
