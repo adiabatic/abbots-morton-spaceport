@@ -2069,6 +2069,7 @@ def test_variant_example_finder_falls_back_to_variant_only_context(tmp_path):
     example = finder.find(suggestion, "qsPea.entry-xheight")
 
     assert example.status == "variant"
+    assert example.label == "Example that produces this glyph\n(not this selector context)"
     assert example.families == ("qsMay", "qsPea")
     assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
 
@@ -2097,6 +2098,27 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
     assert "qsMay.synthetic-23" in rows
     assert "and 6 more" not in rows
     assert "No final typed-text example" in rows
+
+
+def test_variant_rows_render_label_line_breaks():
+    suggestion = ScopedAnchorSuggestion(
+        path="glyph_families.qsPea.forms.entry_xheight.select.after[0]",
+        current="{family: qsMay}",
+        suggested="{family: qsMay, exit_y: 5}",
+        incompatible=(),
+        family_name="qsPea",
+        target_family="qsMay",
+    )
+    examples = {
+        "qsMay": VariantExample(
+            status="variant",
+            label="Example that produces this glyph\n(not this selector context)",
+        )
+    }
+
+    rows = _rows_for_variants(("qsMay",), {}, examples, suggestion)
+
+    assert "Example that produces this glyph<br>(not this selector context)" in rows
 
 
 def test_scoped_anchor_suggester_skips_already_scoped_selector():
