@@ -2218,7 +2218,7 @@ glyph_families:
         anchors:
           exit: [1, 0]
         select:
-          before: [{family: qsLow}]
+          before: [{family: qsLow, entry_y: 0}]
         gate_feature_behind: ss04
         modifiers: [before-low]
       entry_nowhere_exit_xheight:
