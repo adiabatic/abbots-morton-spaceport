@@ -521,6 +521,235 @@ def test_contract_entry_after_shifts_entry_right_without_widening_bitmap():
     assert contracted.transform_kind == "entry-contracted"
 
 
+def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 5]},
+                    },
+                    "forms": {
+                        "exit_baseline": {
+                            "shape": "prop",
+                            "anchors": {"exit": [1, 0]},
+                            "modifiers": ["exit-baseline"],
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["###"],
+                        "anchors": {"entry": [0, 0]},
+                        "derive": {
+                            "extend_entry_after": {
+                                "by": 1,
+                                "targets": [{"family": "qsLead", "exit_y": 0}],
+                            },
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    spec = glyphs["qsFollow"].extend_entry_after
+    assert spec is not None
+    assert spec.targets == ("qsLead", "qsLead.exit-baseline")
+    assert glyphs["qsFollow.entry-extended"].after == ("qsLead", "qsLead.exit-baseline")
+
+
+def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 0]},
+                        "derive": {
+                            "extend_exit_before": {
+                                "by": 1,
+                                "targets": [{"family": "qsFollow", "entry_y": 0}],
+                            },
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"entry": [0, 5]},
+                    },
+                    "forms": {
+                        "entry_baseline": {
+                            "shape": "prop",
+                            "anchors": {"entry": [0, 0]},
+                            "modifiers": ["entry-baseline"],
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    spec = glyphs["qsLead"].extend_exit_before
+    assert spec is not None
+    assert spec.targets == ("qsFollow", "qsFollow.entry-baseline")
+    assert glyphs["qsLead.exit-extended"].before == ("qsFollow", "qsFollow.entry-baseline")
+
+
+def test_contract_entry_after_targets_accept_family_scoped_anchor_selector():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 5]},
+                    },
+                    "forms": {
+                        "exit_baseline": {
+                            "shape": "prop",
+                            "anchors": {"exit": [1, 0]},
+                            "modifiers": ["exit-baseline"],
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["###"],
+                        "anchors": {"entry": [0, 0]},
+                        "derive": {
+                            "contract_entry_after": {
+                                "by": 1,
+                                "targets": [{"family": "qsLead", "exit_y": 0}],
+                            },
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    spec = glyphs["qsFollow"].contract_entry_after
+    assert spec is not None
+    assert spec.targets == ("qsLead", "qsLead.exit-baseline")
+    assert glyphs["qsFollow.entry-contracted"].after == ("qsLead", "qsLead.exit-baseline")
+
+
+def test_contract_exit_before_targets_accept_family_scoped_anchor_selector():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": [" ##", "#  ", "#  "],
+                        "anchors": {
+                            "entry": [0, 0],
+                            "exit": [2, 2],
+                        },
+                        "derive": {
+                            "contract_exit_before": {
+                                "by": 1,
+                                "targets": [{"family": "qsFollow", "entry_y": 2}],
+                            },
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["##"],
+                        "anchors": {"entry": [0, 5]},
+                    },
+                    "forms": {
+                        "entry_high": {
+                            "shape": "prop",
+                            "anchors": {"entry": [0, 2]},
+                            "modifiers": ["entry-high"],
+                        },
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    spec = glyphs["qsLead"].contract_exit_before
+    assert spec is not None
+    assert spec.targets == ("qsFollow", "qsFollow.entry-high")
+    assert glyphs["qsLead.exit-contracted"].before == ("qsFollow", "qsFollow.entry-high")
+
+
+def test_extend_exit_before_targets_accept_bare_anchor_selector_with_except():
+    glyphs, _ = compile_quikscript_ir(
+        {
+            "metadata": {},
+            "glyphs": {},
+            "glyph_families": {
+                "qsLead": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"exit": [1, 0]},
+                        "derive": {
+                            "extend_exit_before": {
+                                "by": 1,
+                                "targets": [
+                                    {
+                                        "entry_y": 0,
+                                        "except": [{"family": "qsExempt"}],
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                },
+                "qsFollow": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"entry": [0, 0]},
+                    },
+                },
+                "qsExempt": {
+                    "prop": {
+                        "bitmap": ["#"],
+                        "anchors": {"entry": [0, 0]},
+                    },
+                },
+            },
+            "context_sets": {},
+            "kerning": {},
+        },
+        "senior",
+    )
+
+    spec = glyphs["qsLead"].extend_exit_before
+    assert spec is not None
+    assert "qsFollow" in spec.targets
+    assert "qsExempt" not in spec.targets
+    assert "qsFollow" in glyphs["qsLead.exit-extended"].before
+    assert "qsExempt" not in glyphs["qsLead.exit-extended"].before
+
+
 def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
     glyphs, _ = compile_quikscript_ir(
         {
