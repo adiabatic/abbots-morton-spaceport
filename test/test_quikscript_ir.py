@@ -34,6 +34,7 @@ from review_scoped_anchor_selectors import (
     VariantExample,
     VariantExampleFinder,
     _build_review_font,
+    _glyph_name_html,
     _hb_font,
     _load_ps_names,
     _plain_quikscript_families,
@@ -2094,8 +2095,8 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
 
     rows = _rows_for_variants(names, {}, examples, suggestion)
 
-    assert "qsMay.synthetic-0" in rows
-    assert "qsMay.synthetic-23" in rows
+    assert _glyph_name_html("qsMay.synthetic-0") in rows
+    assert _glyph_name_html("qsMay.synthetic-23") in rows
     assert "and 6 more" not in rows
     assert "No final typed-text example" in rows
 
