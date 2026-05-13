@@ -1268,7 +1268,7 @@ def _html_page(
     .glyph-separator {{
       color: var(--muted);
     }}
-    .example-status {{
+    .example-status-exact {{
       font-weight: 650;
     }}
     .example-status-internal {{
