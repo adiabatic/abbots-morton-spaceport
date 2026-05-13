@@ -37,7 +37,7 @@ from review_scoped_anchor_selectors import (
     _glyph_name_html,
     _hb_font,
     _load_ps_names,
-    _plain_quikscript_families,
+    _review_context_sequences,
     _rows_for_variants,
     apply_suggestions_to_glyph_data,
 )
@@ -2041,7 +2041,7 @@ def _variant_example_finder(
         VariantExampleFinder(
             glyph_data=data,
             ps_names=ps_names,
-            context_families=_plain_quikscript_families(ps_names, data),
+            context_sequences=_review_context_sequences(ps_names, data),
             current_font=_hb_font(font_path),
             current_meta=meta,
             max_len=2,
