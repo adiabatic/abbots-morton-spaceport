@@ -181,7 +181,7 @@ glyph_families:
           entry: [0, 5]
           exit: [4, 0]
         select:
-          after: [{family: qsMay}, {family: qsUtter}]
+          after: [{family: qsMay, exit_y: 5}, {family: qsUtter}]
           not_before: [{family: qsZoo}, {family: qsCheer}, {family: qsJay}, {family: qsNo}, {family: qsRoe}, {family: qsLlan}, {family: qsIt}, {family: qsEt}, {family: qsEight}, {family: qsAwe}, {family: qsOx}, {family: qsOwe}, {family: qsFoot}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
