@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
@@ -1372,7 +1372,9 @@ def _collect_anchor_classes(
     )
 
 
-def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
+def _make_sentinel_expander(
+    metadata: dict[str, JoinGlyph],
+) -> Callable[[tuple[str, ...]], tuple[str, ...]]:
     exit_classes, entry_classes = _collect_anchor_classes(metadata)
     base_to_variants: dict[str, set[str]] = {}
     for glyph_name, meta in metadata.items():
@@ -1436,7 +1438,7 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
                 return (scope,)
         return ()
 
-    def _expand_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
+    def expand(values: tuple[str, ...]) -> tuple[str, ...]:
         if not values:
             return values
         if not any(is_anchor_sentinel(v) for v in values):
@@ -1469,12 +1471,18 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
                     expanded.append(member)
         return tuple(expanded)
 
+    return expand
+
+
+def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
+    expand = _make_sentinel_expander(metadata)
+
     expanded_metadata: dict[str, JoinGlyph] = {}
     for glyph_name, meta in metadata.items():
-        new_after = _expand_tuple(meta.after)
-        new_before = _expand_tuple(meta.before)
-        new_not_after = _expand_tuple(meta.not_after)
-        new_not_before = _expand_tuple(meta.not_before)
+        new_after = expand(meta.after)
+        new_before = expand(meta.before)
+        new_not_after = expand(meta.not_after)
+        new_not_before = expand(meta.not_before)
         if (
             new_after is meta.after
             and new_before is meta.before
@@ -1491,6 +1499,37 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
             not_before=new_not_before,
         )
     return expanded_metadata
+
+
+_EXTENSION_TARGET_FIELDS: tuple[str, ...] = (
+    "extend_entry_after",
+    "extend_exit_before",
+    "contract_entry_after",
+    "contract_exit_before",
+)
+
+
+def _expand_anchor_sentinels_in_extension_targets(
+    metadata: dict[str, JoinGlyph],
+) -> dict[str, JoinGlyph]:
+    expand = _make_sentinel_expander(metadata)
+
+    rewritten: dict[str, JoinGlyph] = {}
+    for glyph_name, meta in metadata.items():
+        changes: dict[str, ExtensionSpec] = {}
+        for field in _EXTENSION_TARGET_FIELDS:
+            spec: ExtensionSpec | None = getattr(meta, field)
+            if spec is None or not spec.targets:
+                continue
+            new_targets = expand(spec.targets)
+            if new_targets is spec.targets:
+                continue
+            changes[field] = ExtensionSpec(by=spec.by, targets=new_targets)
+        if changes:
+            rewritten[glyph_name] = replace(meta, **changes)
+        else:
+            rewritten[glyph_name] = meta
+    return rewritten
 
 
 def _shift_anchors(anchors: tuple[Anchor, ...], *, dx: int = -1) -> tuple[Anchor, ...]:
@@ -3243,6 +3282,7 @@ def compile_quikscript_ir(
             modifiers=[*record["traits"], *record["modifiers"]],
             contextual=record["contextual"],
         )
+    join_glyphs = _expand_anchor_sentinels_in_extension_targets(join_glyphs)
     transforms: list[JoinTransform] = []
     if variant == "senior":
         join_glyphs = _inherit_ligature_entries_from_lead(join_glyphs)
