@@ -1154,6 +1154,17 @@ def _html_page(
       font-size: 12px;
       font-weight: 650;
     }}
+    .back-to-index {{
+      display: inline-block;
+      margin-block: 0 8px;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--muted);
+      text-decoration: none;
+    }}
+    .back-to-index:hover {{
+      color: var(--text);
+    }}
     .summary {{
       margin-block: 16px 24px;
       color: var(--muted);
@@ -1300,6 +1311,7 @@ def _html_page(
 </head>
 <body>
   <main>
+    <a class="back-to-index" href="/scoped-anchor-review/" aria-label="Back to scoped-anchor review index">⎋</a>
     <h1>Scoped anchor selector review</h1>
     <p class="summary">{len(suggestions)} {suggestion_label}; dropped-match cases found for {case_count} at max length {max_len}. The scoped font is built from an in-memory copy of the YAML, not from edited source files.</p>
     <p class="summary dropped-match-note">A scoped selector is a narrower selector like <code>{{family: qsMay, exit_y: 5}}</code> instead of <code>{{family: qsMay}}</code>; it still matches <code>qsMay</code> variants, but only the variants with the requested anchor Y.</p>

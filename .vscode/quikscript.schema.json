@@ -169,6 +169,11 @@
         },
         "modifiers": {
           "$ref": "#/definitions/modifierList"
+        },
+        "why_not_narrower": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Documentation-only: explain why this broad {family: …} selector must NOT be narrowed to a family-scoped anchor selector like {family: …, entry_y: N} / {family: …, exit_y: N}. Selectors carrying this key are skipped by tools/suggest_scoped_anchor_selectors.py and therefore omitted from the scoped-anchor review HTML. Use after a tightening attempt has been proved unsafe by generated FEA or focused shaping tests."
         }
       }
     },

@@ -664,10 +664,17 @@ def _resolve_family_selector_name(
     if not isinstance(value, dict):
         raise ValueError(f"{context_family} {context} must contain strings or selector mappings")
 
-    unknown_keys = set(value) - {"family", "traits", "modifiers"}
+    unknown_keys = set(value) - {"family", "traits", "modifiers", "why_not_narrower"}
     if unknown_keys:
         keys = ", ".join(sorted(unknown_keys))
         raise ValueError(f"{context_family} {context} uses unsupported selector keys: {keys}")
+
+    if "why_not_narrower" in value:
+        why = value["why_not_narrower"]
+        if not isinstance(why, str) or not why.strip():
+            raise ValueError(
+                f"{context_family} {context} why_not_narrower must be a non-empty string"
+            )
 
     target_family = value.get("family")
     if not isinstance(target_family, str) or not target_family:
