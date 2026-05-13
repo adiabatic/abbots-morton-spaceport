@@ -1789,6 +1789,84 @@ def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
     assert join_glyphs["qsRight.entry-xheight"].after == ()
 
 
+def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "exit_baseline": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 0]},
+                        "select": {"before": [{"family": "qsRight", "entry_y": 0}]},
+                        "modifiers": ["exit-baseline"],
+                    },
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_baseline": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 0]},
+                        "modifiers": ["entry-baseline"],
+                    },
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsLeft.exit-baseline"].before == (
+        "qsRight",
+        "qsRight.entry-baseline",
+    )
+
+
+def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
+    data: GlyphData = {
+        "metadata": {},
+        "glyphs": {},
+        "context_sets": {},
+        "kerning": {},
+        "glyph_families": {
+            "qsLeft": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "exit_baseline": {
+                        "shape": "prop",
+                        "anchors": {"exit": [1, 0]},
+                        "modifiers": ["exit-baseline"],
+                    },
+                },
+            },
+            "qsRight": {
+                "prop": {"bitmap": ["#"]},
+                "forms": {
+                    "entry_baseline": {
+                        "shape": "prop",
+                        "anchors": {"entry": [0, 0]},
+                        "select": {"after": [{"family": "qsLeft", "exit_y": 0}]},
+                        "modifiers": ["entry-baseline"],
+                    },
+                },
+            },
+        },
+    }
+
+    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+
+    assert join_glyphs["qsRight.entry-baseline"].after == (
+        "qsLeft",
+        "qsLeft.exit-baseline",
+    )
+
+
 def test_family_scoped_anchor_selector_rejects_invalid_y():
     import pytest
 
