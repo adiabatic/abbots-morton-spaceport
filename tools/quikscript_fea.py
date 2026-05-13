@@ -2851,6 +2851,32 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _emit_fwd_pairs(base_name)
         _emit_fwd_general(base_name)
 
+    def _pending_prev_context_guards(
+        prev_glyphs: list[str],
+        candidate_name: str,
+    ) -> set[str]:
+        expanded_prev = set(_expand_all_variants(prev_glyphs))
+        guards = set(expanded_prev)
+        candidate_base = _meta(candidate_name).base_name
+        for prior_base, fwd_overrides in fwd_pair_overrides.items():
+            source_slot: set[str] | None = None
+            for fwd_variant, fwd_lookahead, _not_after in fwd_overrides:
+                if fwd_variant not in expanded_prev:
+                    continue
+                expanded_lookahead = _expand_all_variants(
+                    fwd_lookahead,
+                    include_base=True,
+                )
+                if (
+                    candidate_name not in expanded_lookahead
+                    and candidate_base not in expanded_lookahead
+                ):
+                    continue
+                if source_slot is None:
+                    source_slot = _fwd_pair_source_slot(prior_base)
+                guards.update(source_slot)
+        return guards
+
     def _collect_pending_bk_pair_guards(
         candidate_name: str,
         entry_ys: set[int],
@@ -2878,7 +2904,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     right_base_name,
                 ):
                     continue
-                guards.update(_expand_all_variants(prev_glyphs))
+                guards.update(_pending_prev_context_guards(prev_glyphs, candidate_name))
             return guards
 
         for prev_exit_y, pending_variant in bk_replacements.get(candidate_base, {}).items():
@@ -2897,7 +2923,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 right_base_name,
             ):
                 continue
-            guards.update(_expand_all_variants(prev_glyphs))
+            guards.update(_pending_prev_context_guards(prev_glyphs, candidate_name))
 
         needed_exit_ys = entry_ys - set(candidate_meta.exit_ys)
         if needed_exit_ys:
