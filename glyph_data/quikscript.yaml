@@ -2705,7 +2705,7 @@ glyph_families:
         select:
           not_after: null
           not_before: null
-          before: [{family: qsDay}]
+          before: [{family: qsDay, entry_y: 5}]
         derive:
           extend_exit_before: null
           extend_exit_before_gated: null
@@ -2715,7 +2715,7 @@ glyph_families:
         inherits: exit_xheight
         select:
           not_before: null
-          before: [{family: qsDay}]
+          before: [{family: qsDay, entry_y: 5}]
         derive:
           extend_exit_before: null
           extend_exit_before_gated: null
