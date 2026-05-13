@@ -793,6 +793,7 @@ def _suggestion_card(
     cases: list[DroppedMatchCase],
     meta_map: dict[str, JoinGlyph],
     variant_examples: dict[str, VariantExample],
+    page_path: str,
 ) -> str:
     compatible_table = _variant_table(
         suggestion.compatible,
@@ -818,9 +819,26 @@ def _suggestion_card(
     target_family_html = f"<code>{html.escape(suggestion.target_family)}</code>"
     selector_locator_html = f"<code>{html.escape(selector_locator)}</code>"
     swap_html = (
-        f"<code>{html.escape(suggestion.current)}</code> &rarr; "
+        f"<code>{html.escape(suggestion.current)}</code> to "
         f"<code>{html.escape(suggestion.suggested)}</code>"
     )
+    swap_text = f"`{suggestion.current}` to `{suggestion.suggested}`"
+    target_family_text = f"`{suggestion.target_family}`"
+    selector_locator_text = f"`{selector_locator}`"
+    compatible_copy_text = (
+        f"I’m looking at {page_path}. In “"
+        f"{target_family_text} variants still matched after "
+        f"{selector_locator_text} narrows from {swap_text} "
+        f"({len(suggestion.compatible)})”"
+    )
+    incompatible_copy_text = (
+        f"I’m looking at {page_path}. In “"
+        f"{target_family_text} variants no longer matched after "
+        f"{selector_locator_text} narrows from {swap_text} "
+        f"({len(suggestion.incompatible)})”"
+    )
+    compatible_copy_attr = html.escape(compatible_copy_text, quote=True)
+    incompatible_copy_attr = html.escape(incompatible_copy_text, quote=True)
     return f"""
 <section class="suggestion" id="{html.escape(suggestion.path)}">
   <header>
@@ -830,11 +848,11 @@ def _suggestion_card(
   </header>
   <div class="variant-grid">
     <section>
-      <h3>{target_family_html} variants still matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.compatible)})</h3>
+      <h3><button type="button" class="copy-line" data-copy-text="{compatible_copy_attr}">Copy</button> {target_family_html} variants still matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.compatible)})</h3>
       {compatible_table}
     </section>
     <section>
-      <h3>{target_family_html} variants no longer matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.incompatible)})</h3>
+      <h3><button type="button" class="copy-line" data-copy-text="{incompatible_copy_attr}">Copy</button> {target_family_html} variants no longer matched after {selector_locator_html} narrows from {swap_html} ({len(suggestion.incompatible)})</h3>
       {incompatible_table}
     </section>
   </div>
@@ -857,12 +875,18 @@ def _html_page(
 ) -> str:
     current_font_rel = os.path.relpath(current_font, output_path.parent)
     scoped_font_rel = os.path.relpath(scoped_font, output_path.parent)
+    repo_root = Path(__file__).resolve().parent.parent
+    try:
+        page_path = str(output_path.resolve().relative_to(repo_root))
+    except ValueError:
+        page_path = output_path.name
     cards = "\n".join(
         _suggestion_card(
             suggestion,
             case_map.get(suggestion.path, []),
             meta_map,
             variant_example_map.get(suggestion.path, {}),
+            page_path,
         )
         for suggestion in suggestions
     )
@@ -1077,6 +1101,24 @@ def _html_page(
       margin: 8px 0 0;
       color: var(--muted);
     }}
+    .copy-line {{
+      font: inherit;
+      font-size: 11px;
+      padding: 2px 8px;
+      margin-right: 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--soft);
+      color: var(--text);
+      cursor: pointer;
+      vertical-align: baseline;
+    }}
+    .copy-line:hover {{
+      background: var(--code-bg);
+    }}
+    .copy-line.copied {{
+      color: var(--muted);
+    }}
   </style>
 </head>
 <body>
@@ -1087,6 +1129,23 @@ def _html_page(
     <p class="summary dropped-match-note">A dropped-match case is a concrete Quikscript input sequence where the current broad selector reaches a variant that the proposed scoped selector would no longer match. The Current and Scoped columns show how that same sequence shapes before and after the simulated selector change; Changed says whether the final glyph names differ.</p>
     {cards}
   </main>
+  <script>
+    document.addEventListener('click', (event) => {{
+      const button = event.target.closest('.copy-line');
+      if (!button) return;
+      const text = button.dataset.copyText;
+      if (text == null) return;
+      navigator.clipboard.writeText(text).then(() => {{
+        const original = button.textContent;
+        button.textContent = 'Copied';
+        button.classList.add('copied');
+        setTimeout(() => {{
+          button.textContent = original;
+          button.classList.remove('copied');
+        }}, 1200);
+      }});
+    }});
+  </script>
 </body>
 </html>
 """
