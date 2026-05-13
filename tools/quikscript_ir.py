@@ -1374,12 +1374,67 @@ def _collect_anchor_classes(
 
 def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGlyph]:
     exit_classes, entry_classes = _collect_anchor_classes(metadata)
+    base_to_variants: dict[str, set[str]] = {}
+    for glyph_name, meta in metadata.items():
+        base_to_variants.setdefault(meta.base_name, set()).add(glyph_name)
 
     def _member_matches_scope(member: str, scope: str) -> bool:
         meta = metadata.get(member)
         if "." not in scope:
             return meta is not None and meta.base_name == scope
         return member == scope or member.startswith(scope + ".")
+
+    def _is_unrestricted_entry_upgrade(meta: JoinGlyph, y: int) -> bool:
+        if y not in meta.entry_ys:
+            return False
+        if meta.word_final or meta.is_noentry or meta.reverse_upgrade_from:
+            return False
+        if meta.after or meta.before:
+            return False
+        if meta.extended_entry_suffix or meta.extended_exit_suffix:
+            return False
+        if meta.contracted_entry_suffix or meta.contracted_exit_suffix:
+            return False
+        if "half" in meta.traits and not meta.exit:
+            return False
+        return True
+
+    def _is_unrestricted_exit_upgrade(meta: JoinGlyph, y: int) -> bool:
+        if y not in meta.exit_ys:
+            return False
+        if meta.word_final or meta.is_noentry:
+            return False
+        if meta.after or meta.before or meta.gated_before:
+            return False
+        if meta.entry or meta.entry_curs_only:
+            return False
+        if meta.extended_entry_suffix or meta.extended_exit_suffix:
+            return False
+        if meta.contracted_entry_suffix or meta.contracted_exit_suffix:
+            return False
+        return True
+
+    def _potential_scoped_anchor_members(parsed: _AnchorSelector) -> tuple[str, ...]:
+        scope = parsed.family_scope
+        if scope is None or scope not in metadata:
+            return ()
+
+        scope_meta = metadata[scope]
+        if parsed.kind == "entry_y":
+            if parsed.y in scope_meta.entry_ys:
+                return ()
+            matches = _is_unrestricted_entry_upgrade
+        else:
+            if parsed.y in scope_meta.exit_ys:
+                return ()
+            matches = _is_unrestricted_exit_upgrade
+
+        for variant_name in base_to_variants.get(scope_meta.base_name, ()):
+            if not _member_matches_scope(variant_name, scope):
+                continue
+            if matches(metadata[variant_name], parsed.y):
+                return (scope,)
+        return ()
 
     def _expand_tuple(values: tuple[str, ...]) -> tuple[str, ...]:
         if not values:
@@ -1398,7 +1453,8 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
             members = (
                 exit_classes if parsed.kind == "exit_y" else entry_classes
             ).get(parsed.y, ())
-            for member in members:
+            scoped_potentials = _potential_scoped_anchor_members(parsed)
+            for member in sorted({*members, *scoped_potentials}):
                 if parsed.family_scope and not _member_matches_scope(
                     member,
                     parsed.family_scope,

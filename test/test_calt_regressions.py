@@ -935,6 +935,13 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(
     assert _shape_qs(*parts) == expected
 
 
+def test_qs_they_may_keeps_manual_baseline_join():
+    glyphs = _shape_qs("qsThey", "qsMay")
+
+    assert glyphs == ["qsThey.exit-baseline.before-may", "qsMay.entry-baseline"]
+    assert _pair_join_ys(glyphs, 0) == {0}
+
+
 @pytest.mark.parametrize(
     ("left_base", "right_base"),
     [
@@ -1727,6 +1734,15 @@ def test_qs_see_pea_keeps_the_y6_join():
         "qsSee.exit-y6",
         "qsPea.entry-y6",
     ]
+
+
+def test_qs_pea_pea_low_keeps_y6_then_baseline_joins():
+    glyphs = _shape_qs("qsPea", "qsPea", "qsLow")
+
+    assert _base_names(glyphs) == ("qsPea", "qsPea", "qsLow")
+    assert "half" in _compiled_meta()[glyphs[0]].traits
+    assert _pair_join_ys(glyphs, 0) == {6}
+    assert _pair_join_ys(glyphs, 1) == {0}
 
 
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():

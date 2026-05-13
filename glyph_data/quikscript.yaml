@@ -245,10 +245,7 @@ glyph_families:
           exit: [4, 6]
         select:
           not_before: null
-          before:
-            - family: qsPea
-              why_not_narrower: |
-                Tightening to {family: qsPea, entry_y: 6} drops bare qsPea from the before-list, but bare qsPea is exactly what the follower looks like when this lookup fires — no earlier lookup has assigned it qsPea.entry-y6 yet. Without the bare match the predecessor never flips to the half form, and ·Pea·Pea·X (X ∈ {Pea, Low, See, …}) shapes as three bare qsPeas.
+          before: [{family: qsPea, entry_y: 6}]
         modifiers: [exit-y6]
   qsBay:
     mono:
@@ -707,10 +704,7 @@ glyph_families:
           exit: [6, 0]
           exit_ink_y: -1
         select:
-          before:
-            - family: qsMay
-              why_not_narrower: |
-                The manual joins ·They·May at the baseline. When this lookup fires, the follower is still bare qsMay (no entry anchor yet), so tightening to {family: qsMay, entry_y: 0} would miss it and the manual's join would break.
+          before: [{family: qsMay, entry_y: 0}]
         modifiers: [exit-baseline, before-may]
       entry_xheight_exit_baseline_before_may:
         inherits: exit_baseline_before_may
