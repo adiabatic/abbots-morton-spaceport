@@ -5,13 +5,15 @@ The tool is read-only with respect to source data: it applies suggested
 builds temporary Senior-Regular fonts under ``tmp/``, and writes HTML pages
 showing selector expansion and dropped-match cases.
 
-With no filters, writes ``index.html`` as a list of links to per-letter
-``<family>.html`` pages (one per family with suggestions). Pass ``--family``
-or ``--path`` to regenerate one per-letter page at a time.
+With no filters, builds ``index.html`` plus a per-family ``<family>.html``
+page for every family that has suggestions, fanning the work out across
+worker processes (``--jobs``). Pass ``--family`` or ``--path`` to regenerate
+one per-letter page at a time.
 
 Usage::
 
     uv run python tools/review_scoped_anchor_selectors.py
+    uv run python tools/review_scoped_anchor_selectors.py --jobs 4
     uv run python tools/review_scoped_anchor_selectors.py --family qsPea
     uv run python tools/review_scoped_anchor_selectors.py --path 'glyph_families.qsPea.forms.entry_xheight.select.after[0]'
 """
@@ -24,6 +26,8 @@ import html
 import io
 import os
 import sys
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,6 +52,13 @@ from suggest_scoped_anchor_selectors import (
 DEFAULT_OUTPUT_DIR = ROOT / "tmp" / "scoped-anchor-review"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 SENIOR_FONT_NAME = "AbbotsMortonSpaceportSansSenior-Regular.otf"
+SENIOR_FONT_STEM = Path(SENIOR_FONT_NAME).stem
+SENIOR_FONT_SUFFIX = Path(SENIOR_FONT_NAME).suffix
+DEFAULT_JOBS = 8
+
+
+def _scoped_font_filename(family: str) -> str:
+    return f"{SENIOR_FONT_STEM}--{family}{SENIOR_FONT_SUFFIX}"
 
 
 @dataclass(frozen=True)
@@ -1088,13 +1099,17 @@ def build_review(
     output_path: Path,
     max_len: int,
     max_cases: int,
+    current_font_path: Path | None = None,
 ) -> None:
+    if not suggestions:
+        raise ValueError("build_review needs at least one suggestion")
+    family = suggestions[0].family_name
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    current_font_path = output_path.parent / "current" / SENIOR_FONT_NAME
-    scoped_font_path = output_path.parent / "scoped" / SENIOR_FONT_NAME
+    if current_font_path is None:
+        current_font_path = output_path.parent / "current" / SENIOR_FONT_NAME
+        _build_review_font(glyph_data, current_font_path)
+    scoped_font_path = output_path.parent / "scoped" / _scoped_font_filename(family)
     scoped_data = apply_suggestions_to_glyph_data(glyph_data, suggestions)
-
-    _build_review_font(glyph_data, current_font_path)
     _build_review_font(scoped_data, scoped_font_path)
 
     ps_names = _load_ps_names()
@@ -1260,6 +1275,89 @@ def build_review_index(
     index_path.write_text(_index_html_page(entries))
 
 
+_WORKER_STATE: dict[str, Any] = {}
+
+
+def _worker_init(
+    glyph_data: GlyphData,
+    current_font_path: Path,
+    max_len: int,
+    max_cases: int,
+) -> None:
+    _WORKER_STATE["glyph_data"] = glyph_data
+    _WORKER_STATE["current_font_path"] = current_font_path
+    _WORKER_STATE["max_len"] = max_len
+    _WORKER_STATE["max_cases"] = max_cases
+
+
+def _worker_build_family(
+    task: tuple[list[ScopedAnchorSuggestion], Path],
+) -> str:
+    suggestions, output_path = task
+    build_review(
+        _WORKER_STATE["glyph_data"],
+        suggestions,
+        output_path=output_path,
+        max_len=_WORKER_STATE["max_len"],
+        max_cases=_WORKER_STATE["max_cases"],
+        current_font_path=_WORKER_STATE["current_font_path"],
+    )
+    return suggestions[0].family_name
+
+
+def build_all_reviews(
+    glyph_data: GlyphData,
+    suggestions: list[ScopedAnchorSuggestion],
+    *,
+    index_path: Path,
+    max_len: int,
+    max_cases: int,
+    jobs: int,
+) -> list[Path]:
+    """Build the index page and every per-family page in *index_path*'s directory.
+
+    The unscoped font is built once and shared; each family's scoped font is
+    built independently into ``scoped/<font-stem>--<family>.otf`` so workers
+    don't clobber each other. Returns the list of per-family HTML paths in
+    code-point order.
+    """
+    output_dir = index_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+    current_font_path = output_dir / "current" / SENIOR_FONT_NAME
+    _build_review_font(glyph_data, current_font_path)
+
+    per_family: dict[str, list[ScopedAnchorSuggestion]] = defaultdict(list)
+    for suggestion in suggestions:
+        per_family[suggestion.family_name].append(suggestion)
+    ps_names = _load_ps_names()
+    ordered_families = sorted(
+        per_family,
+        key=lambda family: (ps_names.get(family, 0xFFFF), family),
+    )
+
+    tasks: list[tuple[list[ScopedAnchorSuggestion], Path]] = [
+        (per_family[family], output_dir / f"{family}.html")
+        for family in ordered_families
+    ]
+
+    workers = max(1, min(jobs, len(tasks)))
+    if workers == 1:
+        _worker_init(glyph_data, current_font_path, max_len, max_cases)
+        for task in tasks:
+            _worker_build_family(task)
+    else:
+        with ProcessPoolExecutor(
+            max_workers=workers,
+            initializer=_worker_init,
+            initargs=(glyph_data, current_font_path, max_len, max_cases),
+        ) as pool:
+            for _ in pool.map(_worker_build_family, tasks):
+                pass
+
+    build_review_index(suggestions, index_path=index_path)
+    return [output_path for _, output_path in tasks]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1296,10 +1394,23 @@ def main() -> None:
         help=(
             "HTML output path. Defaults to "
             "tmp/scoped-anchor-review/index.html, or "
-            "tmp/scoped-anchor-review/<family>.html when --family / --path is set."
+            "tmp/scoped-anchor-review/<family>.html when --family / --path is set. "
+            "In the no-filter case, per-family pages are written alongside the index."
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=DEFAULT_JOBS,
+        help=(
+            "Maximum worker processes for building per-family pages "
+            f"(default: {DEFAULT_JOBS}). Capped at the number of families with suggestions."
         ),
     )
     args = parser.parse_args()
+
+    if args.jobs < 1:
+        raise SystemExit("--jobs must be at least 1.")
 
     data = load_glyph_data(args.glyph_data)
     suggestions = suggest_scoped_anchor_selectors(
@@ -1325,10 +1436,19 @@ def main() -> None:
             max_len=args.max_len,
             max_cases=args.max_cases,
         )
+        print(f"Wrote {output_path}")
     else:
         output_path = args.output or DEFAULT_OUTPUT_DIR / "index.html"
-        build_review_index(suggestions, index_path=output_path)
-    print(f"Wrote {output_path}")
+        family_paths = build_all_reviews(
+            data,
+            suggestions,
+            index_path=output_path,
+            max_len=args.max_len,
+            max_cases=args.max_cases,
+            jobs=args.jobs,
+        )
+        family_word = "family page" if len(family_paths) == 1 else "family pages"
+        print(f"Wrote {output_path} and {len(family_paths)} {family_word} in {output_path.parent}")
 
 
 if __name__ == "__main__":
