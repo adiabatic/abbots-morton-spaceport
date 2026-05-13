@@ -707,7 +707,10 @@ glyph_families:
           exit: [6, 0]
           exit_ink_y: -1
         select:
-          before: [{family: qsMay}]
+          before:
+            - family: qsMay
+              why_not_narrower: |
+                The manual joins ·They·May at the baseline. When this lookup fires, the follower is still bare qsMay (no entry anchor yet), so tightening to {family: qsMay, entry_y: 0} would miss it and the manual's join would break.
         modifiers: [exit-baseline, before-may]
       entry_xheight_exit_baseline_before_may:
         inherits: exit_baseline_before_may
