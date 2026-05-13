@@ -1417,7 +1417,7 @@ glyph_families:
           exit: [3, 0]
           exit_ink_y: -1
         select:
-          before: [{family: qsRoe}]
+          before: [{family: qsRoe, entry_y: 0}]
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}, {family: qsOoze}]
         derive:
           preferred_over: [{family: qsWay}]
