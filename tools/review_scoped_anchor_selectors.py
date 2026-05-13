@@ -1505,6 +1505,72 @@ def _index_html_page(entries: list[tuple[str, int]]) -> str:
 """
 
 
+def _empty_family_html_page(family: str) -> str:
+    family_label = _family_label(family)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Scoped anchor selector review — {html.escape(family_label)}</title>
+  <style>
+    :root {{
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+      line-height: 1.4;
+      --bg: #fff;
+      --text: #16191f;
+      --muted: #5c6470;
+      --code-bg: #eceff3;
+
+      @media (prefers-color-scheme: dark) {{
+        --bg: #101318;
+        --text: #eceff3;
+        --muted: #a8b0bd;
+        --code-bg: #252b35;
+      }}
+    }}
+    body {{
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+    }}
+    main {{
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px;
+
+      h1 {{
+        margin-block: 0 8px;
+        font-size: 28px;
+        line-height: 1.2;
+      }}
+      p {{
+        color: var(--muted);
+      }}
+      a {{
+        color: var(--text);
+        text-decoration: underline;
+      }}
+    }}
+    code {{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 0.08em 0.28em;
+    }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{html.escape(family_label)}: nothing to review</h1>
+    <p>The latest run found no scoped-anchor selector suggestions for <code>{html.escape(family)}</code>. Return to the <a href="index.html">review index</a>.</p>
+  </main>
+</body>
+</html>
+"""
+
+
 def build_review_index(
     suggestions: list[ScopedAnchorSuggestion],
     *,
@@ -1587,6 +1653,14 @@ def build_all_reviews(
         (per_family[family], output_dir / f"{family}.html")
         for family in ordered_families
     ]
+
+    expected_family_paths = {output_path for _, output_path in tasks}
+    for family in ps_names:
+        if not family.startswith("qs"):
+            continue
+        family_path = output_dir / f"{family}.html"
+        if family_path not in expected_family_paths:
+            family_path.write_text(_empty_family_html_page(family))
 
     workers = max(1, min(jobs, len(tasks)))
     if workers == 1:
