@@ -1,4 +1,4 @@
-.PHONY: all test typecheck print-job serve explainer snapshot-before check-html
+.PHONY: all test typecheck print-job serve explainer snapshot-before check-html review test-and-review
 
 export UV_CACHE_DIR := .uv-cache
 
@@ -23,6 +23,12 @@ typecheck:
 
 test: typecheck
 	uv run pytest test/ -n auto
+
+review:
+	uv run python tools/review_scoped_anchor_selectors.py --output test/scoped-anchor-review/index.html
+
+test-and-review:
+	@$(MAKE) -j2 test review
 
 print-job: all
 	lp test/print.pdf
