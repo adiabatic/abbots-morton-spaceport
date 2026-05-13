@@ -2058,6 +2058,8 @@ def test_variant_example_finder_prefers_exact_suggestion_context(tmp_path):
     example = finder.find(suggestion, "qsMay")
 
     assert example.status == "exact"
+    assert example.label == "Reviewed context"
+    assert "reviewed selector context" in example.title
     assert example.families == ("qsMay", "qsPea")
     assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
 
@@ -2070,9 +2072,60 @@ def test_variant_example_finder_falls_back_to_variant_only_context(tmp_path):
     example = finder.find(suggestion, "qsPea.entry-xheight")
 
     assert example.status == "variant"
-    assert example.label == "Example that produces this glyph\n(not this selector context)"
+    assert example.label == "Glyph-only example\n(different position)"
+    assert "not next to this qsMay glyph in the reviewed position" in example.title
     assert example.families == ("qsMay", "qsPea")
     assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
+
+
+def test_variant_example_finder_explains_elsewhere_example_without_source_family():
+    data = _scoped_selector_review_fixture({"family": "qsMay"})
+    suggestion = suggest_scoped_anchor_selectors(data)[0]
+    finder = object.__new__(VariantExampleFinder)
+    finder.glyph_data = data
+    finder.current_meta = {}
+    example = VariantExample(
+        status="variant",
+        label="Glyph-only example",
+        families=("qsMay", "qsThey", "qsUtter"),
+        glyphs=("qsMay.entry-baseline.exit-noentry", "qsThey_qsUtter.noentry"),
+    )
+
+    annotated = finder._with_variant_only_context(
+        suggestion,
+        "qsMay.entry-baseline.exit-noentry",
+        example,
+    )
+
+    assert annotated.label == "Glyph-only example\n(no \u00b7Pea input)"
+    assert "does not include \u00b7Pea" in annotated.title
+
+
+def test_variant_example_finder_explains_elsewhere_example_with_other_source_form():
+    data = _scoped_selector_review_fixture({"family": "qsMay"})
+    suggestion = suggest_scoped_anchor_selectors(data)[0]
+    finder = object.__new__(VariantExampleFinder)
+    finder.glyph_data = data
+    finder.current_meta = {}
+    example = VariantExample(
+        status="variant",
+        label="Glyph-only example",
+        families=("qsPea", "qsMay", "qsThey", "qsUtter"),
+        glyphs=(
+            "qsPea",
+            "qsMay.entry-baseline.exit-noentry.entry-extended",
+            "qsThey_qsUtter.noentry",
+        ),
+    )
+
+    annotated = finder._with_variant_only_context(
+        suggestion,
+        "qsMay.entry-baseline.exit-noentry.entry-extended",
+        example,
+    )
+
+    assert annotated.label == "Glyph-only example\n(different \u00b7Pea form)"
+    assert "not qsPea.entry-xheight" in annotated.title
 
 
 def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
@@ -2080,7 +2133,7 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
     examples = {
         name: VariantExample(
             status="internal",
-            label="Internal-only; no final typed-text example found",
+            label="No typed example found",
         )
         for name in names
     }
@@ -2098,7 +2151,7 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
     assert _glyph_name_html("qsMay.synthetic-0") in rows
     assert _glyph_name_html("qsMay.synthetic-23") in rows
     assert "and 6 more" not in rows
-    assert "No final typed-text example" in rows
+    assert "No typed example" in rows
 
 
 def test_variant_rows_render_label_line_breaks():
@@ -2113,13 +2166,15 @@ def test_variant_rows_render_label_line_breaks():
     examples = {
         "qsMay": VariantExample(
             status="variant",
-            label="Example that produces this glyph\n(not this selector context)",
+            label="Glyph-only example\n(no \u00b7Pea input)",
+            title="This is the longer hover explanation.",
         )
     }
 
     rows = _rows_for_variants(("qsMay",), {}, examples, suggestion)
 
-    assert "Example that produces this glyph<br>(not this selector context)" in rows
+    assert "Glyph-only example<br>(no \u00b7Pea input)" in rows
+    assert 'title="This is the longer hover explanation."' in rows
 
 
 def test_scoped_anchor_suggester_skips_already_scoped_selector():
