@@ -29,7 +29,7 @@ import sys
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +72,7 @@ class ShapedRun:
 class VariantExample:
     status: str
     label: str
+    title: str = ""
     families: tuple[str, ...] = ()
     text: str = ""
     glyphs: tuple[str, ...] = ()
@@ -258,6 +259,33 @@ def _feature_tag_for_variant(
     return None
 
 
+def _selector_position_label(suggestion: ScopedAnchorSuggestion) -> str:
+    if suggestion.field_name == "after":
+        return f"before {suggestion.selected_name}"
+    return f"after {suggestion.selected_name}"
+
+
+def _exact_example_label(suggestion: ScopedAnchorSuggestion) -> str:
+    return "Reviewed context"
+
+
+def _exact_example_title(
+    suggestion: ScopedAnchorSuggestion,
+    variant_name: str,
+) -> str:
+    return (
+        f"This example shows the reviewed selector context: it produces "
+        f"{variant_name} {_selector_position_label(suggestion)}."
+    )
+
+
+def _internal_example_title() -> str:
+    return (
+        "No typed text within the search depth produced this glyph as a final shaped glyph; "
+        "it may be an internal intermediate or need a longer context."
+    )
+
+
 def _sequence_candidates(
     glyph_data: GlyphData,
     suggestion: ScopedAnchorSuggestion,
@@ -302,6 +330,20 @@ def _sequence_candidates(
                     continue
                 add(before_seq, after_seq)
     return results
+
+
+def _sequence_occurrences(
+    families: tuple[str, ...],
+    sequence: tuple[str, ...],
+) -> tuple[tuple[int, int], ...]:
+    if not sequence:
+        return ()
+    length = len(sequence)
+    return tuple(
+        (start, start + length)
+        for start in range(0, len(families) - length + 1)
+        if families[start : start + length] == sequence
+    )
 
 
 def _contextual_sequence_candidates(
@@ -395,10 +437,64 @@ class VariantExampleFinder:
             return exact
         variant_only = self._find_variant_only(variant_name)
         if variant_only is not None:
-            return variant_only
+            return self._with_variant_only_context(suggestion, variant_name, variant_only)
         return VariantExample(
             status="internal",
-            label="Internal-only; no final typed-text example found",
+            label="No typed example found",
+            title=_internal_example_title(),
+        )
+
+    def _with_variant_only_context(
+        self,
+        suggestion: ScopedAnchorSuggestion,
+        variant_name: str,
+        example: VariantExample,
+    ) -> VariantExample:
+        source_label = _family_label(suggestion.family_name)
+        source_spans = set(
+            _sequence_occurrences(
+                example.families,
+                _family_sequence(self.glyph_data, suggestion.family_name),
+            )
+        )
+        if not source_spans:
+            return replace(
+                example,
+                label=f"Glyph-only example\n(no {source_label} input)",
+                title=(
+                    f"This example produces {variant_name}, but it does not include "
+                    f"{source_label}. It only shows one way this glyph can appear."
+                ),
+            )
+
+        spans = _input_spans(example.glyphs, self.current_meta)
+        selected_source_present = (
+            spans is not None
+            and any(
+                spans[index] in source_spans
+                and _is_selected_variant(glyph, suggestion.selected_name, self.current_meta)
+                for index, glyph in enumerate(example.glyphs)
+            )
+        )
+        if not selected_source_present:
+            return replace(
+                example,
+                label=f"Glyph-only example\n(different {source_label} form)",
+                title=(
+                    f"This example produces {variant_name} and includes {source_label}, "
+                    f"but that input shapes as a different form, not "
+                    f"{suggestion.selected_name}. It only shows one way this glyph can appear."
+                ),
+            )
+
+        return replace(
+            example,
+            label="Glyph-only example\n(different position)",
+            title=(
+                f"This example produces {variant_name} and contains "
+                f"{suggestion.selected_name}, but not next to this {suggestion.target_family} "
+                "glyph in the reviewed position. It only shows one way this glyph can appear."
+            ),
         )
 
     def _shape_cached(
@@ -476,7 +572,8 @@ class VariantExampleFinder:
             if is_adjacent:
                 return VariantExample(
                     status="exact",
-                    label="Exact suggestion context",
+                    label=_exact_example_label(suggestion),
+                    title=_exact_example_title(suggestion, variant_name),
                     families=run.families,
                     text=run.text,
                     glyphs=run.glyphs,
@@ -512,7 +609,7 @@ class VariantExampleFinder:
             ):
                 example = VariantExample(
                     status="variant",
-                    label="Example that produces this glyph\n(not this selector context)",
+                    label="Glyph-only example",
                     families=run.families,
                     text=run.text,
                     glyphs=run.glyphs,
@@ -728,7 +825,7 @@ def _variant_example_input_html(
     suggestion: ScopedAnchorSuggestion,
 ) -> str:
     if example.status == "internal":
-        return '<span class="empty">No final typed-text example</span>'
+        return '<span class="empty">No typed example</span>'
     feature = (
         f" <code>+{html.escape(example.feature_tag)}</code>"
         if example.feature_tag
@@ -773,7 +870,8 @@ def _rows_for_variants(
             name,
             VariantExample(
                 status="internal",
-                label="Internal-only; no final typed-text example found",
+                label="No typed example found",
+                title=_internal_example_title(),
             ),
         )
         glyph_output = _glyphs_html(
@@ -784,12 +882,17 @@ def _rows_for_variants(
         )
         depth = _name_prefix_depth(name, names_set)
         glyph_td_attrs = f' style="--depth: {depth}"' if depth else ""
+        title_attr = (
+            f' title="{html.escape(example.title, quote=True)}"'
+            if example.title
+            else ""
+        )
         rows.append(
             "<tr>"
             f"<td class=\"glyph-cell\"{glyph_td_attrs}><code>{_glyph_name_html(name)}</code></td>"
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
             "<td>"
-            f"<span class=\"example-status example-status-{html.escape(example.status)}\">"
+            f"<span class=\"example-status example-status-{html.escape(example.status)}\"{title_attr}>"
             f"{label_html(example.label)}"
             "</span>"
             "</td>"
@@ -815,7 +918,7 @@ def _variant_table(
         "<tr>"
         "<th>Glyph</th>"
         "<th>Anchors</th>"
-        "<th>Example status</th>"
+        "<th>What this example shows</th>"
         "<th>QS input/rendering</th>"
         "<th>Shaped glyph output</th>"
         "</tr>"
