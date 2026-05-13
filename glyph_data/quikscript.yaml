@@ -234,7 +234,7 @@ glyph_families:
         anchors:
           entry: [0, 5]
         select:
-          after: [{family: qsMay}, {family: qsUtter}]
+          after: [{family: qsMay, exit_y: 5}, {family: qsUtter}]
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
