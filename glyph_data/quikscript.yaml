@@ -2243,7 +2243,7 @@ glyph_families:
         anchors:
           exit: [1, 0]
         select:
-          before: [{family: qsUtter}]
+          before: [{family: qsUtter, entry_y: 0}]
           not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}, {family: qsOwe}]
         modifiers: [before-utter]
   qsEat:
