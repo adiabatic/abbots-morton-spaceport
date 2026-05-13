@@ -479,7 +479,7 @@ class VariantExampleFinder:
             ):
                 example = VariantExample(
                     status="variant",
-                    label="Variant-only context",
+                    label="Example that produces this glyph\n(not this selector context)",
                     families=run.families,
                     text=run.text,
                     glyphs=run.glyphs,
@@ -701,6 +701,9 @@ def _rows_for_variants(
     examples: dict[str, VariantExample],
     suggestion: ScopedAnchorSuggestion,
 ) -> str:
+    def label_html(label: str) -> str:
+        return "<br>".join(html.escape(line) for line in label.splitlines())
+
     rows = []
     for name in names:
         example = examples.get(
@@ -722,7 +725,7 @@ def _rows_for_variants(
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
             "<td>"
             f"<span class=\"example-status example-status-{html.escape(example.status)}\">"
-            f"{html.escape(example.label)}"
+            f"{label_html(example.label)}"
             "</span>"
             "</td>"
             f"<td>{_variant_example_input_html(example, suggestion)}</td>"
