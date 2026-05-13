@@ -630,6 +630,26 @@ def _glyphs_text(glyphs: tuple[str, ...]) -> str:
     return " | ".join(glyphs)
 
 
+def _glyph_name_html(name: str) -> str:
+    """Escape ``name`` and bias soft line breaks to its periods.
+
+    Browsers break after hyphens by default, so names like
+    ``qsMay.entry-xheight.after-fee`` wrap as ``qsMay.entry-`` / ``xheight.after-`` /
+    ``fee``. Wrapping each period-separated chunk in a no-wrap span and adding a
+    ``<wbr>`` after each period flips the preference to break at the periods. The
+    copied text content is unchanged (``<wbr>`` and ``<span>`` contribute nothing
+    extra to plain-text selection).
+    """
+    parts = [html.escape(part) for part in name.split(".")]
+    if len(parts) == 1:
+        return parts[0]
+    return ".<wbr>".join(f'<span class="nobr">{part}</span>' for part in parts)
+
+
+def _glyphs_sequence_html(glyphs: tuple[str, ...]) -> str:
+    return " | ".join(_glyph_name_html(glyph) for glyph in glyphs)
+
+
 def _glyph_relates_to_family(
     glyph: str,
     family: str,
@@ -661,7 +681,7 @@ def _glyphs_html(
             classes.append("source-glyph")
         if _glyph_relates_to_family(glyph, target_family, meta_map):
             classes.append("target-glyph")
-        parts.append(f"<code class=\"{' '.join(classes)}\">{html.escape(glyph)}</code>")
+        parts.append(f"<code class=\"{' '.join(classes)}\">{_glyph_name_html(glyph)}</code>")
     separator = '<span class="glyph-separator"> | </span>'
     return '<span class="glyph-list">' + separator.join(parts) + "</span>"
 
@@ -721,7 +741,7 @@ def _rows_for_variants(
         )
         rows.append(
             "<tr>"
-            f"<td><code>{html.escape(name)}</code></td>"
+            f"<td><code>{_glyph_name_html(name)}</code></td>"
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
             "<td>"
             f"<span class=\"example-status example-status-{html.escape(example.status)}\">"
@@ -772,18 +792,18 @@ def _dropped_match_rows(cases: list[DroppedMatchCase]) -> str:
             "<header class=\"case-meta\">"
             f"<span><strong>Sequence</strong> {html.escape(_family_labels(case.current.families))}{html.escape(feature)}</span>"
             f"<span><strong>Changed</strong> {changed}</span>"
-            f"<span><strong>Dropped match</strong> <code>{html.escape(case.dropped_glyph)}</code></span>"
+            f"<span><strong>Dropped match</strong> <code>{_glyph_name_html(case.dropped_glyph)}</code></span>"
             "</header>"
             "<div class=\"comparison-grid\">"
             "<section>"
             "<h4>Current</h4>"
             f"<span class=\"qs current\">{_text_entities(case.current.text)}</span>"
-            f"<code>{html.escape(_glyphs_text(case.current.glyphs))}</code>"
+            f"<code>{_glyphs_sequence_html(case.current.glyphs)}</code>"
             "</section>"
             "<section>"
             "<h4>Scoped</h4>"
             f"<span class=\"qs scoped\">{_text_entities(case.scoped.text)}</span>"
-            f"<code>{html.escape(_glyphs_text(case.scoped.glyphs))}</code>"
+            f"<code>{_glyphs_sequence_html(case.scoped.glyphs)}</code>"
             "</section>"
             "</div>"
             "</article>"
@@ -811,7 +831,7 @@ def _suggestion_card(
         suggestion,
     )
     why = (
-        f"<code>{html.escape(suggestion.selected_name)}</code> has "
+        f"<code>{_glyph_name_html(suggestion.selected_name)}</code> has "
         f"{html.escape(suggestion.selected_side)} y={suggestion.required_y}; "
         f"the opposite side must provide {html.escape(suggestion.target_side)} y={suggestion.required_y}."
     )
@@ -819,8 +839,8 @@ def _suggestion_card(
         f"{suggestion.selected_name}.select."
         f"{suggestion.field_name}[{suggestion.selector_index}]"
     )
-    target_family_html = f"<code>{html.escape(suggestion.target_family)}</code>"
-    selector_locator_html = f"<code>{html.escape(selector_locator)}</code>"
+    target_family_html = f"<code>{_glyph_name_html(suggestion.target_family)}</code>"
+    selector_locator_html = f"<code>{_glyph_name_html(selector_locator)}</code>"
     swap_html = (
         f"<code>{html.escape(suggestion.current)}</code> to "
         f"<code>{html.escape(suggestion.suggested)}</code>"
@@ -845,7 +865,7 @@ def _suggestion_card(
     return f"""
 <section class="suggestion" id="{html.escape(suggestion.path)}">
   <header>
-    <h2><code>{html.escape(suggestion.path)}</code></h2>
+    <h2><code>{_glyph_name_html(suggestion.path)}</code></h2>
     <p><code>{html.escape(suggestion.current)}</code> -&gt; <code>{html.escape(suggestion.suggested)}</code></p>
     <p>{why}</p>
   </header>
@@ -962,6 +982,9 @@ def _html_page(
       background: var(--code-bg);
       border-radius: 4px;
       padding: 0.08em 0.28em;
+    }}
+    .nobr {{
+      white-space: nowrap;
     }}
     table {{
       width: 100%;
