@@ -715,6 +715,15 @@ def _variant_example_input_html(
     )
 
 
+def _name_prefix_depth(name: str, names_set: frozenset[str]) -> int:
+    parts = name.split(".")
+    depth = 0
+    for i in range(1, len(parts)):
+        if ".".join(parts[:i]) in names_set:
+            depth += 1
+    return depth
+
+
 def _rows_for_variants(
     names: tuple[str, ...],
     meta_map: dict[str, JoinGlyph],
@@ -724,6 +733,7 @@ def _rows_for_variants(
     def label_html(label: str) -> str:
         return "<br>".join(html.escape(line) for line in label.splitlines())
 
+    names_set = frozenset(names)
     rows = []
     for name in names:
         example = examples.get(
@@ -739,9 +749,11 @@ def _rows_for_variants(
             source_family=suggestion.family_name,
             target_family=suggestion.target_family,
         )
+        depth = _name_prefix_depth(name, names_set)
+        glyph_td_attrs = f' style="--depth: {depth}"' if depth else ""
         rows.append(
             "<tr>"
-            f"<td><code>{_glyph_name_html(name)}</code></td>"
+            f"<td class=\"glyph-cell\"{glyph_td_attrs}><code>{_glyph_name_html(name)}</code></td>"
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
             "<td>"
             f"<span class=\"example-status example-status-{html.escape(example.status)}\">"
@@ -997,6 +1009,9 @@ def _html_page(
       text-align: left;
       vertical-align: top;
       overflow-wrap: anywhere;
+    }}
+    .glyph-cell {{
+      padding-left: calc(8px + var(--depth, 0) * 1.5ch);
     }}
     th {{
       color: var(--muted);
