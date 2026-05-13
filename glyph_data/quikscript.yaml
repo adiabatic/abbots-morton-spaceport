@@ -245,7 +245,10 @@ glyph_families:
           exit: [4, 6]
         select:
           not_before: null
-          before: [{family: qsPea}]
+          before:
+            - family: qsPea
+              why_not_narrower: |
+                Tightening to {family: qsPea, entry_y: 6} drops bare qsPea from the before-list, but bare qsPea is exactly what the follower looks like when this lookup fires — no earlier lookup has assigned it qsPea.entry-y6 yet. Without the bare match the predecessor never flips to the half form, and ·Pea·Pea·X (X ∈ {Pea, Low, See, …}) shapes as three bare qsPeas.
         modifiers: [exit-y6]
   qsBay:
     mono:

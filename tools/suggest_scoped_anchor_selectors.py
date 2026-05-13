@@ -104,6 +104,8 @@ def _selector_scope(
         return None
     if "context_set" in selector or "entry_y" in selector or "exit_y" in selector:
         return None
+    if "why_not_narrower" in selector:
+        return None
     if set(selector) - {"family", "traits", "modifiers"}:
         return None
     target_family = selector.get("family")
