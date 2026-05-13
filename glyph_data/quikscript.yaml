@@ -2475,7 +2475,7 @@ glyph_families:
           entry: [0, 5]
           exit: [5, 0]
         select:
-          after: [{family: qsNo}, {family: qsLow}]
+          after: [{family: qsNo, exit_y: 5}, {family: qsLow}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
