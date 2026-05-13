@@ -112,15 +112,17 @@ def apply_suggestions_to_glyph_data(
 
 def _load_ps_names() -> dict[str, int]:
     with PS_NAMES_PATH.open() as f:
-        return yaml.safe_load(f)
+        names: dict[str, int] = yaml.safe_load(f)
+    names.setdefault("uni200C", 0x200C)
+    return names
 
 
-def _plain_quikscript_families(
+def _review_context_sequences(
     ps_names: dict[str, int],
     glyph_data: GlyphData,
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], ...]:
     glyph_families = glyph_data.get("glyph_families", {})
-    rows = [
+    plain_rows = [
         (codepoint, name)
         for name, codepoint in ps_names.items()
         if name.startswith("qs")
@@ -128,7 +130,28 @@ def _plain_quikscript_families(
         and name not in {"qsAngleParenLeft", "qsAngleParenRight"}
         and name in glyph_families
     ]
-    return tuple(name for _, name in sorted(rows))
+    sequences: list[tuple[tuple[str, ...], int]] = [
+        ((name,), codepoint) for codepoint, name in plain_rows
+    ]
+    for extra in ("space", "uni200C"):
+        if extra in ps_names:
+            sequences.append(((extra,), ps_names[extra]))
+    for ligature_name, ligature_def in glyph_families.items():
+        if "_" not in ligature_name:
+            continue
+        if not isinstance(ligature_def, dict):
+            continue
+        sequence = ligature_def.get("sequence")
+        if not isinstance(sequence, list) or not all(isinstance(item, str) for item in sequence):
+            continue
+        if len(sequence) < 2:
+            continue
+        if not all(component in ps_names for component in sequence):
+            continue
+        lead_codepoint = ps_names[sequence[0]]
+        sequences.append((tuple(sequence), lead_codepoint))
+    sequences.sort(key=lambda row: (row[1], row[0]))
+    return tuple(seq for seq, _ in sequences)
 
 
 def _family_sequence(glyph_data: GlyphData, family: str) -> tuple[str, ...]:
@@ -238,7 +261,7 @@ def _feature_tag_for_variant(
 def _sequence_candidates(
     glyph_data: GlyphData,
     suggestion: ScopedAnchorSuggestion,
-    context_families: tuple[str, ...],
+    context_sequences: tuple[tuple[str, ...], ...],
     max_len: int,
 ) -> list[tuple[tuple[str, ...], int, int]]:
     source_seq = _family_sequence(glyph_data, suggestion.family_name)
@@ -265,20 +288,25 @@ def _sequence_candidates(
         results.append((families, source_start, source_start + source_len))
 
     add((), ())
-    if max_len >= len(base) + 1:
-        for context_family in context_families:
-            add((context_family,), ())
-            add((), (context_family,))
-    if max_len >= len(base) + 2:
-        for before_family in context_families:
-            for after_family in context_families:
-                add((before_family,), (after_family,))
+    base_budget = max_len - len(base)
+    if base_budget >= 1:
+        for context_seq in context_sequences:
+            if len(context_seq) > base_budget:
+                continue
+            add(context_seq, ())
+            add((), context_seq)
+    if base_budget >= 2:
+        for before_seq in context_sequences:
+            for after_seq in context_sequences:
+                if len(before_seq) + len(after_seq) > base_budget:
+                    continue
+                add(before_seq, after_seq)
     return results
 
 
 def _contextual_sequence_candidates(
     base: tuple[str, ...],
-    context_families: tuple[str, ...],
+    context_sequences: tuple[tuple[str, ...], ...],
     max_len: int,
 ) -> list[tuple[tuple[str, ...], int, int]]:
     results: list[tuple[tuple[str, ...], int, int]] = []
@@ -295,14 +323,19 @@ def _contextual_sequence_candidates(
         results.append((families, start, start + len(base)))
 
     add((), ())
-    if max_len >= len(base) + 1:
-        for context_family in context_families:
-            add((context_family,), ())
-            add((), (context_family,))
-    if max_len >= len(base) + 2:
-        for before_family in context_families:
-            for after_family in context_families:
-                add((before_family,), (after_family,))
+    base_budget = max_len - len(base)
+    if base_budget >= 1:
+        for context_seq in context_sequences:
+            if len(context_seq) > base_budget:
+                continue
+            add(context_seq, ())
+            add((), context_seq)
+    if base_budget >= 2:
+        for before_seq in context_sequences:
+            for after_seq in context_sequences:
+                if len(before_seq) + len(after_seq) > base_budget:
+                    continue
+                add(before_seq, after_seq)
     return results
 
 
@@ -335,14 +368,14 @@ class VariantExampleFinder:
         *,
         glyph_data: GlyphData,
         ps_names: dict[str, int],
-        context_families: tuple[str, ...],
+        context_sequences: tuple[tuple[str, ...], ...],
         current_font: hb.Font,
         current_meta: dict[str, JoinGlyph],
         max_len: int,
     ) -> None:
         self.glyph_data = glyph_data
         self.ps_names = ps_names
-        self.context_families = context_families
+        self.context_sequences = context_sequences
         self.current_font = current_font
         self.current_meta = current_meta
         self.max_len = max_len
@@ -398,7 +431,7 @@ class VariantExampleFinder:
         for families, source_start, source_end in _sequence_candidates(
             self.glyph_data,
             suggestion,
-            self.context_families,
+            self.context_sequences,
             self.max_len,
         ):
             run = self._shape_cached(families, features)
@@ -464,7 +497,7 @@ class VariantExampleFinder:
         features = {feature_tag: True} if feature_tag else {}
         for families, start, end in _contextual_sequence_candidates(
             base,
-            self.context_families,
+            self.context_sequences,
             self.max_len,
         ):
             run = self._shape_cached(families, features)
@@ -526,7 +559,7 @@ def find_dropped_match_cases(
     *,
     glyph_data: GlyphData,
     ps_names: dict[str, int],
-    context_families: tuple[str, ...],
+    context_sequences: tuple[tuple[str, ...], ...],
     current_font: hb.Font,
     scoped_font: hb.Font,
     current_meta: dict[str, JoinGlyph],
@@ -539,7 +572,7 @@ def find_dropped_match_cases(
     for families, source_start, source_end in _sequence_candidates(
         glyph_data,
         suggestion,
-        context_families,
+        context_sequences,
         max_len,
     ):
         try:
@@ -1213,14 +1246,14 @@ def build_review(
     _build_review_font(scoped_data, scoped_font_path)
 
     ps_names = _load_ps_names()
-    context_families = _plain_quikscript_families(ps_names, glyph_data)
+    context_sequences = _review_context_sequences(ps_names, glyph_data)
     current_meta = compile_glyph_set(glyph_data, "senior").glyph_meta
     current_font = _hb_font(current_font_path)
     scoped_font = _hb_font(scoped_font_path)
     example_finder = VariantExampleFinder(
         glyph_data=glyph_data,
         ps_names=ps_names,
-        context_families=context_families,
+        context_sequences=context_sequences,
         current_font=current_font,
         current_meta=current_meta,
         max_len=max_len,
@@ -1233,7 +1266,7 @@ def build_review(
             suggestion,
             glyph_data=glyph_data,
             ps_names=ps_names,
-            context_families=context_families,
+            context_sequences=context_sequences,
             current_font=current_font,
             scoped_font=scoped_font,
             current_meta=current_meta,
@@ -1478,7 +1511,7 @@ def main() -> None:
     parser.add_argument(
         "--max-len",
         type=int,
-        default=3,
+        default=5,
         help="Maximum input-family sequence length for dropped-match case search.",
     )
     parser.add_argument(
