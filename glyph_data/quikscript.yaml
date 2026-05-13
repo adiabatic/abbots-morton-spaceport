@@ -1495,7 +1495,7 @@ glyph_families:
         anchors:
           exit: [1, 0]
         select:
-          before: [{family: qsDay}]
+          before: [{family: qsDay, entry_y: 0}]
           not_before: [{family: qsTea}, {family: qsThaw}, {family: qsSee}, {family: qsExcite}]
         modifiers: [exit-baseline]
   qsWhy:
