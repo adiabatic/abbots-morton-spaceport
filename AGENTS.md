@@ -52,10 +52,16 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 - Quikscript form keys (`alt_reaches_way_back`, `entry_xheight`) are local labels — compiled glyph identity and compatibility metadata come from each form's explicit `traits` and `modifiers`. Structured selectors in `select` / `derive` can combine all three, e.g. `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
 - Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see @postscript_glyph_names.yaml). For ligatures, sort by the lead family's code point, with the bare lead before any ligature that starts with it.
+
+### Selectors
+
 - For "every letter that has an anchor at y=N" use `{exit_y: N}` / `{entry_y: N}` selectors instead of hand-curating a `context_set`. Add `except: [{family: …}, …]` to drop specific families from the resolved set (e.g., `{exit_y: 0, except: [{family: qsYe}, {family: qsPea}, {family: qsTea}]}` skips ·Ye/·Pea/·Tea even though they exit at y=0).
 - For "this family, but only variants with a compatible anchor at y=N" use family-scoped anchor selectors such as `{family: qsMay, exit_y: 5}` in `after` lists or `{family: qsTea, entry_y: 0}` in `before` lists. These mirror normal family selector behavior, including compatible ligature/component expansion, then apply the anchor-Y filter. Use `tools/suggest_scoped_anchor_selectors.py` to find candidates, but do not replace a broad family selector unless generated Senior FEA or focused shaping tests prove the change is equivalent.
 - Family-scoped anchor selectors may still compile to include the bare scoped glyph when that bare glyph is the pre-lookup form for an unrestricted entry/exit upgrade at the requested Y; this lets cyclic joins like ·They·May use `{family: qsMay, entry_y: 0}` instead of widening back to `{family: qsMay}`.
 - Don't mechanically replace long family lists with `{entry_y: …}` / `{exit_y: …}` just because the list is long. Anchor selectors expand to every matching variant, so a shorter source list can still change generated FEA or create join warnings; prove equivalence with the generated Senior feature code or the shaping tests before committing such a cleanup.
+
+### …
+
 - When multiple Quikscript forms share the same selector or anchor scaffolding, prefer `inherits` over copying the whole form, and clear inherited nested keys with `null` when a child form needs to drop them.
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 - The standard x-value for an `exit` anchor is one pixel to the right of the stroke (`exit.x = max_ink_x_at_exit_y + 1`). Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
