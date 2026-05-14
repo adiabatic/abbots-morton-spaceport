@@ -1913,14 +1913,14 @@ def _format_forward_error(
     gated_feature: str | None,
     end_of_word: bool,
 ) -> str:
-    witness = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
+    example = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
     ys_repr = "{" + ", ".join(str(y) for y in sorted(entry_ys)) + "}" if entry_ys else "∅"
     gate_note = f" under {gated_feature}" if gated_feature else ""
     wf_note = " (word-final)" if end_of_word else ""
     return (
         f"{source_name}{wf_note} expects to exit at y={exit_y} toward "
         f"{t_family}{gate_note}, but reachable variants of {t_family} "
-        f"({witness}) carry entry Ys {ys_repr} — no y={exit_y} entry"
+        f"({example}) carry entry Ys {ys_repr} — no y={exit_y} entry"
     )
 
 
@@ -1933,14 +1933,14 @@ def _format_backward_error(
     gated_feature: str | None,
     end_of_word: bool,
 ) -> str:
-    witness = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
+    example = "{" + ", ".join(sorted(name for name, _ in candidates)) + "}"
     ys_repr = "{" + ", ".join(str(y) for y in sorted(exit_ys)) + "}" if exit_ys else "∅"
     gate_note = f" under {gated_feature}" if gated_feature else ""
     wf_note = " (word-final)" if end_of_word else ""
     return (
         f"{source_name}{wf_note} expects to receive entry at y={entry_y} from "
         f"{t_family}{gate_note}, but reachable variants of {t_family} "
-        f"({witness}) carry exit Ys {ys_repr} — no y={entry_y} exit"
+        f"({example}) carry exit Ys {ys_repr} — no y={entry_y} exit"
     )
 
 

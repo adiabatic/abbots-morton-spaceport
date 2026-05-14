@@ -89,7 +89,7 @@ class Leak:
 
 
 @dataclass(frozen=True)
-class Witness:
+class IsolationLeakExample:
     families: tuple[str, ...]
     break_index: int  # output-glyph position of the leaky break
 
@@ -158,26 +158,26 @@ def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
     return results
 
 
-def find_leaks(max_len: int) -> dict[Leak, Witness]:
+def find_leaks(max_len: int) -> dict[Leak, IsolationLeakExample]:
     """Enumerate sequences up to *max_len* and collect unique leaks."""
     letters = [name for name, _ in _plain_quikscript_letters()]
-    leaks: dict[Leak, Witness] = {}
+    leaks: dict[Leak, IsolationLeakExample] = {}
     for length in range(2, max_len + 1):
         for families in itertools.product(letters, repeat=length):
             for break_i, leak in _scan_sequence(families):
                 if leak not in leaks:
-                    leaks[leak] = Witness(families=families, break_index=break_i)
+                    leaks[leak] = IsolationLeakExample(families=families, break_index=break_i)
     return leaks
 
 
-def _shaped_input_spans(witness: Witness) -> tuple[tuple[int, int], tuple[int, int]]:
-    full = _shape_qs(*witness.families)
+def _shaped_input_spans(example: IsolationLeakExample) -> tuple[tuple[int, int], tuple[int, int]]:
+    full = _shape_qs(*example.families)
     spans = _input_spans(full)
     if spans is None:
-        raise RuntimeError(f"could not map spans for {witness.families!r}")
-    l_end = spans[witness.break_index][1]
-    r_start = spans[witness.break_index + 1][0]
-    return (0, l_end), (r_start, len(witness.families))
+        raise RuntimeError(f"could not map spans for {example.families!r}")
+    l_end = spans[example.break_index][1]
+    r_start = spans[example.break_index + 1][0]
+    return (0, l_end), (r_start, len(example.families))
 
 
 def _visual_signature(name: str) -> tuple:
@@ -205,14 +205,14 @@ def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int
     return sigs, pen_x, pen_y
 
 
-def _visual_status(witness: Witness) -> str:
+def _visual_status(example: IsolationLeakExample) -> str:
     """Classify a leak as ``same`` or ``diff`` by comparing the in-context
-    render of the witness sequence against the concatenation of its two
+    render of the example sequence against the concatenation of its two
     independently-shaped halves."""
-    full_sigs, _, _ = _abs_render_signature(witness.families)
-    (l0, l1), (r0, r1) = _shaped_input_spans(witness)
-    left_sigs, left_x, left_y = _abs_render_signature(witness.families[l0:l1])
-    right_sigs, _, _ = _abs_render_signature(witness.families[r0:r1])
+    full_sigs, _, _ = _abs_render_signature(example.families)
+    (l0, l1), (r0, r1) = _shaped_input_spans(example)
+    left_sigs, left_x, left_y = _abs_render_signature(example.families[l0:l1])
+    right_sigs, _, _ = _abs_render_signature(example.families[r0:r1])
     halves_sigs = left_sigs + [
         (sig, x + left_x, y + left_y) for sig, x, y in right_sigs
     ]
@@ -491,11 +491,11 @@ _COPY_BUTTON_HTML = (
 # ---------------------------------------------------------------------------
 
 
-def _format_leak_label(leak: Leak, witness: Witness) -> tuple[str, str]:
+def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, str]:
     cp_map = _family_to_codepoint()
-    families = witness.families
+    families = example.families
     label_parts = [_short_label(f) for f in families]
-    label_parts.insert(witness.break_index + 1, "|")
+    label_parts.insert(example.break_index + 1, "|")
     label = " ".join(label_parts)
     diff_parts: list[str] = []
     if leak.left_changed:
@@ -507,11 +507,11 @@ def _format_leak_label(leak: Leak, witness: Witness) -> tuple[str, str]:
     return f"{label} ({diff})", code
 
 
-def _format_leak_row(leak: Leak, witness: Witness) -> str:
-    label, code = _format_leak_label(leak, witness)
+def _format_leak_row(leak: Leak, example: IsolationLeakExample) -> str:
+    label, code = _format_leak_label(leak, example)
     cp_map = _family_to_codepoint()
-    families = witness.families
-    (l0, l1), (r0, r1) = _shaped_input_spans(witness)
+    families = example.families
+    (l0, l1), (r0, r1) = _shaped_input_spans(example)
     full_entities = "".join(_entity_for(cp_map[f]) for f in families)
     left_entities = "".join(_entity_for(cp_map[f]) for f in families[l0:l1])
     right_entities = "".join(_entity_for(cp_map[f]) for f in families[r0:r1])
@@ -519,7 +519,7 @@ def _format_leak_row(leak: Leak, witness: Witness) -> str:
         f'<span class="half">{left_entities}</span>'
         f'<span class="half">{right_entities}</span>'
     )
-    visual = _visual_status(witness)
+    visual = _visual_status(example)
     open_link = _open_in_tables_link(families)
     letters = html.escape("".join(_short_label(f) for f in families), quote=True)
     return (
@@ -535,18 +535,18 @@ def _format_leak_row(leak: Leak, witness: Witness) -> str:
     )
 
 
-def _leak_sort_key(item: tuple[Leak, Witness]) -> tuple:
-    leak, witness = item
+def _leak_sort_key(item: tuple[Leak, IsolationLeakExample]) -> tuple:
+    leak, example = item
     cp_map = _family_to_codepoint()
     return (
-        len(witness.families),
-        tuple(cp_map[f] for f in witness.families),
+        len(example.families),
+        tuple(cp_map[f] for f in example.families),
         leak.left_chosen,
         leak.right_chosen,
     )
 
 
-def _isolation_leaks_section(items: list[tuple[Leak, Witness]], max_len: int) -> str:
+def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max_len: int) -> str:
     rows = "\n".join(_format_leak_row(leak, w) for leak, w in items)
     return (
         '    <section class="isolation-leaks">\n'
