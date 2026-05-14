@@ -363,10 +363,19 @@
         <code>qsTea → qsTea.exit-xheight</code>). Scan for sequences you
         weren't intending to touch — those are the regressions.
       </p>
-      <p class="snapshot-missing">No differences found across the
-        harvested corpus. Either the change is invisible at the
-        Senior-Regular level, or <code>test/before/</code> is
-        already in sync with the live build.</p>
+      <div class="col-headers">
+        <span>Sequence (what changed)</span>
+        <span>Before (snapshot)</span>
+        <span>After (live build)</span>
+      </div>
+      <div class="row">
+        <div class="label">
+          ·See ·Utter ·Gay ·Jay ·Et ·See ·Tea ·Day (qsSee_qsUtter.exit-extended qsGay qsJay qsEt qsSee qsTea.entry-top.exit-baseline qsDay.half.entry-extended → qsSee_qsUtter.exit-extended qsGay.entry-xheight qsJay qsEt qsSee qsTea.entry-top.exit-baseline qsDay.half.entry-extended)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·Gay·Jay·Et·See·Tea·Day">U+E65A U+E67A U+E655 U+E65F U+E672 U+E65A U+E652 U+E653</code></div>
+        </div>
+        <div class="qs before">&#xE65A;&#xE67A;&#xE655;&#xE65F;&#xE672;&#xE65A;&#xE652;&#xE653;</div>
+        <div class="qs after">&#xE65A;&#xE67A;&#xE655;&#xE65F;&#xE672;&#xE65A;&#xE652;&#xE653;</div>
+      </div>
     </section>
 
     <section class="isolation-leaks">
@@ -849,38 +858,6 @@
         </div>
         <div class="qs in-context">&#xE65A;&#xE658;&#xE656;</div>
         <div class="qs isolated"><span class="half">&#xE65A;&#xE658;</span><span class="half">&#xE656;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=See&amp;row=Bay" target="_blank" rel="noopener" title="Open ·See·Utter·Bay in tables.html" aria-label="Open ·See·Utter·Bay in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·See | ·Utter ·Bay (qsSee_qsUtter → qsSee_qsUtter.exit-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·Bay">U+E65A U+E67A U+E651</code></div>
-        </div>
-        <div class="qs in-context">&#xE65A;&#xE67A;&#xE651;</div>
-        <div class="qs isolated"><span class="half">&#xE65A;&#xE67A;</span><span class="half">&#xE651;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=See&amp;row=Gay" target="_blank" rel="noopener" title="Open ·See·Utter·Gay in tables.html" aria-label="Open ·See·Utter·Gay in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·See | ·Utter ·Gay (qsSee_qsUtter → qsSee_qsUtter.exit-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·Gay">U+E65A U+E67A U+E655</code></div>
-        </div>
-        <div class="qs in-context">&#xE65A;&#xE67A;&#xE655;</div>
-        <div class="qs isolated"><span class="half">&#xE65A;&#xE67A;</span><span class="half">&#xE655;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=See&amp;row=They" target="_blank" rel="noopener" title="Open ·See·Utter·They in tables.html" aria-label="Open ·See·Utter·They in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·See | ·Utter ·They (qsSee_qsUtter → qsSee_qsUtter.exit-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·They">U+E65A U+E67A U+E657</code></div>
-        </div>
-        <div class="qs in-context">&#xE65A;&#xE67A;&#xE657;</div>
-        <div class="qs isolated"><span class="half">&#xE65A;&#xE67A;</span><span class="half">&#xE657;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=See&amp;row=Fee" target="_blank" rel="noopener" title="Open ·See·Utter·Fee in tables.html" aria-label="Open ·See·Utter·Fee in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·See | ·Utter ·Fee (qsSee_qsUtter → qsSee_qsUtter.exit-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·Fee">U+E65A U+E67A U+E658</code></div>
-        </div>
-        <div class="qs in-context">&#xE65A;&#xE67A;&#xE658;</div>
-        <div class="qs isolated"><span class="half">&#xE65A;&#xE67A;</span><span class="half">&#xE658;</span></div>
       </div>
       <div class="row" data-visual="same">
         <div class="label">
