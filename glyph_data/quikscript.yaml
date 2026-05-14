@@ -853,6 +853,7 @@ glyph_families:
           - family: qsOut
             modifiers: [exit-xheight, exit-extended]
           - family: qsOwe
+            exit_y: 5
         modifiers: [entry-xheight]
       entry_top:
         shape: continues_stroke_from_top
@@ -885,7 +886,7 @@ glyph_families:
         inherits: exit_xheight
         select:
           not_before: null
-          before: [{family: qsMay}]
+          before: [{family: qsMay, entry_y: 5}]
         derive:
           extend_exit_before: {by: 3, targets: [{family: qsMay}]}
         modifiers: [before-may]
