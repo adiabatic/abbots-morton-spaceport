@@ -342,13 +342,13 @@ glyph_families:
           - {family: qsJay_qsUtter}
           - {family: qsWay_qsUtter}
           - {family: qsWhy_qsUtter}
-          - {family: qsMay}
+          - {family: qsMay, exit_y: 5}
           - {family: qsLow}
           - {family: qsI}
           - {family: qsAh}
-          - {family: qsUtter}
-          - {family: qsOut}
-          - {family: qsOwe}
+          - {family: qsUtter, exit_y: 5}
+          - {family: qsOut, exit_y: 5}
+          - {family: qsOwe, exit_y: 5}
           - {family: qsFoot}
         gate_feature_behind: ss03
         modifiers: [after-xheight-exit]
@@ -417,7 +417,7 @@ glyph_families:
       entry_xheight_after_fee:
         inherits: entry_xheight
         select:
-          after: [{family: qsFee}]
+          after: [{family: qsFee, exit_y: 5}]
         gate_feature_behind: ss03
         modifiers: [after-fee]
   qsTea_qsOy:
