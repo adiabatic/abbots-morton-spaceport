@@ -10,7 +10,6 @@
   - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
   - describe how the font’s letters will look different (“Reduce the half-·He extension at the x-height”, “Don’t join ·Way·Thaw ever”)
 - Contrariwise, messages that describe the mechanism are anti-preferred.
-- “Orthodox” is Quikscript-speak for “English written in the Latin script”.
 
 ## HTML/CSS/JS
 
@@ -23,6 +22,10 @@
 IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `python3` directly. The `UV_CACHE_DIR=.uv-cache` prefix points `uv` at a project-local cache so it works in sandboxed environments that can't reach the default `uv` cache (`~/.cache/uv` or `~/Library/Caches/uv`). For example:
 
 - `UV_CACHE_DIR=.uv-cache uv run pytest` not `pytest`
+
+## Background information
+
+- “Orthodox” is Quikscript-speak for “English written in the Latin script”.
 
 ## Adding glyphs
 
@@ -40,10 +43,13 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 - When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
 - Use @reference/csur/index.html to find out what Quikscript letters go with what code points.
 
-## Cursive attachment (`curs`)
+## Locations of things
 
 - Quikscript source data lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `forms` records. Put `entry` / `exit` anchors (under an `anchors:` mapping) in the proportional record or form that should compile into the proportional font; mono-only records do not carry `curs` anchors.
 - Shared Quikscript bitmaps belong under a family's `shapes`, and contextual/alternate forms belong under `forms` with `anchors`, `select`, `derive`, `traits`, and `modifiers`. Preserve `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes belong under ordered `modifiers`.
+
+## YAML files
+
 - Quikscript form keys are local labels, not the compiled glyph naming API. The build now seeds compiled glyph identity and compatibility metadata from each form's explicit `traits` and `modifiers`, while `select` / `derive` family references use structured selectors like `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
 - Repeated `select` / `derive` reference lists belong under top-level `context_sets` and are referenced inline as `{context_set: some_name}`. `context_sets` may include other `context_set` references when composing a larger list from smaller ones keeps the source clearer.
 - Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see @postscript_glyph_names.yaml). For ligatures, sort by the lead family's code point, with the bare lead before any ligature that starts with it.
