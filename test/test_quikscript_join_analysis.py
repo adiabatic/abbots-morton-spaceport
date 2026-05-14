@@ -1342,7 +1342,7 @@ def test_ss_gated_swap_adds_a_mismatch():
     assert "qsTea" in message
 
 
-# Regression-witness tests — each fixture distills the kind of steady-state
+# Regression-example tests — each fixture distills the kind of steady-state
 # join mismatch that the named historical commit was working around. For the
 # four FEA-only fixes (every commit below except 075d485, which mutated YAML),
 # the pre-fix YAML was structurally consistent and the bug lived in the FEA
