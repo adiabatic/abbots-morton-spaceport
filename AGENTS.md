@@ -75,7 +75,7 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 ### …
 
 - When the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit. `·Excite·Tea·Oy` is the worked example: `qsTea_qsOy` has no baseline entry, so `qsExcite.exit-baseline.before-vertical` must surrender its exit. Extend `_PENDING_LIGA_ENTRY_GUARDS` in `tools/quikscript_fea.py` rather than broadening the plain pair-guard machinery.
-- Use `strip_entry_before: true` on an entryless forward-exit form when that form should also replace entry-bearing siblings before followers with the same entry Y, letting the right-side join win without making a near-duplicate `before:` form. Use `select.not_after` on that form to preserve incoming joins that must beat the right-side join, and use `select.not_before` to exclude followers that should keep another exit Y.
+- When you'd otherwise author a near-duplicate `before:` form so an entryless forward-exit form can displace its entry-bearing siblings, reach for `strip_entry_before: true` instead; see `qsAt.entry_nowhere_exit_baseline` for the worked example, and the JSON schema description for the full rules.
 - If adding an `after:` form moves a family out of `fwd_only`, only pull the family's plain forward-exit Ys early when later backward lookups truly depend on those Ys; do not pull same-Y forward pair overrides early just to preserve that dependency.
 - Group lookups by Y value to prevent cross-pair attachment between glyphs at different heights.
 - During `calt`, a ZWNJ boundary is still the literal `uni200C` glyph; if a selector needs to block or require a ZWNJ boundary, target `uni200C` in `after` / `not_after` rather than `space`.
