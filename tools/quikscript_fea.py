@@ -3884,6 +3884,79 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"        sub [{after_list}] {base_name}'{lookahead} by {variant_name};")
                 lines.append(f"    }} calt_post_context_pair_{safe};")
 
+    def _emit_post_context_null_entry_revert():
+        # When a pair_override variant on family X has `entry: null` (e.g.
+        # qsIng.after-he-or-ye), bare X is still in @exit_y0 at the time the
+        # cycle's BK substitution fires for a follower Y (qsZoo.half etc.), so
+        # Y is upgraded based on X's transient exit. After the late
+        # `calt_post_context_pair_*` lookup turns X into the null-entry
+        # variant, that variant has neither entry nor exit anchors — its
+        # presence can't justify Y's upgrade. Revert Y back to its base.
+        for base_name in sorted(pair_overrides):
+            base_meta = glyph_meta.get(base_name)
+            if base_meta is None:
+                continue
+            base_exit_ys = set(base_meta.exit_ys)
+            if not base_exit_ys:
+                continue
+            for variant_name, after_glyphs in sorted(pair_overrides[base_name]):
+                if variant_name not in glyph_names:
+                    continue
+                variant_meta = _meta(variant_name)
+                if variant_meta.entry or variant_meta.entry_curs_only:
+                    continue
+                if variant_meta.exit:
+                    continue
+                expanded_after = _expand_backward_after_variants(
+                    variant_name,
+                    after_glyphs,
+                    expand_selector=lambda glyph: _expand_all_variants([glyph]),
+                    analysis=plan,
+                )
+                if not expanded_after:
+                    continue
+                emitted: list[tuple[str, str]] = []
+                for follower_base in sorted(bk_replacements):
+                    follower_meta = glyph_meta.get(follower_base)
+                    if follower_meta is None:
+                        continue
+                    for entry_y, follower_variant in sorted(
+                        bk_replacements[follower_base].items()
+                    ):
+                        if entry_y not in base_exit_ys:
+                            continue
+                        if follower_variant == follower_base:
+                            continue
+                        if follower_variant not in glyph_names:
+                            continue
+                        follower_variant_meta = _meta(follower_variant)
+                        if (
+                            entry_y not in set(follower_variant_meta.entry_ys)
+                            and entry_y not in {
+                                anchor[1]
+                                for anchor in follower_variant_meta.entry_curs_only
+                            }
+                        ):
+                            continue
+                        exclusions = bk_exclusions.get(follower_base, {}).get(entry_y, [])
+                        if exclusions:
+                            excluded = set(_expand_exclusions(
+                                resolve_known_glyph_names(exclusions, glyph_names)
+                            ))
+                            if base_name in excluded:
+                                continue
+                        emitted.append((follower_variant, follower_base))
+                if not emitted:
+                    continue
+                safe = variant_name.replace(".", "_").replace("-", "_")
+                lines.append("")
+                lines.append(f"    lookup calt_post_context_revert_{safe} {{")
+                for follower_variant, follower_base in sorted(set(emitted)):
+                    lines.append(
+                        f"        sub {variant_name} {follower_variant}' by {follower_base};"
+                    )
+                lines.append(f"    }} calt_post_context_revert_{safe};")
+
     def _emit_block(bases: list[str], *, use_cycle: bool = False):
         for base_name in bases:
             if base_name not in early_pair_upgrade_bases:
@@ -4044,6 +4117,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    }} calt_post_pair_bk_{safe};")
 
     _emit_post_context_bk_pairs()
+
+    _emit_post_context_null_entry_revert()
 
     _emit_reverse_upgrades()
 
