@@ -957,7 +957,9 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
 
     assert "sub qsIt.entry-xheight' [qsCheer" not in fea
     assert "sub qsIt.entry-xheight.entry-extended' [qsCheer" not in fea
-    assert "by qsIt.entry-xheight.exit-extended;" not in fea
+    for line in fea.splitlines():
+        if "by qsIt.entry-xheight.exit-extended;" in line:
+            assert "qsCheer" not in line
 
     assert (
         "sub qsIt' [qsCheer qsCheer.entry-extended qsCheer.noentry]"

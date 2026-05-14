@@ -2488,6 +2488,17 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # the wrong entry — same bitmap, no cursive attachment to the
         # preceding glyph either way — but preserves the join extension into
         # the next glyph.
+        #
+        # Preferred path: when ``default_replacement + ext_suffix`` exists and
+        # its exit_y matches the iso path's choice for fpt's followers (each
+        # follower in ``fpt_meta.before`` proposes an entry_y; iso shaping of
+        # the base before that follower picks ``fwd_replacements[base][entry_y]``
+        # whose exit_y is the iso exit_y), return the candidate even if its
+        # bitmap doesn't match fpt's. That keeps the in-context render aligned
+        # with iso (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side:
+        # qsIt.entry-xheight.exit-extended instead of the entryless
+        # qsIt.exit-xheight.exit-extended sibling, which loses the lead's
+        # baseline reach).
         fpt_meta = _meta(fpt)
         ext_suffix = fpt_meta.extended_exit_suffix
         if not ext_suffix:
@@ -2495,8 +2506,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         fpt_exit_ys = set(fpt_meta.exit_ys)
         candidate = default_replacement + ext_suffix
         cand_meta = glyph_meta.get(candidate)
+        iso_exit_ys = _iso_exit_ys_for_fpt(fpt, fpt_meta)
         if cand_meta is not None:
             cand_exit_ys = set(cand_meta.exit_ys)
+            if iso_exit_ys and cand_exit_ys & iso_exit_ys:
+                return candidate
             if (
                 (not fpt_exit_ys or not cand_exit_ys or fpt_exit_ys & cand_exit_ys)
                 and cand_meta.bitmap == fpt_meta.bitmap
@@ -2522,6 +2536,41 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 return sibling
         return default_replacement
+
+    def _iso_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
+        # Iso shaping of ``base + follower`` picks ``fwd_replacements[base][N]``
+        # whose exit_y matches one of follower's entry_ys (N). Return the union
+        # of those iso exit_ys across fpt's resolved followers, restricted to
+        # the exit_ys that ``fwd_replacements`` actually declares for the base.
+        base_name = fpt_meta.base_name
+        base_fwd = fwd_replacements.get(base_name)
+        if not base_fwd:
+            return set()
+        candidate_exit_ys = set(base_fwd.keys())
+        if not candidate_exit_ys:
+            return set()
+        before_glyphs = _resolve_fpt_before(fpt, base_name)
+        if not before_glyphs:
+            return set()
+        expanded_followers = _expand_all_variants(list(before_glyphs))
+        follower_entry_ys: set[int] = set()
+        for follower in expanded_followers:
+            f_meta = glyph_meta.get(follower)
+            if f_meta is None:
+                continue
+            follower_entry_ys.update(f_meta.all_entry_ys)
+        return follower_entry_ys & candidate_exit_ys
+
+    def _resolve_fpt_before(fpt: str, base_name: str) -> set[str]:
+        # The fpt's ``before`` list on its meta is the unresolved selector;
+        # the resolved form lives in ``fwd_pair_overrides[base]``. Look up by
+        # fpt name.
+        for fwd_variant, before_glyphs, _not_after in fwd_pair_overrides.get(
+            base_name, ()
+        ):
+            if fwd_variant == fpt:
+                return set(before_glyphs)
+        return set()
 
     def _emit_fwd_pairs(base_name: str):
         if base_name in fwd_pair_overrides:
