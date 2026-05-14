@@ -872,7 +872,9 @@ glyph_families:
         inherits: exit_xheight
         select:
           not_before: null
-          before: [{family: qsUtter}]
+          before:
+          - family: qsUtter
+            why_not_narrower: ·Utter.alt and its descendants have their entry anchor at y=0, but ·Fee still needs to exit at the x-height into them; narrowing to entry_y=5 drops every alt and breaks the ·Fee~x~·Utter.alt shapings.
           not_after:
           - {family: qsNo}
           - {family: qsLow}
