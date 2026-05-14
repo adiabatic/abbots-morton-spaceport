@@ -99,11 +99,7 @@ Add `{family: qsY}` to qsX's family-level `derive.extend_exit_before.targets` (c
 
 ### Contract (opposite-of-extend) the ·X·Y connection by N pixels
 
-Add `contract_entry_after: {by: N, targets: [{family: qsX}]}` to qsY's joining form's `derive` (typically `entry_xheight` for xheight joins, `entry_baseline` for baseline joins). Don't make a new form, even when qsY already has an `extend_entry_after` whose targets implicitly include qsX (e.g., through `halves_exit_xheight`) — the narrow contract rule (a single family) wins over the broad extend rule because the build orders narrower selectors first. Example: contracting ·He·Jay by a pixel adds `contract_entry_after: {by: 1, targets: [{family: qsHe}]}` to `qsJay.forms.entry_xheight.derive`, alongside the existing `extend_entry_after`.
-
-### Conflicting `by` values
-
-A single `derive` block holds at most one each of `extend_entry_after`, `extend_exit_before`, `contract_entry_after`, and `contract_exit_before`, with a single `by` and a list of targets per directive. When you'd need a different `by` for a new target on a directive that's already in use (e.g., `qsHe.forms.half` already has `contract_exit_before: {by: 2, targets: [{family: qsZoo}]}` and you want `by: 1` for a different target), put the new rule on the other side of the join (e.g., contract Y's entry-after instead of X's exit-before).
+Add `contract_entry_after: {by: N, targets: [{family: qsX}]}` to qsY's joining form's `derive` (typically `entry_xheight` for xheight joins, `entry_baseline` for baseline joins). Don't make a new form, even when qsY already has an `extend_entry_after` whose targets implicitly include qsX (e.g., through `halves_exit_xheight`) — the narrow contract rule (a single family) wins over the broad extend rule because the build orders narrower selectors first. Example: contracting ·He·Jay by a pixel adds `contract_entry_after: {by: 1, targets: [{family: qsHe}]}` to `qsJay.forms.entry_xheight.derive`, alongside the existing `extend_entry_after`. If the directive on that side already has a different `by`, put the rule on the other side of the join instead.
 
 ### Mix `before:` and `not_before:` on a single form
 
