@@ -15,7 +15,6 @@
   - ·Bay·Utter
   - ·Gay·Utter ("waggon")
   - ·Gay·Out
-- Remove all the ·May ligatures
 
 ## Other
 
