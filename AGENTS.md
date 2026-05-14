@@ -23,20 +23,23 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 - `UV_CACHE_DIR=.uv-cache uv run pytest` not `pytest`
 
-## Background information
+## General background information
 
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.
+
+## Specific background information
+
+- Tall letters have a height of 9 pixels (9 entries in `bitmap`).
+- Short letters have a height of 6 pixels (6 entries in `bitmap`).
+- Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
+- See @doc/glyph-names.md for the canonical map between names (·Pea), PostScript family names (qsPea), and code points (U+E650).
 
 ## Adding glyphs
 
 - Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
-- See @doc/glyph-names.md for the canonical map between names (·Pea), PostScript family names (qsPea), and code points (U+E650).
-- Tall letters have a height of 9 pixels (9 entries in `bitmap`).
-- Short letters have a height of 6 pixels (6 entries in `bitmap`).
-- Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
 - "Ink" is a filled bitmap pixel — a `#` cell, as opposed to a space. The font's strokes are made of ink. The cursive-attachment tooling talks about a row's "leftmost-ink column" (the leftmost `#` in that row), "no ink at y=N" (the row at glyph-space y=N is all spaces), and `exit_ink_y` (the fallback row to scan when the exit anchor's own Y has no ink).
-- For bitmap data in `glyph_data/quikscript.yaml`, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
+- For bitmap data, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
 
 ## Inspiration
 
