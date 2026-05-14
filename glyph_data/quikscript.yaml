@@ -1937,7 +1937,7 @@ glyph_families:
           entry: [0, 0]
           exit: [6, 5]
         select:
-          before: [{family: qsJai, entry_y: 5}, {family: qsNo, entry_y: 5}, {family: qsEight, entry_y: 5}, {family: qsAwe, entry_y: 5}, {family: qsOx}]
+          before: [{family: qsJai, entry_y: 5}, {family: qsNo, entry_y: 5}, {family: qsEight, entry_y: 5}, {family: qsAwe, entry_y: 5}, {family: qsOx, entry_y: 5}]
         modifiers: [exit-xheight]
   qsLoch:
     mono:
