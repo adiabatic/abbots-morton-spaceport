@@ -1078,6 +1078,58 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
                 before_bases=before_bases,
             )
 
+    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward
+    # replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward
+    # override to the matching exit-only forward replacement of its base
+    # (e.g. → `qsTea.exit-baseline` when the follower is in
+    # `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in
+    # `@entry_y5`). Without recording these paths here,
+    # `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)`
+    # returns False, so qsTea.entry-baseline is dropped from the lookbehind
+    # class for qsDay.half.entry-extended. That drop is what makes the
+    # in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight,
+    # qsDay.entry-extended) at y=5 while iso `qsTea qsDay` joins at y=0.
+    # The same override fires on the `.entry-{N}-extended` derivatives of
+    # the entry-only variant, so propagate the reachability to them too.
+    for base_name, bk_variants in plan.bk_replacements.items():
+        if base_name not in plan.fwd_replacements:
+            continue
+        for _entry_y, bk_var in bk_variants.items():
+            if _meta(bk_var).exit:
+                continue
+            for fwd_exit_y, fwd_var in plan.fwd_replacements[base_name].items():
+                if fwd_exit_y not in plan.entry_classes:
+                    continue
+                if _meta(fwd_var).entry:
+                    continue
+                has_upgrade = any(
+                    entry_only == bk_var and ey == fwd_exit_y
+                    for _, entry_only, ey, _ in plan.fwd_upgrades.get(base_name, [])
+                )
+                if has_upgrade:
+                    continue
+                excluded = set(
+                    _expand_all_variants(
+                        plan.fwd_exclusions.get(base_name, {}).get(fwd_exit_y, []),
+                        include_base=True,
+                    )
+                )
+                before_bases = _context_bases_for_entry_y(
+                    base_name, fwd_exit_y, excluded,
+                )
+                source_variants = [bk_var]
+                for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
+                    ext_bk = f"{bk_var}{ext_suffix}"
+                    if ext_bk not in glyph_meta:
+                        continue
+                    if _meta(ext_bk).exit:
+                        continue
+                    source_variants.append(ext_bk)
+                for src in source_variants:
+                    if not excluded:
+                        _add_replacement_path(src, fwd_var)
+                    _add_replacement_path(src, fwd_var, before_bases=before_bases)
+
     def _record_fwd_pair_reachability(
         overrides: dict[str, list[tuple[str, list[str], list[str]]]],
         *,
