@@ -103,7 +103,7 @@ Add `contract_entry_after: {by: N, targets: [{family: qsX}]}` to qsY's joining f
 
 ### Mix `before:` and `not_before:` on a single form
 
-When a form needs both a forced positive trigger ("fire before any variant of family Y, regardless of its entry-anchor Y") and a broad anchor-class fallback ("also fire before any other follower whose resolved variant has a matching entry anchor, except these families"), declare both `before:` and `not_before:` on the same form rather than splitting into two near-duplicates. The same family may not appear in both lists — the IR build raises an error. Example: `qsGay.forms.exit_baseline` carries `before: [{family: qsNo}]` (forces the baseline-exit before bare `qsNo`, whose default prop has entry at y=5) plus `not_before: [{family: qsExcite}, {family: qsOoze}]` (broad fallback for any other entry-y=0 follower). The same applies symmetrically to `after:` / `not_after:` on backward-pair forms.
+When a form needs both a forced positive trigger and a broad anchor-class fallback, declare both `before:` and `not_before:` on the same form rather than splitting into two near-duplicates. The symmetric pair `after:` / `not_after:` works the same way. See `qsGay.forms.exit_baseline` for the canonical example.
 
 ## Bumping the version number
 
