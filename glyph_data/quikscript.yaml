@@ -2,6 +2,19 @@ context_sets:
   reaches_up_and_way_over_at_least_part_of_the_next_letter:
   - {family: qsAh, modifiers: [exit-extended]}
   - {family: qsUtter, modifiers: [exit-extended]}
+  # `_iter_related_extension_targets` propagates qsUtter's `extend_exit_before`
+  # onto every `qsX_qsUtter` ligature, so the ligatures pick up `.exit-extended`
+  # before qsBay/qsFee/qsGay/qsThey too. The followers' entry-xheight selectors
+  # need to recognise the ligature variant the same way they recognise
+  # qsUtter.exit-extended; otherwise the join silently breaks and the
+  # extension is just a cosmetic flourish (see ·See|·Utter·Bay isolation leak).
+  - {family: qsDay_qsUtter, modifiers: [exit-extended]}
+  - {family: qsJai_qsUtter, modifiers: [exit-extended]}
+  - {family: qsJay_qsUtter, modifiers: [exit-extended]}
+  - {family: qsSee_qsUtter, modifiers: [exit-extended]}
+  - {family: qsVie_qsUtter, modifiers: [exit-extended]}
+  - {family: qsWay_qsUtter, modifiers: [exit-extended]}
+  - {family: qsWhy_qsUtter, modifiers: [exit-extended]}
   vie_may_entry_extend_triggers:
   - {family: qsPea}
   - {family: qsTea}
@@ -625,7 +638,15 @@ glyph_families:
         anchors:
           entry: [4, 5]
         select:
-          after: [{family: qsUtter, exit_y: 5}]
+          after:
+          - {family: qsUtter, exit_y: 5}
+          - {family: qsDay_qsUtter, exit_y: 5}
+          - {family: qsJai_qsUtter, exit_y: 5}
+          - {family: qsJay_qsUtter, exit_y: 5}
+          - {family: qsSee_qsUtter, exit_y: 5}
+          - {family: qsVie_qsUtter, exit_y: 5}
+          - {family: qsWay_qsUtter, exit_y: 5}
+          - {family: qsWhy_qsUtter, exit_y: 5}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
@@ -854,6 +875,13 @@ glyph_families:
             modifiers: [exit-xheight, exit-extended]
           - family: qsOwe
             exit_y: 5
+          - {family: qsDay_qsUtter, modifiers: [exit-extended]}
+          - {family: qsJai_qsUtter, modifiers: [exit-extended]}
+          - {family: qsJay_qsUtter, modifiers: [exit-extended]}
+          - {family: qsSee_qsUtter, modifiers: [exit-extended]}
+          - {family: qsVie_qsUtter, modifiers: [exit-extended]}
+          - {family: qsWay_qsUtter, modifiers: [exit-extended]}
+          - {family: qsWhy_qsUtter, modifiers: [exit-extended]}
         modifiers: [entry-xheight]
       entry_top:
         shape: continues_stroke_from_top
