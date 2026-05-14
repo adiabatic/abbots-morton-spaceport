@@ -2735,7 +2735,7 @@ glyph_families:
         anchors:
           exit: [5, 5]
         select:
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsLlan}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsMay}, {family: qsLlan}]
         modifiers: [exit-xheight]
       entry_and_exit_at_xheight:
         inherits: [entry_xheight, exit_xheight]
