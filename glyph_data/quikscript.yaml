@@ -2266,7 +2266,7 @@ glyph_families:
           exit: [1, 0]
         strip_entry_before: true
         select:
-          not_after: [{family: qsBay}, {family: qsDay}]
+          not_after: [{family: qsBay}, {family: qsDay}, {family: qsShe}]
           not_before: [{family: qsTea}, {family: qsIt}, {family: qsRoe}]
         modifiers: [exit-baseline]
       before_utter: # needed to make words ending in -ian look right
@@ -2275,7 +2275,7 @@ glyph_families:
           exit: [1, 0]
         select:
           before: [{family: qsUtter, entry_y: 0}]
-          not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}, {family: qsOwe}]
+          not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}, {family: qsOwe}, {family: qsShe}]
         modifiers: [before-utter]
   qsEat:
     mono:
