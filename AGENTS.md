@@ -58,7 +58,6 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
 
-
 ### Selectors
 
 - For "every letter that has an anchor at y=N" use `{exit_y: N}` / `{entry_y: N}` selectors instead of hand-curating a `context_set`. Add `except: [{family: …}, …]` to drop specific families from the resolved set (e.g., `{exit_y: 0, except: [{family: qsYe}, {family: qsPea}, {family: qsTea}]}` skips ·Ye/·Pea/·Tea even though they exit at y=0).
