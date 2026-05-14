@@ -2277,6 +2277,17 @@ glyph_families:
           before: [{family: qsUtter, entry_y: 0}]
           not_after: [{family: qsZoo}, {family: qsIt}, {family: qsEat}, {family: qsOwe}, {family: qsShe}]
         modifiers: [before-utter]
+      entry_baseline_before_utter:
+        inherits: entry_baseline_exit_xheight
+        anchors:
+          exit: [1, 0]
+        select:
+          before: [{family: qsUtter, entry_y: 0}]
+          not_after: [{family: qsOwe}, {family: qsShe}, {family: qsZoo, traits: [half]}, {family: qsDay, traits: [half]}]
+        derive:
+          extend_entry_after: null
+          extend_exit_before: null
+        modifiers: [before-utter]
   qsEat:
     mono:
       bitmap:
