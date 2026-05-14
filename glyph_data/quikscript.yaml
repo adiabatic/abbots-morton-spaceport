@@ -847,7 +847,7 @@ glyph_families:
           - family: qsI
           - family: qsAh
             modifiers: [exit-extended]
-          - family: qsUtter
+          - {family: qsUtter, exit_y: 5}
           - family: qsUtter
             modifiers: [exit-extended]
           - family: qsOut
