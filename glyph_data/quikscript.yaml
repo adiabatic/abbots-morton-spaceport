@@ -1903,14 +1903,14 @@ glyph_families:
         anchors:
           entry: [0, 0]
         select:
-          after: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}]
+          after: [{family: qsJay}, {family: qsYe}, {family: qsIt, exit_y: 0}, {family: qsEight}]
         modifiers: [entry-extended-at-baseline]
       entry_extended_at_xheight:
         shape: shortened_bottom
         anchors:
           entry: [0, 5]
         select:
-          after: [{family: qsMay}, {family: qsIt}]
+          after: [{family: qsMay, exit_y: 5}, {family: qsIt, exit_y: 5}]
         modifiers: [entry-extended-at-xheight]
       entry_xheight:
         shape: mono
@@ -1927,7 +1927,7 @@ glyph_families:
           entry: [[0, 5]]
           exit: [5, 0]
         select:
-          before: [{family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsIng}, {family: qsMay}, {family: qsNo}, {family: qsAt}, {family: qsAh}]
+          before: [{family: qsThaw, entry_y: 0}, {family: qsVie, entry_y: 0}, {family: qsSee, entry_y: 0}, {family: qsIng, entry_y: 0}, {family: qsMay, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsAt, entry_y: 0}, {family: qsAh, entry_y: 0}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsLow}, {family: qsI}]}
         modifiers: [exit-baseline]
