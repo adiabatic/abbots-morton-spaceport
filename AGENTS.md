@@ -26,13 +26,14 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 ## General background information
 
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.
+- Quikscript letters, when they’re being referred to as letters, are prefixed with `·`.
 
 ## Specific background information
 
 - Tall letters have a height of 9 pixels (9 entries in `bitmap`).
 - Short letters have a height of 6 pixels (6 entries in `bitmap`).
 - Deep letters have a height of 9 pixels (9 entries in `bitmap`) and a `y_offset` of -3.
-- See @doc/glyph-names.md for the canonical map between names (·Pea), PostScript family names (qsPea), and code points (U+E650).
+- See @doc/glyph-names.md for the canonical map between Quikscript letters’ names (·Pea), PostScript family names (qsPea), and code points (U+E650).
 
 ## Adding glyphs
 
@@ -40,11 +41,6 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - "Ink" is a filled bitmap pixel — a `#` cell, as opposed to a space. The font's strokes are made of ink. The cursive-attachment tooling talks about a row's "leftmost-ink column" (the leftmost `#` in that row), "no ink at y=N" (the row at glyph-space y=N is all spaces), and `exit_ink_y` (the fallback row to scan when the exit anchor's own Y has no ink).
 - For bitmap data, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
-
-## Inspiration
-
-- When referring to Quikscript letters, they are frequently prefixed by a `·`, like in `·Why`.
-- Use @reference/csur/index.html to find out what Quikscript letters go with what code points.
 
 ## Locations of things
 
