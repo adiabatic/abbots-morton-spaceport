@@ -1026,7 +1026,7 @@ glyph_families:
         anchors:
           exit: [3, 0]
         select:
-          before: [{family: qsExcite}, {family: qsAt}, {family: qsOut}]
+          before: [{family: qsExcite, entry_y: 0}, {family: qsAt, entry_y: 0}, {family: qsOut, entry_y: 0}]
           not_after: [{family: qsIt}]
         derive:
           extend_exit_before: {by: 2, targets: [{family: qsLow}]}
