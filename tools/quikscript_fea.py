@@ -2681,7 +2681,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 if protect_ys:
                                     guard_glyphs = set()
                                     for protect_y in protect_ys:
-                                        guard_glyphs.update(exit_classes.get(protect_y, set()))
+                                        # The bk-upgrade at this Y already
+                                        # refuses to fire for predecessors
+                                        # listed in the bk_replacement's
+                                        # `not_after`. Those predecessors
+                                        # therefore don't need protection from
+                                        # this entryless override: nothing
+                                        # downstream was going to attach the
+                                        # bk_replacement's entry for them.
+                                        guard_glyphs.update(
+                                            exit_classes.get(protect_y, set())
+                                            - _expand_exclusions(
+                                                bk_exclusions.get(
+                                                    base_for_target, {}
+                                                ).get(protect_y, [])
+                                            )
+                                        )
                                     if guard_glyphs:
                                         guard_list = " ".join(sorted(guard_glyphs))
                     actual_variant = variant_name
