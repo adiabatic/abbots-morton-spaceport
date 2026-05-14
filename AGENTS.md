@@ -74,7 +74,7 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 ### …
 
-- When deciding whether a preserved join may survive later context, account for downstream ligatures too; if the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit.
+- When the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit. `·Excite·Tea·Oy` is the worked example: `qsTea_qsOy` has no baseline entry, so `qsExcite.exit-baseline.before-vertical` must surrender its exit. Extend `_PENDING_LIGA_ENTRY_GUARDS` in `tools/quikscript_fea.py` rather than broadening the plain pair-guard machinery.
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
 - When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
 - Generic entry/exit substitutions can create a predecessor variant after the first backward-pair lookup has already run, so the FEA emitter replays backward `select.after` forms for those generic late contexts. Do not broaden that replay to pair-specific forward/backward variants unless the right-context policy is proved safe; `·Utter ·They ·Jay` relies on not reviving `qsThey.entry-xheight` after `qsUtter.exit-extended`.
