@@ -108,12 +108,20 @@ _RESIDUAL_BK_GUARDS: dict[
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAh", "qsTea"),
         ),
+        DerivedBkGuard(
+            ("qsShe.exit-baseline",),
+            ("qsTea",),
+        ),
     ),
     ("qsTea", "qsTea.half.exit-xheight", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
             ("qsExcite.exit-baseline.before-vertical",),
             ("qsAwe",),
+        ),
+        DerivedBkGuard(
+            ("qsShe.exit-baseline",),
+            ("qsTea",),
         ),
     ),
     ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
