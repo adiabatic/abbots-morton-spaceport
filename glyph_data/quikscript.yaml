@@ -1044,7 +1044,7 @@ glyph_families:
         anchors:
           exit: [4, 0]
         select:
-          before: [{family: qsOoze}]
+          before: [{family: qsOoze, entry_y: 0}]
           not_after: [{family: qsIt}]
         modifiers: [exit-baseline-right]
   qsSee_qsUtter:
