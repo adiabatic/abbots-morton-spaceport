@@ -1637,8 +1637,6 @@ def build_all_reviews(
     """
     output_dir = index_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    current_font_path = output_dir / "current" / SENIOR_FONT_NAME
-    _build_review_font(glyph_data, current_font_path)
 
     per_family: dict[str, list[ScopedAnchorSuggestion]] = defaultdict(list)
     for suggestion in suggestions:
@@ -1662,19 +1660,22 @@ def build_all_reviews(
         if family_path not in expected_family_paths:
             family_path.write_text(_empty_family_html_page(family))
 
-    workers = max(1, min(jobs, len(tasks)))
-    if workers == 1:
-        _worker_init(glyph_data, current_font_path, max_len, max_cases)
-        for task in tasks:
-            _worker_build_family(task)
-    else:
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            initializer=_worker_init,
-            initargs=(glyph_data, current_font_path, max_len, max_cases),
-        ) as pool:
-            for _ in pool.map(_worker_build_family, tasks):
-                pass
+    if tasks:
+        current_font_path = output_dir / "current" / SENIOR_FONT_NAME
+        _build_review_font(glyph_data, current_font_path)
+        workers = max(1, min(jobs, len(tasks)))
+        if workers == 1:
+            _worker_init(glyph_data, current_font_path, max_len, max_cases)
+            for task in tasks:
+                _worker_build_family(task)
+        else:
+            with ProcessPoolExecutor(
+                max_workers=workers,
+                initializer=_worker_init,
+                initargs=(glyph_data, current_font_path, max_len, max_cases),
+            ) as pool:
+                for _ in pool.map(_worker_build_family, tasks):
+                    pass
 
     build_review_index(suggestions, index_path=index_path)
     return [output_path for _, output_path in tasks]
@@ -1744,7 +1745,7 @@ def main() -> None:
         suggestions = [suggestion for suggestion in suggestions if suggestion.path == args.path]
         if not suggestions:
             raise SystemExit(f"No scoped anchor selector suggestion found for {args.path!r}.")
-    if not suggestions:
+    if (args.family or args.path) and not suggestions:
         print("No family-scoped anchor selector suggestions.")
         return
 
@@ -1769,8 +1770,11 @@ def main() -> None:
             max_cases=args.max_cases,
             jobs=args.jobs,
         )
-        family_word = "family page" if len(family_paths) == 1 else "family pages"
-        print(f"Wrote {output_path} and {len(family_paths)} {family_word} in {output_path.parent}")
+        if family_paths:
+            family_word = "family page" if len(family_paths) == 1 else "family pages"
+            print(f"Wrote {output_path} and {len(family_paths)} {family_word} in {output_path.parent}")
+        else:
+            print(f"Wrote {output_path} (no suggestions to review)")
 
 
 if __name__ == "__main__":
