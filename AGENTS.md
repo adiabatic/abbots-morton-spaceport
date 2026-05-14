@@ -70,7 +70,7 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 - The standard x-value for an `exit` anchor is one pixel to the right of the stroke (`exit.x = max_ink_x_at_exit_y + 1`). Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
 - Symmetrically, the standard x-value for an `entry` anchor sits **on** the leftmost ink at the entry's row (`entry.x = min_ink_x_at_entry_y`). Wide letters whose entry attaches to an already-inset stroke land at the actual leftmost ink, not at `x = 0` — e.g. `qsBay.entry-xheight` at `(3, 5)` over `"   # "`, `qsThaw.prop` at `(2, 0)` over `"  #  "`. Derived `*.entry-extended` / `*.entry-contracted` / `*.entry-trimmed-by-N` variants intentionally diverge from this; see `tools/audit_anchor_geometry.py`'s docstring for which buckets are expected anomalies.
 
-### …
+### Miscellaneous
 
 - When the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit. `·Excite·Tea·Oy` is the worked example: `qsTea_qsOy` has no baseline entry, so `qsExcite.exit-baseline.before-vertical` must surrender its exit. Extend `_PENDING_LIGA_ENTRY_GUARDS` in `tools/quikscript_fea.py` rather than broadening the plain pair-guard machinery.
 - When you'd otherwise author a near-duplicate `before:` form so an entryless forward-exit form can displace its entry-bearing siblings, reach for `strip_entry_before: true` instead; see `qsAt.entry_nowhere_exit_baseline` for the worked example, and the JSON schema description for the full rules.
