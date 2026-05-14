@@ -615,7 +615,7 @@ glyph_families:
         anchors:
           exit: [5, 0]
         select:
-          before: [{family: qsNo}]
+          before: [{family: qsNo, entry_y: 0}]
           not_before: [{family: qsExcite}, {family: qsOoze}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
@@ -625,7 +625,7 @@ glyph_families:
         anchors:
           entry: [4, 5]
         select:
-          after: [{family: qsUtter}]
+          after: [{family: qsUtter, exit_y: 5}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
