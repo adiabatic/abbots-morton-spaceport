@@ -52,6 +52,12 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 - Quikscript form keys (`alt_reaches_way_back`, `entry_xheight`) are local labels — compiled glyph identity and compatibility metadata come from each form's explicit `traits` and `modifiers`. Structured selectors in `select` / `derive` can combine all three, e.g. `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
 - Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see @postscript_glyph_names.yaml). For ligatures, sort by the lead family's code point, with the bare lead before any ligature that starts with it.
+- When multiple Quikscript forms share the same selector or anchor scaffolding, prefer `inherits` over copying the whole form, and clear inherited nested keys with `null` when a child form needs to drop them.
+
+### Formatting
+
+- When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
+
 
 ### Selectors
 
@@ -59,14 +65,15 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 - For "this family, but only variants with a compatible anchor at y=N" use family-scoped anchor selectors such as `{family: qsMay, exit_y: 5}` in `after` lists or `{family: qsTea, entry_y: 0}` in `before` lists. These mirror normal family selector behavior, including compatible ligature/component expansion, then apply the anchor-Y filter. Use `tools/suggest_scoped_anchor_selectors.py` to find candidates, but do not replace a broad family selector unless generated Senior FEA or focused shaping tests prove the change is equivalent.
 - Family-scoped anchor selectors may still compile to include the bare scoped glyph when that bare glyph is the pre-lookup form for an unrestricted entry/exit upgrade at the requested Y; this lets cyclic joins like ·They·May use `{family: qsMay, entry_y: 0}` instead of widening back to `{family: qsMay}`.
 - Don't mechanically replace long family lists with `{entry_y: …}` / `{exit_y: …}` just because the list is long. Anchor selectors expand to every matching variant, so a shorter source list can still change generated FEA or create join warnings; prove equivalence with the generated Senior feature code or the shaping tests before committing such a cleanup.
+- When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
+
+### Anchors
+
+- The standard x-value for an `exit` anchor is one pixel to the right of the stroke (`exit.x = max_ink_x_at_exit_y + 1`). Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
+- Symmetrically, the standard x-value for an `entry` anchor sits **on** the leftmost ink at the entry's row (`entry.x = min_ink_x_at_entry_y`). Wide letters whose entry attaches to a stroke that's already inset land at the actual leftmost ink (e.g. `qsBay.entry-xheight` at `(3, 5)` over `"   # "`, `qsThaw.prop` at `(2, 0)` over `"  #  "`), not at `x = 0`. The derived extend / contract / trim variants (`*.entry-extended`, `*.entry-contracted`, `*.entry-trimmed-by-N`) intentionally land at `+1` (extend / contract) or at the original anchor x even though the bitmap shifted (trim) — that's how the connection ends up the right length. `tools/audit_anchor_geometry.py` separates source vs derived in its histogram so the derived bucket doesn't get re-tightened; only source forms at `+1` need fixing.
 
 ### …
 
-- When multiple Quikscript forms share the same selector or anchor scaffolding, prefer `inherits` over copying the whole form, and clear inherited nested keys with `null` when a child form needs to drop them.
-- When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
-- The standard x-value for an `exit` anchor is one pixel to the right of the stroke (`exit.x = max_ink_x_at_exit_y + 1`). Usually this places the anchor just past the bitmap's right edge, but sometimes the anchor falls inside the bitmap — as with ·He, ·Ye, and `qsThey.exit-xheight` — because the stroke exits from the left or middle of the glyph.
-- Symmetrically, the standard x-value for an `entry` anchor sits **on** the leftmost ink at the entry's row (`entry.x = min_ink_x_at_entry_y`). Wide letters whose entry attaches to a stroke that's already inset land at the actual leftmost ink (e.g. `qsBay.entry-xheight` at `(3, 5)` over `"   # "`, `qsThaw.prop` at `(2, 0)` over `"  #  "`), not at `x = 0`. The derived extend / contract / trim variants (`*.entry-extended`, `*.entry-contracted`, `*.entry-trimmed-by-N`) intentionally land at `+1` (extend / contract) or at the original anchor x even though the bitmap shifted (trim) — that's how the connection ends up the right length. `tools/audit_anchor_geometry.py` separates source vs derived in its histogram so the derived bucket doesn't get re-tightened; only source forms at `+1` need fixing.
-- When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
 - When deciding whether a preserved join may survive later context, account for downstream ligatures too; if the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit.
 - When a two-glyph ligature should beat a right-hand join on its second component, let `calt_liga` match the second component's forward-exit variants too, rather than relying on a broad guard that can spill into unrelated ligatures.
 - When a ligature consumes a glyph, that consumed component must not keep choosing variants on the following glyph; normalize the follower back to what the ligature itself supports, then let any explicit after-ligature overrides reapply.
