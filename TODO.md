@@ -9,8 +9,6 @@
 
 ## More/fewer glyphs
 
-- Standalone
-  - an ·I that drags along the baseline before going up sharply so it works with ·Way.half better (see "wild" and "wise" in The Manual)
 - Make ligatures
   - ·Bay·Utter
   - ·Gay·Utter ("waggon")
