@@ -1820,7 +1820,7 @@ glyph_families:
         inherits: alt
         select:
           not_after: null
-          after: [{family: qsVie}, {family: qsIt}]
+          after: [{family: qsVie, exit_y: 0}, {family: qsIt, exit_y: 0}]
         modifiers: [after-it-and-vie]
       alt_after_zoo:
         inherits: alt
