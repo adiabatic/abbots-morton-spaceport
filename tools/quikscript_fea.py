@@ -76,6 +76,12 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
+    # Each entry is (prior_family, target_family, follower_family, iso_form).
+    # When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade
+    # against a member of `prior_family`, but iso shaping of `target follower`
+    # would still render `iso_form`, a post-pass re-flip restores the iso
+    # form. See `_record_fwd_pair_not_after_reflip` for the wiring.
+    iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = ()
 
 
 def _backward_pair_sort_key(
@@ -1860,6 +1866,33 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     (prior_slot, pre_form, base_name, iso_form)
                 )
 
+    def _record_fwd_pair_not_after_reflip(
+        prior_slot: frozenset[str],
+        target_name: str,
+        follower_glyphs,
+        iso_form: str,
+    ) -> None:
+        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];``
+        # via YAML `not_after`, the target stays as ``target_name`` (the bare
+        # base) instead of being upgraded to the variant the lookup would
+        # otherwise pick. Iso shaping of ``target follower`` selects
+        # ``iso_form`` on its own — record a re-flip so the in-context render
+        # matches iso. The shape mirrors `_record_pair_guard_reflip`'s tuple:
+        # ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted
+        # rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here
+        # ``base_name`` is the follower glyph (the lookahead position), and
+        # ``pre_form`` is ``target_name`` (the bare target left behind by the
+        # ignore rule).
+        target_meta = glyph_meta.get(target_name)
+        if target_meta is None:
+            return
+        candidate_base = target_meta.base_name
+        bucket = pair_guard_reflip.setdefault(candidate_base, [])
+        for follower in follower_glyphs:
+            entry = (prior_slot, target_name, follower, iso_form)
+            if entry not in bucket:
+                bucket.append(entry)
+
     for y in sorted(exit_classes):
         members = sorted(exit_classes[y])
         if members:
@@ -2868,6 +2901,37 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(f"        ignore sub [{guard_list}] {target}' [{effective_before_list}];")
                     if expanded_not_after:
                         not_after_list = " ".join(sorted(expanded_not_after))
+                        for (
+                            override_prior,
+                            override_target,
+                            override_follower,
+                            override_iso,
+                        ) in plan.iso_reflip_overrides:
+                            target_base = _meta(target).base_name
+                            if target_base != override_target:
+                                continue
+                            prior_matches = {
+                                g
+                                for g in expanded_not_after
+                                if _meta(g).base_name == override_prior
+                            }
+                            if not prior_matches:
+                                continue
+                            follower_matches = {
+                                g
+                                for g in effective_before
+                                if _meta(g).base_name == override_follower
+                            }
+                            if not follower_matches:
+                                continue
+                            if override_iso not in glyph_names:
+                                continue
+                            _record_fwd_pair_not_after_reflip(
+                                frozenset(prior_matches),
+                                target,
+                                follower_matches,
+                                override_iso,
+                            )
                         lines.append(f"        ignore sub [{not_after_list}] {target}' [{effective_before_list}];")
                     for terminal in sorted(effective_before & plan.terminal_exit_only):
                         lines.append(f"        ignore sub {target}' {terminal};")
@@ -5237,6 +5301,7 @@ def emit_quikscript_senior_features(
     join_glyphs: dict[str, JoinGlyph],
     pixel_width: int,
     pixel_height: int,
+    iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = (),
 ) -> str | None:
     parts = []
 
@@ -5245,6 +5310,7 @@ def emit_quikscript_senior_features(
         parts.append(curs_fea)
 
     analysis = _analyze_quikscript_joins(join_glyphs)
+    analysis.iso_reflip_overrides = tuple(iso_reflip_overrides)
 
     ss_gate_fea = _emit_quikscript_ss_gate(analysis)
     if ss_gate_fea:

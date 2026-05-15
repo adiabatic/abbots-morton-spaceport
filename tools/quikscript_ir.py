@@ -3,7 +3,7 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
 import warnings
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 
 class LigatureEntryInheritanceWarning(UserWarning):
@@ -55,6 +55,7 @@ class GlyphData(TypedDict):
     glyph_families: dict[str, Any]
     context_sets: dict[str, list[Any]]
     kerning: dict[str, Any]
+    iso_reflip_overrides: NotRequired[list[dict[str, str]]]
 
 
 @dataclass(frozen=True)

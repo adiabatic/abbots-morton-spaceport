@@ -1110,7 +1110,7 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
         ),
     )
 
-    def fake_emit(join_glyphs, pixel_width, pixel_height):
+    def fake_emit(join_glyphs, pixel_width, pixel_height, iso_reflip_overrides=()):
         assert join_glyphs is compiled.join_glyphs
         assert pixel_width == data["metadata"]["pixel_size"]
         assert pixel_height == data["metadata"]["pixel_size"]
