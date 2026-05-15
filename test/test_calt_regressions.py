@@ -384,9 +384,16 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
 
 
 def test_qs_no_alt_requires_a_compatible_it_exit():
+    # After Move 2 of the isolation-leak campaign, the bk-pair guard that
+    # suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires,
+    # but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight
+    # to qsIt.exit-baseline so the candidate matches what iso ``\u00B7It\u00B7No``
+    # renders at position 0 (``qsIt.exit-baseline``). The follower qsNo
+    # stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo``
+    # captures, not this row.
     assert _shape("\uE65F\uE670\uE666") == [
         "qsJay",
-        "qsIt.exit-xheight",
+        "qsIt.exit-baseline",
         "qsNo",
     ]
 
