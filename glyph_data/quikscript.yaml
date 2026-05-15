@@ -2231,7 +2231,7 @@ glyph_families:
           entry: [0, 0]
           exit: [1, 5]
         select:
-          not_after: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEat}]
+          not_after: [{family: qsJay}, {family: qsYe}, {family: qsEat}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
           extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
