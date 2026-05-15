@@ -63,6 +63,7 @@ def load_glyph_data(path: Path) -> GlyphData:
         glyph_families = {}
         context_sets = {}
         kerning_defs = {}
+        iso_reflip_overrides = []
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
                 data = yaml.safe_load(f) or {}
@@ -76,12 +77,15 @@ def load_glyph_data(path: Path) -> GlyphData:
                 context_sets.update(data["context_sets"])
             if "kerning" in data:
                 kerning_defs.update(data["kerning"])
+            if "iso_reflip_overrides" in data:
+                iso_reflip_overrides.extend(data["iso_reflip_overrides"] or [])
         return {
             "metadata": metadata,
             "glyphs": glyphs,
             "glyph_families": glyph_families,
             "context_sets": context_sets,
             "kerning": kerning_defs,
+            "iso_reflip_overrides": iso_reflip_overrides,
         }
     else:
         with open(path) as f:
@@ -92,6 +96,7 @@ def load_glyph_data(path: Path) -> GlyphData:
             "glyph_families": data.get("glyph_families", {}),
             "context_sets": data.get("context_sets", {}),
             "kerning": data.get("kerning", {}),
+            "iso_reflip_overrides": data.get("iso_reflip_overrides", []) or [],
         }
 
 
@@ -1068,10 +1073,21 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
+        raw_iso_reflip = glyph_data.get("iso_reflip_overrides", []) or []
+        iso_reflip_tuples = tuple(
+            (
+                entry["prior"],
+                entry["target"],
+                entry["follower"],
+                entry["iso_form"],
+            )
+            for entry in raw_iso_reflip
+        )
         senior_fea = emit_quikscript_senior_features(
             join_glyphs,
             pixel_width,
             pixel_height,
+            iso_reflip_overrides=iso_reflip_tuples,
         )
         if senior_fea:
             fea_code_parts.append(senior_fea)
