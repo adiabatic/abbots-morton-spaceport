@@ -1782,6 +1782,84 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     lines = ["feature calt {"]
 
+    # Accumulator for paired re-flips emitted alongside bk-pair / bk-general
+    # guards. When a guard `ignore sub [prior_slot] candidate base';` blocks
+    # the bk upgrade from firing on `base`, the candidate sitting at [pos-1]
+    # gets its fwd_replacement picked against base's now-plain entry_y instead
+    # of the bk-pair variant's entry_y. The accumulated re-flip rule restores
+    # the iso form (the variant the candidate would carry if bk had fired) by
+    # substituting the post-suppressed form back to the iso form, keyed on the
+    # same (prior_slot, candidate, base) triple that motivated the guard.
+    #
+    # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of
+    # ``(prior_slot_frozenset, candidate_pre_form, base_name, iso_form)``.
+    pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
+
+    def _record_pair_guard_reflip(
+        prior_slot: frozenset[str],
+        candidate_name: str,
+        base_name: str,
+        variant_entry_ys: set[int],
+    ) -> None:
+        # The bk-pair / bk-general rule on ``base_name`` was guarded by
+        # ``ignore sub [prior_slot] candidate base';``. In iso, that rule
+        # would have upgraded ``base_name`` to a variant with one of the
+        # ``variant_entry_ys`` as its entry_y; ``candidate``'s fwd_replacement
+        # would then pick the variant whose exit_y matches that entry_y.
+        # The post-suppressed form is what ``candidate`` ends up with after
+        # the guard fires — it's the fwd_replacement for ``base_name``'s
+        # plain entry_ys (or just the bare candidate if no fwd_replacement
+        # applies for that y). Emit a re-flip for each plausible (pre, iso)
+        # pair so the rendered shape matches iso.
+        candidate_meta = glyph_meta.get(candidate_name)
+        if candidate_meta is None:
+            return
+        # Only re-flip candidates with no entry anchor. When the candidate
+        # has an entry anchor, its iso form depends on the iso left half's
+        # predecessor (which may push it through a bk_replacement that
+        # diverges from what fwd_replacements would produce here), so the
+        # right-iso-derived iso form is unsafe to apply.
+        if candidate_meta.entry:
+            return
+        candidate_base = candidate_meta.base_name
+        base_meta = glyph_meta.get(base_name)
+        if base_meta is None:
+            return
+        candidate_fwd = fwd_replacements.get(candidate_base, {})
+        if not candidate_fwd:
+            return
+        # Iso forms: fwd_replacement variants matching variant.entry_y.
+        iso_forms: set[str] = set()
+        for variant_entry_y in variant_entry_ys:
+            iso_form = candidate_fwd.get(variant_entry_y)
+            if iso_form is not None and iso_form != candidate_name:
+                iso_forms.add(iso_form)
+        if not iso_forms:
+            return
+        # Pre forms: what the candidate is at this point. The candidate is
+        # already mutated by fwd_replacements based on base's plain entry_y,
+        # or it could still be bare (if no fwd_replacement applies for base's
+        # plain entry_y, e.g. when there's an existing not_before guard on
+        # the candidate's fwd lookup blocking it). Try both:
+        # - bare candidate_name itself
+        # - candidate_fwd[base_entry_y] for each base entry_y not in
+        #   variant_entry_ys (the "plain" entry_ys that survive when bk-pair
+        #   is suppressed).
+        pre_forms: set[str] = {candidate_name}
+        for base_entry_y in base_meta.entry_ys:
+            if base_entry_y in variant_entry_ys:
+                continue
+            pre_form = candidate_fwd.get(base_entry_y)
+            if pre_form is not None:
+                pre_forms.add(pre_form)
+        for iso_form in iso_forms:
+            for pre_form in pre_forms:
+                if pre_form == iso_form:
+                    continue
+                pair_guard_reflip.setdefault(candidate_base, []).append(
+                    (prior_slot, pre_form, base_name, iso_form)
+                )
+
     for y in sorted(exit_classes):
         members = sorted(exit_classes[y])
         if members:
@@ -3129,6 +3207,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(
                 f"        ignore sub [{prior_list}] {cand_token} {base_name}';"
             )
+            for cand_name in cands:
+                _record_pair_guard_reflip(
+                    prior_slot,
+                    cand_name,
+                    base_name,
+                    entry_ys,
+                )
 
     def _collect_two_glyph_lookbehind_guards(
         candidate_name: str,
@@ -3268,6 +3353,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             guard_list = " ".join(sorted(guard_glyphs))
                             lines.append(
                                 f"        ignore sub [{guard_list}] {candidate_name} {base_name}';"
+                            )
+                            _record_pair_guard_reflip(
+                                frozenset(guard_glyphs),
+                                candidate_name,
+                                base_name,
+                                entry_ys,
                             )
                     _emit_two_glyph_lookbehind_guards(
                         expanded_after, base_name, entry_ys
@@ -4754,6 +4845,37 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
+
+    # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule
+    # substitutes the candidate's post-suppressed form back to its iso form
+    # when the same (prior_slot, candidate, base) triple that motivated the
+    # guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate
+    # in the first place) so we see the post-fwd form, and AFTER the bk
+    # lookups that emitted the guards.
+    for candidate_base in sorted(pair_guard_reflip):
+        rules = pair_guard_reflip[candidate_base]
+        # Deduplicate while preserving stable order.
+        seen: set[tuple[frozenset[str], str, str, str]] = set()
+        unique_rules: list[tuple[frozenset[str], str, str, str]] = []
+        for entry in rules:
+            if entry in seen:
+                continue
+            seen.add(entry)
+            unique_rules.append(entry)
+        if not unique_rules:
+            continue
+        safe = candidate_base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_pair_guard_reflip_{safe} {{")
+        for prior_slot, pre_form, base_name, iso_form in sorted(
+            unique_rules,
+            key=lambda item: (item[2], item[1], item[3], sorted(item[0])),
+        ):
+            prior_list = " ".join(sorted(prior_slot))
+            lines.append(
+                f"        sub [{prior_list}] {pre_form}' {base_name} by {iso_form};"
+            )
+        lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
     lines.append("} calt;")
     lines = _coalesce_consecutive_ignore_rules(lines)
