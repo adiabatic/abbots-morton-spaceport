@@ -363,10 +363,19 @@
         <code>qsTea → qsTea.exit-xheight</code>). Scan for sequences you
         weren't intending to touch — those are the regressions.
       </p>
-      <p class="snapshot-missing">No differences found across the
-        harvested corpus. Either the change is invisible at the
-        Senior-Regular level, or <code>test/before/</code> is
-        already in sync with the live build.</p>
+      <div class="col-headers">
+        <span>Sequence (what changed)</span>
+        <span>Before (snapshot)</span>
+        <span>After (live build)</span>
+      </div>
+      <div class="row">
+        <div class="label">
+          ·Zoo ·It ·Key (qsZoo qsIt qsKey → qsZoo qsIt.entry-baseline qsKey)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Key">U+E65B U+E670 U+E654</code></div>
+        </div>
+        <div class="qs before">&#xE65B;&#xE670;&#xE654;</div>
+        <div class="qs after">&#xE65B;&#xE670;&#xE654;</div>
+      </div>
     </section>
 
     <section class="isolation-leaks">
@@ -810,29 +819,13 @@
         <div class="qs in-context">&#xE65B;&#xE652;&#xE675;</div>
         <div class="qs isolated"><span class="half">&#xE65B;</span><span class="half">&#xE652;&#xE675;</span></div>
       </div>
-      <div class="row" data-visual="diff">
+      <div class="row" data-visual="same">
         <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=It&amp;col=Zoo&amp;row=Day" target="_blank" rel="noopener" title="Open ·Zoo·It·Day in tables.html" aria-label="Open ·Zoo·It·Day in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Zoo | ·It ·Day (qsIt.entry-baseline.before-utter → qsIt.exit-xheight)
+          <a class="open-in-tables" href="tables.html#letter=It&amp;col=Zoo&amp;row=Day" target="_blank" rel="noopener" title="Open ·Zoo·It·Day in tables.html" aria-label="Open ·Zoo·It·Day in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">same</span>·Zoo | ·It ·Day (qsIt.entry-baseline.before-utter → qsIt.exit-baseline)
           <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Day">U+E65B U+E670 U+E653</code></div>
         </div>
         <div class="qs in-context">&#xE65B;&#xE670;&#xE653;</div>
         <div class="qs isolated"><span class="half">&#xE65B;</span><span class="half">&#xE670;&#xE653;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=It&amp;col=Zoo&amp;row=Zoo" target="_blank" rel="noopener" title="Open ·Zoo·It·Zoo in tables.html" aria-label="Open ·Zoo·It·Zoo in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Zoo | ·It ·Zoo (qsIt.exit-baseline → qsIt)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Zoo">U+E65B U+E670 U+E65B</code></div>
-        </div>
-        <div class="qs in-context">&#xE65B;&#xE670;&#xE65B;</div>
-        <div class="qs isolated"><span class="half">&#xE65B;</span><span class="half">&#xE670;&#xE65B;</span></div>
-      </div>
-      <div class="row" data-visual="same">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=It&amp;col=Zoo&amp;row=Utter" target="_blank" rel="noopener" title="Open ·Zoo·It·Utter in tables.html" aria-label="Open ·Zoo·It·Utter in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">same</span>·Zoo | ·It ·Utter (qsIt.entry-baseline.before-utter → qsIt.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Utter">U+E65B U+E670 U+E67A</code></div>
-        </div>
-        <div class="qs in-context">&#xE65B;&#xE670;&#xE67A;</div>
-        <div class="qs isolated"><span class="half">&#xE65B;</span><span class="half">&#xE670;&#xE67A;</span></div>
       </div>
       <div class="row" data-visual="diff">
         <div class="label">
