@@ -3176,6 +3176,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 ):
                     continue
                 slot = _fwd_pair_source_slot(prior_base)
+                # Include the fwd-pair target itself; by the time this bk-pair
+                # rule fires, the earlier fwd-pair lookup has already mutated
+                # the predecessor to ``fwd_variant``, so that form can still
+                # sit at [pos-1] in the buffer.
+                slot.add(fwd_variant)
                 if slot:
                     guards.append((frozenset(slot), candidate_name))
         return guards
