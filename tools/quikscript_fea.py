@@ -3107,15 +3107,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # candidates with no exit, and short-circuits on entry-bearing ones.
         if not entry_ys:
             return
+        # Materialize the member iterable so we can both iterate it and use
+        # it as a membership filter for the fwd_replacements guard loop.
+        members = frozenset(member_iter)
         # Group candidates that share a prior slot so we emit one ignore
         # rule per prior (with the candidate set as a class) instead of N
         # near-duplicate lines.
         by_prior: dict[frozenset[str], set[str]] = {}
-        for cand in member_iter:
+        for cand in members:
             for prior_slot, cand_name in _collect_two_glyph_lookbehind_guards(
                 cand,
                 entry_ys,
                 base_name,
+                expanded_after=members,
             ):
                 by_prior.setdefault(prior_slot, set()).add(cand_name)
         for prior_slot in sorted(by_prior, key=lambda slot: sorted(slot)):
@@ -3130,6 +3134,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         candidate_name: str,
         entry_ys: set[int],
         right_base_name: str,
+        *,
+        expanded_after: frozenset[str] = frozenset(),
     ) -> list[tuple[frozenset[str], str]]:
         # When a candidate sits at [pos] in a bk-pair rule but the candidate's
         # own bk_replacement (firing later) would mutate it to a form that no
@@ -3181,6 +3187,47 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 # the predecessor to ``fwd_variant``, so that form can still
                 # sit at [pos-1] in the buffer.
                 slot.add(fwd_variant)
+                if slot:
+                    guards.append((frozenset(slot), candidate_name))
+        # Mirror the loop above for `fwd_replacements`: a fwd_replacement on
+        # the prior glyph also mutates [pos-1]'s exit_y when the candidate at
+        # [pos] sits in the matching @entry_y{exit_y} class, and that mutation
+        # can feed the same invalidating chain through
+        # `bk_replacements[candidate_base]`. Skip same-family chains
+        # (prior_base == candidate_base) — those describe a predecessor
+        # mutating itself based on the candidate's right context, not a true
+        # two-glyph lookbehind, and the bk-pair upgrade on the follower-of-
+        # the-candidate is unaffected by that mutation in practice (e.g.
+        # `·It·It·No`'s qsNo.alt.after-it-and-vie upgrade is correct
+        # regardless of how the leading qsIt mutates). Also require
+        # `prior_base` to be one of the predecessors the bk-pair rule actually
+        # accepts, so a fwd_replacement on an unrelated lead doesn't fire a
+        # guard for this bk-pair.
+        for prior_base, by_exit_y in fwd_replacements.items():
+            if prior_base == candidate_base:
+                continue
+            source_slot = _fwd_pair_source_slot(prior_base)
+            if source_slot.isdisjoint(expanded_after):
+                continue
+            for replacement_exit_y, replacement_variant in by_exit_y.items():
+                if replacement_exit_y not in invalidating_prev_exit_ys:
+                    continue
+                # The fwd_replacement only fires when the candidate at [pos]
+                # is a member of the matching @entry_y{exit_y} class; if it
+                # isn't, the chain that would invalidate the bk-pair after-
+                # match never starts.
+                candidate_entry_class = entry_classes.get(replacement_exit_y, set())
+                if (
+                    candidate_name not in candidate_entry_class
+                    and candidate_base not in candidate_entry_class
+                ):
+                    continue
+                slot = set(source_slot)
+                # By the time the bk-pair rule fires, the fwd_replacement
+                # lookup has already mutated the predecessor to
+                # ``replacement_variant``, so that form must also be in the
+                # ignore-rule's prior class.
+                slot.add(replacement_variant)
                 if slot:
                     guards.append((frozenset(slot), candidate_name))
         return guards
