@@ -10,7 +10,11 @@
   - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
   - describe how the font’s letters will look different (“Reduce the half-·He extension at the x-height”, “Don’t join ·Way·Thaw ever”)
 - Contrariwise, messages that describe the mechanism are anti-preferred.
+
+## Prose style
+
 - While there are significant parts of this project that are in British English (like The Manual), use American English for all code and comments.
+- Don't use "iso" as a prose shorthand for "isolation" / "isolated" in comments, docstrings, or docs. Spell it out: "isolated shaping", "the isolated form", "in isolation", etc. Identifier names that already contain `iso_` (e.g. `iso_form`, `iso_reflip_overrides`, `left_iso` / `right_iso`) are fine, and backticked references to those identifiers from within prose are fine too.
 
 ## HTML/CSS/JS
 
