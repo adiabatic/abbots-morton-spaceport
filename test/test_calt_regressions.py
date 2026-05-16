@@ -435,27 +435,27 @@ def test_may_it_see_low_is_sensible():
 
 
 @pytest.mark.parametrize(
-    ("parts", "expected"),
+    ("text", "expects"),
     [
         pytest.param(
-            ("qsPea", "qsOwe"),
-            ["qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            "",
+            ["·Pea.half ~x~ ·Owe.entry-extended"],
             id="bare",
         ),
         pytest.param(
-            ("qsBay", "qsPea", "qsOwe"),
-            ["qsBay", "qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            "",
+            ["·Bay | ·Pea.half ~x~ ·Owe.entry-extended"],
             id="after-bay",
         ),
         pytest.param(
-            ("qsTea", "qsPea", "qsOwe"),
-            ["qsTea", "qsPea.half", "qsOwe.entry-xheight.entry-extended"],
+            "",
+            ["·Tea | ·Pea.half ~x~ ·Owe.entry-extended"],
             id="after-tea",
         ),
     ],
 )
-def test_qs_owe_after_pea_stays_left_only_at_word_end(parts: tuple[str, ...], expected: list[str]):
-    assert _shape_qs(*parts) == expected
+def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
