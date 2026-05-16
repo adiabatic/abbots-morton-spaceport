@@ -2701,7 +2701,6 @@ def _generate_contracted_variants(
                             count=count,
                             transforms=transforms,
                         )
-        # TODO(contract_entry_after): mirror the receiver-trim pass on the entry side when a use case appears (clear the rightmost `(by - rightward_stub)` pixels at the receiver's exit-Y row).
 
     return variants
 
