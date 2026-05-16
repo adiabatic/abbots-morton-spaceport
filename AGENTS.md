@@ -48,6 +48,10 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 - Quikscript source data lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `forms` records. Put `entry` / `exit` anchors (under an `anchors:` mapping) in the proportional record or form that should compile into the proportional font; mono-only records do not carry `curs` anchors.
 - Shared Quikscript bitmaps belong under a family's `shapes`, and contextual/alternate forms belong under `forms` with `anchors`, `select`, `derive`, `traits`, and `modifiers`. Preserve `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes belong under ordered `modifiers`.
 
+## Dev-server URLs
+
+- `make serve` runs `tools/serve.py`, which serves the `test/` directory on `http://localhost:7293/`.
+
 ## YAML files
 
 - Quikscript form keys (`alt_reaches_way_back`, `entry_xheight`) are local labels — compiled glyph identity and compatibility metadata come from each form's explicit `traits` and `modifiers`. Structured selectors in `select` / `derive` can combine all three, e.g. `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
