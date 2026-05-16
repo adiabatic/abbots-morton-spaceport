@@ -404,13 +404,13 @@ def test_jay_it_zoo_is_sensible():
     )
 
 
-def test_qs_zoo_half_follows_iso_reflip_after_qs_ye():
-    # Symmetric to the qsJay case via the second iso_reflip_overrides entry.
-    assert _shape("\uE660\uE670\uE65B") == [
-        "qsYe",
-        "qsIt.exit-baseline",
-        "qsZoo.half",
-    ]
+def test_ye_it_zoo_is_sensible():
+    _assert_expect_any(
+        "\uE660\uE670\uE65B",
+        [
+            "·Ye | ·It ·Zoo",
+        ],
+    )
 
 
 def test_qs_it_zoo_iso_control_is_unchanged():
