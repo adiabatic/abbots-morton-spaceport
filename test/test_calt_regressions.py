@@ -384,7 +384,7 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
 
 
 def test_qs_no_alt_requires_a_compatible_it_exit():
-    # After Move 2 of the isolation-leak campaign, the bk-pair guard that suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires, but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight to qsIt.exit-baseline so the candidate matches what iso ``\u00B7It\u00B7No`` renders at position 0 (``qsIt.exit-baseline``). The follower qsNo stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo`` captures, not this row.
+    # After Move 2 of the isolation-leak campaign, the bk-pair guard that suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires, but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight to qsIt.exit-baseline so the candidate matches what ``\u00B7It\u00B7No`` renders in isolation at position 0 (``qsIt.exit-baseline``). The follower qsNo stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo`` captures, not this row.
     assert _shape("\uE65F\uE670\uE666") == [
         "qsJay",
         "qsIt.exit-baseline",
@@ -393,11 +393,11 @@ def test_qs_no_alt_requires_a_compatible_it_exit():
 
 
 def test_qs_zoo_half_follows_iso_reflip_after_qs_jay():
-    # iso shaping of \u00B7It\u00B7Zoo lands on (qsIt.exit-baseline, qsZoo.half). The iso_reflip_overrides
+    # isolated shaping of \u00B7It\u00B7Zoo lands on (qsIt.exit-baseline, qsZoo.half). The iso_reflip_overrides
     # entry for qsJay\u2192qsIt\u2192qsZoo flips qsIt to qsIt.exit-baseline post\u2010fwd\u2010pair, and the new
     # `calt_post_reflip_bk_qsZoo` pass re\u2010fires qsZoo's bk\u2010replacement so the follower also
     # collapses to qsZoo.half. Without the post\u2010reflip pass, qsZoo would stay in its default
-    # top\u2010entry form and the in\u2010context render would diverge visibly from iso shaping.
+    # top\u2010entry form and the in\u2010context render would diverge visibly from isolated shaping.
     assert _shape("\uE65F\uE670\uE65B") == [
         "qsJay",
         "qsIt.exit-baseline",

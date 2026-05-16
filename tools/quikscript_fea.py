@@ -76,9 +76,9 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
-    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but iso shaping of `target follower` would still render `iso_form`, a post-pass re-flip restores the iso form. See `_record_fwd_pair_not_after_reflip` for the wiring.
+    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `iso_form`, a post-pass re-flip restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
     iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = ()
-    # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its iso shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's iso form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
+    # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
 
@@ -1073,7 +1073,7 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
                 before_bases=before_bases,
             )
 
-    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward override to the matching exit-only forward replacement of its base (e.g. → `qsTea.exit-baseline` when the follower is in `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in `@entry_y5`). Without recording these paths here, `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)` returns False, so qsTea.entry-baseline is dropped from the lookbehind class for qsDay.half.entry-extended. That drop is what makes the in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight, qsDay.entry-extended) at y=5 while iso `qsTea qsDay` joins at y=0. The same override fires on the `.entry-{N}-extended` derivatives of the entry-only variant, so propagate the reachability to them too.
+    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward override to the matching exit-only forward replacement of its base (e.g. → `qsTea.exit-baseline` when the follower is in `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in `@entry_y5`). Without recording these paths here, `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)` returns False, so qsTea.entry-baseline is dropped from the lookbehind class for qsDay.half.entry-extended. That drop is what makes the in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight, qsDay.entry-extended) at y=5 while isolated shaping of `qsTea qsDay` joins at y=0. The same override fires on the `.entry-{N}-extended` derivatives of the entry-only variant, so propagate the reachability to them too.
     for base_name, bk_variants in plan.bk_replacements.items():
         if base_name not in plan.fwd_replacements:
             continue
@@ -1744,7 +1744,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     lines = ["feature calt {"]
 
-    # Accumulator for paired re-flips emitted alongside bk-pair / bk-general guards. When a guard `ignore sub [prior_slot] candidate base';` blocks the bk upgrade from firing on `base`, the candidate sitting at [pos-1] gets its fwd_replacement picked against base's now-plain entry_y instead of the bk-pair variant's entry_y. The accumulated re-flip rule restores the iso form (the variant the candidate would carry if bk had fired) by substituting the post-suppressed form back to the iso form, keyed on the same (prior_slot, candidate, base) triple that motivated the guard.
+    # Accumulator for paired re-flips emitted alongside bk-pair / bk-general guards. When a guard `ignore sub [prior_slot] candidate base';` blocks the bk upgrade from firing on `base`, the candidate sitting at [pos-1] gets its fwd_replacement picked against base's now-plain entry_y instead of the bk-pair variant's entry_y. The accumulated re-flip rule restores the isolated form (the variant the candidate would carry if bk had fired) by substituting the post-suppressed form back to the isolated form, keyed on the same (prior_slot, candidate, base) triple that motivated the guard.
     #
     # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of ``(prior_slot_frozenset, candidate_pre_form, base_name, iso_form)``.
     pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
@@ -1755,11 +1755,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         base_name: str,
         variant_entry_ys: set[int],
     ) -> None:
-        # The bk-pair / bk-general rule on ``base_name`` was guarded by ``ignore sub [prior_slot] candidate base';``. In iso, that rule would have upgraded ``base_name`` to a variant with one of the ``variant_entry_ys`` as its entry_y; ``candidate``'s fwd_replacement would then pick the variant whose exit_y matches that entry_y. The post-suppressed form is what ``candidate`` ends up with after the guard fires — it's the fwd_replacement for ``base_name``'s plain entry_ys (or just the bare candidate if no fwd_replacement applies for that y). Emit a re-flip for each plausible (pre, iso) pair so the rendered shape matches iso.
+        # The bk-pair / bk-general rule on ``base_name`` was guarded by ``ignore sub [prior_slot] candidate base';``. In isolation, that rule would have upgraded ``base_name`` to a variant with one of the ``variant_entry_ys`` as its entry_y; ``candidate``'s fwd_replacement would then pick the variant whose exit_y matches that entry_y. The post-suppressed form is what ``candidate`` ends up with after the guard fires — it's the fwd_replacement for ``base_name``'s plain entry_ys (or just the bare candidate if no fwd_replacement applies for that y). Emit a re-flip for each plausible (pre, isolated) pair so the rendered shape matches the isolated render.
         candidate_meta = glyph_meta.get(candidate_name)
         if candidate_meta is None:
             return
-        # Only re-flip candidates with no entry anchor. When the candidate has an entry anchor, its iso form depends on the iso left half's predecessor (which may push it through a bk_replacement that diverges from what fwd_replacements would produce here), so the right-iso-derived iso form is unsafe to apply.
+        # Only re-flip candidates with no entry anchor. When the candidate has an entry anchor, its isolated form depends on the predecessor of the isolated left half (which may push it through a bk_replacement that diverges from what fwd_replacements would produce here), so the isolated form we'd derive from the right half alone is unsafe to apply.
         if candidate_meta.entry:
             return
         candidate_base = candidate_meta.base_name
@@ -1801,7 +1801,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         follower_glyphs,
         iso_form: str,
     ) -> None:
-        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];`` via YAML `not_after`, the target stays as ``target_name`` (the bare base) instead of being upgraded to the variant the lookup would otherwise pick. Iso shaping of ``target follower`` selects ``iso_form`` on its own — record a re-flip so the in-context render matches iso. The shape mirrors `_record_pair_guard_reflip`'s tuple: ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here ``base_name`` is the follower glyph (the lookahead position), and ``pre_form`` is ``target_name`` (the bare target left behind by the ignore rule).
+        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];`` via YAML `not_after`, the target stays as ``target_name`` (the bare base) instead of being upgraded to the variant the lookup would otherwise pick. Isolated shaping of ``target follower`` selects ``iso_form`` on its own — record a re-flip so the in-context render matches the isolated render. The shape mirrors `_record_pair_guard_reflip`'s tuple: ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here ``base_name`` is the follower glyph (the lookahead position), and ``pre_form`` is ``target_name`` (the bare target left behind by the ignore rule).
         target_meta = glyph_meta.get(target_name)
         if target_meta is None:
             return
@@ -2483,7 +2483,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _refined_bk_replacement(fpt: str, default_replacement: str) -> str:
         # When `fpt` (a fwd-pair-override variant) is being reverted to the bk_replacement `default_replacement` because its entry doesn't fit the preceding glyph, prefer a replacement that still carries fpt's exit-extension. First try `default_replacement + ext_suffix` (e.g. ``qsX.entry-baseline.exit-extended`` when the family declares such a variant); failing that, fall back to an entryless sibling of fpt whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops the wrong entry — same bitmap, no cursive attachment to the preceding glyph either way — but preserves the join extension into the next glyph.
         #
-        # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the iso path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; iso shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the iso exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with iso (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.entry-xheight.exit-extended instead of the entryless qsIt.exit-xheight.exit-extended sibling, which loses the lead's baseline reach).
+        # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the isolated-shaping path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; isolated shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the isolated exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with the isolated render (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.entry-xheight.exit-extended instead of the entryless qsIt.exit-xheight.exit-extended sibling, which loses the lead's baseline reach).
         fpt_meta = _meta(fpt)
         ext_suffix = fpt_meta.extended_exit_suffix
         if not ext_suffix:
@@ -2523,7 +2523,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return default_replacement
 
     def _iso_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
-        # Iso shaping of ``base + follower`` picks ``fwd_replacements[base][N]`` whose exit_y matches one of follower's entry_ys (N). Return the union of those iso exit_ys across fpt's resolved followers, restricted to the exit_ys that ``fwd_replacements`` actually declares for the base.
+        # Isolated shaping of ``base + follower`` picks ``fwd_replacements[base][N]`` whose exit_y matches one of follower's entry_ys (N). Return the union of those isolated exit_ys across fpt's resolved followers, restricted to the exit_ys that ``fwd_replacements`` actually declares for the base.
         base_name = fpt_meta.base_name
         base_fwd = fwd_replacements.get(base_name)
         if not base_fwd:
@@ -4670,7 +4670,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
-    # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule substitutes the candidate's post-suppressed form back to its iso form when the same (prior_slot, candidate, base) triple that motivated the guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate in the first place) so we see the post-fwd form, and AFTER the bk lookups that emitted the guards.
+    # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule substitutes the candidate's post-suppressed form back to its isolated form when the same (prior_slot, candidate, base) triple that motivated the guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate in the first place) so we see the post-fwd form, and AFTER the bk lookups that emitted the guards.
     for candidate_base in sorted(pair_guard_reflip):
         rules = pair_guard_reflip[candidate_base]
         # Deduplicate while preserving stable order.
@@ -4696,7 +4696,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
-    # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the iso form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the iso form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
+    # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the isolated form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the isolated form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
     post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
     for _prior, _target_base, follower_base, iso_form in plan.iso_reflip_overrides:
         if iso_form not in glyph_names:
@@ -4747,7 +4747,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
         lines.append(f"    }} calt_post_reflip_bk_{safe};")
 
-    # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its iso form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
+    # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
     for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
         if predecessor_form not in glyph_names:
