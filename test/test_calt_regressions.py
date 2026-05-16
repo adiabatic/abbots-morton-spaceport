@@ -809,18 +809,23 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
     _assert_no_failures(_middle_pea_xheight_left_gate_failures())
 
 
-def test_qs_ing_before_thaw_uses_triply_extended_exit():
-    assert _shape_qs("qsIng", "qsThaw") == [
-        "qsIng.exit-triply-extended",
-        "qsThaw",
-    ]
-
-
-def test_qs_thaw_before_ing_uses_doubly_extended_entry_ing():
-    assert _shape_qs("qsThaw", "qsIng") == [
-        "qsThaw.exit-baseline",
-        "qsIng.after-thaw.entry-doubly-extended",
-    ]
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(
+            "",
+            ["·-ing.exit-triply-extended ~b~ ·Thaw"],
+            id="ing-before-thaw",
+        ),
+        pytest.param(
+            "",
+            ["·Thaw.exit-baseline ~b~ ·-ing.after-thaw.entry-doubly-extended"],
+            id="thaw-before-ing",
+        ),
+    ],
+)
+def test_qs_ing_and_thaw_in_either_order_extend_their_baseline_join(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_it_strips_entry_before_qs_ing_when_left_join_conflicts():
