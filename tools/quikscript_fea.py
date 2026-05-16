@@ -1777,6 +1777,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 iso_forms.add(iso_form)
         if not iso_forms:
             return
+        # When the bk-pair guard suppresses base's upgrade, base stays plain — its entry sits at one of base_meta's plain (non-variant) entry_ys. Drop any iso_form whose exit_y can't meet that plain entry: applying it would visibly disconnect the candidate from base on the right side, which is worse than leaving the pre_form in place. Iso_forms with no exit are fine to keep (their right side is dangling either way, so they at least match the iso bitmap).
+        plain_base_entry_ys = set(base_meta.entry_ys) - variant_entry_ys
+        if plain_base_entry_ys:
+            filtered_iso_forms: set[str] = set()
+            for iso_form in iso_forms:
+                iso_meta = glyph_meta.get(iso_form)
+                if iso_meta is None:
+                    filtered_iso_forms.add(iso_form)
+                    continue
+                iso_exit_ys = set(iso_meta.exit_ys)
+                if not iso_exit_ys or iso_exit_ys & plain_base_entry_ys:
+                    filtered_iso_forms.add(iso_form)
+            iso_forms = filtered_iso_forms
+            if not iso_forms:
+                return
         # Pre forms: what the candidate is at this point. The candidate is already mutated by fwd_replacements based on base's plain entry_y, or it could still be bare (if no fwd_replacement applies for base's plain entry_y, e.g. when there's an existing not_before guard on the candidate's fwd lookup blocking it). Try both:
         # - bare candidate_name itself
         # - candidate_fwd[base_entry_y] for each base entry_y not in variant_entry_ys (the "plain" entry_ys that survive when bk-pair is suppressed).
