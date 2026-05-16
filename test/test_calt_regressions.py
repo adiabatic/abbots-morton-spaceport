@@ -422,13 +422,14 @@ def test_it_zoo_is_sensible():
     )
 
 
-def test_qs_low_entry_extended_requires_a_compatible_see_exit():
-    assert _shape("\uE665\uE670\uE65A\uE667") == [
-        "qsMay.exit-extended",
-        "qsIt.entry-xheight",
-        "qsSee",
-        "qsLow",
-    ]
+def test_may_it_see_low_is_sensible():
+    _assert_expect_any(
+        "\uE665\uE670\uE65A\uE667",
+        [
+            "·May.exit-extended ~x~ ·It ~b~ ·See  |  ·Low",
+            "·May.exit-extended ~x~ ·It  |  ·See ~b~ ·Low",
+        ],
+    )
 
 
 @pytest.mark.parametrize(
