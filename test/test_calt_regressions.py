@@ -1119,7 +1119,7 @@ def _qs_no_thaw_alt_failures(glyphs: list[str], label: str) -> list[str]:
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
 )
 def test_qs_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
-    # For every possible left-side neighbour, ·X·May·Thaw·-ing (i.e. whenever qsThaw forward-subs away its entry) must not leave qsMay with an exit that has nowhere to land on qsThaw.
+    # For every possible left-side neighbor, ·X·May·Thaw·-ing (i.e. whenever qsThaw forward-subs away its entry) must not leave qsMay with an exit that has nowhere to land on qsThaw.
     failures = _qs_may_thaw_orphan_failures(
         _shape_qs(suffix_name, "qsMay", "qsThaw", "qsIng"),
         f"{suffix_name} / qsMay / qsThaw / qsIng",
@@ -1915,7 +1915,7 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
     up in ``not_before`` for two distinct reasons — either the full form
     legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is
     meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection
-    behaviour is asserted in the targeted parametrizations above; this
+    behavior is asserted in the targeted parametrizations above; this
     test covers the part they share.
     """
     half_meta = _compiled_meta()[f"{left_base}.half"]

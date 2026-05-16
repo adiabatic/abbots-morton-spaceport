@@ -2,7 +2,7 @@ context_sets:
   reaches_up_and_way_over_at_least_part_of_the_next_letter:
   - {family: qsAh, modifiers: [exit-extended]}
   - {family: qsUtter, modifiers: [exit-extended]}
-  # `_iter_related_extension_targets` propagates qsUtter's `extend_exit_before` onto every `qsX_qsUtter` ligature, so the ligatures pick up `.exit-extended` before qsBay/qsFee/qsGay/qsThey too. The followers' entry-xheight selectors need to recognise the ligature variant the same way they recognise qsUtter.exit-extended; otherwise the join silently breaks and the extension is just a cosmetic flourish (see ·See|·Utter·Bay isolation leak).
+  # `_iter_related_extension_targets` propagates qsUtter's `extend_exit_before` onto every `qsX_qsUtter` ligature, so the ligatures pick up `.exit-extended` before qsBay/qsFee/qsGay/qsThey too. The followers' entry-xheight selectors need to recognize the ligature variant the same way they recognize qsUtter.exit-extended; otherwise the join silently breaks and the extension is just a cosmetic flourish (see ·See|·Utter·Bay isolation leak).
   - {family: qsDay_qsUtter, modifiers: [exit-extended]}
   - {family: qsJai_qsUtter, modifiers: [exit-extended]}
   - {family: qsJay_qsUtter, modifiers: [exit-extended]}
