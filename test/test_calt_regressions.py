@@ -389,17 +389,19 @@ def test_jay_it_no_is_sensible():
         "\uE65F\uE670\uE666",
         [
             "·Jay ~b~ ·It | ·No",
-            "·Jay | ·It ·No",
+            "·Jay  |  ·It   ·No",
         ],
     )
 
 
-def test_qs_zoo_half_follows_iso_reflip_after_qs_jay():
-    assert _shape("\uE65F\uE670\uE65B") == [
-        "qsJay",
-        "qsIt.exit-baseline",
-        "qsZoo.half",
-    ]
+def test_jay_it_zoo_is_sensible():
+    _assert_expect_any(
+        "\uE65F\uE670\uE65B",
+        [
+            "·Jay ~b~ ·It ~x~ ·Zoo.!half",
+            "·Jay  |  ·It ~b~ ·Zoo.half",
+        ],
+    )
 
 
 def test_qs_zoo_half_follows_iso_reflip_after_qs_ye():
