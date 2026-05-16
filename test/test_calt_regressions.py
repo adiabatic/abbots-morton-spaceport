@@ -379,7 +379,7 @@ def _middle_pea_xheight_left_gate_failures() -> list[str]:
 
 def test_see_ooze_is_sensible():
     _assert_expect_any(
-        "\uE65A\uE67E",
+        "",
         [
             "·See.exit-baseline-right ~b~ ·Ooze",
         ],
@@ -388,7 +388,7 @@ def test_see_ooze_is_sensible():
 
 def test_jay_it_no_is_sensible():
     _assert_expect_any(
-        "\uE65F\uE670\uE666",
+        "",
         [
             "·Jay ~b~ ·It | ·No",
             "·Jay  |  ·It   ·No",
@@ -398,7 +398,7 @@ def test_jay_it_no_is_sensible():
 
 def test_jay_it_zoo_is_sensible():
     _assert_expect_any(
-        "\uE65F\uE670\uE65B",
+        "",
         [
             "·Jay ~b~ ·It ~x~ ·Zoo.!half",
             "·Jay  |  ·It ~b~ ·Zoo.half",
@@ -408,7 +408,7 @@ def test_jay_it_zoo_is_sensible():
 
 def test_ye_it_zoo_is_sensible():
     _assert_expect_any(
-        "\uE660\uE670\uE65B",
+        "",
         [
             "·Ye | ·It ·Zoo",
         ],
@@ -417,7 +417,7 @@ def test_ye_it_zoo_is_sensible():
 
 def test_it_zoo_is_sensible():
     _assert_expect_any(
-        "\uE670\uE65B",
+        "",
         [
             "·It ~b~ ·Zoo.half",
         ],
@@ -426,7 +426,7 @@ def test_it_zoo_is_sensible():
 
 def test_may_it_see_low_is_sensible():
     _assert_expect_any(
-        "\uE665\uE670\uE65A\uE667",
+        "",
         [
             "·May.exit-extended ~x~ ·It ~b~ ·See  |  ·Low",
             "·May.exit-extended ~x~ ·It  |  ·See ~b~ ·Low",
@@ -1769,7 +1769,7 @@ def test_qs_et_tea_nonjoining_right_context_keeps_right_glyph_plain():
 
 
 def test_qs_see_pea_keeps_the_y6_join():
-    assert _shape("\uE65A\uE650") == [
+    assert _shape("") == [
         "qsSee.exit-y6",
         "qsPea.entry-y6",
     ]
