@@ -1342,13 +1342,7 @@ def test_ss_gated_swap_adds_a_mismatch():
     assert "qsTea" in message
 
 
-# Regression-example tests — each fixture distills the kind of steady-state
-# join mismatch that the named historical commit was working around. For the
-# four FEA-only fixes (every commit below except 075d485, which mutated YAML),
-# the pre-fix YAML was structurally consistent and the bug lived in the FEA
-# emitter; these fixtures express the hypothetical YAML where the FEA-side
-# guard had not yet been introduced. The validator is designed to make that
-# situation impossible.
+# Regression-example tests — each fixture distills the kind of steady-state join mismatch that the named historical commit was working around. For the four FEA-only fixes (every commit below except 075d485, which mutated YAML), the pre-fix YAML was structurally consistent and the bug lived in the FEA emitter; these fixtures express the hypothetical YAML where the FEA-side guard had not yet been introduced. The validator is designed to make that situation impossible.
 
 
 def test_regression_075d485_fee_exits_xheight_before_utter():

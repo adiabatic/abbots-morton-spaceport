@@ -1299,11 +1299,7 @@ def test_expand_selectors_recognizes_family_variants_in_selector_lists():
 
     expanded = expand_selectors_for_ligatures(metadata)
 
-    # `qsB.alt` is a specific trailing-component variant. With suffix-aware
-    # ligature keying, it doesn't match the base `qsA_qsB` (which doesn't
-    # represent an `alt` state). The existing pre-liga expansion still adds
-    # the lead component `qsA` so the selector fires when qsA literally
-    # precedes pre-liga.
+    # `qsB.alt` is a specific trailing-component variant. With suffix-aware ligature keying, it doesn't match the base `qsA_qsB` (which doesn't represent an `alt` state). The existing pre-liga expansion still adds the lead component `qsA` so the selector fires when qsA literally precedes pre-liga.
     assert expanded["qsLeft"].before == ("qsB.alt", "qsA")
 
 
@@ -2708,8 +2704,7 @@ def test_bitmap_misalignment_blocks_inheritance():
                 },
             },
             ligature_prop={
-                # Ligature's bitmap leftmost ink at y=0 is column 1, not 0,
-                # so copying entry x=1 onto it would create a join gap.
+                # Ligature's bitmap leftmost ink at y=0 is column 1, not 0, so copying entry x=1 onto it would create a join gap.
                 "bitmap": [" #####"],
                 "anchors": {"exit": [7, 0]},
             },
@@ -2720,9 +2715,7 @@ def test_bitmap_misalignment_blocks_inheritance():
 
 
 def test_inheritance_skipped_in_junior_variant():
-    # Junior has no contextual entry-xheight forms compiled, and ligatures
-    # are not formed there anyway, so the pass shouldn't run and shouldn't
-    # warn about ligatures whose explicit YAML entry can't be reconciled.
+    # Junior has no contextual entry-xheight forms compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
     import warnings as _warnings
 
     with _warnings.catch_warnings():

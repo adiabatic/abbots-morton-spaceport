@@ -86,19 +86,7 @@ class _PairIntent:
     y: int
 
 
-# Authoritative override of structural derivation. The structural pass in
-# `_collect_guards` cannot yet (a) emit guard entries keyed on the bare base
-# `qsTea` (its own `all_entry_ys` is empty; entries live on family variants)
-# nor (b) infer the multi-step right-context narrowings on
-# `qsExcite.exit-baseline.before-vertical` that the runtime emitter relies on.
-# Until those gaps close, `derive_pending_*` returns these tables verbatim —
-# the structural pass still runs as a sanity layer (the
-# `test_structural_*_guards_cover_coverable_residual` tests in
-# `test/test_quikscript_join_analysis.py` enforce that every residual entry
-# the structural pass *can* in principle cover is in fact covered) but the
-# override pins the public output to byte-for-byte parity with the runtime
-# emitter's prior behavior. Once the structural pass tightens, remove this
-# override in favor of pure derivation.
+# Authoritative override of structural derivation. The structural pass in `_collect_guards` cannot yet (a) emit guard entries keyed on the bare base `qsTea` (its own `all_entry_ys` is empty; entries live on family variants) nor (b) infer the multi-step right-context narrowings on `qsExcite.exit-baseline.before-vertical` that the runtime emitter relies on. Until those gaps close, `derive_pending_*` returns these tables verbatim — the structural pass still runs as a sanity layer (the `test_structural_*_guards_cover_coverable_residual` tests in `test/test_quikscript_join_analysis.py` enforce that every residual entry the structural pass *can* in principle cover is in fact covered) but the override pins the public output to byte-for-byte parity with the runtime emitter's prior behavior. Once the structural pass tightens, remove this override in favor of pure derivation.
 _RESIDUAL_BK_GUARDS: dict[
     tuple[str, str, int], tuple[DerivedBkGuard, ...]
 ] = {
@@ -696,11 +684,7 @@ def _collect_bitmap_gap_warnings(
                             and right_meta.generated_from is not None
                             and _ink_bounds_at_y(right_meta, y) is None
                         ):
-                            # The trim removed every ink cell at the join row.
-                            # Fall back to the pre-trim parent bitmap so the gap
-                            # check sees the ink position the predecessor's exit
-                            # is meant to overlap, instead of flagging the empty
-                            # row as a missing-side join.
+                            # The trim removed every ink cell at the join row. Fall back to the pre-trim parent bitmap so the gap check sees the ink position the predecessor's exit is meant to overlap, instead of flagging the empty row as a missing-side join.
                             parent = reachability.glyph_meta.get(right_meta.generated_from)
                             if parent is not None:
                                 right_bounds_meta = parent
@@ -1028,23 +1012,9 @@ def _ligature_component_propagates_context(
     opposite_family: str,
     side: str,
 ) -> bool:
-    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and
-    # the symmetric exit-side helpers) in `quikscript_ir` propagate a
-    # component's contract / extend rule onto the matching ligature variant
-    # but leave the variant's own `after` / `before` empty (the propagated
-    # context is intersected with the base ligature's, which is `()`). At
-    # runtime `calt_liga` still routes through that variant whenever the
-    # component form's contraction / extension fires, so accept it as a swap
-    # candidate when the relevant component family carries a matching rule
-    # whose targets include `opposite_family`. The lead component drives
-    # entry-side propagation; the trailing component drives exit-side.
+    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and the symmetric exit-side helpers) in `quikscript_ir` propagate a component's contract / extend rule onto the matching ligature variant but leave the variant's own `after` / `before` empty (the propagated context is intersected with the base ligature's, which is `()`). At runtime `calt_liga` still routes through that variant whenever the component form's contraction / extension fires, so accept it as a swap candidate when the relevant component family carries a matching rule whose targets include `opposite_family`. The lead component drives entry-side propagation; the trailing component drives exit-side.
     #
-    # Ligature inheritance (mirroring `expand_selectors_for_ligatures`)
-    # applies to the rule's `targets` list too: a target family `qsZ` matches
-    # `opposite_family` directly *or* matches when `opposite_family` is a
-    # ligature whose lead (entry side) or trailing (exit side) component is
-    # `qsZ`, because runtime context lookups see that boundary component
-    # pre-liga.
+    # Ligature inheritance (mirroring `expand_selectors_for_ligatures`) applies to the rule's `targets` list too: a target family `qsZ` matches `opposite_family` directly *or* matches when `opposite_family` is a ligature whose lead (entry side) or trailing (exit side) component is `qsZ`, because runtime context lookups see that boundary component pre-liga.
     if source_meta is None or not source_meta.sequence:
         return False
     if side == "entry":
@@ -1121,8 +1091,7 @@ def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int,
 def _effective_exit_x(
     meta: JoinGlyph, anchor_x: int, right_family: str | None
 ) -> int:
-    # `extend_exit_before` widens the bitmap rightward by the same amount it
-    # shifts the exit anchor, so the visible gap is unchanged — skip it.
+    # `extend_exit_before` widens the bitmap rightward by the same amount it shifts the exit anchor, so the visible gap is unchanged — skip it.
     if right_family is None:
         return anchor_x
     if meta.contract_exit_before and right_family in meta.contract_exit_before.targets:
@@ -1133,9 +1102,7 @@ def _effective_exit_x(
 def _effective_entry_x(
     meta: JoinGlyph, anchor_x: int, left_family: str | None
 ) -> int:
-    # `extend_entry_after` prepends ink to the receiver's bitmap, capped by the
-    # original gap — modeling that without the bitmap rewrite would over-correct,
-    # so skip it.
+    # `extend_entry_after` prepends ink to the receiver's bitmap, capped by the original gap — modeling that without the bitmap rewrite would over-correct, so skip it.
     if left_family is None:
         return anchor_x
     if meta.contract_entry_after and left_family in meta.contract_entry_after.targets:
@@ -2061,14 +2028,7 @@ def _iter_forward_sub_pairs(reachability: JoinReachability):
         for variant, _, _ in overrides:
             yield from emit(base, variant)
 
-    # bk_var × fwd_var: the runtime emits sub rules at call sites 4/5 of
-    # _emit_pending_bk_entry_guards (tools/quikscript_fea.py:2332, 2358), where
-    # a backward variant is forward-subbed to a forward variant of the same
-    # base. The bk_replacements dict is keyed by base; the corresponding fwd
-    # variants live under the same base in the fwd_* maps. gated_fwd_pair_overrides
-    # is intentionally omitted: the gated calt block at quikscript_fea.py:2990
-    # uses its own _collect_pending_bk_pair_guards and never reads _derived_bk_guards,
-    # so pairs sourced from there populate the dict but no caller queries them.
+    # bk_var × fwd_var: the runtime emits sub rules at call sites 4/5 of _emit_pending_bk_entry_guards (tools/quikscript_fea.py:2332, 2358), where a backward variant is forward-subbed to a forward variant of the same base. The bk_replacements dict is keyed by base; the corresponding fwd variants live under the same base in the fwd_* maps. gated_fwd_pair_overrides is intentionally omitted: the gated calt block at quikscript_fea.py:2990 uses its own _collect_pending_bk_pair_guards and never reads _derived_bk_guards, so pairs sourced from there populate the dict but no caller queries them.
     for base, entry_to_bk_var in reachability.bk_replacements.items():
         fwd_variants: list[str] = []
         fwd_variants.extend(reachability.fwd_replacements.get(base, {}).values())
@@ -2093,12 +2053,7 @@ def _collect_guards(
     source_meta = reachability.glyph_meta.get(source_name)
     if source_meta is None:
         return
-    # A guard at (source, replacement, entry_y) only fires if a left glyph at
-    # exit-Y entry_y could have joined source pre-substitution; that requires
-    # source to have an entry anchor at entry_y. Residual entries keyed on bare
-    # bases (like qsTea, whose all_entry_ys is empty but whose family carries
-    # entries) are dropped here by design — `_apply_residual_override`
-    # reintroduces them for the cases derivation cannot structurally cover.
+    # A guard at (source, replacement, entry_y) only fires if a left glyph at exit-Y entry_y could have joined source pre-substitution; that requires source to have an entry anchor at entry_y. Residual entries keyed on bare bases (like qsTea, whose all_entry_ys is empty but whose family carries entries) are dropped here by design — `_apply_residual_override` reintroduces them for the cases derivation cannot structurally cover.
     source_entry_ys = set(source_meta.all_entry_ys)
     replacement_entry_ys = set(replacement_meta.all_entry_ys)
     for entry_y, left_glyphs in glyph_by_exit_y.items():
@@ -2126,10 +2081,7 @@ def _apply_residual_override(
     out: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
     residual: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    # `out` is intentionally accepted-and-ignored. The structural pass still
-    # runs upstream so the superset invariants stay derivable; this override
-    # pins the public output to the residual until derivation is tight enough
-    # to match curated keys structurally.
+    # `out` is intentionally accepted-and-ignored. The structural pass still runs upstream so the superset invariants stay derivable; this override pins the public output to the residual until derivation is tight enough to match curated keys structurally.
     del out
     return {key: tuple(guards) for key, guards in residual.items()}
 

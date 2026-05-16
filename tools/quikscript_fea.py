@@ -76,21 +76,9 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
-    # Each entry is (prior_family, target_family, follower_family, iso_form).
-    # When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade
-    # against a member of `prior_family`, but iso shaping of `target follower`
-    # would still render `iso_form`, a post-pass re-flip restores the iso
-    # form. See `_record_fwd_pair_not_after_reflip` for the wiring.
+    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but iso shaping of `target follower` would still render `iso_form`, a post-pass re-flip restores the iso form. See `_record_fwd_pair_not_after_reflip` for the wiring.
     iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = ()
-    # Each entry is (predecessor_form, trigger_form, iso_form). When the
-    # rendered chain after every earlier lookup is
-    # `predecessor_form trigger_form ...` and `trigger_form` is an entryless
-    # variant, the predecessor's extension is reaching into empty air. Emit a
-    # final-pass rule `sub predecessor_form' trigger_form by iso_form;` to
-    # demote the predecessor back to its iso shape so the render matches what
-    # `trigger ...` would render on its own to the right of the predecessor's
-    # iso form. No third-glyph guard is needed because the trigger's
-    # entryless state at this post-pass already implies the join is broken.
+    # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its iso shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's iso form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
 
@@ -173,12 +161,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         if meta.is_noentry:
             continue
         if "exit-noentry" in meta.modifiers:
-            # exit-noentry forms exist only as post-liga substitution
-            # targets (the calt cleanup pass routes the predecessor of a
-            # noentry_after ligature here). They must not enter
-            # bk_replacements / fwd_upgrades — the entry-bearing variants
-            # of these forms would otherwise displace the regular
-            # entry-only forms from pre-liga selection.
+            # exit-noentry forms exist only as post-liga substitution targets (the calt cleanup pass routes the predecessor of a noentry_after ligature here). They must not enter bk_replacements / fwd_upgrades — the entry-bearing variants of these forms would otherwise displace the regular entry-only forms from pre-liga selection.
             continue
         if not meta.is_entry_variant:
             if not meta.entry and not meta.after:
@@ -278,10 +261,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             if sequences:
                 plan.bk_fwd_exclusion_sequences.setdefault(base_name, {})[entry_y] = sequences
 
-    # `derive.noentry_after` on a non-ligature family becomes a backward
-    # pair override that swaps the base glyph for its `.noentry` variant
-    # after the listed families. Ligatures route through the post-liga
-    # cleanup pipeline below; this branch keeps plain families one-line.
+    # `derive.noentry_after` on a non-ligature family becomes a backward pair override that swaps the base glyph for its `.noentry` variant after the listed families. Ligatures route through the post-liga cleanup pipeline below; this branch keeps plain families one-line.
     for glyph_name, meta in glyph_meta.items():
         if glyph_name != meta.base_name:
             continue
@@ -657,8 +637,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         for exit_y in fwd_replacements.get(base_name, {}):
             if exit_y in current_exit_ys or exit_y in shadowed_exit_ys:
                 continue
-            # Emit only the plain forward-exit Ys that another base's
-            # backward substitutions cannot see until this base has changed.
+            # Emit only the plain forward-exit Ys that another base's backward substitutions cannot see until this base has changed.
             if any(other_base != base_name and exit_y in set(entry_variants) for other_base, entry_variants in bk_replacements.items()):
                 safe_exit_ys.add(exit_y)
         if safe_exit_ys:
@@ -1094,19 +1073,7 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
                 before_bases=before_bases,
             )
 
-    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward
-    # replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward
-    # override to the matching exit-only forward replacement of its base
-    # (e.g. → `qsTea.exit-baseline` when the follower is in
-    # `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in
-    # `@entry_y5`). Without recording these paths here,
-    # `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)`
-    # returns False, so qsTea.entry-baseline is dropped from the lookbehind
-    # class for qsDay.half.entry-extended. That drop is what makes the
-    # in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight,
-    # qsDay.entry-extended) at y=5 while iso `qsTea qsDay` joins at y=0.
-    # The same override fires on the `.entry-{N}-extended` derivatives of
-    # the entry-only variant, so propagate the reachability to them too.
+    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward override to the matching exit-only forward replacement of its base (e.g. → `qsTea.exit-baseline` when the follower is in `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in `@entry_y5`). Without recording these paths here, `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)` returns False, so qsTea.entry-baseline is dropped from the lookbehind class for qsDay.half.entry-extended. That drop is what makes the in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight, qsDay.entry-extended) at y=5 while iso `qsTea qsDay` joins at y=0. The same override fires on the `.entry-{N}-extended` derivatives of the entry-only variant, so propagate the reachability to them too.
     for base_name, bk_variants in plan.bk_replacements.items():
         if base_name not in plan.fwd_replacements:
             continue
@@ -1261,8 +1228,7 @@ def _entry_anchor_is_visual_addition(
         if _has_left_entry(sibling_meta):
             continue
         if sibling_meta.noentry_for is not None:
-            # Auto-generated noentry stripper — same bitmap as its source,
-            # not an independent design.
+            # Auto-generated noentry stripper — same bitmap as its source, not an independent design.
             continue
         if sibling_meta.bitmap == target_bitmap:
             return False
@@ -1353,11 +1319,7 @@ def _expand_backward_after_variants(
 
     for after_glyph in after_glyphs:
         candidates = set(expand_selector(after_glyph))
-        # Also consider any generated .noentry variants of the same base.
-        # calt_zwnj substitutes a qs letter with one of these forms after a
-        # ZWNJ, and the standard variant expander does not return them, so
-        # backward-context rules would otherwise miss those cases and fail to
-        # fire.
+        # Also consider any generated .noentry variants of the same base. calt_zwnj substitutes a qs letter with one of these forms after a ZWNJ, and the standard variant expander does not return them, so backward-context rules would otherwise miss those cases and fail to fire.
         after_base = (
             glyph_meta[after_glyph].base_name
             if after_glyph in glyph_meta
@@ -1381,16 +1343,7 @@ def _expand_backward_after_variants(
                     set(glyph_meta[candidate].exit_ys) & entry_ys
                     or (
                         not glyph_meta[candidate].exit
-                        # The "could eventually exit at Y" rescue is only safe
-                        # when this candidate would actually pick up the right
-                        # exit later. For `.noentry` strippers that fallback
-                        # is unreliable: a stripper of an unrelated family
-                        # member (e.g., bare `qsTea.noentry` of bare `qsTea`)
-                        # will never reach a half-form Tea exit, no matter
-                        # what siblings the family has. Require the
-                        # entry-bearing counterpart of the stripper to itself
-                        # be a candidate — meaning the rule already targets
-                        # that source — before trusting the rescue.
+                        # The "could eventually exit at Y" rescue is only safe when this candidate would actually pick up the right exit later. For `.noentry` strippers that fallback is unreliable: a stripper of an unrelated family member (e.g., bare `qsTea.noentry` of bare `qsTea`) will never reach a half-form Tea exit, no matter what siblings the family has. Require the entry-bearing counterpart of the stripper to itself be a candidate — meaning the rule already targets that source — before trusting the rescue.
                         and (
                             not glyph_meta[candidate].is_noentry
                             or _unstripped_is_candidate(candidate)
@@ -1694,8 +1647,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     glyph_names = plan.glyph_names
     base_to_variants = plan.base_to_variants
 
-    # Function-local import: quikscript_join_analysis imports from quikscript_fea,
-    # so a top-of-module import here would cycle.
+    # Function-local import: quikscript_join_analysis imports from quikscript_fea, so a top-of-module import here would cycle.
     from quikscript_join_analysis import (
         DerivedBkGuard,
         JoinReachability,
@@ -1708,13 +1660,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _derived_bk_guards = derive_pending_bk_entry_guards(_reachability)
     _derived_fwd_strip_guards = derive_pending_fwd_strip_guards(_reachability)
     _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
-    # Tracks whether the next emission belongs to a post-calt_cycle lookup.
-    # `_emit_narrow_mid_entry_strip_guards` only relaxes its bare-base skip
-    # for generic fwd_strip_guards once cycle has finished — pre-cycle
-    # predecessors fire before mid's bk_replacement has run, so their
-    # mid_source still picks up an entry from `calt_cycle` and no generic
-    # guard is warranted. Pair-specific forward strips are checked separately
-    # because the same lookup can see the stripping right context in lookahead.
+    # Tracks whether the next emission belongs to a post-calt_cycle lookup. `_emit_narrow_mid_entry_strip_guards` only relaxes its bare-base skip for generic fwd_strip_guards once cycle has finished — pre-cycle predecessors fire before mid's bk_replacement has run, so their mid_source still picks up an entry from `calt_cycle` and no generic guard is warranted. Pair-specific forward strips are checked separately because the same lookup can see the stripping right context in lookahead.
     _fwd_strip_guards_active = [False]
 
     generation_children: dict[str, list[str]] = defaultdict(list)
@@ -1798,17 +1744,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     lines = ["feature calt {"]
 
-    # Accumulator for paired re-flips emitted alongside bk-pair / bk-general
-    # guards. When a guard `ignore sub [prior_slot] candidate base';` blocks
-    # the bk upgrade from firing on `base`, the candidate sitting at [pos-1]
-    # gets its fwd_replacement picked against base's now-plain entry_y instead
-    # of the bk-pair variant's entry_y. The accumulated re-flip rule restores
-    # the iso form (the variant the candidate would carry if bk had fired) by
-    # substituting the post-suppressed form back to the iso form, keyed on the
-    # same (prior_slot, candidate, base) triple that motivated the guard.
+    # Accumulator for paired re-flips emitted alongside bk-pair / bk-general guards. When a guard `ignore sub [prior_slot] candidate base';` blocks the bk upgrade from firing on `base`, the candidate sitting at [pos-1] gets its fwd_replacement picked against base's now-plain entry_y instead of the bk-pair variant's entry_y. The accumulated re-flip rule restores the iso form (the variant the candidate would carry if bk had fired) by substituting the post-suppressed form back to the iso form, keyed on the same (prior_slot, candidate, base) triple that motivated the guard.
     #
-    # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of
-    # ``(prior_slot_frozenset, candidate_pre_form, base_name, iso_form)``.
+    # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of ``(prior_slot_frozenset, candidate_pre_form, base_name, iso_form)``.
     pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
 
     def _record_pair_guard_reflip(
@@ -1817,24 +1755,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         base_name: str,
         variant_entry_ys: set[int],
     ) -> None:
-        # The bk-pair / bk-general rule on ``base_name`` was guarded by
-        # ``ignore sub [prior_slot] candidate base';``. In iso, that rule
-        # would have upgraded ``base_name`` to a variant with one of the
-        # ``variant_entry_ys`` as its entry_y; ``candidate``'s fwd_replacement
-        # would then pick the variant whose exit_y matches that entry_y.
-        # The post-suppressed form is what ``candidate`` ends up with after
-        # the guard fires — it's the fwd_replacement for ``base_name``'s
-        # plain entry_ys (or just the bare candidate if no fwd_replacement
-        # applies for that y). Emit a re-flip for each plausible (pre, iso)
-        # pair so the rendered shape matches iso.
+        # The bk-pair / bk-general rule on ``base_name`` was guarded by ``ignore sub [prior_slot] candidate base';``. In iso, that rule would have upgraded ``base_name`` to a variant with one of the ``variant_entry_ys`` as its entry_y; ``candidate``'s fwd_replacement would then pick the variant whose exit_y matches that entry_y. The post-suppressed form is what ``candidate`` ends up with after the guard fires — it's the fwd_replacement for ``base_name``'s plain entry_ys (or just the bare candidate if no fwd_replacement applies for that y). Emit a re-flip for each plausible (pre, iso) pair so the rendered shape matches iso.
         candidate_meta = glyph_meta.get(candidate_name)
         if candidate_meta is None:
             return
-        # Only re-flip candidates with no entry anchor. When the candidate
-        # has an entry anchor, its iso form depends on the iso left half's
-        # predecessor (which may push it through a bk_replacement that
-        # diverges from what fwd_replacements would produce here), so the
-        # right-iso-derived iso form is unsafe to apply.
+        # Only re-flip candidates with no entry anchor. When the candidate has an entry anchor, its iso form depends on the iso left half's predecessor (which may push it through a bk_replacement that diverges from what fwd_replacements would produce here), so the right-iso-derived iso form is unsafe to apply.
         if candidate_meta.entry:
             return
         candidate_base = candidate_meta.base_name
@@ -1852,15 +1777,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 iso_forms.add(iso_form)
         if not iso_forms:
             return
-        # Pre forms: what the candidate is at this point. The candidate is
-        # already mutated by fwd_replacements based on base's plain entry_y,
-        # or it could still be bare (if no fwd_replacement applies for base's
-        # plain entry_y, e.g. when there's an existing not_before guard on
-        # the candidate's fwd lookup blocking it). Try both:
+        # Pre forms: what the candidate is at this point. The candidate is already mutated by fwd_replacements based on base's plain entry_y, or it could still be bare (if no fwd_replacement applies for base's plain entry_y, e.g. when there's an existing not_before guard on the candidate's fwd lookup blocking it). Try both:
         # - bare candidate_name itself
-        # - candidate_fwd[base_entry_y] for each base entry_y not in
-        #   variant_entry_ys (the "plain" entry_ys that survive when bk-pair
-        #   is suppressed).
+        # - candidate_fwd[base_entry_y] for each base entry_y not in variant_entry_ys (the "plain" entry_ys that survive when bk-pair is suppressed).
         pre_forms: set[str] = {candidate_name}
         for base_entry_y in base_meta.entry_ys:
             if base_entry_y in variant_entry_ys:
@@ -1882,17 +1801,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         follower_glyphs,
         iso_form: str,
     ) -> None:
-        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];``
-        # via YAML `not_after`, the target stays as ``target_name`` (the bare
-        # base) instead of being upgraded to the variant the lookup would
-        # otherwise pick. Iso shaping of ``target follower`` selects
-        # ``iso_form`` on its own — record a re-flip so the in-context render
-        # matches iso. The shape mirrors `_record_pair_guard_reflip`'s tuple:
-        # ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted
-        # rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here
-        # ``base_name`` is the follower glyph (the lookahead position), and
-        # ``pre_form`` is ``target_name`` (the bare target left behind by the
-        # ignore rule).
+        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];`` via YAML `not_after`, the target stays as ``target_name`` (the bare base) instead of being upgraded to the variant the lookup would otherwise pick. Iso shaping of ``target follower`` selects ``iso_form`` on its own — record a re-flip so the in-context render matches iso. The shape mirrors `_record_pair_guard_reflip`'s tuple: ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here ``base_name`` is the follower glyph (the lookahead position), and ``pre_form`` is ``target_name`` (the bare target left behind by the ignore rule).
         target_meta = glyph_meta.get(target_name)
         if target_meta is None:
             return
@@ -2360,14 +2269,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             mid_meta = _meta(mid_source)
             mid_base = mid_meta.base_name
             has_entry_at_y = exit_y in set(mid_meta.all_entry_ys)
-            # Bare bases never satisfy `has_entry_at_y` (their own entry list
-            # is empty). When the structural pass identifies a bare base whose
-            # generic forward upgrade strips entries at this exit_y AND the
-            # predecessor's substitution fires after `calt_cycle` (so mid has
-            # already been forward-stripped), fall through to the
-            # `fwd_replacements` branch. Pair-specific strips may also need a
-            # bare-base guard before cycle because this lookup can see the
-            # stripping right context directly.
+            # Bare bases never satisfy `has_entry_at_y` (their own entry list is empty). When the structural pass identifies a bare base whose generic forward upgrade strips entries at this exit_y AND the predecessor's substitution fires after `calt_cycle` (so mid has already been forward-stripped), fall through to the `fwd_replacements` branch. Pair-specific strips may also need a bare-base guard before cycle because this lookup can see the stripping right context directly.
             bare_base_relax = (
                 not has_entry_at_y
                 and mid_source == mid_base
@@ -2414,18 +2316,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         replacement_name,
                     )
                     if bare_base_relax:
-                        # The FEA emitter expands `entry_classes` to include
-                        # bare bases of entry-bearing variants and their
-                        # entry-stripped forward replacements (so post-cycle
-                        # rules see the runtime-promoted entry). For the
-                        # fwd-strip guard, that broader set is wrong: when
-                        # the third position is itself a bare base whose
-                        # `bk_replacements[mid_exit_y]` carries the entry,
-                        # the runtime picks bk over fwd at that slot, so
-                        # mid never actually forward-strips. Restricting to
-                        # glyphs that literally carry an entry at mid_exit_y
-                        # keeps `·Gay·Tea·Tea` joined while preserving the
-                        # ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
+                        # The FEA emitter expands `entry_classes` to include bare bases of entry-bearing variants and their entry-stripped forward replacements (so post-cycle rules see the runtime-promoted entry). For the fwd-strip guard, that broader set is wrong: when the third position is itself a bare base whose `bk_replacements[mid_exit_y]` carries the entry, the runtime picks bk over fwd at that slot, so mid never actually forward-strips. Restricting to glyphs that literally carry an entry at mid_exit_y keeps `·Gay·Tea·Tea` joined while preserving the ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
                         trigger_contexts = {
                             g
                             for g in trigger_contexts
@@ -2524,11 +2415,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _exit_extension_refinement(
         fwd_var: str, right_context_glyphs: set[str]
     ) -> tuple[str, set[str]] | None:
-        # If `fwd_var` carries an `extend_exit_before` derive whose targets
-        # intersect `right_context_glyphs`, return (extended_fwd_var,
-        # trigger_glyphs) so the caller can emit a more specific rule that
-        # uses the extended variant for those triggers. Returns None when no
-        # refinement applies.
+        # If `fwd_var` carries an `extend_exit_before` derive whose targets intersect `right_context_glyphs`, return (extended_fwd_var, trigger_glyphs) so the caller can emit a more specific rule that uses the extended variant for those triggers. Returns None when no refinement applies.
         fwd_meta = _meta(fwd_var)
         spec = fwd_meta.extend_exit_before
         if spec is None or not spec.targets:
@@ -2561,11 +2448,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         member_set: set[str],
         member_list_token: str | None = None,
     ) -> None:
-        # Emit the post-bk revert substitution(s) for fpt → some replacement.
-        # When `_refined_bk_replacement` returns a different glyph and that
-        # glyph carries `not_after` restrictions that intersect `member_set`,
-        # split into two rules so the restricted predecessors fall back to
-        # the default replacement and the rest get the refined one.
+        # Emit the post-bk revert substitution(s) for fpt → some replacement. When `_refined_bk_replacement` returns a different glyph and that glyph carries `not_after` restrictions that intersect `member_set`, split into two rules so the restricted predecessors fall back to the default replacement and the rest get the refined one.
         fpt_replacement = _refined_bk_replacement(fpt, default_replacement)
         if fpt_replacement == default_replacement:
             token = member_list_token or f"[{' '.join(sorted(member_set))}]"
@@ -2598,28 +2481,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub [{usable_list}] {fpt}' by {fpt_replacement};")
 
     def _refined_bk_replacement(fpt: str, default_replacement: str) -> str:
-        # When `fpt` (a fwd-pair-override variant) is being reverted to the
-        # bk_replacement `default_replacement` because its entry doesn't fit
-        # the preceding glyph, prefer a replacement that still carries fpt's
-        # exit-extension. First try `default_replacement + ext_suffix` (e.g.
-        # ``qsX.entry-baseline.exit-extended`` when the family declares such a
-        # variant); failing that, fall back to an entryless sibling of fpt
-        # whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for
-        # ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops
-        # the wrong entry — same bitmap, no cursive attachment to the
-        # preceding glyph either way — but preserves the join extension into
-        # the next glyph.
+        # When `fpt` (a fwd-pair-override variant) is being reverted to the bk_replacement `default_replacement` because its entry doesn't fit the preceding glyph, prefer a replacement that still carries fpt's exit-extension. First try `default_replacement + ext_suffix` (e.g. ``qsX.entry-baseline.exit-extended`` when the family declares such a variant); failing that, fall back to an entryless sibling of fpt whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops the wrong entry — same bitmap, no cursive attachment to the preceding glyph either way — but preserves the join extension into the next glyph.
         #
-        # Preferred path: when ``default_replacement + ext_suffix`` exists and
-        # its exit_y matches the iso path's choice for fpt's followers (each
-        # follower in ``fpt_meta.before`` proposes an entry_y; iso shaping of
-        # the base before that follower picks ``fwd_replacements[base][entry_y]``
-        # whose exit_y is the iso exit_y), return the candidate even if its
-        # bitmap doesn't match fpt's. That keeps the in-context render aligned
-        # with iso (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side:
-        # qsIt.entry-xheight.exit-extended instead of the entryless
-        # qsIt.exit-xheight.exit-extended sibling, which loses the lead's
-        # baseline reach).
+        # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the iso path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; iso shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the iso exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with iso (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.entry-xheight.exit-extended instead of the entryless qsIt.exit-xheight.exit-extended sibling, which loses the lead's baseline reach).
         fpt_meta = _meta(fpt)
         ext_suffix = fpt_meta.extended_exit_suffix
         if not ext_suffix:
@@ -2659,10 +2523,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return default_replacement
 
     def _iso_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
-        # Iso shaping of ``base + follower`` picks ``fwd_replacements[base][N]``
-        # whose exit_y matches one of follower's entry_ys (N). Return the union
-        # of those iso exit_ys across fpt's resolved followers, restricted to
-        # the exit_ys that ``fwd_replacements`` actually declares for the base.
+        # Iso shaping of ``base + follower`` picks ``fwd_replacements[base][N]`` whose exit_y matches one of follower's entry_ys (N). Return the union of those iso exit_ys across fpt's resolved followers, restricted to the exit_ys that ``fwd_replacements`` actually declares for the base.
         base_name = fpt_meta.base_name
         base_fwd = fwd_replacements.get(base_name)
         if not base_fwd:
@@ -2683,9 +2544,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return follower_entry_ys & candidate_exit_ys
 
     def _resolve_fpt_before(fpt: str, base_name: str) -> set[str]:
-        # The fpt's ``before`` list on its meta is the unresolved selector;
-        # the resolved form lives in ``fwd_pair_overrides[base]``. Look up by
-        # fpt name.
+        # The fpt's ``before`` list on its meta is the unresolved selector; the resolved form lives in ``fwd_pair_overrides[base]``. Look up by fpt name.
         for fwd_variant, before_glyphs, _not_after in fwd_pair_overrides.get(
             base_name, ()
         ):
@@ -2726,12 +2585,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 variant_meta = _meta(variant_name)
                 variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
 
-                # Walk extension/contraction/trim derivations on the side
-                # orthogonal to the variant's own modification, so pair
-                # overrides also fire on inputs already pre-modified by an
-                # earlier same-direction lookup (e.g. a Tea form that picked up
-                # `entry-extended` after `qsKey` should still receive the
-                # exit-side contraction before `qsZoo`).
+                # Walk extension/contraction/trim derivations on the side orthogonal to the variant's own modification, so pair overrides also fire on inputs already pre-modified by an earlier same-direction lookup (e.g. a Tea form that picked up `entry-extended` after `qsKey` should still receive the exit-side contraction before `qsZoo`).
                 variant_is_exit_side = bool(
                     variant_meta.extended_exit_suffix
                     or variant_meta.contracted_exit_suffix
@@ -2851,14 +2705,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 if protect_ys:
                                     guard_glyphs = set()
                                     for protect_y in protect_ys:
-                                        # The bk-upgrade at this Y already
-                                        # refuses to fire for predecessors
-                                        # listed in the bk_replacement's
-                                        # `not_after`. Those predecessors
-                                        # therefore don't need protection from
-                                        # this entryless override: nothing
-                                        # downstream was going to attach the
-                                        # bk_replacement's entry for them.
+                                        # The bk-upgrade at this Y already refuses to fire for predecessors listed in the bk_replacement's `not_after`. Those predecessors therefore don't need protection from this entryless override: nothing downstream was going to attach the bk_replacement's entry for them.
                                         guard_glyphs.update(
                                             exit_classes.get(protect_y, set())
                                             - _expand_exclusions(
@@ -3151,10 +2998,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         right_base_name: str,
     ) -> set[str]:
         candidate_meta = _meta(candidate_name)
-        # .noentry variants only appear after calt_zwnj substitutes the base
-        # form following a ZWNJ. They should not inherit the backward-guard
-        # rules that would otherwise block the pair substitution, because the
-        # ZWNJ is what drives the .noentry form in the first place.
+        # .noentry variants only appear after calt_zwnj substitutes the base form following a ZWNJ. They should not inherit the backward-guard rules that would otherwise block the pair substitution, because the ZWNJ is what drives the .noentry form in the first place.
         if candidate_meta.is_noentry:
             return set()
 
@@ -3228,10 +3072,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         )
 
     def _fwd_pair_source_slot(prior_base: str) -> set[str]:
-        # Mirrors the `targets` set built inside `_emit_fwd_pairs`: the glyph
-        # forms that the forward-pair rule's source slot accepts. These are
-        # the variants that could legitimately sit at [pos-1] when the bk-pair
-        # lookup fires, and that the later forward-pair rule will consume.
+        # Mirrors the `targets` set built inside `_emit_fwd_pairs`: the glyph forms that the forward-pair rule's source slot accepts. These are the variants that could legitimately sit at [pos-1] when the bk-pair lookup fires, and that the later forward-pair rule will consume.
         slot = {prior_base}
         if prior_base in bk_replacements:
             slot.update(bk_replacements[prior_base].values())
@@ -3251,20 +3092,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         base_name: str,
         entry_ys: set[int],
     ) -> None:
-        # Block when a chain of later forward-pair + bk_general rules would
-        # mutate the predecessor candidate's exit_y away from the follower's
-        # entry_ys; the bk_replacement / bk-pair rule would otherwise fire on
-        # a now-stale after-match. This is the two-glyph lookbehind variant
-        # of `_collect_pending_bk_pair_guards` — that helper only handles
-        # candidates with no exit, and short-circuits on entry-bearing ones.
+        # Block when a chain of later forward-pair + bk_general rules would mutate the predecessor candidate's exit_y away from the follower's entry_ys; the bk_replacement / bk-pair rule would otherwise fire on a now-stale after-match. This is the two-glyph lookbehind variant of `_collect_pending_bk_pair_guards` — that helper only handles candidates with no exit, and short-circuits on entry-bearing ones.
         if not entry_ys:
             return
-        # Materialize the member iterable so we can both iterate it and use
-        # it as a membership filter for the fwd_replacements guard loop.
+        # Materialize the member iterable so we can both iterate it and use it as a membership filter for the fwd_replacements guard loop.
         members = frozenset(member_iter)
-        # Group candidates that share a prior slot so we emit one ignore
-        # rule per prior (with the candidate set as a class) instead of N
-        # near-duplicate lines.
+        # Group candidates that share a prior slot so we emit one ignore rule per prior (with the candidate set as a class) instead of N near-duplicate lines.
         by_prior: dict[frozenset[str], set[str]] = {}
         for cand in members:
             for prior_slot, cand_name in _collect_two_glyph_lookbehind_guards(
@@ -3296,13 +3129,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         *,
         expanded_after: frozenset[str] = frozenset(),
     ) -> list[tuple[frozenset[str], str]]:
-        # When a candidate sits at [pos] in a bk-pair rule but the candidate's
-        # own bk_replacement (firing later) would mutate it to a form that no
-        # longer supports the follower's entry_ys, the bk-pair rule is firing
-        # too early. Block it whenever a glyph at [pos-1] has a forward-pair
-        # rule whose target exit_y matches the bk_replacement's prev_exit_y
-        # *and* whose lookahead lists this candidate — because that chain will
-        # invalidate the after-match.
+        # When a candidate sits at [pos] in a bk-pair rule but the candidate's own bk_replacement (firing later) would mutate it to a form that no longer supports the follower's entry_ys, the bk-pair rule is firing too early. Block it whenever a glyph at [pos-1] has a forward-pair rule whose target exit_y matches the bk_replacement's prev_exit_y *and* whose lookahead lists this candidate — because that chain will invalidate the after-match.
         candidate_meta = _meta(candidate_name)
         if candidate_meta.is_noentry:
             return []
@@ -3311,9 +3138,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if not bk_for_base:
             return []
 
-        # The bk_general rule keys on prev_exit_y; we only need to guard
-        # against the prev_exit_ys whose pending_variant fails the entry-ys
-        # support check (i.e., the chain would invalidate the after-match).
+        # The bk_general rule keys on prev_exit_y; we only need to guard against the prev_exit_ys whose pending_variant fails the entry-ys support check (i.e., the chain would invalidate the after-match).
         invalidating_prev_exit_ys: set[int] = set()
         for prev_exit_y, pending_variant in bk_for_base.items():
             if _candidate_can_support_entry_ys(
@@ -3341,27 +3166,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 ):
                     continue
                 slot = _fwd_pair_source_slot(prior_base)
-                # Include the fwd-pair target itself; by the time this bk-pair
-                # rule fires, the earlier fwd-pair lookup has already mutated
-                # the predecessor to ``fwd_variant``, so that form can still
-                # sit at [pos-1] in the buffer.
+                # Include the fwd-pair target itself; by the time this bk-pair rule fires, the earlier fwd-pair lookup has already mutated the predecessor to ``fwd_variant``, so that form can still sit at [pos-1] in the buffer.
                 slot.add(fwd_variant)
                 if slot:
                     guards.append((frozenset(slot), candidate_name))
-        # Mirror the loop above for `fwd_replacements`: a fwd_replacement on
-        # the prior glyph also mutates [pos-1]'s exit_y when the candidate at
-        # [pos] sits in the matching @entry_y{exit_y} class, and that mutation
-        # can feed the same invalidating chain through
-        # `bk_replacements[candidate_base]`. Skip same-family chains
-        # (prior_base == candidate_base) — those describe a predecessor
-        # mutating itself based on the candidate's right context, not a true
-        # two-glyph lookbehind, and the bk-pair upgrade on the follower-of-
-        # the-candidate is unaffected by that mutation in practice (e.g.
-        # `·It·It·No`'s qsNo.alt.after-it-and-vie upgrade is correct
-        # regardless of how the leading qsIt mutates). Also require
-        # `prior_base` to be one of the predecessors the bk-pair rule actually
-        # accepts, so a fwd_replacement on an unrelated lead doesn't fire a
-        # guard for this bk-pair.
+        # Mirror the loop above for `fwd_replacements`: a fwd_replacement on the prior glyph also mutates [pos-1]'s exit_y when the candidate at [pos] sits in the matching @entry_y{exit_y} class, and that mutation can feed the same invalidating chain through `bk_replacements[candidate_base]`. Skip same-family chains (prior_base == candidate_base) — those describe a predecessor mutating itself based on the candidate's right context, not a true two-glyph lookbehind, and the bk-pair upgrade on the follower-of-the-candidate is unaffected by that mutation in practice (e.g. `·It·It·No`'s qsNo.alt.after-it-and-vie upgrade is correct regardless of how the leading qsIt mutates). Also require `prior_base` to be one of the predecessors the bk-pair rule actually accepts, so a fwd_replacement on an unrelated lead doesn't fire a guard for this bk-pair.
         for prior_base, by_exit_y in fwd_replacements.items():
             if prior_base == candidate_base:
                 continue
@@ -3371,10 +3180,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             for replacement_exit_y, replacement_variant in by_exit_y.items():
                 if replacement_exit_y not in invalidating_prev_exit_ys:
                     continue
-                # The fwd_replacement only fires when the candidate at [pos]
-                # is a member of the matching @entry_y{exit_y} class; if it
-                # isn't, the chain that would invalidate the bk-pair after-
-                # match never starts.
+                # The fwd_replacement only fires when the candidate at [pos] is a member of the matching @entry_y{exit_y} class; if it isn't, the chain that would invalidate the bk-pair after-match never starts.
                 candidate_entry_class = entry_classes.get(replacement_exit_y, set())
                 if (
                     candidate_name not in candidate_entry_class
@@ -3382,10 +3188,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 ):
                     continue
                 slot = set(source_slot)
-                # By the time the bk-pair rule fires, the fwd_replacement
-                # lookup has already mutated the predecessor to
-                # ``replacement_variant``, so that form must also be in the
-                # ignore-rule's prior class.
+                # By the time the bk-pair rule fires, the fwd_replacement lookup has already mutated the predecessor to ``replacement_variant``, so that form must also be in the ignore-rule's prior class.
                 slot.add(replacement_variant)
                 if slot:
                     guards.append((frozenset(slot), candidate_name))
@@ -3733,10 +3536,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             exclusions = bk_exclusions.get(base_name, {})
             lines.append("")
             lines.append(f"    lookup calt_{safe} {{")
-            # HarfBuzz treats ZWNJ as a default-ignorable glyph and would
-            # otherwise allow this backward-context lookup to match across a
-            # ZWNJ. Mentioning uni200C in an ignore rule forces it into the
-            # lookup's coverage so HarfBuzz stops skipping it.
+            # HarfBuzz treats ZWNJ as a default-ignorable glyph and would otherwise allow this backward-context lookup to match across a ZWNJ. Mentioning uni200C in an ignore rule forces it into the lookup's coverage so HarfBuzz stops skipping it.
             for fwd_variant in sorted(fwd_exit_only):
                 lines.append(f"        ignore sub uni200C {fwd_variant}';")
             for entry_y in sorted(relevant.keys()):
@@ -4151,13 +3951,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"    }} calt_post_context_pair_{safe};")
 
     def _emit_post_context_null_entry_revert():
-        # When a pair_override variant on family X has `entry: null` (e.g.
-        # qsIng.after-he-or-ye), bare X is still in @exit_y0 at the time the
-        # cycle's BK substitution fires for a follower Y (qsZoo.half etc.), so
-        # Y is upgraded based on X's transient exit. After the late
-        # `calt_post_context_pair_*` lookup turns X into the null-entry
-        # variant, that variant has neither entry nor exit anchors — its
-        # presence can't justify Y's upgrade. Revert Y back to its base.
+        # When a pair_override variant on family X has `entry: null` (e.g. qsIng.after-he-or-ye), bare X is still in @exit_y0 at the time the cycle's BK substitution fires for a follower Y (qsZoo.half etc.), so Y is upgraded based on X's transient exit. After the late `calt_post_context_pair_*` lookup turns X into the null-entry variant, that variant has neither entry nor exit anchors — its presence can't justify Y's upgrade. Revert Y back to its base.
         for base_name in sorted(pair_overrides):
             base_meta = glyph_meta.get(base_name)
             if base_meta is None:
@@ -4491,12 +4285,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if not fallback_meta.exit:
             return None
 
-        # Match the candidate's entry side so a baseline-joining input (e.g.
-        # qsMay.entry-baseline) routes to a baseline-joining replacement
-        # (qsMay.entry-baseline.exit-noentry), not the entryless fallback.
-        # The replacement's modifier set should match the input's minus any
-        # exit-* modifiers (those describe the exit shape we're discarding)
-        # plus 'exit-noentry'.
+        # Match the candidate's entry side so a baseline-joining input (e.g. qsMay.entry-baseline) routes to a baseline-joining replacement (qsMay.entry-baseline.exit-noentry), not the entryless fallback. The replacement's modifier set should match the input's minus any exit-* modifiers (those describe the exit shape we're discarding) plus 'exit-noentry'.
         expected_modifiers = frozenset(
             m for m in fallback_meta.modifiers if not m.startswith("exit-")
         ) | {"exit-noentry"}
@@ -4697,17 +4486,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _collect_noentry_after_pre_predecessor_revert_rules(
         demotion_rules: list[tuple[str, str, str]],
     ) -> list[tuple[str, str, str]]:
-        # When `_collect_noentry_after_left_cleanup_rules` demotes a
-        # predecessor (e.g. qsMay.entry-baseline -> qsMay.exit-noentry),
-        # any glyph whose `before:` clause selected its variant on the
-        # demoted family is now extending toward an entryless follower.
-        # Revert those pre-predecessor variants to their bare base in the
-        # context of the demoted replacement so the would-be join stroke
-        # doesn't dangle. Runs as its own lookup after the demotion pass
-        # so the lookahead can match the freshly substituted replacement.
-        # Skip when the replacement still carries an entry: the
-        # pre-predecessor's exit can still attach there, so the
-        # `before:`-driven shape selection remains correct.
+        # When `_collect_noentry_after_left_cleanup_rules` demotes a predecessor (e.g. qsMay.entry-baseline -> qsMay.exit-noentry), any glyph whose `before:` clause selected its variant on the demoted family is now extending toward an entryless follower. Revert those pre-predecessor variants to their bare base in the context of the demoted replacement so the would-be join stroke doesn't dangle. Runs as its own lookup after the demotion pass so the lookahead can match the freshly substituted replacement. Skip when the replacement still carries an entry: the pre-predecessor's exit can still attach there, so the `before:`-driven shape selection remains correct.
         seen: set[tuple[str, str, str]] = set()
         rules: list[tuple[str, str, str]] = []
         for _lig_target, candidate, replacement in demotion_rules:
@@ -4739,15 +4518,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     if ligatures:
         from itertools import product
 
-        # Ligation lives inside `calt`, not the dedicated `liga` feature, so it
-        # runs after `calt_cycle`'s contextual form selection within the same
-        # feature pass. That ordering lets a forward `calt` rule change a
-        # component's glyph identity (e.g., qsUtter -> qsUtter.alt in
-        # ·Day·Utter·Low) before the ligature lookup sees it, which in turn
-        # blocks the `qsDay qsUtter` ligature from firing because the matched
-        # sequence is now `qsDay qsUtter.alt`. Putting these rules in `liga`
-        # would force ligation to run as its own feature pass and lose that
-        # interleaving.
+        # Ligation lives inside `calt`, not the dedicated `liga` feature, so it runs after `calt_cycle`'s contextual form selection within the same feature pass. That ordering lets a forward `calt` rule change a component's glyph identity (e.g., qsUtter -> qsUtter.alt in ·Day·Utter·Low) before the ligature lookup sees it, which in turn blocks the `qsDay qsUtter` ligature from firing because the matched sequence is now `qsDay qsUtter.alt`. Putting these rules in `liga` would force ligation to run as its own feature pass and lose that interleaving.
         lines.append("")
         lines.append("    lookup calt_liga {")
         for lig_name, components in sorted(ligatures):
@@ -4763,15 +4534,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if ext_lig not in glyph_names:
                         ext_lig = lig_name + ".entry-extended"
                     if ext_lig in glyph_names:
-                        # Only inherit the entry-extension onto the ligature
-                        # when the source's entry Y matches the target's. The
-                        # `.entry-extended` suffix means different things on
-                        # forms with different entry geometries (e.g.,
-                        # `qsDay.half.entry-extended` extends entry at y=0
-                        # while `qsDay_qsEat.entry-extended` extends entry at
-                        # y=5) — copying it across mismatched Ys produces a
-                        # ligature variant whose extension is geometrically
-                        # unrelated to the predecessor join that triggered it.
+                        # Only inherit the entry-extension onto the ligature when the source's entry Y matches the target's. The `.entry-extended` suffix means different things on forms with different entry geometries (e.g., `qsDay.half.entry-extended` extends entry at y=0 while `qsDay_qsEat.entry-extended` extends entry at y=5) — copying it across mismatched Ys produces a ligature variant whose extension is geometrically unrelated to the predecessor join that triggered it.
                         ext_lig_entry_ys = set(_meta(ext_lig).entry_ys)
                         combo_entry_ys = set(_meta(combo[0]).entry_ys)
                         if (
@@ -4814,16 +4577,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if not any(glyph in lig_glyph_names for glyph in after_glyphs):
                     continue
                 expanded_after = _expanded_pair_after(variant_name, after_glyphs)
-                # Narrow the post-liga trigger class to ligature-derived glyphs
-                # only. The whole point of this lookup is to re-fire form
-                # selection when a ligature glyph is the new immediate
-                # predecessor; including the variant's non-ligature after
-                # entries here would over-fire on plain pre-liga sequences
-                # whose predecessor mutated during `calt_cycle` (e.g.,
-                # `qsUtter qsThey qsJay` where forward extension turns qsUtter
-                # into qsUtter.exit-extended *after* qsThey's backward lookup
-                # already declined to fire). Ligature-only ensures the rule
-                # truly only triggers post-collapse.
+                # Narrow the post-liga trigger class to ligature-derived glyphs only. The whole point of this lookup is to re-fire form selection when a ligature glyph is the new immediate predecessor; including the variant's non-ligature after entries here would over-fire on plain pre-liga sequences whose predecessor mutated during `calt_cycle` (e.g., `qsUtter qsThey qsJay` where forward extension turns qsUtter into qsUtter.exit-extended *after* qsThey's backward lookup already declined to fire). Ligature-only ensures the rule truly only triggers post-collapse.
                 ligature_after = sorted(
                     glyph
                     for glyph in expanded_after
@@ -4854,11 +4608,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.extend(_format_post_liga_cleanup_rules(post_liga_cleanup_rules))
             lines.append("    } calt_post_liga_cleanup;")
 
-        # Each variant gets its own FEA lookup. In OpenType GSUB type-6 lookups
-        # an `ignore` rule that matches at a position blocks every later
-        # subtable in the same lookup, so sharing one lookup across variants is
-        # unsafe whenever any variant carries a `not_before` — one variant's
-        # ignore can swallow another variant's substitution.
+        # Each variant gets its own FEA lookup. In OpenType GSUB type-6 lookups an `ignore` rule that matches at a position blocks every later subtable in the same lookup, so sharing one lookup across variants is unsafe whenever any variant carries a `not_before` — one variant's ignore can swallow another variant's substitution.
         for base_name, variant_name, after_glyphs in post_liga_rules:
             after_list = " ".join(sorted(after_glyphs))
             variant_meta = _meta(variant_name)
@@ -4920,12 +4670,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
-    # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule
-    # substitutes the candidate's post-suppressed form back to its iso form
-    # when the same (prior_slot, candidate, base) triple that motivated the
-    # guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate
-    # in the first place) so we see the post-fwd form, and AFTER the bk
-    # lookups that emitted the guards.
+    # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule substitutes the candidate's post-suppressed form back to its iso form when the same (prior_slot, candidate, base) triple that motivated the guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate in the first place) so we see the post-fwd form, and AFTER the bk lookups that emitted the guards.
     for candidate_base in sorted(pair_guard_reflip):
         rules = pair_guard_reflip[candidate_base]
         # Deduplicate while preserving stable order.
@@ -4951,12 +4696,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
-    # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each
-    # rule fires after all earlier lookups have settled. Demote the now-stale
-    # extended predecessor back to its iso form whenever the trigger sits in
-    # its entryless variant — at this post-pass the trigger's form already
-    # implies whether the join is broken, so no third-glyph guard is needed.
-    # Group rules by predecessor base for stable lookup names and counts.
+    # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its iso form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
     for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
         if predecessor_form not in glyph_names:
