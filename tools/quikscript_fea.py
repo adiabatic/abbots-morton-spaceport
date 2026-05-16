@@ -82,6 +82,16 @@ class _JoinAnalysis:
     # would still render `iso_form`, a post-pass re-flip restores the iso
     # form. See `_record_fwd_pair_not_after_reflip` for the wiring.
     iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = ()
+    # Each entry is (predecessor_form, trigger_form, iso_form). When the
+    # rendered chain after every earlier lookup is
+    # `predecessor_form trigger_form ...` and `trigger_form` is an entryless
+    # variant, the predecessor's extension is reaching into empty air. Emit a
+    # final-pass rule `sub predecessor_form' trigger_form by iso_form;` to
+    # demote the predecessor back to its iso shape so the render matches what
+    # `trigger ...` would render on its own to the right of the predecessor's
+    # iso form. No third-glyph guard is needed because the trigger's
+    # entryless state at this post-pass already implies the join is broken.
+    predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
 
 def _backward_pair_sort_key(
@@ -4941,6 +4951,46 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
+    # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each
+    # rule fires after all earlier lookups have settled. Demote the now-stale
+    # extended predecessor back to its iso form whenever the trigger sits in
+    # its entryless variant — at this post-pass the trigger's form already
+    # implies whether the join is broken, so no third-glyph guard is needed.
+    # Group rules by predecessor base for stable lookup names and counts.
+    pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
+    for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
+        if predecessor_form not in glyph_names:
+            continue
+        if trigger_form not in glyph_names:
+            continue
+        if iso_form not in glyph_names:
+            continue
+        pred_meta = glyph_meta.get(predecessor_form)
+        if pred_meta is None:
+            continue
+        pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
+            (predecessor_form, trigger_form, iso_form)
+        )
+    for predecessor_base in sorted(pred_demote_by_base):
+        pred_rules = pred_demote_by_base[predecessor_base]
+        pred_seen: set[tuple[str, str, str]] = set()
+        pred_unique: list[tuple[str, str, str]] = []
+        for entry in pred_rules:
+            if entry in pred_seen:
+                continue
+            pred_seen.add(entry)
+            pred_unique.append(entry)
+        if not pred_unique:
+            continue
+        safe = predecessor_base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_pred_demote_{safe} {{")
+        for predecessor_form, trigger_form, iso_form in sorted(pred_unique):
+            lines.append(
+                f"        sub {predecessor_form}' {trigger_form} by {iso_form};"
+            )
+        lines.append(f"    }} calt_pred_demote_{safe};")
+
     lines.append("} calt;")
     lines = _coalesce_consecutive_ignore_rules(lines)
     return "\n".join(lines)
@@ -5302,6 +5352,7 @@ def emit_quikscript_senior_features(
     pixel_width: int,
     pixel_height: int,
     iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = (),
+    predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> str | None:
     parts = []
 
@@ -5311,6 +5362,7 @@ def emit_quikscript_senior_features(
 
     analysis = _analyze_quikscript_joins(join_glyphs)
     analysis.iso_reflip_overrides = tuple(iso_reflip_overrides)
+    analysis.predecessor_demote_overrides = tuple(predecessor_demote_overrides)
 
     ss_gate_fea = _emit_quikscript_ss_gate(analysis)
     if ss_gate_fea:
