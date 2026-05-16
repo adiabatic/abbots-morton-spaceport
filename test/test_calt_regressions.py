@@ -788,19 +788,21 @@ def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor(fe
 
 
 def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
-    assert _shape_qs("qsUtter", "qsPea", "qsAwe") == [
-        "qsUtter",
-        "qsPea.half.entry-xheight.exit-xheight",
-        "qsAwe.entry-extended",
-    ]
+    _assert_expect_any(
+        "",
+        [
+            "·Utter ~x~ ·Pea.half ~x~ ·Awe.entry-extended",
+        ],
+    )
 
 
 def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right():
-    assert _shape_qs("qsAh", "qsPea", "qsAwe") == [
-        "qsAh",
-        "qsPea.half",
-        "qsAwe.entry-extended",
-    ]
+    _assert_expect_any(
+        "",
+        [
+            "·Ah | ·Pea.half ~x~ ·Awe.entry-extended",
+        ],
+    )
 
 
 def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
