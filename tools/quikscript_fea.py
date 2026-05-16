@@ -1769,7 +1769,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         candidate_fwd = fwd_replacements.get(candidate_base, {})
         if not candidate_fwd:
             return
-        # Iso forms: fwd_replacement variants matching variant.entry_y.
+        # Isolated forms: fwd_replacement variants matching variant.entry_y.
         iso_forms: set[str] = set()
         for variant_entry_y in variant_entry_ys:
             iso_form = candidate_fwd.get(variant_entry_y)
