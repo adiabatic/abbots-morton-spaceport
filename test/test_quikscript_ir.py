@@ -1114,7 +1114,7 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
         join_glyphs,
         pixel_width,
         pixel_height,
-        iso_reflip_overrides=(),
+        restore_isolated_form_overrides=(),
         predecessor_demote_overrides=(),
     ):
         assert join_glyphs is compiled.join_glyphs
