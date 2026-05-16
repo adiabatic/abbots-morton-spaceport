@@ -363,19 +363,10 @@
         <code>qsTea → qsTea.exit-xheight</code>). Scan for sequences you
         weren't intending to touch — those are the regressions.
       </p>
-      <div class="col-headers">
-        <span>Sequence (what changed)</span>
-        <span>Before (snapshot)</span>
-        <span>After (live build)</span>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Zoo ·It ·Key (qsZoo qsIt qsKey → qsZoo qsIt.entry-baseline qsKey)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Key">U+E65B U+E670 U+E654</code></div>
-        </div>
-        <div class="qs before">&#xE65B;&#xE670;&#xE654;</div>
-        <div class="qs after">&#xE65B;&#xE670;&#xE654;</div>
-      </div>
+      <p class="snapshot-missing">No differences found across the
+        harvested corpus. Either the change is invisible at the
+        Senior-Regular level, or <code>test/before/</code> is
+        already in sync with the live build.</p>
     </section>
 
     <section class="isolation-leaks">
