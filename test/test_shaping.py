@@ -732,11 +732,7 @@ def _check_break_isolation(text: str,
     shaping isn't equivalent to isolation here.
     """
     def _is_qs_letter(tok: ExpectToken) -> bool:
-        # Only Quikscript letter tokens participate in the isolation check.
-        # Non-letter tokens (◊space, ◊ZWNJ, \-, etc.) are boundary markers
-        # whose whole job is to influence their neighbors' shape — applying
-        # isolation against them produces false positives, since e.g. the
-        # font fires legitimate `.noentry` rules after a literal U+200C.
+        # Only Quikscript letter tokens participate in the isolation check. Non-letter tokens (◊space, ◊ZWNJ, \-, etc.) are boundary markers whose whole job is to influence their neighbors' shape — applying isolation against them produces false positives, since e.g. the font fires legitimate `.noentry` rules after a literal U+200C.
         return tok["base"].startswith("qs")
 
     isolating_indices: list[int] = []
@@ -942,8 +938,7 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
 
         interpretations = _expand_maybe_ligatures(sub_tokens, sub_conns)
 
-        # Junior has no cursive attachment — suppress connection assertions
-        # (glyph-identity assertions still run).
+        # Junior has no cursive attachment — suppress connection assertions (glyph-identity assertions still run).
         if variant == "junior":
             interpretations = [
                 (t, [Connection(kind="maybe", y=None) for _ in c])
@@ -969,10 +964,7 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
                 + "\n".join(f"  Interpretation {i+1}: {e}" for i, e in enumerate(errors))
             )
 
-        # Isolation invariant: for senior only, any token pair that does not
-        # actually join must shape the same way when isolated. Junior forces
-        # every connection to "maybe", so the check would fire on every pair
-        # and doesn't match what it's asking about (no cursive at all).
+        # Isolation invariant: for senior only, any token pair that does not actually join must shape the same way when isolated. Junior forces every connection to "maybe", so the check would fire on every pair and doesn't match what it's asking about (no cursive at all).
         if variant == "senior":
             interp_tokens, interp_connections = matched_interp
             iso_error = _check_break_isolation(

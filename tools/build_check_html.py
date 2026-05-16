@@ -51,8 +51,7 @@ TEST_DIR = ROOT / "test"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 CHECK_HTML_PATH = TEST_DIR / "check.html"
 
-# Reuse the test-suite shaping helpers so the isolation-leaks sweep matches
-# what ``test_shaping.py`` enforces.
+# Reuse the test-suite shaping helpers so the isolation-leaks sweep matches what ``test_shaping.py`` enforces.
 if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))
 
@@ -425,18 +424,15 @@ def _tables_letter_name(family: str) -> str:
     return _FAMILY_TO_TABLES_NAME.get(family, family[2:])
 
 
-# Standard "open in new window" icon, used for 3-letter rows that point at
-# one specific cell.
+# Standard "open in new window" icon, used for 3-letter rows that point at one specific cell.
 _OPEN_IN_TABLES_ICON = '<img src="icons/open-in-new.svg" alt="" width="12" height="12">'
 
-# Three cells with the leftmost two filled — points at a tables.html column
-# strip where the pair appears as the first two letters of every cell.
+# Three cells with the leftmost two filled — points at a tables.html column strip where the pair appears as the first two letters of every cell.
 _OPEN_IN_TABLES_FIRST_TWO_ICON = (
     '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
 )
 
-# Mirror image — points at a tables.html row strip where the pair appears
-# as the last two letters of every cell.
+# Mirror image — points at a tables.html row strip where the pair appears as the last two letters of every cell.
 _OPEN_IN_TABLES_LAST_TWO_ICON = (
     '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
 )

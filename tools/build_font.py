@@ -380,8 +380,7 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
 
     Returns the FEA string, or None if there are no marks.
     """
-    # Collect mark glyphs, split into top vs bottom.
-    # Marks with base_x_adjust or base_y_adjust get their own mark class and lookup.
+    # Collect mark glyphs, split into top vs bottom. Marks with base_x_adjust or base_y_adjust get their own mark class and lookup.
     top_marks = {}       # glyph_name -> (anchor_x, anchor_y)
     bottom_marks = {}
     adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust, base_y_adjust)
@@ -546,8 +545,7 @@ def bitmap_to_rectangles(
     height = len(bitmap)
 
     for row_idx, row in enumerate(bitmap):
-        # Flip y-axis: bitmap row 0 is top, font y increases upward
-        # y_offset shifts the whole glyph (negative = below baseline)
+        # Flip y-axis: bitmap row 0 is top, font y increases upward. y_offset shifts the whole glyph (negative = below baseline)
         y = (y_offset + height - 1 - row_idx) * pixel_height
 
         for col_idx, pixel in enumerate(row):
@@ -587,8 +585,7 @@ def compose_bitmaps(
 
     canvas_w = max(base_w, accent_w)
 
-    # Base occupies pixel rows [base_y_offset, base_y_offset + base_h)
-    # (in font-pixel coordinates where 0 = baseline, positive = up)
+    # Base occupies pixel rows [base_y_offset, base_y_offset + base_h) (in font-pixel coordinates where 0 = baseline, positive = up)
     base_bottom = base_y_offset
     base_top = base_y_offset + base_h
 
@@ -665,9 +662,7 @@ def resolve_composite(
     result_bitmap = base_bitmap
     result_y_offset = base_y_offset
 
-    # Build mapping from spacing accent bitmap identity -> adjustments
-    # (YAML aliases make the combining mark's bitmap the same object as the
-    # spacing accent's bitmap, so we can use 'is' for matching)
+    # Build mapping from spacing accent bitmap identity -> adjustments (YAML aliases make the combining mark's bitmap the same object as the spacing accent's bitmap, so we can use 'is' for matching)
     accent_x_adjusts = {}
     accent_y_adjusts = {}
     for gn, gd in glyphs_def.items():
@@ -766,8 +761,7 @@ def build_font(
     cap_height = metadata["cap_height"]
     x_height = metadata["x_height"]
 
-    # Build glyph order (must include .notdef first)
-    # For mono font, exclude .prop glyphs entirely
+    # Build glyph order (must include .notdef first). For mono font, exclude .prop glyphs entirely
     glyph_names = [
         name for name in glyphs_def.keys()
         if name not in (".notdef", "space")
@@ -796,8 +790,7 @@ def build_font(
 
     glyph_order = [".notdef", "space"] + sorted(glyph_names, key=_sort_key)
 
-    # Build character map (Unicode codepoint -> glyph name)
-    # Exclude .prop glyphs - they have no direct Unicode mapping
+    # Build character map (Unicode codepoint -> glyph name). Exclude .prop glyphs - they have no direct Unicode mapping
     cmap = {32: "space"}  # Always include space
     for glyph_name in glyphs_def:
         if is_proportional_glyph(glyph_name):
@@ -820,8 +813,7 @@ def build_font(
     # Standard monospace width: 7 pixels (bitmap 5 + 2 spacing)
     mono_width = 7 * pixel_width
 
-    # Half-pixel rightward overstrike for Bold. The logical pixel grid is
-    # unchanged; only the painted rectangle is widened by this many units.
+    # Half-pixel rightward overstrike for Bold. The logical pixel grid is unchanged; only the painted rectangle is widened by this many units.
     overstrike = pixel_width // 2 if bold else 0
 
     # Create .notdef glyph (simple rectangle, sized to fit mono_width)
@@ -968,8 +960,7 @@ def build_font(
         else:
             lsb = x_offset
 
-        # Draw glyph with x_offset applied. Bold widens each rectangle's
-        # right edge by `overstrike` units (0 for Regular).
+        # Draw glyph with x_offset applied. Bold widens each rectangle's right edge by `overstrike` units (0 for Regular).
         pen = T2CharStringPen(width=advance_width, glyphSet=glyph_set)
         for x, y, w, h in rectangles:
             pen.moveTo((x + x_offset, y))
@@ -1043,8 +1034,7 @@ def build_font(
     # RIBBI style linking: set the BOLD bit on Bold fonts, REGULAR on Regular.
     fb.font["OS/2"].fsSelection = 0x20 if bold else 0x40  # pyright: ignore[reportAttributeAccessIssue]
 
-    # Setup post table
-    # Monospace font: isFixedPitch=1, Proportional font: isFixedPitch=0
+    # Setup post table. Monospace font: isFixedPitch=1, Proportional font: isFixedPitch=0
     fb.setupPost(isFixedPitch=0 if is_proportional else 1)
 
     # Setup gasp table for pixel-crisp rendering

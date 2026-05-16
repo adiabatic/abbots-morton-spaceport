@@ -384,13 +384,7 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
 
 
 def test_qs_no_alt_requires_a_compatible_it_exit():
-    # After Move 2 of the isolation-leak campaign, the bk-pair guard that
-    # suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires,
-    # but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight
-    # to qsIt.exit-baseline so the candidate matches what iso ``\u00B7It\u00B7No``
-    # renders at position 0 (``qsIt.exit-baseline``). The follower qsNo
-    # stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo``
-    # captures, not this row.
+    # After Move 2 of the isolation-leak campaign, the bk-pair guard that suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires, but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight to qsIt.exit-baseline so the candidate matches what iso ``\u00B7It\u00B7No`` renders at position 0 (``qsIt.exit-baseline``). The follower qsNo stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo`` captures, not this row.
     assert _shape("\uE65F\uE670\uE666") == [
         "qsJay",
         "qsIt.exit-baseline",
@@ -444,9 +438,7 @@ def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
 
 
 def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
-    # Word-initial qsOwe + qsFee must shape with the exit-only form
-    # (shape_2). The previous bug promoted qsOwe to shape_3, leaving a
-    # phantom left tail / entry anchor pointing at nothing.
+    # Word-initial qsOwe + qsFee must shape with the exit-only form (shape_2). The previous bug promoted qsOwe to shape_3, leaving a phantom left tail / entry anchor pointing at nothing.
     glyphs = _shape_qs("qsOwe", "qsFee")
     assert glyphs == ["qsOwe.exit-xheight.exit-extended", "qsFee.entry-xheight"]
     assert _entry_ys(glyphs[0]) == set()
@@ -464,12 +456,7 @@ def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
     ],
 )
 def test_qs_fee_entry_xheight_after_extended_predecessor(predecessor, expected_left):
-    # When a predecessor extends its exit before qsFee, qsFee must take its
-    # entry-xheight form so the left stub bridges the extension. Previously
-    # the post-context bk-pair re-emission filtered out fwd_pair_overrides
-    # outputs (e.g., qsMay.exit-extended) from late_contexts, so the
-    # qsFee.entry-xheight substitution never matched and qsFee stayed bare,
-    # leaving a 1-pixel gap at x-height.
+    # When a predecessor extends its exit before qsFee, qsFee must take its entry-xheight form so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.exit-extended) from late_contexts, so the qsFee.entry-xheight substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height.
     glyphs = _shape_qs(predecessor, "qsFee")
     assert glyphs == [expected_left, "qsFee.entry-xheight"]
     assert _pair_join_ys(glyphs, 0) == {5}
@@ -495,11 +482,7 @@ def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
 
 
 def test_qs_out_fee_utter_lets_out_reach_for_fee():
-    # qsFee.exit_xheight_before_utter is gated by not_after on every family
-    # that joins into qsFee at x-height, so a bare ·Utter follower no longer
-    # forces Fee into an entry-less form. With the alt-reaches-way-back chain
-    # on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free
-    # to keep the ·Out·Fee join at x-height instead.
+    # qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead.
     glyphs = _shape_qs("qsOut", "qsFee", "qsUtter")
     assert glyphs == [
         "qsOut.exit-xheight.exit-extended",
@@ -511,10 +494,7 @@ def test_qs_out_fee_utter_lets_out_reach_for_fee():
 
 
 def test_qs_ah_fee_utter_keeps_left_join():
-    # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously Fee was
-    # switched to exit_xheight_before_utter (no entry anchor) whenever Utter
-    # followed, breaking the left-side join even though Utter itself didn't
-    # gain anything from Fee being entry-less without further context.
+    # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously Fee was switched to exit_xheight_before_utter (no entry anchor) whenever Utter followed, breaking the left-side join even though Utter itself didn't gain anything from Fee being entry-less without further context.
     glyphs = _shape_qs("qsAh", "qsFee", "qsUtter")
     assert glyphs == [
         "qsAh.exit-extended",
@@ -556,8 +536,7 @@ def test_may_pea_does_not_select_pea_entry_after_entry_only_may(left_base):
 
 
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
-    # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into
-    # the same forward-pair lookup that promotes qsOwe to shape_3.
+    # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into the same forward-pair lookup that promotes qsOwe to shape_3.
     glyphs = _shape_qs("qsOwe", "qsTea", features=_SS03_FEATURE)
     assert _entry_ys(glyphs[0]) == set(), (
         f"word-initial qsOwe must not gain an entry anchor under ss03; "
@@ -566,10 +545,7 @@ def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
 
 
 def test_qs_way_does_not_join_qs_tea_under_ss03():
-    # ·Way·Tea must stay separate even with ss03 on. qsWay was previously in
-    # qsTea.half_entry_xheight_ss03's after-list and qsWay carried a gated
-    # exit-extension toward qsTea; both were dropped so the pair no longer
-    # connects.
+    # ·Way·Tea must stay separate even with ss03 on. qsWay was previously in qsTea.half_entry_xheight_ss03's after-list and qsWay carried a gated exit-extension toward qsTea; both were dropped so the pair no longer connects.
     glyphs = _shape_qs("qsWay", "qsTea", features=_SS03_FEATURE)
     assert _pair_join_ys(glyphs, 0) == set(), (
         f"·Way·Tea must not connect under ss03; got {glyphs}"
@@ -577,15 +553,7 @@ def test_qs_way_does_not_join_qs_tea_under_ss03():
 
 
 def test_qs_fee_may_uses_extension_pair():
-    # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual
-    # is now reconstructed by extending ·Fee's exit at the x-height
-    # (qsFee.exit-xheight.before-may.*) and pairing it with ·May's
-    # narrower "pulled-back-more" entry shape (qsMay.entry-xheight.after-fee).
-    # If a future change forgets to fire the before-may form on ·Fee or the
-    # after-fee form on ·May, this test catches it. The exact extension
-    # rung (currently `triply-extended`) is left out of the assertion since
-    # it is a geometric tuning knob — the join Y and the form pair are the
-    # invariants worth pinning.
+    # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height (qsFee.exit-xheight.before-may.*) and pairing it with ·May's narrower "pulled-back-more" entry shape (qsMay.entry-xheight.after-fee). If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `triply-extended`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning.
     glyphs = _shape_qs("qsFee", "qsMay")
     assert len(glyphs) == 2, f"·Fee·May should not ligate; got {glyphs}"
     assert glyphs[0].startswith("qsFee.exit-xheight.before-may"), (
@@ -602,9 +570,7 @@ def test_qs_fee_may_uses_extension_pair():
 def test_qs_owe_fee_may_owe_joins_fee_at_xheight():
     # Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to:
     #   ·Owe.exit-xheight.exit-extended → ·Fee.entry-xheight (joined at y=5)
-    #   ·Fee.entry-xheight is entryless on the right-hand side, so ·May
-    #   stays unconnected (·Fee can't join both to and from at the
-    #   x-height on the same letter — see the qsFee notes block).
+    #   ·Fee.entry-xheight is entryless on the right-hand side, so ·May stays unconnected (·Fee can't join both to and from at the x-height on the same letter — see the qsFee notes block).
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay")
     assert len(glyphs) == 3, f"·Owe·Fee·May should not ligate; got {glyphs}"
     assert _pair_join_ys(glyphs, 0) == {5}, (
@@ -625,8 +591,7 @@ def test_qs_owe_fee_may_owe_joins_fee_at_xheight():
     ],
 )
 def test_qs_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
-    # The pair-extension path (·Fee.exit-xheight.before-may + ·May.entry-xheight)
-    # must keep working under every stylistic set, just like the old ligature did.
+    # The pair-extension path (·Fee.exit-xheight.before-may + ·May.entry-xheight) must keep working under every stylistic set, just like the old ligature did.
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay", features=feature_items)
     assert len(glyphs) == 3, (
         f"·Owe·Fee·May should not ligate under features={feature_label}; "
@@ -684,10 +649,7 @@ def _no_orphan_exit_into_ligature_failures(
                 if next_meta.base_name != lig_name:
                     continue
                 if next_meta.is_noentry:
-                    # Ligature was stripped of its entry by a separate
-                    # backward substitution (e.g. noentry_after); that's
-                    # a different bug pattern than the one this test
-                    # guards against.
+                    # Ligature was stripped of its entry by a separate backward substitution (e.g. noentry_after); that's a different bug pattern than the one this test guards against.
                     continue
                 base_meta = meta_map.get(left_meta.base_name)
                 if base_meta is None:
@@ -750,8 +712,7 @@ def _word_initial_promoted_entry_failures(
                 continue
             base_meta = meta_map.get(head_meta.base_name)
             if base_meta is None or base_meta.entry:
-                # Family's bare form already carries an entry anchor as part
-                # of its natural design — that's fine at word start.
+                # Family's bare form already carries an entry anchor as part of its natural design — that's fine at word start.
                 continue
             target_bitmap = head_meta.bitmap
             has_natural_no_entry_match = any(
@@ -766,9 +727,7 @@ def _word_initial_promoted_entry_failures(
                 )
             )
             if has_natural_no_entry_match:
-                # The entry anchor is purely positional: a natural sibling
-                # has the same bitmap with no entry, so picking the variant
-                # with the entry anchor doesn't add any visible left tail.
+                # The entry anchor is purely positional: a natural sibling has the same bitmap with no entry, so picking the variant with the entry anchor doesn't add any visible left tail.
                 continue
             head_entry_ys = sorted({anchor[1] for anchor in head_meta.entry})
             failures.append(
@@ -1078,18 +1037,14 @@ def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
 
 
 def test_qs_may_thaw_joins_at_baseline_when_alone():
-    # Sanity check: ·May·Thaw alone is still a valid baseline join.
-    # The orphan-exit guard must not fire when qsThaw keeps its entry.
+    # Sanity check: ·May·Thaw alone is still a valid baseline join. The orphan-exit guard must not fire when qsThaw keeps its entry.
     glyphs = _shape_qs("qsMay", "qsThaw")
     assert glyphs == ["qsMay.exit-baseline", "qsThaw"], glyphs
     assert _pair_join_ys(glyphs, 0) == {0}
 
 
 def test_qs_may_does_not_take_exit_baseline_before_qs_thaw_that_loses_entry():
-    # The reported bug: in ·May·Thaw·-ing, qsThaw forward-subs to
-    # qsThaw.exit-baseline (which strips its entry) so ·May must not keep
-    # picking qsMay.exit-baseline. That variant would otherwise dangle
-    # below the baseline into an empty join.
+    # The reported bug: in ·May·Thaw·-ing, qsThaw forward-subs to qsThaw.exit-baseline (which strips its entry) so ·May must not keep picking qsMay.exit-baseline. That variant would otherwise dangle below the baseline into an empty join.
     glyphs = _shape_qs("qsMay", "qsThaw", "qsIng")
     assert _base_names(glyphs) == ("qsMay", "qsThaw", "qsIng"), glyphs
     assert glyphs[0] == "qsMay", glyphs
@@ -1164,9 +1119,7 @@ def _qs_no_thaw_alt_failures(glyphs: list[str], label: str) -> list[str]:
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
 )
 def test_qs_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
-    # For every possible left-side neighbour, ·X·May·Thaw·-ing (i.e. whenever
-    # qsThaw forward-subs away its entry) must not leave qsMay with an exit
-    # that has nowhere to land on qsThaw.
+    # For every possible left-side neighbour, ·X·May·Thaw·-ing (i.e. whenever qsThaw forward-subs away its entry) must not leave qsMay with an exit that has nowhere to land on qsThaw.
     failures = _qs_may_thaw_orphan_failures(
         _shape_qs(suffix_name, "qsMay", "qsThaw", "qsIng"),
         f"{suffix_name} / qsMay / qsThaw / qsIng",
@@ -1183,8 +1136,7 @@ def test_qs_may_thaw_pair_never_orphans_in_left_context(suffix_name: str):
     [pytest.param(name, id=name[2:].lower()) for name, _ in _plain_quikscript_letters()],
 )
 def test_qs_may_thaw_ing_surrounded_is_never_orphaned(left_name: str, right_name: str):
-    # Surround ·May·Thaw·-ing with every letter pair. qsMay must never dangle
-    # an orphan exit into qsThaw, regardless of outer context.
+    # Surround ·May·Thaw·-ing with every letter pair. qsMay must never dangle an orphan exit into qsThaw, regardless of outer context.
     failures = _qs_may_thaw_orphan_failures(
         _shape_qs(left_name, "qsMay", "qsThaw", "qsIng", right_name),
         f"{left_name} / qsMay / qsThaw / qsIng / {right_name}",
@@ -1193,9 +1145,7 @@ def test_qs_may_thaw_ing_surrounded_is_never_orphaned(left_name: str, right_name
 
 
 def test_qs_may_thaw_stays_isolated_across_zwnj():
-    # A ZWNJ before qsMay shapes it to qsMay.noentry; the same forward-sub
-    # path would otherwise promote it to qsMay.exit-baseline before
-    # qsThaw → qsThaw.exit-baseline, leaving the same orphan exit.
+    # A ZWNJ before qsMay shapes it to qsMay.noentry; the same forward-sub path would otherwise promote it to qsMay.exit-baseline before qsThaw → qsThaw.exit-baseline, leaving the same orphan exit.
     chars = _char_map()
     text = chars["qsTea"] + ZWNJ + chars["qsMay"] + chars["qsThaw"] + chars["qsIng"]
     glyphs = _shape(text)
@@ -1215,8 +1165,7 @@ def test_qs_may_thaw_stays_isolated_across_zwnj():
     ],
 )
 def test_qs_may_thaw_before_ing_variants_stays_plain(ing_variant: str):
-    # Every variant of qsIng that triggers qsThaw's forward sub must keep
-    # qsMay out of exit-baseline.
+    # Every variant of qsIng that triggers qsThaw's forward sub must keep qsMay out of exit-baseline.
     glyphs = _shape_qs("qsMay", "qsThaw", ing_variant)
     assert glyphs[0] == "qsMay", glyphs
     _assert_no_failures(
@@ -1818,18 +1767,12 @@ def test_qs_i_before_qs_tea_unchanged_by_forward_extension():
 # ---------------------------------------------------------------------------
 # ·Way·Day must always use full-height Way and full-height Day.
 #
-# Regression guard against a 2-glyph preferred-lookahead FEA rule that used to
-# substitute qsWay.half whenever the third glyph had only a y=5 entry, even if
-# the middle glyph (qsDay) could not actually bridge qsWay.half's y=0 exit to
-# the third glyph's y=5 entry. That produced qsWay.half·qsDay.half·X with no
-# cursive join between Day.half and X.
+# Regression guard against a 2-glyph preferred-lookahead FEA rule that used to substitute qsWay.half whenever the third glyph had only a y=5 entry, even if the middle glyph (qsDay) could not actually bridge qsWay.half's y=0 exit to the third glyph's y=5 entry. That produced qsWay.half·qsDay.half·X with no cursive join between Day.half and X.
 # ---------------------------------------------------------------------------
 
 
 _DAY_PAIR_LIGATURES = frozenset({
-    # (day_prefix_base, follower_base) pairs that combine into a ligature,
-    # consuming qsDay into qsDay_qs<follower>. In those outputs there is no
-    # standalone qsDay glyph to inspect.
+    # (day_prefix_base, follower_base) pairs that combine into a ligature, consuming qsDay into qsDay_qs<follower>. In those outputs there is no standalone qsDay glyph to inspect.
     ("qsDay", "qsEat"),
     ("qsDay", "qsUtter"),
 })
@@ -1881,9 +1824,7 @@ def _way_not_half_before_non_bridging_failures() -> list[str]:
             first_meta = meta_map.get(glyphs[0])
             if first_meta is None:
                 continue
-            # qsWay+qsUtter ligates into qsWay_qsUtter; that's a full-size Way
-            # body and not a `.half` variant, so skip sequences where qsWay
-            # is consumed.
+            # qsWay+qsUtter ligates into qsWay_qsUtter; that's a full-size Way body and not a `.half` variant, so skip sequences where qsWay is consumed.
             if first_meta.sequence and first_meta.sequence[0] == "qsWay":
                 continue
             if first_meta.base_name != "qsWay":
@@ -1902,14 +1843,9 @@ def test_qs_way_full_before_any_non_bridging_middle():
 
 
 # ---------------------------------------------------------------------------
-# ·Way and ·Why must stay full before ·Vie and ·See, the pair must not
-# connect, and the right glyph must not change shape because of a preceding
-# ·Way / ·Why.
+# ·Way and ·Why must stay full before ·Vie and ·See, the pair must not connect, and the right glyph must not change shape because of a preceding ·Way / ·Why.
 #
-# Way's prop exits only at y=5; Why's prop has no exit. Both Vie's and
-# See's prop enter only at y=0. With the half-form fix in place, neither
-# pair forms a join and neither side reaches across the seam — these tests
-# pin that down.
+# Way's prop exits only at y=5; Why's prop has no exit. Both Vie's and See's prop enter only at y=0. With the half-form fix in place, neither pair forms a join and neither side reaches across the seam — these tests pin that down.
 # ---------------------------------------------------------------------------
 
 
@@ -2023,9 +1959,7 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
 
 
 # ---------------------------------------------------------------------------
-# ·Owe must never join onto a following ·Day (or any ligature starting with
-# ·Day) in the default shaping. Stylistic set ss07 restores the join for
-# users who want Read's manual-style ·Owe·Day rendering back.
+# ·Owe must never join onto a following ·Day (or any ligature starting with ·Day) in the default shaping. Stylistic set ss07 restores the join for users who want Read's manual-style ·Owe·Day rendering back.
 # ---------------------------------------------------------------------------
 
 
@@ -2411,9 +2345,7 @@ def test_qs_gay_extended_variants_exclude_nonjoining_targets(target_base):
 
 # --- Restored ensure-sanity parametrized cases -------------------------------
 #
-# These are the exact data-expect cases from the former
-# test/test_ensure_sanity.py, kept here so the collapsed semantic tests above
-# do not lose the original pytest case matrix or data-expect assertions.
+# These are the exact data-expect cases from the former test/test_ensure_sanity.py, kept here so the collapsed semantic tests above do not lose the original pytest case matrix or data-expect assertions.
 
 
 LETTERS: list[tuple[str, int]] = [
@@ -2924,12 +2856,7 @@ def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
     ],
 )
 def test_predecessors_never_join_to_qs_at_before_qs_may(left_base: str):
-    # Before the qsAt_qsMay ligature was retired, qsRoe and qsSee reverted
-    # to bare form before the ligature via calt_post_liga_left_cleanup.
-    # Now ·At·May is rendered by the entryless qsAt.exit-baseline.before-may
-    # form joining a bare qsMay, so the FEA backward-pair lookups simply
-    # never fire qsRoe/qsSee's exit-baseline forms (no matching y=0 entry
-    # on this qsAt variant).
+    # Before the qsAt_qsMay ligature was retired, qsRoe and qsSee reverted to bare form before the ligature via calt_post_liga_left_cleanup. Now ·At·May is rendered by the entryless qsAt.exit-baseline.before-may form joining a bare qsMay, so the FEA backward-pair lookups simply never fire qsRoe/qsSee's exit-baseline forms (no matching y=0 entry on this qsAt variant).
     glyphs = _shape_qs(left_base, "qsAt", "qsMay")
     assert glyphs[0] == left_base, glyphs
     assert glyphs[1].startswith("qsAt.exit-baseline.before-may"), glyphs
@@ -2945,17 +2872,13 @@ def test_qs_roe_stays_bare_before_new_qs_at_before_may():
 
 
 def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
-    # qsRoe.exit-baseline is also legitimately triggered by {family: qsAh}.
-    # The post-liga cleanup must NOT over-fire when the right neighbor is
-    # not a no-entry ligature.
+    # qsRoe.exit-baseline is also legitimately triggered by {family: qsAh}. The post-liga cleanup must NOT over-fire when the right neighbor is not a no-entry ligature.
     glyphs = _shape_qs("qsRoe", "qsAh")
     assert glyphs[0] == "qsRoe.exit-baseline", glyphs
 
 
 def test_new_qs_at_before_may_has_no_entry_anchor():
-    # qsAt's contextual before-may form replaces the old qsAt_qsMay
-    # ligature. It has no entry anchor, which is what keeps predecessors
-    # like qsRoe and qsSee from cursive-binding to it.
+    # qsAt's contextual before-may form replaces the old qsAt_qsMay ligature. It has no entry anchor, which is what keeps predecessors like qsRoe and qsSee from cursive-binding to it.
     meta_map = _compiled_meta()
     base = meta_map["qsAt.exit-baseline.before-may"]
     assert base.entry == (), base
@@ -2965,11 +2888,7 @@ def test_new_qs_at_before_may_has_no_entry_anchor():
 
 def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
     glyphs = _shape_qs("qsRoe", "qsMay", "qsThey", "qsUtter")
-    # ·Roe·May joins at the baseline in isolation, so the same join
-    # should survive when ·They+Utter follows. qsMay routes to its
-    # entry-preserving `.exit-noentry` form, dropping the dangling
-    # x-height exit but keeping the baseline entry that receives
-    # qsRoe.exit-baseline. The ligature is entryless on the right.
+    # ·Roe·May joins at the baseline in isolation, so the same join should survive when ·They+Utter follows. qsMay routes to its entry-preserving `.exit-noentry` form, dropping the dangling x-height exit but keeping the baseline entry that receives qsRoe.exit-baseline. The ligature is entryless on the right.
     assert glyphs == [
         "qsRoe.exit-baseline",
         "qsMay.entry-baseline.exit-noentry",
@@ -2980,10 +2899,7 @@ def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
 
 
 def test_qs_at_before_may_chain_handles_qs_they_qs_utter_noentry():
-    # The retired qsAt_qsMay ligature used to stay whole before
-    # qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs:
-    # qsAt picks the before-may form, qsMay picks its entry-preserving
-    # exit-noentry form before the entryless qsThey+Utter ligature.
+    # The retired qsAt_qsMay ligature used to stay whole before qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs: qsAt picks the before-may form, qsMay picks its entry-preserving exit-noentry form before the entryless qsThey+Utter ligature.
     glyphs = _shape_qs("qsAt", "qsMay", "qsThey", "qsUtter")
     assert glyphs == [
         "qsAt.exit-baseline.before-may.exit-quintuply-extended",

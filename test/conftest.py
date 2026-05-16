@@ -17,11 +17,7 @@ _shaping_cache: dict[str, Any] = {}
 
 
 def _make_env() -> dict[str, str]:
-    # The outer `make test-and-review` runs with `-j2` and exports a jobserver
-    # pipe via MAKEFLAGS. Python's subprocess.run defaults to close_fds=True,
-    # so the inner `make all` would inherit the auth string but not the fds
-    # and emit "jobserver unavailable: using -j1". Drop MAKEFLAGS so it just
-    # runs standalone.
+    # The outer `make test-and-review` runs with `-j2` and exports a jobserver pipe via MAKEFLAGS. Python's subprocess.run defaults to close_fds=True, so the inner `make all` would inherit the auth string but not the fds and emit "jobserver unavailable: using -j1". Drop MAKEFLAGS so it just runs standalone.
     env = os.environ.copy()
     env.pop("MAKEFLAGS", None)
     env.pop("MFLAGS", None)
@@ -29,10 +25,7 @@ def _make_env() -> dict[str, str]:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # Under xdist, the controller dispatches but doesn't run tests, so the
-    # lazy build in _ensure_shaping_cache would never fire on it. Build here
-    # before workers spawn, and mark built so each worker skips the no-op
-    # `make all` it would otherwise spawn on first shaping test.
+    # Under xdist, the controller dispatches but doesn't run tests, so the lazy build in _ensure_shaping_cache would never fire on it. Build here before workers spawn, and mark built so each worker skips the no-op `make all` it would otherwise spawn on first shaping test.
     if hasattr(config, "workerinput"):
         _shaping_cache["_built"] = True
         return
