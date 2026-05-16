@@ -183,6 +183,27 @@
           background: light-dark(#ffd966, #8a6800);
         }
       }
+
+      #copied-toast {
+        position: fixed;
+        margin: 0;
+        inset: auto;
+        padding: 4px 8px;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 12px;
+        line-height: 1.2;
+        white-space: nowrap;
+        /* Re-assert color-scheme: the [popover] UA rule can reset it to `normal`, which
+           makes light-dark() stick on its first (light) value even in dark mode. */
+        color-scheme: light dark;
+        color: light-dark(#222, #e0e0e0);
+        background: light-dark(#fff, #2a2a2a);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 3px;
+        box-shadow: 0 2px 6px light-dark(rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.5));
+        pointer-events: none;
+        transform: translate(8px, -100%);
+      }
     </style>
   </head>
   <body>
@@ -208,6 +229,8 @@
       <table class="matrix" id="matrix-table"></table>
     </div>
 
+    <div id="copied-toast" popover="manual"></div>
+
     <footer>
       <a href="index.html">Font Test</a> |
       <a href="the-manual.html">The Manual</a> |
@@ -227,6 +250,8 @@
       const select = document.getElementById('letter-select');
       const table = document.getElementById('matrix-table');
       const strip = document.getElementById('preview-strip');
+      const toast = document.getElementById('copied-toast');
+      let toastHideTimer = null;
       let activeHeader = null;
       let renderedLetterIndex = -1;
       let renderedStripKey = null;
@@ -367,6 +392,7 @@
         for (const td of cells) {
           const span = document.createElement('span');
           span.textContent = td.textContent;
+          span.title = td.title;
           span.dataset.row = td.dataset.row;
           span.dataset.col = td.dataset.col;
           if (td.classList.contains('highlighted')) {
@@ -536,6 +562,40 @@
           const span = strip.querySelector(`span[data-row="${td.dataset.row}"][data-col="${td.dataset.col}"]`);
           if (span) span.classList.toggle('highlighted', td.classList.contains('highlighted'));
         }
+      });
+
+      function showCopiedToast(dottedName, clientX, clientY) {
+        toast.textContent = `Copied ${dottedName}`;
+        toast.style.left = `${clientX}px`;
+        toast.style.top = `${clientY}px`;
+        if (toast.matches(':popover-open')) toast.hidePopover();
+        toast.showPopover();
+        clearTimeout(toastHideTimer);
+        toastHideTimer = setTimeout(() => toast.hidePopover(), 1200);
+      }
+
+      async function copyDottedName(dottedName, clientX, clientY) {
+        try {
+          await navigator.clipboard.writeText(dottedName);
+        } catch {
+          // Clipboard may be blocked (insecure context, denied permission). Still flash so the
+          // user knows the gesture registered; the toast text identifies what *would* have copied.
+        }
+        showCopiedToast(dottedName, clientX, clientY);
+      }
+
+      table.addEventListener('contextmenu', (e) => {
+        const target = e.target.closest('td, th');
+        if (!target || !target.title) return;
+        e.preventDefault();
+        copyDottedName(target.title, e.clientX, e.clientY);
+      });
+
+      strip.addEventListener('contextmenu', (e) => {
+        const span = e.target.closest('span');
+        if (!span || span.classList.contains('preview-label') || !span.title) return;
+        e.preventDefault();
+        copyDottedName(span.title, e.clientX, e.clientY);
       });
 
       function clearAllHighlights() {
