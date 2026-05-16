@@ -50,7 +50,7 @@ class GlyphData(TypedDict):
     glyph_families: dict[str, Any]
     context_sets: dict[str, list[Any]]
     kerning: dict[str, Any]
-    iso_reflip_overrides: NotRequired[list[dict[str, str]]]
+    restore_isolated_form_overrides: NotRequired[list[dict[str, str]]]
     predecessor_demote_overrides: NotRequired[list[dict[str, str]]]
 
 

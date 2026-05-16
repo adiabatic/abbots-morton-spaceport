@@ -92,8 +92,8 @@ context_sets:
   # Letters whose default form does not accept a baseline cursive entry (no anchor at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the join cannot form anyway.
   no_baseline_join_after_tall:
   - {family: qsThaw}
-iso_reflip_overrides:
-  # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `iso_form`, emit a post-pass re-flip rule `sub [prior_variants] target' follower_variants by iso_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
+restore_isolated_form_overrides:
+  # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `iso_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by iso_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
   - {prior: qsJay, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
   - {prior: qsYe, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
 predecessor_demote_overrides:

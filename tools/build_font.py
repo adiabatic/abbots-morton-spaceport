@@ -63,7 +63,7 @@ def load_glyph_data(path: Path) -> GlyphData:
         glyph_families = {}
         context_sets = {}
         kerning_defs = {}
-        iso_reflip_overrides = []
+        restore_isolated_form_overrides = []
         predecessor_demote_overrides = []
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
@@ -78,8 +78,10 @@ def load_glyph_data(path: Path) -> GlyphData:
                 context_sets.update(data["context_sets"])
             if "kerning" in data:
                 kerning_defs.update(data["kerning"])
-            if "iso_reflip_overrides" in data:
-                iso_reflip_overrides.extend(data["iso_reflip_overrides"] or [])
+            if "restore_isolated_form_overrides" in data:
+                restore_isolated_form_overrides.extend(
+                    data["restore_isolated_form_overrides"] or []
+                )
             if "predecessor_demote_overrides" in data:
                 predecessor_demote_overrides.extend(
                     data["predecessor_demote_overrides"] or []
@@ -90,7 +92,7 @@ def load_glyph_data(path: Path) -> GlyphData:
             "glyph_families": glyph_families,
             "context_sets": context_sets,
             "kerning": kerning_defs,
-            "iso_reflip_overrides": iso_reflip_overrides,
+            "restore_isolated_form_overrides": restore_isolated_form_overrides,
             "predecessor_demote_overrides": predecessor_demote_overrides,
         }
     else:
@@ -102,7 +104,9 @@ def load_glyph_data(path: Path) -> GlyphData:
             "glyph_families": data.get("glyph_families", {}),
             "context_sets": data.get("context_sets", {}),
             "kerning": data.get("kerning", {}),
-            "iso_reflip_overrides": data.get("iso_reflip_overrides", []) or [],
+            "restore_isolated_form_overrides": data.get(
+                "restore_isolated_form_overrides", []
+            ) or [],
             "predecessor_demote_overrides": data.get(
                 "predecessor_demote_overrides", []
             ) or [],
@@ -1072,15 +1076,17 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        raw_iso_reflip = glyph_data.get("iso_reflip_overrides", []) or []
-        iso_reflip_tuples = tuple(
+        raw_restore_isolated_form = glyph_data.get(
+            "restore_isolated_form_overrides", []
+        ) or []
+        restore_isolated_form_tuples = tuple(
             (
                 entry["prior"],
                 entry["target"],
                 entry["follower"],
                 entry["iso_form"],
             )
-            for entry in raw_iso_reflip
+            for entry in raw_restore_isolated_form
         )
         raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
         predecessor_demote_tuples = tuple(
@@ -1095,7 +1101,7 @@ def build_font(
             join_glyphs,
             pixel_width,
             pixel_height,
-            iso_reflip_overrides=iso_reflip_tuples,
+            restore_isolated_form_overrides=restore_isolated_form_tuples,
             predecessor_demote_overrides=predecessor_demote_tuples,
         )
         if senior_fea:

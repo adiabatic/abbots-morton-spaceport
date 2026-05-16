@@ -76,8 +76,8 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
-    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `iso_form`, a post-pass re-flip restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
-    iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = ()
+    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `iso_form`, a post-pass rule restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
+    restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = ()
     # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
@@ -2778,7 +2778,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             override_target,
                             override_follower,
                             override_iso,
-                        ) in plan.iso_reflip_overrides:
+                        ) in plan.restore_isolated_form_overrides:
                             target_base = _meta(target).base_name
                             if target_base != override_target:
                                 continue
@@ -4713,7 +4713,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the isolated form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the isolated form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
     post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
-    for _prior, _target_base, follower_base, iso_form in plan.iso_reflip_overrides:
+    for _prior, _target_base, follower_base, iso_form in plan.restore_isolated_form_overrides:
         if iso_form not in glyph_names:
             continue
         iso_meta = glyph_meta.get(iso_form)
@@ -5157,7 +5157,7 @@ def emit_quikscript_senior_features(
     join_glyphs: dict[str, JoinGlyph],
     pixel_width: int,
     pixel_height: int,
-    iso_reflip_overrides: tuple[tuple[str, str, str, str], ...] = (),
+    restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = (),
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> str | None:
     parts = []
@@ -5167,7 +5167,7 @@ def emit_quikscript_senior_features(
         parts.append(curs_fea)
 
     analysis = _analyze_quikscript_joins(join_glyphs)
-    analysis.iso_reflip_overrides = tuple(iso_reflip_overrides)
+    analysis.restore_isolated_form_overrides = tuple(restore_isolated_form_overrides)
     analysis.predecessor_demote_overrides = tuple(predecessor_demote_overrides)
 
     ss_gate_fea = _emit_quikscript_ss_gate(analysis)
