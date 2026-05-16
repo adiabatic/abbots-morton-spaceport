@@ -377,11 +377,13 @@ def _middle_pea_xheight_left_gate_failures() -> list[str]:
     return failures
 
 
-def test_qs_see_exit_baseline_right_before_qs_ooze():
-    assert _shape("\uE65A\uE67E") == [
-        "qsSee.exit-baseline-right",
-        "qsOoze",
-    ]
+def test_see_ooze_is_sensible():
+    _assert_expect_any(
+        "\uE65A\uE67E",
+        [
+            "·See.exit-baseline-right ~b~ ·Ooze",
+        ],
+    )
 
 
 def test_jay_it_no_is_sensible():
