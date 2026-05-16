@@ -482,7 +482,7 @@ def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
 
 
 def test_qs_out_fee_utter_lets_out_reach_for_fee():
-    # qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead.
+    # qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces ·Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead.
     glyphs = _shape_qs("qsOut", "qsFee", "qsUtter")
     assert glyphs == [
         "qsOut.exit-xheight.exit-extended",
@@ -494,7 +494,7 @@ def test_qs_out_fee_utter_lets_out_reach_for_fee():
 
 
 def test_qs_ah_fee_utter_keeps_left_join():
-    # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously Fee was switched to exit_xheight_before_utter (no entry anchor) whenever Utter followed, breaking the left-side join even though Utter itself didn't gain anything from Fee being entry-less without further context.
+    # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously ·Fee was switched to exit_xheight_before_utter (no entry anchor) whenever ·Utter followed, breaking the left-side join even though ·Utter itself didn't gain anything from ·Fee being entry-less without further context.
     glyphs = _shape_qs("qsAh", "qsFee", "qsUtter")
     assert glyphs == [
         "qsAh.exit-extended",
@@ -1765,7 +1765,7 @@ def test_qs_i_before_qs_tea_unchanged_by_forward_extension():
 
 
 # ---------------------------------------------------------------------------
-# ·Way·Day must always use full-height Way and full-height Day.
+# ·Way·Day must always use full-height ·Way and full-height ·Day.
 #
 # Regression guard against a 2-glyph preferred-lookahead FEA rule that used to substitute qsWay.half whenever the third glyph had only a y=5 entry, even if the middle glyph (qsDay) could not actually bridge qsWay.half's y=0 exit to the third glyph's y=5 entry. That produced qsWay.half·qsDay.half·X with no cursive join between Day.half and X.
 # ---------------------------------------------------------------------------
@@ -1787,7 +1787,7 @@ def _non_bridging_middle_bases() -> list[tuple[str, str]]:
 
     Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for
     those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half;`
-    correctly fires and selecting half-Way is fine.
+    correctly fires and selecting half-·Way is fine.
     """
     meta_map = _compiled_meta()
     variants_by_base: dict[str, list] = {}
@@ -1809,7 +1809,7 @@ def _non_bridging_middle_bases() -> list[tuple[str, str]]:
 
 def _way_not_half_before_non_bridging_failures() -> list[str]:
     """For every non-bridging middle M and every right-context X, ·Way·M·X
-    must not pick half-Way — the Way.half → M → X chain cannot actually join
+    must not pick half-·Way — the Way.half → M → X chain cannot actually join
     at the x-height entry X needs.
     """
     failures: list[str] = []
@@ -1824,7 +1824,7 @@ def _way_not_half_before_non_bridging_failures() -> list[str]:
             first_meta = meta_map.get(glyphs[0])
             if first_meta is None:
                 continue
-            # qsWay+qsUtter ligates into qsWay_qsUtter; that's a full-size Way body and not a `.half` variant, so skip sequences where qsWay is consumed.
+            # qsWay+qsUtter ligates into qsWay_qsUtter; that's a full-size ·Way body and not a `.half` variant, so skip sequences where qsWay is consumed.
             if first_meta.sequence and first_meta.sequence[0] == "qsWay":
                 continue
             if first_meta.base_name != "qsWay":
@@ -1845,7 +1845,7 @@ def test_qs_way_full_before_any_non_bridging_middle():
 # ---------------------------------------------------------------------------
 # ·Way and ·Why must stay full before ·Vie and ·See, the pair must not connect, and the right glyph must not change shape because of a preceding ·Way / ·Why.
 #
-# Way's prop exits only at y=5; Why's prop has no exit. Both Vie's and See's prop enter only at y=0. With the half-form fix in place, neither pair forms a join and neither side reaches across the seam — these tests pin that down.
+# ·Way's prop exits only at y=5; ·Why's prop has no exit. Both ·Vie's and ·See's prop enter only at y=0. With the half-form fix in place, neither pair forms a join and neither side reaches across the seam — these tests pin that down.
 # ---------------------------------------------------------------------------
 
 
@@ -2002,7 +2002,7 @@ def test_qs_owe_day_eat_ligature_does_not_connect():
     assert not failures, "\n".join(failures)
 
 def _owe_day_joins_at_y5_in(glyphs: list[str], label: str) -> list[str]:
-    """Return failures for positions where Owe should join a Day-base at Y=5 but doesn't."""
+    """Return failures for positions where ·Owe should join a ·Day-base at Y=5 but doesn't."""
     failures: list[str] = []
     meta_map = _compiled_meta()
     found_pair = False

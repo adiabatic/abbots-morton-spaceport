@@ -1558,7 +1558,7 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
 
     Pre-fix (FEA-only): forward calt on qsIng targeting the qsMay+qsThaw
     ligature didn't agree on entry height. Fixture: qsIng.exit-extended exits
-    y=5 listing ``before: qsMay_qsThaw``, but the May+Thaw ligature has only a
+    y=5 listing ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a
     y=0 entry — no y=5 entry on any reachable candidate.
     """
     qs_ing = _make_glyph(
