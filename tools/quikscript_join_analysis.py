@@ -2028,7 +2028,7 @@ def _iter_forward_sub_pairs(reachability: JoinReachability):
         for variant, _, _ in overrides:
             yield from emit(base, variant)
 
-    # bk_var × fwd_var: the runtime emits sub rules at call sites 4/5 of _emit_pending_bk_entry_guards (tools/quikscript_fea.py:2332, 2358), where a backward variant is forward-subbed to a forward variant of the same base. The bk_replacements dict is keyed by base; the corresponding fwd variants live under the same base in the fwd_* maps. gated_fwd_pair_overrides is intentionally omitted: the gated calt block at quikscript_fea.py:2990 uses its own _collect_pending_bk_pair_guards and never reads _derived_bk_guards, so pairs sourced from there populate the dict but no caller queries them.
+    # bk_var × fwd_var: the runtime emits sub rules at the bk_var/ext_bk × fwd_var call sites of _emit_pending_bk_entry_guards inside _emit_noentry_fwd_overrides, where a backward variant is forward-subbed to a forward variant of the same base. The bk_replacements dict is keyed by base; the corresponding fwd variants live under the same base in the fwd_* maps. gated_fwd_pair_overrides is intentionally omitted: the gated calt block uses its own _collect_pending_bk_pair_guards and never reads _derived_bk_guards, so pairs sourced from there populate the dict but no caller queries them.
     for base, entry_to_bk_var in reachability.bk_replacements.items():
         fwd_variants: list[str] = []
         fwd_variants.extend(reachability.fwd_replacements.get(base, {}).values())
