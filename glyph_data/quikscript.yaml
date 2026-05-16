@@ -120,9 +120,11 @@ predecessor_demote_overrides:
   # its entryless form — no third-glyph constraint needed. Each entry
   # compiles to a rule `sub predecessor_form' trigger_form by iso_form;`
   # under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline, iso_form: qsExcite}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsMay}
+  - {predecessor_form: qsMay.exit-noentry, trigger_form: qsThey_qsUtter.noentry, iso_form: qsMay}
   - {predecessor_form: qsNo.alt, trigger_form: qsIt.exit-baseline, iso_form: qsNo}
   - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsNo}
 glyph_families:
