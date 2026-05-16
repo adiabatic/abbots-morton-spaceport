@@ -633,7 +633,7 @@ glyph_families:
         anchors:
           exit: [5, 0]
         select:
-          before: [{family: qsNo, entry_y: 0}]
+          before: [{family: qsNo, entry_y: 0}, {family: qsOut, entry_y: 0}]
           not_before: [{family: qsExcite}, {family: qsOoze}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
