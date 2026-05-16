@@ -56,6 +56,7 @@ class GlyphData(TypedDict):
     context_sets: dict[str, list[Any]]
     kerning: dict[str, Any]
     iso_reflip_overrides: NotRequired[list[dict[str, str]]]
+    predecessor_demote_overrides: NotRequired[list[dict[str, str]]]
 
 
 @dataclass(frozen=True)

@@ -109,6 +109,21 @@ iso_reflip_overrides:
   # `calt_pair_guard_reflip_<target_base>`.
   - {prior: qsJay, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
   - {prior: qsYe, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
+predecessor_demote_overrides:
+  # When a forward-pair lookup extends a predecessor toward a trigger that
+  # has itself become entryless (because a deeper third glyph stripped its
+  # entry), the predecessor's extension reaches into empty air. Demote the
+  # predecessor back to its iso form so the rendered chain matches what iso
+  # shaping of `trigger ...` would render on its own. The rule fires
+  # whenever the buffer state at this post-pass is
+  # `predecessor_form trigger_form`, which already implies the trigger is in
+  # its entryless form — no third-glyph constraint needed. Each entry
+  # compiles to a rule `sub predecessor_form' trigger_form by iso_form;`
+  # under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, iso_form: qsJai}
+  - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, iso_form: qsJai}
+  - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsMay}
+  - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsNo}
 glyph_families:
   space:
     mono:
