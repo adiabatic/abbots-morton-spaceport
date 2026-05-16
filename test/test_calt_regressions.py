@@ -384,8 +384,7 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
     ]
 
 
-def test_qs_no_alt_requires_a_compatible_it_exit():
-    # ·Jay·It·No must not promote qsNo to its alt form. Either qsIt routes through to qsNo as a non-join (with qsJay free to bind to qsIt at the baseline), or qsJay breaks away and qsIt joins qsNo \u2014 both keep qsNo on its plain bitmap.
+def test_jay_it_no_is_sensible():
     _assert_expect_any(
         "\uE65F\uE670\uE666",
         [
@@ -396,11 +395,6 @@ def test_qs_no_alt_requires_a_compatible_it_exit():
 
 
 def test_qs_zoo_half_follows_iso_reflip_after_qs_jay():
-    # isolated shaping of ·It·Zoo lands on (qsIt.exit-baseline, qsZoo.half). The iso_reflip_overrides
-    # entry for qsJay\u2192qsIt\u2192qsZoo flips qsIt to qsIt.exit-baseline post\u2010fwd\u2010pair, and the new
-    # `calt_post_reflip_bk_qsZoo` pass re\u2010fires qsZoo's bk\u2010replacement so the follower also
-    # collapses to qsZoo.half. Without the post\u2010reflip pass, qsZoo would stay in its default
-    # top\u2010entry form and the in\u2010context render would diverge visibly from isolated shaping.
     assert _shape("\uE65F\uE670\uE65B") == [
         "qsJay",
         "qsIt.exit-baseline",
@@ -418,7 +412,7 @@ def test_qs_zoo_half_follows_iso_reflip_after_qs_ye():
 
 
 def test_qs_it_zoo_iso_control_is_unchanged():
-    # The isolated pair ·It·Zoo already lands on qsZoo.half via the normal back\u2010pair pass; the
+    # Iso pair ·It·Zoo already lands on qsZoo.half via the normal back\u2010pair pass; the
     # new post\u2010reflip lookup must not perturb this baseline.
     assert _shape("\uE670\uE65B") == [
         "qsIt.exit-baseline",
