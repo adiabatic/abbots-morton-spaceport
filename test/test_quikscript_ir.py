@@ -2408,8 +2408,8 @@ def test_variant_example_finder_explains_elsewhere_example_without_source_family
         example,
     )
 
-    assert annotated.label == "Glyph-only example\n(no \u00b7Pea input)"
-    assert "does not include \u00b7Pea" in annotated.title
+    assert annotated.label == "Glyph-only example\n(no ·Pea input)"
+    assert "does not include ·Pea" in annotated.title
 
 
 def test_variant_example_finder_explains_elsewhere_example_with_other_source_form():
@@ -2435,7 +2435,7 @@ def test_variant_example_finder_explains_elsewhere_example_with_other_source_for
         example,
     )
 
-    assert annotated.label == "Glyph-only example\n(different \u00b7Pea form)"
+    assert annotated.label == "Glyph-only example\n(different ·Pea form)"
     assert "not qsPea.entry-xheight" in annotated.title
 
 
@@ -2477,14 +2477,14 @@ def test_variant_rows_render_label_line_breaks():
     examples = {
         "qsMay": VariantExample(
             status="variant",
-            label="Glyph-only example\n(no \u00b7Pea input)",
+            label="Glyph-only example\n(no ·Pea input)",
             title="This is the longer hover explanation.",
         )
     }
 
     rows = _rows_for_variants(("qsMay",), {}, examples, suggestion)
 
-    assert "Glyph-only example<br>(no \u00b7Pea input)" in rows
+    assert "Glyph-only example<br>(no ·Pea input)" in rows
     assert 'title="This is the longer hover explanation."' in rows
 
 

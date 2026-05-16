@@ -418,7 +418,7 @@ def test_qs_zoo_half_follows_iso_reflip_after_qs_ye():
 
 
 def test_qs_it_zoo_iso_control_is_unchanged():
-    # Iso pair \u00B7It\u00B7Zoo already lands on qsZoo.half via the normal back\u2010pair pass; the
+    # Iso pair ·It·Zoo already lands on qsZoo.half via the normal back\u2010pair pass; the
     # new post\u2010reflip lookup must not perturb this baseline.
     assert _shape("\uE670\uE65B") == [
         "qsIt.exit-baseline",

@@ -726,9 +726,9 @@ def _anchor_ys_text(meta: JoinGlyph | None) -> str:
 def _family_label(family: str) -> str:
     special = {"qsIng": "-ing", "qsJai": "J'ai"}
     if family in special:
-        return "\u00b7" + special[family]
+        return "·" + special[family]
     if family.startswith("qs"):
-        return "\u00b7" + family[2:]
+        return "·" + family[2:]
     return family
 
 
