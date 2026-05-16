@@ -123,6 +123,7 @@ predecessor_demote_overrides:
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsMay}
+  - {predecessor_form: qsNo.alt, trigger_form: qsIt.exit-baseline, iso_form: qsNo}
   - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsNo}
 glyph_families:
   space:
