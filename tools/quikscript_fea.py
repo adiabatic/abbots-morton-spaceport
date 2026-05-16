@@ -4696,6 +4696,57 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
+    # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the iso form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the iso form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
+    post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
+    for _prior, _target_base, follower_base, iso_form in plan.iso_reflip_overrides:
+        if iso_form not in glyph_names:
+            continue
+        iso_meta = glyph_meta.get(iso_form)
+        if iso_meta is None or not iso_meta.exit:
+            continue
+        follower_bk = bk_replacements.get(follower_base)
+        if not follower_bk:
+            continue
+        for exit_y in sorted(set(iso_meta.exit_ys)):
+            replacement = follower_bk.get(exit_y)
+            if not replacement or replacement == follower_base:
+                continue
+            if replacement not in glyph_names:
+                continue
+            post_reflip_emissions.setdefault(follower_base, {}).setdefault(
+                (exit_y, replacement), set()
+            ).add(iso_form)
+    for follower_base in sorted(post_reflip_emissions):
+        safe = follower_base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_post_reflip_bk_{safe} {{")
+        for (entry_y, replacement), iso_forms in sorted(
+            post_reflip_emissions[follower_base].items()
+        ):
+            sorted_iso_forms = sorted(iso_forms)
+            prior_token = (
+                sorted_iso_forms[0]
+                if len(sorted_iso_forms) == 1
+                else "[" + " ".join(sorted_iso_forms) + "]"
+            )
+            fwd_excl = plan.bk_fwd_exclusions.get(follower_base, {}).get(entry_y)
+            fwd_excl_seq = plan.bk_fwd_exclusion_sequences.get(follower_base, {}).get(
+                entry_y, []
+            )
+            for token in _excl_tokens(fwd_excl, fwd_excl_seq):
+                lines.append(
+                    f"        ignore sub {prior_token} {follower_base}' {token};"
+                )
+            _emit_entry_strip_guards_for_replacement_exit(
+                follower_base,
+                replacement,
+                left_context=prior_token,
+            )
+            lines.append(
+                f"        sub {prior_token} {follower_base}' by {replacement};"
+            )
+        lines.append(f"    }} calt_post_reflip_bk_{safe};")
+
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its iso form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
     for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
