@@ -503,7 +503,7 @@ def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, 
     return f"{label} ({diff})", code
 
 
-def _format_leak_row(leak: Leak, example: IsolationLeakExample) -> str:
+def _format_leak_row(leak: Leak, example: IsolationLeakExample, visual: str) -> str:
     label, code = _format_leak_label(leak, example)
     cp_map = _family_to_codepoint()
     families = example.families
@@ -515,7 +515,6 @@ def _format_leak_row(leak: Leak, example: IsolationLeakExample) -> str:
         f'<span class="half">{left_entities}</span>'
         f'<span class="half">{right_entities}</span>'
     )
-    visual = _visual_status(example)
     open_link = _open_in_tables_link(families)
     letters = html.escape("".join(_short_label(f) for f in families), quote=True)
     return (
@@ -543,7 +542,13 @@ def _leak_sort_key(item: tuple[Leak, IsolationLeakExample]) -> tuple:
 
 
 def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max_len: int) -> str:
-    rows = "\n".join(_format_leak_row(leak, w) for leak, w in items)
+    diff_items = [
+        (leak, example, visual)
+        for leak, example in items
+        for visual in (_visual_status(example),)
+        if visual == "diff"
+    ]
+    rows = "\n".join(_format_leak_row(leak, w, v) for leak, w, v in diff_items)
     return (
         '    <section class="isolation-leaks">\n'
         "      <h2>Auto-generated: isolation leaks</h2>\n"
@@ -562,25 +567,21 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
         "        single buffer (what you get in real text); the right\n"
         "        column splits the sequence at the leaky break into two\n"
         "        <code>display: inline-block</code> halves so HarfBuzz\n"
-        "        shapes each side independently. If the two columns look\n"
-        "        identical, the leak is purely a glyph-name signature\n"
-        "        change with no visible effect; if they differ, decide\n"
-        "        whether the in-context shape is intended.\n"
+        "        shapes each side independently. Decide whether the\n"
+        "        in-context shape is intended.\n"
         "      </p>\n"
         "      <p>\n"
-        "        Each row is tagged <code>same</code> or <code>diff</code>\n"
-        "        based on whether the in-context buffer and the\n"
-        "        concatenation of the two independently-shaped halves\n"
-        "        produce the same per-glyph (pixels, absolute origin)\n"
-        "        sequence. Comparing absolute origins (not just pixels)\n"
-        "        catches cursive-positioning leaks: e.g.\n"
+        "        Only <code>diff</code> rows — where the in-context buffer\n"
+        "        and the concatenation of the two independently-shaped\n"
+        "        halves differ in their per-glyph (pixels, absolute origin)\n"
+        "        sequence — are shown. Comparing absolute origins (not just\n"
+        "        pixels) catches cursive-positioning leaks: e.g.\n"
         "        <code>qsIt</code> vs <code>qsIt.exit-xheight</code> have\n"
         "        identical bitmaps but the latter's exit anchor pulls the\n"
-        "        next glyph leftward via GPOS <code>curs</code>. Reach for\n"
-        "        the <code>diff</code> rows first when hunting real bugs;\n"
-        "        <code>same</code> rows are typically\n"
-        "        <code>after-tall</code>-style trims whose only effect is\n"
-        "        the glyph-name signature.\n"
+        "        next glyph leftward via GPOS <code>curs</code>. Pure\n"
+        "        glyph-name-signature changes with no visible effect (the\n"
+        "        old <code>same</code> rows, typically\n"
+        "        <code>after-tall</code>-style trims) are filtered out.\n"
         "      </p>\n"
         '      <div class="col-headers">\n'
         "        <span>Sequence</span>\n"
@@ -907,11 +908,6 @@ _PAGE_CSS = """      /*
       .isolation-leaks .row[data-visual="diff"] .visual-tag {
         background: light-dark(#ffe0a8, #5a3a00);
         color: light-dark(#5a3a00, #ffe0a8);
-      }
-
-      .isolation-leaks .row[data-visual="same"] .visual-tag {
-        background: light-dark(#e0e0e0, #444);
-        color: light-dark(#666, #aaa);
       }
 
       .isolation-leaks .row .label .open-in-tables {
