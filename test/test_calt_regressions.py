@@ -967,6 +967,56 @@ def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
     )
 
 
+def _it_day_xheight_join_failures() -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    contexts: list[tuple[str | None, str | None]] = [(None, None)]
+    contexts.extend((None, right_name) for right_name, _ in _plain_quikscript_letters())
+    contexts.extend((left_name, None) for left_name, _ in _plain_quikscript_letters())
+    contexts.extend(
+        (left_name, right_name)
+        for left_name, _ in _plain_quikscript_letters()
+        for right_name, _ in _plain_quikscript_letters()
+    )
+
+    for left_name, right_name in contexts:
+        parts = (
+            ([left_name] if left_name else [])
+            + ["qsIt", "qsDay"]
+            + ([right_name] if right_name else [])
+        )
+        glyphs = _shape_qs(*parts)
+        label = " / ".join(parts)
+
+        for index, glyph_name in enumerate(glyphs[:-1]):
+            left_meta = meta_map.get(glyph_name)
+            right_meta = meta_map.get(glyphs[index + 1])
+            if left_meta is None or right_meta is None:
+                continue
+            right_starts_with_day = (
+                right_meta.base_name == "qsDay"
+                or (
+                    right_meta.sequence is not None
+                    and right_meta.sequence[:1] == ("qsDay",)
+                )
+            )
+            if left_meta.base_name != "qsIt" or not right_starts_with_day:
+                continue
+
+            common = _pair_join_ys(glyphs, index)
+            if 5 in common:
+                failures.append(
+                    f"{label}: ·It·Day joins at the x-height in {glyphs} "
+                    f"with join Ys {sorted(common)}"
+                )
+
+    return failures
+
+
+def test_qs_it_day_never_joins_at_xheight():
+    _assert_no_failures(_it_day_xheight_join_failures(), limit=None)
+
+
 def test_qs_she_stays_plain_before_qs_thaw():
     isolated = _shape_qs("qsShe")[0]
     glyphs = _shape_qs("qsShe", "qsThaw")
