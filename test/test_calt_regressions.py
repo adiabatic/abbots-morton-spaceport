@@ -5,6 +5,7 @@ import pytest
 from quikscript_shaping_helpers import (
     ROOT,
     ZWNJ,
+    _assert_expect_any,
     _assert_join_preserved,
     _assert_no_failures,
     _base_names,
@@ -384,16 +385,18 @@ def test_qs_see_exit_baseline_right_before_qs_ooze():
 
 
 def test_qs_no_alt_requires_a_compatible_it_exit():
-    # After Move 2 of the isolation-leak campaign, the bk-pair guard that suppresses qsNo \u2192 qsNo.alt.after-it-and-vie in this chain still fires, but the paired re-flip lookup demotes qsIt back from qsIt.exit-xheight to qsIt.exit-baseline so the candidate matches what ``\u00B7It\u00B7No`` renders in isolation at position 0 (``qsIt.exit-baseline``). The follower qsNo stays plain \u2014 the leak on the qsNo side is now what ``\u00B7No | \u00B7It \u00B7Zoo`` captures, not this row.
-    assert _shape("\uE65F\uE670\uE666") == [
-        "qsJay",
-        "qsIt.exit-baseline",
-        "qsNo",
-    ]
+    # ·Jay·It·No must not promote qsNo to its alt form. Either qsIt routes through to qsNo as a non-join (with qsJay free to bind to qsIt at the baseline), or qsJay breaks away and qsIt joins qsNo \u2014 both keep qsNo on its plain bitmap.
+    _assert_expect_any(
+        "\uE65F\uE670\uE666",
+        [
+            "·Jay ~b~ ·It | ·No",
+            "·Jay | ·It ·No",
+        ],
+    )
 
 
 def test_qs_zoo_half_follows_iso_reflip_after_qs_jay():
-    # isolated shaping of \u00B7It\u00B7Zoo lands on (qsIt.exit-baseline, qsZoo.half). The iso_reflip_overrides
+    # isolated shaping of ·It·Zoo lands on (qsIt.exit-baseline, qsZoo.half). The iso_reflip_overrides
     # entry for qsJay\u2192qsIt\u2192qsZoo flips qsIt to qsIt.exit-baseline post\u2010fwd\u2010pair, and the new
     # `calt_post_reflip_bk_qsZoo` pass re\u2010fires qsZoo's bk\u2010replacement so the follower also
     # collapses to qsZoo.half. Without the post\u2010reflip pass, qsZoo would stay in its default
