@@ -1343,7 +1343,7 @@ def _expand_backward_after_variants(
                     set(glyph_meta[candidate].exit_ys) & entry_ys
                     or (
                         not glyph_meta[candidate].exit
-                        # The "could eventually exit at Y" rescue is only safe when this candidate would actually pick up the right exit later. For `.noentry` strippers that fallback is unreliable: a stripper of an unrelated family member (e.g., bare `qsTea.noentry` of bare `qsTea`) will never reach a half-form Tea exit, no matter what siblings the family has. Require the entry-bearing counterpart of the stripper to itself be a candidate — meaning the rule already targets that source — before trusting the rescue.
+                        # The "could eventually exit at Y" rescue is only safe when this candidate would actually pick up the right exit later. For `.noentry` strippers that fallback is unreliable: a stripper of an unrelated family member (e.g., bare `qsTea.noentry` of bare `qsTea`) will never reach a half-form ·Tea exit, no matter what siblings the family has. Require the entry-bearing counterpart of the stripper to itself be a candidate — meaning the rule already targets that source — before trusting the rescue.
                         and (
                             not glyph_meta[candidate].is_noentry
                             or _unstripped_is_candidate(candidate)
@@ -2585,7 +2585,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 variant_meta = _meta(variant_name)
                 variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
 
-                # Walk extension/contraction/trim derivations on the side orthogonal to the variant's own modification, so pair overrides also fire on inputs already pre-modified by an earlier same-direction lookup (e.g. a Tea form that picked up `entry-extended` after `qsKey` should still receive the exit-side contraction before `qsZoo`).
+                # Walk extension/contraction/trim derivations on the side orthogonal to the variant's own modification, so pair overrides also fire on inputs already pre-modified by an earlier same-direction lookup (e.g. a ·Tea form that picked up `entry-extended` after `qsKey` should still receive the exit-side contraction before `qsZoo`).
                 variant_is_exit_side = bool(
                     variant_meta.extended_exit_suffix
                     or variant_meta.contracted_exit_suffix
