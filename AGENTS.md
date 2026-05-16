@@ -10,6 +10,7 @@
   - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
   - describe how the font’s letters will look different (“Reduce the half-·He extension at the x-height”, “Don’t join ·Way·Thaw ever”)
 - Contrariwise, messages that describe the mechanism are anti-preferred.
+- While there are significant parts of this project that are in British English (like The Manual), use American English for all code and comments.
 
 ## HTML/CSS/JS
 
