@@ -18,6 +18,7 @@ dev = [
 ]
 
 [tool.black]
+line-length = 110
 target-version = ["py314"]
 
 [tool.pyright]
