@@ -2,13 +2,11 @@ from pathlib import Path
 import subprocess
 import textwrap
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_mono_preview_resets_to_regular_weight():
-    script = textwrap.dedent(
-        """
+    script = textwrap.dedent("""
         import assert from 'node:assert/strict';
         import { initToggles } from './test/shared.js';
 
@@ -84,8 +82,7 @@ def test_mono_preview_resets_to_regular_weight():
         fontToggle.click();
         assert.equal(style.get('--font-weight'), '700');
         assert.equal(weightToggle.textContent, 'Bold');
-        """
-    )
+        """)
 
     subprocess.run(
         ["node", "--input-type=module", "-e", script],

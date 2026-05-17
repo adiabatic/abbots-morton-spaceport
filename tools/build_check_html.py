@@ -65,7 +65,6 @@ from quikscript_shaping_helpers import (  # noqa: E402
     _shape_qs,
 )
 
-
 # ---------------------------------------------------------------------------
 # Isolation-leak detection (was tools/find_isolation_leaks.py).
 # ---------------------------------------------------------------------------
@@ -212,9 +211,7 @@ def _visual_status(example: IsolationLeakExample) -> str:
     (l0, l1), (r0, r1) = _shaped_input_spans(example)
     left_sigs, left_x, left_y = _abs_render_signature(example.families[l0:l1])
     right_sigs, _, _ = _abs_render_signature(example.families[r0:r1])
-    halves_sigs = left_sigs + [
-        (sig, x + left_x, y + left_y) for sig, x, y in right_sigs
-    ]
+    halves_sigs = left_sigs + [(sig, x + left_x, y + left_y) for sig, x, y in right_sigs]
     return "same" if full_sigs == halves_sigs else "diff"
 
 
@@ -234,7 +231,7 @@ AFTER_FONT = TEST_DIR / SENIOR_FONT_NAME
 
 QS_FIRST = 0xE650
 QS_LAST = 0xE67F
-QS_RUN_RE = re.compile("[\uE650-\uE67F\u200C]+")
+QS_RUN_RE = re.compile("[\ue650-\ue67f\u200c]+")
 ENTITY_HEX_RE = re.compile(r"&#x([0-9A-Fa-f]+);")
 ENTITY_DEC_RE = re.compile(r"&#(\d+);")
 
@@ -303,9 +300,7 @@ def _hb_font(font_path: Path) -> hb.Font:
     return hb.Font(hb.Face(blob))
 
 
-def _render(
-    font: hb.Font, hashes: dict[str, str], text: str
-) -> tuple[GlyphRender, ...]:
+def _render(font: hb.Font, hashes: dict[str, str], text: str) -> tuple[GlyphRender, ...]:
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
@@ -347,8 +342,7 @@ def find_diffs() -> list[SequenceDiff]:
     multi-letter run. Caller is expected to confirm BEFORE_FONT exists."""
     if not AFTER_FONT.exists():
         raise SystemExit(
-            f"Live build missing: {AFTER_FONT.relative_to(ROOT)} not found.\n"
-            "Run `make all` first."
+            f"Live build missing: {AFTER_FONT.relative_to(ROOT)} not found.\n" "Run `make all` first."
         )
     sequences = _harvest_sequences(CORPUS_FILES)
     before_hashes = _outline_hashes(BEFORE_FONT)
@@ -395,20 +389,14 @@ def _short_label_for_codepoint(codepoint: int, cp_to_family: dict[int, str]) -> 
 
 def _family_to_codepoint() -> dict[str, int]:
     chars = _char_map()
-    return {
-        name: ord(chars[name])
-        for name in chars
-        if name.startswith("qs") and "_" not in name
-    }
+    return {name: ord(chars[name]) for name in chars if name.startswith("qs") and "_" not in name}
 
 
 def _codepoint_to_family() -> dict[int, str]:
     with PS_NAMES_PATH.open() as f:
         ps_names = yaml.safe_load(f)
     return {
-        codepoint: name
-        for name, codepoint in ps_names.items()
-        if name.startswith("qs") and "_" not in name
+        codepoint: name for name, codepoint in ps_names.items() if name.startswith("qs") and "_" not in name
     }
 
 
@@ -428,14 +416,10 @@ def _tables_letter_name(family: str) -> str:
 _OPEN_IN_TABLES_ICON = '<img src="icons/open-in-new.svg" alt="" width="12" height="12">'
 
 # Three cells with the leftmost two filled — points at a tables.html column strip where the pair appears as the first two letters of every cell.
-_OPEN_IN_TABLES_FIRST_TWO_ICON = (
-    '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
-)
+_OPEN_IN_TABLES_FIRST_TWO_ICON = '<img src="icons/cells-fade-right.svg" alt="" width="12" height="12">'
 
 # Mirror image — points at a tables.html row strip where the pair appears as the last two letters of every cell.
-_OPEN_IN_TABLES_LAST_TWO_ICON = (
-    '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
-)
+_OPEN_IN_TABLES_LAST_TWO_ICON = '<img src="icons/cells-fade-left.svg" alt="" width="12" height="12">'
 
 
 def _tables_anchor(params: list[tuple[str, str]], label: str, icon: str) -> str:
@@ -511,10 +495,7 @@ def _format_leak_row(leak: Leak, example: IsolationLeakExample, visual: str) -> 
     full_entities = "".join(_entity_for(cp_map[f]) for f in families)
     left_entities = "".join(_entity_for(cp_map[f]) for f in families[l0:l1])
     right_entities = "".join(_entity_for(cp_map[f]) for f in families[r0:r1])
-    isolated = (
-        f'<span class="half">{left_entities}</span>'
-        f'<span class="half">{right_entities}</span>'
-    )
+    isolated = f'<span class="half">{left_entities}</span>' f'<span class="half">{right_entities}</span>'
     open_link = _open_in_tables_link(families)
     letters = html.escape("".join(_short_label(f) for f in families), quote=True)
     return (
@@ -594,9 +575,7 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
 
 
 def _format_diff_label(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
-    return " ".join(
-        _short_label_for_codepoint(cp, cp_to_family) for cp in diff.codepoints
-    )
+    return " ".join(_short_label_for_codepoint(cp, cp_to_family) for cp in diff.codepoints)
 
 
 def _format_diff_summary(diff: SequenceDiff) -> str:
@@ -607,19 +586,14 @@ def _format_diff_summary(diff: SequenceDiff) -> str:
     if before_names != after_names:
         parts.append(f"{' '.join(before_names)} → {' '.join(after_names)}")
         return "; ".join(parts)
-    outline_changed = [
-        b.name
-        for b, a in zip(diff.before, diff.after)
-        if b.outline_hash != a.outline_hash
-    ]
+    outline_changed = [b.name for b, a in zip(diff.before, diff.after) if b.outline_hash != a.outline_hash]
     if outline_changed:
         parts.append(f"outline: {', '.join(outline_changed)}")
     position_changed = [
         b.name
         for b, a in zip(diff.before, diff.after)
         if b.outline_hash == a.outline_hash
-        and (b.x_advance, b.x_offset, b.y_offset)
-        != (a.x_advance, a.x_offset, a.y_offset)
+        and (b.x_advance, b.x_offset, b.y_offset) != (a.x_advance, a.x_offset, a.y_offset)
     ]
     if position_changed:
         parts.append(f"positions: {', '.join(position_changed)}")

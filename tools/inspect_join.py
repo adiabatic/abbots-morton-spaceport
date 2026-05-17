@@ -92,7 +92,7 @@ def _print_glyph(meta: JoinGlyph) -> None:
                 marker += " <- entry"
             if any(anchor[1] == y for anchor in meta.exit):
                 marker += " <- exit" if not marker else " + exit"
-            print(f"    y={y:>2}  \"{text}\"{marker}")
+            print(f'    y={y:>2}  "{text}"{marker}')
 
 
 def _gap_explanation(left: JoinGlyph, right: JoinGlyph, y: int) -> None:
@@ -107,8 +107,12 @@ def _gap_explanation(left: JoinGlyph, right: JoinGlyph, y: int) -> None:
     eff_left_x = _effective_exit_x(left, left_anchor[0], right.family)
     eff_right_x = _effective_entry_x(right, right_anchor[0], left.family)
     gap = _bitmap_join_gap(
-        left, left_anchor, right, right_anchor,
-        left_family=left.family, right_family=right.family,
+        left,
+        left_anchor,
+        right,
+        right_anchor,
+        left_family=left.family,
+        right_family=right.family,
     )
 
     left_row = _bitmap_row_at_y(left, left_y_for_ink)
@@ -117,20 +121,22 @@ def _gap_explanation(left: JoinGlyph, right: JoinGlyph, y: int) -> None:
     right_str = "".join("#" if v else " " for v in right_row) if right_row else "(no row)"
 
     print(f"    join y={y}")
-    print(f"      left  exit=({left_anchor[0]}, {left_anchor[1]})"
-          f"  eff_x={eff_left_x}"
-          f"  ink_y={left_y_for_ink}{' (declared)' if left.exit_ink_y is not None else ''}")
+    print(
+        f"      left  exit=({left_anchor[0]}, {left_anchor[1]})"
+        f"  eff_x={eff_left_x}"
+        f"  ink_y={left_y_for_ink}{' (declared)' if left.exit_ink_y is not None else ''}"
+    )
     print(f"      right entry=({right_anchor[0]}, {right_anchor[1]})  eff_x={eff_right_x}")
     if left_bounds is not None:
         lmin, lmax = left_bounds
-        print(f"      left  row \"{left_str}\"  ink={lmin}..{lmax}  ink_to_exit={lmax - eff_left_x}")
+        print(f'      left  row "{left_str}"  ink={lmin}..{lmax}  ink_to_exit={lmax - eff_left_x}')
     else:
-        print(f"      left  row \"{left_str}\"  no ink at exit_ink_y")
+        print(f'      left  row "{left_str}"  no ink at exit_ink_y')
     if right_bounds is not None:
         rmin, rmax = right_bounds
-        print(f"      right row \"{right_str}\"  ink={rmin}..{rmax}  ink_to_entry={rmin - eff_right_x}")
+        print(f'      right row "{right_str}"  ink={rmin}..{rmax}  ink_to_entry={rmin - eff_right_x}')
     else:
-        print(f"      right row \"{right_str}\"  no ink at entry y")
+        print(f'      right row "{right_str}"  no ink at entry y')
     if gap is None:
         print("      gap = N/A (one side has no ink at the join row)")
     else:
@@ -147,8 +153,10 @@ def _print_pair(left: JoinGlyph, right: JoinGlyph) -> None:
     right_ys = set(a[1] for a in (*right.entry, *right.entry_curs_only))
     shared = left_ys & right_ys
     if not shared:
-        print(f"    no shared join y (left exit={sorted(left_ys) or '∅'},"
-              f" right entry={sorted(right_ys) or '∅'})")
+        print(
+            f"    no shared join y (left exit={sorted(left_ys) or '∅'},"
+            f" right entry={sorted(right_ys) or '∅'})"
+        )
         return
     for y in sorted(shared):
         _gap_explanation(left, right, y)

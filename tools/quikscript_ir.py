@@ -134,21 +134,21 @@ class JoinTransform:
 
 
 _SOURCE_FAMILY_TRAITS = frozenset({"alt", "half"})
-_ENTRY_EXIT_MODIFIER_RE = re.compile(
-    r"^(?:entry|exit)-[a-z0-9]+(?:-[a-z0-9]+)*(?:-at-[a-z0-9]+)?$"
-)
+_ENTRY_EXIT_MODIFIER_RE = re.compile(r"^(?:entry|exit)-[a-z0-9]+(?:-[a-z0-9]+)*(?:-at-[a-z0-9]+)?$")
 _BEFORE_AFTER_MODIFIER_RE = re.compile(r"^(?:before|after)-[a-z0-9]+(?:-[a-z0-9]+)*$")
 _EXTENDED_HEIGHT_LABELS = {0: "baseline", 5: "xheight", 6: "y6", 8: "top"}
-_KNOWN_DERIVE_DIRECTIVES = frozenset({
-    "extend_entry_after",
-    "extend_exit_before",
-    "extend_exit_before_gated",
-    "contract_entry_after",
-    "contract_exit_before",
-    "noentry_after",
-    "reverse_upgrade_from",
-    "preferred_over",
-})
+_KNOWN_DERIVE_DIRECTIVES = frozenset(
+    {
+        "extend_entry_after",
+        "extend_exit_before",
+        "extend_exit_before_gated",
+        "contract_entry_after",
+        "contract_exit_before",
+        "noentry_after",
+        "reverse_upgrade_from",
+        "preferred_over",
+    }
+)
 
 
 _ANCHOR_SENTINEL_PREFIX = "<<anchor "
@@ -183,7 +183,7 @@ def _parse_anchor_sentinel(
 ) -> _AnchorSelector | None:
     if not value.startswith(_ANCHOR_SENTINEL_PREFIX) or not value.endswith(">>"):
         return None
-    body = value[len(_ANCHOR_SENTINEL_PREFIX):-2]
+    body = value[len(_ANCHOR_SENTINEL_PREFIX) : -2]
     parts = body.split("|")
     head = parts[0]
     kind, _, y_str = head.partition("=")
@@ -232,9 +232,7 @@ def _validate_family_derive(family_name: str, family_def: dict[str, Any]) -> Non
     if family_derive is None:
         return
     if not isinstance(family_derive, dict):
-        raise ValueError(
-            f"Glyph family {family_name!r} family-level derive must be a mapping"
-        )
+        raise ValueError(f"Glyph family {family_name!r} family-level derive must be a mapping")
     unknown = sorted(set(family_derive) - _KNOWN_DERIVE_DIRECTIVES)
     if unknown:
         raise ValueError(
@@ -297,9 +295,7 @@ def _resolve_family_record(
 
     raw_derive = raw.get("derive") if isinstance(raw, dict) else None
     explicit_null_derive_keys: set[str] = (
-        {k for k, v in raw_derive.items() if v is None}
-        if isinstance(raw_derive, dict)
-        else set()
+        {k for k, v in raw_derive.items() if v is None} if isinstance(raw_derive, dict) else set()
     )
 
     stack.append(record_name)
@@ -310,7 +306,11 @@ def _resolve_family_record(
         parents = [inherits] if isinstance(inherits, str) else inherits
         for parent_name in parents:
             parent = _resolve_family_record(
-                family_name, family_def, parent_name, cache, stack,
+                family_name,
+                family_def,
+                parent_name,
+                cache,
+                stack,
                 glyph_families=glyph_families,
             )
             parent_for_merge = {k: v for k, v in parent.items() if k != "derive"}
@@ -550,7 +550,15 @@ def _validate_source_modifier(
             f"{family_name} {context} uses trait-like token {modifier!r} in modifiers; "
             "put it under traits instead"
         )
-    if modifier in {"extended", "widebase", "reaches-way-back", "smaller-loop", "noentry", "noexit", "gapped"}:
+    if modifier in {
+        "extended",
+        "widebase",
+        "reaches-way-back",
+        "smaller-loop",
+        "noentry",
+        "noexit",
+        "gapped",
+    }:
         return
     if _ENTRY_EXIT_MODIFIER_RE.fullmatch(modifier):
         return
@@ -625,7 +633,7 @@ def _split_family_compiled_name(
     if family_name is None:
         return None
 
-    suffix = normalized[len(family_name):].removeprefix(".")
+    suffix = normalized[len(family_name) :].removeprefix(".")
     if not suffix:
         return family_name, (), ()
 
@@ -666,17 +674,13 @@ def _resolve_family_selector_name(
     if "why_not_narrower" in value:
         why = value["why_not_narrower"]
         if not isinstance(why, str) or not why.strip():
-            raise ValueError(
-                f"{context_family} {context} why_not_narrower must be a non-empty string"
-            )
+            raise ValueError(f"{context_family} {context} why_not_narrower must be a non-empty string")
 
     target_family = value.get("family")
     if not isinstance(target_family, str) or not target_family:
         raise ValueError(f"{context_family} {context} selector must include a family name")
     if target_family not in family_names:
-        raise ValueError(
-            f"{context_family} {context} refers to unknown glyph family {target_family!r}"
-        )
+        raise ValueError(f"{context_family} {context} refers to unknown glyph family {target_family!r}")
 
     traits = _normalize_source_traits(
         value.get("traits", ()),
@@ -715,9 +719,7 @@ def _normalize_family_refs(
                 )
             y = value[kind]
             if not isinstance(y, int) or isinstance(y, bool):
-                raise ValueError(
-                    f"{context_family} {context_label} {field_name} {kind} must be an integer"
-                )
+                raise ValueError(f"{context_family} {context_label} {field_name} {kind} must be an integer")
 
             if "family" in value:
                 allowed = anchor_keys | {"family", "traits", "modifiers"}
@@ -783,8 +785,7 @@ def _normalize_family_refs(
             set_name = value["context_set"]
             if not isinstance(set_name, str) or not set_name:
                 raise ValueError(
-                    f"{context_family} {context_label} {field_name} uses an invalid "
-                    "context_set name"
+                    f"{context_family} {context_label} {field_name} uses an invalid " "context_set name"
                 )
             if set_name not in context_sets:
                 raise ValueError(
@@ -833,11 +834,7 @@ def _check_select_family_overlap(
                 fam = value["family"]
                 if isinstance(fam, str):
                     families.add(fam)
-            elif (
-                isinstance(value, dict)
-                and "family" in value
-                and ({"entry_y", "exit_y"} & set(value))
-            ):
+            elif isinstance(value, dict) and "family" in value and ({"entry_y", "exit_y"} & set(value)):
                 fam = value["family"]
                 if isinstance(fam, str):
                     families.add(fam)
@@ -1048,7 +1045,11 @@ def _iter_compiled_family_forms(
 
         for form_name in family_def.get("forms", {}):
             resolved = _resolve_family_record(
-                family_name, family_def, form_name, cache, [],
+                family_name,
+                family_def,
+                form_name,
+                cache,
+                [],
                 glyph_families=glyph_families,
             )
             traits = _normalize_source_traits(
@@ -1126,13 +1127,9 @@ def _normalize_anchors(raw: list[list[int]] | list[int] | None) -> list[list[int
     return [cast(list[int], raw)]
 
 
-
 def _is_contextual_variant(glyph_name: str) -> bool:
     parts = glyph_name.split(".")[1:]
-    return any(
-        part.startswith("entry-") or part.startswith("exit-") or part == "half"
-        for part in parts
-    )
+    return any(part.startswith("entry-") or part.startswith("exit-") or part == "half" for part in parts)
 
 
 def _glyph_name_modifiers(glyph_name: str) -> list[str]:
@@ -1245,15 +1242,11 @@ def _glyph_def_to_join_glyph(
     transform_kind: str | None = None,
 ) -> JoinGlyph:
     resolved_traits = frozenset(traits)
-    resolved_modifiers = tuple(modifiers) if modifiers is not None else tuple(
-        _glyph_name_modifiers(glyph_name)
+    resolved_modifiers = (
+        tuple(modifiers) if modifiers is not None else tuple(_glyph_name_modifiers(glyph_name))
     )
-    resolved_contextual = (
-        _is_contextual_variant(glyph_name) if contextual is None else bool(contextual)
-    )
-    resolved_is_noentry = (
-        ("noentry" in resolved_modifiers) if is_noentry is None else bool(is_noentry)
-    )
+    resolved_contextual = _is_contextual_variant(glyph_name) if contextual is None else bool(contextual)
+    resolved_is_noentry = ("noentry" in resolved_modifiers) if is_noentry is None else bool(is_noentry)
 
     return JoinGlyph(
         name=glyph_name,
@@ -1268,8 +1261,7 @@ def _glyph_def_to_join_glyph(
         ),
         entry=tuple((a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_entry"))),
         entry_curs_only=tuple(
-            (a[0], a[1])
-            for a in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
+            (a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_entry_curs_only"))
         ),
         exit=tuple((a[0], a[1]) for a in _normalize_anchors(glyph_def.get("cursive_exit"))),
         exit_ink_y=glyph_def.get("cursive_exit_ink_y"),
@@ -1306,9 +1298,7 @@ def _glyph_def_to_join_glyph(
         contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(list(resolved_modifiers)),
         contract_entry_after=glyph_def.get("contract_entry_after"),
         contract_exit_before=glyph_def.get("contract_exit_before"),
-        entry_explicitly_none=(
-            "cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None
-        ),
+        entry_explicitly_none=("cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None),
         strip_entry_before=bool(glyph_def.get("strip_entry_before")),
     )
 
@@ -1440,9 +1430,7 @@ def _make_sentinel_expander(
                     seen.add(value)
                     expanded.append(value)
                 continue
-            members = (
-                exit_classes if parsed.kind == "exit_y" else entry_classes
-            ).get(parsed.y, ())
+            members = (exit_classes if parsed.kind == "exit_y" else entry_classes).get(parsed.y, ())
             scoped_potentials = _potential_scoped_anchor_members(parsed)
             for member in sorted({*members, *scoped_potentials}):
                 if parsed.family_scope and not _member_matches_scope(
@@ -1649,9 +1637,7 @@ def _trim_bitmap_left_at(
         if all(value == 0 for value in row[:limit]):
             return bitmap
         new_row = tuple([0] * limit + list(row[limit:]))
-    return tuple(
-        new_row if i == row_idx else existing for i, existing in enumerate(bitmap)
-    )
+    return tuple(new_row if i == row_idx else existing for i, existing in enumerate(bitmap))
 
 
 _UNSET = object()
@@ -1769,9 +1755,7 @@ def derive_join_glyph(
     resolved_y_offset = source.y_offset if y_offset is _UNSET else y_offset
     resolved_advance_width = source.advance_width
     resolved_entry = source.entry if entry is _UNSET else entry
-    resolved_entry_curs_only = (
-        source.entry_curs_only if entry_curs_only is _UNSET else entry_curs_only
-    )
+    resolved_entry_curs_only = source.entry_curs_only if entry_curs_only is _UNSET else entry_curs_only
     resolved_exit = source.exit if exit is _UNSET else exit
     resolved_exit_ink_y = source.exit_ink_y if exit_ink_y is _UNSET else exit_ink_y
     if exit is not _UNSET and not resolved_exit:
@@ -1781,13 +1765,9 @@ def derive_join_glyph(
     resolved_not_after = source.not_after if not_after is _UNSET else not_after
     resolved_not_before = source.not_before if not_before is _UNSET else not_before
     resolved_reverse_upgrade_from = (
-        source.reverse_upgrade_from
-        if reverse_upgrade_from is _UNSET
-        else reverse_upgrade_from
+        source.reverse_upgrade_from if reverse_upgrade_from is _UNSET else reverse_upgrade_from
     )
-    resolved_preferred_over = (
-        source.preferred_over if preferred_over is _UNSET else preferred_over
-    )
+    resolved_preferred_over = source.preferred_over if preferred_over is _UNSET else preferred_over
     resolved_word_final = source.word_final if word_final is _UNSET else word_final
     resolved_extend_entry_after = (
         source.extend_entry_after if extend_entry_after is _UNSET else extend_entry_after
@@ -1796,13 +1776,9 @@ def derive_join_glyph(
         source.extend_exit_before if extend_exit_before is _UNSET else extend_exit_before
     )
     resolved_extend_exit_before_gated = (
-        source.extend_exit_before_gated
-        if extend_exit_before_gated is _UNSET
-        else extend_exit_before_gated
+        source.extend_exit_before_gated if extend_exit_before_gated is _UNSET else extend_exit_before_gated
     )
-    resolved_gated_before = (
-        source.gated_before if gated_before is _UNSET else gated_before
-    )
+    resolved_gated_before = source.gated_before if gated_before is _UNSET else gated_before
     resolved_contract_entry_after = (
         source.contract_entry_after if contract_entry_after is _UNSET else contract_entry_after
     )
@@ -1811,9 +1787,7 @@ def derive_join_glyph(
     )
     resolved_noentry_after = source.noentry_after if noentry_after is _UNSET else noentry_after
     resolved_extend_exit_no_entry = (
-        source.extend_exit_no_entry
-        if extend_exit_no_entry is _UNSET
-        else extend_exit_no_entry
+        source.extend_exit_no_entry if extend_exit_no_entry is _UNSET else extend_exit_no_entry
     )
     resolved_noentry_for = source.noentry_for if noentry_for is _UNSET else noentry_for
 
@@ -1827,9 +1801,7 @@ def derive_join_glyph(
         and resolved_not_after
     ):
         after_set = set(after)
-        filtered_not_after = tuple(
-            family for family in resolved_not_after if family not in after_set
-        )
+        filtered_not_after = tuple(family for family in resolved_not_after if family not in after_set)
         if filtered_not_after != resolved_not_after:
             resolved_not_after = filtered_not_after
     if (
@@ -1841,9 +1813,7 @@ def derive_join_glyph(
         and resolved_not_before
     ):
         before_set = set(before)
-        filtered_not_before = tuple(
-            family for family in resolved_not_before if family not in before_set
-        )
+        filtered_not_before = tuple(family for family in resolved_not_before if family not in before_set)
         if filtered_not_before != resolved_not_before:
             resolved_not_before = filtered_not_before
 
@@ -1874,12 +1844,8 @@ def derive_join_glyph(
         is_entry_variant=any(modifier.startswith("entry-") for modifier in resolved_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
-        extended_entry_suffix=_extended_entry_suffix_from_modifiers(
-            list(resolved_modifiers)
-        ),
-        extended_exit_suffix=_extended_exit_suffix_from_modifiers(
-            list(resolved_modifiers)
-        ),
+        extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
+        extended_exit_suffix=_extended_exit_suffix_from_modifiers(list(resolved_modifiers)),
         entry_restriction_y=_entry_restriction_y_from_modifiers(list(resolved_modifiers)),
         is_noentry=resolved_is_noentry,
         bitmap=resolved_bitmap,
@@ -1894,12 +1860,8 @@ def derive_join_glyph(
         noentry_for=resolved_noentry_for,
         generated_from=generated_from,
         transform_kind=transform_kind,
-        contracted_entry_suffix=_contracted_entry_suffix_from_modifiers(
-            list(resolved_modifiers)
-        ),
-        contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(
-            list(resolved_modifiers)
-        ),
+        contracted_entry_suffix=_contracted_entry_suffix_from_modifiers(list(resolved_modifiers)),
+        contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(list(resolved_modifiers)),
         contract_entry_after=resolved_contract_entry_after,
         contract_exit_before=resolved_contract_exit_before,
     )
@@ -1929,6 +1891,7 @@ def _record_transform(
             preserves_exit=preserves_exit,
         )
     )
+
 
 def generate_noentry_variants(
     join_glyphs: dict[str, JoinGlyph],
@@ -2006,15 +1969,9 @@ def _iter_related_extension_targets(
         other_base = other_join_glyph.base_name
         other_sequence = other_join_glyph.sequence
         is_variant = other_base == base_name and bool(other_join_glyph.modifiers)
-        is_ligature = (
-            bool(other_sequence) and other_sequence[ligature_position] == base_name
-        )
+        is_ligature = bool(other_sequence) and other_sequence[ligature_position] == base_name
         # A ligature that declares its own `noentry_after` is taking explicit responsibility for its exit-side behavior; the post-liga cleanup that routes `lig → lig.noentry` after specific predecessors is only emitted for the base ligature glyph, so propagating an extension/contraction here would generate a variant that bypasses that cleanup. Stick with the explicit YAML-declared rules in that case.
-        if (
-            is_ligature
-            and side == "exit"
-            and other_join_glyph.noentry_after
-        ):
+        if is_ligature and side == "exit" and other_join_glyph.noentry_after:
             continue
         if is_variant or is_ligature:
             targets.append((other_name, other_join_glyph, False))
@@ -2092,11 +2049,7 @@ def _selector_has_anchor_y(
     for candidate in join_glyphs.values():
         if candidate.base_name != family_name:
             continue
-        anchors = (
-            candidate.exit
-            if side == "exit"
-            else (*candidate.entry, *candidate.entry_curs_only)
-        )
+        anchors = candidate.exit if side == "exit" else (*candidate.entry, *candidate.entry_curs_only)
         if any(anchor[1] == y for anchor in anchors):
             return True
     return False
@@ -2110,9 +2063,7 @@ def _filter_context_by_anchor_y(
     side: str,
 ) -> tuple[str, ...]:
     return tuple(
-        selector
-        for selector in source_context
-        if _selector_has_anchor_y(join_glyphs, selector, y, side=side)
+        selector for selector in source_context if _selector_has_anchor_y(join_glyphs, selector, y, side=side)
     )
 
 
@@ -2318,11 +2269,7 @@ def _generate_extended_variants(
     variants: dict[str, JoinGlyph] = {}
     for name, join_glyph in sorted(join_glyphs.items()):
         spec: ExtensionSpec | None = getattr(join_glyph, field)
-        gated_entries = (
-            join_glyph.extend_exit_before_gated
-            if side == "exit" and spec is not None
-            else ()
-        )
+        gated_entries = join_glyph.extend_exit_before_gated if side == "exit" and spec is not None else ()
         context_glyphs = spec.targets if spec is not None else ()
         if not context_glyphs and not gated_entries:
             continue
@@ -2553,9 +2500,7 @@ def _add_entry_trimmed_variant(
         if variant_name in join_glyphs:
             continue
 
-        new_bitmap = _trim_bitmap_left_at(
-            receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, count
-        )
+        new_bitmap = _trim_bitmap_left_at(receiver_glyph.bitmap, entry_y, receiver_glyph.y_offset, count)
         if new_bitmap is receiver_glyph.bitmap:
             continue
         kwargs = {
@@ -2675,14 +2620,12 @@ def _generate_contracted_variants(
                     family_glyph = join_glyphs.get(receiver_family)
                     if family_glyph is None:
                         continue
-                    for receiver_name, receiver_glyph, _is_receiver_source in (
-                        _iter_related_extension_targets(
-                            join_glyphs,
-                            source_name=receiver_family,
-                            source_glyph=family_glyph,
-                            side="entry",
-                            kind="contracted",
-                        )
+                    for receiver_name, receiver_glyph, _is_receiver_source in _iter_related_extension_targets(
+                        join_glyphs,
+                        source_name=receiver_family,
+                        source_glyph=family_glyph,
+                        side="entry",
+                        kind="contracted",
                     ):
                         if receiver_glyph.extended_exit_suffix is not None:
                             continue
@@ -2779,9 +2722,7 @@ def expand_selectors_for_ligatures(
         canonical = join_glyphs.get(family)
         if canonical is None or canonical.name != canonical.base_name:
             return frozenset()
-        canonical_ys = frozenset(
-            anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only)
-        )
+        canonical_ys = frozenset(anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only))
         if canonical_ys:
             return canonical_ys
         # Some families (e.g., qsJai) carry no anchors on the canonical record itself and split entry coverage across forms. Fall back to the union of form-level anchors so the novelty filter still recognizes Ys that the family already reaches as a non-ligature.
@@ -2809,12 +2750,8 @@ def expand_selectors_for_ligatures(
     # Forward expansion entries: keyed by component name (base or variant), value is a list of (first_component_family, candidate_entry_ys, canonical_entry_ys) triples.
     #
     # candidate_entry_ys are the Ys reachable through the *ligature's* own variants — those are the Ys the source actually meets after `calt_liga` collapses the components. canonical_entry_ys are the Ys the first component's own variants already provide pre-liga (across the canonical record and any forms). The expansion only earns its keep when the ligature opens up a Y the first component's variants do not already cover; otherwise the lookup would just over-fire on adjacent first-components without unlocking any new join, crowding out broader fallback forms in the process.
-    forward_entries_by_component: dict[
-        str, list[tuple[str, frozenset[int], frozenset[int]]]
-    ] = {}
-    backward_entries_by_component: dict[
-        str, list[tuple[str, frozenset[int], frozenset[int]]]
-    ] = {}
+    forward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
+    backward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
 
     for record in ligature_records:
         sequence = tuple(record.sequence)
@@ -2843,12 +2780,9 @@ def expand_selectors_for_ligatures(
         for lig_variant_name in sorted(base_to_variants.get(record.base_name, {record.name})):
             lig_variant = join_glyphs[lig_variant_name]
             lig_variant_entry_ys = frozenset(
-                anchor[1]
-                for anchor in (*lig_variant.entry, *lig_variant.entry_curs_only)
+                anchor[1] for anchor in (*lig_variant.entry, *lig_variant.entry_curs_only)
             )
-            lig_variant_exit_ys = frozenset(
-                anchor[1] for anchor in lig_variant.exit
-            )
+            lig_variant_exit_ys = frozenset(anchor[1] for anchor in lig_variant.exit)
 
             # Register under every component-base name in the sequence so a selector that mentions any component matches the ligature post-liga. For example, a 3-component ligature qsA_qsB_qsC is exposed under qsA, qsB, and qsC equally — pre-liga, calt only ever sees qsA at the boundary, but post-liga the ligature glyph should satisfy any of the component selectors.
             forward_keys: set[str] = set(sequence)
@@ -2861,11 +2795,7 @@ def expand_selectors_for_ligatures(
                 if first_variant in join_glyphs:
                     forward_keys.add(first_variant)
 
-            exit_suffix = (
-                lig_variant.extended_exit_suffix
-                or lig_variant.contracted_exit_suffix
-                or ""
-            )
+            exit_suffix = lig_variant.extended_exit_suffix or lig_variant.contracted_exit_suffix or ""
             if exit_suffix:
                 last_variant = last + exit_suffix
                 if last_variant in join_glyphs:
@@ -2937,9 +2867,7 @@ def expand_selectors_for_ligatures(
                 families.add(selector.split(".", 1)[0])
         return families
 
-    def _endpoint_accepts_source_family(
-        endpoint_meta: JoinGlyph, source_family: str, side: str
-    ) -> bool:
+    def _endpoint_accepts_source_family(endpoint_meta: JoinGlyph, source_family: str, side: str) -> bool:
         # When the source's `before` adds a ligature endpoint, the source precedes the ligature. The ligature must accept the source as a left-side neighbor — i.e., source_family must be in the ligature's own `after` (positive selector) or the ligature must have no `after` constraint at all. Mirror for the `after` side.
         if side == "entry":
             if endpoint_meta.after:
@@ -2951,19 +2879,13 @@ def expand_selectors_for_ligatures(
                     return False
         return True
 
-    def _ligature_variant_matches_runtime(
-        endpoint_meta: JoinGlyph, source_family: str, side: str
-    ) -> bool:
+    def _ligature_variant_matches_runtime(endpoint_meta: JoinGlyph, source_family: str, side: str) -> bool:
         sequence = endpoint_meta.sequence
         if not sequence:
             return True
         if side == "exit":
             expected = _expected_runtime_exit_suffix(source_family, sequence[-1])
-            actual = (
-                endpoint_meta.contracted_exit_suffix
-                or endpoint_meta.extended_exit_suffix
-                or ""
-            )
+            actual = endpoint_meta.contracted_exit_suffix or endpoint_meta.extended_exit_suffix or ""
         else:
             expected = _expected_runtime_entry_suffix(source_family, sequence[0])
             actual = endpoint_meta.extended_entry_suffix or ""
@@ -3006,10 +2928,7 @@ def expand_selectors_for_ligatures(
                 if source_family is not None:
                     endpoint_meta = join_glyphs.get(endpoint)
                     if endpoint_meta is not None:
-                        if (
-                            side == "entry"
-                            and source_family in endpoint_meta.noentry_after
-                        ):
+                        if side == "entry" and source_family in endpoint_meta.noentry_after:
                             # The ligature drops its entry when this source family precedes it, so the source can never actually join forward into it. Adding it to the source's `before` would just confuse the join validator and emit dead post-liga rules.
                             continue
                         if endpoint_meta.sequence and not _ligature_variant_matches_runtime(
@@ -3017,9 +2936,7 @@ def expand_selectors_for_ligatures(
                         ):
                             # The trailing (or lead) component's base form mutates into a specific suffix variant when this source family follows (or precedes), so only the matching ligature variant can actually appear in the buffer at runtime. Skip ligature variants whose state can't be reached.
                             continue
-                        if not _endpoint_accepts_source_family(
-                            endpoint_meta, source_family, side
-                        ):
+                        if not _endpoint_accepts_source_family(endpoint_meta, source_family, side):
                             # Some ligatures carry their own `select.after` / `select.before` constraint that gates whether the ligature ever fires (e.g., `qsThey_qsUtter` only collapses when its `after` lists a context-set match). If the source's family isn't in that list, the ligature never appears in the buffer next to this source — adding it to the selector list would generate a one-sided join warning.
                             continue
                 additions.add(endpoint)
@@ -3074,13 +2991,9 @@ def expand_selectors_for_ligatures(
 
     updated: dict[str, JoinGlyph] = {}
     for name, record in join_glyphs.items():
-        source_exit_ys = (
-            frozenset(anchor[1] for anchor in record.exit) if record.exit else None
-        )
+        source_exit_ys = frozenset(anchor[1] for anchor in record.exit) if record.exit else None
         source_entry_ys = (
-            frozenset(
-                anchor[1] for anchor in (*record.entry, *record.entry_curs_only)
-            )
+            frozenset(anchor[1] for anchor in (*record.entry, *record.entry_curs_only))
             if record.entry or record.entry_curs_only
             else None
         )
@@ -3127,25 +3040,16 @@ def expand_join_transforms(
 ) -> tuple[dict[str, JoinGlyph], list[JoinTransform]]:
     expanded = dict(join_glyphs)
     transforms: list[JoinTransform] = []
-    expanded.update(
-        generate_noentry_variants(expanded, has_zwnj=has_zwnj, transforms=transforms)
-    )
+    expanded.update(generate_noentry_variants(expanded, has_zwnj=has_zwnj, transforms=transforms))
     for side in ("entry", "exit"):
-        expanded.update(
-            _generate_extended_variants(expanded, side=side, transforms=transforms)
-        )
+        expanded.update(_generate_extended_variants(expanded, side=side, transforms=transforms))
     for side in ("entry", "exit"):
-        expanded.update(
-            _generate_contracted_variants(expanded, side=side, transforms=transforms)
-        )
+        expanded.update(_generate_contracted_variants(expanded, side=side, transforms=transforms))
     return expanded, transforms
 
 
 def flatten_join_glyphs(join_glyphs: dict[str, JoinGlyph]) -> dict[str, GlyphDef]:
-    return {
-        glyph_name: _materialize_join_glyph(join_glyph)
-        for glyph_name, join_glyph in join_glyphs.items()
-    }
+    return {glyph_name: _materialize_join_glyph(join_glyph) for glyph_name, join_glyph in join_glyphs.items()}
 
 
 def compile_quikscript_ir(
@@ -3346,9 +3250,7 @@ def _inherit_ligature_entries_from_lead(
         if glyph.traits:
             continue
         lead = glyph.sequence[0]
-        inheritable = _find_lead_entry_source(
-            join_glyphs, lead, frozenset(glyph.after)
-        )
+        inheritable = _find_lead_entry_source(join_glyphs, lead, frozenset(glyph.after))
 
         if not glyph.entry:
             if glyph.entry_explicitly_none:
@@ -3421,9 +3323,9 @@ def has_entry_preserving_exit_noentry_sibling(
     cleanup routes here cleanly when a downstream ``noentry_after``
     ligature voids the right-hand join, so the calt_cycle guard that
     would otherwise block the upgrade is unnecessary."""
-    expected_modifiers = frozenset(
-        m for m in l_meta.modifiers if not m.startswith("exit-")
-    ) | {"exit-noentry"}
+    expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("exit-")) | {
+        "exit-noentry"
+    }
     for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
         sibling = join_glyphs.get(sibling_name)
         if sibling is None or sibling.is_noentry:
@@ -3472,9 +3374,7 @@ def _propagate_noentry_after_to_not_before(
         if not r_meta.noentry_after:
             continue
         r_family = r_meta.base_name
-        r_entry_ys = {
-            anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)
-        }
+        r_entry_ys = {anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)}
         if not r_entry_ys:
             continue
         for f_family in r_meta.noentry_after:
@@ -3491,9 +3391,7 @@ def _propagate_noentry_after_to_not_before(
                 exit_ys = {anchor[1] for anchor in l_meta.exit}
                 if not (exit_ys & r_entry_ys):
                     continue
-                if has_entry_preserving_exit_noentry_sibling(
-                    l_meta, base_to_variants, join_glyphs
-                ):
+                if has_entry_preserving_exit_noentry_sibling(l_meta, base_to_variants, join_glyphs):
                     continue
                 additions.setdefault(l_name, set()).add(r_family)
 
@@ -3504,9 +3402,7 @@ def _propagate_noentry_after_to_not_before(
     for l_name, families_to_add in additions.items():
         l_meta = updated[l_name]
         merged = tuple(sorted(set(l_meta.not_before) | families_to_add))
-        propagated = tuple(
-            sorted(set(l_meta.not_before_from_noentry_after) | families_to_add)
-        )
+        propagated = tuple(sorted(set(l_meta.not_before_from_noentry_after) | families_to_add))
         updated[l_name] = replace(
             l_meta,
             not_before=merged,

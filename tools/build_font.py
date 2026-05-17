@@ -79,13 +79,9 @@ def load_glyph_data(path: Path) -> GlyphData:
             if "kerning" in data:
                 kerning_defs.update(data["kerning"])
             if "restore_isolated_form_overrides" in data:
-                restore_isolated_form_overrides.extend(
-                    data["restore_isolated_form_overrides"] or []
-                )
+                restore_isolated_form_overrides.extend(data["restore_isolated_form_overrides"] or [])
             if "predecessor_demote_overrides" in data:
-                predecessor_demote_overrides.extend(
-                    data["predecessor_demote_overrides"] or []
-                )
+                predecessor_demote_overrides.extend(data["predecessor_demote_overrides"] or [])
         return {
             "metadata": metadata,
             "glyphs": glyphs,
@@ -104,12 +100,8 @@ def load_glyph_data(path: Path) -> GlyphData:
             "glyph_families": data.get("glyph_families", {}),
             "context_sets": data.get("context_sets", {}),
             "kerning": data.get("kerning", {}),
-            "restore_isolated_form_overrides": data.get(
-                "restore_isolated_form_overrides", []
-            ) or [],
-            "predecessor_demote_overrides": data.get(
-                "predecessor_demote_overrides", []
-            ) or [],
+            "restore_isolated_form_overrides": data.get("restore_isolated_form_overrides", []) or [],
+            "predecessor_demote_overrides": data.get("predecessor_demote_overrides", []) or [],
         }
 
 
@@ -153,10 +145,7 @@ def _report_gsub_budget(font_path: Path, fea_code: str | None) -> None:
 
         lookup_list_offset = _read_u16(data, 8)
         lookup_count = _read_u16(data, lookup_list_offset)
-        lookup_offsets = [
-            _read_u16(data, lookup_list_offset + 2 + 2 * i)
-            for i in range(lookup_count)
-        ]
+        lookup_offsets = [_read_u16(data, lookup_list_offset + 2 + 2 * i) for i in range(lookup_count)]
 
         max_lookup_offset = max(lookup_offsets, default=0)
         max_subtable_offset = 0
@@ -187,11 +176,7 @@ def _report_gsub_budget(font_path: Path, fea_code: str | None) -> None:
             "  GSUB offset headroom: "
             f"LookupList {65_535 - max_lookup_offset:,} bytes, "
             f"subtable {65_535 - max_subtable_offset:,} bytes"
-            + (
-                f" in lookup {max_subtable_lookup_index}"
-                if max_subtable_lookup_index is not None
-                else ""
-            )
+            + (f" in lookup {max_subtable_lookup_index}" if max_subtable_lookup_index is not None else "")
         )
 
         feature_records = font["GSUB"].table.FeatureList.FeatureRecord
@@ -207,19 +192,12 @@ def _report_gsub_budget(font_path: Path, fea_code: str | None) -> None:
         rows = []
         for position, lookup_index in enumerate(calt_indices):
             lookup = lookups[lookup_index]
-            lookup_name = (
-                calt_names[position]
-                if position < len(calt_names)
-                else f"lookup[{lookup_index}]"
-            )
+            lookup_name = calt_names[position] if position < len(calt_names) else f"lookup[{lookup_index}]"
             rows.append((len(lookup.SubTable), lookup_index, lookup_name))
 
         top_rows = sorted(rows, reverse=True)[:5]
         if top_rows:
-            top = ", ".join(
-                f"{name}={subtable_count}"
-                for subtable_count, _, name in top_rows
-            )
+            top = ", ".join(f"{name}={subtable_count}" for subtable_count, _, name in top_rows)
             print(f"  Largest calt lookups by subtable count: {top}")
     finally:
         font.close()
@@ -303,9 +281,9 @@ def generate_kern_fea(
         if "left_family" in definition:
             prefixes = [f"{b}." for b in definition["left_family"]]
             left_glyphs = [
-                g for g in all_glyph_names
-                if g in definition["left_family"]
-                or any(g.startswith(p) for p in prefixes)
+                g
+                for g in all_glyph_names
+                if g in definition["left_family"] or any(g.startswith(p) for p in prefixes)
             ]
         elif "left" in definition:
             left_glyphs = definition["left"]
@@ -350,9 +328,7 @@ def generate_ccmp_fea(glyphs_def: dict[str, GlyphDef]) -> str | None:
     top_marks = [
         glyph_name
         for glyph_name, glyph_def in glyphs_def.items()
-        if glyph_def is not None
-        and glyph_def.get("is_mark")
-        and glyph_def.get("y_offset", 0) >= 0
+        if glyph_def is not None and glyph_def.get("is_mark") and glyph_def.get("y_offset", 0) >= 0
     ]
     if not top_marks:
         return None
@@ -385,7 +361,7 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
     Returns the FEA string, or None if there are no marks.
     """
     # Collect mark glyphs, split into top vs bottom. Marks with base_x_adjust or base_y_adjust get their own mark class and lookup.
-    top_marks = {}       # glyph_name -> (anchor_x, anchor_y)
+    top_marks = {}  # glyph_name -> (anchor_x, anchor_y)
     bottom_marks = {}
     adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust, base_y_adjust)
     for glyph_name, glyph_def in glyphs_def.items():
@@ -414,7 +390,13 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
             # Top mark: anchor at the bottom of the drawn pixels
             anchor_y = y_offset * pixel_height
             if has_adjustments:
-                adjusted_marks[glyph_name] = (anchor_x, anchor_y, True, base_x_adjust or {}, base_y_adjust or {})
+                adjusted_marks[glyph_name] = (
+                    anchor_x,
+                    anchor_y,
+                    True,
+                    base_x_adjust or {},
+                    base_y_adjust or {},
+                )
             else:
                 top_marks[glyph_name] = (anchor_x, anchor_y)
         else:
@@ -422,7 +404,13 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
             bitmap_height = len(bitmap) if bitmap else 0
             anchor_y = (y_offset + bitmap_height) * pixel_height
             if has_adjustments:
-                adjusted_marks[glyph_name] = (anchor_x, anchor_y, False, base_x_adjust or {}, base_y_adjust or {})
+                adjusted_marks[glyph_name] = (
+                    anchor_x,
+                    anchor_y,
+                    False,
+                    base_x_adjust or {},
+                    base_y_adjust or {},
+                )
             else:
                 bottom_marks[glyph_name] = (anchor_x, anchor_y)
 
@@ -430,7 +418,7 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
         return None
 
     # Collect base glyphs with anchors
-    top_bases = {}    # glyph_name -> (anchor_x, anchor_y)
+    top_bases = {}  # glyph_name -> (anchor_x, anchor_y)
     bottom_bases = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None or glyph_def.get("is_mark"):
@@ -502,7 +490,9 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
             bx, by = bases[glyph_name]
             x_adj = base_x_adjust.get(glyph_name, 0) * pixel_width
             y_adj = base_y_adjust.get(glyph_name, 0) * pixel_height
-            lines.append(f"        pos base {glyph_name} <anchor {int(bx + x_adj)} {int(by + y_adj)}> mark @mark_{mark_name};")
+            lines.append(
+                f"        pos base {glyph_name} <anchor {int(bx + x_adj)} {int(by + y_adj)}> mark @mark_{mark_name};"
+            )
         lines.append(f"    }} mark_{mark_name};")
 
     lines.append("} mark;")
@@ -518,10 +508,7 @@ def parse_bitmap(bitmap: list[str] | list[list[int]]) -> list[list[int]]:
         return []
 
     if isinstance(bitmap[0], str):
-        return [
-            [1 if c == '#' or c == '1' else 0 for c in row]
-            for row in bitmap
-        ]
+        return [[1 if c == "#" or c == "1" else 0 for c in row] for row in bitmap]
     return cast(list[list[int]], bitmap)
 
 
@@ -657,9 +644,7 @@ def resolve_composite(
 
     base_glyph = glyphs_def.get(base_ref)
     if base_glyph is None:
-        raise ValueError(
-            f"Composite glyph '{glyph_name}' references base '{base_name}' which doesn't exist"
-        )
+        raise ValueError(f"Composite glyph '{glyph_name}' references base '{base_name}' which doesn't exist")
     base_bitmap = parse_bitmap(base_glyph.get("bitmap", []))
     base_y_offset = base_glyph.get("y_offset", 0)
 
@@ -696,15 +681,16 @@ def resolve_composite(
         accent_bitmap = parse_bitmap(accent_glyph.get("bitmap", []))
         mark_y = base_glyph.get(mark_key)
         if mark_y is None:
-            raise ValueError(
-                f"Composite glyph '{glyph_name}' needs {mark_key} on base '{base_ref}'"
-            )
+            raise ValueError(f"Composite glyph '{glyph_name}' needs {mark_key} on base '{base_ref}'")
         bitmap_id = id(accent_glyph.get("bitmap"))
         accent_x_adjust = accent_x_adjusts.get(bitmap_id, {}).get(base_name, 0)
         accent_y_adjust = accent_y_adjusts.get(bitmap_id, {}).get(base_name, 0)
         return compose_bitmaps(
-            result_bitmap, result_y_offset, accent_bitmap,
-            mark_y + accent_y_adjust, is_top=is_top,
+            result_bitmap,
+            result_y_offset,
+            accent_bitmap,
+            mark_y + accent_y_adjust,
+            is_top=is_top,
             accent_x_adjust=accent_x_adjust,
         )
 
@@ -767,7 +753,8 @@ def build_font(
 
     # Build glyph order (must include .notdef first). For mono font, exclude .prop glyphs entirely
     glyph_names = [
-        name for name in glyphs_def.keys()
+        name
+        for name in glyphs_def.keys()
         if name not in (".notdef", "space")
         and (is_proportional or (not is_proportional_glyph(name) and not _is_contextual_variant(name)))
         and (is_senior or not _is_contextual_variant(name))
@@ -790,7 +777,7 @@ def build_font(
         cp = name_to_codepoint.get(base)
         if cp is not None:
             return (cp, name)
-        return (float('inf'), name)
+        return (float("inf"), name)
 
     glyph_order = [".notdef", "space"] + sorted(glyph_names, key=_sort_key)
 
@@ -869,9 +856,7 @@ def build_font(
                 # Proportional glyphs: all rows must have consistent width
                 row_widths = [len(row) for row in bitmap]
                 if len(set(row_widths)) > 1:
-                    raise ValueError(
-                        f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}"
-                    )
+                    raise ValueError(f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}")
             else:
                 # Monospace glyphs: check width requirements
                 base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
@@ -888,9 +873,7 @@ def build_font(
                     # Non-Quikscript glyphs: all rows must have consistent width
                     row_widths = [len(row) for row in bitmap]
                     if len(set(row_widths)) > 1:
-                        raise ValueError(
-                            f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}"
-                        )
+                        raise ValueError(f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}")
 
         if not bitmap:
             # Empty glyph — use explicit advance_width if set, else mono_width
@@ -928,9 +911,7 @@ def build_font(
                         f"Glyph '{glyph_name}' has y_offset=-3 but bitmap has {row_count} rows, expected 9 or 12"
                     )
             elif row_count not in (6, 9):
-                raise ValueError(
-                    f"Glyph '{glyph_name}' has {row_count} rows, expected 6 or 9"
-                )
+                raise ValueError(f"Glyph '{glyph_name}' has {row_count} rows, expected 6 or 9")
         # Non-Quikscript glyphs: no height restrictions
 
         rectangles = bitmap_to_rectangles(bitmap, pixel_width, pixel_height, y_offset)
@@ -982,7 +963,7 @@ def build_font(
         psName=ps_name,
         fontInfo={"FamilyName": font_name, "FullName": f"{font_name} {style_name}"},
         charStringsDict=charstrings,
-        privateDict={}
+        privateDict={},
     )
 
     # Setup horizontal metrics
@@ -1043,7 +1024,9 @@ def build_font(
 
     # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
-    gasp.gaspRange = {0xFFFF: 0x0001}  # pyright: ignore[reportAttributeAccessIssue]  # Grid-fit only, no antialiasing
+    gasp.gaspRange = {
+        0xFFFF: 0x0001
+    }  # pyright: ignore[reportAttributeAccessIssue]  # Grid-fit only, no antialiasing
     fb.font["gasp"] = gasp
 
     # Add head table (required)
@@ -1062,9 +1045,9 @@ def build_font(
     kerning_defs = glyph_data.get("kerning", {})
     if is_proportional and kerning_defs:
         kerning_groups = collect_kerning_groups(glyphs_def)
-        fea_code_parts.append(generate_kern_fea(
-            kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width
-        ))
+        fea_code_parts.append(
+            generate_kern_fea(kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width)
+        )
 
     if is_proportional:
         ccmp_fea = generate_ccmp_fea(glyphs_def)
@@ -1076,9 +1059,7 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        raw_restore_isolated_form = glyph_data.get(
-            "restore_isolated_form_overrides", []
-        ) or []
+        raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
         restore_isolated_form_tuples = tuple(
             (
                 entry["prior"],

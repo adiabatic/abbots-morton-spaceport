@@ -141,15 +141,9 @@ def test_pair_with_forward_sub_routes_override_to_fwd_pair_overrides():
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
     assert reach.fwd_replacements == {"qsPea": {5: "qsPea"}}
-    assert reach.fwd_pair_overrides == {
-        "qsPea": (("qsPea.before-tea", ("qsTea",), ()),)
-    }
-    assert "qsPea.before-tea" not in {
-        name for ys in reach.fwd_replacements.values() for name in ys.values()
-    }
-    assert reach.base_to_variants == {
-        "qsPea": frozenset({"qsPea", "qsPea.before-tea"})
-    }
+    assert reach.fwd_pair_overrides == {"qsPea": (("qsPea.before-tea", ("qsTea",), ()),)}
+    assert "qsPea.before-tea" not in {name for ys in reach.fwd_replacements.values() for name in ys.values()}
+    assert reach.base_to_variants == {"qsPea": frozenset({"qsPea", "qsPea.before-tea"})}
     assert reach.gated_fwd_pair_overrides == {}
 
 
@@ -334,10 +328,7 @@ def test_default_exit_silences_one_sided_backward_selection():
         }
     )
 
-    assert not any(
-        "qsPea has no matching before-selector for qsTea" in warning
-        for warning in warnings
-    )
+    assert not any("qsPea has no matching before-selector for qsTea" in warning for warning in warnings)
 
 
 def test_default_exit_blocked_by_not_before_still_warns():
@@ -428,10 +419,7 @@ def test_generated_forward_variant_covers_backward_selection():
         }
     )
 
-    assert not any(
-        "qsPea has no matching before-selector for qsTea" in warning
-        for warning in warnings
-    )
+    assert not any("qsPea has no matching before-selector for qsTea" in warning for warning in warnings)
 
 
 def test_noentry_after_leak_warns_default_left_variant():
@@ -631,10 +619,7 @@ def test_warning_collector_reports_bitmap_gap_for_bilateral_selection():
 
     assert any(
         warning
-        == (
-            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
-            "leaves 3px blank between strokes"
-        )
+        == ("join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 " "leaves 3px blank between strokes")
         for warning in warnings
     )
 
@@ -731,7 +716,10 @@ def test_bitmap_gap_uses_exit_ink_y_hint():
         modifiers=("half",),
         exit=((4, 5),),
         exit_ink_y=6,
-        bitmap=("###", "   ",),
+        bitmap=(
+            "###",
+            "   ",
+        ),
         y_offset=5,
     )
     qs_roe_after_pea = _make_glyph(
@@ -816,8 +804,7 @@ def test_contract_exit_before_silences_bitmap_gap_warning():
     warnings = collect_join_warnings(glyphs)
 
     assert not any(
-        "qsPea.before-tea -> qsTea.after-pea" in warning
-        and warning.startswith("join-bitmap-gap")
+        "qsPea.before-tea -> qsTea.after-pea" in warning and warning.startswith("join-bitmap-gap")
         for warning in warnings
     )
 
@@ -833,10 +820,7 @@ def test_bitmap_gap_warning_still_fires_when_target_family_unrelated():
 
     assert any(
         warning
-        == (
-            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
-            "leaves 3px blank between strokes"
-        )
+        == ("join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 " "leaves 3px blank between strokes")
         for warning in warnings
     )
 
@@ -852,10 +836,7 @@ def test_extend_exit_before_does_not_silence_bitmap_gap_warning():
 
     assert any(
         warning
-        == (
-            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
-            "leaves 3px blank between strokes"
-        )
+        == ("join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 " "leaves 3px blank between strokes")
         for warning in warnings
     )
 
@@ -878,8 +859,7 @@ def test_contract_entry_after_silences_bitmap_gap_warning():
     warnings = collect_join_warnings(glyphs)
 
     assert not any(
-        "qsPea.before-tea -> qsTea.after-pea" in warning
-        and warning.startswith("join-bitmap-gap")
+        "qsPea.before-tea -> qsTea.after-pea" in warning and warning.startswith("join-bitmap-gap")
         for warning in warnings
     )
 
@@ -903,10 +883,7 @@ def test_extend_entry_after_does_not_silence_bitmap_gap_warning():
 
     assert any(
         warning
-        == (
-            "join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 "
-            "leaves 3px blank between strokes"
-        )
+        == ("join-bitmap-gap: qsPea.before-tea -> qsTea.after-pea at y=5 " "leaves 3px blank between strokes")
         for warning in warnings
     )
 
@@ -949,8 +926,7 @@ def test_default_default_pair_warns_on_bitmap_gap():
     )
 
     assert any(
-        warning
-        == "join-bitmap-gap: qsLeft -> qsRight at y=5 leaves 1px blank between strokes"
+        warning == "join-bitmap-gap: qsLeft -> qsRight at y=5 leaves 1px blank between strokes"
         for warning in warnings
     )
 
@@ -987,9 +963,9 @@ def test_residual_bitmap_gaps_are_real():
         )
         if gap is not None and gap <= 0:
             spurious.append((left_name, right_name, y))
-    assert not spurious, (
-        f"_RESIDUAL_BITMAP_GAPS entries no longer flag a gap and should be removed: {spurious}"
-    )
+    assert (
+        not spurious
+    ), f"_RESIDUAL_BITMAP_GAPS entries no longer flag a gap and should be removed: {spurious}"
 
 
 def test_forward_intent_with_no_matching_backward_entry_raises():
@@ -1689,10 +1665,7 @@ def test_derive_bk_guards_skips_when_replacement_keeps_entry():
 
     derived = _compute_derived_bk_guards(reach)
 
-    assert not any(
-        replacement == "qsTea.keepentry"
-        for (_, replacement, _) in derived
-    )
+    assert not any(replacement == "qsTea.keepentry" for (_, replacement, _) in derived)
 
 
 def test_derive_bk_guards_propagates_before_bases_for_conditional_left():
@@ -1738,11 +1711,7 @@ def test_derive_bk_guards_propagates_before_bases_for_conditional_left():
 
     key = ("qsTea", "qsTea.exit-baseline", 0)
     assert key in derived
-    excite_guards = [
-        g
-        for g in derived[key]
-        if g.guard_glyphs == ("qsExcite.exit-baseline.before-vertical",)
-    ]
+    excite_guards = [g for g in derived[key] if g.guard_glyphs == ("qsExcite.exit-baseline.before-vertical",)]
     assert excite_guards == [
         DerivedBkGuard(
             guard_glyphs=("qsExcite.exit-baseline.before-vertical",),
@@ -1870,9 +1839,7 @@ def test_structural_bk_guards_cover_coverable_residual():
 
     coverable = _structurally_coverable(_RESIDUAL_BK_GUARDS, glyph_meta)
     missing = _flatten_guards(coverable) - _flatten_guards(structural)
-    assert not missing, (
-        f"Structurally-coverable residual guards missing from derivation: {sorted(missing)}"
-    )
+    assert not missing, f"Structurally-coverable residual guards missing from derivation: {sorted(missing)}"
 
 
 def test_structural_liga_guards_cover_coverable_residual():
@@ -1883,9 +1850,9 @@ def test_structural_liga_guards_cover_coverable_residual():
 
     coverable = _structurally_coverable(_RESIDUAL_LIGA_GUARDS, glyph_meta)
     missing = _flatten_guards(coverable) - _flatten_guards(structural)
-    assert not missing, (
-        f"Structurally-coverable residual liga guards missing from derivation: {sorted(missing)}"
-    )
+    assert (
+        not missing
+    ), f"Structurally-coverable residual liga guards missing from derivation: {sorted(missing)}"
 
 
 def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():

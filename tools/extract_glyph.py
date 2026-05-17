@@ -224,9 +224,7 @@ def compare_glyphs(glyph_name: str, font1_path: str, font2_path: str) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Extract glyph bitmaps from OTF fonts"
-    )
+    parser = argparse.ArgumentParser(description="Extract glyph bitmaps from OTF fonts")
     parser.add_argument(
         "--compare",
         metavar="GLYPH",

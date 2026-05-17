@@ -394,8 +394,7 @@ def test_contract_exit_before_emits_paired_trimmed_receiver():
         "entry-trimmed-by-2",
     } <= trimmed.compat_assertions
     assert any(
-        t.kind == "entry-trimmed" and t.target_name == "qsFollow.entry-trimmed-by-2"
-        for t in transforms
+        t.kind == "entry-trimmed" and t.target_name == "qsFollow.entry-trimmed-by-2" for t in transforms
     )
 
 
@@ -843,11 +842,13 @@ def test_coalesce_consecutive_ignore_rules_keeps_unparsed_lines_as_barriers():
 
 
 def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
-    assert _format_post_liga_cleanup_rules([
-        ("qsLigOne", "qsRight.entry-xheight", "qsRight"),
-        ("qsLigTwo", "qsRight.entry-xheight", "qsRight"),
-        ("qsLigTwo", "qsOther.entry-baseline", "qsOther"),
-    ]) == [
+    assert _format_post_liga_cleanup_rules(
+        [
+            ("qsLigOne", "qsRight.entry-xheight", "qsRight"),
+            ("qsLigTwo", "qsRight.entry-xheight", "qsRight"),
+            ("qsLigTwo", "qsOther.entry-baseline", "qsOther"),
+        ]
+    ) == [
         "        sub [qsLigOne qsLigTwo] qsRight.entry-xheight' by qsRight;",
         "        sub qsLigTwo qsOther.entry-baseline' by qsOther;",
     ]
@@ -865,16 +866,14 @@ def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_clas
     block = fea[start:end]
 
     sub_line = next(
-        line for line in block.splitlines()
+        line
+        for line in block.splitlines()
         if line.strip().startswith("sub [") and line.rstrip().endswith("by qsThaw.after-tall;")
     )
     after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
     after_glyphs = after_class.split()
 
-    qsing_variants = {
-        glyph for glyph in join_glyphs
-        if glyph == "qsIng" or glyph.startswith("qsIng.")
-    }
+    qsing_variants = {glyph for glyph in join_glyphs if glyph == "qsIng" or glyph.startswith("qsIng.")}
     assert qsing_variants  # sanity check the family exists
     assert not (set(after_glyphs) & qsing_variants), (
         f"calt_pair_qsThaw_after-tall must not fire after qsIng variants; "
@@ -894,9 +893,9 @@ def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_cl
     block = fea[start:end]
 
     sub_line = next(
-        line for line in block.splitlines()
-        if line.strip().startswith("sub [")
-        and line.rstrip().endswith("by qsPea.entry-xheight;")
+        line
+        for line in block.splitlines()
+        if line.strip().startswith("sub [") and line.rstrip().endswith("by qsPea.entry-xheight;")
     )
     after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
     after_glyphs = set(after_class.split())
@@ -962,8 +961,7 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
             assert "qsCheer" not in line
 
     assert (
-        "sub qsIt' [qsCheer qsCheer.entry-extended qsCheer.noentry]"
-        " by qsIt.exit-xheight.exit-extended;"
+        "sub qsIt' [qsCheer qsCheer.entry-extended qsCheer.noentry]" " by qsIt.exit-xheight.exit-extended;"
     ) in fea
 
 
@@ -1186,9 +1184,7 @@ def test_expand_selectors_adds_first_component_to_forward_selector():
         "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1201,9 +1197,7 @@ def test_expand_selectors_does_not_add_first_component_when_only_first_named():
         "qsLeft": _make_join_glyph("qsLeft", before=("qsA",), exit=((1, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1216,9 +1210,7 @@ def test_expand_selectors_skips_when_source_has_no_exit_anchor():
         "qsLeft": _make_join_glyph("qsLeft", before=("qsB",)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1231,9 +1223,7 @@ def test_expand_selectors_skips_endpoint_when_ligature_lacks_matching_entry():
         "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 5),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1246,9 +1236,7 @@ def test_expand_selectors_adds_last_component_to_backward_selector():
         "qsRight": _make_join_glyph("qsRight", after=("qsA",), entry=((0, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1261,9 +1249,7 @@ def test_expand_selectors_does_not_add_last_when_only_last_named():
         "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1276,9 +1262,7 @@ def test_expand_selectors_skips_when_source_has_no_entry_anchor():
         "qsRight": _make_join_glyph("qsRight", after=("qsA",)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1292,9 +1276,7 @@ def test_expand_selectors_recognizes_family_variants_in_selector_lists():
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
         "qsB.alt": _make_join_glyph("qsB.alt", base_name="qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1305,18 +1287,10 @@ def test_expand_selectors_recognizes_family_variants_in_selector_lists():
 
 def test_expand_selectors_handles_multi_component_ligatures():
     metadata = {
-        "qsLeftBeforeMid": _make_join_glyph(
-            "qsLeftBeforeMid", before=("qsB",), exit=((1, 0),)
-        ),
-        "qsLeftBeforeLast": _make_join_glyph(
-            "qsLeftBeforeLast", before=("qsC",), exit=((1, 0),)
-        ),
-        "qsRightAfterMid": _make_join_glyph(
-            "qsRightAfterMid", after=("qsB",), entry=((0, 0),)
-        ),
-        "qsRightAfterFirst": _make_join_glyph(
-            "qsRightAfterFirst", after=("qsA",), entry=((0, 0),)
-        ),
+        "qsLeftBeforeMid": _make_join_glyph("qsLeftBeforeMid", before=("qsB",), exit=((1, 0),)),
+        "qsLeftBeforeLast": _make_join_glyph("qsLeftBeforeLast", before=("qsC",), exit=((1, 0),)),
+        "qsRightAfterMid": _make_join_glyph("qsRightAfterMid", after=("qsB",), entry=((0, 0),)),
+        "qsRightAfterFirst": _make_join_glyph("qsRightAfterFirst", after=("qsA",), entry=((0, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
         "qsC": _make_join_glyph("qsC"),
@@ -1338,9 +1312,7 @@ def test_expand_selectors_handles_multi_component_ligatures():
 
 def test_expand_selectors_leaves_negative_selectors_untouched():
     metadata = {
-        "qsLeft": _make_join_glyph(
-            "qsLeft", not_before=("qsB",), not_after=("qsA",)
-        ),
+        "qsLeft": _make_join_glyph("qsLeft", not_before=("qsB",), not_after=("qsA",)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
         "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB")),
@@ -1361,9 +1333,7 @@ def test_expand_selectors_preserves_gated_before_keys_and_expands_per_tag():
         ),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1376,19 +1346,13 @@ def test_expand_selectors_is_idempotent():
         "qsLeft": _make_join_glyph("qsLeft", before=("qsB",), exit=((1, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     once = expand_selectors_for_ligatures(metadata)
     twice = expand_selectors_for_ligatures(once)
 
-    assert (
-        twice["qsLeft"].before
-        == once["qsLeft"].before
-        == ("qsB", "qsA", "qsA_qsB")
-    )
+    assert twice["qsLeft"].before == once["qsLeft"].before == ("qsB", "qsA", "qsA_qsB")
 
 
 def test_expand_selectors_skips_noentry_and_extended_ligature_records():
@@ -1422,9 +1386,7 @@ def test_expand_selectors_adds_ligature_glyph_to_trailing_after_for_post_liga_ma
         "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1437,9 +1399,7 @@ def test_expand_selectors_adds_ligature_glyph_to_leading_before_for_post_liga_ma
         "qsLeft": _make_join_glyph("qsLeft", before=("qsA",), exit=((1, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), entry=((0, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1452,9 +1412,7 @@ def test_expand_selectors_adds_ligature_variants_to_trailing_after():
         "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 0),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
         "qsA_qsB.exit-extended": _make_join_glyph(
             "qsA_qsB.exit-extended",
             base_name="qsA_qsB",
@@ -1474,9 +1432,7 @@ def test_expand_selectors_skips_ligature_glyph_when_anchor_y_does_not_match():
         "qsRight": _make_join_glyph("qsRight", after=("qsB",), entry=((0, 5),)),
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
-        "qsA_qsB": _make_join_glyph(
-            "qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)
-        ),
+        "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
     }
 
     expanded = expand_selectors_for_ligatures(metadata)
@@ -1571,9 +1527,7 @@ def test_family_level_derive_merges_into_each_form():
 def test_form_level_derive_overrides_family_level():
     family_def = _family_level_derive_fixture()
 
-    overridden = _resolve_family_record(
-        "qsTest", family_def, "overrides_family_derive", {}, []
-    )
+    overridden = _resolve_family_record("qsTest", family_def, "overrides_family_derive", {}, [])
 
     assert overridden["derive"]["extend_exit_before"] == {
         "by": 2,
@@ -1584,9 +1538,7 @@ def test_form_level_derive_overrides_family_level():
 def test_form_level_null_clears_family_level_derive():
     family_def = _family_level_derive_fixture()
 
-    cleared = _resolve_family_record(
-        "qsTest", family_def, "opts_out_of_family_derive", {}, []
-    )
+    cleared = _resolve_family_record("qsTest", family_def, "opts_out_of_family_derive", {}, [])
 
     assert "extend_exit_before" not in cleared.get("derive", {})
 
@@ -1673,11 +1625,19 @@ def test_family_level_derive_filters_unreachable_targets_per_form():
     source_def = glyph_families["qsSource"]
 
     exits_baseline = _resolve_family_record(
-        "qsSource", source_def, "exits_baseline", {}, [],
+        "qsSource",
+        source_def,
+        "exits_baseline",
+        {},
+        [],
         glyph_families=glyph_families,
     )
     exits_xheight = _resolve_family_record(
-        "qsSource", source_def, "exits_xheight", {}, [],
+        "qsSource",
+        source_def,
+        "exits_xheight",
+        {},
+        [],
         glyph_families=glyph_families,
     )
 
@@ -1718,7 +1678,11 @@ def test_family_level_derive_drops_directive_when_no_targets_reachable():
     source_def = glyph_families["qsSource"]
 
     resolved = _resolve_family_record(
-        "qsSource", source_def, "exits_baseline", {}, [],
+        "qsSource",
+        source_def,
+        "exits_baseline",
+        {},
+        [],
         glyph_families=glyph_families,
     )
 
@@ -1814,9 +1778,7 @@ def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_fami
                     "anchors": {"exit": [5, 0]},
                     "select": {
                         "before": [{"family": "qsRight"}],
-                        "not_before": [
-                            {"entry_y": 0, "except": [{"family": "qsRight"}]}
-                        ],
+                        "not_before": [{"entry_y": 0, "except": [{"family": "qsRight"}]}],
                     },
                     "modifiers": ["exit-baseline"],
                 },
@@ -2184,9 +2146,7 @@ def test_family_scoped_anchor_selector_rejects_both_anchor_sides():
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
-                    "select": {
-                        "after": [{"family": "qsLeft", "exit_y": 5, "entry_y": 5}]
-                    },
+                    "select": {"after": [{"family": "qsLeft", "exit_y": 5, "entry_y": 5}]},
                     "modifiers": ["entry-xheight"],
                 },
             },
@@ -2289,9 +2249,7 @@ def _scoped_selector_suggester_fixture(
 
 
 def test_scoped_anchor_suggester_reports_overbroad_family_selector():
-    suggestions = suggest_scoped_anchor_selectors(
-        _scoped_selector_suggester_fixture({"family": "qsLeft"})
-    )
+    suggestions = suggest_scoped_anchor_selectors(_scoped_selector_suggester_fixture({"family": "qsLeft"}))
 
     assert len(suggestions) == 1
     suggestion = suggestions[0]

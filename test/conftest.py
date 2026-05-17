@@ -62,7 +62,10 @@ def shaping_env() -> dict[str, Any]:
 
 
 def pytest_collect_file(parent: pytest.Collector, file_path: Path) -> "ShapingFile | None":
-    if file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html") and file_path.suffix == ".html":
+    if (
+        file_path.name in ("index.html", "the-manual.html", "extra-senior-words.html")
+        and file_path.suffix == ".html"
+    ):
         return ShapingFile.from_parent(parent, path=file_path)
     return None
 
@@ -89,17 +92,27 @@ class ShapingFile(pytest.File):
             else:
                 seen_ids[slug] = 0
             yield ShapingItem.from_parent(
-                self, name=slug, text=text, expect_str=expect,
-                html_line=line, stylistic_set=stylistic_set,
+                self,
+                name=slug,
+                text=text,
+                expect_str=expect,
+                html_line=line,
+                stylistic_set=stylistic_set,
                 runs=runs,
             )
 
 
 class ShapingItem(pytest.Item):
-    def __init__(self, name: str, parent: pytest.Item, text: str,
-                 expect_str: str, html_line: int,
-                 stylistic_set: str | None = None,
-                 runs: list[Run] | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        parent: pytest.Item,
+        text: str,
+        expect_str: str,
+        html_line: int,
+        stylistic_set: str | None = None,
+        runs: list[Run] | None = None,
+    ) -> None:
         super().__init__(name, parent)
         self.text = text
         self.expect_str = expect_str
@@ -115,8 +128,7 @@ class ShapingItem(pytest.Item):
 
         features = None
         if self.stylistic_set:
-            features = {f"ss{ss.zfill(2)}": True
-                        for ss in self.stylistic_set.split()}
+            features = {f"ss{ss.zfill(2)}": True for ss in self.stylistic_set.split()}
 
         run_shaping_test_runs(
             _shaping_cache["fonts"],
@@ -130,6 +142,5 @@ class ShapingItem(pytest.Item):
     def reportinfo(self) -> tuple[Path, int, str]:
         return self.path, self.html_line - 1, self.name
 
-    def repr_failure(self, excinfo: pytest.ExceptionInfo[BaseException],
-                     style: str | None = None) -> str:
+    def repr_failure(self, excinfo: pytest.ExceptionInfo[BaseException], style: str | None = None) -> str:
         return str(excinfo.value)

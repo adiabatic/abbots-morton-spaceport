@@ -47,9 +47,7 @@ def _append_nonjoining_pair_failures(
             continue
         common = _pair_join_ys(glyphs, index)
         if common:
-            failures.append(
-                f"{label}: {left_base} joins {right_base} at Y={sorted(common)} in {glyphs}"
-            )
+            failures.append(f"{label}: {left_base} joins {right_base} at Y={sorted(common)} in {glyphs}")
 
 
 def _collect_nonjoining_pair_context_failures(
@@ -107,9 +105,7 @@ def _collect_surrounded_nonjoining_pair_failures(
                 if left_meta.base_name != left_base or right_meta.base_name != right_base:
                     continue
                 if require_full_left and "half" in left_meta.traits:
-                    failures.append(
-                        f"{label}: half-{left_label} selected before {right_label}: {glyphs}"
-                    )
+                    failures.append(f"{label}: half-{left_label} selected before {right_label}: {glyphs}")
                 if require_isolated_left and glyph_name != isolated_left_glyph:
                     failures.append(
                         f"{label}: expected isolated {left_label} glyph "
@@ -203,12 +199,8 @@ def _collect_nonjoining_left_ligature_failures(
             right_meta = meta_map.get(glyphs[index + 1])
             if left_meta is None or right_meta is None:
                 continue
-            left_is_target = (
-                left_meta.base_name == left_base
-                or (
-                    left_meta.sequence
-                    and left_meta.sequence[-1] == left_base
-                )
+            left_is_target = left_meta.base_name == left_base or (
+                left_meta.sequence and left_meta.sequence[-1] == left_base
             )
             if not left_is_target or right_meta.base_name != ligature_base:
                 continue
@@ -216,14 +208,11 @@ def _collect_nonjoining_left_ligature_failures(
             common = _pair_join_ys(glyphs, index)
             if common:
                 failures.append(
-                    f"{label}: {glyph_name} joins {glyphs[index + 1]} "
-                    f"at Y={sorted(common)} in {glyphs}"
+                    f"{label}: {glyph_name} joins {glyphs[index + 1]} " f"at Y={sorted(common)} in {glyphs}"
                 )
 
         if not saw_pair and outer_left_name is None and outer_right_name is None:
-            failures.append(
-                f"{label}: expected {left_base} immediately before {ligature_base}, got {glyphs}"
-            )
+            failures.append(f"{label}: expected {left_base} immediately before {ligature_base}, got {glyphs}")
 
     return failures
 
@@ -348,9 +337,7 @@ def _append_terminal_owe_failures(failures: list[str], label: str, text: str) ->
                 f"(prev exits={sorted(_exit_ys(prev_name))}, entry={sorted(entry_ys)}) in {glyphs}"
             )
     if exit_ys:
-        failures.append(
-            f"{label}: {glyph_name} has right-exit Ys {sorted(exit_ys)} at end in {glyphs}"
-        )
+        failures.append(f"{label}: {glyph_name} has right-exit Ys {sorted(exit_ys)} at end in {glyphs}")
 
 
 def _owe_terminal_invariant_failures() -> list[str]:
@@ -383,7 +370,8 @@ def _middle_pea_xheight_left_gate_failures() -> list[str]:
             glyphs = _shape(left_char + pea + right_char)
             pea_index = next(
                 (
-                    index for index, glyph_name in enumerate(glyphs)
+                    index
+                    for index, glyph_name in enumerate(glyphs)
                     if meta_map.get(glyph_name) and meta_map[glyph_name].base_name == "qsPea"
                 ),
                 None,
@@ -527,7 +515,9 @@ def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
         pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee.entry-xheight"], id="qsNo"),
         pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee.entry-xheight"], id="qsLow"),
         pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee.entry-xheight"], id="qsAh"),
-        pytest.param(_qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"),
+        pytest.param(
+            _qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"
+        ),
     ],
 )
 def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
@@ -607,17 +597,14 @@ def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
     # Same bug, ss03 path: extend_exit_before_gated.ss03 wires qsTea into the same forward-pair lookup that promotes qsOwe to shape_3.
     glyphs = _shape_qs("qsOwe", "qsTea", features=_SS03_FEATURE)
     assert _entry_ys(glyphs[0]) == set(), (
-        f"word-initial qsOwe must not gain an entry anchor under ss03; "
-        f"got glyphs={glyphs}"
+        f"word-initial qsOwe must not gain an entry anchor under ss03; " f"got glyphs={glyphs}"
     )
 
 
 def test_qs_way_does_not_join_qs_tea_under_ss03():
     # ·Way·Tea must stay separate even with ss03 on. qsWay was previously in qsTea.half_entry_xheight_ss03's after-list and qsWay carried a gated exit-extension toward qsTea; both were dropped so the pair no longer connects.
     glyphs = _shape_qs("qsWay", "qsTea", features=_SS03_FEATURE)
-    assert _pair_join_ys(glyphs, 0) == set(), (
-        f"·Way·Tea must not connect under ss03; got {glyphs}"
-    )
+    assert _pair_join_ys(glyphs, 0) == set(), f"·Way·Tea must not connect under ss03; got {glyphs}"
 
 
 def test_qs_fee_may_uses_extension_pair():
@@ -649,12 +636,10 @@ def test_qs_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
     # The pair-extension path (·Fee.exit-xheight.before-may + ·May.entry-xheight) must keep working under every stylistic set, just like the old ligature did.
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay", features=feature_items)
     assert len(glyphs) == 3, (
-        f"·Owe·Fee·May should not ligate under features={feature_label}; "
-        f"got {glyphs}"
+        f"·Owe·Fee·May should not ligate under features={feature_label}; " f"got {glyphs}"
     )
     assert _pair_join_ys(glyphs, 0) == {5}, (
-        f"·Owe must reach into ·Fee at the x-height under features={feature_label}; "
-        f"got {glyphs}"
+        f"·Owe must reach into ·Fee at the x-height under features={feature_label}; " f"got {glyphs}"
     )
     assert _pair_join_ys(glyphs, 1) == set(), (
         f"·Fee.entry-xheight has no exit; ·Fee→·May must not join under "
@@ -690,11 +675,7 @@ def _no_orphan_exit_into_ligature_failures(
 
         for left_name, left_char in _plain_quikscript_letters():
             text = left_char + mid_char + right_char
-            glyphs = (
-                _shape_with_features(text, feature_items)
-                if feature_items
-                else _shape(text)
-            )
+            glyphs = _shape_with_features(text, feature_items) if feature_items else _shape(text)
             for index, glyph in enumerate(glyphs[:-1]):
                 next_glyph = glyphs[index + 1]
                 next_meta = meta_map.get(next_glyph)
@@ -754,11 +735,7 @@ def _word_initial_promoted_entry_failures(
             if left_name == right_name:
                 continue
             text = left_char + right_char
-            glyphs = (
-                _shape_with_features(text, feature_items)
-                if feature_items
-                else _shape(text)
-            )
+            glyphs = _shape_with_features(text, feature_items) if feature_items else _shape(text)
             if not glyphs:
                 continue
             head = glyphs[0]
@@ -776,10 +753,7 @@ def _word_initial_promoted_entry_failures(
                 and not sibling_meta.entry_curs_only
                 and sibling_meta.noentry_for is None
                 for sibling_name, sibling_meta in meta_map.items()
-                if (
-                    sibling_meta.base_name == head_meta.base_name
-                    and sibling_name != head
-                )
+                if (sibling_meta.base_name == head_meta.base_name and sibling_name != head)
             )
             if has_natural_no_entry_match:
                 # The entry anchor is purely positional: a natural sibling has the same bitmap with no entry, so picking the variant with the entry anchor doesn't add any visible left tail.
@@ -988,11 +962,7 @@ def _it_day_xheight_join_failures() -> list[str]:
     )
 
     for left_name, right_name in contexts:
-        parts = (
-            ([left_name] if left_name else [])
-            + ["qsIt", "qsDay"]
-            + ([right_name] if right_name else [])
-        )
+        parts = ([left_name] if left_name else []) + ["qsIt", "qsDay"] + ([right_name] if right_name else [])
         glyphs = _shape_qs(*parts)
         label = " / ".join(parts)
 
@@ -1001,12 +971,8 @@ def _it_day_xheight_join_failures() -> list[str]:
             right_meta = meta_map.get(glyphs[index + 1])
             if left_meta is None or right_meta is None:
                 continue
-            right_starts_with_day = (
-                right_meta.base_name == "qsDay"
-                or (
-                    right_meta.sequence is not None
-                    and right_meta.sequence[:1] == ("qsDay",)
-                )
+            right_starts_with_day = right_meta.base_name == "qsDay" or (
+                right_meta.sequence is not None and right_meta.sequence[:1] == ("qsDay",)
             )
             if left_meta.base_name != "qsIt" or not right_starts_with_day:
                 continue
@@ -1014,8 +980,7 @@ def _it_day_xheight_join_failures() -> list[str]:
             common = _pair_join_ys(glyphs, index)
             if 5 in common:
                 failures.append(
-                    f"{label}: ·It·Day joins at the x-height in {glyphs} "
-                    f"with join Ys {sorted(common)}"
+                    f"{label}: ·It·Day joins at the x-height in {glyphs} " f"with join Ys {sorted(common)}"
                 )
 
     return failures
@@ -1117,16 +1082,22 @@ def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
 
 def test_qs_may_thaw_joins_at_baseline_when_alone():
     # Sanity check: the orphan-exit guard must not fire when qsThaw keeps its entry.
-    _assert_expect_any(_qs_text("qsMay", "qsThaw"), [
-        "·May.exit-baseline ~b~ ·Thaw",
-    ])
+    _assert_expect_any(
+        _qs_text("qsMay", "qsThaw"),
+        [
+            "·May.exit-baseline ~b~ ·Thaw",
+        ],
+    )
 
 
 def test_may_thaw_ing_is_sensible():
-    _assert_expect_any(_qs_text("qsMay", "qsThaw", "qsIng"), [
-        "·May.!exit-baseline  |  ·Thaw ~b~ ·-ing",
-        "·May                ~b~ ·Thaw  |  ·-ing",
-        ])
+    _assert_expect_any(
+        _qs_text("qsMay", "qsThaw", "qsIng"),
+        [
+            "·May.!exit-baseline  |  ·Thaw ~b~ ·-ing",
+            "·May                ~b~ ·Thaw  |  ·-ing",
+        ],
+    )
 
 
 def _qs_may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
@@ -1153,9 +1124,7 @@ def _qs_may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
             continue
         if "exit-baseline" not in left_meta.modifiers:
             continue
-        right_entries = set(right_meta.entry_ys) | {
-            anchor[1] for anchor in right_meta.entry_curs_only
-        }
+        right_entries = set(right_meta.entry_ys) | {anchor[1] for anchor in right_meta.entry_curs_only}
         if 0 not in right_entries:
             failures.append(
                 f"{label}: qsMay picked exit-baseline ({glyph}) but adjacent "
@@ -1177,9 +1146,7 @@ def _qs_no_thaw_alt_failures(glyphs: list[str], label: str) -> list[str]:
             continue
         if "alt" not in left_meta.traits:
             continue
-        right_entries = set(right_meta.entry_ys) | {
-            anchor[1] for anchor in right_meta.entry_curs_only
-        }
+        right_entries = set(right_meta.entry_ys) | {anchor[1] for anchor in right_meta.entry_curs_only}
         if 0 not in right_entries:
             failures.append(
                 f"{label}: qsNo picked alt ({glyph}) but adjacent "
@@ -1292,9 +1259,7 @@ def test_qs_excite_tea_connect_at_baseline():
         ),
     ],
 )
-def test_qs_excite_reaches_left_only_before_xheight_entry_letters(
-    text: str, expects: list[str]
-):
+def test_qs_excite_reaches_left_only_before_xheight_entry_letters(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
@@ -1313,9 +1278,7 @@ def test_qs_excite_reaches_left_only_before_xheight_entry_letters(
         ),
     ],
 )
-def test_qs_excite_reaches_both_sides_when_neighbors_offer_baseline(
-    text: str, expects: list[str]
-):
+def test_qs_excite_reaches_both_sides_when_neighbors_offer_baseline(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
@@ -1466,12 +1429,24 @@ def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param(_qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Ah.∅"], id="before-ah"),
-        pytest.param(_qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Out.∅"], id="before-out"),
-        pytest.param(_qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·May.∅"], id="before-may"),
-        pytest.param(_qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·-ing.∅"], id="before-ing"),
-        pytest.param(_qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Vie.∅"], id="before-vie"),
-        pytest.param(_qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Day.∅"], id="before-day"),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Ah.∅"], id="before-ah"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Out.∅"], id="before-out"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·May.∅"], id="before-may"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·-ing.∅"], id="before-ing"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Vie.∅"], id="before-vie"
+        ),
+        pytest.param(
+            _qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Day.∅"], id="before-day"
+        ),
     ],
 )
 def test_qs_et_tea_keeps_only_the_left_baseline_join_in_plain_right_contexts(text: str, expects: list[str]):
@@ -1659,9 +1634,7 @@ def _et_tea_keeps_the_left_join_and_blocks_right_join_failures() -> list[str]:
         glyphs = _shape(chars["qsEt"] + chars["qsTea"] + right_char)
         if right_name == "qsOy":
             if glyphs != ["qsEt", "qsTea_qsOy"]:
-                failures.append(
-                    f"qsEt / qsTea / qsOy: expected ['qsEt', 'qsTea_qsOy'], got {glyphs}"
-                )
+                failures.append(f"qsEt / qsTea / qsOy: expected ['qsEt', 'qsTea_qsOy'], got {glyphs}")
             continue
 
         if len(glyphs) != 3:
@@ -1800,11 +1773,13 @@ def test_qs_i_before_qs_tea_unchanged_by_forward_extension():
 # ---------------------------------------------------------------------------
 
 
-_DAY_PAIR_LIGATURES = frozenset({
-    # (day_prefix_base, follower_base) pairs that combine into a ligature, consuming qsDay into qsDay_qs<follower>. In those outputs there is no standalone qsDay glyph to inspect.
-    ("qsDay", "qsEat"),
-    ("qsDay", "qsUtter"),
-})
+_DAY_PAIR_LIGATURES = frozenset(
+    {
+        # (day_prefix_base, follower_base) pairs that combine into a ligature, consuming qsDay into qsDay_qs<follower>. In those outputs there is no standalone qsDay glyph to inspect.
+        ("qsDay", "qsEat"),
+        ("qsDay", "qsUtter"),
+    }
+)
 
 
 def _non_bridging_middle_bases() -> list[tuple[str, str]]:
@@ -1828,9 +1803,7 @@ def _non_bridging_middle_bases() -> list[tuple[str, str]]:
         variants = variants_by_base.get(base_name, [])
         can_enter_y0 = any(0 in v.entry_ys for v in variants)
         can_enter_y5 = any(5 in v.entry_ys for v in variants)
-        can_bridge_y0_to_y5 = any(
-            0 in v.entry_ys and 5 in v.exit_ys for v in variants
-        )
+        can_bridge_y0_to_y5 = any(0 in v.entry_ys and 5 in v.exit_ys for v in variants)
         if can_enter_y0 and can_enter_y5 and not can_bridge_y0_to_y5:
             result.append((base_name, base_char))
     return result
@@ -1892,9 +1865,7 @@ def test_qs_way_full_before_any_non_bridging_middle():
         pytest.param("qsSee", id="see"),
     ],
 )
-def test_qs_right_glyph_unchanged_after_qs_way_or_qs_why(
-    left_base: str, right_base: str
-):
+def test_qs_right_glyph_unchanged_after_qs_way_or_qs_why(left_base: str, right_base: str):
     isolated_right = _shape_qs(right_base)[0]
     failures: list[str] = []
 
@@ -1961,9 +1932,7 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
         pair = _shape_qs(left_base, right_base)
         pair_meta = meta_map[pair[0]]
         if pair_meta.base_name == left_base and "half" in pair_meta.traits:
-            failures.append(
-                f"{left_base} / {right_base}: half-{left_base} selected: {pair}"
-            )
+            failures.append(f"{left_base} / {right_base}: half-{left_base} selected: {pair}")
 
         for outer_left_name, _ in _plain_quikscript_letters():
             for outer_right_name, _ in _plain_quikscript_letters():
@@ -1973,10 +1942,7 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
                     right_glyph_meta = meta_map.get(glyphs[index + 1])
                     if left_glyph_meta is None or right_glyph_meta is None:
                         continue
-                    if (
-                        left_glyph_meta.base_name != left_base
-                        or right_glyph_meta.base_name != right_base
-                    ):
+                    if left_glyph_meta.base_name != left_base or right_glyph_meta.base_name != right_base:
                         continue
                     if "half" in left_glyph_meta.traits:
                         failures.append(
@@ -2011,9 +1977,7 @@ def _owe_day_failures_in(glyphs: list[str], label: str) -> list[str]:
             continue
         common = _exit_ys(glyph_name) & _entry_ys(glyphs[index + 1])
         if common:
-            failures.append(
-                f"{label}: Owe joins {right_meta.base_name} at Y={sorted(common)} in {glyphs}"
-            )
+            failures.append(f"{label}: Owe joins {right_meta.base_name} at Y={sorted(common)} in {glyphs}")
     return failures
 
 
@@ -2029,6 +1993,7 @@ def test_qs_owe_day_eat_ligature_does_not_connect():
     glyphs = _shape(chars["qsOwe"] + chars["qsDay"] + chars["qsEat"])
     failures = _owe_day_failures_in(glyphs, "qsOwe / qsDay / qsEat")
     assert not failures, "\n".join(failures)
+
 
 def _owe_day_joins_at_y5_in(glyphs: list[str], label: str) -> list[str]:
     """Return failures for positions where ·Owe should join a ·Day-base at Y=5 but doesn't."""
@@ -2100,26 +2065,39 @@ def test_qs_owe_day_connects_under_ss07_in_context():
 
 def test_qs_owe_day_utter_ligature_connects_under_ss07():
     chars = _char_map()
-    glyphs = _shape_with_features(
-        chars["qsOwe"] + chars["qsDay"] + chars["qsUtter"], _SS07_FEATURE
-    )
+    glyphs = _shape_with_features(chars["qsOwe"] + chars["qsDay"] + chars["qsUtter"], _SS07_FEATURE)
     failures = _owe_day_joins_at_y5_in(glyphs, "qsOwe / qsDay / qsUtter (ss07)")
     assert not failures, "\n".join(failures)
 
 
 def test_qs_owe_day_eat_ligature_connects_under_ss07():
     chars = _char_map()
-    glyphs = _shape_with_features(
-        chars["qsOwe"] + chars["qsDay"] + chars["qsEat"], _SS07_FEATURE
-    )
+    glyphs = _shape_with_features(chars["qsOwe"] + chars["qsDay"] + chars["qsEat"], _SS07_FEATURE)
     failures = _owe_day_joins_at_y5_in(glyphs, "qsOwe / qsDay / qsEat (ss07)")
     assert not failures, "\n".join(failures)
 
 
 _GAY_CONTEXTS = (
-    "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
-    "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
-    "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
+    "qsPea",
+    "qsBay",
+    "qsTea",
+    "qsDay",
+    "qsKey",
+    "qsFee",
+    "qsVie",
+    "qsSee",
+    "qsZoo",
+    "qsShe",
+    "qsMay",
+    "qsNo",
+    "qsLow",
+    "qsRoe",
+    "qsEat",
+    "qsAt",
+    "qsAh",
+    "qsOx",
+    "qsOwe",
+    "qsOoze",
 )
 
 _GAY_CONTEXT_JOIN_CASES = (
@@ -2177,8 +2155,7 @@ def _append_gay_joining_context_failures(
 
     if expected_target_glyph is not None and target_name != expected_target_glyph:
         failures.append(
-            f"{label}: expected {expected_target_glyph} after qsGay, "
-            f"got {target_name} (full: {glyphs!r})"
+            f"{label}: expected {expected_target_glyph} after qsGay, " f"got {target_name} (full: {glyphs!r})"
         )
 
     entry_ys = _entry_ys(target_name)
@@ -2273,9 +2250,9 @@ def test_qs_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
     target = meta[glyphs[1]]
     gay_exit_ys = {anchor[1] for anchor in gay.exit}
     target_entry_ys = {anchor[1] for anchor in (*target.entry, *target.entry_curs_only)}
-    assert gay_exit_ys & target_entry_ys, (
-        f"qsGay.exit {gay.exit} and {target_base}.entry {target.entry} share no y-coordinate"
-    )
+    assert (
+        gay_exit_ys & target_entry_ys
+    ), f"qsGay.exit {gay.exit} and {target_base}.entry {target.entry} share no y-coordinate"
     assert gay.exit == ((6, 0),), (
         f"qsGay extended baseline exit should land at x=6, y=0 "
         f"(max_ink_x+1 of the extended bitmap), got {gay.exit}"
@@ -2286,24 +2263,22 @@ def test_qs_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
 def test_qs_gay_exit_baseline_extended_targets_include_joining_followers(target_base):
     meta = _compiled_meta()
     variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert variant.exit == ((6, 0),), (
-        f"qsGay.exit-baseline.exit-extended should exit at x=6, y=0; got {variant.exit}"
-    )
+    assert variant.exit == (
+        (6, 0),
+    ), f"qsGay.exit-baseline.exit-extended should exit at x=6, y=0; got {variant.exit}"
     assert target_base in set(variant.before), (
-        f"qsGay.exit-baseline.exit-extended should name {target_base} in `before`; "
-        f"got {variant.before}"
+        f"qsGay.exit-baseline.exit-extended should name {target_base} in `before`; " f"got {variant.before}"
     )
 
 
 def test_qs_gay_exit_xheight_extended_exists_for_it():
     meta = _compiled_meta()
     variant = meta["qsGay.exit-xheight.exit-extended"]
-    assert variant.exit == ((6, 5),), (
-        f"qsGay.exit-xheight.exit-extended should exit at x=6, y=5; got {variant.exit}"
-    )
+    assert variant.exit == (
+        (6, 5),
+    ), f"qsGay.exit-xheight.exit-extended should exit at x=6, y=5; got {variant.exit}"
     assert "qsIt" in set(variant.before), (
-        f"qsGay.exit-xheight.exit-extended should name qsIt in `before`; "
-        f"got {variant.before}"
+        f"qsGay.exit-xheight.exit-extended should name qsIt in `before`; " f"got {variant.before}"
     )
 
 
@@ -2354,9 +2329,9 @@ def test_qs_gay_extended_variants_exclude_nonjoining_targets(target_base):
     meta = _compiled_meta()
     for name, variant in meta.items():
         if name.startswith("qsGay") and "exit-extended" in name:
-            assert target_base not in set(variant.before), (
-                f"{name}.before should not include {target_base}; got {variant.before}"
-            )
+            assert target_base not in set(
+                variant.before
+            ), f"{name}.before should not include {target_base}; got {variant.before}"
 
 
 # --- Restored ensure-sanity parametrized cases -------------------------------
@@ -2495,9 +2470,7 @@ def _tea_tea_cases() -> list[tuple[str, str, str]]:
             (
                 _case_id(name, "Tea", "Tea"),
                 chr(code) + chr(TEA) + chr(TEA),
-                _join_expect(
-                    [(name, _expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)]
-                ),
+                _join_expect([(name, _expect_tok(name)), ("Tea", tea_nhalf), ("Tea", tea_nhalf)]),
             )
         )
     for name, code in LETTERS:
@@ -2505,9 +2478,7 @@ def _tea_tea_cases() -> list[tuple[str, str, str]]:
             (
                 _case_id("Tea", "Tea", name),
                 chr(TEA) + chr(TEA) + chr(code),
-                _join_expect(
-                    [("Tea", tea_nhalf), ("Tea", _expect_tok("Tea")), (name, _expect_tok(name))]
-                ),
+                _join_expect([("Tea", tea_nhalf), ("Tea", _expect_tok("Tea")), (name, _expect_tok(name))]),
             )
         )
     return out
@@ -2770,9 +2741,7 @@ def _bitmap_join_gap(glyphs: list[str], index: int, y: int) -> int | None:
     left = meta[glyphs[index]]
     right = meta[glyphs[index + 1]]
     left_anchor = next(anchor for anchor in left.exit if anchor[1] == y)
-    right_anchor = next(
-        anchor for anchor in (*right.entry, *right.entry_curs_only) if anchor[1] == y
-    )
+    right_anchor = next(anchor for anchor in (*right.entry, *right.entry_curs_only) if anchor[1] == y)
     left_bounds = _ink_bounds_at_y(glyphs[index], y)
     right_bounds = _ink_bounds_at_y(glyphs[index + 1], y)
     if left_bounds is None or right_bounds is None:
@@ -2917,5 +2886,7 @@ def test_qs_at_before_may_chain_handles_qs_they_qs_utter_noentry():
     # The retired qsAt_qsMay ligature used to stay whole before qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs: qsAt picks the before-may form, qsMay picks its entry-preserving exit-noentry form before the entryless qsThey+Utter ligature.
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
-        ["·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"],
+        [
+            "·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"
+        ],
     )
