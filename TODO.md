@@ -36,6 +36,10 @@ Don't design this until the Phase A complaints (and Phase B derivation gaps) tel
 
 Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is clean for the real senior glyph set, and `test_real_join_warning_collector_is_clean` locks that in. Only revisit a top-level `joins:` section if future real-data warnings show repeated bilateral source-maintenance pain.
 
+## Tests
+
+- Go through all the tests in `test_calt_regressions.py` and polish them up.
+
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF's pages) (and also to leave space for the buttons)
