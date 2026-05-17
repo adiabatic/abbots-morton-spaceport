@@ -87,8 +87,8 @@ class _PairIntent:
     y: int
 
 
-# Authoritative override of structural derivation. The structural pass in `_collect_guards` cannot yet (a) emit guard entries keyed on the bare base `qsTea` (its own `all_entry_ys` is empty; entries live on family variants) nor (b) infer the multi-step right-context narrowings on `qsExcite.exit-baseline.before-vertical` that the runtime emitter relies on. Until those gaps close, `derive_pending_*` returns these tables verbatim — the structural pass still runs as a sanity layer (the `test_structural_*_guards_cover_coverable_residual` tests in `test/test_quikscript_join_analysis.py` enforce that every residual entry the structural pass *can* in principle cover is in fact covered) but the override pins the public output to byte-for-byte parity with the runtime emitter's prior behavior. Once the structural pass tightens, remove this override in favor of pure derivation.
-_RESIDUAL_BK_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
+# Curated `ignore sub` narrowings consumed by `_emit_pending_bk_entry_guards` in `tools/quikscript_fea.py`. Each entry says "when forward-subbing `source` to `replacement` at `entry_y`, suppress the substitution after these `guard_glyphs`, optionally narrowed by `before_bases`." The per-replacement `before_bases` values depend on the FEA emitter's per-call-site right-context narrowing, which can't be derived from `JoinReachability` alone — that's why these tables are curated rather than computed. When adding entries, mirror the runtime behavior at the relevant call site in `_emit_quikscript_calt` and verify with a FEA byte-diff.
+_PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea.exit-baseline", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
@@ -131,7 +131,7 @@ _RESIDUAL_BK_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
-_RESIDUAL_LIGA_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
+_PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea_qsOy", 0): (
         DerivedBkGuard(
             ("qsExcite.exit-baseline.before-vertical",),
@@ -1822,158 +1822,27 @@ def _format_backward_error(
 def derive_pending_bk_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Public entrypoint pinned to ``_RESIDUAL_BK_GUARDS``.
+    """Return the curated `_PENDING_BK_ENTRY_GUARDS` table.
 
-    Runs the structural derivation in ``_compute_derived_bk_guards`` (which
-    produces a superset of the structurally-coverable residual entries) and
-    then pins the result to ``_RESIDUAL_BK_GUARDS`` via
-    ``_apply_residual_override``. The structural pass continues to run so the
-    coverable-residual tests stay meaningful; the override closes the
-    byte-for-byte FEA parity gap until derivation can structurally identify
-    exactly the residual keys (see the docstring on ``_RESIDUAL_BK_GUARDS``).
+    The ``reachability`` argument is unused — the table is hand-curated to match
+    the runtime emitter's per-call-site narrowing in ``_emit_pending_bk_entry_guards``
+    (see `tools/quikscript_fea.py`) — and is accepted for signature symmetry
+    with ``derive_pending_fwd_strip_guards``.
     """
-    return _apply_residual_override(_compute_derived_bk_guards(reachability), _RESIDUAL_BK_GUARDS)
+    del reachability
+    return {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()}
 
 
 def derive_pending_liga_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Public entrypoint pinned to ``_RESIDUAL_LIGA_GUARDS``.
+    """Return the curated `_PENDING_LIGA_ENTRY_GUARDS` table.
 
     Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component
-    sources; the override pins the result to ``_RESIDUAL_LIGA_GUARDS``.
+    sources.
     """
-    return _apply_residual_override(_compute_derived_liga_guards(reachability), _RESIDUAL_LIGA_GUARDS)
-
-
-def _compute_derived_bk_guards(
-    reachability: JoinReachability,
-) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Structural pass behind ``derive_pending_bk_entry_guards``.
-
-    Walks every ``(source, replacement)`` forward-substitution pair the FEA
-    emitter would consider and, for each global exit Y the replacement cannot
-    accept, collects every left-glyph variant that exits at that Y. These are
-    the glyphs that would have joined the un-substituted source and whose join
-    the substitution would silently break — the same set the runtime
-    ``_emit_pending_bk_entry_guards`` emits ``ignore sub`` rules for.
-
-    Output is a superset of the curated table; ``_apply_residual_override``
-    pins the public output to curated parity.
-    """
-    glyph_by_exit_y = _index_glyphs_by_exit_y(reachability)
-    buf: dict[tuple[str, str, int], list[DerivedBkGuard]] = {}
-    for source_name, replacement_name in _iter_forward_sub_pairs(reachability):
-        _collect_guards(reachability, glyph_by_exit_y, buf, source_name, replacement_name)
-    return _finalize_guards(buf)
-
-
-def _compute_derived_liga_guards(
-    reachability: JoinReachability,
-) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Structural pass behind ``derive_pending_liga_entry_guards``.
-
-    For every ligature, treats every variant of the first-component family as
-    a possible runtime source being consumed; for each global exit Y the
-    ligature cannot accept, collects every left-glyph variant whose exit Y
-    would have produced a join. Mirrors the runtime semantics of
-    ``_matching_pending_liga_guards``.
-    """
-    glyph_by_exit_y = _index_glyphs_by_exit_y(reachability)
-    buf: dict[tuple[str, str, int], list[DerivedBkGuard]] = {}
-    for lig_name, components in reachability.ligatures:
-        if not components:
-            continue
-        first_component_meta = reachability.glyph_meta.get(components[0])
-        if first_component_meta is None:
-            continue
-        first_family = first_component_meta.family or first_component_meta.base_name
-        for source_name in reachability.base_to_variants.get(first_family, frozenset()):
-            _collect_guards(reachability, glyph_by_exit_y, buf, source_name, lig_name)
-    return _finalize_guards(buf)
-
-
-def _index_glyphs_by_exit_y(
-    reachability: JoinReachability,
-) -> dict[int, list[tuple[str, JoinGlyph]]]:
-    by_y: dict[int, list[tuple[str, JoinGlyph]]] = {}
-    for name, meta in reachability.glyph_meta.items():
-        for y in meta.exit_ys:
-            by_y.setdefault(y, []).append((name, meta))
-    return by_y
-
-
-def _iter_forward_sub_pairs(reachability: JoinReachability):
-    seen: set[tuple[str, str]] = set()
-
-    def emit(source: str, replacement: str):
-        pair = (source, replacement)
-        if pair in seen:
-            return
-        seen.add(pair)
-        yield pair
-
-    for base, exit_to_variant in reachability.fwd_replacements.items():
-        for variant in exit_to_variant.values():
-            yield from emit(base, variant)
-    for base, overrides in reachability.fwd_pair_overrides.items():
-        for variant, _, _ in overrides:
-            yield from emit(base, variant)
-
-    # bk_var × fwd_var: the runtime emits sub rules at the bk_var/ext_bk × fwd_var call sites of _emit_pending_bk_entry_guards inside _emit_noentry_fwd_overrides, where a backward variant is forward-subbed to a forward variant of the same base. The bk_replacements dict is keyed by base; the corresponding fwd variants live under the same base in the fwd_* maps. gated_fwd_pair_overrides is intentionally omitted: the gated calt block uses its own _collect_pending_bk_pair_guards and never reads _derived_bk_guards, so pairs sourced from there populate the dict but no caller queries them.
-    for base, entry_to_bk_var in reachability.bk_replacements.items():
-        fwd_variants: list[str] = []
-        fwd_variants.extend(reachability.fwd_replacements.get(base, {}).values())
-        fwd_variants.extend(v for v, _, _ in reachability.fwd_pair_overrides.get(base, ()))
-        for bk_var in entry_to_bk_var.values():
-            for fwd_var in fwd_variants:
-                yield from emit(bk_var, fwd_var)
-
-
-def _collect_guards(
-    reachability: JoinReachability,
-    glyph_by_exit_y: dict[int, list[tuple[str, JoinGlyph]]],
-    buf: dict[tuple[str, str, int], list[DerivedBkGuard]],
-    source_name: str,
-    replacement_name: str,
-) -> None:
-    replacement_meta = reachability.glyph_meta.get(replacement_name)
-    if replacement_meta is None:
-        return
-    source_meta = reachability.glyph_meta.get(source_name)
-    if source_meta is None:
-        return
-    # A guard at (source, replacement, entry_y) only fires if a left glyph at exit-Y entry_y could have joined source pre-substitution; that requires source to have an entry anchor at entry_y. Residual entries keyed on bare bases (like qsTea, whose all_entry_ys is empty but whose family carries entries) are dropped here by design — `_apply_residual_override` reintroduces them for the cases derivation cannot structurally cover.
-    source_entry_ys = set(source_meta.all_entry_ys)
-    replacement_entry_ys = set(replacement_meta.all_entry_ys)
-    for entry_y, left_glyphs in glyph_by_exit_y.items():
-        if entry_y in replacement_entry_ys:
-            continue
-        if entry_y not in source_entry_ys:
-            continue
-        for left_name, _ in left_glyphs:
-            buf.setdefault((source_name, replacement_name, entry_y), []).append(
-                DerivedBkGuard(guard_glyphs=(left_name,))
-            )
-
-
-def _finalize_guards(
-    buf: dict[tuple[str, str, int], list[DerivedBkGuard]],
-) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    out: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {}
-    for key, guards in buf.items():
-        deduped = sorted(set(guards), key=lambda g: (g.guard_glyphs, g.before_bases))
-        out[key] = tuple(deduped)
-    return out
-
-
-def _apply_residual_override(
-    out: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
-    residual: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
-) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    # `out` is intentionally accepted-and-ignored. The structural pass still runs upstream so the superset invariants stay derivable; this override pins the public output to the residual until derivation is tight enough to match curated keys structurally.
-    del out
-    return {key: tuple(guards) for key, guards in residual.items()}
+    del reachability
+    return {key: tuple(guards) for key, guards in _PENDING_LIGA_ENTRY_GUARDS.items()}
 
 
 def derive_pending_fwd_strip_guards(
