@@ -175,6 +175,16 @@ It does _not_ work in:
 
 - Microsoft Word 365 (as of February 18, 2026)
 
+## Contributing
+
+If you’re going to be running `git blame` (or just clicking around blame views) in this repo, run this once after cloning:
+
+```sh
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+That tells `git blame` to skip the revisions listed in [`.git-blame-ignore-revs`](./.git-blame-ignore-revs) so each line’s blame points at whoever last touched it for real instead of at the reformat commit. GitHub’s blame view honors this file automatically.
+
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.

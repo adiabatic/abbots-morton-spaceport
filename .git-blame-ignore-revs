@@ -1,0 +1,9 @@
+# Revisions listed here are skipped by `git blame` when
+# `blame.ignoreRevsFile` is configured. Run once per clone:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub's blame view honors this file automatically.
+
+# Use `black`
+fcebd466ce534f6abb4f00bb32c4fe4fee50db84
