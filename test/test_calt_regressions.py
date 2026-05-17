@@ -1231,16 +1231,13 @@ def test_qs_may_thaw_ing_surrounded_is_never_orphaned(left_name: str, right_name
 
 
 def test_qs_may_thaw_stays_isolated_across_zwnj():
-    # A ZWNJ before qsMay shapes it to qsMay.noentry; the same forward-sub path would otherwise promote it to qsMay.exit-baseline before qsThaw → qsThaw.exit-baseline, leaving the same orphan exit.
     chars = _char_map()
     text = chars["qsTea"] + ZWNJ + chars["qsMay"] + chars["qsThaw"] + chars["qsIng"]
-    glyphs = _shape(text)
-    may_index = _find_base_index(glyphs, "qsMay")
-    assert may_index is not None, glyphs
-    may_glyph = glyphs[may_index]
-    assert "exit-baseline" not in _compiled_meta()[may_glyph].modifiers, glyphs
-    _assert_no_failures(
-        _qs_may_thaw_orphan_failures(glyphs, "qsTea / ZWNJ / qsMay / qsThaw / qsIng")
+    _assert_expect_any(
+        text,
+        [
+            "·Tea | ◊ZWNJ | ·May.noentry.!exit-baseline | ·Thaw ~b~ ·-ing",
+        ],
     )
 
 
