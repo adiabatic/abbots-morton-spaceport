@@ -2720,37 +2720,6 @@ _OWE_DAY_PARAMS, _OWE_DAY_IDS = _params(_owe_day_cases())
 _THEY_JAY_PARAMS, _THEY_JAY_IDS = _params(_they_jay_cases())
 
 
-def _ink_bounds_at_y(glyph_name: str, y: int) -> tuple[int, int] | None:
-    meta = _compiled_meta()[glyph_name]
-    top_y = meta.y_offset + len(meta.bitmap) - 1
-    row_index = top_y - y
-    if row_index < 0 or row_index >= len(meta.bitmap):
-        return None
-    row = meta.bitmap[row_index]
-    if isinstance(row, str):
-        ink_xs = [index for index, value in enumerate(row) if value == "#"]
-    else:
-        ink_xs = [index for index, value in enumerate(row) if value]
-    if not ink_xs:
-        return None
-    return min(ink_xs), max(ink_xs)
-
-
-def _bitmap_join_gap(glyphs: list[str], index: int, y: int) -> int | None:
-    meta = _compiled_meta()
-    left = meta[glyphs[index]]
-    right = meta[glyphs[index + 1]]
-    left_anchor = next(anchor for anchor in left.exit if anchor[1] == y)
-    right_anchor = next(anchor for anchor in (*right.entry, *right.entry_curs_only) if anchor[1] == y)
-    left_bounds = _ink_bounds_at_y(glyphs[index], y)
-    right_bounds = _ink_bounds_at_y(glyphs[index + 1], y)
-    if left_bounds is None or right_bounds is None:
-        return None
-    _, left_max = left_bounds
-    right_min, _ = right_bounds
-    return (right_min - right_anchor[0]) - (left_max - left_anchor[0]) - 1
-
-
 @pytest.mark.parametrize(("text", "expect"), _TEA_TEA_PARAMS, ids=_TEA_TEA_IDS)
 def test_tea_tea_no_double_halves(shaping_env: dict, text: str, expect: str) -> None:
     _run(shaping_env, text, expect)

@@ -746,10 +746,6 @@ def _family_labels_html(
     return "".join(parts)
 
 
-def _glyphs_text(glyphs: tuple[str, ...]) -> str:
-    return " | ".join(glyphs)
-
-
 def _glyph_name_html(name: str) -> str:
     """Escape ``name`` and bias soft line breaks to its periods.
 

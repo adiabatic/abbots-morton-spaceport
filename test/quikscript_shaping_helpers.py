@@ -37,21 +37,6 @@ def _shape(text: str) -> list[str]:
 
 
 @lru_cache(maxsize=None)
-def _shape_with_clusters(text: str) -> tuple[tuple[str, int], ...]:
-    """Shape `text` and return ((glyph_name, cluster), ...).
-
-    Cluster values are the character indices from the input; ligatures
-    report the cluster of their first component.
-    """
-    font = _font()
-    buf = hb.Buffer()
-    buf.add_str(text)
-    buf.guess_segment_properties()
-    hb.shape(font, buf)
-    return tuple((font.glyph_to_string(info.codepoint), info.cluster) for info in buf.glyph_infos)
-
-
-@lru_cache(maxsize=None)
 def _shape_with_features(
     text: str,
     feature_items: tuple[tuple[str, bool], ...],
@@ -110,10 +95,6 @@ def _shape_qs(
 ) -> list[str]:
     text = _qs_text(*parts)
     return _shape_with_features(text, features) if features else _shape(text)
-
-
-def _shape_qs_with_clusters(*parts: str) -> tuple[tuple[str, int], ...]:
-    return _shape_with_clusters(_qs_text(*parts))
 
 
 def _assert_no_failures(failures: list[str], *, limit: int | None = 50) -> None:
