@@ -1024,9 +1024,8 @@ def build_font(
 
     # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
-    gasp.gaspRange = {
-        0xFFFF: 0x0001
-    }  # pyright: ignore[reportAttributeAccessIssue]  # Grid-fit only, no antialiasing
+    # Grid-fit only, no antialiasing
+    gasp.gaspRange = {0xFFFF: 0x0001}  # pyright: ignore[reportAttributeAccessIssue]
     fb.font["gasp"] = gasp
 
     # Add head table (required)
