@@ -125,6 +125,52 @@ def _collect_surrounded_nonjoining_pair_failures(
     return failures
 
 
+def _collect_joined_right_not_half_failures(
+    left_base: str,
+    right_base: str,
+) -> list[str]:
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    left_label = left_base[2:]
+    right_label = right_base[2:]
+
+    contexts: list[tuple[str | None, str | None]] = [(None, None)]
+    contexts.extend((None, outer_right) for outer_right, _ in _plain_quikscript_letters())
+    contexts.extend((outer_left, None) for outer_left, _ in _plain_quikscript_letters())
+    contexts.extend(
+        (outer_left, outer_right)
+        for outer_left, _ in _plain_quikscript_letters()
+        for outer_right, _ in _plain_quikscript_letters()
+    )
+
+    for outer_left_name, outer_right_name in contexts:
+        parts = (
+            ([outer_left_name] if outer_left_name else [])
+            + [left_base, right_base]
+            + ([outer_right_name] if outer_right_name else [])
+        )
+        glyphs = _shape_qs(*parts)
+        label = " / ".join(parts) if parts else f"{left_base} / {right_base}"
+
+        for index, glyph_name in enumerate(glyphs[:-1]):
+            left_meta = meta_map.get(glyph_name)
+            right_meta = meta_map.get(glyphs[index + 1])
+            if left_meta is None or right_meta is None:
+                continue
+            if left_meta.base_name != left_base or right_meta.base_name != right_base:
+                continue
+            if not _pair_join_ys(glyphs, index):
+                continue
+            if "half" not in right_meta.traits:
+                failures.append(
+                    f"{label}: full-{right_label} ({glyphs[index + 1]}) "
+                    f"selected after {left_label} ({glyph_name}); "
+                    f"expected half-{right_label} or no join in {glyphs}"
+                )
+
+    return failures
+
+
 def _collect_nonjoining_left_ligature_failures(
     left_base: str,
     ligature_base: str,
@@ -1017,6 +1063,10 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
             require_full_left=True,
         )
     )
+
+
+def test_qs_day_always_picks_half_after_qs_it_in_any_context():
+    _assert_no_failures(_collect_joined_right_not_half_failures("qsIt", "qsDay"))
 
 
 @pytest.mark.parametrize(
