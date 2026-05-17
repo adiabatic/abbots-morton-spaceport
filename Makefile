@@ -1,4 +1,4 @@
-.PHONY: all test typecheck print-job serve explainer snapshot-before check-html review test-and-review
+.PHONY: all test typecheck print-job serve explainer snapshot-before check-html review test-and-review prettier
 
 export UV_CACHE_DIR := .uv-cache
 
@@ -20,6 +20,9 @@ snapshot-before: all
 
 typecheck:
 	uv run pyright tools/ test/
+
+prettier:
+	uv run --with black black tools/ test/
 
 test: typecheck
 	uv run pytest test/ -n auto
