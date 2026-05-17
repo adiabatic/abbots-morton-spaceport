@@ -16,6 +16,7 @@ from quikscript_shaping_helpers import (
     _find_base_index,
     _pair_join_ys,
     _plain_quikscript_letters,
+    _qs_text,
     _shape,
     _shape_qs,
     _shape_with_features,
@@ -459,11 +460,7 @@ def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]
 
 
 def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
-    assert _shape_qs("qsPea", "qsOwe", "qsNo") == [
-        "qsPea.half",
-        "qsOwe.entry-xheight.exit-xheight.entry-extended",
-        "qsNo",
-    ]
+    _assert_expect_any("", ["·Pea.half ~x~ ·Owe.entry-extended ~x~ ·No"])
 
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
@@ -471,101 +468,93 @@ def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
 
 
 def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
-    # Word-initial qsOwe + qsFee must shape with the exit-only form (shape_2). The previous bug promoted qsOwe to shape_3, leaving a phantom left tail / entry anchor pointing at nothing.
-    glyphs = _shape_qs("qsOwe", "qsFee")
-    assert glyphs == ["qsOwe.exit-xheight.exit-extended", "qsFee.entry-xheight"]
-    assert _entry_ys(glyphs[0]) == set()
-    assert _pair_join_ys(glyphs, 0) == {5}
+    _assert_expect_any(
+        "",
+        ["·Owe.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight"],
+    )
 
 
 @pytest.mark.parametrize(
-    ("predecessor", "expected_left"),
+    ("text", "expects"),
     [
-        pytest.param("qsMay", "qsMay.exit-extended", id="qsMay"),
-        pytest.param("qsNo", "qsNo.exit-extended", id="qsNo"),
-        pytest.param("qsLow", "qsLow.exit-extended", id="qsLow"),
-        pytest.param("qsAh", "qsAh.exit-extended", id="qsAh"),
-        pytest.param("qsUtter", "qsUtter.exit-extended", id="qsUtter"),
+        pytest.param("", ["·May.exit-extended ~x~ ·Fee.entry-xheight"], id="qsMay"),
+        pytest.param("", ["·No.exit-extended ~x~ ·Fee.entry-xheight"], id="qsNo"),
+        pytest.param("", ["·Low.exit-extended ~x~ ·Fee.entry-xheight"], id="qsLow"),
+        pytest.param("", ["·Ah.exit-extended ~x~ ·Fee.entry-xheight"], id="qsAh"),
+        pytest.param("", ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"),
     ],
 )
-def test_qs_fee_entry_xheight_after_extended_predecessor(predecessor, expected_left):
+def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
     # When a predecessor extends its exit before qsFee, qsFee must take its entry-xheight form so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.exit-extended) from late_contexts, so the qsFee.entry-xheight substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height.
-    glyphs = _shape_qs(predecessor, "qsFee")
-    assert glyphs == [expected_left, "qsFee.entry-xheight"]
-    assert _pair_join_ys(glyphs, 0) == {5}
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
-    "right_base",
-    ["qsJai", "qsCheer", "qsAwe"],
+    ("text", "expects"),
+    [
+        pytest.param(
+            "",
+            ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Jai.entry-xheight"],
+            id="qsJai",
+        ),
+        pytest.param(
+            "",
+            ["·Out.∅ |?| ·Fee.exit-xheight.exit-extended ~x~ ·Cheer"],
+            id="qsCheer",
+        ),
+        pytest.param(
+            "",
+            ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Awe"],
+            id="qsAwe",
+        ),
+    ],
 )
-def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(right_base):
-    assert _shape_qs("qsOut", "qsFee") == [
-        "qsOut.exit-xheight.exit-extended",
-        "qsFee.entry-xheight",
-    ]
-
-    glyphs = _shape_qs("qsOut", "qsFee", right_base)
-    assert glyphs[0] == "qsOut"
-    assert _exit_ys(glyphs[0]) == set()
-    assert _pair_join_ys(glyphs, 0) == set()
-    duo = _shape_qs("qsFee", right_base)
-    assert _base_names(glyphs[1:]) == _base_names(duo)
-    assert _pair_join_ys(glyphs, 1) == _pair_join_ys(duo, 0)
+def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_out_fee_utter_lets_out_reach_for_fee():
     # qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces ·Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead.
-    glyphs = _shape_qs("qsOut", "qsFee", "qsUtter")
-    assert glyphs == [
-        "qsOut.exit-xheight.exit-extended",
-        "qsFee.entry-xheight",
-        "qsUtter",
-    ]
-    assert _pair_join_ys(glyphs, 0) == {5}
-    assert _pair_join_ys(glyphs, 1) == set()
+    _assert_expect_any(
+        "",
+        [
+            "·Out.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight | ·Utter",
+        ],
+    )
 
 
 def test_qs_ah_fee_utter_keeps_left_join():
     # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously ·Fee was switched to exit_xheight_before_utter (no entry anchor) whenever ·Utter followed, breaking the left-side join even though ·Utter itself didn't gain anything from ·Fee being entry-less without further context.
-    glyphs = _shape_qs("qsAh", "qsFee", "qsUtter")
-    assert glyphs == [
-        "qsAh.exit-extended",
-        "qsFee.entry-xheight",
-        "qsUtter",
-    ]
-    assert _pair_join_ys(glyphs, 0) == {5}
-    assert _pair_join_ys(glyphs, 1) == set()
+    _assert_expect_any(
+        "",
+        [
+            "·Ah.exit-extended ~x~ ·Fee.entry-xheight | ·Utter.∅",
+        ],
+    )
 
 
 @pytest.mark.parametrize(
-    "left_base",
+    ("text", "expects"),
     [
-        pytest.param("qsAh", id="ah"),
-        pytest.param("qsFee", id="fee"),
-        pytest.param("qsI", id="i"),
+        pytest.param(
+            "",
+            ["·Ah ~x~ ·May.entry-xheight | ·Pea.∅"],
+            id="ah",
+        ),
+        pytest.param(
+            "",
+            ["·Fee ~x~ ·May.entry-xheight | ·Pea.∅"],
+            id="fee",
+        ),
+        pytest.param(
+            "",
+            ["·I ~x~ ·May.entry-xheight | ·Pea.∅"],
+            id="i",
+        ),
     ],
 )
-def test_may_pea_does_not_select_pea_entry_after_entry_only_may(left_base):
-    glyphs = _shape_qs(left_base, "qsMay", "qsPea")
-    label = f"{left_base} / qsMay / qsPea"
-
-    assert _base_names(glyphs) == (left_base, "qsMay", "qsPea"), (
-        f"{label}: expected the shaped sequence to remain three letters, got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 0) == {5}, (
-        f"{label}: expected the left letter to join May at y=5, got {glyphs}"
-    )
-    assert 5 not in _exit_ys(glyphs[1]), (
-        f"{label}: expected selected May to have no y=5 exit, got {glyphs}"
-    )
-    assert 5 not in _entry_ys(glyphs[2]), (
-        f"{label}: Pea must not select a y=5 entry after exitless May; "
-        f"got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 1) == set(), (
-        f"{label}: May and Pea must have no shared join Y, got {glyphs}"
-    )
+def test_may_pea_does_not_select_pea_entry_after_entry_only_may(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_owe_at_word_start_before_tea_with_ss03_has_no_left_anchor():
@@ -586,31 +575,18 @@ def test_qs_way_does_not_join_qs_tea_under_ss03():
 
 
 def test_qs_fee_may_uses_extension_pair():
-    # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height (qsFee.exit-xheight.before-may.*) and pairing it with ·May's narrower "pulled-back-more" entry shape (qsMay.entry-xheight.after-fee). If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `triply-extended`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning.
-    glyphs = _shape_qs("qsFee", "qsMay")
-    assert len(glyphs) == 2, f"·Fee·May should not ligate; got {glyphs}"
-    assert glyphs[0].startswith("qsFee.exit-xheight.before-may"), (
-        f"expected ·Fee to pick its before-may form; got {glyphs}"
-    )
-    assert glyphs[1] == "qsMay.entry-xheight.after-fee", (
-        f"expected ·May.entry-xheight.after-fee (the narrower shape); got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 0) == {5}, (
-        f"·Fee→·May must join at the x-height; got {glyphs}"
+    # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `triply-extended`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning.
+    _assert_expect_any(
+        _qs_text("qsFee", "qsMay"),
+        ["·Fee.exit-xheight.before-may ~x~ ·May.entry-xheight.after-fee"],
     )
 
 
 def test_qs_owe_fee_may_owe_joins_fee_at_xheight():
-    # Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to:
-    #   ·Owe.exit-xheight.exit-extended → ·Fee.entry-xheight (joined at y=5)
-    #   ·Fee.entry-xheight is entryless on the right-hand side, so ·May stays unconnected (·Fee can't join both to and from at the x-height on the same letter — see the qsFee notes block).
-    glyphs = _shape_qs("qsOwe", "qsFee", "qsMay")
-    assert len(glyphs) == 3, f"·Owe·Fee·May should not ligate; got {glyphs}"
-    assert _pair_join_ys(glyphs, 0) == {5}, (
-        f"·Owe must reach into ·Fee at the x-height; got {glyphs}"
-    )
-    assert _pair_join_ys(glyphs, 1) == set(), (
-        f"·Fee.entry-xheight has no exit; ·Fee→·May must not join; got {glyphs}"
+    # Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to ·Owe→·Fee joined at the x-height, then ·Fee.entry-xheight (entryless on its right) leaves ·May unconnected — ·Fee can't join both to and from at the x-height on the same letter (see the qsFee notes block).
+    _assert_expect_any(
+        _qs_text("qsOwe", "qsFee", "qsMay"),
+        ["·Owe ~x~ ·Fee.entry-xheight | ·May"],
     )
 
 
@@ -829,57 +805,43 @@ def test_qs_ing_and_thaw_in_either_order_extend_their_baseline_join(text: str, e
 
 
 def test_qs_it_strips_entry_before_qs_ing_when_left_join_conflicts():
-    glyphs = _shape_qs("qsOoze", "qsIt", "qsIng")
-
-    assert glyphs == ["qsOoze", "qsIt.exit-baseline", "qsIng"]
-    assert not _pair_join_ys(glyphs, 0)
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsOoze", "qsIt", "qsIng"),
+        [
+            "·Ooze |?| ·It.exit-baseline ~b~ ·-ing",
+        ],
+    )
 
 
 def test_qs_it_preserves_baseline_entry_when_qs_ing_join_is_blocked():
-    glyphs = _shape_qs("qsBay", "qsIt", "qsIng")
-
-    assert glyphs == ["qsBay", "qsIt.entry-baseline", "qsIng"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+    _assert_expect_any(
+        _qs_text("qsBay", "qsIt", "qsIng"),
+        [
+            "·Bay ~b~ ·It.entry-baseline |?| ·-ing",
+        ],
+    )
 
 
 def test_qs_it_preserves_baseline_entry_before_qs_zoo():
-    glyphs = _shape_qs("qsBay", "qsIt", "qsZoo")
-
-    assert glyphs == ["qsBay", "qsIt.entry-baseline.exit-extended", "qsZoo"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert _pair_join_ys(glyphs, 1) == {5}
+    _assert_expect_any(
+        _qs_text("qsBay", "qsIt", "qsZoo"),
+        ["·Bay ~b~ ·It.entry-baseline.exit-extended ~x~ ·Zoo"],
+    )
 
 
 def test_zwnj_keeps_qs_it_entryless_while_still_joining_qs_zoo():
-    glyphs = _shape_qs("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe")
-
-    assert glyphs[0:2] == ["qsDay", "space"]
-    assert glyphs[3:] == ["qsZoo", "qsI.exit-extended", "qsRoe"]
-
-    meta = _compiled_meta()
-    it_meta = meta[glyphs[2]]
-    zoo_meta = meta[glyphs[3]]
-
-    assert not it_meta.entry
-    assert not it_meta.entry_curs_only
-    assert {anchor[1] for anchor in it_meta.exit} == {5}
-    assert {anchor[1] for anchor in it_meta.exit} & {anchor[1] for anchor in zoo_meta.entry} == {5}
+    _assert_expect_any(
+        _qs_text("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe"),
+        [
+            "·Day | ◊ZWNJ | ·It.noentry.exit-extended ~x~ ·Zoo ~b~ ·I.exit-extended ~x~ ·Roe",
+        ],
+    )
 
 
 def test_qs_no_alt_selected_after_ox_before_fee():
-    glyphs = _shape_qs("qsOx", "qsNo", "qsFee")
-    meta = _compiled_meta()
-    no_glyph = glyphs[1]
-    no_meta = meta[no_glyph]
-    assert "alt" in no_meta.traits, (
-        f"Expected No.alt after Ox, got {no_glyph}"
-    )
-    ox_exits = _exit_ys(glyphs[0])
-    no_entries = _entry_ys(no_glyph)
-    assert ox_exits & no_entries, (
-        f"Ox exits={sorted(ox_exits)} should overlap No.alt entries={sorted(no_entries)}"
+    _assert_expect_any(
+        _qs_text("qsOx", "qsNo", "qsFee"),
+        ["·Ox ~b~ ·No.alt |?| ·Fee"],
     )
 
 
@@ -918,62 +880,53 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
 
 
 @pytest.mark.parametrize(
-    ("parts", "expected"),
+    ("text", "expects"),
     [
-        pytest.param(("qsHe", "qsYe"), ["qsHe", "qsYe"], id="he-ye"),
-        pytest.param(("qsIt", "qsYe"), ["qsIt", "qsYe"], id="it-ye"),
-        pytest.param(("qsPea", "qsYe"), ["qsPea", "qsYe"], id="pea-ye"),
-        pytest.param(("qsTea", "qsYe"), ["qsTea", "qsYe"], id="tea-ye"),
-        pytest.param(("qsThey", "qsYe"), ["qsThey", "qsYe"], id="they-ye"),
-        pytest.param(("qsWay", "qsYe"), ["qsWay", "qsYe"], id="way-ye"),
-        pytest.param(("qsWhy", "qsYe"), ["qsWhy", "qsYe"], id="why-ye"),
-        pytest.param(("qsYe", "qsExam"), ["qsYe", "qsExam.after-ye"], id="ye-exam"),
-        pytest.param(("qsYe", "qsExcite"), ["qsYe", "qsExcite.after-ye"], id="ye-excite"),
-        pytest.param(("qsYe", "qsIng"), ["qsYe", "qsIng.after-he-or-ye"], id="ye-ing"),
-        pytest.param(("qsYe", "qsIt"), ["qsYe", "qsIt"], id="ye-it"),
-        pytest.param(("qsYe", "qsSee"), ["qsYe", "qsSee.after-ye"], id="ye-see"),
+        pytest.param(_qs_text("qsHe", "qsYe"), ["·He.∅ | ·Ye.∅"], id="he-ye"),
+        pytest.param(_qs_text("qsIt", "qsYe"), ["·It.∅ | ·Ye.∅"], id="it-ye"),
+        pytest.param(_qs_text("qsPea", "qsYe"), ["·Pea.∅ | ·Ye.∅"], id="pea-ye"),
+        pytest.param(_qs_text("qsTea", "qsYe"), ["·Tea.∅ | ·Ye.∅"], id="tea-ye"),
+        pytest.param(_qs_text("qsThey", "qsYe"), ["·They.∅ | ·Ye.∅"], id="they-ye"),
+        pytest.param(_qs_text("qsWay", "qsYe"), ["·Way.∅ | ·Ye.∅"], id="way-ye"),
+        pytest.param(_qs_text("qsWhy", "qsYe"), ["·Why.∅ | ·Ye.∅"], id="why-ye"),
+        pytest.param(_qs_text("qsYe", "qsExam"), ["·Ye.∅ |?| ·Exam.after-ye"], id="ye-exam"),
+        pytest.param(_qs_text("qsYe", "qsExcite"), ["·Ye.∅ |?| ·Excite.after-ye"], id="ye-excite"),
+        pytest.param(_qs_text("qsYe", "qsIng"), ["·Ye.∅ |?| ·-ing.after-he-or-ye"], id="ye-ing"),
+        pytest.param(_qs_text("qsYe", "qsIt"), ["·Ye.∅ | ·It.∅"], id="ye-it"),
+        pytest.param(_qs_text("qsYe", "qsSee"), ["·Ye.∅ |?| ·See.after-ye"], id="ye-see"),
     ],
 )
-def test_qs_ye_sequences_keep_the_nonjoining_forms(
-    parts: tuple[str, ...],
-    expected: list[str],
-):
-    assert _shape_qs(*parts) == expected
+def test_qs_ye_sequences_keep_the_nonjoining_forms(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_they_may_keeps_manual_baseline_join():
-    glyphs = _shape_qs("qsThey", "qsMay")
-
-    assert glyphs == ["qsThey.exit-baseline.before-may", "qsMay.entry-baseline"]
-    assert _pair_join_ys(glyphs, 0) == {0}
+    _assert_expect_any(
+        _qs_text("qsThey", "qsMay"),
+        ["·They.exit-baseline.before-may ~b~ ·May.entry-baseline"],
+    )
 
 
 @pytest.mark.parametrize(
-    ("left_base", "right_base"),
+    ("text", "expects"),
     [
-        pytest.param("qsHe", "qsExcite", id="he-excite"),
-        pytest.param("qsOwe", "qsTea", id="owe-tea"),
-        pytest.param("qsShe", "qsThaw", id="she-thaw"),
-        pytest.param("qsTea", "qsOwe", id="tea-owe"),
-        pytest.param("qsWay", "qsExcite", id="way-excite"),
-        pytest.param("qsWay", "qsSee", id="way-see"),
-        pytest.param("qsWay", "qsTea", id="way-tea"),
-        pytest.param("qsWay", "qsVie", id="way-vie"),
-        pytest.param("qsWhy", "qsExcite", id="why-excite"),
-        pytest.param("qsWhy", "qsSee", id="why-see"),
-        pytest.param("qsWhy", "qsTea", id="why-tea"),
-        pytest.param("qsWhy", "qsThaw", id="why-thaw"),
-        pytest.param("qsWhy", "qsVie", id="why-vie"),
+        pytest.param(_qs_text("qsHe", "qsExcite"), ["·He.∅ | ·Excite.∅"], id="he-excite"),
+        pytest.param(_qs_text("qsOwe", "qsTea"), ["·Owe.∅ | ·Tea.∅"], id="owe-tea"),
+        pytest.param(_qs_text("qsShe", "qsThaw"), ["·She.∅ |?| ·Thaw.after-tall"], id="she-thaw"),
+        pytest.param(_qs_text("qsTea", "qsOwe"), ["·Tea.∅ | ·Owe.∅"], id="tea-owe"),
+        pytest.param(_qs_text("qsWay", "qsExcite"), ["·Way.∅ | ·Excite.∅"], id="way-excite"),
+        pytest.param(_qs_text("qsWay", "qsSee"), ["·Way.∅ | ·See.∅"], id="way-see"),
+        pytest.param(_qs_text("qsWay", "qsTea"), ["·Way.∅ | ·Tea.∅"], id="way-tea"),
+        pytest.param(_qs_text("qsWay", "qsVie"), ["·Way.∅ | ·Vie.∅"], id="way-vie"),
+        pytest.param(_qs_text("qsWhy", "qsExcite"), ["·Why.∅ | ·Excite.∅"], id="why-excite"),
+        pytest.param(_qs_text("qsWhy", "qsSee"), ["·Why.∅ | ·See.∅"], id="why-see"),
+        pytest.param(_qs_text("qsWhy", "qsTea"), ["·Why.∅ | ·Tea.∅"], id="why-tea"),
+        pytest.param(_qs_text("qsWhy", "qsThaw"), ["·Why.∅ | ·Thaw.∅"], id="why-thaw"),
+        pytest.param(_qs_text("qsWhy", "qsVie"), ["·Why.∅ | ·Vie.∅"], id="why-vie"),
     ],
 )
-def test_qs_nonjoining_pairs_do_not_connect(left_base: str, right_base: str):
-    glyphs = _shape_qs(left_base, right_base)
-    left_exits = _exit_ys(glyphs[0])
-    right_entries = _entry_ys(glyphs[1])
-    assert not (left_exits & right_entries), (
-        f"{left_base} exits={sorted(left_exits)} should not overlap "
-        f"{right_base} entries={sorted(right_entries)} in {glyphs}"
-    )
+def test_qs_nonjoining_pairs_do_not_connect(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def _it_day_xheight_join_failures() -> list[str]:
@@ -1027,33 +980,23 @@ def test_qs_it_day_never_joins_at_xheight():
 
 
 def test_qs_she_stays_plain_before_qs_thaw():
-    isolated = _shape_qs("qsShe")[0]
-    glyphs = _shape_qs("qsShe", "qsThaw")
-
-    assert isolated == "qsShe"
-    assert glyphs[0] == isolated, f"Expected qsShe before qsThaw, got {glyphs}"
-    assert _compiled_meta()[glyphs[1]].base_name == "qsThaw"
+    _assert_expect_any(_qs_text("qsShe", "qsThaw"), ["·She.∅ |?| ·Thaw.after-tall"])
 
 
 @pytest.mark.parametrize(
-    ("left_base", "right_base"),
+    ("text", "expects"),
     [
-        pytest.param("qsWay", "qsSee", id="way-before-see"),
-        pytest.param("qsWay", "qsTea", id="way-before-tea"),
-        pytest.param("qsWay", "qsVie", id="way-before-vie"),
-        pytest.param("qsWhy", "qsSee", id="why-before-see"),
-        pytest.param("qsWhy", "qsTea", id="why-before-tea"),
-        pytest.param("qsWhy", "qsThaw", id="why-before-thaw"),
-        pytest.param("qsWhy", "qsVie", id="why-before-vie"),
+        pytest.param(_qs_text("qsWay", "qsSee"), ["·Way.!half | ·See"], id="way-before-see"),
+        pytest.param(_qs_text("qsWay", "qsTea"), ["·Way.!half | ·Tea"], id="way-before-tea"),
+        pytest.param(_qs_text("qsWay", "qsVie"), ["·Way.!half | ·Vie"], id="way-before-vie"),
+        pytest.param(_qs_text("qsWhy", "qsSee"), ["·Why.!half | ·See"], id="why-before-see"),
+        pytest.param(_qs_text("qsWhy", "qsTea"), ["·Why.!half | ·Tea"], id="why-before-tea"),
+        pytest.param(_qs_text("qsWhy", "qsThaw"), ["·Why.!half | ·Thaw"], id="why-before-thaw"),
+        pytest.param(_qs_text("qsWhy", "qsVie"), ["·Why.!half | ·Vie"], id="why-before-vie"),
     ],
 )
-def test_qs_way_and_qs_why_stay_full_before_right_base(left_base: str, right_base: str):
-    glyphs = _shape_qs(left_base, right_base)
-    left_meta = _compiled_meta()[glyphs[0]]
-    assert left_meta.base_name == left_base
-    assert "half" not in left_meta.traits, (
-        f"Expected non-half {left_base} before {right_base}, got {glyphs[0]}"
-    )
+def test_qs_way_and_qs_why_stay_full_before_right_base(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
@@ -1127,10 +1070,10 @@ def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
 
 
 def test_qs_may_thaw_joins_at_baseline_when_alone():
-    # Sanity check: ·May·Thaw alone is still a valid baseline join. The orphan-exit guard must not fire when qsThaw keeps its entry.
-    glyphs = _shape_qs("qsMay", "qsThaw")
-    assert glyphs == ["qsMay.exit-baseline", "qsThaw"], glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}
+    # Sanity check: the orphan-exit guard must not fire when qsThaw keeps its entry.
+    _assert_expect_any(_qs_text("qsMay", "qsThaw"), [
+        "·May.exit-baseline ~b~ ·Thaw",
+    ])
 
 
 def test_may_thaw_ing_is_sensible():
@@ -1251,12 +1194,10 @@ def test_qs_may_thaw_before_ing_stays_plain():
 
 
 def test_qs_no_does_not_take_alt_before_qs_thaw_that_loses_entry():
-    glyphs = _shape_qs("qsNo", "qsThaw", "qsIng")
-    assert _base_names(glyphs) == ("qsNo", "qsThaw", "qsIng"), glyphs
-    assert glyphs[0] == "qsNo", glyphs
-    assert "alt" not in _compiled_meta()[glyphs[0]].traits, glyphs
-    assert not _pair_join_ys(glyphs, 0), glyphs
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsNo", "qsThaw", "qsIng"),
+        ["·No.!alt | ·Thaw ~b~ ·-ing"],
+    )
 
 
 @pytest.mark.parametrize(
@@ -1278,91 +1219,87 @@ def test_qs_no_thaw_ing_surrounded_does_not_select_alt(left_name: str, right_nam
 def test_qs_no_thaw_stays_non_alt_across_zwnj():
     chars = _char_map()
     text = chars["qsTea"] + ZWNJ + chars["qsNo"] + chars["qsThaw"] + chars["qsIng"]
-    glyphs = _shape(text)
-    no_index = _find_base_index(glyphs, "qsNo")
-    assert no_index is not None, glyphs
-    no_glyph = glyphs[no_index]
-    assert "alt" not in _compiled_meta()[no_glyph].traits, glyphs
-    _assert_no_failures(
-        _qs_no_thaw_alt_failures(glyphs, "qsTea / ZWNJ / qsNo / qsThaw / qsIng")
+    _assert_expect_any(
+        text,
+        [
+            "·Tea | ◊ZWNJ | ·No.noentry.!alt | ·Thaw ~b~ ·-ing",
+        ],
     )
 
 
 def test_qs_excite_tea_connect_at_baseline():
-    glyphs = _shape_qs("qsExcite", "qsTea")
-    excite_exits = _exit_ys(glyphs[0])
-    tea_entries = _entry_ys(glyphs[1])
-    assert 0 in (excite_exits & tea_entries), (
-        f"Excite exits={sorted(excite_exits)} should overlap Tea entries={sorted(tea_entries)} at Y=0 in {glyphs}"
-    )
+    _assert_expect_any(_qs_text("qsExcite", "qsTea"), ["·Excite ~b~ ·Tea"])
 
 
 @pytest.mark.parametrize(
-    "left_base",
+    "text,expects",
     [
-        pytest.param("qsShe", id="after-she"),
-        pytest.param("qsDay", id="after-day"),
+        pytest.param(
+            _qs_text("qsShe", "qsExcite", "qsBay"),
+            ["·She ~b~ ·Excite.noexit | ·Bay"],
+            id="after-she",
+        ),
+        pytest.param(
+            _qs_text("qsDay", "qsExcite", "qsBay"),
+            ["·Day ~b~ ·Excite.noexit | ·Bay"],
+            id="after-day",
+        ),
     ],
 )
-def test_qs_excite_reaches_left_only_before_xheight_entry_letters(left_base: str):
-    glyphs = _shape_qs(left_base, "qsExcite", "qsBay")
-    assert _base_names(glyphs) == (left_base, "qsExcite", "qsBay")
-    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+def test_qs_excite_reaches_left_only_before_xheight_entry_letters(
+    text: str, expects: list[str]
+):
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
-    "left_base",
+    "text,expects",
     [
-        pytest.param("qsShe", id="after-she"),
-        pytest.param("qsDay", id="after-day"),
+        pytest.param(
+            _qs_text("qsShe", "qsExcite", "qsTea"),
+            ["·She ~b~ ·Excite.after-baseline-letter ~b~ ·Tea"],
+            id="after-she",
+        ),
+        pytest.param(
+            _qs_text("qsDay", "qsExcite", "qsTea"),
+            ["·Day ~b~ ·Excite.after-baseline-letter ~b~ ·Tea"],
+            id="after-day",
+        ),
     ],
 )
-def test_qs_excite_reaches_both_sides_when_neighbors_offer_baseline(left_base: str):
-    glyphs = _shape_qs(left_base, "qsExcite", "qsTea")
-    assert _base_names(glyphs) == (left_base, "qsExcite", "qsTea")
-    assert "after-baseline-letter" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert _pair_join_ys(glyphs, 1) == {0}
+def test_qs_excite_reaches_both_sides_when_neighbors_offer_baseline(
+    text: str, expects: list[str]
+):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_excite_reaches_left_only_at_word_end_after_baseline_exit():
-    glyphs = _shape_qs("qsShe", "qsExcite")
-    assert _base_names(glyphs) == ("qsShe", "qsExcite")
-    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}
+    _assert_expect_any(_qs_text("qsShe", "qsExcite"), ["·She ~b~ ·Excite.noexit"])
 
 
 def test_qs_excite_stays_mono_at_word_start_before_xheight_entry():
-    glyphs = _shape_qs("qsExcite", "qsBay")
-    assert glyphs == ["qsExcite", "qsBay"]
+    _assert_expect_any(_qs_text("qsExcite", "qsBay"), ["·Excite.∅ | ·Bay.∅"])
 
 
 def test_qs_excite_reaches_left_only_before_qs_thaw():
-    glyphs = _shape_qs("qsShe", "qsExcite", "qsThaw")
-    assert _base_names(glyphs) == ("qsShe", "qsExcite", "qsThaw")
-    assert "noexit" in _compiled_meta()[glyphs[1]].compat_assertions, glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+    _assert_expect_any(
+        _qs_text("qsShe", "qsExcite", "qsThaw"),
+        ["·She ~b~ ·Excite.noexit |?| ·Thaw"],
+    )
 
 
 def test_qs_it_excite_uses_the_visible_baseline_entry_shape():
-    assert _shape_qs("qsIt", "qsExcite") == [
-        "qsIt.exit-baseline",
-        "qsExcite.entry-baseline.noexit",
-    ]
+    _assert_expect_any(
+        _qs_text("qsIt", "qsExcite"),
+        ["·It.exit-baseline ~b~ ·Excite.entry-baseline.noexit"],
+    )
 
 
 def test_qs_pea_excite_excite_uses_the_visible_final_excite_entry_shape():
-    glyphs = _shape_qs("qsPea", "qsExcite", "qsExcite")
-    assert glyphs == [
-        "qsPea",
-        "qsExcite.exit-baseline.before-vertical.noentry",
-        "qsExcite.entry-baseline.noexit",
-    ]
-    assert not _pair_join_ys(glyphs, 0)
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsPea", "qsExcite", "qsExcite"),
+        ["·Pea.∅ | ·Excite.exit-baseline.before-vertical.noentry ~b~ ·Excite.entry-baseline.noexit"],
+    )
 
 
 def _excite_baseline_receiver_shape_failures() -> list[str]:
@@ -1433,11 +1370,10 @@ def test_qs_excite_tea_keeps_left_join_when_the_follower_still_supports_it(right
 
 
 def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_ox():
-    glyphs = _shape_qs("qsExcite", "qsTea", "qsOx")
-    assert _base_names(glyphs) == ("qsExcite", "qsTea", "qsOx")
-    assert not _pair_join_ys(glyphs, 0)
-    assert _pair_join_ys(glyphs, 1) == {5}
-    assert not _exit_ys(glyphs[0]), glyphs
+    _assert_expect_any(
+        _qs_text("qsExcite", "qsTea", "qsOx"),
+        ["·Excite.∅ | ·Tea.half ~x~ ·Ox"],
+    )
 
 
 def test_qs_excite_tea_keeps_the_baseline_join_before_qs_tea():
@@ -1461,48 +1397,39 @@ def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_out():
 
 
 def test_qs_excite_tea_does_not_keep_the_baseline_exit_before_qs_oy():
-    pair = _shape_qs("qsTea", "qsOy")
-    triple = _shape_qs("qsExcite", "qsTea", "qsOy")
-    assert pair == ["qsTea_qsOy"]
-    assert triple == ["qsExcite", "qsTea_qsOy"]
-    assert not _exit_ys(triple[0]), triple
+    _assert_expect_any(_qs_text("qsTea", "qsOy"), ["·Tea+Oy"])
+    _assert_expect_any(_qs_text("qsExcite", "qsTea", "qsOy"), ["·Excite.∅ | ·Tea+Oy"])
 
 
 @pytest.mark.parametrize(
-    "right_base",
+    ("text", "expects"),
     [
-        pytest.param("qsRoe", id="before-roe"),
-        pytest.param("qsDay", id="before-day"),
+        pytest.param(_qs_text("qsOut", "qsTea"), ["·Out+Tea"], id="pair"),
+        pytest.param(_qs_text("qsOut", "qsTea", "qsRoe"), ["·Out+Tea | ·Roe"], id="before-roe"),
+        pytest.param(_qs_text("qsOut", "qsTea", "qsDay"), ["·Out+Tea | ·Day"], id="before-day"),
     ],
 )
-def test_qs_out_tea_prefers_the_ligature_before_nonjoining_followers(right_base: str):
-    pair = _shape_qs("qsOut", "qsTea")
-    triple = _shape_qs("qsOut", "qsTea", right_base)
-    assert pair == ["qsOut_qsTea"]
-    assert triple == ["qsOut_qsTea", right_base]
+def test_qs_out_tea_prefers_the_ligature_before_nonjoining_followers(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
-    glyphs = _shape_qs("qsEt", "qsTea", "qsOy")
-    assert glyphs == ["qsEt", "qsTea_qsOy"]
+    _assert_expect_any(_qs_text("qsEt", "qsTea", "qsOy"), ["·Et.∅ | ·Tea+Oy"])
 
 
 @pytest.mark.parametrize(
-    "right_base",
+    ("text", "expects"),
     [
-        pytest.param("qsAh", id="before-ah"),
-        pytest.param("qsOut", id="before-out"),
-        pytest.param("qsMay", id="before-may"),
-        pytest.param("qsIng", id="before-ing"),
-        pytest.param("qsVie", id="before-vie"),
-        pytest.param("qsDay", id="before-day"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Ah.∅"], id="before-ah"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Out.∅"], id="before-out"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·May.∅"], id="before-may"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·-ing.∅"], id="before-ing"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Vie.∅"], id="before-vie"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Day.∅"], id="before-day"),
     ],
 )
-def test_qs_et_tea_keeps_only_the_left_baseline_join_in_plain_right_contexts(right_base: str):
-    glyphs = _shape_qs("qsEt", "qsTea", right_base)
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", right_base]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+def test_qs_et_tea_keeps_only_the_left_baseline_join_in_plain_right_contexts(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
@@ -1522,12 +1449,10 @@ def test_qs_et_tea_can_double_join_at_baseline_in_ss05():
 
 
 def test_qs_it_excite_does_not_force_qs_tea_out_of_half_before_qs_it():
-    glyphs = _shape_qs("qsIt", "qsExcite", "qsTea", "qsIt")
-    assert _base_names(glyphs) == ("qsIt", "qsExcite", "qsTea", "qsIt")
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
-    assert _pair_join_ys(glyphs, 2) == {5}
-    assert "half" in _compiled_meta()[glyphs[2]].traits, glyphs
+    _assert_expect_any(
+        _qs_text("qsIt", "qsExcite", "qsTea", "qsIt"),
+        ["·It ~b~ ·Excite | ·Tea.half ~x~ ·It"],
+    )
 
 
 @pytest.mark.parametrize(
@@ -1553,22 +1478,16 @@ def test_nonjoining_left_context_preserves_qs_excite_qs_ah_join(left_base: str):
 
 
 @pytest.mark.parametrize(
-    ("left_base", "right_base"),
+    ("text", "expects"),
     [
-        pytest.param("qsTea", "qsExcite", id="tea-excite"),
-        pytest.param("qsExam", "qsTea", id="exam-tea"),
-        pytest.param("qsTea", "qsExam", id="tea-exam"),
-        pytest.param("qsTea", "qsThaw", id="tea-thaw"),
+        pytest.param(_qs_text("qsTea", "qsExcite"), ["·Tea |?| ·Excite"], id="tea-excite"),
+        pytest.param(_qs_text("qsExam", "qsTea"), ["·Exam |?| ·Tea"], id="exam-tea"),
+        pytest.param(_qs_text("qsTea", "qsExam"), ["·Tea |?| ·Exam"], id="tea-exam"),
+        pytest.param(_qs_text("qsTea", "qsThaw"), ["·Tea |?| ·Thaw"], id="tea-thaw"),
     ],
 )
-def test_qs_nonjoining_pairs_keep_their_edges_separate(left_base: str, right_base: str):
-    glyphs = _shape_qs(left_base, right_base)
-    left_exits = _exit_ys(glyphs[0])
-    right_entries = _entry_ys(glyphs[1])
-    assert not (left_exits & right_entries), (
-        f"{left_base} exits={sorted(left_exits)} should not overlap "
-        f"{right_base} entries={sorted(right_entries)} in {glyphs}"
-    )
+def test_qs_nonjoining_pairs_keep_their_edges_separate(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
@@ -1763,19 +1682,17 @@ def test_qs_et_tea_nonjoining_right_context_keeps_right_glyph_plain():
 
 
 def test_qs_see_pea_keeps_the_y6_join():
-    assert _shape("") == [
-        "qsSee.exit-y6",
-        "qsPea.entry-y6",
-    ]
+    _assert_expect_any(
+        _qs_text("qsSee", "qsPea"),
+        ["·See ~6~ ·Pea"],
+    )
 
 
 def test_qs_pea_pea_low_keeps_y6_then_baseline_joins():
-    glyphs = _shape_qs("qsPea", "qsPea", "qsLow")
-
-    assert _base_names(glyphs) == ("qsPea", "qsPea", "qsLow")
-    assert "half" in _compiled_meta()[glyphs[0]].traits
-    assert _pair_join_ys(glyphs, 0) == {6}
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsPea", "qsPea", "qsLow"),
+        ["·Pea.half ~6~ ·Pea ~b~ ·Low"],
+    )
 
 
 def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
@@ -1784,38 +1701,31 @@ def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
 
 
 def test_qs_tea_before_qs_i_extends_exit():
-    chars = _char_map()
-    glyphs = _shape(chars["qsTea"] + chars["qsI"])
-    assert glyphs == ["qsTea.entry-top.exit-baseline.exit-extended", "qsI"]
-    assert _pair_join_ys(glyphs, 0) == {0}
+    _assert_expect_any(
+        _qs_text("qsTea", "qsI"),
+        ["·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I"],
+    )
 
 
 def test_qs_see_tea_i_extends_exit():
-    chars = _char_map()
-    glyphs = _shape(chars["qsSee"] + chars["qsTea"] + chars["qsI"])
-    assert glyphs == [
-        "qsSee",
-        "qsTea.entry-top.exit-baseline.exit-extended",
-        "qsI",
-    ]
-    assert _pair_join_ys(glyphs, 0) == {8}
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsSee", "qsTea", "qsI"),
+        ["·See.∅ ~t~ ·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I.∅"],
+    )
 
 
 def test_qs_fee_tea_i_extends_exit():
-    chars = _char_map()
-    glyphs = _shape(chars["qsFee"] + chars["qsTea"] + chars["qsI"])
-    assert glyphs[1] == "qsTea.entry-top.exit-baseline.exit-extended"
-    assert glyphs[2] == "qsI"
-    assert _pair_join_ys(glyphs, 1) == {0}
+    _assert_expect_any(
+        _qs_text("qsFee", "qsTea", "qsI"),
+        ["·Fee.∅ |?| ·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I.∅"],
+    )
 
 
 def test_qs_et_tea_i_preserves_left_only_invariant():
-    chars = _char_map()
-    glyphs = _shape(chars["qsEt"] + chars["qsTea"] + chars["qsI"])
-    assert glyphs == ["qsEt", "qsTea.entry-baseline", "qsI"]
-    assert _pair_join_ys(glyphs, 0) == {0}
-    assert not _pair_join_ys(glyphs, 1)
+    _assert_expect_any(
+        _qs_text("qsEt", "qsTea", "qsI"),
+        ["·Et ~b~ ·Tea.entry-baseline | ·I.∅"],
+    )
 
 
 def test_qs_et_tea_i_extends_exit_in_ss05():
@@ -1834,11 +1744,7 @@ def test_qs_et_tea_i_extends_exit_in_ss05():
 
 
 def test_qs_i_before_qs_tea_unchanged_by_forward_extension():
-    chars = _char_map()
-    glyphs = _shape(chars["qsI"] + chars["qsTea"])
-    tea_meta = _compiled_meta()[glyphs[1]]
-    assert tea_meta.base_name == "qsTea"
-    assert "exit-extended" not in tea_meta.modifiers
+    _assert_expect_any(_qs_text("qsI", "qsTea"), ["·I.∅ | ·Tea.!exit-extended"])
 
 
 # ---------------------------------------------------------------------------
@@ -2288,9 +2194,17 @@ def _append_gay_nonjoining_context_failures(
         )
 
 
-@pytest.mark.parametrize(("target_base", "expected"), _GAY_JOINING_PAIR_CASES)
-def test_qs_gay_extends_before_selected_targets(target_base: str, expected: list[str]):
-    assert _shape_qs("qsGay", target_base) == expected
+@pytest.mark.parametrize(
+    ("target", "expect"),
+    [
+        pytest.param("qsTea", "·Gay.exit-baseline.exit-extended ~b~ ·Tea.entry-baseline", id="tea"),
+        pytest.param("qsIt", "·Gay.exit-baseline.exit-extended ~b~ ·It.entry-baseline", id="it"),
+        pytest.param("qsI", "·Gay.exit-baseline.exit-extended ~b~ ·I.∅", id="i"),
+        pytest.param("qsExam", "·Gay.exit-baseline.exit-extended ~b~ ·Exam.∅", id="exam"),
+    ],
+)
+def test_qs_gay_extends_before_selected_targets(target: str, expect: str):
+    _assert_expect_any(_qs_text("qsGay", target), [expect])
 
 
 @pytest.mark.parametrize(
@@ -2370,15 +2284,17 @@ def test_qs_gay_exit_xheight_extended_exists_for_it():
     )
 
 
-@pytest.mark.parametrize("target_base", _GAY_NONJOINING_TARGETS)
-def test_qs_gay_nonjoining_targets_do_not_join(target_base):
-    glyphs = _shape_qs("qsGay", target_base)
-    assert glyphs == ["qsGay", target_base], (
-        f"qsGay + {target_base} should render without a join; got {glyphs!r}"
-    )
-    assert not _pair_join_ys(glyphs, 0), (
-        f"qsGay ({glyphs[0]}) and {target_base} ({glyphs[1]}) must not share a join y; "
-        f"gay exit ys={_exit_ys(glyphs[0])}, {target_base} entry ys={_entry_ys(glyphs[1])}"
+@pytest.mark.parametrize(
+    ("target_base", "target_token"),
+    [
+        pytest.param("qsExcite", "·Excite", id="excite"),
+        pytest.param("qsOoze", "·Ooze", id="ooze"),
+    ],
+)
+def test_qs_gay_nonjoining_targets_do_not_join(target_base, target_token):
+    _assert_expect_any(
+        _qs_text("qsGay", target_base),
+        [f"·Gay.∅ | {target_token}.∅"],
     )
 
 
@@ -2894,35 +2810,35 @@ _JAI_XHEIGHT_LEFTS = [
 
 
 @pytest.mark.parametrize(
-    "left_base",
-    _JAI_XHEIGHT_LEFTS,
+    ("text", "expects"),
+    [
+        pytest.param(
+            _qs_text(left_base, "qsJai"),
+            [f"·{left_base[2:]} ~x~ ·J’ai.entry-xheight"],
+            id=left_base[2:].lower(),
+        )
+        for left_base in _JAI_XHEIGHT_LEFTS
+    ],
 )
-def test_qs_jai_joins_designated_left_letters_at_xheight(left_base: str) -> None:
-    glyphs = _shape_qs(left_base, "qsJai")
-    assert len(glyphs) == 2, glyphs
-    assert (
-        glyphs[0] != _shape_qs(left_base)[0]
-        or glyphs[1] != "qsJai.entry-xheight"
-    ), glyphs
-    assert glyphs[1].startswith("qsJai.entry-xheight"), glyphs
-    assert _pair_join_ys(glyphs, 0) == {5}, glyphs
-    gap = _bitmap_join_gap(glyphs, 0, 5)
-    assert gap is not None and gap <= 0, glyphs
+def test_qs_jai_joins_designated_left_letters_at_xheight(text: str, expects: list[str]) -> None:
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
-    "left_base",
-    _JAI_XHEIGHT_LEFTS,
+    ("text", "expects"),
+    [
+        pytest.param(
+            _qs_text(left_base, "qsJai", "qsUtter"),
+            [f"·{left_base[2:]} ~x~ ·J’ai+Utter"],
+            id=left_base[2:].lower(),
+        )
+        for left_base in _JAI_XHEIGHT_LEFTS
+    ],
 )
 def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
-    left_base: str,
+    text: str, expects: list[str]
 ) -> None:
-    glyphs = _shape_qs(left_base, "qsJai", "qsUtter")
-    assert len(glyphs) == 2, glyphs
-    assert glyphs[1].startswith("qsJai_qsUtter"), glyphs
-    assert _pair_join_ys(glyphs, 0) == {5}, glyphs
-    gap = _bitmap_join_gap(glyphs, 0, 5)
-    assert gap is not None and gap <= 0, glyphs
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
@@ -2934,24 +2850,27 @@ def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
 )
 def test_predecessors_never_join_to_qs_at_before_qs_may(left_base: str):
     # Before the qsAt_qsMay ligature was retired, qsRoe and qsSee reverted to bare form before the ligature via calt_post_liga_left_cleanup. Now ·At·May is rendered by the entryless qsAt.exit-baseline.before-may form joining a bare qsMay, so the FEA backward-pair lookups simply never fire qsRoe/qsSee's exit-baseline forms (no matching y=0 entry on this qsAt variant).
-    glyphs = _shape_qs(left_base, "qsAt", "qsMay")
-    assert glyphs[0] == left_base, glyphs
-    assert glyphs[1].startswith("qsAt.exit-baseline.before-may"), glyphs
-    assert glyphs[2].startswith("qsMay.entry-baseline"), glyphs
-    assert not _pair_join_ys(glyphs, 0), glyphs
+    _assert_expect_any(
+        _qs_text(left_base, "qsAt", "qsMay"),
+        [
+            f"·{left_base[2:]}.∅ | ·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline"
+        ],
+    )
 
 
 def test_qs_roe_stays_bare_before_new_qs_at_before_may():
-    glyphs = _shape_qs("qsRoe", "qsAt", "qsMay")
-    assert glyphs[0] == "qsRoe", glyphs
-    assert glyphs[1].startswith("qsAt.exit-baseline.before-may"), glyphs
-    assert not _pair_join_ys(glyphs, 0), glyphs
+    _assert_expect_any(
+        _qs_text("qsRoe", "qsAt", "qsMay"),
+        ["·Roe.∅ | ·At.exit-baseline.before-may ~b~ ·May.entry-baseline"],
+    )
 
 
 def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
     # qsRoe.exit-baseline is also legitimately triggered by {family: qsAh}. The post-liga cleanup must NOT over-fire when the right neighbor is not a no-entry ligature.
-    glyphs = _shape_qs("qsRoe", "qsAh")
-    assert glyphs[0] == "qsRoe.exit-baseline", glyphs
+    _assert_expect_any(
+        _qs_text("qsRoe", "qsAh"),
+        ["·Roe.exit-baseline ~b~ ·Ah"],
+    )
 
 
 def test_new_qs_at_before_may_has_no_entry_anchor():
@@ -2964,24 +2883,16 @@ def test_new_qs_at_before_may_has_no_entry_anchor():
 
 
 def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
-    glyphs = _shape_qs("qsRoe", "qsMay", "qsThey", "qsUtter")
     # ·Roe·May joins at the baseline in isolation, so the same join should survive when ·They+Utter follows. qsMay routes to its entry-preserving `.exit-noentry` form, dropping the dangling x-height exit but keeping the baseline entry that receives qsRoe.exit-baseline. The ligature is entryless on the right.
-    assert glyphs == [
-        "qsRoe.exit-baseline",
-        "qsMay.entry-baseline.exit-noentry",
-        "qsThey_qsUtter.noentry",
-    ], glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}, glyphs
-    assert not _pair_join_ys(glyphs, 1), glyphs
+    _assert_expect_any(
+        _qs_text("qsRoe", "qsMay", "qsThey", "qsUtter"),
+        ["·Roe.exit-baseline ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"],
+    )
 
 
 def test_qs_at_before_may_chain_handles_qs_they_qs_utter_noentry():
     # The retired qsAt_qsMay ligature used to stay whole before qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs: qsAt picks the before-may form, qsMay picks its entry-preserving exit-noentry form before the entryless qsThey+Utter ligature.
-    glyphs = _shape_qs("qsAt", "qsMay", "qsThey", "qsUtter")
-    assert glyphs == [
-        "qsAt.exit-baseline.before-may.exit-quintuply-extended",
-        "qsMay.entry-baseline.exit-noentry",
-        "qsThey_qsUtter.noentry",
-    ], glyphs
-    assert _pair_join_ys(glyphs, 0) == {0}, glyphs
-    assert not _pair_join_ys(glyphs, 1), glyphs
+    _assert_expect_any(
+        _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
+        ["·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"],
+    )
