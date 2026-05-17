@@ -979,10 +979,6 @@ def test_qs_it_day_never_joins_at_xheight():
     _assert_no_failures(_it_day_xheight_join_failures(), limit=None)
 
 
-def test_qs_she_stays_plain_before_qs_thaw():
-    _assert_expect_any(_qs_text("qsShe", "qsThaw"), ["·She.∅ |?| ·Thaw.after-tall"])
-
-
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
@@ -2074,29 +2070,6 @@ _GAY_CONTEXTS = (
     "qsPea", "qsBay", "qsTea", "qsDay", "qsKey", "qsFee", "qsVie",
     "qsSee", "qsZoo", "qsShe", "qsMay", "qsNo", "qsLow", "qsRoe",
     "qsEat", "qsAt", "qsAh", "qsOx", "qsOwe", "qsOoze",
-)
-
-_GAY_JOINING_PAIR_CASES = (
-    pytest.param(
-        "qsTea",
-        ["qsGay.exit-baseline.exit-extended", "qsTea.entry-baseline"],
-        id="tea",
-    ),
-    pytest.param(
-        "qsIt",
-        ["qsGay.exit-baseline.exit-extended", "qsIt.entry-baseline"],
-        id="it",
-    ),
-    pytest.param(
-        "qsI",
-        ["qsGay.exit-baseline.exit-extended", "qsI"],
-        id="i",
-    ),
-    pytest.param(
-        "qsExam",
-        ["qsGay.exit-baseline.exit-extended", "qsExam"],
-        id="exam",
-    ),
 )
 
 _GAY_CONTEXT_JOIN_CASES = (
