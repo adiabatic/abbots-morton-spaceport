@@ -17,6 +17,9 @@ dev = [
     "pyright>=1.1.408",
 ]
 
+[tool.black]
+target-version = ["py314"]
+
 [tool.pyright]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
