@@ -1,5 +1,5 @@
 import sys
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 import uharfbuzz as hb
@@ -19,7 +19,7 @@ from glyph_compiler import compile_glyph_set
 from quikscript_ir import JoinGlyph
 
 
-@lru_cache(maxsize=1)
+@cache
 def _font() -> hb.Font:
     blob = hb.Blob.from_file_path(str(FONT_PATH))
     face = hb.Face(blob)
@@ -49,20 +49,20 @@ def _shape_with_features(
     return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
 
 
-@lru_cache(maxsize=1)
+@cache
 def _compiled_meta() -> dict[str, JoinGlyph]:
     data = load_glyph_data(ROOT / "glyph_data")
     return compile_glyph_set(data, "senior").glyph_meta
 
 
-@lru_cache(maxsize=1)
+@cache
 def _char_map() -> dict[str, str]:
     with PS_NAMES_PATH.open() as f:
         ps_names = yaml.safe_load(f)
     return {name: chr(codepoint) for name, codepoint in ps_names.items()}
 
 
-@lru_cache(maxsize=1)
+@cache
 def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     chars = _char_map()
     names = [
@@ -156,7 +156,7 @@ def _assert_join_preserved(
     )
 
 
-@lru_cache(maxsize=1)
+@cache
 def _senior_shaping_env() -> tuple[dict, dict, dict]:
     from test_shaping import build_anchor_map
 

@@ -1,4 +1,4 @@
-from functools import lru_cache
+from functools import cache
 
 import pytest
 
@@ -647,7 +647,7 @@ def test_qs_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
     )
 
 
-@lru_cache(maxsize=1)
+@cache
 def _two_component_ligatures() -> tuple[tuple[str, tuple[str, str]], ...]:
     meta_map = _compiled_meta()
     out: list[tuple[str, tuple[str, str]]] = []

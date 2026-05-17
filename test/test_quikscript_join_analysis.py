@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 
-from functools import lru_cache
+from functools import cache
 
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
@@ -40,7 +40,7 @@ def _validate_synthetic(glyph_meta: Mapping[str, JoinGlyph]) -> None:
         validate_join_consistency(glyph_meta)
 
 
-@lru_cache(maxsize=1)
+@cache
 def _real_join_glyphs() -> dict[str, JoinGlyph]:
     data = load_glyph_data(ROOT / "glyph_data")
     return compile_glyph_set(data, "senior").glyph_meta
