@@ -1241,18 +1241,9 @@ def test_qs_may_thaw_stays_isolated_across_zwnj():
     )
 
 
-@pytest.mark.parametrize(
-    "ing_variant",
-    [
-        pytest.param("qsIng", id="plain-ing"),
-    ],
-)
-def test_qs_may_thaw_before_ing_variants_stays_plain(ing_variant: str):
-    # Every variant of qsIng that triggers qsThaw's forward sub must keep qsMay on the exact base glyph.
-    chars = _char_map()
-    text = chars["qsMay"] + chars["qsThaw"] + chars[ing_variant]
+def test_qs_may_thaw_before_ing_stays_plain():
     _assert_expect_any(
-        text,
+        "",
         [
             "·May.∅ | ·Thaw ~b~ ·-ing",
         ],
