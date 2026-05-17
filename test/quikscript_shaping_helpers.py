@@ -8,7 +8,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
-ZWNJ = "\u200C"
+ZWNJ = "\u200c"
 
 TOOLS_PATH = str(ROOT / "tools")
 if TOOLS_PATH not in sys.path:
@@ -48,10 +48,7 @@ def _shape_with_clusters(text: str) -> tuple[tuple[str, int], ...]:
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf)
-    return tuple(
-        (font.glyph_to_string(info.codepoint), info.cluster)
-        for info in buf.glyph_infos
-    )
+    return tuple((font.glyph_to_string(info.codepoint), info.cluster) for info in buf.glyph_infos)
 
 
 @lru_cache(maxsize=None)
@@ -84,7 +81,8 @@ def _char_map() -> dict[str, str]:
 def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     chars = _char_map()
     names = [
-        name for name in sorted(chars)
+        name
+        for name in sorted(chars)
         if name.startswith("qs")
         and "_" not in name
         and "." not in name
@@ -200,13 +198,14 @@ def _assert_expect_any(text: str, expects: list[str]) -> None:
     for expect in expects:
         try:
             run_shaping_test_runs(
-                fonts, anchor_maps, runs, expect,
+                fonts,
+                anchor_maps,
+                runs,
+                expect,
                 base_potential_entries=potentials,
             )
             return
         except AssertionError as exc:
             errors.append(f"  {expect!r}: {exc}")
     joined = "\n".join(errors)
-    raise AssertionError(
-        f"No candidate data-expect matched shaping of {text!r}:\n{joined}"
-    )
+    raise AssertionError(f"No candidate data-expect matched shaping of {text!r}:\n{joined}")

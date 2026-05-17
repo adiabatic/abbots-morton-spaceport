@@ -75,6 +75,7 @@ class FwdStripGuard:
     Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base
     skip on a per-(source, variant, exit_y) basis without the over-suppression
     that an unconditional relaxation would cause."""
+
     mid_base: str
 
 
@@ -87,9 +88,7 @@ class _PairIntent:
 
 
 # Authoritative override of structural derivation. The structural pass in `_collect_guards` cannot yet (a) emit guard entries keyed on the bare base `qsTea` (its own `all_entry_ys` is empty; entries live on family variants) nor (b) infer the multi-step right-context narrowings on `qsExcite.exit-baseline.before-vertical` that the runtime emitter relies on. Until those gaps close, `derive_pending_*` returns these tables verbatim — the structural pass still runs as a sanity layer (the `test_structural_*_guards_cover_coverable_residual` tests in `test/test_quikscript_join_analysis.py` enforce that every residual entry the structural pass *can* in principle cover is in fact covered) but the override pins the public output to byte-for-byte parity with the runtime emitter's prior behavior. Once the structural pass tightens, remove this override in favor of pure derivation.
-_RESIDUAL_BK_GUARDS: dict[
-    tuple[str, str, int], tuple[DerivedBkGuard, ...]
-] = {
+_RESIDUAL_BK_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea.exit-baseline", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
@@ -132,9 +131,7 @@ _RESIDUAL_BK_GUARDS: dict[
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
-_RESIDUAL_LIGA_GUARDS: dict[
-    tuple[str, str, int], tuple[DerivedBkGuard, ...]
-] = {
+_RESIDUAL_LIGA_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea_qsOy", 0): (
         DerivedBkGuard(
             ("qsExcite.exit-baseline.before-vertical",),
@@ -157,32 +154,22 @@ class JoinReachability:
     bk_replacements: Mapping[str, Mapping[int, str]]
     pair_overrides: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]]
     fwd_replacements: Mapping[str, Mapping[int, str]]
-    fwd_pair_overrides: Mapping[
-        str, tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]
-    ]
+    fwd_pair_overrides: Mapping[str, tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...]]
     gated_pair_overrides: Mapping[str, tuple[tuple[str, tuple[str, ...], str], ...]]
-    gated_fwd_pair_overrides: Mapping[
-        str, tuple[tuple[str, tuple[str, ...], tuple[str, ...], str], ...]
-    ]
+    gated_fwd_pair_overrides: Mapping[str, tuple[tuple[str, tuple[str, ...], tuple[str, ...], str], ...]]
     ligatures: tuple[tuple[str, tuple[str, ...]], ...]
     word_final_pairs: Mapping[str, str]
     entry_classes: Mapping[int, frozenset[str]]
 
     @classmethod
-    def from_join_glyphs(
-        cls, glyph_meta: Mapping[str, JoinGlyph]
-    ) -> "JoinReachability":
+    def from_join_glyphs(cls, glyph_meta: Mapping[str, JoinGlyph]) -> "JoinReachability":
         base_to_variants_buf: dict[str, set[str]] = {}
         bk_replacements_buf: dict[str, dict[int, str]] = {}
         pair_overrides_buf: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
         fwd_replacements_buf: dict[str, dict[int, str]] = {}
-        fwd_pair_overrides_buf: dict[
-            str, list[tuple[str, tuple[str, ...], tuple[str, ...]]]
-        ] = {}
+        fwd_pair_overrides_buf: dict[str, list[tuple[str, tuple[str, ...], tuple[str, ...]]]] = {}
         gated_pair_overrides_buf: dict[str, list[tuple[str, tuple[str, ...], str]]] = {}
-        gated_fwd_pair_overrides_buf: dict[
-            str, list[tuple[str, tuple[str, ...], tuple[str, ...], str]]
-        ] = {}
+        gated_fwd_pair_overrides_buf: dict[str, list[tuple[str, tuple[str, ...], tuple[str, ...], str]]] = {}
         ligatures_buf: list[tuple[str, tuple[str, ...]]] = []
         word_final_pairs_buf: dict[str, str] = {}
         entry_classes_buf: dict[int, set[str]] = {}
@@ -195,9 +182,7 @@ class JoinReachability:
                     entry_classes_buf.setdefault(anchor[1], set()).add(glyph_name)
                 if not meta.after:
                     entry_y = meta.entry[0][1]
-                    bk_replacements_buf.setdefault(meta.base_name, {}).setdefault(
-                        entry_y, glyph_name
-                    )
+                    bk_replacements_buf.setdefault(meta.base_name, {}).setdefault(entry_y, glyph_name)
 
             if meta.after:
                 after = tuple(meta.after)
@@ -206,15 +191,11 @@ class JoinReachability:
                         (glyph_name, after, meta.gate_feature)
                     )
                 else:
-                    pair_overrides_buf.setdefault(meta.base_name, []).append(
-                        (glyph_name, after)
-                    )
+                    pair_overrides_buf.setdefault(meta.base_name, []).append((glyph_name, after))
 
             if meta.exit and not meta.before:
                 exit_y = meta.exit[0][1]
-                fwd_replacements_buf.setdefault(meta.base_name, {}).setdefault(
-                    exit_y, glyph_name
-                )
+                fwd_replacements_buf.setdefault(meta.base_name, {}).setdefault(exit_y, glyph_name)
 
             if meta.before:
                 before = tuple(meta.before)
@@ -259,9 +240,7 @@ class JoinReachability:
             ),
             ligatures=tuple(ligatures_buf),
             word_final_pairs=MappingProxyType(dict(word_final_pairs_buf)),
-            entry_classes=MappingProxyType(
-                {y: frozenset(names) for y, names in entry_classes_buf.items()}
-            ),
+            entry_classes=MappingProxyType({y: frozenset(names) for y, names in entry_classes_buf.items()}),
         )
 
 
@@ -280,10 +259,7 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     """
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
     glyph_meta_dict = dict(reachability.glyph_meta)
-    base_to_variants_dict = {
-        base: set(variants)
-        for base, variants in reachability.base_to_variants.items()
-    }
+    base_to_variants_dict = {base: set(variants) for base, variants in reachability.base_to_variants.items()}
 
     errors: list[str] = []
     _check_join_consistency(
@@ -304,10 +280,7 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     _check_concrete_selector_consistency(glyph_meta_dict, errors)
     _warn_orphans(reachability)
     if errors:
-        raise ValueError(
-            "Join consistency mismatches:\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
+        raise ValueError("Join consistency mismatches:\n" + "\n".join(f"  - {e}" for e in errors))
 
 
 def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ...]:
@@ -332,9 +305,7 @@ def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ..
             coverage_backward_intents,
         )
     )
-    warnings.extend(
-        _collect_bitmap_gap_warnings(reachability, forward_intents, backward_intents)
-    )
+    warnings.extend(_collect_bitmap_gap_warnings(reachability, forward_intents, backward_intents))
     warnings.extend(_collect_noentry_shape_leak_warnings(reachability))
     return tuple(sorted(dict.fromkeys(warnings)))
 
@@ -428,13 +399,10 @@ def _has_default_join_coverage(
             continue
         if selectors:
             continue
-        if any(
-            _resolve_family(reachability, n) == opposite_family for n in negated
-        ):
+        if any(_resolve_family(reachability, n) == opposite_family for n in negated):
             continue
         if direction == "entry" and any(
-            _resolve_family(reachability, n) == opposite_family
-            for n in meta.noentry_after
+            _resolve_family(reachability, n) == opposite_family for n in meta.noentry_after
         ):
             continue
         return True
@@ -464,14 +432,9 @@ def _right_family_displaces_via_noentry(
             continue
         if not meta.noentry_after:
             continue
-        if not any(
-            anchor[1] == y for anchor in (*meta.entry, *meta.entry_curs_only)
-        ):
+        if not any(anchor[1] == y for anchor in (*meta.entry, *meta.entry_curs_only)):
             continue
-        if any(
-            _resolve_family(reachability, n) == left_family
-            for n in meta.noentry_after
-        ):
+        if any(_resolve_family(reachability, n) == left_family for n in meta.noentry_after):
             return True
     return False
 
@@ -559,9 +522,7 @@ def _collect_noentry_shape_leak_warnings(
         if not r_meta.noentry_after:
             continue
         r_family = r_meta.base_name
-        r_entry_ys = {
-            anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)
-        }
+        r_entry_ys = {anchor[1] for anchor in (*r_meta.entry, *r_meta.entry_curs_only)}
         if not r_entry_ys:
             continue
         for f_name in r_meta.noentry_after:
@@ -573,21 +534,14 @@ def _collect_noentry_shape_leak_warnings(
                 if l_meta.generated_from is not None or l_meta.is_noentry:
                     continue
                 if l_meta.before and not any(
-                    _resolve_family(reachability, n) == r_family
-                    for n in l_meta.before
+                    _resolve_family(reachability, n) == r_family for n in l_meta.before
                 ):
                     continue
-                if any(
-                    _resolve_family(reachability, n) == r_family
-                    for n in l_meta.not_before
-                ):
+                if any(_resolve_family(reachability, n) == r_family for n in l_meta.not_before):
                     continue
                 if has_entry_preserving_exit_noentry_sibling(
                     l_meta,
-                    {
-                        base: set(variants)
-                        for base, variants in reachability.base_to_variants.items()
-                    },
+                    {base: set(variants) for base, variants in reachability.base_to_variants.items()},
                     dict(reachability.glyph_meta),
                 ):
                     continue
@@ -622,8 +576,7 @@ def _collect_bitmap_gap_warnings(
     for key in keys:
         left_family, right_family, y = key
         source_left_names = {
-            intent.variant_name
-            for intent in forward_by_key.get(key, ())
+            intent.variant_name for intent in forward_by_key.get(key, ())
         } or _candidate_names_with_exit(
             reachability,
             left_family,
@@ -631,8 +584,7 @@ def _collect_bitmap_gap_warnings(
             opposite_family=right_family,
         )
         source_right_names = {
-            intent.variant_name
-            for intent in backward_by_key.get(key, ())
+            intent.variant_name for intent in backward_by_key.get(key, ())
         } or _candidate_names_with_entry(
             reachability,
             right_family,
@@ -669,9 +621,7 @@ def _collect_bitmap_gap_warnings(
                         right_meta = reachability.glyph_meta.get(right_name)
                         if right_meta is None:
                             continue
-                        right_anchor = _first_anchor_at(
-                            (*right_meta.entry, *right_meta.entry_curs_only), y
-                        )
+                        right_anchor = _first_anchor_at((*right_meta.entry, *right_meta.entry_curs_only), y)
                         if right_anchor is None:
                             continue
                         pair_key = (left_name, right_name, y)
@@ -857,9 +807,7 @@ def _exit_candidate_permits_family(
 ) -> bool:
     if meta.before and not _before_context_matches_family(reachability, meta, family):
         return False
-    return not any(
-        _resolve_family(reachability, selector) == family for selector in meta.not_before
-    )
+    return not any(_resolve_family(reachability, selector) == family for selector in meta.not_before)
 
 
 def _entry_candidate_permits_family(
@@ -869,13 +817,9 @@ def _entry_candidate_permits_family(
 ) -> bool:
     if meta.after and not _after_context_matches_family(reachability, meta, family):
         return False
-    if any(
-        _resolve_family(reachability, selector) == family for selector in meta.not_after
-    ):
+    if any(_resolve_family(reachability, selector) == family for selector in meta.not_after):
         return False
-    return not any(
-        _resolve_family(reachability, selector) == family for selector in meta.noentry_after
-    )
+    return not any(_resolve_family(reachability, selector) == family for selector in meta.noentry_after)
 
 
 def _replace_with_pair_specific_generated_variants(
@@ -938,9 +882,7 @@ def _pair_specific_generated_variants(
                 continue
         generated.add(name)
     side_specific = {
-        name
-        for name in generated
-        if _has_generated_transform_on_side(reachability.glyph_meta[name], side)
+        name for name in generated if _has_generated_transform_on_side(reachability.glyph_meta[name], side)
     }
     if side_specific:
         return side_specific
@@ -982,8 +924,7 @@ def _before_context_matches_opposite(
     names: set[str],
 ) -> bool:
     if any(
-        _selector_matches_family_or_name(reachability, selector, family, names)
-        for selector in meta.before
+        _selector_matches_family_or_name(reachability, selector, family, names) for selector in meta.before
     ):
         return True
     return any(
@@ -1000,8 +941,7 @@ def _after_context_matches_opposite(
     names: set[str],
 ) -> bool:
     return any(
-        _selector_matches_family_or_name(reachability, selector, family, names)
-        for selector in meta.after
+        _selector_matches_family_or_name(reachability, selector, family, names) for selector in meta.after
     )
 
 
@@ -1088,9 +1028,7 @@ def _first_anchor_at(anchors: tuple[tuple[int, int], ...], y: int) -> tuple[int,
     return next((anchor for anchor in anchors if anchor[1] == y), None)
 
 
-def _effective_exit_x(
-    meta: JoinGlyph, anchor_x: int, right_family: str | None
-) -> int:
+def _effective_exit_x(meta: JoinGlyph, anchor_x: int, right_family: str | None) -> int:
     # `extend_exit_before` widens the bitmap rightward by the same amount it shifts the exit anchor, so the visible gap is unchanged — skip it.
     if right_family is None:
         return anchor_x
@@ -1099,9 +1037,7 @@ def _effective_exit_x(
     return anchor_x
 
 
-def _effective_entry_x(
-    meta: JoinGlyph, anchor_x: int, left_family: str | None
-) -> int:
+def _effective_entry_x(meta: JoinGlyph, anchor_x: int, left_family: str | None) -> int:
     # `extend_entry_after` prepends ink to the receiver's bitmap, capped by the original gap — modeling that without the bitmap rewrite would over-correct, so skip it.
     if left_family is None:
         return anchor_x
@@ -1168,9 +1104,7 @@ def _ss_tags(reachability: JoinReachability) -> list[str]:
 
 
 def _warn_orphans(reachability: JoinReachability) -> None:
-    entry_owners: dict[int, list[str]] = {
-        y: sorted(names) for y, names in reachability.entry_classes.items()
-    }
+    entry_owners: dict[int, list[str]] = {y: sorted(names) for y, names in reachability.entry_classes.items()}
     exit_owners: dict[int, list[str]] = {}
     for name, meta in reachability.glyph_meta.items():
         for anchor in meta.exit:
@@ -1324,11 +1258,7 @@ def _check_concrete_before_selectors(
                 continue
             for exit_y in sorted(required_exit_ys):
                 candidate_entry_ys = set(plan.glyph_meta[candidate].all_entry_ys)
-                if (
-                    feature_tag is not None
-                    and candidate_entry_ys
-                    and exit_y not in candidate_entry_ys
-                ):
+                if feature_tag is not None and candidate_entry_ys and exit_y not in candidate_entry_ys:
                     continue
                 if _can_eventually_enter_at(
                     plan,
@@ -1471,10 +1401,7 @@ def _candidate_has_runtime_entry_context(plan, name: str) -> bool:
         if any(variant_name == name for variant_name, _before, _not_after in overrides):
             return True
     for overrides in plan.gated_fwd_pair_overrides.values():
-        if any(
-            variant_name == name
-            for variant_name, _before, _not_after, _tag in overrides
-        ):
+        if any(variant_name == name for variant_name, _before, _not_after, _tag in overrides):
             return True
     return False
 
@@ -1652,9 +1579,7 @@ def _check_one_source(
                 source_family,
             )
             entry_ys = {
-                anchor[1]
-                for _, meta in candidates
-                for anchor in (*meta.entry, *meta.entry_curs_only)
+                anchor[1] for _, meta in candidates for anchor in (*meta.entry, *meta.entry_curs_only)
             }
             if exit_y not in entry_ys:
                 errors.append(
@@ -1688,9 +1613,7 @@ def _check_one_source(
                 gated_feature,
                 source_family,
             )
-            exit_ys = {
-                anchor[1] for _, meta in candidates for anchor in meta.exit
-            }
+            exit_ys = {anchor[1] for _, meta in candidates for anchor in meta.exit}
             if entry_y not in exit_ys:
                 errors.append(
                     _format_backward_error(
@@ -1716,28 +1639,20 @@ def _reachable_right_variants(
     if gated_feature is not None:
         gated_match = {
             variant
-            for variant, after_glyphs, tag in reachability.gated_pair_overrides.get(
-                t_family, ()
-            )
+            for variant, after_glyphs, tag in reachability.gated_pair_overrides.get(t_family, ())
             if tag == gated_feature and source_family in after_glyphs
         }
         if gated_match:
             candidate_names = gated_match
         else:
-            candidate_names = _candidate_names_for_family(
-                reachability, t_family, side="right"
-            )
+            candidate_names = _candidate_names_for_family(reachability, t_family, side="right")
     else:
-        candidate_names = _candidate_names_for_family(
-            reachability, t_family, side="right"
-        )
+        candidate_names = _candidate_names_for_family(reachability, t_family, side="right")
 
     resolved: list[tuple[str, JoinGlyph]] = []
     seen: set[str] = set()
     for name in candidate_names:
-        resolved_name = _resolve_noentry_replacement(
-            glyph_meta, base_to_variants, name, name
-        )
+        resolved_name = _resolve_noentry_replacement(glyph_meta, base_to_variants, name, name)
         if resolved_name is None:
             continue
         if resolved_name in seen:
@@ -1761,28 +1676,20 @@ def _reachable_left_variants(
     if gated_feature is not None:
         gated_match = {
             variant
-            for variant, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(
-                t_family, ()
-            )
+            for variant, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(t_family, ())
             if tag == gated_feature and source_family in before_glyphs
         }
         if gated_match:
             candidate_names = gated_match
         else:
-            candidate_names = _candidate_names_for_family(
-                reachability, t_family, side="left"
-            )
+            candidate_names = _candidate_names_for_family(reachability, t_family, side="left")
     else:
-        candidate_names = _candidate_names_for_family(
-            reachability, t_family, side="left"
-        )
+        candidate_names = _candidate_names_for_family(reachability, t_family, side="left")
 
     resolved: list[tuple[str, JoinGlyph]] = []
     seen: set[str] = set()
     for name in candidate_names:
-        resolved_name = _resolve_noentry_replacement(
-            glyph_meta, base_to_variants, name, name
-        )
+        resolved_name = _resolve_noentry_replacement(glyph_meta, base_to_variants, name, name)
         if resolved_name is None:
             continue
         if resolved_name in seen:
@@ -1809,10 +1716,7 @@ def _candidate_names_for_family(
             first = reachability.glyph_meta.get(components[0])
             if first and first.family == t_family:
                 candidates.add(lig_name)
-            if (
-                lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS
-                and len(components) >= 2
-            ):
+            if lig_name in _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS and len(components) >= 2:
                 second = reachability.glyph_meta.get(components[1])
                 if second and second.family == t_family:
                     candidates.add(lig_name)
@@ -1844,9 +1748,7 @@ def _gated_right_match(
 ) -> bool:
     return any(
         tag == gated_feature and source_family in after_glyphs
-        for _, after_glyphs, tag in reachability.gated_pair_overrides.get(
-            t_family, ()
-        )
+        for _, after_glyphs, tag in reachability.gated_pair_overrides.get(t_family, ())
     )
 
 
@@ -1858,9 +1760,7 @@ def _gated_left_match(
 ) -> bool:
     return any(
         tag == gated_feature and source_family in before_glyphs
-        for _, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(
-            t_family, ()
-        )
+        for _, before_glyphs, _, tag in reachability.gated_fwd_pair_overrides.get(t_family, ())
     )
 
 
@@ -1932,9 +1832,7 @@ def derive_pending_bk_entry_guards(
     byte-for-byte FEA parity gap until derivation can structurally identify
     exactly the residual keys (see the docstring on ``_RESIDUAL_BK_GUARDS``).
     """
-    return _apply_residual_override(
-        _compute_derived_bk_guards(reachability), _RESIDUAL_BK_GUARDS
-    )
+    return _apply_residual_override(_compute_derived_bk_guards(reachability), _RESIDUAL_BK_GUARDS)
 
 
 def derive_pending_liga_entry_guards(
@@ -1945,9 +1843,7 @@ def derive_pending_liga_entry_guards(
     Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component
     sources; the override pins the result to ``_RESIDUAL_LIGA_GUARDS``.
     """
-    return _apply_residual_override(
-        _compute_derived_liga_guards(reachability), _RESIDUAL_LIGA_GUARDS
-    )
+    return _apply_residual_override(_compute_derived_liga_guards(reachability), _RESIDUAL_LIGA_GUARDS)
 
 
 def _compute_derived_bk_guards(
@@ -1968,9 +1864,7 @@ def _compute_derived_bk_guards(
     glyph_by_exit_y = _index_glyphs_by_exit_y(reachability)
     buf: dict[tuple[str, str, int], list[DerivedBkGuard]] = {}
     for source_name, replacement_name in _iter_forward_sub_pairs(reachability):
-        _collect_guards(
-            reachability, glyph_by_exit_y, buf, source_name, replacement_name
-        )
+        _collect_guards(reachability, glyph_by_exit_y, buf, source_name, replacement_name)
     return _finalize_guards(buf)
 
 
@@ -1995,9 +1889,7 @@ def _compute_derived_liga_guards(
             continue
         first_family = first_component_meta.family or first_component_meta.base_name
         for source_name in reachability.base_to_variants.get(first_family, frozenset()):
-            _collect_guards(
-                reachability, glyph_by_exit_y, buf, source_name, lig_name
-            )
+            _collect_guards(reachability, glyph_by_exit_y, buf, source_name, lig_name)
     return _finalize_guards(buf)
 
 
@@ -2032,9 +1924,7 @@ def _iter_forward_sub_pairs(reachability: JoinReachability):
     for base, entry_to_bk_var in reachability.bk_replacements.items():
         fwd_variants: list[str] = []
         fwd_variants.extend(reachability.fwd_replacements.get(base, {}).values())
-        fwd_variants.extend(
-            v for v, _, _ in reachability.fwd_pair_overrides.get(base, ())
-        )
+        fwd_variants.extend(v for v, _, _ in reachability.fwd_pair_overrides.get(base, ()))
         for bk_var in entry_to_bk_var.values():
             for fwd_var in fwd_variants:
                 yield from emit(bk_var, fwd_var)

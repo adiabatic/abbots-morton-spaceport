@@ -21,6 +21,7 @@ def _compiled_set(data: Any = None) -> CompiledGlyphSet:
         warnings.simplefilter("ignore", JoinContractWarning)
         return compile_glyph_set(data, "senior")
 
+
 def _compiled_meta() -> dict[str, JoinGlyph]:
     return _compiled_set().glyph_meta
 

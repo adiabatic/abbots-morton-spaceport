@@ -35,8 +35,7 @@ def _path(family: str, style: str) -> Path:
     return TEST_DIR / f"{family}-{style}.otf"
 
 
-@pytest.fixture(params=[(f, s) for f in FAMILIES for s in STYLES],
-                ids=lambda p: f"{p[0]}-{p[1]}")
+@pytest.fixture(params=[(f, s) for f in FAMILIES for s in STYLES], ids=lambda p: f"{p[0]}-{p[1]}")
 def font_pair(request: pytest.FixtureRequest) -> tuple[str, str, TTFont]:
     family, style = request.param
     return family, style, TTFont(_path(family, style))
@@ -138,6 +137,5 @@ class TestBoldOverstrikeWidens:
         for glyph_name, (reg_aw, _) in reg_hmtx.items():
             bold_aw, _ = bold_hmtx[glyph_name]
             assert reg_aw == bold_aw, (
-                f"Advance width differs for {glyph_name}: "
-                f"Regular={reg_aw}, Bold={bold_aw}"
+                f"Advance width differs for {glyph_name}: " f"Regular={reg_aw}, Bold={bold_aw}"
             )

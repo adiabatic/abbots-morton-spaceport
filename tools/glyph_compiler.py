@@ -123,9 +123,7 @@ def _compile_legacy_glyphs(glyph_data: GlyphData, variant: str) -> dict[str, Gly
 
     if not is_senior:
         legacy_glyphs = {
-            name: glyph_def
-            for name, glyph_def in legacy_glyphs.items()
-            if not _is_contextual_variant(name)
+            name: glyph_def for name, glyph_def in legacy_glyphs.items() if not _is_contextual_variant(name)
         }
 
     if is_proportional:
@@ -143,9 +141,7 @@ def _validate_compiled_glyph_references(
     def _validate_refs(glyph_name: str, key: str, values: tuple[str, ...] | list[str]) -> None:
         for value in values:
             if value not in all_glyph_names:
-                raise ValueError(
-                    f"Glyph {glyph_name!r} {key} refers to missing glyph {value!r}"
-                )
+                raise ValueError(f"Glyph {glyph_name!r} {key} refers to missing glyph {value!r}")
 
     for glyph_name, glyph_def in legacy_glyphs.items():
         if glyph_def is None:
@@ -168,21 +164,13 @@ def _validate_compiled_glyph_references(
         _validate_refs(glyph_name, "calt_not_after", join_glyph.not_after)
         _validate_refs(glyph_name, "calt_not_before", join_glyph.not_before)
         if join_glyph.extend_entry_after is not None:
-            _validate_refs(
-                glyph_name, "extend_entry_after", join_glyph.extend_entry_after.targets
-            )
+            _validate_refs(glyph_name, "extend_entry_after", join_glyph.extend_entry_after.targets)
         if join_glyph.extend_exit_before is not None:
-            _validate_refs(
-                glyph_name, "extend_exit_before", join_glyph.extend_exit_before.targets
-            )
+            _validate_refs(glyph_name, "extend_exit_before", join_glyph.extend_exit_before.targets)
         if join_glyph.contract_entry_after is not None:
-            _validate_refs(
-                glyph_name, "contract_entry_after", join_glyph.contract_entry_after.targets
-            )
+            _validate_refs(glyph_name, "contract_entry_after", join_glyph.contract_entry_after.targets)
         if join_glyph.contract_exit_before is not None:
-            _validate_refs(
-                glyph_name, "contract_exit_before", join_glyph.contract_exit_before.targets
-            )
+            _validate_refs(glyph_name, "contract_exit_before", join_glyph.contract_exit_before.targets)
         _validate_refs(glyph_name, "noentry_after", join_glyph.noentry_after)
         _validate_refs(
             glyph_name,
@@ -249,9 +237,7 @@ def _validate_extensions_reach_targets(
             if not target or not target.family:
                 continue
             has_match = any(
-                c.family == target.family
-                and _candidate_has_entry_at(c, exit_y)
-                for c in join_glyphs.values()
+                c.family == target.family and _candidate_has_entry_at(c, exit_y) for c in join_glyphs.values()
             )
             if not has_match:
                 errors.append(
@@ -272,9 +258,7 @@ def _validate_extensions_reach_targets(
             if not target or not target.family:
                 continue
             has_match = any(
-                c.family == target.family
-                and _candidate_has_exit_at(c, entry_y)
-                for c in join_glyphs.values()
+                c.family == target.family and _candidate_has_exit_at(c, entry_y) for c in join_glyphs.values()
             )
             if not has_match:
                 errors.append(
@@ -284,10 +268,7 @@ def _validate_extensions_reach_targets(
                 )
 
     if errors:
-        raise ValueError(
-            "Extension-target anchor mismatches:\n"
-            + "\n".join(f"  - {e}" for e in errors)
-        )
+        raise ValueError("Extension-target anchor mismatches:\n" + "\n".join(f"  - {e}" for e in errors))
 
 
 def compile_glyph_set(glyph_data: GlyphData, variant: str) -> CompiledGlyphSet:

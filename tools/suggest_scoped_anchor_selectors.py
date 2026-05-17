@@ -79,11 +79,7 @@ def _scope_candidates(
     join_glyphs: dict[str, JoinGlyph],
     scope: str,
 ) -> tuple[JoinGlyph, ...]:
-    return tuple(
-        meta
-        for name, meta in sorted(join_glyphs.items())
-        if _scope_matches(name, meta, scope)
-    )
+    return tuple(meta for name, meta in sorted(join_glyphs.items()) if _scope_matches(name, meta, scope))
 
 
 def _anchor_ys(meta: JoinGlyph, side: str) -> set[int]:
@@ -223,9 +219,7 @@ def suggest_scoped_anchor_selectors(
                     if not candidates:
                         continue
                     compatible = tuple(
-                        candidate
-                        for candidate in candidates
-                        if y in _anchor_ys(candidate, target_side)
+                        candidate for candidate in candidates if y in _anchor_ys(candidate, target_side)
                     )
                     if not compatible or len(compatible) == len(candidates):
                         continue

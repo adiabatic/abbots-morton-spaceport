@@ -103,9 +103,7 @@ def apply_suggestions_to_glyph_data(
         elif suggestion.record_kind == "forms":
             record = family["forms"][suggestion.record_name]
         else:
-            raise ValueError(
-                f"{suggestion.path} has unknown record kind {suggestion.record_kind!r}"
-            )
+            raise ValueError(f"{suggestion.path} has unknown record kind {suggestion.record_kind!r}")
         selector = record["select"][suggestion.field_name][suggestion.selector_index]
         selector[suggestion.anchor_key] = suggestion.required_y
     return patched
@@ -131,9 +129,7 @@ def _review_context_sequences(
         and name not in {"qsAngleParenLeft", "qsAngleParenRight"}
         and name in glyph_families
     ]
-    sequences: list[tuple[tuple[str, ...], int]] = [
-        ((name,), codepoint) for codepoint, name in plain_rows
-    ]
+    sequences: list[tuple[tuple[str, ...], int]] = [((name,), codepoint) for codepoint, name in plain_rows]
     for extra in ("space", "uni200C"):
         if extra in ps_names:
             sequences.append(((extra,), ps_names[extra]))
@@ -468,13 +464,10 @@ class VariantExampleFinder:
             )
 
         spans = _input_spans(example.glyphs, self.current_meta)
-        selected_source_present = (
-            spans is not None
-            and any(
-                spans[index] in source_spans
-                and _is_selected_variant(glyph, suggestion.selected_name, self.current_meta)
-                for index, glyph in enumerate(example.glyphs)
-            )
+        selected_source_present = spans is not None and any(
+            spans[index] in source_spans
+            and _is_selected_variant(glyph, suggestion.selected_name, self.current_meta)
+            for index, glyph in enumerate(example.glyphs)
         )
         if not selected_source_present:
             return replace(
@@ -552,8 +545,7 @@ class VariantExampleFinder:
             target_indices = tuple(
                 index
                 for index, glyph in enumerate(run.glyphs)
-                if spans[index] == (target_start, target_end)
-                and glyph == variant_name
+                if spans[index] == (target_start, target_end) and glyph == variant_name
             )
             if not source_indices or not target_indices:
                 continue
@@ -750,9 +742,7 @@ def _family_labels_html(
         if family == target_family:
             classes.append("target-family")
         label = html.escape(_family_label(family))
-        parts.append(
-            f"<span class=\"{' '.join(classes)}\">{label}</span>"
-        )
+        parts.append(f"<span class=\"{' '.join(classes)}\">{label}</span>")
     return "".join(parts)
 
 
@@ -788,11 +778,7 @@ def _glyph_relates_to_family(
     meta = meta_map.get(glyph)
     if meta is None:
         return glyph == family or glyph.startswith(family + ".")
-    return (
-        meta.family == family
-        or meta.base_name == family
-        or family in meta.sequence
-    )
+    return meta.family == family or meta.base_name == family or family in meta.sequence
 
 
 def _glyphs_html(
@@ -826,22 +812,18 @@ def _variant_example_input_html(
 ) -> str:
     if example.status == "internal":
         return '<span class="empty">No typed example</span>'
-    feature = (
-        f" <code>+{html.escape(example.feature_tag)}</code>"
-        if example.feature_tag
-        else ""
-    )
+    feature = f" <code>+{html.escape(example.feature_tag)}</code>" if example.feature_tag else ""
     family_labels = _family_labels_html(
         example.families,
         source_family=suggestion.family_name,
         target_family=suggestion.target_family,
     )
     return (
-        "<div class=\"example-families\">"
+        '<div class="example-families">'
         f"{family_labels}"
         f"{feature}"
         "</div>"
-        f"<span class=\"qs current variant-example-rendering\">{_text_entities(example.text)}</span>"
+        f'<span class="qs current variant-example-rendering">{_text_entities(example.text)}</span>'
     )
 
 
@@ -882,17 +864,13 @@ def _rows_for_variants(
         )
         depth = _name_prefix_depth(name, names_set)
         glyph_td_attrs = f' style="--depth: {depth}"' if depth else ""
-        title_attr = (
-            f' title="{html.escape(example.title, quote=True)}"'
-            if example.title
-            else ""
-        )
+        title_attr = f' title="{html.escape(example.title, quote=True)}"' if example.title else ""
         rows.append(
             "<tr>"
-            f"<td class=\"glyph-cell\"{glyph_td_attrs}><code>{_glyph_name_html(name)}</code></td>"
+            f'<td class="glyph-cell"{glyph_td_attrs}><code>{_glyph_name_html(name)}</code></td>'
             f"<td>{html.escape(_anchor_ys_text(meta_map.get(name)))}</td>"
             "<td>"
-            f"<span class=\"example-status example-status-{html.escape(example.status)}\"{title_attr}>"
+            f'<span class="example-status example-status-{html.escape(example.status)}"{title_attr}>'
             f"{label_html(example.label)}"
             "</span>"
             "</td>"
@@ -936,21 +914,21 @@ def _dropped_match_rows(cases: list[DroppedMatchCase]) -> str:
         feature = f" +{case.feature_tag}" if case.feature_tag else ""
         changed = "yes" if case.current.glyphs != case.scoped.glyphs else "no"
         articles.append(
-            "<article class=\"dropped-match-case\">"
-            "<header class=\"case-meta\">"
+            '<article class="dropped-match-case">'
+            '<header class="case-meta">'
             f"<span><strong>Sequence</strong> {html.escape(_family_labels(case.current.families))}{html.escape(feature)}</span>"
             f"<span><strong>Changed</strong> {changed}</span>"
             f"<span><strong>Dropped match</strong> <code>{_glyph_name_html(case.dropped_glyph)}</code></span>"
             "</header>"
-            "<div class=\"comparison-grid\">"
+            '<div class="comparison-grid">'
             "<section>"
             "<h4>Current</h4>"
-            f"<span class=\"qs current\">{_text_entities(case.current.text)}</span>"
+            f'<span class="qs current">{_text_entities(case.current.text)}</span>'
             f"<code>{_glyphs_sequence_html(case.current.glyphs)}</code>"
             "</section>"
             "<section>"
             "<h4>Scoped</h4>"
-            f"<span class=\"qs scoped\">{_text_entities(case.scoped.text)}</span>"
+            f'<span class="qs scoped">{_text_entities(case.scoped.text)}</span>'
             f"<code>{_glyphs_sequence_html(case.scoped.glyphs)}</code>"
             "</section>"
             "</div>"
@@ -984,8 +962,7 @@ def _suggestion_card(
         f"the opposite side must provide {html.escape(suggestion.target_side)} y={suggestion.required_y}."
     )
     selector_locator = (
-        f"{suggestion.selected_name}.select."
-        f"{suggestion.field_name}[{suggestion.selector_index}]"
+        f"{suggestion.selected_name}.select." f"{suggestion.field_name}[{suggestion.selector_index}]"
     )
     target_family_html = f"<code>{_glyph_name_html(suggestion.target_family)}</code>"
     selector_locator_html = f"<code>{_glyph_name_html(selector_locator)}</code>"
@@ -1648,8 +1625,7 @@ def build_all_reviews(
     )
 
     tasks: list[tuple[list[ScopedAnchorSuggestion], Path]] = [
-        (per_family[family], output_dir / f"{family}.html")
-        for family in ordered_families
+        (per_family[family], output_dir / f"{family}.html") for family in ordered_families
     ]
 
     expected_family_paths = {output_path for _, output_path in tasks}

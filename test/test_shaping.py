@@ -62,6 +62,7 @@ class _CellInfo(TypedDict):
     line: int
     stylistic_set: str | None
 
+
 def _build_char_to_glyph_name() -> dict[str, str]:
     with open(PS_NAMES_PATH) as f:
         ps_names = yaml.safe_load(f)
@@ -69,6 +70,7 @@ def _build_char_to_glyph_name() -> dict[str, str]:
     for name, codepoint in ps_names.items():
         result[chr(codepoint)] = name
     return result
+
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
 _COMPILED_GLYPH_META: dict[str, dict[str, JoinGlyph]] = {}
@@ -149,9 +151,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                     pos += ws.end()
                     remaining = raw[pos:]
                 else:
-                    raise ValueError(
-                        f"Expected connection operator at pos {pos}: {remaining!r}"
-                    )
+                    raise ValueError(f"Expected connection operator at pos {pos}: {remaining!r}")
             else:
                 if conn_m.group(1):
                     h = conn_m.group(1)
@@ -174,14 +174,16 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
             glyph_name = _CHAR_TO_GLYPH.get(char)
             if glyph_name is None:
                 glyph_name = f"uni{ord(char):04X}"
-            tokens.append({
-                "base": glyph_name,
-                "lig_base": None,
-                "lig_mode": None,
-                "variants": [],
-                "neg_variants": [],
-                "exact_glyph": False,
-            })
+            tokens.append(
+                {
+                    "base": glyph_name,
+                    "lig_base": None,
+                    "lig_mode": None,
+                    "variants": [],
+                    "neg_variants": [],
+                    "exact_glyph": False,
+                }
+            )
             pos += esc_m.end()
             continue
 
@@ -191,14 +193,16 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
             glyph_name = LOZENGE_MAP.get(key)
             if glyph_name is None:
                 raise ValueError(f"Unknown lozenge name: ◊{key}")
-            tokens.append({
-                "base": glyph_name,
-                "lig_base": None,
-                "lig_mode": None,
-                "variants": [],
-                "neg_variants": [],
-                "exact_glyph": False,
-            })
+            tokens.append(
+                {
+                    "base": glyph_name,
+                    "lig_base": None,
+                    "lig_mode": None,
+                    "variants": [],
+                    "neg_variants": [],
+                    "exact_glyph": False,
+                }
+            )
             pos += loz_m.end()
             continue
 
@@ -225,9 +229,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                     continue
                 if v == "∅":
                     if exact_glyph:
-                        raise ValueError(
-                            f"Exact glyph assertion .∅ appears more than once in {raw!r}"
-                        )
+                        raise ValueError(f"Exact glyph assertion .∅ appears more than once in {raw!r}")
                     exact_glyph = True
                 elif v.startswith("!"):
                     neg_variants.append(v[1:])
@@ -238,14 +240,16 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                 f"Exact glyph assertion .∅ cannot be combined with other variant assertions in {raw!r}"
             )
 
-        tokens.append({
-            "base": _letter_to_qs(letter),
-            "lig_base": _letter_to_qs(lig_partner) if lig_partner else None,
-            "lig_mode": lig_mode,
-            "variants": pos_variants,
-            "neg_variants": neg_variants,
-            "exact_glyph": exact_glyph,
-        })
+        tokens.append(
+            {
+                "base": _letter_to_qs(letter),
+                "lig_base": _letter_to_qs(lig_partner) if lig_partner else None,
+                "lig_mode": lig_mode,
+                "variants": pos_variants,
+                "neg_variants": neg_variants,
+                "exact_glyph": exact_glyph,
+            }
+        )
         pos += tok_m.end()
 
     return tokens, connections
@@ -254,6 +258,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
 # ---------------------------------------------------------------------------
 # HTML collector
 # ---------------------------------------------------------------------------
+
 
 class _DataExpectCollector(HTMLParser):
     """Collect data-expect="..." from <td>, <span>, and <dd> elements in HTML.
@@ -335,13 +340,15 @@ class _DataExpectCollector(HTMLParser):
                 non_empty = [{"font": "senior", "text": ""}]
             full_text = "".join(r["text"] for r in self._runs).strip()
             assert self._cell_info is not None
-            self.cells.append((
-                full_text,
-                self._cell_info["expect"],
-                self._cell_info["line"],
-                self._cell_info["stylistic_set"],
-                non_empty,
-            ))
+            self.cells.append(
+                (
+                    full_text,
+                    self._cell_info["expect"],
+                    self._cell_info["line"],
+                    self._cell_info["stylistic_set"],
+                    non_empty,
+                )
+            )
             self._cell_active = False
             self._cell_info = None
             self._runs = []
@@ -359,6 +366,7 @@ class _DataExpectCollector(HTMLParser):
 # ---------------------------------------------------------------------------
 # Font/anchor loading
 # ---------------------------------------------------------------------------
+
 
 def load_font(variant: str = "senior") -> hb.Font:
     blob = hb.Blob.from_file_path(str(FONT_PATHS[variant]))
@@ -388,9 +396,7 @@ def _compiled_glyph_meta(name: str, variant: str = "senior") -> JoinGlyph:
         build_anchor_map(variant)
     meta = _COMPILED_GLYPH_META[variant].get(name)
     if meta is None:
-        raise AssertionError(
-            f"Missing compiled glyph metadata for {name!r} in {variant}"
-        )
+        raise AssertionError(f"Missing compiled glyph metadata for {name!r} in {variant}")
     return meta
 
 
@@ -424,11 +430,11 @@ def _expected_exact_glyph_name(tok: ExpectToken) -> str:
 # Maybe-ligature expansion
 # ---------------------------------------------------------------------------
 
-def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connection]) -> list[tuple[list[ExpectToken], list[Connection]]]:
-    maybe_indices = [
-        i for i, tok in enumerate(tokens)
-        if tok.get("lig_mode") in ("maybe", "maybe_break")
-    ]
+
+def _expand_maybe_ligatures(
+    tokens: list[ExpectToken], connections: list[Connection]
+) -> list[tuple[list[ExpectToken], list[Connection]]]:
+    maybe_indices = [i for i, tok in enumerate(tokens) if tok.get("lig_mode") in ("maybe", "maybe_break")]
     if not maybe_indices:
         return [(tokens, connections)]
 
@@ -444,23 +450,27 @@ def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connect
                 new_connections.append(connections[i - 1])
             if i in maybe_map and not maybe_map[i]:
                 conn_kind = "maybe" if tok["lig_mode"] == "maybe" else "break"
-                new_tokens.append({
-                    "base": tok["base"],
-                    "lig_base": None,
-                    "lig_mode": None,
-                    "variants": [],
-                    "neg_variants": [],
-                    "exact_glyph": False,
-                })
+                new_tokens.append(
+                    {
+                        "base": tok["base"],
+                        "lig_base": None,
+                        "lig_mode": None,
+                        "variants": [],
+                        "neg_variants": [],
+                        "exact_glyph": False,
+                    }
+                )
                 new_connections.append({"kind": conn_kind, "y": None})
-                new_tokens.append({
-                    "base": tok["lig_base"],
-                    "lig_base": None,
-                    "lig_mode": None,
-                    "variants": [],
-                    "neg_variants": [],
-                    "exact_glyph": False,
-                })
+                new_tokens.append(
+                    {
+                        "base": tok["lig_base"],
+                        "lig_base": None,
+                        "lig_mode": None,
+                        "variants": [],
+                        "neg_variants": [],
+                        "exact_glyph": False,
+                    }
+                )
             else:
                 new_tokens.append({**tok, "lig_mode": None})
         interpretations.append((new_tokens, new_connections))
@@ -471,17 +481,18 @@ def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connect
 # Test runner
 # ---------------------------------------------------------------------------
 
-def _try_interpretation(font: hb.Font, anchor_map: AnchorMap,
-                        glyph_names: list[str],
-                        tokens: list[ExpectToken],
-                        connections: list[Connection],
-                        base_potential_entries: dict[str, set[int]] | None = None,
-                        variant: str = "senior") -> str | None:
+
+def _try_interpretation(
+    font: hb.Font,
+    anchor_map: AnchorMap,
+    glyph_names: list[str],
+    tokens: list[ExpectToken],
+    connections: list[Connection],
+    base_potential_entries: dict[str, set[int]] | None = None,
+    variant: str = "senior",
+) -> str | None:
     if len(glyph_names) != len(tokens):
-        return (
-            f"Glyph count mismatch: got {glyph_names}, "
-            f"expected {len(tokens)} tokens"
-        )
+        return f"Glyph count mismatch: got {glyph_names}, " f"expected {len(tokens)} tokens"
 
     for i, (gname, tok) in enumerate(zip(glyph_names, tokens)):
         meta = _compiled_glyph_meta(gname, variant)
@@ -562,11 +573,15 @@ def _try_interpretation(font: hb.Font, anchor_map: AnchorMap,
     return None
 
 
-def run_shaping_test(font: hb.Font, anchor_map: AnchorMap, text: str,
-                     expect_str: str,
-                     base_potential_entries: dict[str, set[int]] | None = None,
-                     features: dict[str, bool] | None = None,
-                     variant: str = "senior") -> None:
+def run_shaping_test(
+    font: hb.Font,
+    anchor_map: AnchorMap,
+    text: str,
+    expect_str: str,
+    base_potential_entries: dict[str, set[int]] | None = None,
+    features: dict[str, bool] | None = None,
+    variant: str = "senior",
+) -> None:
     tokens, connections = parse_expect(expect_str)
 
     buf = hb.Buffer()
@@ -584,9 +599,13 @@ def run_shaping_test(font: hb.Font, anchor_map: AnchorMap, text: str,
 
     if len(interpretations) == 1:
         error = _try_interpretation(
-            font, anchor_map, glyph_names,
-            interpretations[0][0], interpretations[0][1],
-            base_potential_entries, variant=variant,
+            font,
+            anchor_map,
+            glyph_names,
+            interpretations[0][0],
+            interpretations[0][1],
+            base_potential_entries,
+            variant=variant,
         )
         if error:
             raise AssertionError(error)
@@ -595,9 +614,13 @@ def run_shaping_test(font: hb.Font, anchor_map: AnchorMap, text: str,
     errors = []
     for interp_tokens, interp_connections in interpretations:
         error = _try_interpretation(
-            font, anchor_map, glyph_names,
-            interp_tokens, interp_connections,
-            base_potential_entries, variant=variant,
+            font,
+            anchor_map,
+            glyph_names,
+            interp_tokens,
+            interp_connections,
+            base_potential_entries,
+            variant=variant,
         )
         if error is None:
             return
@@ -613,6 +636,7 @@ def run_shaping_test(font: hb.Font, anchor_map: AnchorMap, text: str,
 # ---------------------------------------------------------------------------
 # Multi-run test runner
 # ---------------------------------------------------------------------------
+
 
 def _token_input_char_count(tok: ExpectToken) -> int:
     """How many base (non-modifier) input chars this token consumes."""
@@ -642,17 +666,13 @@ def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, i
         while char_idx < len(text) and _is_modifier_char(text[char_idx]):
             char_idx += 1
         if char_idx >= len(text):
-            raise ValueError(
-                f"Not enough input chars for token {tok!r} at char {char_idx}"
-            )
+            raise ValueError(f"Not enough input chars for token {tok!r} at char {char_idx}")
         start = char_idx
         base = _token_input_char_count(tok)
         consumed = 0
         while consumed < base:
             if char_idx >= len(text):
-                raise ValueError(
-                    f"Token {tok!r} overruns text at char {char_idx}"
-                )
+                raise ValueError(f"Token {tok!r} overruns text at char {char_idx}")
             if _is_modifier_char(text[char_idx]):
                 char_idx += 1
                 continue
@@ -662,15 +682,13 @@ def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, i
             char_idx += 1
         spans.append((start, char_idx))
     if char_idx != len(text):
-        raise ValueError(
-            f"Text not fully consumed by tokens: used {char_idx} of "
-            f"{len(text)} chars"
-        )
+        raise ValueError(f"Text not fully consumed by tokens: used {char_idx} of " f"{len(text)} chars")
     return spans
 
 
-def _shape_text_glyph_names(font: hb.Font, text: str,
-                             features: dict[str, bool] | None) -> tuple[list[str], list]:
+def _shape_text_glyph_names(
+    font: hb.Font, text: str, features: dict[str, bool] | None
+) -> tuple[list[str], list]:
     buf = hb.Buffer()
     buf.add_str(text)
     buf.guess_segment_properties()
@@ -683,9 +701,9 @@ def _shape_text_glyph_names(font: hb.Font, text: str,
     return names, positions
 
 
-def _isolation_glyphs_split(font: hb.Font, text: str,
-                              segment_breaks: list[int],
-                              features: dict[str, bool] | None) -> tuple[list[str], list]:
+def _isolation_glyphs_split(
+    font: hb.Font, text: str, segment_breaks: list[int], features: dict[str, bool] | None
+) -> tuple[list[str], list]:
     """Shape each segment of ``text`` separately and concatenate glyph names.
 
     ``segment_breaks`` are char offsets into ``text`` where the input is split.
@@ -700,7 +718,9 @@ def _isolation_glyphs_split(font: hb.Font, text: str,
         if start >= end:
             continue
         seg_names, seg_positions = _shape_text_glyph_names(
-            font, text[start:end], features,
+            font,
+            text[start:end],
+            features,
         )
         names.extend(seg_names)
         positions.extend(seg_positions)
@@ -730,21 +750,25 @@ def _glyph_outline_signature(variant: str, glyph_name: str) -> tuple:
 
 
 def _positions_equivalent(pos_a, pos_b) -> bool:
-    return (pos_a.x_offset == pos_b.x_offset
-            and pos_a.y_offset == pos_b.y_offset
-            and pos_a.x_advance == pos_b.x_advance
-            and pos_a.y_advance == pos_b.y_advance)
+    return (
+        pos_a.x_offset == pos_b.x_offset
+        and pos_a.y_offset == pos_b.y_offset
+        and pos_a.x_advance == pos_b.x_advance
+        and pos_a.y_advance == pos_b.y_advance
+    )
 
 
-def _check_break_isolation(text: str,
-                            tokens: list[ExpectToken],
-                            connections: list[Connection],
-                            anchor_map: AnchorMap,
-                            glyph_names_full: list[str],
-                            glyph_positions_full: list,
-                            font: hb.Font,
-                            features: dict[str, bool] | None,
-                            variant: str) -> str | None:
+def _check_break_isolation(
+    text: str,
+    tokens: list[ExpectToken],
+    connections: list[Connection],
+    anchor_map: AnchorMap,
+    glyph_names_full: list[str],
+    glyph_positions_full: list,
+    font: hb.Font,
+    features: dict[str, bool] | None,
+    variant: str,
+) -> str | None:
     """Verify that shape choices flanking each non-join survive isolation.
 
     For every connection whose chosen interpretation is a break — or a "maybe"
@@ -760,6 +784,7 @@ def _check_break_isolation(text: str,
     (see project CLAUDE.md on ZWNJ handling in ``calt``), so ZWNJ-injected
     shaping isn't equivalent to isolation here.
     """
+
     def _is_qs_letter(tok: ExpectToken) -> bool:
         # Only Quikscript letter tokens participate in the isolation check. Non-letter tokens (◊space, ◊ZWNJ, \-, etc.) are boundary markers whose whole job is to influence their neighbors' shape — applying isolation against them produces false positives, since e.g. the font fires legitimate `.noentry` rules after a literal U+200C.
         return tok["base"].startswith("qs")
@@ -785,7 +810,10 @@ def _check_break_isolation(text: str,
     segment_breaks = sorted({spans[i + 1][0] for i in isolating_indices})
 
     split_names, split_positions = _isolation_glyphs_split(
-        font, text, segment_breaks, features,
+        font,
+        text,
+        segment_breaks,
+        features,
     )
 
     expected_len = len(tokens)
@@ -807,7 +835,8 @@ def _check_break_isolation(text: str,
             s_sig = _glyph_outline_signature(variant, s)
             outline_same = f_sig == s_sig
             position_same = _positions_equivalent(
-                glyph_positions_full[ti], split_positions[ti],
+                glyph_positions_full[ti],
+                split_positions[ti],
             )
             if outline_same and position_same:
                 continue
@@ -837,7 +866,9 @@ def _check_break_isolation(text: str,
     return None
 
 
-def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]) -> list[PartitionedRun]:
+def _partition_by_runs(
+    runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]
+) -> list[PartitionedRun]:
     """Partition ``tokens`` and ``connections`` across ``runs``.
 
     Walks the concatenated run text char-by-char, attributing each token to
@@ -864,24 +895,18 @@ def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: 
         while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
             char_idx += 1
         if char_idx >= len(full_text):
-            raise ValueError(
-                f"Not enough input chars for token {tok!r} at char {char_idx}"
-            )
+            raise ValueError(f"Not enough input chars for token {tok!r} at char {char_idx}")
         token_run = run_for_char[char_idx]
         consumed = 0
         while consumed < base:
             if char_idx >= len(full_text):
-                raise ValueError(
-                    f"Token {tok!r} overruns text at char {char_idx}"
-                )
+                raise ValueError(f"Token {tok!r} overruns text at char {char_idx}")
             c = full_text[char_idx]
             if _is_modifier_char(c):
                 char_idx += 1
                 continue
             if run_for_char[char_idx] != token_run:
-                raise ValueError(
-                    f"Token {tok!r} straddles run boundary at char {char_idx}"
-                )
+                raise ValueError(f"Token {tok!r} straddles run boundary at char {char_idx}")
             char_idx += 1
             consumed += 1
         # Eat trailing modifier chars that attach to this token's last char.
@@ -890,10 +915,7 @@ def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: 
         token_to_run.append(token_run)
 
     if char_idx != len(full_text):
-        raise ValueError(
-            f"Run text not fully consumed: used {char_idx} of "
-            f"{len(full_text)} chars"
-        )
+        raise ValueError(f"Run text not fully consumed: used {char_idx} of " f"{len(full_text)} chars")
 
     slices: list[PartitionedRun] = []
     for run_idx, run in enumerate(runs):
@@ -907,11 +929,15 @@ def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: 
             for i in range(len(tok_indices) - 1):
                 if tok_indices[i + 1] != tok_indices[i] + 1:
                     raise ValueError(
-                        f"Non-contiguous tokens in run {run_idx}: "
-                        f"{tok_indices[i]} -> {tok_indices[i+1]}"
+                        f"Non-contiguous tokens in run {run_idx}: " f"{tok_indices[i]} -> {tok_indices[i+1]}"
                     )
                 run_conns.append(connections[tok_indices[i]])
-        sl: PartitionedRun = {"font": run["font"], "text": run["text"], "tokens": run_tokens, "connections": run_conns}
+        sl: PartitionedRun = {
+            "font": run["font"],
+            "text": run["text"],
+            "tokens": run_tokens,
+            "connections": run_conns,
+        }
         run_features = run.get("features")
         if run_features:
             sl["features"] = run_features
@@ -919,11 +945,14 @@ def _partition_by_runs(runs: list[Run], tokens: list[ExpectToken], connections: 
     return slices
 
 
-def run_shaping_test_runs(fonts: dict[str, hb.Font],
-                          anchor_maps: dict[str, AnchorMap],
-                          runs: list[Run], expect_str: str,
-                          base_potential_entries: dict[str, dict[str, set[int]]] | None = None,
-                          features: dict[str, bool] | None = None) -> None:
+def run_shaping_test_runs(
+    fonts: dict[str, hb.Font],
+    anchor_maps: dict[str, AnchorMap],
+    runs: list[Run],
+    expect_str: str,
+    base_potential_entries: dict[str, dict[str, set[int]]] | None = None,
+    features: dict[str, bool] | None = None,
+) -> None:
     """Shape each font-variant run independently and verify against expect_str.
 
     ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior").
@@ -969,18 +998,19 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
 
         # Junior has no cursive attachment — suppress connection assertions (glyph-identity assertions still run).
         if variant == "junior":
-            interpretations = [
-                (t, [Connection(kind="maybe", y=None) for _ in c])
-                for t, c in interpretations
-            ]
+            interpretations = [(t, [Connection(kind="maybe", y=None) for _ in c]) for t, c in interpretations]
 
         errors = []
         matched_interp: tuple[list[ExpectToken], list[Connection]] | None = None
         for interp_tokens, interp_connections in interpretations:
             error = _try_interpretation(
-                font, anchor_map, glyph_names,
-                interp_tokens, interp_connections,
-                potential.get(variant), variant=variant,
+                font,
+                anchor_map,
+                glyph_names,
+                interp_tokens,
+                interp_connections,
+                potential.get(variant),
+                variant=variant,
             )
             if error is None:
                 matched_interp = (interp_tokens, interp_connections)
@@ -997,9 +1027,15 @@ def run_shaping_test_runs(fonts: dict[str, hb.Font],
         if variant == "senior":
             interp_tokens, interp_connections = matched_interp
             iso_error = _check_break_isolation(
-                text, interp_tokens, interp_connections,
-                anchor_map, glyph_names, glyph_positions,
-                font, merged, variant,
+                text,
+                interp_tokens,
+                interp_connections,
+                anchor_map,
+                glyph_names,
+                glyph_positions,
+                font,
+                merged,
+                variant,
             )
             if iso_error:
                 raise AssertionError(
