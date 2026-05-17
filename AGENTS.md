@@ -28,6 +28,8 @@ IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `py
 
 - `UV_CACHE_DIR=.uv-cache uv run pytest` not `pytest`
 
+IMPORTANT: After any Python changes, run `make prettier` to format the code.
+
 ## General background information
 
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.
