@@ -185,6 +185,14 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 That tells `git blame` to skip the revisions listed in [`.git-blame-ignore-revs`](./.git-blame-ignore-revs) so each line’s blame points at whoever last touched it for real instead of at the reformat commit. GitHub’s blame view honors this file automatically.
 
+Also run this once after cloning to install the pre-push hook that keeps unformatted Python out of the repo:
+
+```sh
+UV_CACHE_DIR=.uv-cache uv run pre-commit install
+```
+
+On every `git push`, the hook runs `black --check` against the tree. If anything would be reformatted, the push is aborted; run `make prettier` to fix it, commit the result, and push again.
+
 ## Licensing
 
 SIL OFL 1.1 for the font files themselves, and MIT for everything else.
