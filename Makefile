@@ -22,7 +22,7 @@ typecheck:
 	uv run pyright tools/ test/
 
 prettier:
-	uv run --with black black tools/ test/
+	uv run --with black black -q tools/ test/
 
 test: typecheck
 	uv run pytest test/ -n auto
