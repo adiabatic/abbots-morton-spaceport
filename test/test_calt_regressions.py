@@ -380,7 +380,7 @@ def _middle_pea_xheight_left_gate_failures() -> list[str]:
 
 def test_see_ooze_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsSee", "qsOoze"),
         [
             "·See.exit-baseline-right ~b~ ·Ooze",
         ],
@@ -389,7 +389,7 @@ def test_see_ooze_is_sensible():
 
 def test_jay_it_no_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsJay", "qsIt", "qsNo"),
         [
             "·Jay ~b~ ·It | ·No",
             "·Jay  |  ·It   ·No",
@@ -399,7 +399,7 @@ def test_jay_it_no_is_sensible():
 
 def test_jay_it_zoo_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsJay", "qsIt", "qsZoo"),
         [
             "·Jay ~b~ ·It ~x~ ·Zoo.!half",
             "·Jay  |  ·It ~b~ ·Zoo.half",
@@ -409,7 +409,7 @@ def test_jay_it_zoo_is_sensible():
 
 def test_ye_it_zoo_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsYe", "qsIt", "qsZoo"),
         [
             "·Ye | ·It ·Zoo",
         ],
@@ -418,7 +418,7 @@ def test_ye_it_zoo_is_sensible():
 
 def test_it_zoo_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsIt", "qsZoo"),
         [
             "·It ~b~ ·Zoo.half",
         ],
@@ -427,7 +427,7 @@ def test_it_zoo_is_sensible():
 
 def test_may_it_see_low_is_sensible():
     _assert_expect_any(
-        "",
+        _qs_text("qsMay", "qsIt", "qsSee", "qsLow"),
         [
             "·May.exit-extended ~x~ ·It ~b~ ·See  |  ·Low",
             "·May.exit-extended ~x~ ·It  |  ·See ~b~ ·Low",
@@ -439,17 +439,17 @@ def test_may_it_see_low_is_sensible():
     ("text", "expects"),
     [
         pytest.param(
-            "",
+            _qs_text("qsPea", "qsOwe"),
             ["·Pea.half ~x~ ·Owe.entry-extended"],
             id="bare",
         ),
         pytest.param(
-            "",
+            _qs_text("qsBay", "qsPea", "qsOwe"),
             ["·Bay | ·Pea.half ~x~ ·Owe.entry-extended"],
             id="after-bay",
         ),
         pytest.param(
-            "",
+            _qs_text("qsTea", "qsPea", "qsOwe"),
             ["·Tea | ·Pea.half ~x~ ·Owe.entry-extended"],
             id="after-tea",
         ),
@@ -460,7 +460,7 @@ def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]
 
 
 def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
-    _assert_expect_any("", ["·Pea.half ~x~ ·Owe.entry-extended ~x~ ·No"])
+    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.entry-extended ~x~ ·No"])
 
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
@@ -469,7 +469,7 @@ def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
 
 def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
     _assert_expect_any(
-        "",
+        _qs_text("qsOwe", "qsFee"),
         ["·Owe.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight"],
     )
 
@@ -477,11 +477,11 @@ def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param("", ["·May.exit-extended ~x~ ·Fee.entry-xheight"], id="qsMay"),
-        pytest.param("", ["·No.exit-extended ~x~ ·Fee.entry-xheight"], id="qsNo"),
-        pytest.param("", ["·Low.exit-extended ~x~ ·Fee.entry-xheight"], id="qsLow"),
-        pytest.param("", ["·Ah.exit-extended ~x~ ·Fee.entry-xheight"], id="qsAh"),
-        pytest.param("", ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"),
+        pytest.param(_qs_text("qsMay", "qsFee"), ["·May.exit-extended ~x~ ·Fee.entry-xheight"], id="qsMay"),
+        pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee.entry-xheight"], id="qsNo"),
+        pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee.entry-xheight"], id="qsLow"),
+        pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee.entry-xheight"], id="qsAh"),
+        pytest.param(_qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"),
     ],
 )
 def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
@@ -493,17 +493,17 @@ def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: lis
     ("text", "expects"),
     [
         pytest.param(
-            "",
+            _qs_text("qsOut", "qsFee", "qsJai"),
             ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Jai.entry-xheight"],
             id="qsJai",
         ),
         pytest.param(
-            "",
+            _qs_text("qsOut", "qsFee", "qsCheer"),
             ["·Out.∅ |?| ·Fee.exit-xheight.exit-extended ~x~ ·Cheer"],
             id="qsCheer",
         ),
         pytest.param(
-            "",
+            _qs_text("qsOut", "qsFee", "qsAwe"),
             ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Awe"],
             id="qsAwe",
         ),
@@ -516,7 +516,7 @@ def test_qs_out_does_not_reach_for_qs_fee_when_fee_connects_right(text: str, exp
 def test_qs_out_fee_utter_lets_out_reach_for_fee():
     # qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces ·Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead.
     _assert_expect_any(
-        "",
+        _qs_text("qsOut", "qsFee", "qsUtter"),
         [
             "·Out.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight | ·Utter",
         ],
@@ -526,7 +526,7 @@ def test_qs_out_fee_utter_lets_out_reach_for_fee():
 def test_qs_ah_fee_utter_keeps_left_join():
     # ·Ah·Fee·Utter must keep the ·Ah·Fee join at x-height. Previously ·Fee was switched to exit_xheight_before_utter (no entry anchor) whenever ·Utter followed, breaking the left-side join even though ·Utter itself didn't gain anything from ·Fee being entry-less without further context.
     _assert_expect_any(
-        "",
+        _qs_text("qsAh", "qsFee", "qsUtter"),
         [
             "·Ah.exit-extended ~x~ ·Fee.entry-xheight | ·Utter.∅",
         ],
@@ -537,17 +537,17 @@ def test_qs_ah_fee_utter_keeps_left_join():
     ("text", "expects"),
     [
         pytest.param(
-            "",
+            _qs_text("qsAh", "qsMay", "qsPea"),
             ["·Ah ~x~ ·May.entry-xheight | ·Pea.∅"],
             id="ah",
         ),
         pytest.param(
-            "",
+            _qs_text("qsFee", "qsMay", "qsPea"),
             ["·Fee ~x~ ·May.entry-xheight | ·Pea.∅"],
             id="fee",
         ),
         pytest.param(
-            "",
+            _qs_text("qsI", "qsMay", "qsPea"),
             ["·I ~x~ ·May.entry-xheight | ·Pea.∅"],
             id="i",
         ),
@@ -765,7 +765,7 @@ def test_word_initial_quikscript_glyph_never_promotes_to_phantom_entry_anchor(fe
 
 def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right():
     _assert_expect_any(
-        "",
+        _qs_text("qsUtter", "qsPea", "qsAwe"),
         [
             "·Utter ~x~ ·Pea.half ~x~ ·Awe.entry-extended",
         ],
@@ -774,7 +774,7 @@ def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right()
 
 def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right():
     _assert_expect_any(
-        "",
+        _qs_text("qsAh", "qsPea", "qsAwe"),
         [
             "·Ah | ·Pea.half ~x~ ·Awe.entry-extended",
         ],
@@ -789,12 +789,12 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
     ("text", "expects"),
     [
         pytest.param(
-            "",
+            _qs_text("qsIng", "qsThaw"),
             ["·-ing.exit-triply-extended ~b~ ·Thaw"],
             id="ing-before-thaw",
         ),
         pytest.param(
-            "",
+            _qs_text("qsThaw", "qsIng"),
             ["·Thaw.exit-baseline ~b~ ·-ing.after-thaw.entry-doubly-extended"],
             id="thaw-before-ing",
         ),
@@ -1077,7 +1077,7 @@ def test_qs_may_thaw_joins_at_baseline_when_alone():
 
 
 def test_may_thaw_ing_is_sensible():
-    _assert_expect_any("", [
+    _assert_expect_any(_qs_text("qsMay", "qsThaw", "qsIng"), [
         "·May.!exit-baseline  |  ·Thaw ~b~ ·-ing",
         "·May                ~b~ ·Thaw  |  ·-ing",
         ])
@@ -1186,7 +1186,7 @@ def test_qs_may_thaw_stays_isolated_across_zwnj():
 
 def test_qs_may_thaw_before_ing_stays_plain():
     _assert_expect_any(
-        "",
+        _qs_text("qsMay", "qsThaw", "qsIng"),
         [
             "·May.∅ | ·Thaw ~b~ ·-ing",
         ],
