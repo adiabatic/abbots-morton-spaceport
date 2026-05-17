@@ -35,6 +35,7 @@ class ExpectToken(TypedDict):
     lig_mode: Literal["maybe", "maybe_break"] | None
     variants: list[str]
     neg_variants: list[str]
+    exact_glyph: bool
 
 
 class Connection(TypedDict):
@@ -84,7 +85,7 @@ TOKEN_RE = re.compile(
     r"""
     ·(-ing|J['\u2019]?ai|[A-Z][a-z]*)  # letter name (·Bay, ·-ing, ·J'ai)
     (?:\+([?|]?)([A-Z][a-z]*))?         # optional ligature partner (+Utter, +?Utter, +|Utter)
-    ((?:\.!?[a-z][-a-z0-9]*)*)          # optional variant assertions (.half.extended, .!exit, .entry-extended, .exit.y1)
+    ((?:\.(?:!?[a-z][-a-z0-9]*|∅))*)    # optional variant assertions (.half.extended, .!exit, .∅)
     """,
     re.VERBOSE,
 )
@@ -115,6 +116,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
         lig_base  – e.g. "qsUtter" if ligature, else None
         lig_mode  – None (must-ligate), "maybe" (+?), or "maybe_break" (+|)
         variants  – list of variant assertion strings, e.g. ["half"]
+        exact_glyph – whether .∅ requires the exact expected glyph name
     connections: list of dicts (len = len(tokens) - 1) with keys:
         kind      – "join", "break", "break_no_isolation", "height", or "maybe"
         y         – int or None (only for "height")
@@ -178,6 +180,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                 "lig_mode": None,
                 "variants": [],
                 "neg_variants": [],
+                "exact_glyph": False,
             })
             pos += esc_m.end()
             continue
@@ -194,6 +197,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
                 "lig_mode": None,
                 "variants": [],
                 "neg_variants": [],
+                "exact_glyph": False,
             })
             pos += loz_m.end()
             continue
@@ -214,14 +218,25 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
 
         pos_variants = []
         neg_variants = []
+        exact_glyph = False
         if variant_str:
             for v in variant_str.split("."):
                 if not v:
                     continue
-                if v.startswith("!"):
+                if v == "∅":
+                    if exact_glyph:
+                        raise ValueError(
+                            f"Exact glyph assertion .∅ appears more than once in {raw!r}"
+                        )
+                    exact_glyph = True
+                elif v.startswith("!"):
                     neg_variants.append(v[1:])
                 else:
                     pos_variants.append(v)
+        if exact_glyph and (pos_variants or neg_variants):
+            raise ValueError(
+                f"Exact glyph assertion .∅ cannot be combined with other variant assertions in {raw!r}"
+            )
 
         tokens.append({
             "base": _letter_to_qs(letter),
@@ -229,6 +244,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
             "lig_mode": lig_mode,
             "variants": pos_variants,
             "neg_variants": neg_variants,
+            "exact_glyph": exact_glyph,
         })
         pos += tok_m.end()
 
@@ -398,6 +414,12 @@ def _is_ligature_match(meta: JoinGlyph, base: str, lig: str) -> bool:
     return meta.sequence == (base, lig)
 
 
+def _expected_exact_glyph_name(tok: ExpectToken) -> str:
+    if tok["lig_base"]:
+        return f"{tok['base']}_{tok['lig_base']}"
+    return tok["base"]
+
+
 # ---------------------------------------------------------------------------
 # Maybe-ligature expansion
 # ---------------------------------------------------------------------------
@@ -428,6 +450,7 @@ def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connect
                     "lig_mode": None,
                     "variants": [],
                     "neg_variants": [],
+                    "exact_glyph": False,
                 })
                 new_connections.append({"kind": conn_kind, "y": None})
                 new_tokens.append({
@@ -436,6 +459,7 @@ def _expand_maybe_ligatures(tokens: list[ExpectToken], connections: list[Connect
                     "lig_mode": None,
                     "variants": [],
                     "neg_variants": [],
+                    "exact_glyph": False,
                 })
             else:
                 new_tokens.append({**tok, "lig_mode": None})
@@ -470,6 +494,11 @@ def _try_interpretation(font: hb.Font, anchor_map: AnchorMap,
         else:
             if _glyph_base_name(meta) != base:
                 return f"Glyph {i}: expected base {base}, got {gname!r}"
+
+        if tok["exact_glyph"]:
+            expected_glyph_name = _expected_exact_glyph_name(tok)
+            if gname != expected_glyph_name:
+                return f"Glyph {i}: expected exact glyph {expected_glyph_name!r}, got {gname!r}"
 
         for v in tok["variants"]:
             if not _modifier_matches(meta, v):

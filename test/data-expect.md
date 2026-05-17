@@ -19,6 +19,7 @@ Append dot-separated modifiers to assert properties of the selected glyph varian
 
 | Modifier | Meaning | Example |
 | -------- | ------- | ------- |
+| `.∅` | exact glyph, with no contextual variant | `·May.∅` |
 | `.alt` | stable alternate form | `·No.alt` |
 | `.half` | stable half form | `·Pea.half` |
 
@@ -28,6 +29,8 @@ Prefix a modifier with `!` to assert the selected glyph does **not** carry that 
 | -------- | ------- |
 | `.!alt` | `·No.!alt` |
 | `.!half` | `·Pea.!half` |
+
+The `.∅` assertion uses U+2205 EMPTY SET and is exact: `·May.∅` passes only when the shaped glyph is literally `qsMay`, not `qsMay.noentry`, `qsMay.exit-baseline`, or another sibling. It cannot be combined with other variant assertions.
 
 Other modifiers used by the corpus, such as `entry`, `exit`, `extended`, `noentry`, `entry-baseline`, `exit-baseline`, `exit-xheight`, and `reaches-way-back`, are compatibility-only. They are matched against compiler-provided compatibility metadata, not against glyph-name substrings.
 

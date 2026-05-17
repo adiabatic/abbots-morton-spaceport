@@ -1248,11 +1248,14 @@ def test_qs_may_thaw_stays_isolated_across_zwnj():
     ],
 )
 def test_qs_may_thaw_before_ing_variants_stays_plain(ing_variant: str):
-    # Every variant of qsIng that triggers qsThaw's forward sub must keep qsMay out of exit-baseline.
-    glyphs = _shape_qs("qsMay", "qsThaw", ing_variant)
-    assert glyphs[0] == "qsMay", glyphs
-    _assert_no_failures(
-        _qs_may_thaw_orphan_failures(glyphs, f"qsMay / qsThaw / {ing_variant}")
+    # Every variant of qsIng that triggers qsThaw's forward sub must keep qsMay on the exact base glyph.
+    chars = _char_map()
+    text = chars["qsMay"] + chars["qsThaw"] + chars[ing_variant]
+    _assert_expect_any(
+        text,
+        [
+            "·May.∅ | ·Thaw ~b~ ·-ing",
+        ],
     )
 
 
