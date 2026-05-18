@@ -2973,13 +2973,24 @@ def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
     )
 
 
-def test_new_qs_at_before_may_has_no_entry_anchor():
-    # qsAt's contextual before-may form replaces the old qsAt_qsMay ligature. It has no entry anchor, which is what keeps predecessors like qsRoe and qsSee from cursive-binding to it.
+def test_at_may_has_no_entry_anchor():
+    # qsAt's contextual before-may form replaces the old qsAt_qsMay ligature. Every variant must stay entry-less — that absence is what keeps predecessors like qsRoe and qsSee from cursive-binding — and the `before:` selector must still resolve to a qsMay variant, or the invariant is defending an unreachable form.
     meta_map = _compiled_meta()
-    base = meta_map["qsAt.exit-baseline.before-may"]
-    assert base.entry == (), base
-    extended = meta_map["qsAt.exit-baseline.before-may.exit-quintuply-extended"]
-    assert extended.entry == (), extended
+    base_name = "qsAt.exit-baseline.before-may"
+    variants = {
+        name: meta for name, meta in meta_map.items() if name == base_name or name.startswith(base_name + ".")
+    }
+    assert base_name in variants, f"{base_name} missing from compiled meta"
+    for name, meta in sorted(variants.items()):
+        assert meta.entry == (), f"{name} should have no entry anchor; got {meta.entry}"
+    qs_may_targets = [
+        target
+        for target in variants[base_name].before
+        if (target_meta := meta_map.get(target)) is not None and target_meta.base_name == "qsMay"
+    ]
+    assert (
+        qs_may_targets
+    ), f"{base_name}.before should resolve to at least one qsMay variant; got {variants[base_name].before}"
 
 
 def test_roe_may_they_utter_looks_ok():
