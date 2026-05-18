@@ -1,4 +1,5 @@
 from functools import cache
+from itertools import product
 
 import pytest
 
@@ -11,6 +12,7 @@ from quikscript_shaping_helpers import (
     _base_names,
     _char_map,
     _compiled_meta,
+    _context_chars,
     _entry_ys,
     _exit_ys,
     _find_base_index,
@@ -213,6 +215,69 @@ def _collect_nonjoining_left_ligature_failures(
 
         if not saw_pair and outer_left_name is None and outer_right_name is None:
             failures.append(f"{label}: expected {left_base} immediately before {ligature_base}, got {glyphs}")
+
+    return failures
+
+
+def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
+    left_base: str,
+    right_base: str,
+    *,
+    forbidden_y: int,
+    chars_before: int = 1,
+    chars_after: int = 1,
+) -> list[str]:
+    """Flag every (left_base, right_base) pair that joins at ``forbidden_y``
+    when surrounded by any combination of ``chars_before`` characters on the
+    left and ``chars_after`` characters on the right. The iteration set is
+    every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the
+    default 1+1 surround that is 2025 shaped strings.
+
+    Ligatures led by ``right_base`` (sequence starting with right_base) and
+    ligatures trailed by ``left_base`` (sequence ending with left_base) match
+    too — they carry the relevant entry/exit anchor of the bare letter, so
+    the same forbidden join applies to them.
+
+    Joins at other Y values are allowed — only ``forbidden_y`` is policed.
+    Use this when the rule is "·A·B may join at some heights, but not at this
+    one, no matter the neighbours".
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                left_is_target = left_meta.base_name == left_base or (
+                    left_meta.sequence and left_meta.sequence[-1] == left_base
+                )
+                right_is_target = right_meta.base_name == right_base or (
+                    right_meta.sequence and right_meta.sequence[0] == right_base
+                )
+                if not left_is_target or not right_is_target:
+                    continue
+                common = _pair_join_ys(glyphs, index)
+                if forbidden_y in common:
+                    failures.append(
+                        f"{label}: {glyph_name} joins {glyphs[index + 1]} "
+                        f"at Y={forbidden_y} in {glyphs} (join Ys={sorted(common)})"
+                    )
 
     return failures
 
@@ -949,45 +1014,13 @@ def test_qs_nonjoining_pairs_do_not_connect(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
-def _it_day_xheight_join_failures() -> list[str]:
-    failures: list[str] = []
-    meta_map = _compiled_meta()
-    contexts: list[tuple[str | None, str | None]] = [(None, None)]
-    contexts.extend((None, right_name) for right_name, _ in _plain_quikscript_letters())
-    contexts.extend((left_name, None) for left_name, _ in _plain_quikscript_letters())
-    contexts.extend(
-        (left_name, right_name)
-        for left_name, _ in _plain_quikscript_letters()
-        for right_name, _ in _plain_quikscript_letters()
-    )
-
-    for left_name, right_name in contexts:
-        parts = ([left_name] if left_name else []) + ["qsIt", "qsDay"] + ([right_name] if right_name else [])
-        glyphs = _shape_qs(*parts)
-        label = " / ".join(parts)
-
-        for index, glyph_name in enumerate(glyphs[:-1]):
-            left_meta = meta_map.get(glyph_name)
-            right_meta = meta_map.get(glyphs[index + 1])
-            if left_meta is None or right_meta is None:
-                continue
-            right_starts_with_day = right_meta.base_name == "qsDay" or (
-                right_meta.sequence is not None and right_meta.sequence[:1] == ("qsDay",)
-            )
-            if left_meta.base_name != "qsIt" or not right_starts_with_day:
-                continue
-
-            common = _pair_join_ys(glyphs, index)
-            if 5 in common:
-                failures.append(
-                    f"{label}: ·It·Day joins at the x-height in {glyphs} " f"with join Ys {sorted(common)}"
-                )
-
-    return failures
-
-
 def test_qs_it_day_never_joins_at_xheight():
-    _assert_no_failures(_it_day_xheight_join_failures(), limit=None)
+    _assert_no_failures(
+        _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
+            "qsIt", "qsDay", forbidden_y=5
+        ),
+        limit=None,
+    )
 
 
 @pytest.mark.parametrize(
