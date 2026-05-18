@@ -2577,6 +2577,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     targets.update(orthogonal_derivations)
 
                 expanded_not_after = _expand_all_variants(not_after_glyphs, include_base=True)
+                # calt_zwnj substitutes a qs letter with its `.noentry` form after a ZWNJ, and the standard variant expander does not return those forms. Without this augmentation a forward-pair `not_after` guard would miss `qsX.noentry` and the rule would still fire, joining a word-initial qsX to its successor at the forbidden anchor.
+                for not_after_glyph in not_after_glyphs:
+                    not_after_base = (
+                        glyph_meta[not_after_glyph].base_name
+                        if not_after_glyph in glyph_meta
+                        else not_after_glyph
+                    )
+                    for sibling in base_to_variants.get(not_after_base, ()):
+                        if glyph_meta[sibling].is_noentry:
+                            expanded_not_after.add(sibling)
 
                 safe = variant_name.replace(".", "_")
                 lines.append("")
