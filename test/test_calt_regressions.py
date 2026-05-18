@@ -2982,15 +2982,14 @@ def test_new_qs_at_before_may_has_no_entry_anchor():
     assert extended.entry == (), extended
 
 
-def test_may_uses_exit_noentry_before_they_utter_noentry():
+def test_roe_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsRoe", "qsMay", "qsThey", "qsUtter"),
         ["·Roe ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
     )
 
 
-def test_qs_at_before_may_chain_handles_qs_they_qs_utter_noentry():
-    # The retired qsAt_qsMay ligature used to stay whole before qsThey_qsUtter.noentry. Now qsAt and qsMay are separate glyphs: qsAt picks the before-may form, qsMay picks its entry-preserving exit-noentry form before the entryless qsThey+Utter ligature.
+def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
         [
