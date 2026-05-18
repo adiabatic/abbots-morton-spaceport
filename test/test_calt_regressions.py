@@ -81,23 +81,34 @@ def _collect_nonjoining_pair_context_failures(
     return failures
 
 
-def _collect_surrounded_nonjoining_pair_failures(
+def _collect_left_must_stay_full_before_right_failures(
     left_base: str,
     right_base: str,
     *,
-    require_full_left: bool = False,
-    require_isolated_left: bool = False,
+    chars_before: int = 1,
+    chars_after: int = 1,
 ) -> list[str]:
+    """Flag every position where ``left_base`` is selected as a half-trait form
+    immediately before ``right_base``, swept over the same surround combinations
+    as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
     failures: list[str] = []
     meta_map = _compiled_meta()
+    context_set = _context_chars()
     left_label = left_base[2:]
     right_label = right_base[2:]
-    isolated_left_glyph = _shape_qs(left_base)[0] if require_isolated_left else None
 
-    for outer_left_name, _ in _plain_quikscript_letters():
-        for outer_right_name, _ in _plain_quikscript_letters():
-            glyphs = _shape_qs(outer_left_name, left_base, right_base, outer_right_name)
-            label = f"{outer_left_name} / {left_base} / {right_base} / {outer_right_name}"
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
 
             for index, glyph_name in enumerate(glyphs[:-1]):
                 left_meta = meta_map.get(glyph_name)
@@ -106,18 +117,56 @@ def _collect_surrounded_nonjoining_pair_failures(
                     continue
                 if left_meta.base_name != left_base or right_meta.base_name != right_base:
                     continue
-                if require_full_left and "half" in left_meta.traits:
-                    failures.append(f"{label}: half-{left_label} selected before {right_label}: {glyphs}")
-                if require_isolated_left and glyph_name != isolated_left_glyph:
+                if "half" in left_meta.traits:
+                    failures.append(
+                        f"{label}: half-{left_label} ({glyph_name}) selected before "
+                        f"{right_label} in {glyphs}"
+                    )
+
+    return failures
+
+
+def _collect_left_must_stay_isolated_before_right_failures(
+    left_base: str,
+    right_base: str,
+    *,
+    chars_before: int = 1,
+    chars_after: int = 1,
+) -> list[str]:
+    """Flag every position where ``left_base`` is selected as something other
+    than its bare isolated form immediately before ``right_base``, swept over
+    the same surround combinations as
+    ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+    left_label = left_base[2:]
+    isolated_left_glyph = _shape_qs(left_base)[0]
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                if left_meta.base_name != left_base or right_meta.base_name != right_base:
+                    continue
+                if glyph_name != isolated_left_glyph:
                     failures.append(
                         f"{label}: expected isolated {left_label} glyph "
                         f"{isolated_left_glyph}, got {glyph_name} in {glyphs}"
-                    )
-                common = _pair_join_ys(glyphs, index)
-                if common:
-                    failures.append(
-                        f"{label}: {left_label} joins to next glyph {glyphs[index + 1]} "
-                        f"at Y={sorted(common)} in {glyphs}"
                     )
 
     return failures
@@ -215,6 +264,68 @@ def _collect_nonjoining_left_ligature_failures(
 
         if not saw_pair and outer_left_name is None and outer_right_name is None:
             failures.append(f"{label}: expected {left_base} immediately before {ligature_base}, got {glyphs}")
+
+    return failures
+
+
+def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+    left_base: str,
+    right_base: str,
+    *,
+    chars_before: int = 1,
+    chars_after: int = 1,
+) -> list[str]:
+    """Flag every (left_base, right_base) pair that joins at any Y when
+    surrounded by any combination of ``chars_before`` characters on the left
+    and ``chars_after`` characters on the right. The iteration set is every
+    plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default
+    1+1 surround that is 2025 shaped strings.
+
+    Ligatures led by ``right_base`` (sequence starting with right_base) and
+    ligatures trailed by ``left_base`` (sequence ending with left_base) match
+    too — they carry the relevant entry/exit anchor of the bare letter, so the
+    same forbidden join applies to them.
+
+    Use this when the rule is "·A·B must never join, no matter the neighbours".
+    For "may join at some heights, but not at this one", reach for
+    ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                left_is_target = left_meta.base_name == left_base or (
+                    left_meta.sequence and left_meta.sequence[-1] == left_base
+                )
+                right_is_target = right_meta.base_name == right_base or (
+                    right_meta.sequence and right_meta.sequence[0] == right_base
+                )
+                if not left_is_target or not right_is_target:
+                    continue
+                common = _pair_join_ys(glyphs, index)
+                if common:
+                    failures.append(
+                        f"{label}: {glyph_name} joins {glyphs[index + 1]} "
+                        f"in {glyphs} (join Ys={sorted(common)})"
+                    )
 
     return failures
 
@@ -1063,13 +1174,9 @@ def test_qs_way_and_qs_why_stay_full_before_right_base(text: str, expects: list[
 def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context(
     left_base: str, right_base: str
 ):
-    _assert_no_failures(
-        _collect_surrounded_nonjoining_pair_failures(
-            left_base,
-            right_base,
-            require_full_left=True,
-        )
-    )
+    failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(left_base, right_base)
+    failures += _collect_left_must_stay_full_before_right_failures(left_base, right_base)
+    _assert_no_failures(failures)
 
 
 def test_qs_day_always_picks_half_after_qs_it_in_any_context():
@@ -1113,13 +1220,9 @@ def test_qs_may_no_and_foot_never_join_to_qs_they_utter(left_base: str):
 
 
 def test_qs_she_stays_plain_and_nonjoining_before_qs_thaw_in_context():
-    _assert_no_failures(
-        _collect_surrounded_nonjoining_pair_failures(
-            "qsShe",
-            "qsThaw",
-            require_isolated_left=True,
-        )
-    )
+    failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after("qsShe", "qsThaw")
+    failures += _collect_left_must_stay_isolated_before_right_failures("qsShe", "qsThaw")
+    _assert_no_failures(failures)
 
 
 def test_qs_may_thaw_joins_at_baseline_when_alone():
