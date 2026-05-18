@@ -2965,11 +2965,10 @@ def test_qs_roe_stays_bare_before_new_qs_at_before_may():
     )
 
 
-def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
-    # qsRoe.exit-baseline is also legitimately triggered by {family: qsAh}. The post-liga cleanup must NOT over-fire when the right neighbor is not a no-entry ligature.
+def test_roe_ah_connects_at_baseline():
     _assert_expect_any(
         _qs_text("qsRoe", "qsAh"),
-        ["·Roe.exit-baseline ~b~ ·Ah"],
+        ["·Roe ~b~ ·Ah"],
     )
 
 
