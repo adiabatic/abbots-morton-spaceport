@@ -76,6 +76,12 @@ def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     return tuple((name, chars[name]) for name in names)
 
 
+@cache
+def _context_chars() -> tuple[tuple[str, str], ...]:
+    """Plain Quikscript letters plus ZWNJ, for context-saturated sweeps."""
+    return _plain_quikscript_letters() + (("ZWNJ", ZWNJ),)
+
+
 def _qs_text(*parts: str) -> str:
     chars = _char_map()
     result = []
