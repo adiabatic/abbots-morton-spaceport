@@ -1014,7 +1014,7 @@ def test_qs_nonjoining_pairs_do_not_connect(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
-def test_qs_it_day_never_joins_at_xheight():
+def test_it_day_never_joins_at_xheight():
     _assert_no_failures(
         _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
             "qsIt", "qsDay", forbidden_y=5
