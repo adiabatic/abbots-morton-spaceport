@@ -1023,6 +1023,15 @@ def test_it_day_never_joins_at_xheight():
     )
 
 
+def test_ye_it_never_joins_at_baseline():
+    _assert_no_failures(
+        _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
+            "qsYe", "qsIt", forbidden_y=0
+        ),
+        limit=None,
+    )
+
+
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
