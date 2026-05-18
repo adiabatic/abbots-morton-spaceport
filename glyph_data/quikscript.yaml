@@ -2307,7 +2307,7 @@ glyph_families:
         select:
           before: [{family: qsUtter, entry_y: 0}]
           not_before: null
-          not_after: [{family: qsOwe}, {family: qsShe}, {family: qsZoo, traits: [half]}, {family: qsDay, traits: [half]}]
+          not_after: [{family: qsYe}, {family: qsOwe}, {family: qsShe}, {family: qsZoo, traits: [half]}, {family: qsDay, traits: [half]}]
         derive:
           extend_entry_after: null
           extend_exit_before: null
