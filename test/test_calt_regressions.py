@@ -680,19 +680,19 @@ def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
 def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
     _assert_expect_any(
         _qs_text("qsOwe", "qsFee"),
-        ["·Owe.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight"],
+        ["·Owe.exit-extended ~x~ ·Fee"],
     )
 
 
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param(_qs_text("qsMay", "qsFee"), ["·May.exit-extended ~x~ ·Fee.entry-xheight"], id="qsMay"),
-        pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee.entry-xheight"], id="qsNo"),
-        pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee.entry-xheight"], id="qsLow"),
-        pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee.entry-xheight"], id="qsAh"),
+        pytest.param(_qs_text("qsMay", "qsFee"), ["·May.exit-extended ~x~ ·Fee"], id="qsMay"),
+        pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee"], id="qsNo"),
+        pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee"], id="qsLow"),
+        pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee"], id="qsAh"),
         pytest.param(
-            _qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee.entry-xheight"], id="qsUtter"
+            _qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee"], id="qsUtter"
         ),
     ],
 )
@@ -706,17 +706,17 @@ def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: lis
     [
         pytest.param(
             _qs_text("qsOut", "qsFee", "qsJai"),
-            ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Jai.entry-xheight"],
+            ["·Out.∅ |?| ·Fee ~x~ ·Jai"],
             id="qsJai",
         ),
         pytest.param(
             _qs_text("qsOut", "qsFee", "qsCheer"),
-            ["·Out.∅ |?| ·Fee.exit-xheight.exit-extended ~x~ ·Cheer"],
+            ["·Out.∅ |?| ·Fee.exit-extended ~x~ ·Cheer"],
             id="qsCheer",
         ),
         pytest.param(
             _qs_text("qsOut", "qsFee", "qsAwe"),
-            ["·Out.∅ |?| ·Fee.exit-xheight ~x~ ·Awe"],
+            ["·Out.∅ |?| ·Fee ~x~ ·Awe"],
             id="qsAwe",
         ),
     ],
@@ -730,7 +730,7 @@ def test_qs_out_fee_utter_lets_out_reach_for_fee():
     _assert_expect_any(
         _qs_text("qsOut", "qsFee", "qsUtter"),
         [
-            "·Out.exit-xheight.exit-extended ~x~ ·Fee.entry-xheight | ·Utter",
+            "·Out.exit-extended ~x~ ·Fee | ·Utter",
         ],
     )
 
@@ -740,7 +740,7 @@ def test_qs_ah_fee_utter_keeps_left_join():
     _assert_expect_any(
         _qs_text("qsAh", "qsFee", "qsUtter"),
         [
-            "·Ah.exit-extended ~x~ ·Fee.entry-xheight | ·Utter.∅",
+            "·Ah.exit-extended ~x~ ·Fee | ·Utter.∅",
         ],
     )
 
@@ -750,17 +750,17 @@ def test_qs_ah_fee_utter_keeps_left_join():
     [
         pytest.param(
             _qs_text("qsAh", "qsMay", "qsPea"),
-            ["·Ah ~x~ ·May.entry-xheight | ·Pea.∅"],
+            ["·Ah ~x~ ·May | ·Pea.∅"],
             id="ah",
         ),
         pytest.param(
             _qs_text("qsFee", "qsMay", "qsPea"),
-            ["·Fee ~x~ ·May.entry-xheight | ·Pea.∅"],
+            ["·Fee ~x~ ·May | ·Pea.∅"],
             id="fee",
         ),
         pytest.param(
             _qs_text("qsI", "qsMay", "qsPea"),
-            ["·I ~x~ ·May.entry-xheight | ·Pea.∅"],
+            ["·I ~x~ ·May | ·Pea.∅"],
             id="i",
         ),
     ],
@@ -787,7 +787,7 @@ def test_qs_fee_may_uses_extension_pair():
     # ·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `triply-extended`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning.
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
-        ["·Fee.exit-xheight.before-may ~x~ ·May.entry-xheight.after-fee"],
+        ["·Fee.before-may ~x~ ·May.after-fee"],
     )
 
 
@@ -795,7 +795,7 @@ def test_qs_owe_fee_may_owe_joins_fee_at_xheight():
     # Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to ·Owe→·Fee joined at the x-height, then ·Fee.entry-xheight (entryless on its right) leaves ·May unconnected — ·Fee can't join both to and from at the x-height on the same letter (see the qsFee notes block).
     _assert_expect_any(
         _qs_text("qsOwe", "qsFee", "qsMay"),
-        ["·Owe ~x~ ·Fee.entry-xheight | ·May"],
+        ["·Owe ~x~ ·Fee | ·May"],
     )
 
 
@@ -991,7 +991,7 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
         ),
         pytest.param(
             _qs_text("qsThaw", "qsIng"),
-            ["·Thaw.exit-baseline ~b~ ·-ing.after-thaw.entry-doubly-extended"],
+            ["·Thaw ~b~ ·-ing.after-thaw.entry-doubly-extended"],
             id="thaw-before-ing",
         ),
     ],
@@ -1004,7 +1004,7 @@ def test_qs_it_strips_entry_before_qs_ing_when_left_join_conflicts():
     _assert_expect_any(
         _qs_text("qsOoze", "qsIt", "qsIng"),
         [
-            "·Ooze |?| ·It.exit-baseline ~b~ ·-ing",
+            "·Ooze |?| ·It ~b~ ·-ing",
         ],
     )
 
@@ -1013,7 +1013,7 @@ def test_qs_it_preserves_baseline_entry_when_qs_ing_join_is_blocked():
     _assert_expect_any(
         _qs_text("qsBay", "qsIt", "qsIng"),
         [
-            "·Bay ~b~ ·It.entry-baseline |?| ·-ing",
+            "·Bay ~b~ ·It |?| ·-ing",
         ],
     )
 
@@ -1021,7 +1021,7 @@ def test_qs_it_preserves_baseline_entry_when_qs_ing_join_is_blocked():
 def test_qs_it_preserves_baseline_entry_before_qs_zoo():
     _assert_expect_any(
         _qs_text("qsBay", "qsIt", "qsZoo"),
-        ["·Bay ~b~ ·It.entry-baseline.exit-extended ~x~ ·Zoo"],
+        ["·Bay ~b~ ·It.exit-extended ~x~ ·Zoo"],
     )
 
 
@@ -1099,7 +1099,7 @@ def test_qs_ye_sequences_keep_the_nonjoining_forms(text: str, expects: list[str]
 def test_qs_they_may_keeps_manual_baseline_join():
     _assert_expect_any(
         _qs_text("qsThey", "qsMay"),
-        ["·They.exit-baseline.before-may ~b~ ·May.entry-baseline"],
+        ["·They.before-may ~b~ ·May"],
     )
 
 
@@ -1230,7 +1230,7 @@ def test_qs_may_thaw_joins_at_baseline_when_alone():
     _assert_expect_any(
         _qs_text("qsMay", "qsThaw"),
         [
-            "·May.exit-baseline ~b~ ·Thaw",
+            "·May ~b~ ·Thaw",
         ],
     )
 
@@ -1445,14 +1445,14 @@ def test_qs_excite_reaches_left_only_before_qs_thaw():
 def test_qs_it_excite_uses_the_visible_baseline_entry_shape():
     _assert_expect_any(
         _qs_text("qsIt", "qsExcite"),
-        ["·It.exit-baseline ~b~ ·Excite.entry-baseline.noexit"],
+        ["·It ~b~ ·Excite.noexit"],
     )
 
 
 def test_qs_pea_excite_excite_uses_the_visible_final_excite_entry_shape():
     _assert_expect_any(
         _qs_text("qsPea", "qsExcite", "qsExcite"),
-        ["·Pea.∅ | ·Excite.exit-baseline.before-vertical.noentry ~b~ ·Excite.entry-baseline.noexit"],
+        ["·Pea.∅ | ·Excite.before-vertical.noentry ~b~ ·Excite.noexit"],
     )
 
 
@@ -1575,22 +1575,22 @@ def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
     ("text", "expects"),
     [
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Ah.∅"], id="before-ah"
+            _qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea | ·Ah.∅"], id="before-ah"
         ),
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Out.∅"], id="before-out"
+            _qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea | ·Out.∅"], id="before-out"
         ),
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·May.∅"], id="before-may"
+            _qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea | ·May.∅"], id="before-may"
         ),
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·-ing.∅"], id="before-ing"
+            _qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea | ·-ing.∅"], id="before-ing"
         ),
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Vie.∅"], id="before-vie"
+            _qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea | ·Vie.∅"], id="before-vie"
         ),
         pytest.param(
-            _qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea.entry-baseline | ·Day.∅"], id="before-day"
+            _qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea | ·Day.∅"], id="before-day"
         ),
     ],
 )
@@ -1867,28 +1867,28 @@ def test_qs_utter_alt_variants_always_keep_the_joins_they_require():
 def test_qs_tea_before_qs_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsTea", "qsI"),
-        ["·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I"],
+        ["·Tea.entry-top.exit-extended ~b~ ·I"],
     )
 
 
 def test_qs_see_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsSee", "qsTea", "qsI"),
-        ["·See.∅ ~t~ ·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I.∅"],
+        ["·See.∅ ~t~ ·Tea.exit-extended ~b~ ·I.∅"],
     )
 
 
 def test_qs_fee_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsFee", "qsTea", "qsI"),
-        ["·Fee.∅ |?| ·Tea.entry-top.exit-baseline.exit-extended ~b~ ·I.∅"],
+        ["·Fee.∅ |?| ·Tea.entry-top.exit-extended ~b~ ·I.∅"],
     )
 
 
 def test_qs_et_tea_i_preserves_left_only_invariant():
     _assert_expect_any(
         _qs_text("qsEt", "qsTea", "qsI"),
-        ["·Et ~b~ ·Tea.entry-baseline | ·I.∅"],
+        ["·Et ~b~ ·Tea | ·I.∅"],
     )
 
 
@@ -2342,10 +2342,10 @@ def _append_gay_nonjoining_context_failures(
 @pytest.mark.parametrize(
     ("target", "expect"),
     [
-        pytest.param("qsTea", "·Gay.exit-baseline.exit-extended ~b~ ·Tea.entry-baseline", id="tea"),
-        pytest.param("qsIt", "·Gay.exit-baseline.exit-extended ~b~ ·It.entry-baseline", id="it"),
-        pytest.param("qsI", "·Gay.exit-baseline.exit-extended ~b~ ·I.∅", id="i"),
-        pytest.param("qsExam", "·Gay.exit-baseline.exit-extended ~b~ ·Exam.∅", id="exam"),
+        pytest.param("qsTea", "·Gay.exit-extended ~b~ ·Tea", id="tea"),
+        pytest.param("qsIt", "·Gay.exit-extended ~b~ ·It", id="it"),
+        pytest.param("qsI", "·Gay.exit-extended ~b~ ·I.∅", id="i"),
+        pytest.param("qsExam", "·Gay.exit-extended ~b~ ·Exam.∅", id="exam"),
     ],
 )
 def test_qs_gay_extends_before_selected_targets(target: str, expect: str):
@@ -2920,7 +2920,7 @@ _JAI_XHEIGHT_LEFTS = [
     [
         pytest.param(
             _qs_text(left_base, "qsJai"),
-            [f"·{_family_to_label(left_base)} ~x~ ·J’ai.entry-xheight"],
+            [f"·{_family_to_label(left_base)} ~x~ ·J’ai"],
             id=_family_to_label(left_base).lower(),
         )
         for left_base in _JAI_XHEIGHT_LEFTS
@@ -2958,10 +2958,10 @@ def test_nothing_joins_to_at_may(left_base: str):
     assert _pair_join_ys(glyphs, left_index) == set(), f"{left_base} joined into ·At before ·May in {glyphs}"
 
 
-def test_qs_roe_stays_bare_before_new_qs_at_before_may():
+def test_roe_stays_bare_before_at_may():
     _assert_expect_any(
         _qs_text("qsRoe", "qsAt", "qsMay"),
-        ["·Roe.∅ | ·At.exit-baseline.before-may ~b~ ·May.entry-baseline"],
+        ["·Roe.∅ | ·At.before-may ~b~ ·May"],
     )
 
 
@@ -3002,6 +3002,6 @@ def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
         [
-            "·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"
+            "·At.before-may.exit-quintuply-extended ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"
         ],
     )
