@@ -94,8 +94,8 @@ def _collect_left_becomes_half_before_right_failures(
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
-    left_label = left_base[2:]
-    right_label = right_base[2:]
+    left_label = _family_to_label(left_base)
+    right_label = _family_to_label(right_base)
 
     before_combos = tuple(product(context_set, repeat=chars_before))
     after_combos = tuple(product(context_set, repeat=chars_after))
@@ -140,7 +140,7 @@ def _collect_left_must_stay_isolated_before_right_failures(
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
-    left_label = left_base[2:]
+    left_label = _family_to_label(left_base)
     isolated_left_glyph = _shape_qs(left_base)[0]
 
     before_combos = tuple(product(context_set, repeat=chars_before))
@@ -178,8 +178,8 @@ def _collect_joined_right_not_half_failures(
 ) -> list[str]:
     failures: list[str] = []
     meta_map = _compiled_meta()
-    left_label = left_base[2:]
-    right_label = right_base[2:]
+    left_label = _family_to_label(left_base)
+    right_label = _family_to_label(right_base)
 
     contexts: list[tuple[str | None, str | None]] = [(None, None)]
     contexts.extend((None, outer_right) for outer_right, _ in _plain_quikscript_letters())
@@ -2920,8 +2920,8 @@ _JAI_XHEIGHT_LEFTS = [
     [
         pytest.param(
             _qs_text(left_base, "qsJai"),
-            [f"·{left_base[2:]} ~x~ ·J’ai.entry-xheight"],
-            id=left_base[2:].lower(),
+            [f"·{_family_to_label(left_base)} ~x~ ·J’ai.entry-xheight"],
+            id=_family_to_label(left_base).lower(),
         )
         for left_base in _JAI_XHEIGHT_LEFTS
     ],
@@ -2935,8 +2935,8 @@ def test_qs_jai_joins_designated_left_letters_at_xheight(text: str, expects: lis
     [
         pytest.param(
             _qs_text(left_base, "qsJai", "qsUtter"),
-            [f"·{left_base[2:]} ~x~ ·J’ai+Utter"],
-            id=left_base[2:].lower(),
+            [f"·{_family_to_label(left_base)} ~x~ ·J’ai+Utter"],
+            id=_family_to_label(left_base).lower(),
         )
         for left_base in _JAI_XHEIGHT_LEFTS
     ],
