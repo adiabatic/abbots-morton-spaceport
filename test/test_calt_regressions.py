@@ -81,14 +81,14 @@ def _collect_nonjoining_pair_context_failures(
     return failures
 
 
-def _collect_left_must_stay_full_before_right_failures(
+def _collect_left_becomes_half_before_right_failures(
     left_base: str,
     right_base: str,
     *,
     chars_before: int = 1,
     chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where ``left_base`` is selected as a half-trait form
+    """Flag every position where ``left_base`` becomes a half-trait form
     immediately before ``right_base``, swept over the same surround combinations
     as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
     failures: list[str] = []
@@ -1175,7 +1175,7 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
     left_base: str, right_base: str
 ):
     failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(left_base, right_base)
-    failures += _collect_left_must_stay_full_before_right_failures(left_base, right_base)
+    failures += _collect_left_becomes_half_before_right_failures(left_base, right_base)
     _assert_no_failures(failures)
 
 
