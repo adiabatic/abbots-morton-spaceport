@@ -2949,19 +2949,13 @@ def test_qs_jai_utter_ligature_joins_designated_left_letters_at_xheight(
 
 @pytest.mark.parametrize(
     "left_base",
-    [
-        pytest.param("qsRoe", id="roe"),
-        pytest.param("qsSee", id="see"),
-    ],
+    [pytest.param(name, id=_family_to_label(name).lower()) for name, _ in _plain_quikscript_letters()],
 )
-def test_predecessors_never_join_to_qs_at_before_qs_may(left_base: str):
-    # Before the qsAt_qsMay ligature was retired, qsRoe and qsSee reverted to bare form before the ligature via calt_post_liga_left_cleanup. Now ·At·May is rendered by the entryless qsAt.exit-baseline.before-may form joining a bare qsMay, so the FEA backward-pair lookups simply never fire qsRoe/qsSee's exit-baseline forms (no matching y=0 entry on this qsAt variant).
-    _assert_expect_any(
-        _qs_text(left_base, "qsAt", "qsMay"),
-        [
-            f"·{left_base[2:]}.∅ | ·At.exit-baseline.before-may.exit-quintuply-extended ~b~ ·May.entry-baseline"
-        ],
-    )
+def test_nothing_joins_to_at_may(left_base: str):
+    glyphs = _shape_qs(left_base, "qsAt", "qsMay")
+    left_index = _find_base_index(glyphs, left_base)
+    assert left_index is not None, glyphs
+    assert _pair_join_ys(glyphs, left_index) == set(), f"{left_base} joined into ·At before ·May in {glyphs}"
 
 
 def test_qs_roe_stays_bare_before_new_qs_at_before_may():
