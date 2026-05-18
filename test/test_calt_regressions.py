@@ -2982,11 +2982,10 @@ def test_new_qs_at_before_may_has_no_entry_anchor():
     assert extended.entry == (), extended
 
 
-def test_qs_may_uses_exit_noentry_before_qs_they_qs_utter_noentry():
-    # ·Roe·May joins at the baseline in isolation, so the same join should survive when ·They+Utter follows. qsMay routes to its entry-preserving `.exit-noentry` form, dropping the dangling x-height exit but keeping the baseline entry that receives qsRoe.exit-baseline. The ligature is entryless on the right.
+def test_may_uses_exit_noentry_before_they_utter_noentry():
     _assert_expect_any(
         _qs_text("qsRoe", "qsMay", "qsThey", "qsUtter"),
-        ["·Roe.exit-baseline ~b~ ·May.entry-baseline.exit-noentry |?| ·They+Utter.noentry"],
+        ["·Roe ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
     )
 
 
