@@ -2974,7 +2974,6 @@ def test_qs_roe_keeps_exit_baseline_before_plain_qs_ah():
 
 
 def test_at_may_has_no_entry_anchor():
-    # qsAt's contextual before-may form replaces the old qsAt_qsMay ligature. Every variant must stay entry-less — that absence is what keeps predecessors like qsRoe and qsSee from cursive-binding — and the `before:` selector must still resolve to a qsMay variant, or the invariant is defending an unreachable form.
     meta_map = _compiled_meta()
     base_name = "qsAt.exit-baseline.before-may"
     variants = {
