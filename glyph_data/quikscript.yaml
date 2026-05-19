@@ -2238,7 +2238,7 @@ glyph_families:
           exit: [1, 5]
         select:
           not_after: [{family: qsJay}, {family: qsYe}, {family: qsEat}]
-          not_before: [{family: qsDay, entry_y: 5}]
+          not_before: [{family: qsDay}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
           extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
@@ -2267,6 +2267,7 @@ glyph_families:
         select:
           before: [{family: qsDay, entry_y: 5}]
           not_before: null
+        gate_feature_behind: ss04
         modifiers: [before-day]
       entry_baseline_exit_noentry:
         shape: prop
@@ -2311,6 +2312,7 @@ glyph_families:
         derive:
           extend_entry_after: null
           extend_exit_before: null
+        gate_feature_behind: ss04
         modifiers: [before-utter]
   qsEat:
     mono:
