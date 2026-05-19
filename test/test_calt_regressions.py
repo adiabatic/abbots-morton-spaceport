@@ -691,9 +691,7 @@ def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
         pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee"], id="qsNo"),
         pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee"], id="qsLow"),
         pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee"], id="qsAh"),
-        pytest.param(
-            _qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee"], id="qsUtter"
-        ),
+        pytest.param(_qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee"], id="qsUtter"),
     ],
 )
 def test_qs_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
@@ -1574,24 +1572,12 @@ def test_qs_et_tea_keeps_the_qs_tea_qs_oy_ligature():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea | ·Ah.∅"], id="before-ah"
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea | ·Out.∅"], id="before-out"
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea | ·May.∅"], id="before-may"
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea | ·-ing.∅"], id="before-ing"
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea | ·Vie.∅"], id="before-vie"
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea | ·Day.∅"], id="before-day"
-        ),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsAh"), ["·Et.∅ ~b~ ·Tea | ·Ah.∅"], id="before-ah"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsOut"), ["·Et.∅ ~b~ ·Tea | ·Out.∅"], id="before-out"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsMay"), ["·Et.∅ ~b~ ·Tea | ·May.∅"], id="before-may"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsIng"), ["·Et.∅ ~b~ ·Tea | ·-ing.∅"], id="before-ing"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsVie"), ["·Et.∅ ~b~ ·Tea | ·Vie.∅"], id="before-vie"),
+        pytest.param(_qs_text("qsEt", "qsTea", "qsDay"), ["·Et.∅ ~b~ ·Tea | ·Day.∅"], id="before-day"),
     ],
 )
 def test_qs_et_tea_keeps_only_the_left_baseline_join_in_plain_right_contexts(text: str, expects: list[str]):
@@ -3001,7 +2987,5 @@ def test_roe_may_they_utter_looks_ok():
 def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
-        [
-            "·At.before-may.exit-quintuply-extended ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"
-        ],
+        ["·At.before-may.exit-quintuply-extended ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
     )
