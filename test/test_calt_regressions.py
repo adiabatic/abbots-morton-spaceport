@@ -1126,7 +1126,7 @@ def test_qs_nonjoining_pairs_do_not_connect(text: str, expects: list[str]):
 def test_it_day_never_joins_at_xheight():
     _assert_no_failures(
         _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
-            "qsIt", "qsDay", forbidden_y=5
+            "qsIt", "qsDay", forbidden_y=5, chars_before=2, chars_after=2
         ),
         limit=None,
     )
@@ -1135,7 +1135,7 @@ def test_it_day_never_joins_at_xheight():
 def test_ye_it_never_joins_at_baseline():
     _assert_no_failures(
         _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
-            "qsYe", "qsIt", forbidden_y=0
+            "qsYe", "qsIt", forbidden_y=0, chars_before=2, chars_after=2
         ),
         limit=None,
     )
