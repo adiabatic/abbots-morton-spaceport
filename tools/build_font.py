@@ -26,6 +26,7 @@ import re
 import struct
 import sys
 import warnings
+from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -1143,6 +1144,14 @@ def _install_warning_hook() -> None:
     warnings.showwarning = _show_build_warning
 
 
+def _build_one_font(input_path_str: str, output_path_str: str, variant: str, bold: bool) -> None:
+    # Worker entry point for ProcessPoolExecutor. Each worker reloads glyph data from
+    # disk (≈125 ms) so the parent doesn't have to pickle the GlyphData payload over.
+    _install_warning_hook()
+    glyph_data = load_glyph_data(Path(input_path_str))
+    build_font(glyph_data, Path(output_path_str), variant=variant, bold=bold)
+
+
 def main() -> None:
     _install_warning_hook()
     if len(sys.argv) < 2:
@@ -1172,18 +1181,22 @@ def main() -> None:
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    glyph_data = load_glyph_data(input_path)
-
-    # Build six static OTFs: Regular and Bold for each family.
+    # Build six static OTFs: Regular and Bold for each family, in parallel.
     families = (
         ("AbbotsMortonSpaceportMono", "mono"),
         ("AbbotsMortonSpaceportSansJunior", "junior"),
         ("AbbotsMortonSpaceportSansSenior", "senior"),
     )
+    jobs: list[tuple[str, str, str, bool]] = []
     for style_suffix, bold in (("-Regular", False), ("-Bold", True)):
         for file_prefix, variant in families:
             output_path = output_dir / f"{file_prefix}{style_suffix}.otf"
-            build_font(glyph_data, output_path, variant=variant, bold=bold)
+            jobs.append((str(input_path), str(output_path), variant, bold))
+
+    with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
+        futures = [executor.submit(_build_one_font, *job) for job in jobs]
+        for future in futures:
+            future.result()
 
 
 if __name__ == "__main__":
