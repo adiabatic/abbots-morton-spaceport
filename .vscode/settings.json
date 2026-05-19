@@ -1,7 +1,7 @@
 {
   "editor.fontFamily": "'Abbots Morton Spaceport Mono', 'Departure Mono', monospace",
   "workbench.fontAliasing": "none",
-  "editor.fontSize": 22, // 11, 16.5, 22, 
+  "editor.fontSize": 16.5, // 11, 16.5, 22, 
   "terminal.integrated.fontSize": 11,
   "[html]": { "editor.wordBasedSuggestions": "off" },
   "tinymist.fontPaths": ["${workspaceFolder}/test"],
