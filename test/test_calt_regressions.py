@@ -1141,6 +1141,76 @@ def test_ye_it_never_joins_at_baseline():
     )
 
 
+def _collect_letter_must_not_join_on_both_sides_at_the_same_height(
+    middle_base: str,
+    *,
+    forbidden_y: int,
+    chars_before: int = 1,
+    chars_after: int = 1,
+) -> list[str]:
+    """Flag every position where a bare ``middle_base`` glyph is joined on its
+    left side and its right side at the same ``forbidden_y``, swept over every
+    combination of ``chars_before`` characters on the left and ``chars_after``
+    characters on the right. The iteration set is every plain Quikscript letter
+    plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is
+    2025 shaped strings.
+
+    Only bare ``middle_base`` variants are policed: in a ligature led or trailed
+    by ``middle_base`` only one side carries ``middle_base``'s anchor, so a
+    "joined on both sides" rule isn't meaningful there.
+
+    Joins at other Y values, and one-sided joins at ``forbidden_y``, are
+    allowed — only matching pairs of joins at ``forbidden_y`` are flagged. For
+    "two adjacent letters must not join at this Y", reach for
+    ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+    middle_text = _qs_text(middle_base)
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + middle_text + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {middle_base} / [{after_label}]"
+
+            for index in range(1, len(glyphs) - 1):
+                middle_meta = meta_map.get(glyphs[index])
+                if middle_meta is None or middle_meta.base_name != middle_base:
+                    continue
+                left_ys = _pair_join_ys(glyphs, index - 1)
+                right_ys = _pair_join_ys(glyphs, index)
+                if forbidden_y in left_ys and forbidden_y in right_ys:
+                    failures.append(
+                        f"{label}: {glyphs[index]} joined on both sides at height Y={forbidden_y} "
+                        f"in {glyphs} (left Ys={sorted(left_ys)}, right Ys={sorted(right_ys)})"
+                    )
+
+    return failures
+
+
+def test_qs_it_never_joins_on_both_sides_at_xheight():
+    _assert_no_failures(
+        _collect_letter_must_not_join_on_both_sides_at_the_same_height("qsIt", forbidden_y=5),
+        limit=None,
+    )
+
+
+def test_qs_it_never_joins_on_both_sides_at_baseline():
+    _assert_no_failures(
+        _collect_letter_must_not_join_on_both_sides_at_the_same_height("qsIt", forbidden_y=0),
+        limit=None,
+    )
+
+
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
