@@ -223,7 +223,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             if not_after:
                 resolved = resolve_known_glyph_names(not_after, plan.glyph_names)
                 bk_exclusions.setdefault(base_name, {})[entry_y] = resolved
-            if "half" in meta.traits and meta.not_before:
+            if meta.not_before:
                 bk_fwd_candidates.append((base_name, entry_y, glyph_name, list(meta.not_before)))
             elif meta.not_before_from_noentry_after:
                 bk_fwd_candidates.append(
