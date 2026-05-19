@@ -2894,6 +2894,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if fwd_bk_excl and not _meta(variant_name).strip_entry_before:
                     for bg in sorted(_expand_exclusions(fwd_bk_excl)):
                         lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
+                # Apply the YAML `not_before` exclusions on the `.noentry` upgrade too: without these, calt_zwnj's swap to the `.noentry` form would smuggle the base form past its own `not_before` guard (e.g., qsIt.noentry → qsIt.exit-xheight before qsDay even though the YAML says not_before qsDay). Intersect the excluded set with this rule's right-side class so siblings whose entry is at a different Y (e.g., qsZoo.half at y=0 when this rule is the @entry_y5 upgrade) can still be picked up by a later upgrade in the same lookup.
+                right_context_glyphs = set(entry_exclusive[exit_y] if use_excl else entry_classes[exit_y])
+                excluded = _expand_exclusions(exclusions.get(exit_y, [])) & right_context_glyphs
+                for excluded_glyph in sorted(excluded):
+                    lines.append(f"        ignore sub {noentry_name}' {excluded_glyph};")
                 actual_variant = _resolve_noentry_replacement(
                     glyph_meta,
                     base_to_variants,
@@ -2902,12 +2907,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if actual_variant is None:
                     continue
-                right_context_glyphs = set(entry_exclusive[exit_y] if use_excl else entry_classes[exit_y])
                 _emit_narrow_mid_entry_strip_guards(
                     noentry_name,
                     actual_variant,
                     exit_y,
-                    right_context_glyphs,
+                    right_context_glyphs - excluded,
                 )
                 lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
                 emitted = True
