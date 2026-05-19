@@ -25,7 +25,7 @@ prettier:
 	uv run --with black black -q tools/ test/
 
 test: typecheck
-	uv run pytest test/ -n auto
+	uv run pytest test/ -n auto --dist worksteal
 
 review:
 	uv run python tools/review_scoped_anchor_selectors.py --output test/scoped-anchor-review/index.html
