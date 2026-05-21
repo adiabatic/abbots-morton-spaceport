@@ -2241,7 +2241,7 @@ glyph_families:
           not_before: [{family: qsDay}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
-          extend_exit_before: {by: 1, targets: [{family: qsZoo}]}
+          extend_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsOwe}]}
         modifiers: [entry-baseline]
       entry_baseline_after_day:
         inherits: entry_baseline_exit_xheight
