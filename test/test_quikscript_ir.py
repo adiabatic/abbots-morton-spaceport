@@ -960,9 +960,16 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
         if "by qsIt.entry-xheight.exit-extended;" in line:
             assert "qsCheer" not in line
 
-    assert (
-        "sub qsIt' [qsCheer qsCheer.entry-extended qsCheer.noentry]" " by qsIt.exit-xheight.exit-extended;"
-    ) in fea
+    upgrade_lines = [
+        line
+        for line in fea.splitlines()
+        if "sub qsIt'" in line and "by qsIt.exit-xheight.exit-extended;" in line
+    ]
+    assert upgrade_lines, "expected qsIt -> qsIt.exit-xheight.exit-extended upgrade substitution"
+    assert any(
+        "qsCheer" in line and "qsCheer.entry-extended" in line and "qsCheer.noentry" in line
+        for line in upgrade_lines
+    )
 
 
 def test_senior_feature_emitter_derives_mid_entry_strip_guards():

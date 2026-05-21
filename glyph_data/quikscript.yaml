@@ -2219,7 +2219,7 @@ glyph_families:
       - "#"
       - "#"  #
     derive:
-      extend_exit_before: {by: 1, targets: [{family: qsCheer}]}
+      extend_exit_before: {by: 1, targets: [{family: qsCheer}, {family: qsOwe}]}
     forms:
       entry_xheight_exit_baseline:
         shape: prop
