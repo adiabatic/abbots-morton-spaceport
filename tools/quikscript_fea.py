@@ -2222,6 +2222,39 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         )
         fwd_strip_bases = derived_strip_bases if _fwd_strip_guards_active[0] else frozenset()
 
+        replacement_exit_ys = set(_meta(replacement_name).exit_ys) if _meta(replacement_name).exit else set()
+
+        def _entry_preserving_followers(mid_base: str) -> set[str]:
+            # Followers (the third position of `source' mid follower`) for which the runtime
+            # routes mid through an entry-preserving rule instead of the entry-stripping
+            # `fwd_replacement`. Two paths apply:
+            #   * Bk-upgrade then chained pair-override: when the predecessor exits at a Y
+            #     where mid has a bk_replacement with entry, mid is bk-upgraded first.
+            #     Any chained pair-override on the bk-upgraded form sorts before the
+            #     entry-stripping pair-override (more modifiers ⇒ earlier in calt), so it
+            #     fires for any follower listed in its `before`.
+            #   * Direct entry-backtrack: an entry-bearing pair-override of bare mid_base
+            #     fires when the predecessor sits in the backtrack class (anything exiting
+            #     at the pair's entry_y, minus its not_after). Its `before` list specifies
+            #     which followers it covers.
+            # The strip-guard ignore should drop these followers from its trigger class —
+            # for them, mid keeps its entry and the predecessor's promotion is safe.
+            preserved: set[str] = set()
+            if not replacement_exit_ys:
+                return preserved
+            for pair_variant, pair_before, pair_not_after in fwd_pair_overrides.get(mid_base, []):
+                pair_meta = _meta(pair_variant)
+                if not pair_meta.entry:
+                    continue
+                if not (set(pair_meta.entry_ys) & replacement_exit_ys):
+                    continue
+                if pair_not_after:
+                    expanded_not_after = _expand_all_variants(pair_not_after, include_base=True)
+                    if replacement_name in expanded_not_after:
+                        continue
+                preserved.update(_expand_all_variants(pair_before))
+            return preserved
+
         for mid_source in sorted(right_context_glyphs):
             if mid_source not in glyph_meta:
                 continue
@@ -2267,6 +2300,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         exit_y,
                         replacement_name,
                     )
+                    trigger_contexts -= _entry_preserving_followers(mid_base)
                     if bare_base_relax:
                         # The FEA emitter expands `entry_classes` to include bare bases of entry-bearing variants and their entry-stripped forward replacements (so post-cycle rules see the runtime-promoted entry). For the fwd-strip guard, that broader set is wrong: when the third position is itself a bare base whose `bk_replacements[mid_exit_y]` carries the entry, the runtime picks bk over fwd at that slot, so mid never actually forward-strips. Restricting to glyphs that literally carry an entry at mid_exit_y keeps `·Gay·Tea·Tea` joined while preserving the ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
                         trigger_contexts = {
@@ -2309,6 +2343,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     exit_y,
                     replacement_name,
                 )
+                effective_before -= _entry_preserving_followers(mid_base)
                 before_tuple = tuple(sorted(effective_before))
                 if before_tuple in emitted_before_lists:
                     continue
