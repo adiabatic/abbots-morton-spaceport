@@ -531,6 +531,104 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
     return failures
 
 
+def _collect_stranded_anchor_joins(
+    *,
+    chars_before: int,
+    chars_after: int,
+    variant_aware: bool,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every adjacent slot in any (left_base, right_base) sweep where one
+    side has been shaped to join (carries an entry or exit anchor) but the
+    partner does not reciprocate (no matching Y on the other side). Iterates
+    every plain Quikscript letter against every plain Quikscript letter for the
+    pair, surrounding the pair with ``chars_before`` and ``chars_after``
+    characters drawn from the 45-entry ``_context_chars()`` set.
+
+    With ``variant_aware`` False, any stranded entry or exit anchor on either
+    side counts as a stranded-anchor join. With ``variant_aware`` True, the stranded
+    anchor must sit on a non-base contextual variant (``meta.name`` differs
+    from ``meta.base_name``) — i.e., the build's calt rules actively picked a
+    joining form — before it counts. Variant-aware skips cases where a bare
+    base glyph just happens to carry a stranded anchor.
+
+    The (left_base, right_base) match convention mirrors the other
+    ``_collect_pair_*_regardless_*`` helpers: a slot matches ``left_base`` when
+    its ``base_name`` equals ``left_base`` or its ligature ``sequence`` ends
+    with ``left_base``; same for ``right_base`` with ``sequence[0]``.
+
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose
+    first entry is the named context glyph. This is the per-shard hook used by
+    parametrized callers to fan a single logical test across pytest-xdist
+    workers; it has no effect when ``chars_before`` is 0.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+    letters = _plain_quikscript_letters()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None and chars_before >= 1:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for left_base, _left_char in letters:
+        for right_base, _right_char in letters:
+            pair_text = _qs_text(left_base, right_base)
+            for before in before_combos:
+                before_label = "·".join(name for name, _ in before) if before else "∅"
+                before_text = "".join(char for _, char in before)
+                for after in after_combos:
+                    after_label = "·".join(name for name, _ in after) if after else "∅"
+                    after_text = "".join(char for _, char in after)
+                    text = before_text + pair_text + after_text
+                    glyphs = _shape(text)
+                    label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+                    for index, glyph_name in enumerate(glyphs[:-1]):
+                        left_meta = meta_map.get(glyph_name)
+                        right_meta = meta_map.get(glyphs[index + 1])
+                        if left_meta is None or right_meta is None:
+                            continue
+                        left_is_target = left_meta.base_name == left_base or (
+                            left_meta.sequence and left_meta.sequence[-1] == left_base
+                        )
+                        right_is_target = right_meta.base_name == right_base or (
+                            right_meta.sequence and right_meta.sequence[0] == right_base
+                        )
+                        if not left_is_target or not right_is_target:
+                            continue
+
+                        l_exit = _exit_ys(glyph_name)
+                        r_entry = _entry_ys(glyphs[index + 1])
+                        if l_exit & r_entry:
+                            continue
+                        if not l_exit and not r_entry:
+                            continue
+
+                        if l_exit:
+                            if not variant_aware or left_meta.name != left_meta.base_name:
+                                failures.append(
+                                    f"{label}: {glyph_name} exits at Y={sorted(l_exit)} "
+                                    f"but {glyphs[index + 1]} has no matching entry "
+                                    f"(entry Ys={sorted(r_entry)}) in {glyphs}"
+                                )
+                        if r_entry:
+                            if not variant_aware or right_meta.name != right_meta.base_name:
+                                failures.append(
+                                    f"{label}: {glyphs[index + 1]} enters at "
+                                    f"Y={sorted(r_entry)} but {glyph_name} has no matching "
+                                    f"exit (exit Ys={sorted(l_exit)}) in {glyphs}"
+                                )
+
+    return failures
+
+
 def _append_utter_alt_failures(failures: list[str], label: str, text: str) -> None:
     glyphs = _shape(text)
     meta_map = _compiled_meta()
@@ -1317,6 +1415,32 @@ def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
             pixels=1,
             chars_before=2,
             chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_no_stranded_anchor_joins_anywhere(before_first: str):
+    _assert_no_failures(
+        _collect_stranded_anchor_joins(
+            chars_before=1,
+            chars_after=1,
+            variant_aware=False,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_no_stranded_anchor_joins_anywhere_when_variant_is_contextual(before_first: str):
+    _assert_no_failures(
+        _collect_stranded_anchor_joins(
+            chars_before=1,
+            chars_after=1,
+            variant_aware=True,
             before_first_only=before_first,
         ),
         limit=None,
