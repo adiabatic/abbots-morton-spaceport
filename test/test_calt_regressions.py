@@ -29,7 +29,17 @@ _SS05_FEATURE = (("ss05", True),)
 _SS07_FEATURE = (("ss07", True),)
 
 from build_font import load_glyph_data
+from quikscript_ir import _EXTENSION_SUFFIX
 from test_shaping import run_shaping_test_runs
+
+_EXIT_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
+    None: 0,
+    **{f".exit-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
+}
+_ENTRY_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
+    None: 0,
+    **{f".entry-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
+}
 
 
 def _append_nonjoining_pair_failures(
@@ -414,6 +424,108 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
                     failures.append(
                         f"{label}: {glyph_name} joins {glyphs[index + 1]} "
                         f"at Y={forbidden_y} in {glyphs} (join Ys={sorted(common)})"
+                    )
+
+    return failures
+
+
+def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
+    left_base: str,
+    right_base: str,
+    *,
+    pixels: int,
+    chars_before: int = 1,
+    chars_after: int = 1,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every (left_base, right_base) pair whose joined extension width is
+    not exactly ``pixels``, when surrounded by any combination of ``chars_before``
+    characters on the left and ``chars_after`` characters on the right. The
+    iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per
+    slot; with the default 1+1 surround that is 2025 shaped strings.
+
+    The extension between two joined letters is the sum of both sides: the left
+    glyph can carry an ``.exit-<word>`` suffix from its family's
+    ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right
+    glyph can carry an ``.entry-<word>`` suffix from its family's
+    ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel
+    extension might come 2 from the left's ``.exit-doubly-extended`` and 1 from
+    the right's ``.entry-extended``; any split that sums to ``pixels`` is fine.
+
+    Pairs that do *not* join in the current context are skipped — the rule is
+    conditional ("if they join at all, then their extension must be N pixels").
+    Use ``pixels=0`` to assert "if they join, neither side may carry an
+    extension suffix".
+
+    Ligatures led by ``right_base`` (sequence starting with right_base) and
+    ligatures trailed by ``left_base`` (sequence ending with left_base) match
+    too, mirroring the other ``_collect_pair_*`` helpers.
+
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose
+    first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``).
+    This is the per-shard hook used by parametrized callers to fan a single
+    logical test across pytest-xdist workers.
+    """
+    if pixels < 0:
+        raise ValueError(f"pixels must be non-negative, got {pixels!r}")
+
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                left_is_target = left_meta.base_name == left_base or (
+                    left_meta.sequence and left_meta.sequence[-1] == left_base
+                )
+                right_is_target = right_meta.base_name == right_base or (
+                    right_meta.sequence and right_meta.sequence[0] == right_base
+                )
+                if not left_is_target or not right_is_target:
+                    continue
+                common = _pair_join_ys(glyphs, index)
+                if not common:
+                    continue
+                left_pixels = _EXIT_EXTENSION_PIXELS_BY_SUFFIX.get(left_meta.extended_exit_suffix)
+                right_pixels = _ENTRY_EXTENSION_PIXELS_BY_SUFFIX.get(right_meta.extended_entry_suffix)
+                if left_pixels is None:
+                    raise AssertionError(
+                        f"unknown extended_exit_suffix={left_meta.extended_exit_suffix!r} on {glyph_name}"
+                    )
+                if right_pixels is None:
+                    raise AssertionError(
+                        f"unknown extended_entry_suffix={right_meta.extended_entry_suffix!r} on {glyphs[index + 1]}"
+                    )
+                total = left_pixels + right_pixels
+                if total != pixels:
+                    failures.append(
+                        f"{label}: {glyph_name} joins {glyphs[index + 1]} at Y={sorted(common)} "
+                        f"with {total} pixel(s) of extension (left={left_pixels} from "
+                        f"{left_meta.extended_exit_suffix}, right={right_pixels} from "
+                        f"{right_meta.extended_entry_suffix}); expected {pixels} in {glyphs}"
                     )
 
     return failures
@@ -1188,6 +1300,21 @@ def test_it_it_never_joins(before_first: str):
         _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
             "qsIt",
             "qsIt",
+            chars_before=2,
+            chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
+    _assert_no_failures(
+        _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
+            "qsIt",
+            "qsOwe",
+            pixels=1,
             chars_before=2,
             chars_after=2,
             before_first_only=before_first,
