@@ -274,6 +274,7 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
     *,
     chars_before: int = 1,
     chars_after: int = 1,
+    before_first_only: str | None = None,
 ) -> list[str]:
     """Flag every (left_base, right_base) pair that joins at any Y when
     surrounded by any combination of ``chars_before`` characters on the left
@@ -289,12 +290,24 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
     Use this when the rule is "·A·B must never join, no matter the neighbours".
     For "may join at some heights, but not at this one", reach for
     ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose
+    first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``).
+    This is the per-shard hook used by parametrized callers to fan a single
+    logical test across pytest-xdist workers.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
 
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
     before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
     after_combos = tuple(product(context_set, repeat=chars_after))
 
     for before in before_combos:
@@ -1161,6 +1174,20 @@ def test_ye_it_never_joins_at_baseline(before_first: str):
             "qsYe",
             "qsIt",
             forbidden_y=0,
+            chars_before=2,
+            chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_it_it_never_joins(before_first: str):
+    _assert_no_failures(
+        _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+            "qsIt",
+            "qsIt",
             chars_before=2,
             chars_after=2,
             before_first_only=before_first,
