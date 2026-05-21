@@ -531,26 +531,26 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
     return failures
 
 
-def _collect_stranded_anchor_joins(
+def _collect_stranded_extension_joins(
     *,
     chars_before: int,
     chars_after: int,
-    variant_aware: bool,
     before_first_only: str | None = None,
 ) -> list[str]:
     """Flag every adjacent slot in any (left_base, right_base) sweep where one
-    side has been shaped to join (carries an entry or exit anchor) but the
-    partner does not reciprocate (no matching Y on the other side). Iterates
-    every plain Quikscript letter against every plain Quikscript letter for the
-    pair, surrounding the pair with ``chars_before`` and ``chars_after``
-    characters drawn from the 45-entry ``_context_chars()`` set.
+    side carries an extension suffix (``extended_exit_suffix`` on the left, or
+    ``extended_entry_suffix`` on the right) but the partner has no matching
+    anchor on the other side. Iterates every plain Quikscript letter against
+    every plain Quikscript letter for the pair, surrounding the pair with
+    ``chars_before`` and ``chars_after`` characters drawn from the 45-entry
+    ``_context_chars()`` set.
 
-    With ``variant_aware`` False, any stranded entry or exit anchor on either
-    side counts as a stranded-anchor join. With ``variant_aware`` True, the stranded
-    anchor must sit on a non-base contextual variant (``meta.name`` differs
-    from ``meta.base_name``) — i.e., the build's calt rules actively picked a
-    joining form — before it counts. Variant-aware skips cases where a bare
-    base glyph just happens to carry a stranded anchor.
+    The extension suffix is the build's signal that the bitmap really did
+    grow toward the partner — i.e. the join was supposed to land an extra
+    pixel of ink. When the partner has no entry/exit at that Y, that ink
+    dangles. Anchor mismatches on glyphs without an extension suffix don't
+    count: those anchors are connection-point metadata, not material ink, and
+    nothing visually strands when adjacent letters simply choose not to join.
 
     The (left_base, right_base) match convention mirrors the other
     ``_collect_pair_*_regardless_*`` helpers: a slot matches ``left_base`` when
@@ -608,23 +608,21 @@ def _collect_stranded_anchor_joins(
                         r_entry = _entry_ys(glyphs[index + 1])
                         if l_exit & r_entry:
                             continue
-                        if not l_exit and not r_entry:
-                            continue
 
-                        if l_exit:
-                            if not variant_aware or left_meta.name != left_meta.base_name:
-                                failures.append(
-                                    f"{label}: {glyph_name} exits at Y={sorted(l_exit)} "
-                                    f"but {glyphs[index + 1]} has no matching entry "
-                                    f"(entry Ys={sorted(r_entry)}) in {glyphs}"
-                                )
-                        if r_entry:
-                            if not variant_aware or right_meta.name != right_meta.base_name:
-                                failures.append(
-                                    f"{label}: {glyphs[index + 1]} enters at "
-                                    f"Y={sorted(r_entry)} but {glyph_name} has no matching "
-                                    f"exit (exit Ys={sorted(l_exit)}) in {glyphs}"
-                                )
+                        if l_exit and left_meta.extended_exit_suffix is not None:
+                            failures.append(
+                                f"{label}: {glyph_name} exits at Y={sorted(l_exit)} "
+                                f"with extension {left_meta.extended_exit_suffix!r} but "
+                                f"{glyphs[index + 1]} has no matching entry "
+                                f"(entry Ys={sorted(r_entry)}) in {glyphs}"
+                            )
+                        if r_entry and right_meta.extended_entry_suffix is not None:
+                            failures.append(
+                                f"{label}: {glyphs[index + 1]} enters at "
+                                f"Y={sorted(r_entry)} with extension "
+                                f"{right_meta.extended_entry_suffix!r} but {glyph_name} has no "
+                                f"matching exit (exit Ys={sorted(l_exit)}) in {glyphs}"
+                            )
 
     return failures
 
@@ -1422,25 +1420,11 @@ def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
-def test_no_stranded_anchor_joins_anywhere(before_first: str):
+def test_no_stranded_extension_joins_anywhere(before_first: str):
     _assert_no_failures(
-        _collect_stranded_anchor_joins(
+        _collect_stranded_extension_joins(
             chars_before=1,
             chars_after=1,
-            variant_aware=False,
-            before_first_only=before_first,
-        ),
-        limit=None,
-    )
-
-
-@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
-def test_no_stranded_anchor_joins_anywhere_when_variant_is_contextual(before_first: str):
-    _assert_no_failures(
-        _collect_stranded_anchor_joins(
-            chars_before=1,
-            chars_after=1,
-            variant_aware=True,
             before_first_only=before_first,
         ),
         limit=None,

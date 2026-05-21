@@ -2475,6 +2475,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # When `fpt` (a fwd-pair-override variant) is being reverted to the bk_replacement `default_replacement` because its entry doesn't fit the preceding glyph, prefer a replacement that still carries fpt's exit-extension. First try `default_replacement + ext_suffix` (e.g. ``qsX.entry-baseline.exit-extended`` when the family declares such a variant); failing that, fall back to an entryless sibling of fpt whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops the wrong entry — same bitmap, no cursive attachment to the preceding glyph either way — but preserves the join extension into the next glyph.
         #
         # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the isolated-shaping path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; isolated shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the isolated exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with the isolated render (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.entry-xheight.exit-extended instead of the entryless qsIt.exit-xheight.exit-extended sibling, which loses the lead's baseline reach).
+        #
+        # Stranded-extension guard: if any follower-family in fpt's before list has no variant whose entry matches the candidate's exit_y, the extension would be wasted ink for that follower (·May·It·Owe is the worked example — qsOwe never accepts a baseline entry, so the swap that turns qsIt.entry-baseline.exit-extended into qsIt.entry-xheight.exit-extended would leave the trailing pixel dangling). In that case fall through to the suffixless ``default_replacement`` rather than preserving an extension that no follower can land.
         fpt_meta = _meta(fpt)
         ext_suffix = fpt_meta.extended_exit_suffix
         if not ext_suffix:
@@ -2485,6 +2487,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         iso_exit_ys = _iso_exit_ys_for_fpt(fpt, fpt_meta)
         if cand_meta is not None:
             cand_exit_ys = set(cand_meta.exit_ys)
+            if not _all_follower_families_accept(fpt, fpt_meta, cand_exit_ys):
+                # The candidate-with-suffix points at an exit Y that at least one follower-family can't receive. Preserving the suffix would leave that follower with stranded extension ink; drop straight to the suffixless default. Don't fall through to the entryless-sibling fallback either: that fallback exists for cases where the candidate glyph simply doesn't exist, not for cases where the partner's reception is the problem (preserving the right-side extension via an entryless sibling just relocates the stranded ink to the predecessor's side, since whatever pushed the predecessor toward `.exit-extended` expected fpt to receive at its old entry Y).
+                return default_replacement
             if iso_exit_ys and cand_exit_ys & iso_exit_ys:
                 return candidate
             if (
@@ -2510,8 +2515,34 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 if sib_meta.y_offset != fpt_meta.y_offset:
                     continue
+                if not _all_follower_families_accept(fpt, fpt_meta, set(sib_meta.exit_ys)):
+                    continue
                 return sibling
         return default_replacement
+
+    def _all_follower_families_accept(fpt: str, fpt_meta, cand_exit_ys: set[int]) -> bool:
+        # Return True only when every follower-family in fpt's before list has at least one variant whose entry sits at one of ``cand_exit_ys``. Used to gate preserving an exit-extension across a backward-context swap: if even one follower-family can't land the extension, the candidate would emit stranded ink (the trailing pixel reaches toward a follower that never accepts at that Y), so the caller should fall back to the suffixless replacement.
+        if not cand_exit_ys:
+            return True
+        before_glyphs = _resolve_fpt_before(fpt, fpt_meta.base_name)
+        if not before_glyphs:
+            return True
+        seen_families: set[str] = set()
+        for follower in before_glyphs:
+            follower_meta = glyph_meta.get(follower)
+            family_base = follower_meta.base_name if follower_meta is not None else follower
+            if family_base in seen_families:
+                continue
+            seen_families.add(family_base)
+            family_entry_ys: set[int] = set()
+            for variant_name in base_to_variants.get(family_base, ()) or {follower}:
+                variant_meta = glyph_meta.get(variant_name)
+                if variant_meta is None:
+                    continue
+                family_entry_ys.update(variant_meta.all_entry_ys)
+            if not (family_entry_ys & cand_exit_ys):
+                return False
+        return True
 
     def _iso_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
         # Isolated shaping of ``base + follower`` picks ``fwd_replacements[base][N]`` whose exit_y matches one of follower's entry_ys (N). Return the union of those isolated exit_ys across fpt's resolved followers, restricted to the exit_ys that ``fwd_replacements`` actually declares for the base.
