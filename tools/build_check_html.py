@@ -16,6 +16,9 @@ The page contains:
   the same invariant as ``_check_break_isolation`` in
   ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead
   of ``|``) in ``data-expect``.
+* A "failing tests" section: one row per assertion line from a currently-
+  failing pytest test under ``test/``. The row renders the input families
+  parsed out of the failure message so you can eyeball false positives.
 * A copy-codepoints click handler so each row's ``U+E6XX`` strip can be
   copied as a prompt preamble.
 
@@ -32,15 +35,18 @@ which catches every pair plus single-letter context on either side; bump to
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import html
+import io
 import itertools
 import re
 import sys
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
 import uharfbuzz as hb
 import yaml
 from fontTools.pens.basePen import BasePen
@@ -359,6 +365,160 @@ def find_diffs() -> list[SequenceDiff]:
 
 
 # ---------------------------------------------------------------------------
+# Failing-tests collection.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TestFailure:
+    """One pytest test that failed, plus the individual `E   ` assertion
+    lines parsed out of its long traceback."""
+
+    nodeid: str
+    sub_messages: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class FailureRow:
+    """One row in the failing-tests section: a single sub-failure line,
+    optionally paired with the input families it shapes."""
+
+    nodeid: str
+    message: str
+    families: tuple[str, ...]  # empty when the message didn't parse
+    text: str  # actual characters to shape; "" when families is empty
+
+
+class _FailureCollector:
+    """Pytest plugin that captures longreprs of failing tests. Works under
+    xdist because pytest forwards `pytest_runtest_logreport` to the
+    controller after each worker finishes."""
+
+    def __init__(self) -> None:
+        self.failures: list[TestFailure] = []
+
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        if report.failed and report.when == "call":
+            self.failures.append(
+                TestFailure(
+                    nodeid=report.nodeid,
+                    sub_messages=_extract_assertion_lines(str(report.longrepr)),
+                )
+            )
+
+
+_E_LINE_RE = re.compile(r"^E\s{2,}(.*)$")
+
+
+def _extract_assertion_lines(longrepr: str) -> list[str]:
+    """Pull the `E   …` assertion lines out of a pytest long traceback.
+
+    The first such line is preceded by `AssertionError: ` (or whatever
+    exception name); strip that prefix so each entry is a bare message.
+    Continuation lines without the `E   ` prefix are joined onto the
+    previous entry."""
+    out: list[str] = []
+    for raw in longrepr.splitlines():
+        match = _E_LINE_RE.match(raw)
+        if match is None:
+            continue
+        body = match.group(1)
+        if body.startswith("AssertionError: "):
+            body = body[len("AssertionError: ") :]
+        elif not out and ": " in body:
+            head, _, rest = body.partition(": ")
+            if head.endswith("Error") or head.endswith("Exception"):
+                body = rest
+        out.append(body)
+    return out
+
+
+# `_collect_stranded_extension_joins` (and its siblings) format their
+# failure messages as `[a·b] / qsX / qsY / [c·d]: <reason>`. `∅` marks an
+# empty context slot. `ZWNJ` is a context token, not a family. Anything
+# else we leave alone.
+_FAILURE_LABEL_RE = re.compile(
+    r"^\s*((?:\[[^\]]*\]|qs[A-Za-z0-9]+)(?:\s*/\s*(?:\[[^\]]*\]|qs[A-Za-z0-9]+))+)\s*:"
+)
+_FAMILY_TOKEN_RE = re.compile(r"qs[A-Za-z0-9]+|ZWNJ")
+
+
+def _parse_families_from_message(message: str) -> tuple[str, ...]:
+    """Return the input-family sequence for messages that follow the
+    `[…] / qsX / qsY / […]:` convention, or an empty tuple otherwise."""
+    match = _FAILURE_LABEL_RE.match(message)
+    if match is None:
+        return ()
+    families: list[str] = []
+    for group in (g.strip() for g in match.group(1).split("/")):
+        if group.startswith("[") and group.endswith("]"):
+            inner = group[1:-1]
+            if inner == "∅" or not inner:
+                continue
+            families.extend(part.strip() for part in inner.split("·") if part.strip())
+        else:
+            families.append(group)
+    return tuple(families)
+
+
+def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
+    """Map a family/ZWNJ sequence to the literal characters that shape it.
+    Returns "" if any token isn't recognized."""
+    parts: list[str] = []
+    for fam in families:
+        if fam == "ZWNJ":
+            parts.append("‌")
+            continue
+        codepoint = cp_map.get(fam)
+        if codepoint is None:
+            return ""
+        parts.append(chr(codepoint))
+    return "".join(parts)
+
+
+def collect_test_failures() -> list[TestFailure]:
+    """Run the full pytest suite in-process and return the captured
+    failures. Output is silenced so it doesn't drown the check-html log."""
+    print("Running pytest to harvest failing assertions…", file=sys.stderr, flush=True)
+    collector = _FailureCollector()
+    args = [
+        "test/",
+        "-q",
+        "--no-header",
+        "--tb=long",
+        "-p",
+        "no:cacheprovider",
+        "-n",
+        "auto",
+        "--dist",
+        "worksteal",
+    ]
+    stdout, stderr = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        pytest.main(args, plugins=[collector])
+    print(f"  pytest reported {len(collector.failures)} failing test(s)", file=sys.stderr, flush=True)
+    return sorted(collector.failures, key=lambda f: f.nodeid)
+
+
+def build_failure_rows(failures: list[TestFailure]) -> list[FailureRow]:
+    cp_map = {fam: ord(ch) for fam, ch in _char_map().items() if fam.startswith("qs") and "_" not in fam}
+    rows: list[FailureRow] = []
+    for failure in failures:
+        if not failure.sub_messages:
+            rows.append(
+                FailureRow(
+                    nodeid=failure.nodeid, message="(no assertion text captured)", families=(), text=""
+                )
+            )
+            continue
+        for message in failure.sub_messages:
+            families = _parse_families_from_message(message)
+            text = _families_to_text(families, cp_map) if families else ""
+            rows.append(FailureRow(nodeid=failure.nodeid, message=message, families=families, text=text))
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Shared formatting helpers.
 # ---------------------------------------------------------------------------
 
@@ -531,8 +691,8 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
     ]
     rows = "\n".join(_format_leak_row(leak, w, v) for leak, w, v in diff_items)
     return (
-        '    <section class="isolation-leaks">\n'
-        "      <h2>Auto-generated: isolation leaks</h2>\n"
+        '    <details class="collapsible isolation-leaks" open>\n'
+        "      <summary><h2>Auto-generated: isolation leaks</h2></summary>\n"
         "      <p>\n"
         "        Sequences whose adjacent pair does not cursive-attach but\n"
         "        whose chosen glyphs differ when the pair is shaped together\n"
@@ -570,7 +730,7 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
         "        <span>Halves shaped separately</span>\n"
         "      </div>\n"
         f"{rows}\n"
-        "    </section>"
+        "    </details>"
     )
 
 
@@ -660,8 +820,8 @@ def _render_diffs_section(
             f"{rows}"
         )
     return (
-        '    <section class="render-diffs">\n'
-        "      <h2>Auto-generated: corpus render diffs</h2>\n"
+        '    <details class="collapsible render-diffs" open>\n'
+        "      <summary><h2>Auto-generated: corpus render diffs</h2></summary>\n"
         "      <p>\n"
         "        Every multi-letter Quikscript run harvested from\n"
         "        <code>test/the-manual.html</code>, <code>test/index.html</code>,\n"
@@ -679,7 +839,76 @@ def _render_diffs_section(
         "        weren't intending to touch — those are the regressions.\n"
         "      </p>\n"
         f"{body}\n"
-        "    </section>"
+        "    </details>"
+    )
+
+
+def _format_failure_row(row: FailureRow, cp_to_family: dict[int, str]) -> str:
+    if row.text:
+        rendered_entities = "".join(_entity_for(ord(ch)) for ch in row.text)
+        rendered_cell = f'<div class="qs after">{rendered_entities}</div>'
+        codepoints_strip = " ".join(f"U+{ord(ch):04X}" for ch in row.text)
+        label_text = " ".join(_short_label_for_codepoint(ord(ch), cp_to_family) for ch in row.text)
+        letters_attr = html.escape(label_text, quote=True)
+        codepoints_html = (
+            '          <div class="codepoints">'
+            f'{_COPY_BUTTON_HTML}<code data-letters="{letters_attr}">{codepoints_strip}</code></div>\n'
+        )
+        label_line = f'          <div class="sequence-label">{html.escape(label_text)}</div>\n'
+    else:
+        rendered_cell = '<div class="qs after no-render">(could not parse a Quikscript sequence)</div>'
+        codepoints_html = ""
+        label_line = ""
+    nodeid = html.escape(row.nodeid)
+    message = html.escape(row.message)
+    return (
+        '      <div class="row">\n'
+        '        <div class="label">\n'
+        f"{label_line}"
+        f'          <div class="nodeid"><code>{nodeid}</code></div>\n'
+        f"{codepoints_html}"
+        "        </div>\n"
+        f"        {rendered_cell}\n"
+        f'        <div class="message"><code>{message}</code></div>\n'
+        "      </div>"
+    )
+
+
+def _render_failing_tests_section(rows: list[FailureRow], cp_to_family: dict[int, str]) -> str:
+    if not rows:
+        body = (
+            '      <p class="snapshot-missing">No failing tests. <code>make test</code>\n'
+            "        is green, so there's nothing here to eyeball.</p>"
+        )
+    else:
+        formatted = "\n".join(_format_failure_row(r, cp_to_family) for r in rows)
+        body = (
+            '      <div class="col-headers">\n'
+            "        <span>Test &amp; sequence</span>\n"
+            "        <span>Rendered (live build)</span>\n"
+            "        <span>Assertion message</span>\n"
+            "      </div>\n"
+            f"{formatted}"
+        )
+    return (
+        '    <details class="collapsible failing-tests" open>\n'
+        "      <summary><h2>Auto-generated: failing tests</h2></summary>\n"
+        "      <p>\n"
+        "        Every assertion line from a currently-failing pytest test in\n"
+        "        <code>test/</code>. Each row renders the input families parsed\n"
+        "        out of the failure message with the live build's Senior-Regular,\n"
+        "        so you can eyeball whether the failure is a real regression or a\n"
+        "        false positive in the test's expectations.\n"
+        "      </p>\n"
+        "      <p>\n"
+        "        Many tests emit several sub-failures per parametrized run; each\n"
+        "        of those gets its own row. Tests whose failure messages don't fit\n"
+        "        the <code>[…] / qsX / qsY / […]:</code> shape still appear, but\n"
+        "        without a rendered preview — the assertion text is on the right\n"
+        "        regardless.\n"
+        "      </p>\n"
+        f"{body}\n"
+        "    </details>"
     )
 
 
@@ -814,21 +1043,32 @@ _PAGE_CSS = """      /*
         background: light-dark(#fff, #2a2a2a);
       }
 
-      section {
+      details.collapsible {
         background: light-dark(#fff, #2a2a2a);
         border: 1px solid light-dark(#ccc, #444);
         border-radius: 4px;
         margin: 1.5rem 0;
       }
 
-      section > h2 {
-        margin: 0;
+      details.collapsible > summary {
+        cursor: pointer;
         padding: 1rem 1.5rem;
         font-size: 22px;
+        font-weight: 600;
+        user-select: none;
+      }
+
+      details.collapsible[open] > summary {
         border-bottom: 1px solid light-dark(#ccc, #444);
       }
 
-      section > p {
+      details.collapsible > summary > h2 {
+        display: inline;
+        margin: 0;
+        font: inherit;
+      }
+
+      details.collapsible > p {
         margin: 0;
         padding: .75rem 1.5rem;
         font-family: Seravek, Corbel, "Avenir Next", sans-serif;
@@ -840,7 +1080,8 @@ _PAGE_CSS = """      /*
         font-smooth: auto;
       }
 
-      .render-diffs .snapshot-missing {
+      .render-diffs .snapshot-missing,
+      .failing-tests .snapshot-missing {
         padding: 1rem 1.5rem;
         margin: 0;
         font-family: Seravek, Corbel, "Avenir Next", sans-serif;
@@ -850,13 +1091,68 @@ _PAGE_CSS = """      /*
       .isolation-leaks .qs.in-context,
       .isolation-leaks .qs.isolated,
       .render-diffs .qs.before,
-      .render-diffs .qs.after {
+      .render-diffs .qs.after,
+      .failing-tests .qs.after {
         --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
         background-image:
           linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
           linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
         background-size: 16px 16px;
         background-position: 0 5.6px, 8px 13.6px;
+      }
+
+      .failing-tests .qs.after {
+        font-family: var(--after-font);
+      }
+
+      .failing-tests .qs.after.no-render {
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+        color: light-dark(#888, #888);
+        background-image: none;
+        font-style: italic;
+        -webkit-font-smoothing: subpixel-antialiased;
+      }
+
+      .failing-tests .row .sequence-label {
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 16px;
+      }
+
+      .failing-tests .row .nodeid {
+        margin-top: .25rem;
+      }
+
+      .failing-tests .row .nodeid code {
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: light-dark(#666, #aaa);
+        word-break: break-all;
+      }
+
+      .failing-tests .row .message {
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        color: light-dark(#444, #ccc);
+        white-space: normal;
+        overflow-wrap: anywhere;
+        -webkit-font-smoothing: subpixel-antialiased;
+      }
+
+      .failing-tests .row .message code {
+        font-family: inherit;
+        font-size: inherit;
+        color: inherit;
+      }
+
+      .failing-tests .row,
+      .failing-tests .col-headers {
+        grid-template-columns: 26ch minmax(0, 1fr) minmax(0, 1.5fr);
+      }
+
+      body:has(.failing-tests .row) {
+        max-width: 1700px;
       }
 
       .isolation-leaks .qs.in-context,
@@ -1023,6 +1319,7 @@ _COPY_CODEPOINTS_SCRIPT = """    <script>
 def _render_page(
     diffs_section: str,
     leaks_section: str,
+    failures_section: str,
 ) -> str:
     return f"""<!doctype html>
 <html lang="en">
@@ -1038,12 +1335,14 @@ def _render_page(
   <body>
     <h1>Check &mdash; before/after</h1>
     <p>
-      Side-by-side rendering harness. Two auto-generated sections cover the
-      whole page: one diffs every multi-letter Quikscript run in the test
-      corpus between the snapshot under <code>test/before/</code> and the
-      live build under <code>test/</code>; the other lists every short
+      Side-by-side rendering harness. Three auto-generated sections cover
+      the whole page: one diffs every multi-letter Quikscript run in the
+      test corpus between the snapshot under <code>test/before/</code> and
+      the live build under <code>test/</code>; one lists every short
       sequence whose adjacent non-joining pair changes shape between
-      single-buffer and split shaping.
+      single-buffer and split shaping; one renders every assertion line
+      from currently-failing pytest tests so you can eyeball false
+      positives.
     </p>
     <p>
       Workflow:
@@ -1059,8 +1358,9 @@ def _render_page(
         Make your code or YAML changes on a branch.
       </li>
       <li>
-        <code>make check-html</code> rebuilds the live OTFs and regenerates
-        this file end-to-end via <code>tools/build_check_html.py</code>.
+        <code>make check-html</code> rebuilds the live OTFs, runs the
+        pytest suite to gather failing assertions, and regenerates this
+        file end-to-end via <code>tools/build_check_html.py</code>.
       </li>
       <li>
         Reload this page. Codepoint references live in
@@ -1072,6 +1372,8 @@ def _render_page(
 {diffs_section}
 
 {leaks_section}
+
+{failures_section}
 
     <p class="footer">
       Snapshot stale? Switch to the baseline branch, run
@@ -1101,7 +1403,11 @@ def build(max_len: int) -> str:
     else:
         diffs_section = _render_diffs_section(None, cp_to_family)
 
-    return _render_page(diffs_section, leaks_section)
+    failures = collect_test_failures()
+    failure_rows = build_failure_rows(failures)
+    failures_section = _render_failing_tests_section(failure_rows, cp_to_family)
+
+    return _render_page(diffs_section, leaks_section, failures_section)
 
 
 def main() -> None:
