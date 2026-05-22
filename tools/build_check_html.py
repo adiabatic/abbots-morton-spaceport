@@ -442,23 +442,33 @@ _FAILURE_LABEL_RE = re.compile(
 )
 _FAMILY_TOKEN_RE = re.compile(r"qs[A-Za-z0-9]+|ZWNJ")
 
+# `test_join_ink.py` reports gaps as
+# `qsX.variant -> qsY.variant at y=N (kind): reason (context ·A·B·C·D)`.
+# When the `[…] / qsX / qsY / […]:` shape doesn't match, fall back to the
+# trailing `(context …)` clause and pull families out of that.
+_CONTEXT_CLAUSE_RE = re.compile(r"\(context\s+((?:·(?:qs[A-Za-z0-9]+|ZWNJ))+)\s*\)")
+
 
 def _parse_families_from_message(message: str) -> tuple[str, ...]:
     """Return the input-family sequence for messages that follow the
-    `[…] / qsX / qsY / […]:` convention, or an empty tuple otherwise."""
+    `[…] / qsX / qsY / […]:` convention or carry a `(context ·X·Y·…)`
+    trailer; empty tuple otherwise."""
     match = _FAILURE_LABEL_RE.match(message)
-    if match is None:
-        return ()
-    families: list[str] = []
-    for group in (g.strip() for g in match.group(1).split("/")):
-        if group.startswith("[") and group.endswith("]"):
-            inner = group[1:-1]
-            if inner == "∅" or not inner:
-                continue
-            families.extend(part.strip() for part in inner.split("·") if part.strip())
-        else:
-            families.append(group)
-    return tuple(families)
+    if match is not None:
+        families: list[str] = []
+        for group in (g.strip() for g in match.group(1).split("/")):
+            if group.startswith("[") and group.endswith("]"):
+                inner = group[1:-1]
+                if inner == "∅" or not inner:
+                    continue
+                families.extend(part.strip() for part in inner.split("·") if part.strip())
+            else:
+                families.append(group)
+        return tuple(families)
+    context_match = _CONTEXT_CLAUSE_RE.search(message)
+    if context_match is not None:
+        return tuple(part for part in context_match.group(1).split("·") if part)
+    return ()
 
 
 def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
@@ -1336,13 +1346,13 @@ def _render_page(
     <h1>Check &mdash; before/after</h1>
     <p>
       Side-by-side rendering harness. Three auto-generated sections cover
-      the whole page: one diffs every multi-letter Quikscript run in the
-      test corpus between the snapshot under <code>test/before/</code> and
-      the live build under <code>test/</code>; one lists every short
-      sequence whose adjacent non-joining pair changes shape between
-      single-buffer and split shaping; one renders every assertion line
-      from currently-failing pytest tests so you can eyeball false
-      positives.
+      the whole page: one renders every assertion line from currently-
+      failing pytest tests so you can eyeball false positives; one diffs
+      every multi-letter Quikscript run in the test corpus between the
+      snapshot under <code>test/before/</code> and the live build under
+      <code>test/</code>; one lists every short sequence whose adjacent
+      non-joining pair changes shape between single-buffer and split
+      shaping.
     </p>
     <p>
       Workflow:
@@ -1369,11 +1379,11 @@ def _render_page(
       </li>
     </ol>
 
+{failures_section}
+
 {diffs_section}
 
 {leaks_section}
-
-{failures_section}
 
     <p class="footer">
       Snapshot stale? Switch to the baseline branch, run
