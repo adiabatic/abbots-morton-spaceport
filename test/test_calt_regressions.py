@@ -2638,12 +2638,6 @@ def _append_gay_joining_context_failures(
     if gay_index is None:
         failures.append(f"{label}: no qsGay glyph found ({glyphs!r})")
         return
-    if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
-        failures.append(
-            f"{label}: expected qsGay.exit-baseline.exit-extended, "
-            f"got {glyphs[gay_index]} (full: {glyphs!r})"
-        )
-        return
     if gay_index + 1 >= len(glyphs):
         failures.append(f"{label}: {target_base} did not follow qsGay ({glyphs!r})")
         return
@@ -2660,10 +2654,23 @@ def _append_gay_joining_context_failures(
         )
 
     entry_ys = _entry_ys(target_name)
+    if not entry_ys:
+        if glyphs[gay_index] == "qsGay.exit-baseline.exit-extended":
+            failures.append(
+                f"{label}: qsGay kept a baseline extension before entryless "
+                f"{target_name} (full: {glyphs!r})"
+            )
+        return
     if entry_ys and 0 not in entry_ys:
         failures.append(
             f"{label}: {target_base} ({target_name}) has an entry anchor but "
             f"not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
+        )
+        return
+    if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+        failures.append(
+            f"{label}: expected qsGay.exit-baseline.exit-extended, "
+            f"got {glyphs[gay_index]} (full: {glyphs!r})"
         )
 
 
