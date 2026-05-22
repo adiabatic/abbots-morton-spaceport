@@ -5002,6 +5002,35 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub {noentry_form}' {trigger_form} by {replacement};")
         lines.append(f"    }} calt_noentry_exit_contract_{safe};")
 
+    def _find_demote_sibling(
+        base_name: str,
+        prior_form: str,
+        prior_meta,
+        successor_form: str,
+        iso_form: str,
+    ) -> str | None:
+        # When the successor needs to be demoted because the prior's exit doesn't
+        # match the successor's entry, prefer a sibling whose entry actually does
+        # match the prior's exit and whose own `select.after` claims this prior —
+        # falling back on the bare iso form silently drops the cursive-join
+        # upgrade for an otherwise-valid pair (e.g. `qsIt.entry-xheight qsRoe`
+        # should land on `qsRoe.entry-extended-at-baseline`, not bare `qsRoe`).
+        if not prior_meta.exit_ys:
+            return None
+        prior_exit_ys = set(prior_meta.exit_ys)
+        for name in sorted(glyph_names):
+            if name in (successor_form, iso_form):
+                continue
+            sibling_meta = glyph_meta.get(name)
+            if sibling_meta is None or sibling_meta.base_name != base_name:
+                continue
+            if not any(y in prior_exit_ys for y in sibling_meta.all_entry_ys):
+                continue
+            if not sibling_meta.after or prior_form not in sibling_meta.after:
+                continue
+            return name
+        return None
+
     successor_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
     for successor_form in sorted(glyph_names):
         successor_meta = glyph_meta.get(successor_form)
@@ -5017,8 +5046,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             if any(entry_y in set(prior_meta.exit_ys) for entry_y in successor_meta.all_entry_ys):
                 continue
+            target_form = (
+                _find_demote_sibling(
+                    successor_meta.base_name,
+                    prior_form,
+                    prior_meta,
+                    successor_form,
+                    iso_form,
+                )
+                or iso_form
+            )
             successor_demote_by_base.setdefault(successor_meta.base_name, []).append(
-                (prior_form, successor_form, iso_form)
+                (prior_form, successor_form, target_form)
             )
 
     for successor_base in sorted(successor_demote_by_base):
@@ -5035,8 +5074,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         safe = successor_base.replace(".", "_").replace("-", "_")
         lines.append("")
         lines.append(f"    lookup calt_successor_demote_{safe} {{")
-        for prior_form, successor_form, iso_form in sorted(successor_unique):
-            lines.append(f"        sub {prior_form} {successor_form}' by {iso_form};")
+        for prior_form, successor_form, target_form in sorted(successor_unique):
+            lines.append(f"        sub {prior_form} {successor_form}' by {target_form};")
         lines.append(f"    }} calt_successor_demote_{safe};")
 
     entry_demote_rules = (
