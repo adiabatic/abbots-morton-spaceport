@@ -23,6 +23,15 @@ _EXIT_EXTENSION_WORD_BY_COUNT = {
     6: "sextuply-extended",
 }
 
+_EXIT_CONTRACTION_WORD_BY_COUNT = {
+    1: "contracted",
+    2: "doubly-contracted",
+    3: "triply-contracted",
+    4: "quadruply-contracted",
+    5: "quintuply-contracted",
+    6: "sextuply-contracted",
+}
+
 
 _LIGATURES_ALLOWING_SECOND_COMPONENT_FWD_VARIANTS = {
     "qsOut_qsTea",
@@ -4739,20 +4748,20 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     for candidate_base in sorted(pair_guard_reflip):
         rules = pair_guard_reflip[candidate_base]
         # Deduplicate while preserving stable order.
-        seen: set[tuple[frozenset[str], str, str, str]] = set()
-        unique_rules: list[tuple[frozenset[str], str, str, str]] = []
+        reflip_seen: set[tuple[frozenset[str], str, str, str]] = set()
+        reflip_unique: list[tuple[frozenset[str], str, str, str]] = []
         for entry in rules:
-            if entry in seen:
+            if entry in reflip_seen:
                 continue
-            seen.add(entry)
-            unique_rules.append(entry)
-        if not unique_rules:
+            reflip_seen.add(entry)
+            reflip_unique.append(entry)
+        if not reflip_unique:
             continue
         safe = candidate_base.replace(".", "_").replace("-", "_")
         lines.append("")
         lines.append(f"    lookup calt_pair_guard_reflip_{safe} {{")
         for prior_slot, pre_form, base_name, iso_form in sorted(
-            unique_rules,
+            reflip_unique,
             key=lambda item: (item[2], item[1], item[3], sorted(item[0])),
         ):
             prior_list = " ".join(sorted(prior_slot))
@@ -4837,6 +4846,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             return meta.base_name
         return None
 
+    def _drop_entry_extension_suffix(name: str) -> str | None:
+        meta = glyph_meta.get(name)
+        if meta is None or meta.extended_entry_suffix is None:
+            return None
+        candidate = name.replace(meta.extended_entry_suffix, "", 1)
+        return candidate if candidate in glyph_names else None
+
     def _derived_strip_guard_lookup_names(replacement_name: str) -> tuple[str, ...]:
         seen: set[str] = set()
         queue = deque([replacement_name.replace(".noentry", "")])
@@ -4885,10 +4901,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         pred_meta = glyph_meta.get(predecessor_form)
         if pred_meta is None:
             continue
+        iso_form = _drop_exit_extension_suffix(predecessor_form)
+        if iso_form is not None and pred_meta.before:
+            trigger_forms = _expand_all_variants(pred_meta.before, include_base=True)
+            for trigger_form in sorted(trigger_forms):
+                trigger_meta = glyph_meta.get(trigger_form)
+                if trigger_meta is None:
+                    continue
+                if any(exit_y in set(trigger_meta.all_entry_ys) for exit_y in pred_meta.exit_ys):
+                    continue
+                pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
+                    (predecessor_form, trigger_form, iso_form)
+                )
         if pred_meta.base_name not in derived_pred_demote_bases:
             continue
-        iso_form = _derived_pred_demote_iso_form(predecessor_form)
-        if iso_form is None:
+        derived_iso_form = _derived_pred_demote_iso_form(predecessor_form)
+        if derived_iso_form is None:
             continue
         for exit_y in set(pred_meta.exit_ys):
             guard_entries = tuple(
@@ -4907,26 +4935,109 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if exit_y in set(trigger_meta.all_entry_ys):
                         continue
                     pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-                        (predecessor_form, trigger_form, iso_form)
+                        (predecessor_form, trigger_form, derived_iso_form)
                     )
 
-    for predecessor_base in sorted(pred_demote_by_base):
-        pred_rules = pred_demote_by_base[predecessor_base]
-        pred_seen: set[tuple[str, str, str]] = set()
-        pred_unique: list[tuple[str, str, str]] = []
-        for entry in pred_rules:
-            if entry in pred_seen:
+    def _emit_pred_demote_lookups(prefix: str) -> None:
+        for predecessor_base in sorted(pred_demote_by_base):
+            pred_rules = pred_demote_by_base[predecessor_base]
+            pred_seen: set[tuple[str, str, str]] = set()
+            pred_unique: list[tuple[str, str, str]] = []
+            for entry in pred_rules:
+                if entry in pred_seen:
+                    continue
+                pred_seen.add(entry)
+                pred_unique.append(entry)
+            if not pred_unique:
                 continue
-            pred_seen.add(entry)
-            pred_unique.append(entry)
-        if not pred_unique:
+            safe = predecessor_base.replace(".", "_").replace("-", "_")
+            lines.append("")
+            lines.append(f"    lookup {prefix}_{safe} {{")
+            for predecessor_form, trigger_form, iso_form in sorted(pred_unique):
+                lines.append(f"        sub {predecessor_form}' {trigger_form} by {iso_form};")
+            lines.append(f"    }} {prefix}_{safe};")
+
+    _emit_pred_demote_lookups("calt_pred_demote")
+
+    noentry_exit_contract_by_base: dict[str, list[tuple[str, str, str]]] = {}
+    for source_form in sorted(glyph_names):
+        source_meta = glyph_meta.get(source_form)
+        if source_meta is None or source_meta.contract_exit_before is None:
             continue
-        safe = predecessor_base.replace(".", "_").replace("-", "_")
+        if not source_meta.exit:
+            continue
+        suffix_word = _EXIT_CONTRACTION_WORD_BY_COUNT.get(source_meta.contract_exit_before.by)
+        if suffix_word is None:
+            continue
+        noentry_form = f"{source_form}.noentry"
+        replacement = f"{noentry_form}.exit-{suffix_word}"
+        if noentry_form not in glyph_names or replacement not in glyph_names:
+            continue
+        trigger_forms = _expand_all_variants(source_meta.contract_exit_before.targets, include_base=True)
+        for trigger_form in sorted(trigger_forms):
+            trigger_meta = glyph_meta.get(trigger_form)
+            if trigger_meta is None:
+                continue
+            if not any(exit_y in set(trigger_meta.all_entry_ys) for exit_y in source_meta.exit_ys):
+                continue
+            noentry_exit_contract_by_base.setdefault(source_meta.base_name, []).append(
+                (noentry_form, trigger_form, replacement)
+            )
+
+    for source_base in sorted(noentry_exit_contract_by_base):
+        rules = noentry_exit_contract_by_base[source_base]
+        seen: set[tuple[str, str, str]] = set()
+        unique_rules: list[tuple[str, str, str]] = []
+        for entry in rules:
+            if entry in seen:
+                continue
+            seen.add(entry)
+            unique_rules.append(entry)
+        if not unique_rules:
+            continue
+        safe = source_base.replace(".", "_").replace("-", "_")
         lines.append("")
-        lines.append(f"    lookup calt_pred_demote_{safe} {{")
-        for predecessor_form, trigger_form, iso_form in sorted(pred_unique):
-            lines.append(f"        sub {predecessor_form}' {trigger_form} by {iso_form};")
-        lines.append(f"    }} calt_pred_demote_{safe};")
+        lines.append(f"    lookup calt_noentry_exit_contract_{safe} {{")
+        for noentry_form, trigger_form, replacement in sorted(unique_rules):
+            lines.append(f"        sub {noentry_form}' {trigger_form} by {replacement};")
+        lines.append(f"    }} calt_noentry_exit_contract_{safe};")
+
+    successor_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
+    for successor_form in sorted(glyph_names):
+        successor_meta = glyph_meta.get(successor_form)
+        if successor_meta is None or not successor_meta.after:
+            continue
+        iso_form = _drop_entry_extension_suffix(successor_form)
+        if iso_form is None:
+            continue
+        prior_forms = _expand_all_variants(successor_meta.after, include_base=True)
+        for prior_form in sorted(prior_forms):
+            prior_meta = glyph_meta.get(prior_form)
+            if prior_meta is None:
+                continue
+            if any(entry_y in set(prior_meta.exit_ys) for entry_y in successor_meta.all_entry_ys):
+                continue
+            successor_demote_by_base.setdefault(successor_meta.base_name, []).append(
+                (prior_form, successor_form, iso_form)
+            )
+
+    for successor_base in sorted(successor_demote_by_base):
+        successor_rules = successor_demote_by_base[successor_base]
+        successor_seen: set[tuple[str, str, str]] = set()
+        successor_unique: list[tuple[str, str, str]] = []
+        for entry in successor_rules:
+            if entry in successor_seen:
+                continue
+            successor_seen.add(entry)
+            successor_unique.append(entry)
+        if not successor_unique:
+            continue
+        safe = successor_base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_successor_demote_{safe} {{")
+        for prior_form, successor_form, iso_form in sorted(successor_unique):
+            lines.append(f"        sub {prior_form} {successor_form}' by {iso_form};")
+        lines.append(f"    }} calt_successor_demote_{safe};")
 
     entry_demote_rules = (
         ("qsOut_qsTea", "qsVie.exit-baseline.entry-extended", "qsVie.exit-baseline"),
@@ -4943,6 +5054,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         lines.append(f"        sub {prior_form} {successor_form}' by {iso_form};")
     if emitted_entry_demote:
         lines.append("    } calt_successor_demote_qsOut_qsTea;")
+
+    _emit_pred_demote_lookups("calt_final_pred_demote")
 
     lines.append("} calt;")
     lines = _coalesce_consecutive_ignore_rules(lines)
