@@ -31,6 +31,13 @@ _SS07_FEATURE = (("ss07", True),)
 from build_font import load_glyph_data
 from quikscript_ir import _EXTENSION_SUFFIX
 from test_shaping import run_shaping_test_runs
+from test_join_ink import (
+    PIXEL_SIZE,
+    _bitmap_origin_x_offset,
+    _ink_bounds_at_y,
+    _origin_xs,
+    _shape as _shape_with_positions,
+)
 
 _EXIT_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
     None: 0,
@@ -633,6 +640,145 @@ def _collect_stranded_extension_joins(
                                 f"{right_meta.extended_entry_suffix!r} but {glyph_name} has no "
                                 f"matching exit (exit Ys={sorted(l_exit)}) in {glyphs}"
                             )
+
+    return failures
+
+
+def _it_roe_touching_rows(
+    left_name: str,
+    right_name: str,
+    left_meta,
+    right_meta,
+    left_origin: int,
+    right_origin: int,
+) -> set[int]:
+    """Glyph-space Y values where the rendered ink of two adjacent glyphs meets.
+
+    For each row that exists in both bitmaps, compute the absolute pixel X of the
+    left glyph's right edge (one past its rightmost ink column at that Y) and the
+    right glyph's leftmost ink column at that Y, after applying the cursive-shifted
+    origins. A row is "touching" when the gap is zero (anchor-perfect adjacency)
+    or negative (overlap). Mirrors the gap math in `test_join_ink._check_ink_gap_at_y`
+    but applied to every shared row, not just the cursive join row.
+    """
+    touching: set[int] = set()
+    left_top_y = left_meta.y_offset + len(left_meta.bitmap) - 1
+    right_top_y = right_meta.y_offset + len(right_meta.bitmap) - 1
+    y_min = max(left_meta.y_offset, right_meta.y_offset)
+    y_max = min(left_top_y, right_top_y)
+    left_bx = _bitmap_origin_x_offset(left_name, left_meta)
+    right_bx = _bitmap_origin_x_offset(right_name, right_meta)
+    for y in range(y_min, y_max + 1):
+        left_ink = _ink_bounds_at_y(left_meta, y)
+        right_ink = _ink_bounds_at_y(right_meta, y)
+        if left_ink is None or right_ink is None:
+            continue
+        left_right_edge = left_origin + left_bx + (left_ink[1] + 1) * PIXEL_SIZE
+        right_left_edge = right_origin + right_bx + right_ink[0] * PIXEL_SIZE
+        if right_left_edge - left_right_edge <= 0:
+            touching.add(y)
+    return touching
+
+
+def _collect_it_roe_join_only_at_cursive_join_row_failures(
+    *,
+    chars_before: int,
+    chars_after: int,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every surround of ·It·Roe whose rendered ink doesn't touch in exactly
+    the way the cursive anchors say it should.
+
+    The qsIt·qsRoe pair has two acceptable shapes in Senior Quikscript:
+
+    - x-height join — qsIt.exit-xheight (a single column of ink) meets
+      qsRoe.entry-extended-at-xheight (top row widened to ``####``), with ink
+      contact only at glyph-space y=5. ·Loch·It·Roe is the canonical example.
+    - baseline join — qsIt.entry-xheight (single column, exit at y=0) meets
+      qsRoe.entry-extended-at-baseline (bottom row widened), with ink contact
+      only at y=0. ·Low·It·Roe is the canonical example.
+
+    The rule policed here: when ·It·Roe cursive-attach in a surround, exactly
+    one row of their bitmaps may have touching ink, and that row must equal the
+    single cursive-join Y, which must itself be 0 or 5. Bare ``qsRoe`` (whose
+    ``###`` top *and* bottom rows both brush a full-height ``qsIt`` column),
+    cursive joins at unexpected Ys, multi-Y joins, and gaps at the join Y are
+    all flagged.
+
+    Surrounds that disrupt the cursive join entirely (·Ye·It absorbs it, ZWNJ
+    breaks it, etc.) are skipped — the rule is conditional on the join forming.
+
+    ``before_first_only`` mirrors the per-shard hook on the sibling
+    ``_collect_pair_*`` helpers.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+    pair_text = _qs_text("qsIt", "qsRoe")
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None and chars_before >= 1:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + pair_text + after_text
+            glyphs, positions = _shape_with_positions(text)
+            origins = _origin_xs(positions)
+            label = f"[{before_label}] / qsIt / qsRoe / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                if left_meta.base_name != "qsIt" or right_meta.base_name != "qsRoe":
+                    continue
+
+                join_ys = _pair_join_ys(glyphs, index)
+                if not join_ys:
+                    continue
+
+                if join_ys - {0, 5}:
+                    failures.append(
+                        f"{label}: {glyph_name} -> {glyphs[index + 1]} cursive-joins at "
+                        f"Y={sorted(join_ys)}, outside the expected x-height/baseline set "
+                        f"in {glyphs}"
+                    )
+                    continue
+                if len(join_ys) != 1:
+                    failures.append(
+                        f"{label}: {glyph_name} -> {glyphs[index + 1]} cursive-joins at "
+                        f"multiple Ys {sorted(join_ys)} in {glyphs}"
+                    )
+                    continue
+                (join_y,) = join_ys
+
+                touching = _it_roe_touching_rows(
+                    glyph_name,
+                    glyphs[index + 1],
+                    left_meta,
+                    right_meta,
+                    origins[index],
+                    origins[index + 1],
+                )
+                if touching != {join_y}:
+                    touching_label = sorted(touching) if touching else "(none)"
+                    failures.append(
+                        f"{label}: {glyph_name} -> {glyphs[index + 1]} cursive-joins at "
+                        f"y={join_y} but rendered ink touches at Ys={touching_label} "
+                        f"in {glyphs}"
+                    )
 
     return failures
 
@@ -1435,6 +1581,18 @@ def test_no_stranded_extension_joins_anywhere(before_first: str):
         _collect_stranded_extension_joins(
             chars_before=1,
             chars_after=1,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_it_roe_join_only_touches_at_cursive_join_row(before_first: str):
+    _assert_no_failures(
+        _collect_it_roe_join_only_at_cursive_join_row_failures(
+            chars_before=2,
+            chars_after=0,
             before_first_only=before_first,
         ),
         limit=None,
