@@ -40,40 +40,10 @@ PIXEL_SIZE = 50  # from glyph_data/metadata.yaml
 
 
 # (left_glyph_name, right_glyph_name, join_y) tuples whose rendered ink
-# currently leaves an empty pixel between strokes. Discovered by running
-# this test against master; each entry is a known regression to fix.
-# Treat the list as a TODO — winnow entries by repairing the underlying
-# glyph data, anchor, or extension rule. Don't add new entries without
-# first trying to fix the underlying issue.
-_ACCEPTED_SHAPED_INK_GAPS: frozenset[tuple[str, str, int]] = frozenset(
-    {
-        ("qsAh.exit-extended", "qsBay", 5),
-        ("qsFee.exit-xheight.before-utter.exit-extended", "qsIt", 5),
-        ("qsGay.exit-baseline.exit-extended", "qsDay", 0),
-        ("qsGay.exit-baseline.exit-extended", "qsIt", 0),
-        ("qsGay.exit-baseline.exit-extended", "qsIt.before-utter", 0),
-        ("qsGay.exit-baseline.exit-extended", "qsZoo", 0),
-        ("qsI.exit-extended", "qsIt", 5),
-        ("qsIt", "qsJay.entry-xheight.entry-extended", 5),
-        ("qsIt", "qsRoe.entry-extended-at-baseline", 0),
-        ("qsIt", "qsRoe.entry-extended-at-xheight", 5),
-        ("qsIt", "qsVie.entry-extended", 0),
-        ("qsIt.entry-xheight", "qsRoe.entry-extended-at-xheight", 5),
-        ("qsJai.entry-xheight.exit-extended", "qsNo", 0),
-        ("qsMay.entry-xheight", "qsJai.entry-xheight.entry-doubly-extended", 5),
-        ("qsMay.entry-xheight", "qsZoo.entry-extended", 5),
-        ("qsMay.exit-extended", "qsIt", 5),
-        ("qsMay.exit-extended", "qsJai", 5),
-        ("qsMay.exit-extended", "qsJay", 5),
-        ("qsOut.exit-xheight.noentry", "qsJai.entry-xheight.entry-trimmed-by-3", 5),
-        ("qsOwe.exit-xheight.exit-extended", "qsIt", 5),
-        ("qsTea.entry-baseline", "qsDay.half.entry-extended", 0),
-        ("qsTea.entry-baseline", "qsIng.entry-extended", 0),
-        ("qsTea.entry-baseline", "qsMay.entry-baseline.entry-extended", 0),
-        ("qsTea.entry-baseline", "qsVie.entry-extended", 0),
-        ("qsUtter.exit-extended", "qsBay", 5),
-    }
-)
+# is a known-accepted gap or overlap. Add entries here only after
+# verifying the visual rendering is genuinely intended; don't use this as
+# a silencer for real regressions.
+_ACCEPTED_SHAPED_INK_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
 _BEFORE_FIRSTS = tuple(name for name, _ in _context_chars())
