@@ -14,9 +14,10 @@ ordering, cycle detection, and the FEA emitter's policy-specific gates stay in
 """
 
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Protocol
 
 from quikscript_ir import (
     Anchor,
@@ -77,6 +78,20 @@ class FwdStripGuard:
     that an unconditional relaxation would cause."""
 
     mid_base: str
+
+
+class _FwdStripReachability(Protocol):
+    @property
+    def glyph_meta(self) -> Mapping[str, JoinGlyph]: ...
+
+    @property
+    def base_to_variants(self) -> Mapping[str, Iterable[str]]: ...
+
+    @property
+    def fwd_replacements(self) -> Mapping[str, Mapping[int, str]]: ...
+
+    @property
+    def fwd_pair_overrides(self) -> Mapping[str, Iterable[tuple[str, Iterable[str], Iterable[str]]]]: ...
 
 
 @dataclass(frozen=True)
@@ -1846,7 +1861,7 @@ def derive_pending_liga_entry_guards(
 
 
 def derive_pending_fwd_strip_guards(
-    reachability: JoinReachability,
+    reachability: _FwdStripReachability,
 ) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
     """Forward-strip guards for predecessor substitutions.
 
@@ -1864,7 +1879,7 @@ def derive_pending_fwd_strip_guards(
 
 
 def _compute_derived_fwd_strip_guards(
-    reachability: JoinReachability,
+    reachability: _FwdStripReachability,
 ) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
     glyph_meta = reachability.glyph_meta
 
@@ -1914,22 +1929,41 @@ def _predecessor_visually_reaches(
     variant_name: str,
 ) -> bool:
     """Whether the predecessor variant's exit stroke is a connector that
-    visually reaches toward the next glyph (deep-letter terminal arm).
+    visually reaches toward the next glyph (deep-letter terminal arm, or
+    explicit exit extension).
 
-    The heuristic is "has ink below the exit anchor's row": a deep letter
-    that exits at the baseline (e.g. ``qsGay.exit-baseline``) has its body
-    continuing below y=0, so its y=0 stroke is a connector reaching out to
-    join the next glyph. A short letter that exits at its bottom row (e.g.
-    ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom
-    edge of the letter, terminating at its own bounding box; it sits cleanly
-    next to whatever follows even without a cursive join.
+    Two paths qualify:
+
+    * Deep-letter terminal arms: when the variant has ink below the exit
+      anchor's row, the exit stroke is a connector. ``qsGay.exit-baseline``
+      exits at y=0 with body continuing below, so its y=0 stroke is a
+      connector reaching out to join the next glyph. A short letter that
+      exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its
+      y=0 stroke is just the bottom edge, terminating at its own bounding
+      box; it sits cleanly next to whatever follows even without a cursive
+      join.
+
+    * Explicit exit extensions: ``.exit-extended`` (and friends) widen the
+      glyph's bitmap toward the follower, materializing real ink that
+      strands when the follower can't receive it. Short letters that gain
+      an extension (e.g. ``qsEight.exit-extended``) qualify here even though
+      no ink sits below the exit row in the source bitmap.
+
+    * Tall baseline-exit forms: these flatten or carry a tall body's lower
+      stroke into a baseline connector. If the follower later strips its
+      baseline entry, that connector becomes a visible isolation leak even
+      without an explicit extension suffix.
 
     Only the connector variants leave a visibly dangling stroke when the
     follower's runtime form strips its entry anchor."""
     meta = glyph_meta.get(variant_name)
     if meta is None or not meta.exit or not meta.bitmap:
         return False
+    if meta.extended_exit_suffix is not None:
+        return True
     exit_y = meta.exit[0][1]
+    if exit_y == 0 and "exit-baseline" in meta.modifiers and len(meta.bitmap) >= 9:
+        return True
     top_y = meta.y_offset + len(meta.bitmap) - 1
     for row_idx, row in enumerate(meta.bitmap):
         row_y = top_y - row_idx
@@ -1944,7 +1978,7 @@ def _predecessor_visually_reaches(
 
 
 def _bases_with_stripped_fwd_per_y(
-    reachability: JoinReachability,
+    reachability: _FwdStripReachability,
 ) -> dict[int, frozenset[str]]:
     """Index bare bases by exit Y where the bare base's forward upgrade
     strips entries AND the base's family still has a sibling with an entry
@@ -1975,7 +2009,7 @@ def _bases_with_stripped_fwd_per_y(
             replacement_meta = glyph_meta.get(replacement)
             if replacement_meta is None:
                 continue
-            if replacement_meta.all_entry_ys:
+            if exit_y in replacement_meta.all_entry_ys:
                 continue
             if exit_y not in family_entry_ys:
                 continue
@@ -1989,9 +2023,9 @@ def _bases_with_stripped_fwd_per_y(
             replacement_meta = glyph_meta.get(replacement)
             if replacement_meta is None:
                 continue
-            if replacement_meta.all_entry_ys:
-                continue
             for exit_y in set(replacement_meta.exit_ys):
+                if exit_y in replacement_meta.all_entry_ys:
+                    continue
                 if exit_y not in family_entry_ys:
                     continue
                 if _stripped_pair_replacement_keeps_entry_ink(
@@ -2006,7 +2040,7 @@ def _bases_with_stripped_fwd_per_y(
 
 
 def _stripped_pair_replacement_keeps_entry_ink(
-    reachability: JoinReachability,
+    reachability: _FwdStripReachability,
     base: str,
     replacement_meta: JoinGlyph,
     exit_y: int,
