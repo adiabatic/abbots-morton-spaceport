@@ -39,6 +39,7 @@ Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is cle
 ## Tests
 
 - Go through all the tests in `test_calt_regressions.py` and polish them up.
+- Investigate `qsOut.exit-xheight.noentry` → `qsJai.entry-xheight.entry-trimmed-by-3` at y=5 — flagged by `test/test_join_ink.py::test_no_shaped_ink_gaps` (currently allowlisted in `_ACCEPTED_SHAPED_INK_GAPS`). The trimmed entry variant is sized for `qsOut.exit-xheight.after-see.exit-triply-contracted` (its sole declared `after:` source) but calt is also routing it after `qsOut.exit-xheight.noentry`, which isn't the contracted form, so the trim's inset leaves a 2-px hole at y=5. Likely either the calt selector that picks the trimmed variant is too broad, or `qsJai.entry-xheight` needs an `.entry-trimmed-by-3` sibling that explicitly handles the `.noentry` predecessor.
 
 ## The Manual
 
