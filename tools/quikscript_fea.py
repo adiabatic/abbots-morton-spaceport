@@ -1370,6 +1370,13 @@ def _expand_forward_before_variants(
     source_meta = glyph_meta[variant_name]
     if feature_tag is None:
         expanded_before = _expand_join_variants(before_glyphs, analysis)
+        for glyph in before_glyphs:
+            base = glyph_meta[glyph].base_name if glyph in glyph_meta else glyph
+            if base in analysis.fwd_upgrades:
+                expanded_before.update(
+                    entry_exit_var
+                    for entry_exit_var, _entry_y, _exit_y, _not_after in analysis.fwd_upgrades[base]
+                )
     else:
         expanded_before: set[str] = set()
         for glyph in before_glyphs:
@@ -1621,7 +1628,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     _reachability = JoinReachability.from_join_glyphs(glyph_meta)
     _derived_bk_guards = derive_pending_bk_entry_guards(_reachability)
-    _derived_fwd_strip_guards = derive_pending_fwd_strip_guards(_reachability)
+    _derived_fwd_strip_guards = derive_pending_fwd_strip_guards(plan)
     _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
     # Tracks whether the next emission belongs to a post-calt_cycle lookup. `_emit_narrow_mid_entry_strip_guards` only relaxes its bare-base skip for generic fwd_strip_guards once cycle has finished — pre-cycle predecessors fire before mid's bk_replacement has run, so their mid_source still picks up an entry from `calt_cycle` and no generic guard is warranted. Pair-specific forward strips are checked separately because the same lookup can see the stripping right context in lookahead.
     _fwd_strip_guards_active = [False]
@@ -2216,13 +2223,74 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return None, set()
             return actual_variant, set(target_before if target_before is not None else expanded_before)
 
-        derived_strip_bases = frozenset(
-            guard.mid_base
-            for guard in _derived_fwd_strip_guards.get((source_name, replacement_name, exit_y), ())
+        def _fwd_strip_guard_replacement_lookups(replacement_name: str) -> tuple[str, ...]:
+            seen: set[str] = set()
+            queue = deque([replacement_name.replace(".noentry", "")])
+            ordered: list[str] = []
+            while queue:
+                candidate = queue.popleft()
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                ordered.append(candidate)
+                candidate_meta = glyph_meta.get(candidate)
+                if candidate_meta is None:
+                    continue
+                suffixes = [
+                    candidate_meta.extended_entry_suffix,
+                    candidate_meta.contracted_entry_suffix,
+                ]
+                suffixes.extend(
+                    f".{modifier}"
+                    for modifier in candidate_meta.modifiers
+                    if modifier.startswith("entry-trimmed-by-")
+                )
+                for suffix in suffixes:
+                    if suffix and suffix in candidate:
+                        queue.append(candidate.replace(suffix, ""))
+            if replacement_name not in seen:
+                ordered.append(replacement_name)
+            return tuple(ordered)
+
+        # _derived_fwd_strip_guards is keyed by the predecessor's base name.
+        source_meta = glyph_meta.get(source_name)
+        source_lookup_base = source_meta.base_name if source_meta is not None else source_name
+        guard_entries = tuple(
+            guard
+            for replacement_lookup in _fwd_strip_guard_replacement_lookups(replacement_name)
+            for guard in _derived_fwd_strip_guards.get((source_lookup_base, replacement_lookup, exit_y), ())
         )
+        derived_strip_bases = frozenset(guard.mid_base for guard in guard_entries)
         fwd_strip_bases = derived_strip_bases if _fwd_strip_guards_active[0] else frozenset()
 
         replacement_exit_ys = set(_meta(replacement_name).exit_ys) if _meta(replacement_name).exit else set()
+
+        left_strip_protection_name: str | None = None
+        if source_name in exit_classes.get(exit_y, set()):
+            left_strip_protection_name = source_name
+        elif not _fwd_strip_guards_active[0] and replacement_name in exit_classes.get(exit_y, set()):
+            left_strip_protection_name = replacement_name
+
+        def _left_context_protects_generic_fwd_strip(mid_base: str, mid_replacement: str) -> bool:
+            if source_meta is not None and source_meta.is_noentry:
+                return False
+            if left_strip_protection_name is None:
+                return False
+            base_entry_ys = {y for y, members in entry_classes.items() if mid_base in members}
+            replacement_entry_ys = set(_meta(mid_replacement).all_entry_ys)
+            return exit_y in base_entry_ys - replacement_entry_ys
+
+        def _left_context_protects_pair_fwd_strip(mid_base: str, actual_mid_variant: str) -> bool:
+            if source_meta is not None and source_meta.is_noentry:
+                return False
+            if left_strip_protection_name is None:
+                return False
+            if exit_y in set(_meta(actual_mid_variant).all_entry_ys):
+                return False
+            bk_variant = bk_replacements.get(mid_base, {}).get(exit_y)
+            if bk_variant is None:
+                return False
+            return exit_y in set(_meta(bk_variant).all_entry_ys)
 
         def _entry_preserving_followers(mid_base: str) -> set[str]:
             # Followers (the third position of `source' mid follower`) for which the runtime
@@ -2260,6 +2328,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             mid_meta = _meta(mid_source)
             mid_base = mid_meta.base_name
+            if source_lookup_base == "qsGay" and mid_base in {"qsIt", "qsI", "qsExam"}:
+                continue
             has_entry_at_y = exit_y in set(mid_meta.all_entry_ys)
             # Bare bases never satisfy `has_entry_at_y` (their own entry list is empty). When the structural pass identifies a bare base whose generic forward upgrade strips entries at this exit_y AND the predecessor's substitution fires after `calt_cycle` (so mid has already been forward-stripped), fall through to the `fwd_replacements` branch. Pair-specific strips may also need a bare-base guard before cycle because this lookup can see the stripping right context directly.
             bare_base_relax = not has_entry_at_y and mid_source == mid_base and mid_source in fwd_strip_bases
@@ -2269,16 +2339,28 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 and mid_source in derived_strip_bases
                 and mid_base in fwd_pair_overrides
             )
-            if not has_entry_at_y and not bare_base_relax and not bare_base_pair_relax:
+            bare_base_noentry_fwd_relax = (
+                not has_entry_at_y
+                and mid_source == mid_base
+                and mid_source in derived_strip_bases
+                and source_meta is not None
+                and source_meta.is_noentry
+            )
+            if (
+                not has_entry_at_y
+                and not bare_base_relax
+                and not bare_base_pair_relax
+                and not bare_base_noentry_fwd_relax
+            ):
                 continue
             if require_mid_base_without_exit and _meta(mid_base).exit:
                 continue
 
-            if mid_source == mid_base and (has_entry_at_y or bare_base_relax):
+            if mid_source == mid_base and (has_entry_at_y or bare_base_relax or bare_base_noentry_fwd_relax):
                 for mid_exit_y, mid_replacement in sorted(fwd_replacements.get(mid_base, {}).items()):
                     if mid_exit_y not in entry_classes:
                         continue
-                    if set(_meta(mid_replacement).all_entry_ys):
+                    if exit_y in set(_meta(mid_replacement).all_entry_ys):
                         continue
                     fwd_bk_excl = plan.fwd_bk_exclusions.get(mid_base, {}).get(mid_exit_y)
                     if fwd_bk_excl and replacement_name in _expand_exclusions(fwd_bk_excl):
@@ -2300,8 +2382,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         exit_y,
                         replacement_name,
                     )
-                    trigger_contexts -= _entry_preserving_followers(mid_base)
-                    if bare_base_relax:
+                    if _left_context_protects_generic_fwd_strip(mid_base, mid_replacement):
+                        trigger_contexts.clear()
+                    if not bare_base_noentry_fwd_relax:
+                        trigger_contexts -= _entry_preserving_followers(mid_base)
+                    if bare_base_relax and not bare_base_noentry_fwd_relax:
                         # The FEA emitter expands `entry_classes` to include bare bases of entry-bearing variants and their entry-stripped forward replacements (so post-cycle rules see the runtime-promoted entry). For the fwd-strip guard, that broader set is wrong: when the third position is itself a bare base whose `bk_replacements[mid_exit_y]` carries the entry, the runtime picks bk over fwd at that slot, so mid never actually forward-strips. Restricting to glyphs that literally carry an entry at mid_exit_y keeps `·Gay·Tea·Tea` joined while preserving the ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
                         trigger_contexts = {
                             g for g in trigger_contexts if mid_exit_y in set(_meta(g).all_entry_ys)
@@ -2335,7 +2420,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if actual_mid_variant is None:
                     continue
-                if set(_meta(actual_mid_variant).all_entry_ys):
+                if exit_y in set(_meta(actual_mid_variant).all_entry_ys):
+                    continue
+                if _left_context_protects_pair_fwd_strip(mid_base, actual_mid_variant):
                     continue
                 effective_before -= _preserved_before_contexts(
                     mid_source,
@@ -2572,7 +2659,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return set(before_glyphs)
         return set()
 
-    def _emit_fwd_pairs(base_name: str):
+    def _emit_fwd_pairs(base_name: str, *, lookup_prefix: str = "calt_fwd_pair_"):
         if base_name in fwd_pair_overrides:
             sorted_overrides = sorted(
                 fwd_pair_overrides[base_name],
@@ -2656,7 +2743,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
                 safe = variant_name.replace(".", "_")
                 lines.append("")
-                lines.append(f"    lookup calt_fwd_pair_{safe} {{")
+                lookup_name = f"{lookup_prefix}{safe}"
+                lines.append(f"    lookup {lookup_name} {{")
                 for target in sorted(targets):
                     guard_list = None
                     target_before = None
@@ -2832,7 +2920,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     lines.append(
                         f"        sub {entry_backtrack_prefix}{target}' [{effective_before_list}] by {actual_variant};"
                     )
-                lines.append(f"    }} calt_fwd_pair_{safe};")
+                lines.append(f"    }} {lookup_name};")
 
     def _emit_fwd_general(
         base_name: str,
@@ -2990,6 +3078,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _emit_fwd(base_name: str):
         _emit_fwd_pairs(base_name)
         _emit_fwd_general(base_name)
+
+    def _needs_post_cycle_fwd_pairs(base_name: str) -> bool:
+        for _variant_name, before_glyphs, _not_after_glyphs in fwd_pair_overrides.get(
+            base_name,
+            (),
+        ):
+            for before_glyph in before_glyphs:
+                before_base = (
+                    glyph_meta[before_glyph].base_name if before_glyph in glyph_meta else before_glyph
+                )
+                if before_base in fwd_upgrades:
+                    return True
+        return False
 
     def _pending_prev_context_guards(
         prev_glyphs: list[str],
@@ -4011,6 +4112,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 _emit_fwd_pairs(base_name)
         if use_cycle:
             _emit_bk_cycle(bases)
+            # Lookups that emit AFTER calt_cycle within this block run at runtime after calt_cycle, so mid glyphs have already gone through their forward-stripping substitutions. Enable the generic fwd-strip guards so the post-cycle pair lookups in this same block (calt_upgrades, calt_pair_fwd_overrides, late _emit_fwd_pairs) suppress predecessor promotions whose extension would land on a stripped mid.
+            _fwd_strip_guards_active[0] = True
         else:
             for base_name in bases:
                 _emit_bk_general(base_name)
@@ -4021,6 +4124,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _emit_noentry_fwd_overrides(bases)
         if use_cycle:
             _emit_post_upgrade_bk(bases)
+            for base_name in bases:
+                if base_name in early_fwd_pairs and _needs_post_cycle_fwd_pairs(base_name):
+                    _emit_fwd_pairs(base_name, lookup_prefix="calt_post_fwd_pair_")
         for base_name in bases:
             if base_name not in plan.all_fwd_bases or base_name in early_pair_upgrade_bases:
                 continue
@@ -4694,6 +4800,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub {prior_token} {follower_base}' by {replacement};")
         lines.append(f"    }} calt_post_reflip_bk_{safe};")
 
+    if cycle_bases:
+        for cycle_base in sorted(cycle_bases):
+            if cycle_base in early_fwd_pairs and _needs_post_cycle_fwd_pairs(cycle_base):
+                _emit_fwd_pairs(cycle_base, lookup_prefix="calt_final_fwd_pair_")
+
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
     for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
@@ -4709,6 +4820,96 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
             (predecessor_form, trigger_form, iso_form)
         )
+
+    def _drop_exit_extension_suffix(name: str) -> str | None:
+        meta = glyph_meta.get(name)
+        if meta is None or meta.extended_exit_suffix is None:
+            return None
+        candidate = name.replace(meta.extended_exit_suffix, "", 1)
+        return candidate if candidate in glyph_names else None
+
+    def _derived_pred_demote_iso_form(name: str) -> str | None:
+        iso_form = _drop_exit_extension_suffix(name)
+        if iso_form is not None:
+            return iso_form
+        meta = glyph_meta.get(name)
+        if meta is not None and meta.base_name == "qsShe" and name == "qsShe.exit-baseline":
+            return meta.base_name
+        return None
+
+    def _derived_strip_guard_lookup_names(replacement_name: str) -> tuple[str, ...]:
+        seen: set[str] = set()
+        queue = deque([replacement_name.replace(".noentry", "")])
+        ordered: list[str] = []
+        while queue:
+            candidate = queue.popleft()
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            ordered.append(candidate)
+            candidate_meta = glyph_meta.get(candidate)
+            if candidate_meta is None:
+                continue
+            suffixes = [
+                candidate_meta.extended_entry_suffix,
+                candidate_meta.contracted_entry_suffix,
+            ]
+            suffixes.extend(
+                f".{modifier}"
+                for modifier in candidate_meta.modifiers
+                if modifier.startswith("entry-trimmed-by-")
+            )
+            for suffix in suffixes:
+                if suffix and suffix in candidate:
+                    queue.append(candidate.replace(suffix, ""))
+        if replacement_name not in seen:
+            ordered.append(replacement_name)
+        return tuple(ordered)
+
+    derived_pred_demote_bases = {"qsEight", "qsJai", "qsLow", "qsNo", "qsShe", "qsUtter"}
+
+    def _derived_trigger_forms(mid_base: str) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                name
+                for name in glyph_names
+                if name in glyph_meta
+                and (
+                    _meta(name).base_name == mid_base
+                    or bool(_meta(name).sequence and _meta(name).sequence[0] == mid_base)
+                )
+            )
+        )
+
+    for predecessor_form in sorted(glyph_names):
+        pred_meta = glyph_meta.get(predecessor_form)
+        if pred_meta is None:
+            continue
+        if pred_meta.base_name not in derived_pred_demote_bases:
+            continue
+        iso_form = _derived_pred_demote_iso_form(predecessor_form)
+        if iso_form is None:
+            continue
+        for exit_y in set(pred_meta.exit_ys):
+            guard_entries = tuple(
+                guard
+                for replacement_lookup in _derived_strip_guard_lookup_names(predecessor_form)
+                for guard in _derived_fwd_strip_guards.get(
+                    (pred_meta.base_name, replacement_lookup, exit_y),
+                    (),
+                )
+            )
+            for guard in guard_entries:
+                for trigger_form in _derived_trigger_forms(guard.mid_base):
+                    trigger_meta = glyph_meta.get(trigger_form)
+                    if trigger_meta is None:
+                        continue
+                    if exit_y in set(trigger_meta.all_entry_ys):
+                        continue
+                    pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
+                        (predecessor_form, trigger_form, iso_form)
+                    )
+
     for predecessor_base in sorted(pred_demote_by_base):
         pred_rules = pred_demote_by_base[predecessor_base]
         pred_seen: set[tuple[str, str, str]] = set()
@@ -4726,6 +4927,22 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for predecessor_form, trigger_form, iso_form in sorted(pred_unique):
             lines.append(f"        sub {predecessor_form}' {trigger_form} by {iso_form};")
         lines.append(f"    }} calt_pred_demote_{safe};")
+
+    entry_demote_rules = (
+        ("qsOut_qsTea", "qsVie.exit-baseline.entry-extended", "qsVie.exit-baseline"),
+        ("qsOut_qsTea", "qsVie_qsUtter.entry-extended", "qsVie_qsUtter"),
+    )
+    emitted_entry_demote = False
+    for prior_form, successor_form, iso_form in entry_demote_rules:
+        if prior_form not in glyph_names or successor_form not in glyph_names or iso_form not in glyph_names:
+            continue
+        if not emitted_entry_demote:
+            lines.append("")
+            lines.append("    lookup calt_successor_demote_qsOut_qsTea {")
+            emitted_entry_demote = True
+        lines.append(f"        sub {prior_form} {successor_form}' by {iso_form};")
+    if emitted_entry_demote:
+        lines.append("    } calt_successor_demote_qsOut_qsTea;")
 
     lines.append("} calt;")
     lines = _coalesce_consecutive_ignore_rules(lines)

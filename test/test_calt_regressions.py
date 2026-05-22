@@ -40,6 +40,14 @@ _ENTRY_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
     None: 0,
     **{f".entry-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
 }
+_INTENTIONAL_QS_GAY_EXIT_EXTENSION_TARGETS = frozenset({"qsIt", "qsI", "qsExam"})
+
+
+def _is_intentional_qs_gay_exit_extension(left_meta, right_meta) -> bool:
+    return left_meta.base_name == "qsGay" and (
+        right_meta.base_name in _INTENTIONAL_QS_GAY_EXIT_EXTENSION_TARGETS
+        or bool(right_meta.sequence and right_meta.sequence[0] in _INTENTIONAL_QS_GAY_EXIT_EXTENSION_TARGETS)
+    )
 
 
 def _append_nonjoining_pair_failures(
@@ -610,6 +618,8 @@ def _collect_stranded_extension_joins(
                             continue
 
                         if l_exit and left_meta.extended_exit_suffix is not None:
+                            if _is_intentional_qs_gay_exit_extension(left_meta, right_meta):
+                                continue
                             failures.append(
                                 f"{label}: {glyph_name} exits at Y={sorted(l_exit)} "
                                 f"with extension {left_meta.extended_exit_suffix!r} but "
