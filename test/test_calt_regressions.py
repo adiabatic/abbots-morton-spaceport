@@ -3541,3 +3541,193 @@ def test_at_may_they_utter_looks_ok():
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
         ["·At.before-may.exit-quintuply-extended ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
     )
+
+
+# ---------------------------------------------------------------------------
+# ZWNJ isolation sweeps.
+#
+# A ZWNJ between two runs is supposed to act as a hard shaping boundary:
+# nothing on its left may influence the chosen glyph forms on its right, and
+# vice versa. ``test_shaping`` already has an isolation check that splits the
+# HarfBuzz buffer at non-joins, but it explicitly rejects ZWNJ injection as a
+# reference because the font intentionally fires ``.noentry`` rules against
+# literal ``uni200C``. The sweeps below take the opposite tack: rather than
+# comparing against a buffer split, they fix one side of the ZWNJ (a single
+# pair of letters) as the baseline and then verify that varying the other
+# side never changes the pair's chosen glyphs.
+# ---------------------------------------------------------------------------
+
+
+def _find_zwnj_indices(glyphs: list[str]) -> list[int]:
+    # HarfBuzz replaces default-ignorables that survive shaping (including
+    # ZWNJ) with the ``space`` glyph in the output buffer, so each U+200C in
+    # the input shows up as ``space`` in the glyph names. Our test inputs
+    # never contain a literal space character, so every ``space`` glyph
+    # here corresponds to a ZWNJ.
+    return [i for i, g in enumerate(glyphs) if g == "space"]
+
+
+def _collect_left_context_changes_right_pair_across_zwnj_failures(
+    *,
+    chars_before: int = 1,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every (L1, L2) pair whose chosen shapes after a ZWNJ change when
+    the prefix on the left of the ZWNJ changes.
+
+    The baseline for each pair is the bare ``ZWNJ + L1 + L2`` sequence — i.e.
+    the pair with only a leading ZWNJ and nothing further left. Each prefix
+    (of length ``chars_before``, drawn from every plain Quikscript letter
+    plus ZWNJ, so 45 entries per slot) gets compared against that baseline.
+
+    The check looks only at the glyphs to the right of the *rightmost*
+    ZWNJ marker in the output (HarfBuzz surfaces each surviving ZWNJ as a
+    ``space`` glyph) — the injected ZWNJ just before L1 — so ligatures
+    that span L1/L2 are handled naturally and prefix-internal ZWNJs drawn
+    from the iteration set don't confuse the slice.
+
+    ``before_first_only`` mirrors the per-shard hook on the other
+    ``_collect_pair_*`` helpers: restricting the sweep to ``before``
+    combinations whose first entry is the named context glyph lets a
+    parametrized caller fan one logical test across pytest-xdist workers.
+    """
+    failures: list[str] = []
+    context_set = _context_chars()
+    letters = _plain_quikscript_letters()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None and chars_before >= 1:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
+
+    for l1_name, l1_char in letters:
+        for l2_name, l2_char in letters:
+            baseline_text = ZWNJ + l1_char + l2_char
+            baseline_glyphs = _shape(baseline_text)
+            baseline_zwnj_indices = _find_zwnj_indices(baseline_glyphs)
+            if not baseline_zwnj_indices:
+                failures.append(
+                    f"baseline ZWNJ / {l1_name} / {l2_name}: "
+                    f"expected the injected ZWNJ to survive baseline shaping, got {baseline_glyphs}"
+                )
+                continue
+            baseline_right = tuple(baseline_glyphs[baseline_zwnj_indices[-1] + 1 :])
+
+            for before in before_combos:
+                before_label = "·".join(name for name, _ in before) if before else "∅"
+                before_text = "".join(char for _, char in before)
+                text = before_text + ZWNJ + l1_char + l2_char
+                glyphs = _shape(text)
+                zwnj_indices = _find_zwnj_indices(glyphs)
+                if not zwnj_indices:
+                    failures.append(
+                        f"[{before_label}] / ZWNJ / {l1_name} / {l2_name}: "
+                        f"expected the injected ZWNJ to survive shaping, got {glyphs}"
+                    )
+                    continue
+                # Take the slice after the rightmost ZWNJ marker — that's
+                # the ZWNJ we injected just before L1; any earlier ones were
+                # drawn from the iteration set as part of ``before``.
+                test_right = tuple(glyphs[zwnj_indices[-1] + 1 :])
+                if test_right != baseline_right:
+                    failures.append(
+                        f"[{before_label}] / ZWNJ / {l1_name} / {l2_name}: "
+                        f"right side shaped as {list(test_right)} after prefix, "
+                        f"but as {list(baseline_right)} with no prefix (full: {glyphs})"
+                    )
+
+    return failures
+
+
+def _collect_right_context_changes_left_pair_across_zwnj_failures(
+    *,
+    chars_after: int = 1,
+    after_first_only: str | None = None,
+) -> list[str]:
+    """Mirror of ``_collect_left_context_changes_right_pair_across_zwnj_failures``:
+    flag every (L1, L2) pair whose chosen shapes before a ZWNJ change when the
+    suffix on the right of the ZWNJ changes.
+
+    The baseline for each pair is ``L1 + L2 + ZWNJ`` with nothing further on
+    the right. Each suffix (length ``chars_after``, drawn from every plain
+    Quikscript letter plus ZWNJ) is compared against that baseline. The check
+    looks at the glyphs before the *leftmost* ZWNJ marker in the output (each
+    surviving ZWNJ surfaces as ``space``); that marker is always the injected
+    ZWNJ.
+    """
+    failures: list[str] = []
+    context_set = _context_chars()
+    letters = _plain_quikscript_letters()
+
+    if after_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if after_first_only not in valid_names:
+            raise ValueError(f"after_first_only={after_first_only!r} not in context set")
+
+    after_combos = tuple(product(context_set, repeat=chars_after))
+    if after_first_only is not None and chars_after >= 1:
+        after_combos = tuple(combo for combo in after_combos if combo[0][0] == after_first_only)
+
+    for l1_name, l1_char in letters:
+        for l2_name, l2_char in letters:
+            baseline_text = l1_char + l2_char + ZWNJ
+            baseline_glyphs = _shape(baseline_text)
+            baseline_zwnj_indices = _find_zwnj_indices(baseline_glyphs)
+            if not baseline_zwnj_indices:
+                failures.append(
+                    f"{l1_name} / {l2_name} / ZWNJ baseline: "
+                    f"expected the injected ZWNJ to survive baseline shaping, got {baseline_glyphs}"
+                )
+                continue
+            baseline_left = tuple(baseline_glyphs[: baseline_zwnj_indices[0]])
+
+            for after in after_combos:
+                after_label = "·".join(name for name, _ in after) if after else "∅"
+                after_text = "".join(char for _, char in after)
+                text = l1_char + l2_char + ZWNJ + after_text
+                glyphs = _shape(text)
+                zwnj_indices = _find_zwnj_indices(glyphs)
+                if not zwnj_indices:
+                    failures.append(
+                        f"{l1_name} / {l2_name} / ZWNJ / [{after_label}]: "
+                        f"expected the injected ZWNJ to survive shaping, got {glyphs}"
+                    )
+                    continue
+                # Take the slice before the leftmost ZWNJ marker — the
+                # injected ZWNJ. Any later ones were drawn from the iteration
+                # set as part of ``after``.
+                test_left = tuple(glyphs[: zwnj_indices[0]])
+                if test_left != baseline_left:
+                    failures.append(
+                        f"{l1_name} / {l2_name} / ZWNJ / [{after_label}]: "
+                        f"left side shaped as {list(test_left)} before suffix, "
+                        f"but as {list(baseline_left)} with no suffix (full: {glyphs})"
+                    )
+
+    return failures
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_right_pair_after_zwnj_is_unaffected_by_left_context(before_first: str):
+    _assert_no_failures(
+        _collect_left_context_changes_right_pair_across_zwnj_failures(
+            chars_before=1,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("after_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_left_pair_before_zwnj_is_unaffected_by_right_context(after_first: str):
+    _assert_no_failures(
+        _collect_right_context_changes_left_pair_across_zwnj_failures(
+            chars_after=1,
+            after_first_only=after_first,
+        ),
+        limit=None,
+    )
