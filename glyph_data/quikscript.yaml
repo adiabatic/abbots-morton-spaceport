@@ -2164,6 +2164,11 @@ glyph_families:
         select:
           after: [{family: qsTea}]
         modifiers: [after-tea]
+      noentry_after_it:
+        inherits: noentry_after_ye
+        select:
+          after: [{family: qsIt}]
+        modifiers: [after-it]
   qsAngleParenLeft:
     mono:
       bitmap:

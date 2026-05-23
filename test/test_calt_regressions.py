@@ -2164,6 +2164,7 @@ def test_nonjoining_left_context_preserves_qs_excite_qs_ah_join(left_base: str):
         pytest.param(_qs_text("qsExam", "qsTea"), ["·Exam |?| ·Tea"], id="exam-tea"),
         pytest.param(_qs_text("qsTea", "qsExam"), ["·Tea |?| ·Exam"], id="tea-exam"),
         pytest.param(_qs_text("qsTea", "qsThaw"), ["·Tea |?| ·Thaw"], id="tea-thaw"),
+        pytest.param(_qs_text("qsIt", "qsExam"), ["·It |?| ·Exam"], id="it-exam"),
     ],
 )
 def test_qs_nonjoining_pairs_keep_their_edges_separate(text: str, expects: list[str]):
@@ -2177,6 +2178,7 @@ def test_qs_nonjoining_pairs_keep_their_edges_separate(text: str, expects: list[
         pytest.param("qsExam", "qsTea", id="exam-tea"),
         pytest.param("qsTea", "qsExam", id="tea-exam"),
         pytest.param("qsTea", "qsThaw", id="tea-thaw"),
+        pytest.param("qsIt", "qsExam", id="it-exam"),
     ],
 )
 def test_qs_nonjoining_pairs_stay_nonjoining_in_context(left_base: str, right_base: str):
