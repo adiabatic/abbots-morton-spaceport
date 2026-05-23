@@ -2224,7 +2224,7 @@ glyph_families:
       - "#"
       - "#"  #
     derive:
-      extend_exit_before: {by: 1, targets: [{family: qsCheer}, {family: qsOwe}]}
+      extend_exit_before: {by: 1, targets: [{family: qsJai}, {family: qsCheer}, {family: qsOwe}]}
     forms:
       entry_xheight_exit_baseline:
         shape: prop
@@ -2246,7 +2246,7 @@ glyph_families:
           not_before: [{family: qsDay}]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
-          extend_exit_before: {by: 1, targets: [{family: qsCheer}, {family: qsZoo}, {family: qsOwe}]}
+          extend_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsJai}, {family: qsCheer}, {family: qsOwe}]}
         modifiers: [entry-baseline]
       entry_baseline_after_day:
         inherits: entry_baseline_exit_xheight

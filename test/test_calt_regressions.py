@@ -1591,6 +1591,21 @@ def test_it_cheer_extends_by_one_pixel_when_joined(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_it_jai_extends_by_one_pixel_when_joined(before_first: str):
+    _assert_no_failures(
+        _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
+            "qsIt",
+            "qsJai",
+            pixels=1,
+            chars_before=2,
+            chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_no_stranded_extension_joins_anywhere(before_first: str):
     _assert_no_failures(
         _collect_stranded_extension_joins(
