@@ -1039,8 +1039,8 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert "ignore sub qsLeft' [qsMid qsMid.exit-baseline] [qsRight];" in fea
-    assert "ignore sub qsLeft.noentry' [qsMid qsMid.exit-baseline] [qsRight];" in fea
+    assert "ignore sub qsLeft' [qsMid qsMid.exit-baseline] qsRight;" in fea
+    assert "ignore sub qsLeft.noentry' [qsMid qsMid.exit-baseline] qsRight;" in fea
 
 
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():

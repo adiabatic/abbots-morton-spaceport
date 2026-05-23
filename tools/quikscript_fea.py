@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
@@ -1484,6 +1485,26 @@ def _format_ignore_sub_line(indent: str, tokens: tuple[str, ...]) -> str:
     return f"{indent}ignore sub {' '.join(tokens)};"
 
 
+def _parse_substitution_line(line: str) -> tuple[str, tuple[str, ...], str] | None:
+    stripped = line.lstrip()
+    if not stripped.startswith("sub ") or not stripped.endswith(";"):
+        return None
+    indent = line[: len(line) - len(stripped)]
+    body = stripped.removeprefix("sub ")[:-1].strip()
+    try:
+        context_body, replacement = body.rsplit(" by ", 1)
+    except ValueError:
+        return None
+    tokens = _split_fea_context_tokens(context_body)
+    if not tokens:
+        return None
+    return indent, tokens, replacement.strip()
+
+
+def _format_substitution_line(indent: str, tokens: tuple[str, ...], replacement: str) -> str:
+    return f"{indent}sub {' '.join(tokens)} by {replacement};"
+
+
 def _coalesce_parsed_ignore_rules(
     entries: list[tuple[str, tuple[str, ...]]],
 ) -> list[str]:
@@ -1577,6 +1598,319 @@ def _coalesce_consecutive_ignore_rules(lines: list[str]) -> list[str]:
             flush()
             result.append(line)
     flush()
+    return result
+
+
+_ZWNJ_FIREWALL_EXEMPT_LOOKUPS: frozenset[str] = frozenset(
+    {
+        # calt_zwnj is the rule that creates `.noentry` forms after a ZWNJ; it
+        # needs to match across the ZWNJ by design and already lists uni200C in
+        # its substitution pattern, so HarfBuzz keeps it in coverage anyway.
+        "calt_zwnj",
+    }
+)
+
+
+_POST_ZWNJ_NOENTRY_SUFFIX = ".noentry"
+
+
+def _strip_post_zwnj_token(
+    token: str,
+    base_to_variants: dict[str, set[str]],
+) -> str | None:
+    """Strip ``calt_zwnj``-synthesized ``.noentry`` variants from a single FEA
+    context token (backtrack or lookahead position).
+
+    A token is either a single glyph name (``qsX.noentry``), a bracketed
+    class (``[qsA qsB.noentry qsC]``), or a class reference (``@cls``).
+    Class references are left untouched here; the underlying ``@cls``
+    definitions live elsewhere and are emitted by other paths that already
+    skip ``.noentry`` glyphs.
+
+    Returns the rewritten token, or ``None`` if every member was a
+    ``.noentry`` variant and the position would become empty (in which case
+    the surrounding rule should be dropped).
+    """
+
+    def is_post_zwnj(name: str) -> bool:
+        if not name.endswith(_POST_ZWNJ_NOENTRY_SUFFIX):
+            return False
+        base = name[: -len(_POST_ZWNJ_NOENTRY_SUFFIX)]
+        variants = base_to_variants.get(base)
+        # The post-calt_zwnj variant is always ``<base>.noentry`` where
+        # ``<base>`` is the bare family glyph. Some noentry glyphs are emitted
+        # as generated siblings rather than stored in the base variant set, so
+        # the stripped base is the stable signal here.
+        return bool(variants and base in variants)
+
+    stripped_marker = token.endswith("'")
+    body = token[:-1] if stripped_marker else token
+    if body.startswith("[") and body.endswith("]"):
+        members = body[1:-1].split()
+        kept = [m for m in members if not is_post_zwnj(m)]
+        if not kept:
+            return None
+        if len(kept) == 1:
+            new_body = kept[0]
+        else:
+            new_body = "[" + " ".join(kept) + "]"
+    else:
+        if is_post_zwnj(body):
+            return None
+        new_body = body
+    return new_body + ("'" if stripped_marker else "")
+
+
+def _strip_post_zwnj_from_ignore_contexts(
+    lines: list[str],
+    base_to_variants: dict[str, set[str]],
+) -> list[str]:
+    """Remove ``calt_zwnj``-synthesized ``.noentry`` variants from the
+    lookahead positions of every ``ignore sub`` rule.
+
+    These ``.noentry`` glyphs can only appear immediately after a ZWNJ. In
+    lookahead, they let an ignore rule for a left-side input match across the
+    ZWNJ after HarfBuzz skips it as a default-ignorable. Backtrack positions
+    stay intact because they also describe valid right-side-internal guards,
+    such as blocking ``ZWNJ ·Ye ·It`` from joining at the baseline.
+
+    The input position (token ending in ``'``) is left alone; rules that
+    operate on a ``.noentry`` glyph itself remain valid.
+    """
+    result: list[str] = []
+    for line in lines:
+        parsed = _parse_ignore_sub_line(line)
+        if parsed is None:
+            result.append(line)
+            continue
+        indent, tokens = parsed
+        marked_indexes = [index for index, token in enumerate(tokens) if token.endswith("'")]
+        if not marked_indexes:
+            result.append(line)
+            continue
+        last_marked_index = marked_indexes[-1]
+        new_tokens: list[str] = []
+        drop_rule = False
+        for index, token in enumerate(tokens):
+            if index <= last_marked_index:
+                new_tokens.append(token)
+                continue
+            replacement = _strip_post_zwnj_token(token, base_to_variants)
+            if replacement is None:
+                drop_rule = True
+                break
+            new_tokens.append(replacement)
+        if drop_rule:
+            continue
+        if tuple(new_tokens) == tokens:
+            result.append(line)
+        else:
+            result.append(_format_ignore_sub_line(indent, tuple(new_tokens)))
+    return result
+
+
+def _marked_glyphs_for_token(token: str) -> list[str]:
+    if not token.endswith("'"):
+        return []
+    body = token[:-1]
+    if body.startswith("[") and body.endswith("]"):
+        return [member for member in body[1:-1].split() if not member.startswith("@")]
+    if body.startswith("@") or body == "uni200C":
+        return []
+    return [body]
+
+
+def _collect_marked_input_glyphs(
+    body_lines: list[str],
+) -> tuple[list[str], list[str]]:
+    backtrack_seen: list[str] = []
+    backtrack_seen_set: set[str] = set()
+    lookahead_seen: list[str] = []
+    lookahead_seen_set: set[str] = set()
+
+    def add_backtrack_target(name: str) -> None:
+        if name in backtrack_seen_set:
+            return
+        backtrack_seen_set.add(name)
+        backtrack_seen.append(name)
+
+    def add_lookahead_target(name: str) -> None:
+        if name in lookahead_seen_set:
+            return
+        lookahead_seen_set.add(name)
+        lookahead_seen.append(name)
+
+    def collect_from_tokens(tokens: tuple[str, ...]) -> None:
+        marked_indexes = [index for index, token in enumerate(tokens) if token.endswith("'")]
+        if not marked_indexes:
+            return
+        has_backtrack = marked_indexes[0] > 0
+        has_lookahead = marked_indexes[-1] < len(tokens) - 1
+        for index in marked_indexes:
+            for target in _marked_glyphs_for_token(tokens[index]):
+                if has_backtrack:
+                    add_backtrack_target(target)
+                if has_lookahead:
+                    add_lookahead_target(target)
+
+    for line in body_lines:
+        parsed_sub = _parse_substitution_line(line)
+        if parsed_sub is not None:
+            _, tokens, _ = parsed_sub
+            collect_from_tokens(tokens)
+            continue
+        parsed_ignore = _parse_ignore_sub_line(line)
+        if parsed_ignore is not None:
+            _, tokens = parsed_ignore
+            collect_from_tokens(tokens)
+    return backtrack_seen, lookahead_seen
+
+
+def _prefix_zwnj_for_run_initial_noentry_input(tokens: tuple[str, ...]) -> tuple[str, ...] | None:
+    marked_indexes = [index for index, token in enumerate(tokens) if token.endswith("'")]
+    if marked_indexes != [0]:
+        return None
+    input_token = tokens[0]
+    input_name = input_token[:-1]
+    if input_name.startswith("[") or input_name.startswith("@"):
+        return None
+    if not input_name.endswith(_POST_ZWNJ_NOENTRY_SUFFIX):
+        return None
+    return ("uni200C", *tokens)
+
+
+def _suffix_zwnj_for_run_final_input(tokens: tuple[str, ...]) -> tuple[str, ...] | None:
+    marked_indexes = [index for index, token in enumerate(tokens) if token.endswith("'")]
+    if marked_indexes != [len(tokens) - 1]:
+        return None
+    input_name = tokens[-1][:-1]
+    if input_name == "uni200C":
+        return None
+    return (*tokens, "uni200C")
+
+
+def _zwnj_boundary_replay_lines_for_calt_lookup(body_lines: list[str]) -> list[str]:
+    replay_lines: list[str] = []
+    seen: set[str] = set()
+    for line in body_lines:
+        parsed_ignore = _parse_ignore_sub_line(line)
+        if parsed_ignore is not None:
+            indent, tokens = parsed_ignore
+            for replay_tokens in (
+                _prefix_zwnj_for_run_initial_noentry_input(tokens),
+                _suffix_zwnj_for_run_final_input(tokens),
+            ):
+                if replay_tokens is None:
+                    continue
+                replay_line = _format_ignore_sub_line(indent, replay_tokens)
+                if replay_line not in seen:
+                    seen.add(replay_line)
+                    replay_lines.append(replay_line)
+            continue
+        parsed_sub = _parse_substitution_line(line)
+        if parsed_sub is None:
+            continue
+        indent, tokens, replacement = parsed_sub
+        for replay_tokens in (
+            _prefix_zwnj_for_run_initial_noentry_input(tokens),
+            _suffix_zwnj_for_run_final_input(tokens),
+        ):
+            if replay_tokens is None:
+                continue
+            replay_line = _format_substitution_line(indent, replay_tokens, replacement)
+            if replay_line not in seen:
+                seen.add(replay_line)
+                replay_lines.append(replay_line)
+    return replay_lines
+
+
+def _ensure_zwnj_coverage_for_calt_lookups(lines: list[str]) -> list[str]:
+    """Bring uni200C into the coverage of every chained calt lookup so HarfBuzz
+    stops treating ZWNJ as a default-ignorable for that lookup.
+
+    HarfBuzz skips default-ignorable glyphs when matching a lookup's context
+    unless the lookup itself references the glyph. Without this firewall,
+    chained context rules (``sub @bk X' @fwd by Y;`` and the ``ignore sub``
+    rules around them) silently match across a ZWNJ, which breaks ZWNJ's
+    promise to act as a hard shaping boundary.
+
+    Strategy: for each ``lookup calt_NAME { ... } calt_NAME;`` block that
+    contains a chained rule and does not already mention ``uni200C``, prepend
+    any run-initial ``.noentry`` rules replayed with ``uni200C`` as explicit
+    backtrack and any run-final rules replayed with ``uni200C`` as explicit
+    lookahead, then add ``ignore sub uni200C TARGET';`` rules for marked inputs
+    that have backtrack context. For rules with lookahead context, also add
+    ``ignore sub TARGET' uni200C;`` so the lookup covers ZWNJ on the far side of
+    that input.
+
+    The replay rules preserve normal shaping immediately after ZWNJ. The guard
+    rules then stop the remaining chained contexts from skipping across ZWNJ.
+
+    The ``calt_zwnj`` lookup is exempt because it must match across ZWNJ by
+    design.
+    """
+    lookup_open_pattern = re.compile(r"^(\s*)lookup\s+(calt_\S+)\s*\{\s*$")
+    lookup_close_template = "{indent}}} {name};"
+
+    # The firewall only matters when the font actually wires up calt_zwnj.
+    # When it doesn't (e.g. minimal test fixtures), referencing uni200C would
+    # fail at FEA compile time because that glyph isn't in the font.
+    if not any("calt_zwnj" in line for line in lines):
+        return lines
+
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = lookup_open_pattern.match(line)
+        if match is None:
+            result.append(line)
+            i += 1
+            continue
+        indent = match.group(1)
+        name = match.group(2)
+        expected_close = lookup_close_template.format(indent=indent, name=name).strip()
+        # Find the matching close line.
+        close_index = None
+        for j in range(i + 1, len(lines)):
+            if lines[j].strip() == expected_close:
+                close_index = j
+                break
+        if close_index is None:
+            result.append(line)
+            i += 1
+            continue
+        body = lines[i + 1 : close_index]
+        if name in _ZWNJ_FIREWALL_EXEMPT_LOOKUPS:
+            result.extend(lines[i : close_index + 1])
+            i = close_index + 1
+            continue
+        if any("uni200C" in body_line for body_line in body):
+            result.extend(lines[i : close_index + 1])
+            i = close_index + 1
+            continue
+        backtrack_targets, lookahead_targets = _collect_marked_input_glyphs(body)
+        if not backtrack_targets and not lookahead_targets:
+            result.extend(lines[i : close_index + 1])
+            i = close_index + 1
+            continue
+        # HarfBuzz treats ZWNJ as a default-ignorable glyph and would otherwise
+        # allow this lookup's chained context rules to match across a ZWNJ.
+        # Replay rules at the start or end of a ZWNJ-delimited run first so the
+        # guard rules can firewall the lookup without suppressing valid shaping
+        # inside that run.
+        guard_lines = [
+            f"{indent}    ignore sub uni200C {target}';" for target in sorted(set(backtrack_targets))
+        ]
+        guard_lines.extend(
+            f"{indent}    ignore sub {target}' uni200C;" for target in sorted(set(lookahead_targets))
+        )
+        result.append(line)
+        result.extend(_zwnj_boundary_replay_lines_for_calt_lookup(body))
+        result.extend(guard_lines)
+        result.extend(body)
+        result.append(lines[close_index])
+        i = close_index + 1
     return result
 
 
@@ -1825,6 +2159,20 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             continue
         lines.append(f"    @bridge_y{exit_y}_y{sibling_y} = [{' '.join(sorted(bridge_members))}];")
 
+    def _expand_exclusions(excluded_glyphs: list[str]) -> set[str]:
+        expanded = set()
+        for excluded_glyph in excluded_glyphs:
+            if excluded_glyph in glyph_meta and excluded_glyph != _base_name(excluded_glyph):
+                expanded.add(excluded_glyph)
+                continue
+            excluded_base = _base_name(excluded_glyph)
+            variants = base_to_variants.get(excluded_base)
+            if variants:
+                expanded.update(variants)
+            else:
+                expanded.add(excluded_glyph)
+        return expanded
+
     zwnj = "uni200C"
     noentry_pairs = []
     for name in sorted(glyph_names):
@@ -1871,20 +2219,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    lookup calt_word_final_revert_{safe} {{")
             lines.append(f"        sub {variant}' @qs_letters by {base};")
             lines.append(f"    }} calt_word_final_revert_{safe};")
-
-    def _expand_exclusions(excluded_glyphs: list[str]) -> set[str]:
-        expanded = set()
-        for excluded_glyph in excluded_glyphs:
-            if excluded_glyph in glyph_meta and excluded_glyph != _base_name(excluded_glyph):
-                expanded.add(excluded_glyph)
-                continue
-            excluded_base = _base_name(excluded_glyph)
-            variants = base_to_variants.get(excluded_base)
-            if variants:
-                expanded.update(variants)
-            else:
-                expanded.add(excluded_glyph)
-        return expanded
 
     def _excl_tokens(
         fwd_excl: list[str] | None,
@@ -5097,6 +5431,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _emit_pred_demote_lookups("calt_final_pred_demote")
 
     lines.append("} calt;")
+    lines = _strip_post_zwnj_from_ignore_contexts(lines, base_to_variants)
+    lines = _ensure_zwnj_coverage_for_calt_lookups(lines)
     lines = _coalesce_consecutive_ignore_rules(lines)
     return "\n".join(lines)
 
