@@ -489,13 +489,16 @@
         Each predecessor is a member of <code>reaches_up_and_a_little_over_at_least_part_of_the_next_letter</code>,
         which nests <code>reaches_up_and_way_over_at_least_part_of_the_next_letter</code>. The follower columns
         are entry-x-height forms keyed off those context_sets: qsBay.entry_xheight
-        uses the superset, while qsThey/qsThey_qsUtter/qsMay stay on the
-        narrower subset. Rows flagged <span class="only-a-little-flag">a_little_over only</span> are the
-        predecessors in the superset that are <em>not</em> in the subset — i.e.
-        they reach up to the x-height but not far enough over to dive into the
-        narrower followers' set-back entries. ·I·May still joins in this matrix
-        because <code>qsMay.entry_xheight_after_i</code> is a separate (non-context-set)
-        rule.
+        uses the superset, while qsThey/qsThey_qsUtter/qsMay use the narrower
+        subset. The two sets currently happen to share the same membership, but
+        the followers' <code>derive.extend_entry_after</code> rules differ: ·I→·They
+        and ·I→·They·Utter pick up a +1 receiver-side entry extension (the
+        extra pixel comes from qsThey's bitmap, not qsI's), while ·I→·Bay joins
+        plain. ·I·May joins via the separate <code>qsMay.entry_xheight_after_i</code>
+        rule, which doesn't go through these context_sets at all. Rows flagged
+        <span class="only-a-little-flag">a_little_over only</span> would be the
+        predecessors in the superset but not in the subset — none today, since
+        every member of the superset is also in the subset.
       </p>
       <table class="join-matrix">
         <thead>
@@ -520,6 +523,16 @@
           </tr>
         </thead>
         <tbody>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·I</span>
+            <code>U+E675</code>
+          </th>
+          <td><div class="qs after">&#xE675;&#xE651;</div></td>
+          <td><div class="qs after">&#xE675;&#xE657;</div></td>
+          <td><div class="qs after">&#xE675;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE675;&#xE665;</div></td>
+        </tr>
         <tr>
           <th scope="row">
             <span class="predecessor-label">·Ah</span>
@@ -609,16 +622,6 @@
           <td><div class="qs after">&#xE663;&#xE67A;&#xE657;</div></td>
           <td><div class="qs after">&#xE663;&#xE67A;&#xE657;&#xE67A;</div></td>
           <td><div class="qs after">&#xE663;&#xE67A;&#xE665;</div></td>
-        </tr>
-        <tr data-only-a-little="true">
-          <th scope="row">
-            <span class="predecessor-label">·I</span>
-            <code>U+E675</code>
-          </th>
-          <td><div class="qs after">&#xE675;&#xE651;</div></td>
-          <td><div class="qs after">&#xE675;&#xE657;</div></td>
-          <td><div class="qs after">&#xE675;&#xE657;&#xE67A;</div></td>
-          <td><div class="qs after">&#xE675;&#xE665;</div></td>
         </tr>
         </tbody>
       </table>

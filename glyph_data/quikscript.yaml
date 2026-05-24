@@ -1,5 +1,6 @@
 context_sets:
   reaches_up_and_way_over_at_least_part_of_the_next_letter:
+  - {family: qsI}
   - {family: qsAh, modifiers: [exit-extended]}
   - {family: qsUtter, modifiers: [exit-extended]}
   # `_iter_related_extension_targets` propagates qsUtter's `extend_exit_before` onto every `qsX_qsUtter` ligature, so the ligatures pick up `.exit-extended` before qsBay/qsFee/qsGay/qsThey too. The followers' entry-xheight selectors need to recognize the ligature variant the same way they recognize qsUtter.exit-extended; otherwise the join silently breaks and the extension is just a cosmetic flourish (see ·See|·Utter·Bay isolation leak).
@@ -734,7 +735,7 @@ glyph_families:
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
-          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_baseline_before_may:
         shape: before_may
@@ -751,7 +752,7 @@ glyph_families:
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
-          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_xheight:
         shape: mono
@@ -801,11 +802,10 @@ glyph_families:
         - {family: qsNo}
         - {family: qsLow}
         - {family: qsAt}
-        - {family: qsI}
         - {family: qsFoot}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
       select:
         after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
