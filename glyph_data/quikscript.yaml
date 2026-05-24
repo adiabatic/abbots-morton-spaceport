@@ -378,13 +378,6 @@ glyph_families:
         inherits: half_entry_xheight
         select:
           after:
-          - {family: qsDay_qsUtter}
-          - {family: qsThey_qsUtter}
-          - {family: qsVie_qsUtter}
-          - {family: qsSee_qsUtter}
-          - {family: qsJay_qsUtter}
-          - {family: qsWay_qsUtter}
-          - {family: qsWhy_qsUtter}
           - {family: qsMay, exit_y: 5}
           - {family: qsLow}
           - {family: qsI}
