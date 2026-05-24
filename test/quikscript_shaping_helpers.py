@@ -26,10 +26,15 @@ def _font() -> hb.Font:
     return hb.Font(face)
 
 
+# pytest-xdist runs each worker in its own subprocess, so there's no cross-thread reuse risk.
+_BUF: hb.Buffer = hb.Buffer()
+
+
 @lru_cache(maxsize=None)
 def _shape(text: str) -> list[str]:
     font = _font()
-    buf = hb.Buffer()
+    buf = _BUF
+    buf.clear_contents()
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf)
@@ -42,7 +47,8 @@ def _shape_with_features(
     feature_items: tuple[tuple[str, bool], ...],
 ) -> list[str]:
     font = _font()
-    buf = hb.Buffer()
+    buf = _BUF
+    buf.clear_contents()
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf, dict(feature_items))
