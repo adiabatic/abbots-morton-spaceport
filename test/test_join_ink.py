@@ -96,9 +96,7 @@ def _bitmap_origin_x_offset(glyph_name: str, meta) -> int:
     return (advance - bitmap_w) // 2
 
 
-# Module-level singleton buffer reused across shape calls. Kept separate from
-# `quikscript_shaping_helpers._BUF` because this file returns both names and
-# positions and is called from different paths.
+# Invariant for callers of `_BUF`: materialize `buf.glyph_infos` / `buf.glyph_positions` into a list (comprehension or `list(...)`) before the function returns. Never return the property itself or a generator over it — the next `_shape()` call will `clear_contents()` and overwrite the buffer, invalidating any unmaterialized view.
 _BUF: hb.Buffer = hb.Buffer()
 
 
