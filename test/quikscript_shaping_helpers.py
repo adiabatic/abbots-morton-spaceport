@@ -27,6 +27,7 @@ def _font() -> hb.Font:
 
 
 # pytest-xdist runs each worker in its own subprocess, so there's no cross-thread reuse risk.
+# Invariant for callers of `_BUF`: materialize `buf.glyph_infos` / `buf.glyph_positions` into a list (comprehension or `list(...)`) before the function returns. Never return the property itself or a generator over it — the next `_shape()` call will `clear_contents()` and overwrite the buffer, invalidating any unmaterialized view.
 _BUF: hb.Buffer = hb.Buffer()
 
 
