@@ -96,9 +96,16 @@ def _bitmap_origin_x_offset(glyph_name: str, meta) -> int:
     return (advance - bitmap_w) // 2
 
 
+# Module-level singleton buffer reused across shape calls. Kept separate from
+# `quikscript_shaping_helpers._BUF` because this file returns both names and
+# positions and is called from different paths.
+_BUF: hb.Buffer = hb.Buffer()
+
+
 def _shape(text: str) -> tuple[list[str], list]:
     font = _font()
-    buf = hb.Buffer()
+    buf = _BUF
+    buf.clear_contents()
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf)
