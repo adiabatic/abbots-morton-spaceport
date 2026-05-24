@@ -113,9 +113,7 @@ def _collect_left_becomes_half_before_right_failures(
     chars_before: int = 1,
     chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where ``left_base`` becomes a half-trait form
-    immediately before ``right_base``, swept over the same surround combinations
-    as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
+    """Flag every position where ``left_base`` becomes a half-trait form immediately before ``right_base``, swept over the same surround combinations as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
@@ -158,10 +156,7 @@ def _collect_left_must_stay_isolated_before_right_failures(
     chars_before: int = 1,
     chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where ``left_base`` is selected as something other
-    than its bare isolated form immediately before ``right_base``, swept over
-    the same surround combinations as
-    ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
+    """Flag every position where ``left_base`` is selected as something other than its bare isolated form immediately before ``right_base``, swept over the same surround combinations as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
@@ -301,25 +296,13 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
     chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair that joins at any Y when
-    surrounded by any combination of ``chars_before`` characters on the left
-    and ``chars_after`` characters on the right. The iteration set is every
-    plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default
-    1+1 surround that is 2025 shaped strings.
+    """Flag every (left_base, right_base) pair that joins at any Y when surrounded by any combination of ``chars_before`` characters on the left and ``chars_after`` characters on the right. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is 2025 shaped strings.
 
-    Ligatures led by ``right_base`` (sequence starting with right_base) and
-    ligatures trailed by ``left_base`` (sequence ending with left_base) match
-    too — they carry the relevant entry/exit anchor of the bare letter, so the
-    same forbidden join applies to them.
+    Ligatures led by ``right_base`` (sequence starting with right_base) and ligatures trailed by ``left_base`` (sequence ending with left_base) match too — they carry the relevant entry/exit anchor of the bare letter, so the same forbidden join applies to them.
 
-    Use this when the rule is "·A·B must never join, no matter the neighbours".
-    For "may join at some heights, but not at this one", reach for
-    ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+    Use this when the rule is "·A·B must never join, no matter the neighbours". For "may join at some heights, but not at this one", reach for ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
 
-    ``before_first_only`` restricts the sweep to ``before`` combinations whose
-    first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``).
-    This is the per-shard hook used by parametrized callers to fan a single
-    logical test across pytest-xdist workers.
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``). This is the per-shard hook used by parametrized callers to fan a single logical test across pytest-xdist workers.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -377,25 +360,13 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
     chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair that joins at ``forbidden_y``
-    when surrounded by any combination of ``chars_before`` characters on the
-    left and ``chars_after`` characters on the right. The iteration set is
-    every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the
-    default 1+1 surround that is 2025 shaped strings.
+    """Flag every (left_base, right_base) pair that joins at ``forbidden_y`` when surrounded by any combination of ``chars_before`` characters on the left and ``chars_after`` characters on the right. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is 2025 shaped strings.
 
-    Ligatures led by ``right_base`` (sequence starting with right_base) and
-    ligatures trailed by ``left_base`` (sequence ending with left_base) match
-    too — they carry the relevant entry/exit anchor of the bare letter, so
-    the same forbidden join applies to them.
+    Ligatures led by ``right_base`` (sequence starting with right_base) and ligatures trailed by ``left_base`` (sequence ending with left_base) match too — they carry the relevant entry/exit anchor of the bare letter, so the same forbidden join applies to them.
 
-    Joins at other Y values are allowed — only ``forbidden_y`` is policed.
-    Use this when the rule is "·A·B may join at some heights, but not at this
-    one, no matter the neighbours".
+    Joins at other Y values are allowed — only ``forbidden_y`` is policed. Use this when the rule is "·A·B may join at some heights, but not at this one, no matter the neighbours".
 
-    ``before_first_only`` restricts the sweep to ``before`` combinations whose
-    first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``).
-    This is the per-shard hook used by parametrized callers to fan a single
-    logical test across pytest-xdist workers.
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``). This is the per-shard hook used by parametrized callers to fan a single logical test across pytest-xdist workers.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -453,33 +424,15 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
     chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair whose joined extension width is
-    not exactly ``pixels``, when surrounded by any combination of ``chars_before``
-    characters on the left and ``chars_after`` characters on the right. The
-    iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per
-    slot; with the default 1+1 surround that is 2025 shaped strings.
+    """Flag every (left_base, right_base) pair whose joined extension width is not exactly ``pixels``, when surrounded by any combination of ``chars_before`` characters on the left and ``chars_after`` characters on the right. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is 2025 shaped strings.
 
-    The extension between two joined letters is the sum of both sides: the left
-    glyph can carry an ``.exit-<word>`` suffix from its family's
-    ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right
-    glyph can carry an ``.entry-<word>`` suffix from its family's
-    ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel
-    extension might come 2 from the left's ``.exit-doubly-extended`` and 1 from
-    the right's ``.entry-extended``; any split that sums to ``pixels`` is fine.
+    The extension between two joined letters is the sum of both sides: the left glyph can carry an ``.exit-<word>`` suffix from its family's ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right glyph can carry an ``.entry-<word>`` suffix from its family's ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel extension might come 2 from the left's ``.exit-doubly-extended`` and 1 from the right's ``.entry-extended``; any split that sums to ``pixels`` is fine.
 
-    Pairs that do *not* join in the current context are skipped — the rule is
-    conditional ("if they join at all, then their extension must be N pixels").
-    Use ``pixels=0`` to assert "if they join, neither side may carry an
-    extension suffix".
+    Pairs that do *not* join in the current context are skipped — the rule is conditional ("if they join at all, then their extension must be N pixels"). Use ``pixels=0`` to assert "if they join, neither side may carry an extension suffix".
 
-    Ligatures led by ``right_base`` (sequence starting with right_base) and
-    ligatures trailed by ``left_base`` (sequence ending with left_base) match
-    too, mirroring the other ``_collect_pair_*`` helpers.
+    Ligatures led by ``right_base`` (sequence starting with right_base) and ligatures trailed by ``left_base`` (sequence ending with left_base) match too, mirroring the other ``_collect_pair_*`` helpers.
 
-    ``before_first_only`` restricts the sweep to ``before`` combinations whose
-    first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``).
-    This is the per-shard hook used by parametrized callers to fan a single
-    logical test across pytest-xdist workers.
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose first entry is the named context glyph (e.g. ``"qsPea"`` or ``"ZWNJ"``). This is the per-shard hook used by parametrized callers to fan a single logical test across pytest-xdist workers.
     """
     if pixels < 0:
         raise ValueError(f"pixels must be non-negative, got {pixels!r}")
@@ -552,30 +505,13 @@ def _collect_stranded_extension_joins(
     chars_after: int,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every adjacent slot in any (left_base, right_base) sweep where one
-    side carries an extension suffix (``extended_exit_suffix`` on the left, or
-    ``extended_entry_suffix`` on the right) but the partner has no matching
-    anchor on the other side. Iterates every plain Quikscript letter against
-    every plain Quikscript letter for the pair, surrounding the pair with
-    ``chars_before`` and ``chars_after`` characters drawn from the 45-entry
-    ``_context_chars()`` set.
+    """Flag every adjacent slot in any (left_base, right_base) sweep where one side carries an extension suffix (``extended_exit_suffix`` on the left, or ``extended_entry_suffix`` on the right) but the partner has no matching anchor on the other side. Iterates every plain Quikscript letter against every plain Quikscript letter for the pair, surrounding the pair with ``chars_before`` and ``chars_after`` characters drawn from the 45-entry ``_context_chars()`` set.
 
-    The extension suffix is the build's signal that the bitmap really did
-    grow toward the partner — i.e. the join was supposed to land an extra
-    pixel of ink. When the partner has no entry/exit at that Y, that ink
-    dangles. Anchor mismatches on glyphs without an extension suffix don't
-    count: those anchors are connection-point metadata, not material ink, and
-    nothing visually strands when adjacent letters simply choose not to join.
+    The extension suffix is the build's signal that the bitmap really did grow toward the partner — i.e. the join was supposed to land an extra pixel of ink. When the partner has no entry/exit at that Y, that ink dangles. Anchor mismatches on glyphs without an extension suffix don't count: those anchors are connection-point metadata, not material ink, and nothing visually strands when adjacent letters simply choose not to join.
 
-    The (left_base, right_base) match convention mirrors the other
-    ``_collect_pair_*_regardless_*`` helpers: a slot matches ``left_base`` when
-    its ``base_name`` equals ``left_base`` or its ligature ``sequence`` ends
-    with ``left_base``; same for ``right_base`` with ``sequence[0]``.
+    The (left_base, right_base) match convention mirrors the other ``_collect_pair_*_regardless_*`` helpers: a slot matches ``left_base`` when its ``base_name`` equals ``left_base`` or its ligature ``sequence`` ends with ``left_base``; same for ``right_base`` with ``sequence[0]``.
 
-    ``before_first_only`` restricts the sweep to ``before`` combinations whose
-    first entry is the named context glyph. This is the per-shard hook used by
-    parametrized callers to fan a single logical test across pytest-xdist
-    workers; it has no effect when ``chars_before`` is 0.
+    ``before_first_only`` restricts the sweep to ``before`` combinations whose first entry is the named context glyph. This is the per-shard hook used by parametrized callers to fan a single logical test across pytest-xdist workers; it has no effect when ``chars_before`` is 0.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -654,12 +590,7 @@ def _it_roe_touching_rows(
 ) -> set[int]:
     """Glyph-space Y values where the rendered ink of two adjacent glyphs meets.
 
-    For each row that exists in both bitmaps, compute the absolute pixel X of the
-    left glyph's right edge (one past its rightmost ink column at that Y) and the
-    right glyph's leftmost ink column at that Y, after applying the cursive-shifted
-    origins. A row is "touching" when the gap is zero (anchor-perfect adjacency)
-    or negative (overlap). Mirrors the gap math in `test_join_ink._check_ink_gap_at_y`
-    but applied to every shared row, not just the cursive join row.
+    For each row that exists in both bitmaps, compute the absolute pixel X of the left glyph's right edge (one past its rightmost ink column at that Y) and the right glyph's leftmost ink column at that Y, after applying the cursive-shifted origins. A row is "touching" when the gap is zero (anchor-perfect adjacency) or negative (overlap). Mirrors the gap math in `test_join_ink._check_ink_gap_at_y` but applied to every shared row, not just the cursive join row.
     """
     touching: set[int] = set()
     left_top_y = left_meta.y_offset + len(left_meta.bitmap) - 1
@@ -686,8 +617,7 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
     chars_after: int,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every surround of ·It·Roe whose rendered ink doesn't touch in exactly
-    the way the cursive anchors say it should.
+    """Flag every surround of ·It·Roe whose rendered ink doesn't touch in exactly the way the cursive anchors say it should.
 
     The qsIt·qsRoe pair has two acceptable shapes in Senior Quikscript:
 
@@ -698,18 +628,11 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
       qsRoe.entry-extended-at-baseline (bottom row widened), with ink contact
       only at y=0. ·Low·It·Roe is the canonical example.
 
-    The rule policed here: when ·It·Roe cursive-attach in a surround, exactly
-    one row of their bitmaps may have touching ink, and that row must equal the
-    single cursive-join Y, which must itself be 0 or 5. Bare ``qsRoe`` (whose
-    ``###`` top *and* bottom rows both brush a full-height ``qsIt`` column),
-    cursive joins at unexpected Ys, multi-Y joins, and gaps at the join Y are
-    all flagged.
+    The rule policed here: when ·It·Roe cursive-attach in a surround, exactly one row of their bitmaps may have touching ink, and that row must equal the single cursive-join Y, which must itself be 0 or 5. Bare ``qsRoe`` (whose ``###`` top *and* bottom rows both brush a full-height ``qsIt`` column), cursive joins at unexpected Ys, multi-Y joins, and gaps at the join Y are all flagged.
 
-    Surrounds that disrupt the cursive join entirely (·Ye·It absorbs it, ZWNJ
-    breaks it, etc.) are skipped — the rule is conditional on the join forming.
+    Surrounds that disrupt the cursive join entirely (·Ye·It absorbs it, ZWNJ breaks it, etc.) are skipped — the rule is conditional on the join forming.
 
-    ``before_first_only`` mirrors the per-shard hook on the sibling
-    ``_collect_pair_*`` helpers.
+    ``before_first_only`` mirrors the per-shard hook on the sibling ``_collect_pair_*`` helpers.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -1636,21 +1559,11 @@ def _collect_letter_must_not_join_on_both_sides_at_the_same_height(
     chars_before: int = 1,
     chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where a bare ``middle_base`` glyph is joined on its
-    left side and its right side at the same ``forbidden_y``, swept over every
-    combination of ``chars_before`` characters on the left and ``chars_after``
-    characters on the right. The iteration set is every plain Quikscript letter
-    plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is
-    2025 shaped strings.
+    """Flag every position where a bare ``middle_base`` glyph is joined on its left side and its right side at the same ``forbidden_y``, swept over every combination of ``chars_before`` characters on the left and ``chars_after`` characters on the right. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is 2025 shaped strings.
 
-    Only bare ``middle_base`` variants are policed: in a ligature led or trailed
-    by ``middle_base`` only one side carries ``middle_base``'s anchor, so a
-    "joined on both sides" rule isn't meaningful there.
+    Only bare ``middle_base`` variants are policed: in a ligature led or trailed by ``middle_base`` only one side carries ``middle_base``'s anchor, so a "joined on both sides" rule isn't meaningful there.
 
-    Joins at other Y values, and one-sided joins at ``forbidden_y``, are
-    allowed — only matching pairs of joins at ``forbidden_y`` are flagged. For
-    "two adjacent letters must not join at this Y", reach for
-    ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+    Joins at other Y values, and one-sided joins at ``forbidden_y``, are allowed — only matching pairs of joins at ``forbidden_y`` are flagged. For "two adjacent letters must not join at this Y", reach for ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -1802,17 +1715,9 @@ def test_may_thaw_ing_is_sensible():
 
 
 def _qs_may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
-    """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay
-    picked a contextual ``exit-baseline`` variant even though the following
-    qsThaw variant no longer accepts a baseline entry.
+    """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay picked a contextual ``exit-baseline`` variant even though the following qsThaw variant no longer accepts a baseline entry.
 
-    Flagging the ``exit-baseline`` modifier specifically — rather than any
-    mismatched exit — is intentional: qsMay's default (and ``.noentry``) form
-    has a y-height exit that could never attach to qsThaw anyway. The bug is
-    narrower: qsMay's lookup saw qsThaw's default baseline entry and moved
-    qsMay to ``.exit-baseline`` on the assumption that a baseline join was
-    about to form, and then qsThaw's own forward substitution stripped the
-    entry out from under it.
+    Flagging the ``exit-baseline`` modifier specifically — rather than any mismatched exit — is intentional: qsMay's default (and ``.noentry``) form has a y-height exit that could never attach to qsThaw anyway. The bug is narrower: qsMay's lookup saw qsThaw's default baseline entry and moved qsMay to ``.exit-baseline`` on the assumption that a baseline join was about to form, and then qsThaw's own forward substitution stripped the entry out from under it.
     """
     failures: list[str] = []
     meta = _compiled_meta()
@@ -2474,15 +2379,9 @@ _DAY_PAIR_LIGATURES = frozenset(
 
 
 def _non_bridging_middle_bases() -> list[tuple[str, str]]:
-    """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry
-    across their variants) but have no single variant combining y=0 entry
-    with y=5 exit — i.e. cannot bridge Way.half's y=0 exit up to a
-    y=5-only-entry follower, so the 2-glyph preferred-lookahead must not
-    fire for them.
+    """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry across their variants) but have no single variant combining y=0 entry with y=5 exit — i.e. cannot bridge Way.half's y=0 exit up to a y=5-only-entry follower, so the 2-glyph preferred-lookahead must not fire for them.
 
-    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for
-    those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half;`
-    correctly fires and selecting half-·Way is fine.
+    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half;` correctly fires and selecting half-·Way is fine.
     """
     meta_map = _compiled_meta()
     variants_by_base: dict[str, list] = {}
@@ -2501,10 +2400,7 @@ def _non_bridging_middle_bases() -> list[tuple[str, str]]:
 
 
 def _way_not_half_before_non_bridging_failures() -> list[str]:
-    """For every non-bridging middle M and every right-context X, ·Way·M·X
-    must not pick half-·Way — the Way.half → M → X chain cannot actually join
-    at the x-height entry X needs.
-    """
+    """For every non-bridging middle M and every right-context X, ·Way·M·X must not pick half-·Way — the Way.half → M → X chain cannot actually join at the x-height entry X needs."""
     failures: list[str] = []
     chars = _char_map()
     way = chars["qsWay"]
@@ -2596,18 +2492,9 @@ def test_qs_right_glyph_unchanged_after_qs_way_or_qs_why(left_base: str, right_b
     ],
 )
 def test_half_form_not_before_list_keeps_left_full(left_base: str):
-    """Auto-derived deny-set guard: every family declared in
-    ``<base>.half``'s ``not_before`` list must keep ``<base>`` in a
-    non-half variant, both as a bare pair and surrounded by every plain
-    Quikscript outer context. Adding a family to ``not_before`` extends
-    coverage automatically.
+    """Auto-derived deny-set guard: every family declared in ``<base>.half``'s ``not_before`` list must keep ``<base>`` in a non-half variant, both as a bare pair and surrounded by every plain Quikscript outer context. Adding a family to ``not_before`` extends coverage automatically.
 
-    Only the "not half" half of the invariant is universal: families end
-    up in ``not_before`` for two distinct reasons — either the full form
-    legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is
-    meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection
-    behavior is asserted in the targeted parametrizations above; this
-    test covers the part they share.
+    Only the "not half" half of the invariant is universal: families end up in ``not_before`` for two distinct reasons — either the full form legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection behavior is asserted in the targeted parametrizations above; this test covers the part they share.
     """
     half_meta = _compiled_meta()[f"{left_base}.half"]
     deny_families = sorted(half_meta.not_before)
@@ -3121,9 +3008,7 @@ def _expect_tok(name: str) -> str:
 def _join_expect(names_and_tokens: list[tuple[str, str]]) -> str:
     """Join tokens with `?`, switching to `+?` for ligature pairs.
 
-    When a token participates in a ligature pair its modifiers are
-    stripped, because `data-expect` applies modifiers to the whole
-    ligature group and they are dropped in the separated interpretation.
+    When a token participates in a ligature pair its modifiers are stripped, because `data-expect` applies modifiers to the whole ligature group and they are dropped in the separated interpretation.
     """
     in_liga_first: set[int] = set()
     in_liga_second: set[int] = set()
@@ -3587,24 +3472,13 @@ def _collect_left_context_changes_right_pair_across_zwnj_failures(
     chars_before: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (L1, L2) pair whose chosen shapes after a ZWNJ change when
-    the prefix on the left of the ZWNJ changes.
+    """Flag every (L1, L2) pair whose chosen shapes after a ZWNJ change when the prefix on the left of the ZWNJ changes.
 
-    The baseline for each pair is the bare ``ZWNJ + L1 + L2`` sequence — i.e.
-    the pair with only a leading ZWNJ and nothing further left. Each prefix
-    (of length ``chars_before``, drawn from every plain Quikscript letter
-    plus ZWNJ, so 45 entries per slot) gets compared against that baseline.
+    The baseline for each pair is the bare ``ZWNJ + L1 + L2`` sequence — i.e. the pair with only a leading ZWNJ and nothing further left. Each prefix (of length ``chars_before``, drawn from every plain Quikscript letter plus ZWNJ, so 45 entries per slot) gets compared against that baseline.
 
-    The check looks only at the glyphs to the right of the *rightmost*
-    ZWNJ marker in the output (HarfBuzz surfaces each surviving ZWNJ as a
-    ``space`` glyph) — the injected ZWNJ just before L1 — so ligatures
-    that span L1/L2 are handled naturally and prefix-internal ZWNJs drawn
-    from the iteration set don't confuse the slice.
+    The check looks only at the glyphs to the right of the *rightmost* ZWNJ marker in the output (HarfBuzz surfaces each surviving ZWNJ as a ``space`` glyph) — the injected ZWNJ just before L1 — so ligatures that span L1/L2 are handled naturally and prefix-internal ZWNJs drawn from the iteration set don't confuse the slice.
 
-    ``before_first_only`` mirrors the per-shard hook on the other
-    ``_collect_pair_*`` helpers: restricting the sweep to ``before``
-    combinations whose first entry is the named context glyph lets a
-    parametrized caller fan one logical test across pytest-xdist workers.
+    ``before_first_only`` mirrors the per-shard hook on the other ``_collect_pair_*`` helpers: restricting the sweep to ``before`` combinations whose first entry is the named context glyph lets a parametrized caller fan one logical test across pytest-xdist workers.
     """
     failures: list[str] = []
     context_set = _context_chars()
@@ -3663,16 +3537,9 @@ def _collect_right_context_changes_left_pair_across_zwnj_failures(
     chars_after: int = 1,
     after_first_only: str | None = None,
 ) -> list[str]:
-    """Mirror of ``_collect_left_context_changes_right_pair_across_zwnj_failures``:
-    flag every (L1, L2) pair whose chosen shapes before a ZWNJ change when the
-    suffix on the right of the ZWNJ changes.
+    """Mirror of ``_collect_left_context_changes_right_pair_across_zwnj_failures``: flag every (L1, L2) pair whose chosen shapes before a ZWNJ change when the suffix on the right of the ZWNJ changes.
 
-    The baseline for each pair is ``L1 + L2 + ZWNJ`` with nothing further on
-    the right. Each suffix (length ``chars_after``, drawn from every plain
-    Quikscript letter plus ZWNJ) is compared against that baseline. The check
-    looks at the glyphs before the *leftmost* ZWNJ marker in the output (each
-    surviving ZWNJ surfaces as ``space``); that marker is always the injected
-    ZWNJ.
+    The baseline for each pair is ``L1 + L2 + ZWNJ`` with nothing further on the right. Each suffix (length ``chars_after``, drawn from every plain Quikscript letter plus ZWNJ) is compared against that baseline. The check looks at the glyphs before the *leftmost* ZWNJ marker in the output (each surviving ZWNJ surfaces as ``space``); that marker is always the injected ZWNJ.
     """
     failures: list[str] = []
     context_set = _context_chars()

@@ -1,13 +1,8 @@
 """Dump the compiled glyph variant chosen for each sequence in a fixture file.
 
-Reads sequences from a plain-text fixture (one per line; `#` starts a comment;
-each line is whitespace-separated family names like `qsMay qsPea`), shapes
-each through HarfBuzz against the built Senior font, and prints one line per
-sequence showing the chosen variant for each output glyph along with its
-entry/exit anchors.
+Reads sequences from a plain-text fixture (one per line; `#` starts a comment; each line is whitespace-separated family names like `qsMay qsPea`), shapes each through HarfBuzz against the built Senior font, and prints one line per sequence showing the chosen variant for each output glyph along with its entry/exit anchors.
 
-The output is stable and diff-friendly: capture a baseline before a YAML
-change, then diff the post-change run against it.
+The output is stable and diff-friendly: capture a baseline before a YAML change, then diff the post-change run against it.
 
 Examples:
 

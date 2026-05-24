@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Dev server with live reload — replaces browser-sync.
 
-browser-sync's script injection corrupts multi-byte UTF-8 characters
-when they straddle a 64 KB chunk boundary. livereload serves files
-byte-for-byte and injects its reload script without this problem.
+browser-sync's script injection corrupts multi-byte UTF-8 characters when they straddle a 64 KB chunk boundary. livereload serves files byte-for-byte and injects its reload script without this problem.
 """
 
 from pathlib import Path

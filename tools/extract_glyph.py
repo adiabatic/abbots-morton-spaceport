@@ -2,9 +2,7 @@
 """
 Extract glyph bitmaps from OTF fonts for pixel fonts like Departure Mono.
 
-This tool extracts glyphs from CFF-based OpenType fonts where each "pixel"
-is a 50×50 unit square. It outputs YAML-formatted bitmaps or compares
-glyphs between two fonts.
+This tool extracts glyphs from CFF-based OpenType fonts where each "pixel" is a 50×50 unit square. It outputs YAML-formatted bitmaps or compares glyphs between two fonts.
 
 Usage:
     # Extract a glyph bitmap
@@ -63,9 +61,7 @@ def glyph_to_bitmap(font_path: str, glyph_name: str) -> tuple[list[str], int]:
     Extract a glyph as a bitmap from an OTF font.
 
     Returns:
-        tuple: (bitmap_rows, y_offset) where bitmap_rows is a list of strings
-               using '#' for filled pixels and ' ' for empty, and y_offset
-               is the vertical offset in pixels (negative for descenders)
+        tuple: (bitmap_rows, y_offset) where bitmap_rows is a list of strings using '#' for filled pixels and ' ' for empty, and y_offset is the vertical offset in pixels (negative for descenders)
     """
     font = TTFont(font_path)
     glyphset = font.getGlyphSet()

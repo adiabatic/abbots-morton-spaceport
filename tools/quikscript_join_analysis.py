@@ -1,16 +1,8 @@
 """Slim, side-effect-free reachability view over compiled Quikscript IR.
 
-The validator added in subtask A2 of the parent plan needs structural facts
-about ``dict[str, JoinGlyph]`` (which families exist, which variants of a
-family carry which entry/exit Ys, which pair-overrides apply under which
-contexts) without dragging in the FEA emitter's lookup-DAG and cycle-detection
-machinery in ``quikscript_fea._analyze_quikscript_joins``.
+The validator added in subtask A2 of the parent plan needs structural facts about ``dict[str, JoinGlyph]`` (which families exist, which variants of a family carry which entry/exit Ys, which pair-overrides apply under which contexts) without dragging in the FEA emitter's lookup-DAG and cycle-detection machinery in ``quikscript_fea._analyze_quikscript_joins``.
 
-``JoinReachability`` is the narrow waist for that. Field shapes mirror the
-corresponding entries on ``_JoinAnalysis`` for downstream familiarity, but the
-population logic intentionally reads ``JoinGlyph`` attributes directly. Lookup
-ordering, cycle detection, and the FEA emitter's policy-specific gates stay in
-``quikscript_fea`` where they belong.
+``JoinReachability`` is the narrow waist for that. Field shapes mirror the corresponding entries on ``_JoinAnalysis`` for downstream familiarity, but the population logic intentionally reads ``JoinGlyph`` attributes directly. Lookup ordering, cycle detection, and the FEA emitter's policy-specific gates stay in ``quikscript_fea`` where they belong.
 """
 
 import warnings
@@ -36,13 +28,11 @@ from quikscript_fea import (
 
 
 class JoinContractWarning(UserWarning):
-    """A glyph's join-contract metadata fails one of the consistency checks
-    in `collect_join_warnings`."""
+    """A glyph's join-contract metadata fails one of the consistency checks in `collect_join_warnings`."""
 
 
 class OrphanAnchorWarning(UserWarning):
-    """An entry or exit anchor at some Y has no counterpart at that Y on any
-    other glyph, so no cursive attachment can ever fire there."""
+    """An entry or exit anchor at some Y has no counterpart at that Y on any other glyph, so no cursive attachment can ever fire there."""
 
 
 __all__ = [
@@ -68,14 +58,10 @@ class DerivedBkGuard:
 
 @dataclass(frozen=True)
 class FwdStripGuard:
-    """A predecessor glyph (whose substitution would land an exit anchor at
-    ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself
-    forward-substitutes to a stripped form (no entry anchors). The reach lands
-    on nothing, so the predecessor's substitution should be suppressed.
+    """A predecessor glyph (whose substitution would land an exit anchor at ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself forward-substitutes to a stripped form (no entry anchors). The reach lands on nothing, so the predecessor's substitution should be suppressed.
 
-    Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base
-    skip on a per-(source, variant, exit_y) basis without the over-suppression
-    that an unconditional relaxation would cause."""
+    Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base skip on a per-(source, variant, exit_y) basis without the over-suppression that an unconditional relaxation would cause.
+    """
 
     mid_base: str
 
@@ -262,15 +248,9 @@ class JoinReachability:
 def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     """Steady-state cursive-join consistency check.
 
-    For every form F that declares a contextual selector (``select.before`` or
-    ``select.after``) and carries the matching cursive anchor, assert that some
-    reachable variant of each named target family carries a compatible anchor
-    on the other side at the same Y. Validates the default state plus each
-    distinct stylistic-set gate observed in the corpus.
+    For every form F that declares a contextual selector (``select.before`` or ``select.after``) and carries the matching cursive anchor, assert that some reachable variant of each named target family carries a compatible anchor on the other side at the same Y. Validates the default state plus each distinct stylistic-set gate observed in the corpus.
 
-    Raises ``ValueError`` listing every mismatch. Orphan anchors (an exit Y
-    with no matching entry Y anywhere, or vice versa) are warned to stderr
-    only.
+    Raises ``ValueError`` listing every mismatch. Orphan anchors (an exit Y with no matching entry Y anywhere, or vice versa) are warned to stderr only.
     """
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
     glyph_meta_dict = dict(reachability.glyph_meta)
@@ -385,17 +365,9 @@ def _has_default_join_coverage(
 ) -> bool:
     """Whether ``family`` has a default form that joins with ``opposite_family`` at y.
 
-    A default form is one that carries the right anchor (``exit`` for
-    ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``)
-    but no matching ``before:`` / ``after:`` selector — meaning the form
-    fires whenever its base does, with no per-pair gating. Such a form
-    silently covers every right-hand (or left-hand) family that isn't
-    excluded by ``not_before:`` / ``not_after:``.
+    A default form is one that carries the right anchor (``exit`` for ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``) but no matching ``before:`` / ``after:`` selector — meaning the form fires whenever its base does, with no per-pair gating. Such a form silently covers every right-hand (or left-hand) family that isn't excluded by ``not_before:`` / ``not_after:``.
 
-    On the entry-direction (forward-intent) branch, candidates whose
-    ``noentry_after`` lists ``opposite_family`` are also rejected: at runtime
-    they're displaced to their ``.noentry`` counterpart whenever the opposite
-    family precedes, so they don't actually cover the join.
+    On the entry-direction (forward-intent) branch, candidates whose ``noentry_after`` lists ``opposite_family`` are also rejected: at runtime they're displaced to their ``.noentry`` counterpart whenever the opposite family precedes, so they don't actually cover the join.
     """
     variant_names = reachability.base_to_variants.get(family, frozenset())
     for variant_name in variant_names:
@@ -432,14 +404,7 @@ def _right_family_displaces_via_noentry(
 ) -> bool:
     """Whether the right family's entry-y=`y` variants are displaced by ``noentry_after``.
 
-    The backward-intent suppression call to ``_has_default_join_coverage``
-    inspects the *left* family (looking for a default exit at ``y``).
-    `noentry_after` lives on the *right* family, so this helper provides the
-    parallel check: if any right-family variant carrying entry y=`y` lists
-    ``left_family`` in its ``noentry_after``, the receiver is displaced to
-    its ``.noentry`` counterpart whenever ``left_family`` precedes — so the
-    left family's "default exit" does not actually support the join, and the
-    one-sided-selection warning should not be suppressed.
+    The backward-intent suppression call to ``_has_default_join_coverage`` inspects the *left* family (looking for a default exit at ``y``). `noentry_after` lives on the *right* family, so this helper provides the parallel check: if any right-family variant carrying entry y=`y` lists ``left_family`` in its ``noentry_after``, the receiver is displaced to its ``.noentry`` counterpart whenever ``left_family`` precedes — so the left family's "default exit" does not actually support the join, and the one-sided-selection warning should not be suppressed.
     """
     for variant_name in reachability.base_to_variants.get(right_family, frozenset()):
         meta = reachability.glyph_meta.get(variant_name)
@@ -513,21 +478,12 @@ def _collect_noentry_shape_leak_warnings(
 ) -> list[str]:
     """Variants whose joining shape is wasted because of a ``noentry_after``.
 
-    For every variant ``V_R`` carrying ``noentry_after: [F_1, …]`` and at
-    least one entry-side anchor at Y, find every variant ``V_L`` of every
-    named family ``F_i`` that
+    For every variant ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, find every variant ``V_L`` of every named family ``F_i`` that
 
     - exits at Y, and
-    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e.
-      ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before``
-      is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a
-      generated/``.noentry`` form.
+    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e. ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before`` is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a generated/``.noentry`` form.
 
-    These ``V_L`` variants choose a joining shape whose join is voided at
-    runtime by the ``noentry_after`` substitution — the joining stub is
-    visually rendered with nothing to attach to. Pairs are deduped on
-    ``(V_L, R_base, y)`` so multiple ``V_R`` siblings of one right family
-    surface a single warning.
+    These ``V_L`` variants choose a joining shape whose join is voided at runtime by the ``noentry_after`` substitution — the joining stub is visually rendered with nothing to attach to. Pairs are deduped on ``(V_L, R_base, y)`` so multiple ``V_R`` siblings of one right family surface a single warning.
     """
     pairs: dict[tuple[str, str, int], str] = {}
 
@@ -682,10 +638,7 @@ def _collect_bitmap_gap_warnings(
 def _default_default_pair_keys(
     reachability: JoinReachability,
 ) -> set[tuple[str, str, int]]:
-    """Family triples where both sides could theoretically join at y, with no
-    explicit `before:` / `after:` gating. The intent-keyed pass only walks
-    pairs where one side declared a pair selector; this fills in the rest so
-    the bitmap-gap collector sees default-default joins too."""
+    """Family triples where both sides could theoretically join at y, with no explicit `before:` / `after:` gating. The intent-keyed pass only walks pairs where one side declared a pair selector; this fills in the rest so the bitmap-gap collector sees default-default joins too."""
     exit_ys: dict[str, set[int]] = {}
     entry_ys: dict[str, set[int]] = {}
     for family, variants in reachability.base_to_variants.items():
@@ -769,13 +722,7 @@ def _ligature_base_mutates_at_exit(
     meta: JoinGlyph,
     opposite_family: str,
 ) -> bool:
-    """A base ligature glyph (no exit/entry suffix) never appears at runtime
-    when its trailing component has an `extend_exit_before` or
-    `contract_exit_before` rule that fires for the right-side family — the
-    rule mutates the trailing component pre-liga, then `calt_liga` collapses
-    into the corresponding ligature variant. Skipping such bases here keeps
-    the bitmap-gap warning collector from flagging theoretical pairs that
-    can't form at runtime."""
+    """A base ligature glyph (no exit/entry suffix) never appears at runtime when its trailing component has an `extend_exit_before` or `contract_exit_before` rule that fires for the right-side family — the rule mutates the trailing component pre-liga, then `calt_liga` collapses into the corresponding ligature variant. Skipping such bases here keeps the bitmap-gap warning collector from flagging theoretical pairs that can't form at runtime."""
     if not meta.sequence:
         return False
     if meta.extended_exit_suffix or meta.contracted_exit_suffix:
@@ -795,8 +742,7 @@ def _ligature_base_mutates_at_entry(
     meta: JoinGlyph,
     opposite_family: str,
 ) -> bool:
-    """Mirror of `_ligature_base_mutates_at_exit` for the lead-component
-    side."""
+    """Mirror of `_ligature_base_mutates_at_exit` for the lead-component side."""
     if not meta.sequence:
         return False
     if meta.extended_entry_suffix:
@@ -1745,9 +1691,7 @@ def _candidate_names_for_family(
 def _resolve_family(reachability: JoinReachability, t_name: str) -> str:
     """Resolve a selector reference to a family name.
 
-    Selectors compile to glyph names (`{family: qsTea}` → `"qsTea"`,
-    `{family: qsTea, traits: [alt]}` → `"qsTea.alt"`); the validator's
-    family-bucket lookups key on `base_name`.
+    Selectors compile to glyph names (`{family: qsTea}` → `"qsTea"`, `{family: qsTea, traits: [alt]}` → `"qsTea.alt"`); the validator's family-bucket lookups key on `base_name`.
     """
     meta = reachability.glyph_meta.get(t_name)
     if meta is not None:
@@ -1839,10 +1783,7 @@ def derive_pending_bk_entry_guards(
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
     """Return the curated `_PENDING_BK_ENTRY_GUARDS` table.
 
-    The ``reachability`` argument is unused — the table is hand-curated to match
-    the runtime emitter's per-call-site narrowing in ``_emit_pending_bk_entry_guards``
-    (see `tools/quikscript_fea.py`) — and is accepted for signature symmetry
-    with ``derive_pending_fwd_strip_guards``.
+    The ``reachability`` argument is unused — the table is hand-curated to match the runtime emitter's per-call-site narrowing in ``_emit_pending_bk_entry_guards`` (see `tools/quikscript_fea.py`) — and is accepted for signature symmetry with ``derive_pending_fwd_strip_guards``.
     """
     del reachability
     return {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()}
@@ -1853,8 +1794,7 @@ def derive_pending_liga_entry_guards(
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
     """Return the curated `_PENDING_LIGA_ENTRY_GUARDS` table.
 
-    Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component
-    sources.
+    Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component sources.
     """
     del reachability
     return {key: tuple(guards) for key, guards in _PENDING_LIGA_ENTRY_GUARDS.items()}
@@ -1865,15 +1805,9 @@ def derive_pending_fwd_strip_guards(
 ) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
     """Forward-strip guards for predecessor substitutions.
 
-    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at
-    ``exit_y`` would land on a follower's stripped form, return the bare bases
-    ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA
-    emitter uses these guards to suppress the predecessor's substitution when
-    bare ``B`` follows and its forward upgrade would strip its only matching
-    entry, leaving the predecessor's reach pointing at nothing.
+    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at ``exit_y`` would land on a follower's stripped form, return the bare bases ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA emitter uses these guards to suppress the predecessor's substitution when bare ``B`` follows and its forward upgrade would strip its only matching entry, leaving the predecessor's reach pointing at nothing.
 
-    Predecessors come from both ``fwd_replacements`` and ``fwd_pair_overrides``;
-    the runtime emission decides whether to actually emit per call site.
+    Predecessors come from both ``fwd_replacements`` and ``fwd_pair_overrides``; the runtime emission decides whether to actually emit per call site.
     """
     return _compute_derived_fwd_strip_guards(reachability)
 
@@ -1928,34 +1862,18 @@ def _predecessor_visually_reaches(
     glyph_meta: Mapping[str, JoinGlyph],
     variant_name: str,
 ) -> bool:
-    """Whether the predecessor variant's exit stroke is a connector that
-    visually reaches toward the next glyph (deep-letter terminal arm, or
-    explicit exit extension).
+    """Whether the predecessor variant's exit stroke is a connector that visually reaches toward the next glyph (deep-letter terminal arm, or explicit exit extension).
 
     Two paths qualify:
 
-    * Deep-letter terminal arms: when the variant has ink below the exit
-      anchor's row, the exit stroke is a connector. ``qsGay.exit-baseline``
-      exits at y=0 with body continuing below, so its y=0 stroke is a
-      connector reaching out to join the next glyph. A short letter that
-      exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its
-      y=0 stroke is just the bottom edge, terminating at its own bounding
-      box; it sits cleanly next to whatever follows even without a cursive
-      join.
+    * Deep-letter terminal arms: when the variant has ink below the exit anchor's row, the exit stroke is a connector. ``qsGay.exit-baseline`` exits at y=0 with body continuing below, so its y=0 stroke is a connector reaching out to join the next glyph. A short letter that exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom edge, terminating at its own bounding box; it sits cleanly next to whatever follows even without a cursive join.
 
-    * Explicit exit extensions: ``.exit-extended`` (and friends) widen the
-      glyph's bitmap toward the follower, materializing real ink that
-      strands when the follower can't receive it. Short letters that gain
-      an extension (e.g. ``qsEight.exit-extended``) qualify here even though
-      no ink sits below the exit row in the source bitmap.
+    * Explicit exit extensions: ``.exit-extended`` (and friends) widen the glyph's bitmap toward the follower, materializing real ink that strands when the follower can't receive it. Short letters that gain an extension (e.g. ``qsEight.exit-extended``) qualify here even though no ink sits below the exit row in the source bitmap.
 
-    * Tall baseline-exit forms: these flatten or carry a tall body's lower
-      stroke into a baseline connector. If the follower later strips its
-      baseline entry, that connector becomes a visible isolation leak even
-      without an explicit extension suffix.
+    * Tall baseline-exit forms: these flatten or carry a tall body's lower stroke into a baseline connector. If the follower later strips its baseline entry, that connector becomes a visible isolation leak even without an explicit extension suffix.
 
-    Only the connector variants leave a visibly dangling stroke when the
-    follower's runtime form strips its entry anchor."""
+    Only the connector variants leave a visibly dangling stroke when the follower's runtime form strips its entry anchor.
+    """
     meta = glyph_meta.get(variant_name)
     if meta is None or not meta.exit or not meta.bitmap:
         return False
@@ -1980,12 +1898,7 @@ def _predecessor_visually_reaches(
 def _bases_with_stripped_fwd_per_y(
     reachability: _FwdStripReachability,
 ) -> dict[int, frozenset[str]]:
-    """Index bare bases by exit Y where the bare base's forward upgrade
-    strips entries AND the base's family still has a sibling with an entry
-    at that Y. Both conditions are required for a guard to make sense:
-    the strip is what lands the predecessor's reach on nothing, and the
-    family's entry-bearing sibling is what makes the bare base appear in
-    the predecessor's @entry_y class in the first place."""
+    """Index bare bases by exit Y where the bare base's forward upgrade strips entries AND the base's family still has a sibling with an entry at that Y. Both conditions are required for a guard to make sense: the strip is what lands the predecessor's reach on nothing, and the family's entry-bearing sibling is what makes the bare base appear in the predecessor's @entry_y class in the first place."""
     glyph_meta = reachability.glyph_meta
     by_y: dict[int, set[str]] = {}
     family_entry_ys_by_base: dict[str, set[int]] = {}
