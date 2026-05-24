@@ -1,7 +1,6 @@
 """HarfBuzz shaping test helpers for the Senior Sans font.
 
-Parses data-expect attributes from test/index.html and verifies that
-HarfBuzz produces the expected glyph sequence and cursive connections.
+Parses data-expect attributes from test/index.html and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
 """
 
 import re
@@ -123,10 +122,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
         kind      – "join", "break", "break_no_isolation", "height", or "maybe"
         y         – int or None (only for "height")
 
-    "break_no_isolation" (the ``|?|`` operator) behaves like "break" for the
-    join validation — the two glyphs must not share an entry/exit Y — but
-    skips the break-isolation invariant. Use it when the font legitimately
-    influences shape across a non-join (e.g., cosmetic entry-stub removal).
+    "break_no_isolation" (the ``|?|`` operator) behaves like "break" for the join validation — the two glyphs must not share an entry/exit Y — but skips the break-isolation invariant. Use it when the font legitimately influences shape across a non-join (e.g., cosmetic entry-stub removal).
     """
     HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
 
@@ -263,11 +259,7 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
 class _DataExpectCollector(HTMLParser):
     """Collect data-expect="..." from <td>, <span>, and <dd> elements in HTML.
 
-    Each collected cell records a list of ``runs`` — one per contiguous font
-    context inside the cell. A ``<span class="force-junior">`` descendant
-    switches the enclosed text to the Junior font; a ``<span
-    data-stylistic-set="...">`` descendant starts a new run with per-run
-    features. Anything else stays in Senior (the cell's default).
+    Each collected cell records a list of ``runs`` — one per contiguous font context inside the cell. A ``<span class="force-junior">`` descendant switches the enclosed text to the Junior font; a ``<span data-stylistic-set="...">`` descendant starts a new run with per-run features. Anything else stays in Senior (the cell's default).
     """
 
     _TAGS = {"td", "span", "dd"}
@@ -656,9 +648,7 @@ def _is_modifier_char(c: str) -> bool:
 def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, int]]:
     """Return one ``(start, end)`` half-open char range per token in ``text``.
 
-    Each range covers the token's base chars plus any trailing modifier chars
-    (variation selectors) that attach to its last base char. Raises ``ValueError``
-    if ``text`` is exhausted mid-token or has trailing chars no token claims.
+    Each range covers the token's base chars plus any trailing modifier chars (variation selectors) that attach to its last base char. Raises ``ValueError`` if ``text`` is exhausted mid-token or has trailing chars no token claims.
     """
     spans: list[tuple[int, int]] = []
     char_idx = 0
@@ -706,10 +696,7 @@ def _isolation_glyphs_split(
 ) -> tuple[list[str], list]:
     """Shape each segment of ``text`` separately and concatenate glyph names.
 
-    ``segment_breaks`` are char offsets into ``text`` where the input is split.
-    Each segment is shaped in its own HarfBuzz buffer, so no contextual lookup
-    can fire across a break. Returns parallel lists of glyph names and
-    HarfBuzz position records.
+    ``segment_breaks`` are char offsets into ``text`` where the input is split. Each segment is shaped in its own HarfBuzz buffer, so no contextual lookup can fire across a break. Returns parallel lists of glyph names and HarfBuzz position records.
     """
     bounds = [0, *segment_breaks, len(text)]
     names: list[str] = []
@@ -771,18 +758,9 @@ def _check_break_isolation(
 ) -> str | None:
     """Verify that shape choices flanking each non-join survive isolation.
 
-    For every connection whose chosen interpretation is a break — or a "maybe"
-    where the resolved glyph pair has no shared anchor Y — re-shape the input
-    with the two sides split into independent HarfBuzz buffers. The glyph at
-    each token position flanking the break must match between the full shaping
-    and the split shaping. Any disagreement means a contextual lookup is
-    reaching across a non-join — exactly what the user shouldn't have to pin
-    down manually with ``.!half`` / ``.!alt`` style assertions.
+    For every connection whose chosen interpretation is a break — or a "maybe" where the resolved glyph pair has no shared anchor Y — re-shape the input with the two sides split into independent HarfBuzz buffers. The glyph at each token position flanking the break must match between the full shaping and the split shaping. Any disagreement means a contextual lookup is reaching across a non-join — exactly what the user shouldn't have to pin down manually with ``.!half`` / ``.!alt`` style assertions.
 
-    ZWNJ injection was considered as a second reference but rejected: this
-    font intentionally fires ``.noentry`` rules against literal ``uni200C``
-    (see project CLAUDE.md on ZWNJ handling in ``calt``), so ZWNJ-injected
-    shaping isn't equivalent to isolation here.
+    ZWNJ injection was considered as a second reference but rejected: this font intentionally fires ``.noentry`` rules against literal ``uni200C`` (see project CLAUDE.md on ZWNJ handling in ``calt``), so ZWNJ-injected shaping isn't equivalent to isolation here.
     """
 
     def _is_qs_letter(tok: ExpectToken) -> bool:
@@ -871,14 +849,9 @@ def _partition_by_runs(
 ) -> list[PartitionedRun]:
     """Partition ``tokens`` and ``connections`` across ``runs``.
 
-    Walks the concatenated run text char-by-char, attributing each token to
-    the run where its base characters land. Variation selectors and similar
-    modifier chars are eaten by the preceding token. Connections between
-    tokens that end up in different runs are dropped (the inter-run gap is
-    implicit, since runs are shaped independently).
+    Walks the concatenated run text char-by-char, attributing each token to the run where its base characters land. Variation selectors and similar modifier chars are eaten by the preceding token. Connections between tokens that end up in different runs are dropped (the inter-run gap is implicit, since runs are shaped independently).
 
-    Returns a list of dicts with keys ``font``, ``text``, ``tokens``,
-    ``connections``.
+    Returns a list of dicts with keys ``font``, ``text``, ``tokens``, ``connections``.
     """
     full_text = ""
     run_for_char = []
@@ -955,10 +928,7 @@ def run_shaping_test_runs(
 ) -> None:
     """Shape each font-variant run independently and verify against expect_str.
 
-    ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior").
-    ``runs`` is a list of {"font": variant, "text": str}. Each run is shaped
-    against its own font, and the corresponding slice of tokens/connections
-    from ``expect_str`` is verified against that run.
+    ``fonts`` and ``anchor_maps`` are dicts keyed by variant ("senior", "junior"). ``runs`` is a list of {"font": variant, "text": str}. Each run is shaped against its own font, and the corresponding slice of tokens/connections from ``expect_str`` is verified against that run.
     """
     tokens, connections = parse_expect(expect_str)
     slices = _partition_by_runs(runs, tokens, connections)

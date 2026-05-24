@@ -1,22 +1,10 @@
 """Shaped-ink join check.
 
-Drive HarfBuzz with every plain ·X·Y pair surrounded by 1 left + 1 right
-context glyph (the same 45-entry context set the other pair sweeps use),
-then for each adjacent pair in the shaped output verify that wherever the
-design intends a connection — either both sides have cursive anchors at
-the same Y, OR one side carries an extension suffix at a Y that has no
-matching partner anchor — the rendered ink columns actually touch.
+Drive HarfBuzz with every plain ·X·Y pair surrounded by 1 left + 1 right context glyph (the same 45-entry context set the other pair sweeps use), then for each adjacent pair in the shaped output verify that wherever the design intends a connection — either both sides have cursive anchors at the same Y, OR one side carries an extension suffix at a Y that has no matching partner anchor — the rendered ink columns actually touch.
 
-The companion `_collect_bitmap_gap_warnings` in
-`tools/quikscript_join_analysis.py` performs the cursive-meet case
-structurally (no shaping). The shaped pass is the ground truth: it sees
-the exact glyph variant calt selects in context, and the cursive shifts
-GPOS actually applies. The stranded-extension cases mirror what
-`test_no_stranded_extension_joins_anywhere` flags by anchor metadata, but
-expressed as a measured ink gap.
+The companion `_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` performs the cursive-meet case structurally (no shaping). The shaped pass is the ground truth: it sees the exact glyph variant calt selects in context, and the cursive shifts GPOS actually applies. The stranded-extension cases mirror what `test_no_stranded_extension_joins_anywhere` flags by anchor metadata, but expressed as a measured ink gap.
 
-Many pairs currently fail — see `_ACCEPTED_SHAPED_INK_GAPS` for the
-triaged list. Treat each entry as a TODO, not a permanent acceptance.
+Many pairs currently fail — see `_ACCEPTED_SHAPED_INK_GAPS` for the triaged list. Treat each entry as a TODO, not a permanent acceptance.
 """
 
 from functools import cache
@@ -86,9 +74,8 @@ def _bitmap_width_cols(meta) -> int:
 def _bitmap_origin_x_offset(glyph_name: str, meta) -> int:
     """Font-unit X of bitmap column 0 relative to the glyph's drawing origin.
 
-    Mirrors the centering computed in `tools/build_font.py` —
-    `(advance_width - bitmap_width) // 2`. The advance_width there is the
-    pre-shaping hmtx value, not the cursive-modified runtime advance."""
+    Mirrors the centering computed in `tools/build_font.py` — `(advance_width - bitmap_width) // 2`. The advance_width there is the pre-shaping hmtx value, not the cursive-modified runtime advance.
+    """
     advance = _hmtx_widths().get(glyph_name, 0)
     bitmap_w = _bitmap_width_cols(meta) * PIXEL_SIZE
     if advance == 0:
@@ -133,9 +120,7 @@ def _check_ink_gap_at_y(
 ) -> tuple[int | None, str] | None:
     """Return (gap_in_px, detail_for_no_ink_case) or None if the gap is OK.
 
-    Negative gaps (overlap) and zero gaps are acceptable; positive gaps are
-    failures. Returns (None, side) when one side has no ink at the row —
-    that's the worst kind of failure: the stroke reaches into empty space.
+    Negative gaps (overlap) and zero gaps are acceptable; positive gaps are failures. Returns (None, side) when one side has no ink at the row — that's the worst kind of failure: the stroke reaches into empty space.
     """
     left_exits_here = any(anchor[1] == join_y for anchor in left_meta.exit)
     left_scan_y = left_meta.exit_ink_y if left_exits_here and left_meta.exit_ink_y is not None else join_y
@@ -170,8 +155,7 @@ def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
     """Ys where the design intends a connection, tagged with intent kind.
 
     - 'cursive': both sides have anchors at this Y — cursive will align them.
-    - 'stranded-exit': left has an extension suffix and an exit at this Y,
-      but right has no entry there — left's extended stroke dangles.
+    - 'stranded-exit': left has an extension suffix and an exit at this Y, but right has no entry there — left's extended stroke dangles.
     - 'stranded-entry': symmetric — right's extended entry has no partner.
     """
     left_exit_ys = {anchor[1] for anchor in left_meta.exit}
@@ -188,12 +172,9 @@ def _intended_join_ys(left_meta, right_meta) -> set[tuple[int, str]]:
 
 
 def _collect_shaped_ink_gaps(before_first: str) -> list[str]:
-    """Walk every ·X·Y pair surrounded by 1+1 context chars whose first
-    `before` slot is the named context glyph, report ink-join gaps.
+    """Walk every ·X·Y pair surrounded by 1+1 context chars whose first `before` slot is the named context glyph, report ink-join gaps.
 
-    Failures are deduped on (left_variant, right_variant, join_y) — the
-    same variant pair has the same geometry in every context, so the first
-    sighting is enough to triage.
+    Failures are deduped on (left_variant, right_variant, join_y) — the same variant pair has the same geometry in every context, so the first sighting is enough to triage.
     """
     meta_map = _compiled_meta()
     letters = _plain_quikscript_letters()

@@ -1,35 +1,20 @@
 """Generate test/check.html — the side-by-side before/after rendering harness.
 
-One program, one file out. Replaces the previous arrangement where a static
-``test/check.html`` was mutated in place by two separate splicer tools.
+One program, one file out. Replaces the previous arrangement where a static ``test/check.html`` was mutated in place by two separate splicer tools.
 
 The page contains:
 
 * Standard page chrome (title, intro, workflow notes, footer).
-* A "corpus render diffs" section: every multi-letter Quikscript run harvested
-  from ``test/the-manual.html``, ``test/index.html``, and
-  ``test/extra-senior-words.html`` whose Senior-Regular render differs between
-  ``test/before/`` and the live build. Skipped with a notice when the snapshot
-  is missing.
-* An "isolation leaks" section: short sequences whose adjacent non-joining
-  pair changes shape when the pair is shaped together vs. independently —
-  the same invariant as ``_check_break_isolation`` in
-  ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead
-  of ``|``) in ``data-expect``.
-* A "failing tests" section: one row per assertion line from a currently-
-  failing pytest test under ``test/``. The row renders the input families
-  parsed out of the failure message so you can eyeball false positives.
-* A copy-codepoints click handler so each row's ``U+E6XX`` strip can be
-  copied as a prompt preamble.
+* A "corpus render diffs" section: every multi-letter Quikscript run harvested from ``test/the-manual.html``, ``test/index.html``, and ``test/extra-senior-words.html`` whose Senior-Regular render differs between ``test/before/`` and the live build. Skipped with a notice when the snapshot is missing.
+* An "isolation leaks" section: short sequences whose adjacent non-joining pair changes shape when the pair is shaped together vs. independently — the same invariant as ``_check_break_isolation`` in ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead of ``|``) in ``data-expect``.
+* A "failing tests" section: one row per assertion line from a currently-failing pytest test under ``test/``. The row renders the input families parsed out of the failure message so you can eyeball false positives.
+* A copy-codepoints click handler so each row's ``U+E6XX`` strip can be copied as a prompt preamble.
 
-Run (after ``make all`` and, optionally, ``make snapshot-before`` on the
-baseline branch)::
+Run (after ``make all`` and, optionally, ``make snapshot-before`` on the baseline branch)::
 
     uv run python tools/build_check_html.py
 
-``--max-len`` controls how deep the isolation-leaks sweep goes (default 3,
-which catches every pair plus single-letter context on either side; bump to
-4 for a slower deeper sweep).
+``--max-len`` controls how deep the isolation-leaks sweep goes (default 3, which catches every pair plus single-letter context on either side; bump to 4 for a slower deeper sweep).
 """
 
 from __future__ import annotations
@@ -99,8 +84,7 @@ class IsolationLeakExample:
 
 
 def _is_letter_glyph(name: str) -> bool:
-    """Whether *name* is a Quikscript letter glyph eligible for the
-    isolation check. Mirrors ``_is_qs_letter`` in ``test/test_shaping.py``."""
+    """Whether *name* is a Quikscript letter glyph eligible for the isolation check. Mirrors ``_is_qs_letter`` in ``test/test_shaping.py``."""
     if not name.startswith("qs"):
         return False
     base = name.split(".", 1)[0]
@@ -190,9 +174,7 @@ def _visual_signature(name: str) -> tuple:
 
 
 def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
-    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the
-    sequence's total advance — the single-buffer equivalent of how the
-    inline-block halves butt up in the rendered HTML."""
+    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(_qs_text(*parts))
@@ -210,9 +192,7 @@ def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int
 
 
 def _visual_status(example: IsolationLeakExample) -> str:
-    """Classify a leak as ``same`` or ``diff`` by comparing the in-context
-    render of the example sequence against the concatenation of its two
-    independently-shaped halves."""
+    """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence against the concatenation of its two independently-shaped halves."""
     full_sigs, _, _ = _abs_render_signature(example.families)
     (l0, l1), (r0, r1) = _shaped_input_spans(example)
     left_sigs, left_x, left_y = _abs_render_signature(example.families[l0:l1])
@@ -263,8 +243,7 @@ class SequenceDiff:
 
 
 class _OutlineHashPen(BasePen):
-    """Record pen calls so two glyphs with the same outline produce the
-    same fingerprint regardless of how the font compiled them."""
+    """Record pen calls so two glyphs with the same outline produce the same fingerprint regardless of how the font compiled them."""
 
     def __init__(self, glyph_set):
         super().__init__(glyph_set)
@@ -344,8 +323,7 @@ def _harvest_sequences(paths: tuple[Path, ...]) -> list[str]:
 
 
 def find_diffs() -> list[SequenceDiff]:
-    """Compare snapshot vs. live Senior-Regular renders for every harvested
-    multi-letter run. Caller is expected to confirm BEFORE_FONT exists."""
+    """Compare snapshot vs. live Senior-Regular renders for every harvested multi-letter run. Caller is expected to confirm BEFORE_FONT exists."""
     if not AFTER_FONT.exists():
         raise SystemExit(
             f"Live build missing: {AFTER_FONT.relative_to(ROOT)} not found.\n" "Run `make all` first."
@@ -371,8 +349,7 @@ def find_diffs() -> list[SequenceDiff]:
 
 @dataclass
 class TestFailure:
-    """One pytest test that failed, plus the individual `E   ` assertion
-    lines parsed out of its long traceback."""
+    """One pytest test that failed, plus the individual `E   ` assertion lines parsed out of its long traceback."""
 
     nodeid: str
     sub_messages: list[str] = field(default_factory=list)
@@ -380,8 +357,7 @@ class TestFailure:
 
 @dataclass(frozen=True)
 class FailureRow:
-    """One row in the failing-tests section: a single sub-failure line,
-    optionally paired with the input families it shapes."""
+    """One row in the failing-tests section: a single sub-failure line, optionally paired with the input families it shapes."""
 
     nodeid: str
     message: str
@@ -390,9 +366,7 @@ class FailureRow:
 
 
 class _FailureCollector:
-    """Pytest plugin that captures longreprs of failing tests. Works under
-    xdist because pytest forwards `pytest_runtest_logreport` to the
-    controller after each worker finishes."""
+    """Pytest plugin that captures longreprs of failing tests. Works under xdist because pytest forwards `pytest_runtest_logreport` to the controller after each worker finishes."""
 
     def __init__(self) -> None:
         self.failures: list[TestFailure] = []
@@ -413,10 +387,8 @@ _E_LINE_RE = re.compile(r"^E\s{2,}(.*)$")
 def _extract_assertion_lines(longrepr: str) -> list[str]:
     """Pull the `E   …` assertion lines out of a pytest long traceback.
 
-    The first such line is preceded by `AssertionError: ` (or whatever
-    exception name); strip that prefix so each entry is a bare message.
-    Continuation lines without the `E   ` prefix are joined onto the
-    previous entry."""
+    The first such line is preceded by `AssertionError: ` (or whatever exception name); strip that prefix so each entry is a bare message. Continuation lines without the `E   ` prefix are joined onto the previous entry.
+    """
     out: list[str] = []
     for raw in longrepr.splitlines():
         match = _E_LINE_RE.match(raw)
@@ -450,9 +422,7 @@ _CONTEXT_CLAUSE_RE = re.compile(r"\(context\s+((?:·(?:qs[A-Za-z0-9]+|ZWNJ))+)\s
 
 
 def _parse_families_from_message(message: str) -> tuple[str, ...]:
-    """Return the input-family sequence for messages that follow the
-    `[…] / qsX / qsY / […]:` convention or carry a `(context ·X·Y·…)`
-    trailer; empty tuple otherwise."""
+    """Return the input-family sequence for messages that follow the `[…] / qsX / qsY / […]:` convention or carry a `(context ·X·Y·…)` trailer; empty tuple otherwise."""
     match = _FAILURE_LABEL_RE.match(message)
     if match is not None:
         families: list[str] = []
@@ -472,8 +442,7 @@ def _parse_families_from_message(message: str) -> tuple[str, ...]:
 
 
 def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
-    """Map a family/ZWNJ sequence to the literal characters that shape it.
-    Returns "" if any token isn't recognized."""
+    """Map a family/ZWNJ sequence to the literal characters that shape it. Returns "" if any token isn't recognized."""
     parts: list[str] = []
     for fam in families:
         if fam == "ZWNJ":
@@ -487,8 +456,7 @@ def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
 
 
 def collect_test_failures() -> list[TestFailure]:
-    """Run the full pytest suite in-process and return the captured
-    failures. Output is silenced so it doesn't drown the check-html log."""
+    """Run the full pytest suite in-process and return the captured failures. Output is silenced so it doesn't drown the check-html log."""
     print("Running pytest to harvest failing assertions…", file=sys.stderr, flush=True)
     collector = _FailureCollector()
     args = [

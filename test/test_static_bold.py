@@ -3,12 +3,9 @@
 Covers:
 
 - The outputs are plain static CFF fonts (no `fvar`, `gvar`, `HVAR`, `CFF2`).
-- RIBBI style linking: `OS/2.fsSelection` carries the Regular (0x40) or Bold
-  (0x20) bit, and `head.macStyle` has the Bold bit (0x01) on Bold fonts.
-- Name-table `familyName` matches between a family's Regular and Bold, and
-  `styleName` / PostScript name differ accordingly.
-- Bold glyphs are exactly `pixel_size // 2` font units wider than their
-  Regular counterparts, same height.
+- RIBBI style linking: `OS/2.fsSelection` carries the Regular (0x40) or Bold (0x20) bit, and `head.macStyle` has the Bold bit (0x01) on Bold fonts.
+- Name-table `familyName` matches between a family's Regular and Bold, and `styleName` / PostScript name differ accordingly.
+- Bold glyphs are exactly `pixel_size // 2` font units wider than their Regular counterparts, same height.
 """
 
 from pathlib import Path
@@ -105,8 +102,7 @@ class TestRIBBIStyleLinking:
 
 
 class TestBoldOverstrikeWidens:
-    """Every 'on' pixel's rectangle is 25 units wider in Bold; the logical
-    pixel grid, advance widths, and glyph height are unchanged."""
+    """Every 'on' pixel's rectangle is 25 units wider in Bold; the logical pixel grid, advance widths, and glyph height are unchanged."""
 
     def _bounds(self, font: TTFont, glyph_name: str):
         glyph_set = font.getGlyphSet()

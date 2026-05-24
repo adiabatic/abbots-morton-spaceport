@@ -7,9 +7,7 @@ from typing import Any, NotRequired, TypedDict, cast
 
 
 class LigatureEntryInheritanceWarning(UserWarning):
-    """A ligature's explicit `entry` anchor duplicates (or contradicts) what
-    `_inherit_ligature_entries_from_lead` would supply. Surface it so we can
-    eventually strip the redundant declarations."""
+    """A ligature's explicit `entry` anchor duplicates (or contradicts) what `_inherit_ligature_entries_from_lead` would supply. Surface it so we can eventually strip the redundant declarations."""
 
 
 Anchor = tuple[int, int]
@@ -2533,12 +2531,7 @@ def _contraction_source_matches_after(
 ) -> bool:
     """True if the contraction source belongs in an extended receiver's after-list.
 
-    A receiver variant whose `extended_entry_suffix` is set has a bitmap
-    authored for a specific set of left-context families/forms (the receiver's
-    `extend_entry_after.targets`). The trim sibling is only meaningful when
-    the contracting source is one of those — otherwise the trimmed bitmap
-    geometry doesn't correspond to the actual left context the trim will fire
-    in.
+    A receiver variant whose `extended_entry_suffix` is set has a bitmap authored for a specific set of left-context families/forms (the receiver's `extend_entry_after.targets`). The trim sibling is only meaningful when the contracting source is one of those — otherwise the trimmed bitmap geometry doesn't correspond to the actual left context the trim will fire in.
     """
     if source_name in after_tuple:
         return True
@@ -2651,31 +2644,13 @@ def _generate_contracted_variants(
 def expand_selectors_for_ligatures(
     join_glyphs: dict[str, JoinGlyph],
 ) -> dict[str, JoinGlyph]:
-    """Expand positive calt selectors so they fire on the first/last component
-    of any ligature whose non-first/non-last components were named explicitly.
+    """Expand positive calt selectors so they fire on the first/last component of any ligature whose non-first/non-last components were named explicitly.
 
-    `before:` / `gated_before:` are forward-context lookups in `calt`, which
-    runs before `calt_liga` collapses sequences into ligature glyphs. So a
-    selector that names a ligature's second (or later) component misses,
-    because the immediate next glyph in the pre-liga stream is the ligature's
-    *first* component. Likewise backward-context `after:` lookups only see the
-    ligature's *last* component pre-liga.
+    `before:` / `gated_before:` are forward-context lookups in `calt`, which runs before `calt_liga` collapses sequences into ligature glyphs. So a selector that names a ligature's second (or later) component misses, because the immediate next glyph in the pre-liga stream is the ligature's *first* component. Likewise backward-context `after:` lookups only see the ligature's *last* component pre-liga.
 
-    This pass adds the missing endpoints so the YAML can stay declarative
-    ("fire before qsUtter") and stay correct as new ligatures land. Each
-    candidate addition is gated by Y compatibility: an endpoint family is only
-    added when at least one of its reachable variants (or the ligature's
-    canonical record) carries a matching cursive anchor on the side the
-    source needs. This keeps spurious entries out of the join-consistency
-    check while still covering the cases where the ligature's half/baseline
-    form actually accepts the source.
+    This pass adds the missing endpoints so the YAML can stay declarative ("fire before qsUtter") and stay correct as new ligatures land. Each candidate addition is gated by Y compatibility: an endpoint family is only added when at least one of its reachable variants (or the ligature's canonical record) carries a matching cursive anchor on the side the source needs. This keeps spurious entries out of the join-consistency check while still covering the cases where the ligature's half/baseline form actually accepts the source.
 
-    Negative selectors (`not_before:` / `not_after:`) are left untouched: the
-    intent of those lists is almost always literal ("don't fire before this
-    specific glyph"), and expanding them tends to suppress shaping in cases
-    where the original author wanted the lookup to keep firing. If a
-    negative-side ligature exception is genuinely needed it can be authored by
-    hand.
+    Negative selectors (`not_before:` / `not_after:`) are left untouched: the intent of those lists is almost always literal ("don't fire before this specific glyph"), and expanding them tends to suppress shaping in cases where the original author wanted the lookup to keep firing. If a negative-side ligature exception is genuinely needed it can be authored by hand.
     """
     ligature_records: list[JoinGlyph] = []
     for record in join_glyphs.values():
@@ -2813,14 +2788,7 @@ def expand_selectors_for_ligatures(
                     )
 
     def _expected_runtime_exit_suffix(source_family: str, last_family: str) -> str:
-        """When source family `source_family` follows a glyph in family
-        `last_family`, what exit suffix does `last_family`'s base form mutate
-        into at runtime? Return "" if no rule applies. Used to filter ligature
-        endpoints so a source whose family triggers contraction/extension on
-        the trailing component only matches ligature variants representing the
-        same runtime state. Without this filter, a base ligature like
-        `qsX_qsUtter` would be added to `qsJai`'s after list even though the
-        runtime `qsUtter.exit-doubly-contracted` always wins before `qsJai`."""
+        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base form mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.exit-doubly-contracted` always wins before `qsJai`."""
         last_meta = join_glyphs.get(last_family)
         if last_meta is None:
             return ""
@@ -2835,10 +2803,7 @@ def expand_selectors_for_ligatures(
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
-        """Mirror of `_expected_runtime_exit_suffix` for the lead-component
-        side. When source family `source_family` precedes a ligature whose
-        first component is in family `first_family`, this is the entry suffix
-        that `first_family`'s base form mutates into."""
+        """Mirror of `_expected_runtime_exit_suffix` for the lead-component side. When source family `source_family` precedes a ligature whose first component is in family `first_family`, this is the entry suffix that `first_family`'s base form mutates into."""
         first_meta = join_glyphs.get(first_family)
         if first_meta is None:
             return ""
@@ -3112,8 +3077,7 @@ def _format_anchors(anchors: tuple[Anchor, ...]) -> str:
 
 
 def _leftmost_ink_column(row: BitmapRow) -> int | None:
-    """Return the column index of the leftmost ink pixel in a bitmap row,
-    or ``None`` if the row is entirely blank."""
+    """Return the column index of the leftmost ink pixel in a bitmap row, or ``None`` if the row is entirely blank."""
     if isinstance(row, str):
         for i, ch in enumerate(row):
             if ch == "#":
@@ -3130,9 +3094,7 @@ def _bitmap_row_at_y(
     y_offset: int,
     y: int,
 ) -> BitmapRow | None:
-    """Return the bitmap row that lives at glyph-space ``y``, or ``None``
-    if no such row exists. Top row is at ``y = (len(bitmap) - 1) + y_offset``;
-    bottom row is at ``y = y_offset``."""
+    """Return the bitmap row that lives at glyph-space ``y``, or ``None`` if no such row exists. Top row is at ``y = (len(bitmap) - 1) + y_offset``; bottom row is at ``y = y_offset``."""
     if not bitmap:
         return None
     top_y = (len(bitmap) - 1) + y_offset
@@ -3147,11 +3109,7 @@ def _bitmaps_align_at_y(
     target_glyph: JoinGlyph,
     y: int,
 ) -> bool:
-    """Check that ``source_glyph`` and ``target_glyph`` share the same
-    leftmost-ink column at glyph-space ``y``. Used as a safety guard before
-    copying an entry anchor's x-coordinate from one glyph onto another:
-    if the lead's entry coordinates land in different bitmap territory on
-    the ligature, the join would leave a visible bitmap gap."""
+    """Check that ``source_glyph`` and ``target_glyph`` share the same leftmost-ink column at glyph-space ``y``. Used as a safety guard before copying an entry anchor's x-coordinate from one glyph onto another: if the lead's entry coordinates land in different bitmap territory on the ligature, the join would leave a visible bitmap gap."""
     source_row = _bitmap_row_at_y(source_glyph.bitmap, source_glyph.y_offset, y)
     target_row = _bitmap_row_at_y(target_glyph.bitmap, target_glyph.y_offset, y)
     if source_row is None or target_row is None:
@@ -3167,31 +3125,15 @@ def _find_lead_entry_source(
     """Pick the entry anchor a ligature should inherit from its lead.
 
     Preference order:
-      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its
-         entry is non-empty. The prop is the unrestricted default form, so
-         its entry coordinates are always safe to copy.
-      2. The compiled glyph named ``f"{lead_family}.entry-xheight"`` if it
-         exists and has an entry, when one of:
+      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its entry is non-empty. The prop is the unrestricted default form, so its entry coordinates are always safe to copy.
+      2. The compiled glyph named ``f"{lead_family}.entry-xheight"`` if it exists and has an entry, when one of:
            a. It has no ``after`` constraint (the form is unrestricted).
-           b. The ligature carries a ``select.after`` whose compiled set
-              equals the lead's ``entry-xheight.after`` set. Mirroring the
-              restriction means the ligature only fires for the same
-              predecessors the lead's entry-xheight fires for, so the
-              inherited entry is context-equivalent.
-         An ``after``-restricted ``entry-xheight`` whose restriction the
-         ligature does NOT mirror is rejected: copying its anchor would
-         silently grant the ligature an entry for predecessors the lead
-         wouldn't accept.
+           b. The ligature carries a ``select.after`` whose compiled set equals the lead's ``entry-xheight.after`` set. Mirroring the restriction means the ligature only fires for the same predecessors the lead's entry-xheight fires for, so the inherited entry is context-equivalent.
+         An ``after``-restricted ``entry-xheight`` whose restriction the ligature does NOT mirror is rejected: copying its anchor would silently grant the ligature an entry for predecessors the lead wouldn't accept.
 
-    More-specific entry forms (e.g. ``qsTea.entry-xheight.after-fee``) are
-    intentionally **not** candidates: they layer extra context on top of the
-    canonical form. We only need *one* unconditional anchor to seed the
-    ligature; ``_iter_related_extension_targets`` will still propagate
-    `extend_entry_after` rules from any compatible source by matching on
-    ``base_name``.
+    More-specific entry forms (e.g. ``qsTea.entry-xheight.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical form. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
 
-    Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry
-    exists.
+    Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry exists.
     """
     lead_prop = join_glyphs.get(lead_family)
     if lead_prop is not None and lead_prop.entry:
@@ -3212,34 +3154,15 @@ def _inherit_ligature_entries_from_lead(
 ) -> dict[str, JoinGlyph]:
     """Fill in missing entry anchors on ligatures from the lead component.
 
-    For every JoinGlyph whose ``sequence`` has length ≥ 2 and whose ``entry``
-    is empty, copy the entry anchor from the lead component's compiled glyph
-    (see ``_find_lead_entry_source`` for the lookup rule). This lets the
-    existing ``_iter_related_extension_targets`` machinery propagate
-    ``extend_entry_after`` rules onto the ligature without YAML duplication.
+    For every JoinGlyph whose ``sequence`` has length ≥ 2 and whose ``entry`` is empty, copy the entry anchor from the lead component's compiled glyph (see ``_find_lead_entry_source`` for the lookup rule). This lets the existing ``_iter_related_extension_targets`` machinery propagate ``extend_entry_after`` rules onto the ligature without YAML duplication.
 
-    Also emits ``LigatureEntryInheritanceWarning`` for every ligature that
-    declares its own ``entry`` anchor — the explicit declaration is now a
-    candidate for cleanup (matching inheritance) or a drift hazard
-    (mismatched). The warning is informational; the explicit YAML always
-    wins until manually removed.
+    Also emits ``LigatureEntryInheritanceWarning`` for every ligature that declares its own ``entry`` anchor — the explicit declaration is now a candidate for cleanup (matching inheritance) or a drift hazard (mismatched). The warning is informational; the explicit YAML always wins until manually removed.
 
-    Half/alt-trait ligature variants (e.g. ``qsDay_qsUtter.half``) are
-    skipped: their entry coordinates legitimately differ from the lead's
-    prop entry (a half lead exits at the baseline, not x-height), so prop
-    inheritance is never the right rule for them.
+    Half/alt-trait ligature variants (e.g. ``qsDay_qsUtter.half``) are skipped: their entry coordinates legitimately differ from the lead's prop entry (a half lead exits at the baseline, not x-height), so prop inheritance is never the right rule for them.
 
-    Bitmap alignment is checked at the entry's Y row: if the ligature's
-    leftmost ink column at that row differs from the lead's, inheritance
-    would create a join with a visible gap, so we skip it. The ligature
-    stays entry-less unless its YAML explicitly declares one.
+    Bitmap alignment is checked at the entry's Y row: if the ligature's leftmost ink column at that row differs from the lead's, inheritance would create a join with a visible gap, so we skip it. The ligature stays entry-less unless its YAML explicitly declares one.
 
-    A ligature can opt out of inheritance entirely by writing ``entry: null``
-    in its ``prop.anchors``. This is distinct from omitting the key (which
-    means "inherit if possible"); ``null`` means "this ligature has no entry
-    anchor, do not inherit, do not warn." Use this when the ligature
-    legitimately has no entry even though the lead has one (e.g. stroke
-    direction in the joined form precludes any incoming join).
+    A ligature can opt out of inheritance entirely by writing ``entry: null`` in its ``prop.anchors``. This is distinct from omitting the key (which means "inherit if possible"); ``null`` means "this ligature has no entry anchor, do not inherit, do not warn." Use this when the ligature legitimately has no entry even though the lead has one (e.g. stroke direction in the joined form precludes any incoming join).
     """
     updated = dict(join_glyphs)
     for name, glyph in sorted(join_glyphs.items()):
@@ -3318,11 +3241,7 @@ def has_entry_preserving_exit_noentry_sibling(
     base_to_variants: dict[str, set[str]],
     join_glyphs: dict[str, JoinGlyph],
 ) -> bool:
-    """True if ``l_meta`` has a sibling form that preserves its entry side
-    and drops the exit (the ``.exit-noentry`` companion). The post-liga
-    cleanup routes here cleanly when a downstream ``noentry_after``
-    ligature voids the right-hand join, so the calt_cycle guard that
-    would otherwise block the upgrade is unnecessary."""
+    """True if ``l_meta`` has a sibling form that preserves its entry side and drops the exit (the ``.exit-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
     expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("exit-")) | {
         "exit-noentry"
     }
@@ -3350,18 +3269,9 @@ def _propagate_noentry_after_to_not_before(
 ) -> dict[str, JoinGlyph]:
     """Mirror `derive.noentry_after` into `not_before` on the left families.
 
-    For every glyph ``V_R`` carrying ``noentry_after: [F_1, …]`` and at
-    least one entry-side anchor at Y, append ``V_R``'s family name to
-    ``not_before`` on every variant of every named family ``F_i`` whose
-    exit Y matches — making the joining-shape selection on the left side
-    impossible whenever ``V_R``'s `.noentry` substitution would void the
-    join. This subsumes the manual ``not_before`` edits that previously
-    had to accompany each `noentry_after` directive.
+    For every glyph ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, append ``V_R``'s family name to ``not_before`` on every variant of every named family ``F_i`` whose exit Y matches — making the joining-shape selection on the left side impossible whenever ``V_R``'s `.noentry` substitution would void the join. This subsumes the manual ``not_before`` edits that previously had to accompany each `noentry_after` directive.
 
-    Skipped when the left variant has an entry-preserving ``.exit-noentry``
-    sibling: the post-liga cleanup will route there cleanly, so blocking
-    calt_cycle's selection would only deprive the predecessor of a usable
-    baseline join with no benefit on the right.
+    Skipped when the left variant has an entry-preserving ``.exit-noentry`` sibling: the post-liga cleanup will route there cleanly, so blocking calt_cycle's selection would only deprive the predecessor of a usable baseline join with no benefit on the right.
     """
     base_to_variants: dict[str, set[str]] = {}
     for name, glyph in join_glyphs.items():

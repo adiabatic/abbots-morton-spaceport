@@ -5,23 +5,14 @@ The font's tight convention is:
     entry.x = min_ink_x_at_entry_y
     exit.x  = max_ink_x_at_exit_y + 1
 
-This script walks every compiled form (post-inheritance, post-derive expansion) and
-reports the gap between each anchor's x and what the convention would put it at.
+This script walks every compiled form (post-inheritance, post-derive expansion) and reports the gap between each anchor's x and what the convention would put it at.
 
-Reading the report, two derive-generated buckets look anomalous but are
-intentional and follow from a tight source:
+Reading the report, two derive-generated buckets look anomalous but are intentional and follow from a tight source:
 
-    * `*.entry-contracted` / `*.exit-contracted` variants land at gap = +N (entry
-      side) or gap = -N (exit side) by design — the contract shifts the anchor
-      inward by N to shorten the join, leaving the bitmap unchanged on that side.
-    * `*.entry-trimmed-by-N` variants land at gap = -N. The receiver's leftmost
-      N ink columns are trimmed at the entry's row to make room for the
-      predecessor's overlapping exit stroke; the entry stays at the original
-      attachment point so the predecessor's exit meets the receiver where the
-      receiver's ink used to begin.
+    * `*.entry-contracted` / `*.exit-contracted` variants land at gap = +N (entry side) or gap = -N (exit side) by design — the contract shifts the anchor inward by N to shorten the join, leaving the bitmap unchanged on that side.
+    * `*.entry-trimmed-by-N` variants land at gap = -N. The receiver's leftmost N ink columns are trimmed at the entry's row to make room for the predecessor's overlapping exit stroke; the entry stays at the original attachment point so the predecessor's exit meets the receiver where the receiver's ink used to begin.
 
-Both follow mechanically from the source declaration. Tighten the source, and
-those two buckets either move with it (contract) or stay correct (trim).
+Both follow mechanically from the source declaration. Tighten the source, and those two buckets either move with it (contract) or stay correct (trim).
 
 Usage::
 
@@ -93,12 +84,7 @@ def _normalize_anchors(raw):
 def collect(side, defs, meta, family_filter=None):
     """Side is 'entry' or 'exit'. Returns list of (gap, name, (x, y), family, ink_x, row, ink_y).
 
-    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals
-    the anchor's y. For exits it equals the form's ``exit_ink_y`` override when the
-    JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key
-    ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like
-    qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0"
-    without the audit flagging it as loose.
+    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals the anchor's y. For exits it equals the form's ``exit_ink_y`` override when the JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0" without the audit flagging it as loose.
     """
     if side == "entry":
         fields = ("cursive_entry", "cursive_entry_curs_only")

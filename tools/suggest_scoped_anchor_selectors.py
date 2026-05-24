@@ -1,8 +1,6 @@
 """Suggest family-scoped anchor selectors for overbroad Quikscript selectors.
 
-The tool is read-only: it reports selectors such as ``{family: qsMay}`` where
-the selected form requires a specific opposite anchor Y and some concrete
-variants in that family do not provide it.
+The tool is read-only: it reports selectors such as ``{family: qsMay}`` where the selected form requires a specific opposite anchor Y and some concrete variants in that family do not provide it.
 
 Usage::
 

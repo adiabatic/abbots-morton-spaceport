@@ -1191,14 +1191,9 @@ def _entry_anchor_is_visual_addition(
     base_to_variants: dict[str, set[str]],
     variant_name: str,
 ) -> bool:
-    """Return True when this variant's entry anchor goes with a left tail in
-    the bitmap that no naturally-entryless sibling has.
+    """Return True when this variant's entry anchor goes with a left tail in the bitmap that no naturally-entryless sibling has.
 
-    Returns False when there exists a naturally-entryless sibling sharing the
-    same bitmap — meaning the entry anchor is purely positional (the bitmap
-    looks identical with or without it). Auto-generated `.noentry` siblings
-    do not count: they share the bitmap by construction, since they exist to
-    strip the cursive anchor without redrawing the glyph.
+    Returns False when there exists a naturally-entryless sibling sharing the same bitmap — meaning the entry anchor is purely positional (the bitmap looks identical with or without it). Auto-generated `.noentry` siblings do not count: they share the bitmap by construction, since they exist to strip the cursive anchor without redrawing the glyph.
     """
     variant_meta = glyph_meta[variant_name]
     if not variant_meta.entry:
@@ -1618,18 +1613,11 @@ def _strip_post_zwnj_token(
     token: str,
     base_to_variants: dict[str, set[str]],
 ) -> str | None:
-    """Strip ``calt_zwnj``-synthesized ``.noentry`` variants from a single FEA
-    context token (backtrack or lookahead position).
+    """Strip ``calt_zwnj``-synthesized ``.noentry`` variants from a single FEA context token (backtrack or lookahead position).
 
-    A token is either a single glyph name (``qsX.noentry``), a bracketed
-    class (``[qsA qsB.noentry qsC]``), or a class reference (``@cls``).
-    Class references are left untouched here; the underlying ``@cls``
-    definitions live elsewhere and are emitted by other paths that already
-    skip ``.noentry`` glyphs.
+    A token is either a single glyph name (``qsX.noentry``), a bracketed class (``[qsA qsB.noentry qsC]``), or a class reference (``@cls``). Class references are left untouched here; the underlying ``@cls`` definitions live elsewhere and are emitted by other paths that already skip ``.noentry`` glyphs.
 
-    Returns the rewritten token, or ``None`` if every member was a
-    ``.noentry`` variant and the position would become empty (in which case
-    the surrounding rule should be dropped).
+    Returns the rewritten token, or ``None`` if every member was a ``.noentry`` variant and the position would become empty (in which case the surrounding rule should be dropped).
     """
 
     def is_post_zwnj(name: str) -> bool:
@@ -1665,17 +1653,11 @@ def _strip_post_zwnj_from_ignore_contexts(
     lines: list[str],
     base_to_variants: dict[str, set[str]],
 ) -> list[str]:
-    """Remove ``calt_zwnj``-synthesized ``.noentry`` variants from the
-    lookahead positions of every ``ignore sub`` rule.
+    """Remove ``calt_zwnj``-synthesized ``.noentry`` variants from the lookahead positions of every ``ignore sub`` rule.
 
-    These ``.noentry`` glyphs can only appear immediately after a ZWNJ. In
-    lookahead, they let an ignore rule for a left-side input match across the
-    ZWNJ after HarfBuzz skips it as a default-ignorable. Backtrack positions
-    stay intact because they also describe valid right-side-internal guards,
-    such as blocking ``ZWNJ ·Ye ·It`` from joining at the baseline.
+    These ``.noentry`` glyphs can only appear immediately after a ZWNJ. In lookahead, they let an ignore rule for a left-side input match across the ZWNJ after HarfBuzz skips it as a default-ignorable. Backtrack positions stay intact because they also describe valid right-side-internal guards, such as blocking ``ZWNJ ·Ye ·It`` from joining at the baseline.
 
-    The input position (token ending in ``'``) is left alone; rules that
-    operate on a ``.noentry`` glyph itself remain valid.
+    The input position (token ending in ``'``) is left alone; rules that operate on a ``.noentry`` glyph itself remain valid.
     """
     result: list[str] = []
     for line in lines:
@@ -1825,29 +1807,15 @@ def _zwnj_boundary_replay_lines_for_calt_lookup(body_lines: list[str]) -> list[s
 
 
 def _ensure_zwnj_coverage_for_calt_lookups(lines: list[str]) -> list[str]:
-    """Bring uni200C into the coverage of every chained calt lookup so HarfBuzz
-    stops treating ZWNJ as a default-ignorable for that lookup.
+    """Bring uni200C into the coverage of every chained calt lookup so HarfBuzz stops treating ZWNJ as a default-ignorable for that lookup.
 
-    HarfBuzz skips default-ignorable glyphs when matching a lookup's context
-    unless the lookup itself references the glyph. Without this firewall,
-    chained context rules (``sub @bk X' @fwd by Y;`` and the ``ignore sub``
-    rules around them) silently match across a ZWNJ, which breaks ZWNJ's
-    promise to act as a hard shaping boundary.
+    HarfBuzz skips default-ignorable glyphs when matching a lookup's context unless the lookup itself references the glyph. Without this firewall, chained context rules (``sub @bk X' @fwd by Y;`` and the ``ignore sub`` rules around them) silently match across a ZWNJ, which breaks ZWNJ's promise to act as a hard shaping boundary.
 
-    Strategy: for each ``lookup calt_NAME { ... } calt_NAME;`` block that
-    contains a chained rule and does not already mention ``uni200C``, prepend
-    any run-initial ``.noentry`` rules replayed with ``uni200C`` as explicit
-    backtrack and any run-final rules replayed with ``uni200C`` as explicit
-    lookahead, then add ``ignore sub uni200C TARGET';`` rules for marked inputs
-    that have backtrack context. For rules with lookahead context, also add
-    ``ignore sub TARGET' uni200C;`` so the lookup covers ZWNJ on the far side of
-    that input.
+    Strategy: for each ``lookup calt_NAME { ... } calt_NAME;`` block that contains a chained rule and does not already mention ``uni200C``, prepend any run-initial ``.noentry`` rules replayed with ``uni200C`` as explicit backtrack and any run-final rules replayed with ``uni200C`` as explicit lookahead, then add ``ignore sub uni200C TARGET';`` rules for marked inputs that have backtrack context. For rules with lookahead context, also add ``ignore sub TARGET' uni200C;`` so the lookup covers ZWNJ on the far side of that input.
 
-    The replay rules preserve normal shaping immediately after ZWNJ. The guard
-    rules then stop the remaining chained contexts from skipping across ZWNJ.
+    The replay rules preserve normal shaping immediately after ZWNJ. The guard rules then stop the remaining chained contexts from skipping across ZWNJ.
 
-    The ``calt_zwnj`` lookup is exempt because it must match across ZWNJ by
-    design.
+    The ``calt_zwnj`` lookup is exempt because it must match across ZWNJ by design.
     """
     lookup_open_pattern = re.compile(r"^(\s*)lookup\s+(calt_\S+)\s*\{\s*$")
     lookup_close_template = "{indent}}} {name};"
@@ -2453,13 +2421,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         left_context: str | None = None,
         require_mid_base_without_exit: bool = False,
     ) -> None:
-        """Emit ``ignore sub`` rules that block ``source_name → replacement``
-        when the next glyph has an entry that triggers this substitution but
-        later strips that same entry through its own forward substitution.
+        """Emit ``ignore sub`` rules that block ``source_name → replacement`` when the next glyph has an entry that triggers this substitution but later strips that same entry through its own forward substitution.
 
-        Covers both general forward substitutions (``fwd_replacements``) and
-        pair-specific ones (``fwd_pair_overrides``). Without these guards, the
-        left glyph's exit ends up orphaned against the stripped mid glyph.
+        Covers both general forward substitutions (``fwd_replacements``) and pair-specific ones (``fwd_pair_overrides``). Without these guards, the left glyph's exit ends up orphaned against the stripped mid glyph.
         """
         if replacement_name not in glyph_meta or exit_y not in _meta(replacement_name).exit_ys:
             return
@@ -4296,15 +4260,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _late_context_glyphs() -> set[str]:
         """Variants that can appear after the first backward-pair pass.
 
-        Seeds with outputs of every channel that can mutate a glyph during the
-        forward calt passes — generic entry/exit substitutions plus pair-specific
-        overrides (forward and backward, gated and ungated). Pair-specific
-        outputs are kept here so post-context bk-pair re-emission can match
-        consumers whose backtrack names a fwd-pair-override result (e.g.
-        ``qsFee.entry-xheight`` after ``qsMay.exit-extended``). The post-context
-        emitter still applies its own guards (``not_before``, entry-strip,
-        terminal-entry-only ignores), so a wider seed cannot revive a join that
-        the original ``calt_pair_*`` rule blocks.
+        Seeds with outputs of every channel that can mutate a glyph during the forward calt passes — generic entry/exit substitutions plus pair-specific overrides (forward and backward, gated and ungated). Pair-specific outputs are kept here so post-context bk-pair re-emission can match consumers whose backtrack names a fwd-pair-override result (e.g. ``qsFee.entry-xheight`` after ``qsMay.exit-extended``). The post-context emitter still applies its own guards (``not_before``, entry-strip, terminal-entry-only ignores), so a wider seed cannot revive a join that the original ``calt_pair_*`` rule blocks.
         """
         late: set[str] = set()
         for replacements in bk_replacements.values():
