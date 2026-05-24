@@ -135,6 +135,9 @@ def _expand_join_variants(
             all_variants.update(variant_name for variant_name, _ in analysis.pair_overrides[base])
         if base in analysis.fwd_pair_overrides:
             all_variants.update(variant_name for variant_name, _, _ in analysis.fwd_pair_overrides[base])
+        if base in analysis.fwd_upgrades:
+            # `fwd_upgrades` holds entry+exit forms whose entry_y collides with an entry-only sibling already in `bk_replacements`; without this branch a `{family: qsX}` selector silently drops these forms (e.g. qsTea.half.entry-top.exit-xheight), so derive lookups that should fire after them — like qsRoe.entry_xheight.contract_entry_after — miss the bare form and fall through to a broader competing lookup.
+            all_variants.update(entry_exit_var for entry_exit_var, _, _, _ in analysis.fwd_upgrades[base])
         if form_specific:
             prefix = glyph + "."
             expanded.update(
