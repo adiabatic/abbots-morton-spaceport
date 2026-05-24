@@ -37,6 +37,10 @@ context_sets:
   - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
   - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
   - {family: qsHe, traits: [half]}
+  halves_exit_xheight_no_pea:
+  - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
+  - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
+  - {family: qsHe, traits: [half]}
   # The Quikscript letter families fall into three height categories:
   # - Shorts fit within the x-height (6-pixel bitmap, baseline at y=0)
   # - Talls rise from the baseline to the cap height (9-pixel bitmap)
@@ -1256,6 +1260,7 @@ glyph_families:
           contract_entry_after:
             by: 1
             targets:
+            - {family: qsPea, traits: [half], modifiers: [exit-dips]}
             - {family: qsTea}
             - {family: qsGay}
             - {family: qsThey}
@@ -1313,7 +1318,7 @@ glyph_families:
         entry: [0, 5]
         exit: [4, 0]
       derive:
-        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
         noentry_after: [{family: qsWay}, {family: qsHe}, {family: qsWhy}]
   qsJay:
     mono:
@@ -1341,8 +1346,8 @@ glyph_families:
           entry: [0, 5]
           exit: [5, 0]
         derive:
-          extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight}]}
-          contract_entry_after: {by: 1, targets: [{family: qsHe}]}
+          extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight_no_pea}]}
+          contract_entry_after: {by: 1, targets: [{family: qsHe}, {family: qsPea, traits: [half], modifiers: [exit-dips]}]}
         modifiers: [entry-xheight]
   qsJay_qsUtter:
     sequence:
@@ -1906,7 +1911,7 @@ glyph_families:
       anchors:
         entry: [[0, 0], [0, 5]]
       derive:
-        extend_entry_after: {by: 1, targets: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}, {context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}, {context_set: halves_exit_xheight_no_pea}]}
     shapes:
       shortened_top:
         bitmap:
@@ -1962,7 +1967,7 @@ glyph_families:
         select:
           after: [{context_set: halves_exit_xheight}]
         derive:
-          contract_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsHe}]}
+          contract_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsHe}, {family: qsPea, traits: [half], modifiers: [exit-dips]}]}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: giga_extended_baseline
@@ -2239,7 +2244,7 @@ glyph_families:
         select:
           not_after: [{family: qsIt}]
         derive:
-          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
         modifiers: [entry-xheight]
       entry_baseline_exit_xheight:
         shape: prop
@@ -2502,7 +2507,7 @@ glyph_families:
         entry: [0, 5]
         exit: [7, 0]
       derive:
-        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
   qsOx:
     mono:
       bitmap:
@@ -2518,7 +2523,7 @@ glyph_families:
         entry: [0, 5]
         exit: [5, 0]
       derive:
-        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
   qsOy:
     mono:
       bitmap:
@@ -2763,7 +2768,7 @@ glyph_families:
         select:
           not_after: [{family: qsTea}, {family: qsLow}]
         derive:
-          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}
         modifiers: [entry-xheight]
       exit_xheight:
@@ -2777,7 +2782,7 @@ glyph_families:
         inherits: [entry_xheight, exit_xheight]
         shape: entry_and_exit_at_xheight
         derive:
-          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}
       entry_and_exit_at_xheight_before_day_ss07:
         inherits: entry_and_exit_at_xheight

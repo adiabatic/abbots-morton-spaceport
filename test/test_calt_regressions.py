@@ -934,17 +934,17 @@ def test_may_it_see_low_is_sensible():
     [
         pytest.param(
             _qs_text("qsPea", "qsOwe"),
-            ["·Pea.half ~x~ ·Owe.entry-extended"],
+            ["·Pea.half ~x~ ·Owe"],
             id="bare",
         ),
         pytest.param(
             _qs_text("qsBay", "qsPea", "qsOwe"),
-            ["·Bay | ·Pea.half ~x~ ·Owe.entry-extended"],
+            ["·Bay | ·Pea.half ~x~ ·Owe"],
             id="after-bay",
         ),
         pytest.param(
             _qs_text("qsTea", "qsPea", "qsOwe"),
-            ["·Tea | ·Pea.half ~x~ ·Owe.entry-extended"],
+            ["·Tea | ·Pea.half ~x~ ·Owe"],
             id="after-tea",
         ),
     ],
@@ -954,7 +954,7 @@ def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]
 
 
 def test_qs_owe_after_pea_keeps_right_exit_with_real_follower():
-    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.entry-extended ~x~ ·No"])
+    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.exit-xheight ~x~ ·No"])
 
 
 def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
@@ -1245,7 +1245,7 @@ def test_qs_utter_keeps_middle_pea_xheight_left_join_when_pea_also_joins_right()
     _assert_expect_any(
         _qs_text("qsUtter", "qsPea", "qsAwe"),
         [
-            "·Utter ~x~ ·Pea.half ~x~ ·Awe.entry-extended",
+            "·Utter ~x~ ·Pea.half ~x~ ·Awe",
         ],
     )
 
@@ -1254,7 +1254,7 @@ def test_qs_ah_does_not_gain_middle_pea_xheight_left_join_when_pea_joins_right()
     _assert_expect_any(
         _qs_text("qsAh", "qsPea", "qsAwe"),
         [
-            "·Ah | ·Pea.half ~x~ ·Awe.entry-extended",
+            "·Ah | ·Pea.half ~x~ ·Awe",
         ],
     )
 
