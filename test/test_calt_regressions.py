@@ -192,6 +192,69 @@ def _collect_left_must_stay_isolated_before_right_failures(
     return failures
 
 
+def _collect_pair_with_forbidden_trait_co_occurrence_failures(
+    left_base: str,
+    right_base: str,
+    *,
+    forbidden_left_traits: frozenset[str] = frozenset(),
+    forbidden_right_traits: frozenset[str] = frozenset(),
+    chars_before: int = 1,
+    chars_after: int = 1,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every position where the shaped output ends up with an adjacent (``left_base``, ``right_base``) pair whose chosen variants simultaneously carry ``forbidden_left_traits`` on the left and ``forbidden_right_traits`` on the right, swept over every surround in ``_context_chars()``. See @doc/joint-variant-invariants.md for the set math, empty-set cases, the worked ·Way / ·Utter example, and how to read a failure message."""
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = tuple(product(context_set, repeat=chars_before))
+    if before_first_only is not None:
+        before_combos = tuple(combo for combo in before_combos if combo[0][0] == before_first_only)
+    after_combos = tuple(product(context_set, repeat=chars_after))
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text(left_base, right_base) + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                left_is_target = left_meta.base_name == left_base or (
+                    left_meta.sequence and left_meta.sequence[-1] == left_base
+                )
+                right_is_target = right_meta.base_name == right_base or (
+                    right_meta.sequence and right_meta.sequence[0] == right_base
+                )
+                if not left_is_target or not right_is_target:
+                    continue
+                if not forbidden_left_traits.issubset(left_meta.traits):
+                    continue
+                if not forbidden_right_traits.issubset(right_meta.traits):
+                    continue
+                failures.append(
+                    f"{label}: {glyph_name} (traits={sorted(left_meta.traits)}) "
+                    f"before {glyphs[index + 1]} (traits={sorted(right_meta.traits)}) "
+                    f"matches forbidden co-occurrence "
+                    f"(left ⊇ {sorted(forbidden_left_traits)}, "
+                    f"right ⊇ {sorted(forbidden_right_traits)}) in {glyphs}"
+                )
+
+    return failures
+
+
 def _collect_joined_right_not_half_failures(
     left_base: str,
     right_base: str,
@@ -1645,6 +1708,33 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
 ):
     failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(left_base, right_base)
     failures += _collect_left_becomes_half_before_right_failures(left_base, right_base)
+    _assert_no_failures(failures)
+
+
+@pytest.mark.parametrize(
+    ("left_base", "left_traits", "right_base", "right_traits"),
+    [
+        pytest.param(
+            "qsWay",
+            frozenset({"half"}),
+            "qsUtter",
+            frozenset({"alt"}),
+            id="way-half-before-utter-alt",
+        ),
+    ],
+)
+def test_no_forbidden_trait_co_occurrence_on_adjacent_pair(
+    left_base: str,
+    left_traits: frozenset[str],
+    right_base: str,
+    right_traits: frozenset[str],
+):
+    failures = _collect_pair_with_forbidden_trait_co_occurrence_failures(
+        left_base,
+        right_base,
+        forbidden_left_traits=left_traits,
+        forbidden_right_traits=right_traits,
+    )
     _assert_no_failures(failures)
 
 
