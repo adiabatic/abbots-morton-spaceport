@@ -165,7 +165,7 @@ Abbots Morton Spaceport Sans **Senior** uses OpenType’s `curs` feature. While 
 In my testing, AMSS Senior works fine in:
 
 - current evergreen browser engines (WebKit (Safari), Gecko (Firefox), Blink (Chrome, Edge))
-- Typst (although it does complain about not supporting variable fonts well)
+- Typst
 
 It _should_ work fine in:
 
