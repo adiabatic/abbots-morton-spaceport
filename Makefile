@@ -1,4 +1,4 @@
-.PHONY: all test typecheck print-job serve explainer snapshot-before check-html review test-and-review prettier
+.PHONY: all test test-slowly typecheck print-job serve explainer snapshot-before check-html review test-and-review prettier
 
 export UV_CACHE_DIR := .uv-cache
 
@@ -26,6 +26,10 @@ prettier:
 
 test: typecheck
 	uv run pytest test/ -n auto --dist worksteal
+
+# Run the test suite on efficiency cores only
+test-slowly: typecheck
+	taskpolicy -b uv run pytest test/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
 
 review:
 	uv run python tools/review_scoped_anchor_selectors.py --output test/scoped-anchor-review/index.html
