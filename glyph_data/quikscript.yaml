@@ -226,7 +226,7 @@ glyph_families:
         select:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]
         traits: [half]
-      half_before_zoo:
+      half_exit_dips_to_xheight:
         inherits: half
         shape: half_right_dips_down_to_xheight
         anchors:
@@ -234,9 +234,14 @@ glyph_families:
         select:
           not_before: null
           not_after: [{family: qsMay}, {family: qsUtter}]
-          before: [{family: qsZoo, entry_y: 5}]
-        modifiers: [before-zoo]
-      half_entry_y6_before_zoo:
+          before:
+          - {entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]}
+          - {family: qsIt, entry_y: 5}
+          - {family: qsJai, entry_y: 5}
+          - {family: qsJay, entry_y: 5}
+          - {family: qsOwe, entry_y: 5}
+        modifiers: [exit-dips]
+      half_entry_y6_exit_dips_to_xheight:
         inherits: half_entry_y6
         shape: half_right_dips_down_to_xheight
         anchors:
@@ -244,8 +249,8 @@ glyph_families:
         select:
           not_before: null
         derive:
-          reverse_upgrade_from: [{family: qsPea, traits: [half], modifiers: [before-zoo]}]
-        modifiers: [entry-y6, before-zoo]
+          reverse_upgrade_from: [{family: qsPea, traits: [half], modifiers: [exit-dips]}]
+        modifiers: [entry-y6, exit-dips]
       half_entry_and_exit_at_xheight:
         inherits: half
         shape: half_dips_down_to_xheight
