@@ -1585,7 +1585,9 @@ def test_qs_it_never_joins_on_both_sides_at_baseline():
 
 def test_qs_pea_never_joins_on_both_sides_at_baseline():
     _assert_no_failures(
-        _collect_letter_must_not_join_on_both_sides_at_the_same_height("qsPea", forbidden_y=0),
+        _collect_letter_must_not_join_on_both_sides_at_the_same_height(
+            "qsPea", forbidden_y=0, chars_before=1, chars_after=1
+        ),
         limit=None,
     )
 
