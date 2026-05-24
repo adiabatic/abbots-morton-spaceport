@@ -1721,6 +1721,13 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
             frozenset({"alt"}),
             id="way-half-before-utter-alt",
         ),
+        pytest.param(
+            "qsWhy",
+            frozenset({"half"}),
+            "qsUtter",
+            frozenset({"alt"}),
+            id="why-half-before-utter-alt",
+        ),
     ],
 )
 def test_no_forbidden_trait_co_occurrence_on_adjacent_pair(
