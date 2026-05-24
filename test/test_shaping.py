@@ -996,7 +996,7 @@ def run_shaping_test_runs(
         # Isolation invariant: for senior only, any token pair that does not actually join must shape the same way when isolated. Junior forces every connection to "maybe", so the check would fire on every pair and doesn't match what it's asking about (no cursive at all).
         if variant == "senior":
             interp_tokens, interp_connections = matched_interp
-            iso_error = _check_break_isolation(
+            isolation_error = _check_break_isolation(
                 text,
                 interp_tokens,
                 interp_connections,
@@ -1007,8 +1007,8 @@ def run_shaping_test_runs(
                 merged,
                 variant,
             )
-            if iso_error:
+            if isolation_error:
                 raise AssertionError(
                     f"[{variant}] Isolation check failed for run {text!r} "
-                    f"in {expect_str!r} (shaped: {glyph_names}).\n{iso_error}"
+                    f"in {expect_str!r} (shaped: {glyph_names}).\n{isolation_error}"
                 )

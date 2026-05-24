@@ -23,9 +23,9 @@ def _format_leak(leak: Leak, example: IsolationLeakExample) -> str:
     seq = " ".join(f.removeprefix("qs") for f in example.families)
     diffs = []
     if leak.left_changed:
-        diffs.append(f"{leak.left_iso} -> {leak.left_chosen}")
+        diffs.append(f"{leak.isolated_left} -> {leak.left_chosen}")
     if leak.right_changed:
-        diffs.append(f"{leak.right_iso} -> {leak.right_chosen}")
+        diffs.append(f"{leak.isolated_right} -> {leak.right_chosen}")
     return f"  - {seq} (break {example.break_index}): {', '.join(diffs)}"
 
 

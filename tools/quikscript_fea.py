@@ -87,11 +87,11 @@ class _JoinAnalysis:
     exit_reachability_before: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability: dict[tuple[str, str], set[int]] = field(default_factory=dict)
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
-    # Each entry is (prior_family, target_family, follower_family, iso_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `iso_form`, a post-pass rule restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
+    # Each entry is (prior_family, target_family, follower_family, isolated_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `isolated_form`, a post-pass rule restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = ()
-    # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
+    # Each entry is (predecessor_form, trigger_form, isolated_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by isolated_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
-    # Each entry is (leader_form, trailing_form, iso_form). When a forward-pair override changes the leader into an entry-preserving form with no exit, any earlier backward upgrade on the trailing glyph can be left with a now-false joining shape. Emit a post-pass rule `sub leader_form trailing_form' by iso_form;` to restore the trailing glyph to the split-shaping form.
+    # Each entry is (leader_form, trailing_form, isolated_form). When a forward-pair override changes the leader into an entry-preserving form with no exit, any earlier backward upgrade on the trailing glyph can be left with a now-false joining shape. Emit a post-pass rule `sub leader_form trailing_form' by isolated_form;` to restore the trailing glyph to the split-shaping form.
     trailing_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
 
@@ -2100,7 +2100,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     # Accumulator for paired re-flips emitted alongside bk-pair / bk-general guards. When a guard `ignore sub [prior_slot] candidate base';` blocks the bk upgrade from firing on `base`, the candidate sitting at [pos-1] gets its fwd_replacement picked against base's now-plain entry_y instead of the bk-pair variant's entry_y. The accumulated re-flip rule restores the isolated form (the variant the candidate would carry if bk had fired) by substituting the post-suppressed form back to the isolated form, keyed on the same (prior_slot, candidate, base) triple that motivated the guard.
     #
-    # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of ``(prior_slot_frozenset, candidate_pre_form, base_name, iso_form)``.
+    # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of ``(prior_slot_frozenset, candidate_pre_form, base_name, isolated_form)``.
     pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
 
     def _record_pair_guard_reflip(
@@ -2124,27 +2124,27 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if not candidate_fwd:
             return
         # Isolated forms: fwd_replacement variants matching variant.entry_y.
-        iso_forms: set[str] = set()
+        isolated_forms: set[str] = set()
         for variant_entry_y in variant_entry_ys:
-            iso_form = candidate_fwd.get(variant_entry_y)
-            if iso_form is not None and iso_form != candidate_name:
-                iso_forms.add(iso_form)
-        if not iso_forms:
+            isolated_form = candidate_fwd.get(variant_entry_y)
+            if isolated_form is not None and isolated_form != candidate_name:
+                isolated_forms.add(isolated_form)
+        if not isolated_forms:
             return
-        # When the bk-pair guard suppresses base's upgrade, base stays plain — its entry sits at one of base_meta's plain (non-variant) entry_ys. Drop any iso_form whose exit_y can't meet that plain entry: applying it would visibly disconnect the candidate from base on the right side, which is worse than leaving the pre_form in place. Iso_forms with no exit are fine to keep (their right side is dangling either way, so they at least match the iso bitmap).
+        # When the bk-pair guard suppresses base's upgrade, base stays plain — its entry sits at one of base_meta's plain (non-variant) entry_ys. Drop any `isolated_form` whose exit_y can't meet that plain entry: applying it would visibly disconnect the candidate from base on the right side, which is worse than leaving the pre_form in place. `isolated_forms` with no exit are fine to keep (their right side is dangling either way, so they at least match the isolated bitmap).
         plain_base_entry_ys = set(base_meta.entry_ys) - variant_entry_ys
         if plain_base_entry_ys:
-            filtered_iso_forms: set[str] = set()
-            for iso_form in iso_forms:
-                iso_meta = glyph_meta.get(iso_form)
-                if iso_meta is None:
-                    filtered_iso_forms.add(iso_form)
+            filtered_isolated_forms: set[str] = set()
+            for isolated_form in isolated_forms:
+                isolated_meta = glyph_meta.get(isolated_form)
+                if isolated_meta is None:
+                    filtered_isolated_forms.add(isolated_form)
                     continue
-                iso_exit_ys = set(iso_meta.exit_ys)
-                if not iso_exit_ys or iso_exit_ys & plain_base_entry_ys:
-                    filtered_iso_forms.add(iso_form)
-            iso_forms = filtered_iso_forms
-            if not iso_forms:
+                isolated_exit_ys = set(isolated_meta.exit_ys)
+                if not isolated_exit_ys or isolated_exit_ys & plain_base_entry_ys:
+                    filtered_isolated_forms.add(isolated_form)
+            isolated_forms = filtered_isolated_forms
+            if not isolated_forms:
                 return
         # Pre forms: what the candidate is at this point. The candidate is already mutated by fwd_replacements based on base's plain entry_y, or it could still be bare (if no fwd_replacement applies for base's plain entry_y, e.g. when there's an existing not_before guard on the candidate's fwd lookup blocking it). Try both:
         # - bare candidate_name itself
@@ -2156,28 +2156,28 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             pre_form = candidate_fwd.get(base_entry_y)
             if pre_form is not None:
                 pre_forms.add(pre_form)
-        for iso_form in iso_forms:
+        for isolated_form in isolated_forms:
             for pre_form in pre_forms:
-                if pre_form == iso_form:
+                if pre_form == isolated_form:
                     continue
                 pair_guard_reflip.setdefault(candidate_base, []).append(
-                    (prior_slot, pre_form, base_name, iso_form)
+                    (prior_slot, pre_form, base_name, isolated_form)
                 )
 
     def _record_fwd_pair_not_after_reflip(
         prior_slot: frozenset[str],
         target_name: str,
         follower_glyphs,
-        iso_form: str,
+        isolated_form: str,
     ) -> None:
-        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];`` via YAML `not_after`, the target stays as ``target_name`` (the bare base) instead of being upgraded to the variant the lookup would otherwise pick. Isolated shaping of ``target follower`` selects ``iso_form`` on its own — record a re-flip so the in-context render matches the isolated render. The shape mirrors `_record_pair_guard_reflip`'s tuple: ``(prior_slot, pre_form, base_name, iso_form)`` where the emitted rule is ``sub [prior_slot] pre_form' base_name by iso_form;``. Here ``base_name`` is the follower glyph (the lookahead position), and ``pre_form`` is ``target_name`` (the bare target left behind by the ignore rule).
+        # When a fwd-pair lookup emits ``ignore sub [prior_slot] target' [follower];`` via YAML `not_after`, the target stays as ``target_name`` (the bare base) instead of being upgraded to the variant the lookup would otherwise pick. Isolated shaping of ``target follower`` selects ``isolated_form`` on its own — record a re-flip so the in-context render matches the isolated render. The shape mirrors `_record_pair_guard_reflip`'s tuple: ``(prior_slot, pre_form, base_name, isolated_form)`` where the emitted rule is ``sub [prior_slot] pre_form' base_name by isolated_form;``. Here ``base_name`` is the follower glyph (the lookahead position), and ``pre_form`` is ``target_name`` (the bare target left behind by the ignore rule).
         target_meta = glyph_meta.get(target_name)
         if target_meta is None:
             return
         candidate_base = target_meta.base_name
         bucket = pair_guard_reflip.setdefault(candidate_base, [])
         for follower in follower_glyphs:
-            entry = (prior_slot, target_name, follower, iso_form)
+            entry = (prior_slot, target_name, follower, isolated_form)
             if entry not in bucket:
                 bucket.append(entry)
 
@@ -2955,13 +2955,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         fpt_exit_ys = set(fpt_meta.exit_ys)
         candidate = default_replacement + ext_suffix
         cand_meta = glyph_meta.get(candidate)
-        iso_exit_ys = _iso_exit_ys_for_fpt(fpt, fpt_meta)
+        isolated_exit_ys = _isolated_exit_ys_for_fpt(fpt, fpt_meta)
         if cand_meta is not None:
             cand_exit_ys = set(cand_meta.exit_ys)
             if not _all_follower_families_accept(fpt, fpt_meta, cand_exit_ys):
                 # The candidate-with-suffix points at an exit Y that at least one follower-family can't receive. Preserving the suffix would leave that follower with stranded extension ink; drop straight to the suffixless default. Don't fall through to the entryless-sibling fallback either: that fallback exists for cases where the candidate glyph simply doesn't exist, not for cases where the partner's reception is the problem (preserving the right-side extension via an entryless sibling just relocates the stranded ink to the predecessor's side, since whatever pushed the predecessor toward `.exit-extended` expected fpt to receive at its old entry Y).
                 return default_replacement
-            if iso_exit_ys and cand_exit_ys & iso_exit_ys:
+            if isolated_exit_ys and cand_exit_ys & isolated_exit_ys:
                 return candidate
             if (
                 (not fpt_exit_ys or not cand_exit_ys or fpt_exit_ys & cand_exit_ys)
@@ -3015,7 +3015,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return False
         return True
 
-    def _iso_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
+    def _isolated_exit_ys_for_fpt(fpt: str, fpt_meta) -> set[int]:
         # Isolated shaping of ``base + follower`` picks ``fwd_replacements[base][N]`` whose exit_y matches one of follower's entry_ys (N). Return the union of those isolated exit_ys across fpt's resolved followers, restricted to the exit_ys that ``fwd_replacements`` actually declares for the base.
         base_name = fpt_meta.base_name
         base_fwd = fwd_replacements.get(base_name)
@@ -5191,23 +5191,23 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
-    # Register reflip entries for every `restore_isolated_form_overrides` entry whose intermediate heuristic in `_record_pair_guard_reflip` (the "iso_form's exit_y must reach the follower's plain entry_y" check) would otherwise reject the registration. The qsEat/qsJay/qsYe/qsIt before qsIt before qsNo cases hit this: the heuristic sees qsNo's plain entry at the x-height and refuses to commit qsIt.exit-baseline, but the post-reflip follower bk pass would re-fire qsNo.alt anyway. The pre_form here is the sibling fwd_replacement at the opposite exit_y from iso_form — that's the form the chain settles into pre-reflip when the heuristic blocked the upgrade — so the emission stays narrow instead of crossing every (pre_form × follower_variant) combination.
-    for prior_base, target_base, follower_base, iso_form in plan.restore_isolated_form_overrides:
-        if iso_form not in glyph_names:
+    # Register reflip entries for every `restore_isolated_form_overrides` entry whose intermediate heuristic in `_record_pair_guard_reflip` (the "isolated_form's exit_y must reach the follower's plain entry_y" check) would otherwise reject the registration. The qsEat/qsJay/qsYe/qsIt before qsIt before qsNo cases hit this: the heuristic sees qsNo's plain entry at the x-height and refuses to commit qsIt.exit-baseline, but the post-reflip follower bk pass would re-fire qsNo.alt anyway. The pre_form here is the sibling fwd_replacement at the opposite exit_y from isolated_form — that's the form the chain settles into pre-reflip when the heuristic blocked the upgrade — so the emission stays narrow instead of crossing every (pre_form × follower_variant) combination.
+    for prior_base, target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
+        if isolated_form not in glyph_names:
             continue
-        iso_meta = glyph_meta.get(iso_form)
-        if iso_meta is None or not iso_meta.exit:
+        isolated_meta = glyph_meta.get(isolated_form)
+        if isolated_meta is None or not isolated_meta.exit:
             continue
-        iso_exit_ys = set(iso_meta.exit_ys)
+        isolated_exit_ys = set(isolated_meta.exit_ys)
         target_fwd = fwd_replacements.get(target_base, {})
         if not target_fwd:
             continue
-        # The chain's settled "wrong" pre_form is the fwd_replacement at a different exit_y from the iso_form's exit_y — that's what the follower's default entry coaxed the target into before the heuristic kicked in.
+        # The chain's settled "wrong" pre_form is the fwd_replacement at a different exit_y from the isolated_form's exit_y — that's what the follower's default entry coaxed the target into before the heuristic kicked in.
         pre_forms: set[str] = set()
         for fwd_exit_y, fwd_variant in target_fwd.items():
-            if fwd_exit_y in iso_exit_ys:
+            if fwd_exit_y in isolated_exit_ys:
                 continue
-            if fwd_variant in glyph_names and fwd_variant != iso_form:
+            if fwd_variant in glyph_names and fwd_variant != isolated_form:
                 pre_forms.add(fwd_variant)
         if not pre_forms:
             continue
@@ -5220,7 +5220,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         bucket = pair_guard_reflip.setdefault(target_base, [])
         for pre_form in sorted(pre_forms):
             for follower_variant in follower_variants:
-                entry = (prior_slot, pre_form, follower_variant, iso_form)
+                entry = (prior_slot, pre_form, follower_variant, isolated_form)
                 if entry not in bucket:
                     bucket.append(entry)
 
@@ -5240,40 +5240,40 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         safe = candidate_base.replace(".", "_").replace("-", "_")
         lines.append("")
         lines.append(f"    lookup calt_pair_guard_reflip_{safe} {{")
-        for prior_slot, pre_form, base_name, iso_form in sorted(
+        for prior_slot, pre_form, base_name, isolated_form in sorted(
             reflip_unique,
             key=lambda item: (item[2], item[1], item[3], sorted(item[0])),
         ):
             prior_list = " ".join(sorted(prior_slot))
-            lines.append(f"        sub [{prior_list}] {pre_form}' {base_name} by {iso_form};")
+            lines.append(f"        sub [{prior_list}] {pre_form}' {base_name} by {isolated_form};")
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
     # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the isolated form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the isolated form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
     post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
-    for _prior, _target_base, follower_base, iso_form in plan.restore_isolated_form_overrides:
-        if iso_form not in glyph_names:
+    for _prior, _target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
+        if isolated_form not in glyph_names:
             continue
-        iso_meta = glyph_meta.get(iso_form)
-        if iso_meta is None or not iso_meta.exit:
+        isolated_meta = glyph_meta.get(isolated_form)
+        if isolated_meta is None or not isolated_meta.exit:
             continue
         follower_bk = bk_replacements.get(follower_base)
         if not follower_bk:
             continue
-        for exit_y in sorted(set(iso_meta.exit_ys)):
+        for exit_y in sorted(set(isolated_meta.exit_ys)):
             replacement = follower_bk.get(exit_y)
             if not replacement or replacement == follower_base:
                 continue
             if replacement not in glyph_names:
                 continue
             post_reflip_emissions.setdefault(follower_base, {}).setdefault((exit_y, replacement), set()).add(
-                iso_form
+                isolated_form
             )
     for follower_base in sorted(post_reflip_emissions):
         safe = follower_base.replace(".", "_").replace("-", "_")
         lines.append("")
         lines.append(f"    lookup calt_post_reflip_bk_{safe} {{")
-        for (entry_y, replacement), iso_forms in sorted(post_reflip_emissions[follower_base].items()):
-            sorted_iso_forms = sorted(iso_forms)
+        for (entry_y, replacement), isolated_forms in sorted(post_reflip_emissions[follower_base].items()):
+            sorted_iso_forms = sorted(isolated_forms)
             prior_token = (
                 sorted_iso_forms[0] if len(sorted_iso_forms) == 1 else "[" + " ".join(sorted_iso_forms) + "]"
             )
@@ -5295,18 +5295,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 _emit_fwd_pairs(cycle_base, lookup_prefix="calt_final_fwd_pair_")
 
     trailing_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
-    for leader_form, trailing_form, iso_form in plan.trailing_demote_overrides:
+    for leader_form, trailing_form, isolated_form in plan.trailing_demote_overrides:
         if leader_form not in glyph_names:
             continue
         if trailing_form not in glyph_names:
             continue
-        if iso_form not in glyph_names:
+        if isolated_form not in glyph_names:
             continue
         trailing_meta = glyph_meta.get(trailing_form)
         if trailing_meta is None:
             continue
         trailing_demote_by_base.setdefault(trailing_meta.base_name, []).append(
-            (leader_form, trailing_form, iso_form)
+            (leader_form, trailing_form, isolated_form)
         )
     for trailing_base in sorted(trailing_demote_by_base):
         rules = trailing_demote_by_base[trailing_base]
@@ -5322,24 +5322,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         safe = trailing_base.replace(".", "_").replace("-", "_")
         lines.append("")
         lines.append(f"    lookup calt_trailing_demote_{safe} {{")
-        for leader_form, trailing_form, iso_form in sorted(unique):
-            lines.append(f"        sub {leader_form} {trailing_form}' by {iso_form};")
+        for leader_form, trailing_form, isolated_form in sorted(unique):
+            lines.append(f"        sub {leader_form} {trailing_form}' by {isolated_form};")
         lines.append(f"    }} calt_trailing_demote_{safe};")
 
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
-    for predecessor_form, trigger_form, iso_form in plan.predecessor_demote_overrides:
+    for predecessor_form, trigger_form, isolated_form in plan.predecessor_demote_overrides:
         if predecessor_form not in glyph_names:
             continue
         if trigger_form not in glyph_names:
             continue
-        if iso_form not in glyph_names:
+        if isolated_form not in glyph_names:
             continue
         pred_meta = glyph_meta.get(predecessor_form)
         if pred_meta is None:
             continue
         pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-            (predecessor_form, trigger_form, iso_form)
+            (predecessor_form, trigger_form, isolated_form)
         )
 
     def _drop_exit_extension_suffix(name: str) -> str | None:
@@ -5350,9 +5350,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         return candidate if candidate in glyph_names else None
 
     def _derived_pred_demote_iso_form(name: str) -> str | None:
-        iso_form = _drop_exit_extension_suffix(name)
-        if iso_form is not None:
-            return iso_form
+        isolated_form = _drop_exit_extension_suffix(name)
+        if isolated_form is not None:
+            return isolated_form
         meta = glyph_meta.get(name)
         if meta is not None and meta.base_name == "qsShe" and name == "qsShe.exit-baseline":
             return meta.base_name
@@ -5413,8 +5413,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         pred_meta = glyph_meta.get(predecessor_form)
         if pred_meta is None:
             continue
-        iso_form = _drop_exit_extension_suffix(predecessor_form)
-        if iso_form is not None and pred_meta.before:
+        isolated_form = _drop_exit_extension_suffix(predecessor_form)
+        if isolated_form is not None and pred_meta.before:
             trigger_forms = _expand_all_variants(pred_meta.before, include_base=True)
             for trigger_form in sorted(trigger_forms):
                 trigger_meta = glyph_meta.get(trigger_form)
@@ -5423,7 +5423,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if any(exit_y in set(trigger_meta.all_entry_ys) for exit_y in pred_meta.exit_ys):
                     continue
                 pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-                    (predecessor_form, trigger_form, iso_form)
+                    (predecessor_form, trigger_form, isolated_form)
                 )
         if pred_meta.base_name not in derived_pred_demote_bases:
             continue
@@ -5465,8 +5465,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             safe = predecessor_base.replace(".", "_").replace("-", "_")
             lines.append("")
             lines.append(f"    lookup {prefix}_{safe} {{")
-            for predecessor_form, trigger_form, iso_form in sorted(pred_unique):
-                lines.append(f"        sub {predecessor_form}' {trigger_form} by {iso_form};")
+            for predecessor_form, trigger_form, isolated_form in sorted(pred_unique):
+                lines.append(f"        sub {predecessor_form}' {trigger_form} by {isolated_form};")
             lines.append(f"    }} {prefix}_{safe};")
 
     _emit_pred_demote_lookups("calt_pred_demote")
@@ -5519,19 +5519,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         prior_form: str,
         prior_meta,
         successor_form: str,
-        iso_form: str,
+        isolated_form: str,
     ) -> str | None:
         # When the successor needs to be demoted because the prior's exit doesn't
         # match the successor's entry, prefer a sibling whose entry actually does
         # match the prior's exit and whose own `select.after` claims this prior —
-        # falling back on the bare iso form silently drops the cursive-join
+        # falling back on the bare isolated form silently drops the cursive-join
         # upgrade for an otherwise-valid pair (e.g. `qsIt.entry-xheight qsRoe`
         # should land on `qsRoe.entry-extended-at-baseline`, not bare `qsRoe`).
         if not prior_meta.exit_ys:
             return None
         prior_exit_ys = set(prior_meta.exit_ys)
         for name in sorted(glyph_names):
-            if name in (successor_form, iso_form):
+            if name in (successor_form, isolated_form):
                 continue
             sibling_meta = glyph_meta.get(name)
             if sibling_meta is None or sibling_meta.base_name != base_name:
@@ -5548,8 +5548,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         successor_meta = glyph_meta.get(successor_form)
         if successor_meta is None or not successor_meta.after:
             continue
-        iso_form = _drop_entry_extension_suffix(successor_form)
-        if iso_form is None:
+        isolated_form = _drop_entry_extension_suffix(successor_form)
+        if isolated_form is None:
             continue
         prior_forms = _expand_all_variants(successor_meta.after, include_base=True)
         for prior_form in sorted(prior_forms):
@@ -5564,9 +5564,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     prior_form,
                     prior_meta,
                     successor_form,
-                    iso_form,
+                    isolated_form,
                 )
-                or iso_form
+                or isolated_form
             )
             successor_demote_by_base.setdefault(successor_meta.base_name, []).append(
                 (prior_form, successor_form, target_form)
@@ -5595,14 +5595,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         ("qsOut_qsTea", "qsVie_qsUtter.entry-extended", "qsVie_qsUtter"),
     )
     emitted_entry_demote = False
-    for prior_form, successor_form, iso_form in entry_demote_rules:
-        if prior_form not in glyph_names or successor_form not in glyph_names or iso_form not in glyph_names:
+    for prior_form, successor_form, isolated_form in entry_demote_rules:
+        if (
+            prior_form not in glyph_names
+            or successor_form not in glyph_names
+            or isolated_form not in glyph_names
+        ):
             continue
         if not emitted_entry_demote:
             lines.append("")
             lines.append("    lookup calt_successor_demote_qsOut_qsTea {")
             emitted_entry_demote = True
-        lines.append(f"        sub {prior_form} {successor_form}' by {iso_form};")
+        lines.append(f"        sub {prior_form} {successor_form}' by {isolated_form};")
     if emitted_entry_demote:
         lines.append("    } calt_successor_demote_qsOut_qsTea;")
 
