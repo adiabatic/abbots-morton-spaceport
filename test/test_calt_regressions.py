@@ -57,98 +57,6 @@ def _is_intentional_qs_gay_exit_extension(left_meta, right_meta) -> bool:
     )
 
 
-def _append_nonjoining_pair_failures(
-    failures: list[str],
-    label: str,
-    glyphs: list[str],
-    left_base: str,
-    right_base: str,
-) -> None:
-    meta_map = _compiled_meta()
-    for index, glyph_name in enumerate(glyphs[:-1]):
-        left_meta = meta_map.get(glyph_name)
-        right_meta = meta_map.get(glyphs[index + 1])
-        if left_meta is None or right_meta is None:
-            continue
-        if left_meta.base_name != left_base or right_meta.base_name != right_base:
-            continue
-        common = _pair_join_ys(glyphs, index)
-        if common:
-            failures.append(f"{label}: {left_base} joins {right_base} at Y={sorted(common)} in {glyphs}")
-
-
-def _collect_nonjoining_pair_context_failures(
-    left_base: str,
-    right_base: str,
-) -> list[str]:
-    failures: list[str] = []
-
-    for right_name, _ in _plain_quikscript_letters():
-        glyphs = _shape_qs(left_base, right_base, right_name)
-        _append_nonjoining_pair_failures(
-            failures,
-            f"{left_base} / {right_base} / {right_name}",
-            glyphs,
-            left_base,
-            right_base,
-        )
-
-    for left_name, _ in _plain_quikscript_letters():
-        glyphs = _shape_qs(left_name, left_base, right_base)
-        _append_nonjoining_pair_failures(
-            failures,
-            f"{left_name} / {left_base} / {right_base}",
-            glyphs,
-            left_base,
-            right_base,
-        )
-
-    return failures
-
-
-def _collect_left_becomes_half_before_right_failures(
-    left_base: str,
-    right_base: str,
-    *,
-    chars_before: int = 1,
-    chars_after: int = 1,
-) -> list[str]:
-    """Flag every position where ``left_base`` becomes a half-trait form immediately before ``right_base``, swept over the same surround combinations as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``."""
-    failures: list[str] = []
-    meta_map = _compiled_meta()
-    context_set = _context_chars()
-    left_label = _family_to_label(left_base)
-    right_label = _family_to_label(right_base)
-
-    before_combos = tuple(product(context_set, repeat=chars_before))
-    after_combos = tuple(product(context_set, repeat=chars_after))
-
-    for before in before_combos:
-        before_label = "·".join(name for name, _ in before) if before else "∅"
-        before_text = "".join(char for _, char in before)
-        for after in after_combos:
-            after_label = "·".join(name for name, _ in after) if after else "∅"
-            after_text = "".join(char for _, char in after)
-            text = before_text + _qs_text(left_base, right_base) + after_text
-            glyphs = _shape(text)
-            label = f"[{before_label}] / {left_base} / {right_base} / [{after_label}]"
-
-            for index, glyph_name in enumerate(glyphs[:-1]):
-                left_meta = meta_map.get(glyph_name)
-                right_meta = meta_map.get(glyphs[index + 1])
-                if left_meta is None or right_meta is None:
-                    continue
-                if left_meta.base_name != left_base or right_meta.base_name != right_base:
-                    continue
-                if "half" in left_meta.traits:
-                    failures.append(
-                        f"{label}: half-{left_label} ({glyph_name}) selected before "
-                        f"{right_label} in {glyphs}"
-                    )
-
-    return failures
-
-
 def _collect_left_must_stay_isolated_before_right_failures(
     left_base: str,
     right_base: str,
@@ -1707,7 +1615,9 @@ def test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context
     left_base: str, right_base: str
 ):
     failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(left_base, right_base)
-    failures += _collect_left_becomes_half_before_right_failures(left_base, right_base)
+    failures += _collect_pair_with_forbidden_trait_co_occurrence_failures(
+        left_base, right_base, forbidden_left_traits=frozenset({"half"})
+    )
     _assert_no_failures(failures)
 
 
@@ -1763,7 +1673,13 @@ def test_qs_day_always_picks_half_after_qs_it_in_any_context():
     ],
 )
 def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
-    _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
+    failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+        left_base, right_base, chars_before=1, chars_after=0
+    )
+    failures += _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+        left_base, right_base, chars_before=0, chars_after=1
+    )
+    _assert_no_failures(failures)
 
 
 @pytest.mark.parametrize(
@@ -2214,7 +2130,13 @@ def test_qs_nonjoining_pairs_keep_their_edges_separate(text: str, expects: list[
     ],
 )
 def test_qs_nonjoining_pairs_stay_nonjoining_in_context(left_base: str, right_base: str):
-    _assert_no_failures(_collect_nonjoining_pair_context_failures(left_base, right_base))
+    failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+        left_base, right_base, chars_before=1, chars_after=0
+    )
+    failures += _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+        left_base, right_base, chars_before=0, chars_after=1
+    )
+    _assert_no_failures(failures)
 
 
 def _excite_nonjoining_left_context_preserves_right_join_failures() -> list[str]:
