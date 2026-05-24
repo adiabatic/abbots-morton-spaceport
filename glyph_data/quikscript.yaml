@@ -2455,7 +2455,7 @@ glyph_families:
           entry: [0, 0]
           exit: [5, 5]
         select:
-          after: [{family: qsRoe, modifiers: [exit-baseline]}]
+          after: [{family: qsPea, exit_y: 0}, {family: qsRoe, modifiers: [exit-baseline]}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsJai}]}
         modifiers: [entry-baseline, smaller-loop]
