@@ -1012,14 +1012,16 @@ def _render_context_set_joins_section(cp_to_family: dict[int, str]) -> str:
         f"        Each predecessor is a member of <code>{_CONTEXT_SET_DEMO_SUPERSET}</code>,\n"
         f"        which nests <code>{_CONTEXT_SET_DEMO_SUBSET}</code>. The follower columns\n"
         "        are entry-x-height forms keyed off those context_sets: qsBay.entry_xheight\n"
-        "        uses the superset, while qsThey/qsThey_qsUtter/qsMay stay on the\n"
-        "        narrower subset. Rows flagged "
-        '<span class="only-a-little-flag">a_little_over only</span> are the\n'
-        "        predecessors in the superset that are <em>not</em> in the subset — i.e.\n"
-        "        they reach up to the x-height but not far enough over to dive into the\n"
-        "        narrower followers' set-back entries. ·I·May still joins in this matrix\n"
-        "        because <code>qsMay.entry_xheight_after_i</code> is a separate (non-context-set)\n"
-        "        rule.\n"
+        "        uses the superset, while qsThey/qsThey_qsUtter/qsMay use the narrower\n"
+        "        subset. The two sets currently happen to share the same membership, but\n"
+        "        the followers' <code>derive.extend_entry_after</code> rules differ: ·I→·They\n"
+        "        and ·I→·They·Utter pick up a +1 receiver-side entry extension (the\n"
+        "        extra pixel comes from qsThey's bitmap, not qsI's), while ·I→·Bay joins\n"
+        "        plain. ·I·May joins via the separate <code>qsMay.entry_xheight_after_i</code>\n"
+        "        rule, which doesn't go through these context_sets at all. Rows flagged\n"
+        '        <span class="only-a-little-flag">a_little_over only</span> would be the\n'
+        "        predecessors in the superset but not in the subset — none today, since\n"
+        "        every member of the superset is also in the subset.\n"
         "      </p>\n"
     )
     return (
