@@ -10,6 +10,10 @@ context_sets:
   - {family: qsVie_qsUtter, modifiers: [exit-extended]}
   - {family: qsWay_qsUtter, modifiers: [exit-extended]}
   - {family: qsWhy_qsUtter, modifiers: [exit-extended]}
+  # Superset of `reaches_up_and_way_over...`, for followers whose entry-xheight will accept any predecessor that gets up to the x-height — including ·I, whose exit is just one pixel past its own right edge. The narrower "way over" set stays the right choice for followers (qsThey, qsMay, qsThey_qsUtter) whose entry is set back far enough that only a deeply-extended predecessor exit can reach it.
+  reaches_up_and_a_little_over_at_least_part_of_the_next_letter:
+  - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
+  - {family: qsI}
   vie_may_entry_extend_triggers:
   - {family: qsPea}
   - {family: qsTea}
@@ -296,7 +300,7 @@ glyph_families:
           entry: [3, 5]
           exit: [5, 0]
         select:
-          after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
+          after: [{context_set: reaches_up_and_a_little_over_at_least_part_of_the_next_letter}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
