@@ -15,6 +15,7 @@
 
 - While there are significant parts of this project that are in British English (like The Manual), use American English for all code and comments.
 - Don't use "iso" (in any casing — "iso", "Iso", "ISO") as a prose shorthand for "isolation" / "isolated" in comments, docstrings, or docs. Spell it out: "isolated shaping", "the isolated form", "in isolation", "isolated pair", etc. Identifier names that already contain `iso_` (e.g. `iso_form`, `left_iso` / `right_iso`) are fine, and backticked references to those identifiers from within prose are fine too.
+- Don't hard-wrap comments or docstrings. Let each paragraph be a single long line and rely on the editor's soft-wrap.
 
 ## HTML/CSS/JS
 
