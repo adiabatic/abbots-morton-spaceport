@@ -1456,7 +1456,7 @@ glyph_families:
           exit_ink_y: -1
         select:
           before: [{family: qsRoe, entry_y: 0}]
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}, {family: qsOoze}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsExcite}, {family: qsIt}, {family: qsEat}, {family: qsUtter}, {family: qsOoze}]
         derive:
           preferred_over: [{family: qsWay}]
         traits: [half]
@@ -1590,7 +1590,7 @@ glyph_families:
           exit: [5, 0]
           exit_ink_y: -1
         select:
-          not_before: [{family: qsTea}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsIng}, {family: qsMay}, {family: qsLow}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsEat}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsOut}, {family: qsOwe}, {family: qsOoze}]
+          not_before: [{family: qsTea}, {family: qsThaw}, {family: qsVie}, {family: qsSee}, {family: qsIng}, {family: qsMay}, {family: qsLow}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsEat}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsUtter}, {family: qsOut}, {family: qsOwe}, {family: qsOoze}]
         traits: [half]
   qsWhy_qsUtter:
     sequence:
