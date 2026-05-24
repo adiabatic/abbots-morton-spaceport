@@ -1055,7 +1055,7 @@ def build_font(
                 entry["prior"],
                 entry["target"],
                 entry["follower"],
-                entry["iso_form"],
+                entry["isolated_form"],
             )
             for entry in raw_restore_isolated_form
         )
@@ -1064,7 +1064,7 @@ def build_font(
             (
                 entry["predecessor_form"],
                 entry["trigger_form"],
-                entry["iso_form"],
+                entry["isolated_form"],
             )
             for entry in raw_pred_demote
         )
@@ -1073,7 +1073,7 @@ def build_font(
             (
                 entry["leader_form"],
                 entry["trailing_form"],
-                entry["iso_form"],
+                entry["isolated_form"],
             )
             for entry in raw_trailing_demote
         )

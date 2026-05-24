@@ -65,16 +65,16 @@ from quikscript_shaping_helpers import (  # noqa: E402
 class Leak:
     left_chosen: str
     right_chosen: str
-    left_iso: str
-    right_iso: str
+    isolated_left: str
+    isolated_right: str
 
     @property
     def left_changed(self) -> bool:
-        return self.left_chosen != self.left_iso
+        return self.left_chosen != self.isolated_left
 
     @property
     def right_changed(self) -> bool:
-        return self.right_chosen != self.right_iso
+        return self.right_chosen != self.isolated_right
 
 
 @dataclass(frozen=True)
@@ -138,8 +138,8 @@ def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
                 Leak(
                     left_chosen=left,
                     right_chosen=right,
-                    left_iso=split_left,
-                    right_iso=split_right,
+                    isolated_left=split_left,
+                    isolated_right=split_right,
                 ),
             ),
         )
@@ -617,9 +617,9 @@ def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, 
     label = " ".join(label_parts)
     diff_parts: list[str] = []
     if leak.left_changed:
-        diff_parts.append(f"{leak.left_iso} → {leak.left_chosen}")
+        diff_parts.append(f"{leak.isolated_left} → {leak.left_chosen}")
     if leak.right_changed:
-        diff_parts.append(f"{leak.right_iso} → {leak.right_chosen}")
+        diff_parts.append(f"{leak.isolated_right} → {leak.right_chosen}")
     diff = "; ".join(diff_parts)
     code = " ".join(f"U+{cp_map[f]:04X}" for f in families)
     return f"{label} ({diff})", code

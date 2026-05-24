@@ -15,7 +15,7 @@
 ## Prose style
 
 - While there are significant parts of this project that are in British English (like The Manual), use American English for all code and comments.
-- Don't use "iso" (in any casing — "iso", "Iso", "ISO") as a prose shorthand for "isolation" / "isolated" in comments, docstrings, or docs. Spell it out: "isolated shaping", "the isolated form", "in isolation", "isolated pair", etc. Identifier names that already contain `iso_` (e.g. `iso_form`, `left_iso` / `right_iso`) are fine, and backticked references to those identifiers from within prose are fine too.
+- Don't use "iso" (in any casing — "iso", "Iso", "ISO") as a shorthand for "isolation" / "isolated", whether in prose, identifier names, dataclass fields, or YAML keys. Spell it out: `isolated_form`, `isolated_left` / `isolated_right`, "isolated shaping", "the isolated form", "in isolation", "isolated pair", etc.
 - Don't hard-wrap comments or docstrings. Let each paragraph be a single long line and rely on the editor's soft-wrap.
 
 ## HTML/CSS/JS
