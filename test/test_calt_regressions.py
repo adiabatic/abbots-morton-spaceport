@@ -58,7 +58,7 @@ def _is_intentional_qs_gay_exit_extension(left_meta, right_meta) -> bool:
 
 
 def _surround_combos(context_set, max_chars: int, *, first_only: str | None = None) -> tuple:
-    # ``chars_before`` / ``chars_after`` on the collectors are maxima: a request for max_chars=2 sweeps every length-0, length-1, and length-2 combination drawn from ``context_set``. The empty combo is always kept; the ``first_only`` shard filter only narrows the non-empty combos.
+    # ``max_chars_before`` / ``max_chars_after`` on the collectors are maxima: a request for max_chars=2 sweeps every length-0, length-1, and length-2 combination drawn from ``context_set``. The empty combo is always kept; the ``first_only`` shard filter only narrows the non-empty combos.
     combos = tuple(combo for n in range(max_chars + 1) for combo in product(context_set, repeat=n))
     if first_only is not None:
         combos = tuple(combo for combo in combos if not combo or combo[0][0] == first_only)
@@ -69,18 +69,18 @@ def _collect_left_must_stay_isolated_before_right_failures(
     left_base: str,
     right_base: str,
     *,
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where ``left_base`` is selected as something other than its bare isolated form immediately before ``right_base``, swept over the same surround combinations as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``. ``chars_before`` and ``chars_after`` are maxima: e.g. ``chars_before=2`` sweeps every length-0, length-1, and length-2 prefix."""
+    """Flag every position where ``left_base`` is selected as something other than its bare isolated form immediately before ``right_base``, swept over the same surround combinations as ``_collect_pair_must_not_join_regardless_of_what_comes_before_or_after``. ``max_chars_before`` and ``max_chars_after`` are maxima: e.g. ``max_chars_before=2`` sweeps every length-0, length-1, and length-2 prefix."""
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
     left_label = _family_to_label(left_base)
     isolated_left_glyph = _shape_qs(left_base)[0]
 
-    before_combos = _surround_combos(context_set, chars_before)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -114,11 +114,11 @@ def _collect_pair_with_forbidden_trait_co_occurrence_failures(
     *,
     forbidden_left_traits: frozenset[str] = frozenset(),
     forbidden_right_traits: frozenset[str] = frozenset(),
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every position where the shaped output ends up with an adjacent (``left_base``, ``right_base``) pair whose chosen variants simultaneously carry ``forbidden_left_traits`` on the left and ``forbidden_right_traits`` on the right, swept over every surround in ``_context_chars()``. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. See @doc/joint-variant-invariants.md for the set math, empty-set cases, the worked ·Way / ·Utter example, and how to read a failure message."""
+    """Flag every position where the shaped output ends up with an adjacent (``left_base``, ``right_base``) pair whose chosen variants simultaneously carry ``forbidden_left_traits`` on the left and ``forbidden_right_traits`` on the right, swept over every surround in ``_context_chars()``. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. See @doc/joint-variant-invariants.md for the set math, empty-set cases, the worked ·Way / ·Utter example, and how to read a failure message."""
     failures: list[str] = []
     meta_map = _compiled_meta()
     context_set = _context_chars()
@@ -128,8 +128,8 @@ def _collect_pair_with_forbidden_trait_co_occurrence_failures(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -269,11 +269,11 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
     left_base: str,
     right_base: str,
     *,
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair that joins at any Y when surrounded by up to ``chars_before`` characters on the left and up to ``chars_after`` characters on the right. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
+    """Flag every (left_base, right_base) pair that joins at any Y when surrounded by up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` characters on the right. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
 
     Ligatures led by ``right_base`` (sequence starting with right_base) and ligatures trailed by ``left_base`` (sequence ending with left_base) match too — they carry the relevant entry/exit anchor of the bare letter, so the same forbidden join applies to them.
 
@@ -290,8 +290,8 @@ def _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -331,11 +331,11 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
     right_base: str,
     *,
     forbidden_y: int,
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair that joins at ``forbidden_y`` when surrounded by up to ``chars_before`` characters on the left and up to ``chars_after`` characters on the right. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
+    """Flag every (left_base, right_base) pair that joins at ``forbidden_y`` when surrounded by up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` characters on the right. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
 
     Ligatures led by ``right_base`` (sequence starting with right_base) and ligatures trailed by ``left_base`` (sequence ending with left_base) match too — they carry the relevant entry/exit anchor of the bare letter, so the same forbidden join applies to them.
 
@@ -352,8 +352,8 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -393,11 +393,11 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
     right_base: str,
     *,
     pixels: int,
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every (left_base, right_base) pair whose joined extension width is not exactly ``pixels``, when surrounded by up to ``chars_before`` characters on the left and up to ``chars_after`` characters on the right. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
+    """Flag every (left_base, right_base) pair whose joined extension width is not exactly ``pixels``, when surrounded by up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` characters on the right. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
 
     The extension between two joined letters is the sum of both sides: the left glyph can carry an ``.exit-<word>`` suffix from its family's ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right glyph can carry an ``.entry-<word>`` suffix from its family's ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel extension might come 2 from the left's ``.exit-doubly-extended`` and 1 from the right's ``.entry-extended``; any split that sums to ``pixels`` is fine.
 
@@ -419,8 +419,8 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -472,11 +472,11 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
 
 def _collect_stranded_extension_joins(
     *,
-    chars_before: int,
-    chars_after: int,
+    max_chars_before: int,
+    max_chars_after: int,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every adjacent slot in any (left_base, right_base) sweep where one side carries an extension suffix (``extended_exit_suffix`` on the left, or ``extended_entry_suffix`` on the right) but the partner has no matching anchor on the other side. Iterates every plain Quikscript letter against every plain Quikscript letter for the pair, surrounding the pair with up to ``chars_before`` and up to ``chars_after`` characters drawn from the 45-entry ``_context_chars()`` set. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value.
+    """Flag every adjacent slot in any (left_base, right_base) sweep where one side carries an extension suffix (``extended_exit_suffix`` on the left, or ``extended_entry_suffix`` on the right) but the partner has no matching anchor on the other side. Iterates every plain Quikscript letter against every plain Quikscript letter for the pair, surrounding the pair with up to ``max_chars_before`` and up to ``max_chars_after`` characters drawn from the 45-entry ``_context_chars()`` set. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value.
 
     The extension suffix is the build's signal that the bitmap really did grow toward the partner — i.e. the join was supposed to land an extra pixel of ink. When the partner has no entry/exit at that Y, that ink dangles. Anchor mismatches on glyphs without an extension suffix don't count: those anchors are connection-point metadata, not material ink, and nothing visually strands when adjacent letters simply choose not to join.
 
@@ -494,8 +494,8 @@ def _collect_stranded_extension_joins(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for left_base, _left_char in letters:
         for right_base, _right_char in letters:
@@ -582,8 +582,8 @@ def _it_roe_touching_rows(
 
 def _collect_it_roe_join_only_at_cursive_join_row_failures(
     *,
-    chars_before: int,
-    chars_after: int,
+    max_chars_before: int,
+    max_chars_after: int,
     before_first_only: str | None = None,
 ) -> list[str]:
     """Flag every surround of ·It·Roe whose rendered ink doesn't touch in exactly the way the cursive anchors say it should.
@@ -601,7 +601,7 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
 
     Surrounds that disrupt the cursive join entirely (·Ye·It absorbs it, ZWNJ breaks it, etc.) are skipped — the rule is conditional on the join forming.
 
-    ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. ``before_first_only`` mirrors the per-shard hook on the sibling ``_collect_pair_*`` helpers — it narrows the non-empty ``before`` combinations and still sweeps the empty prefix.
+    ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. ``before_first_only`` mirrors the per-shard hook on the sibling ``_collect_pair_*`` helpers — it narrows the non-empty ``before`` combinations and still sweeps the empty prefix.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -613,8 +613,8 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -1413,8 +1413,8 @@ def test_it_day_never_joins_at_xheight(before_first: str):
             "qsIt",
             "qsDay",
             forbidden_y=5,
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1428,8 +1428,8 @@ def test_ye_it_never_joins_at_baseline(before_first: str):
             "qsYe",
             "qsIt",
             forbidden_y=0,
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1442,8 +1442,8 @@ def test_it_it_never_joins(before_first: str):
         _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
             "qsIt",
             "qsIt",
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1457,8 +1457,8 @@ def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
             "qsIt",
             "qsOwe",
             pixels=1,
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1472,8 +1472,8 @@ def test_it_cheer_extends_by_one_pixel_when_joined(before_first: str):
             "qsIt",
             "qsCheer",
             pixels=1,
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1487,8 +1487,8 @@ def test_it_jai_extends_by_one_pixel_when_joined(before_first: str):
             "qsIt",
             "qsJai",
             pixels=1,
-            chars_before=2,
-            chars_after=2,
+            max_chars_before=2,
+            max_chars_after=2,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1499,8 +1499,8 @@ def test_it_jai_extends_by_one_pixel_when_joined(before_first: str):
 def test_no_stranded_extension_joins_anywhere(before_first: str):
     _assert_no_failures(
         _collect_stranded_extension_joins(
-            chars_before=1,
-            chars_after=1,
+            max_chars_before=1,
+            max_chars_after=1,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1511,8 +1511,8 @@ def test_no_stranded_extension_joins_anywhere(before_first: str):
 def test_it_roe_join_only_touches_at_cursive_join_row(before_first: str):
     _assert_no_failures(
         _collect_it_roe_join_only_at_cursive_join_row_failures(
-            chars_before=2,
-            chars_after=0,
+            max_chars_before=2,
+            max_chars_after=0,
             before_first_only=before_first,
         ),
         limit=None,
@@ -1523,10 +1523,10 @@ def _collect_letter_must_not_join_on_both_sides_at_the_same_height(
     middle_base: str,
     *,
     forbidden_y: int,
-    chars_before: int = 1,
-    chars_after: int = 1,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
 ) -> list[str]:
-    """Flag every position where a bare ``middle_base`` glyph is joined on its left side and its right side at the same ``forbidden_y``, swept over every combination of up to ``chars_before`` characters on the left and up to ``chars_after`` characters on the right. ``chars_before`` and ``chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
+    """Flag every position where a bare ``middle_base`` glyph is joined on its left side and its right side at the same ``forbidden_y``, swept over every combination of up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` characters on the right. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
 
     Only bare ``middle_base`` variants are policed: in a ligature led or trailed by ``middle_base`` only one side carries ``middle_base``'s anchor, so a "joined on both sides" rule isn't meaningful there.
 
@@ -1537,8 +1537,8 @@ def _collect_letter_must_not_join_on_both_sides_at_the_same_height(
     context_set = _context_chars()
     middle_text = _qs_text(middle_base)
 
-    before_combos = _surround_combos(context_set, chars_before)
-    after_combos = _surround_combos(context_set, chars_after)
+    before_combos = _surround_combos(context_set, max_chars_before)
+    after_combos = _surround_combos(context_set, max_chars_after)
 
     for before in before_combos:
         before_label = "·".join(name for name, _ in before) if before else "∅"
@@ -1582,7 +1582,7 @@ def test_qs_it_never_joins_on_both_sides_at_baseline():
 def test_qs_pea_never_joins_on_both_sides_at_baseline():
     _assert_no_failures(
         _collect_letter_must_not_join_on_both_sides_at_the_same_height(
-            "qsPea", forbidden_y=0, chars_before=1, chars_after=1
+            "qsPea", forbidden_y=0, max_chars_before=1, max_chars_after=1
         ),
         limit=None,
     )
@@ -1679,10 +1679,10 @@ def test_qs_day_always_picks_half_after_qs_it_in_any_context():
 )
 def test_qs_nonjoining_pairs_do_not_connect_in_context(left_base: str, right_base: str):
     failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
-        left_base, right_base, chars_before=1, chars_after=0
+        left_base, right_base, max_chars_before=1, max_chars_after=0
     )
     failures += _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
-        left_base, right_base, chars_before=0, chars_after=1
+        left_base, right_base, max_chars_before=0, max_chars_after=1
     )
     _assert_no_failures(failures)
 
@@ -2136,10 +2136,10 @@ def test_qs_nonjoining_pairs_keep_their_edges_separate(text: str, expects: list[
 )
 def test_qs_nonjoining_pairs_stay_nonjoining_in_context(left_base: str, right_base: str):
     failures = _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
-        left_base, right_base, chars_before=1, chars_after=0
+        left_base, right_base, max_chars_before=1, max_chars_after=0
     )
     failures += _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
-        left_base, right_base, chars_before=0, chars_after=1
+        left_base, right_base, max_chars_before=0, max_chars_after=1
     )
     _assert_no_failures(failures)
 
@@ -3493,12 +3493,12 @@ def _find_zwnj_indices(glyphs: list[str]) -> list[int]:
 
 def _collect_left_context_changes_right_pair_across_zwnj_failures(
     *,
-    chars_before: int = 1,
+    max_chars_before: int = 1,
     before_first_only: str | None = None,
 ) -> list[str]:
     """Flag every (L1, L2) pair whose chosen shapes after a ZWNJ change when the prefix on the left of the ZWNJ changes.
 
-    The baseline for each pair is the bare ``ZWNJ + L1 + L2`` sequence — i.e. the pair with only a leading ZWNJ and nothing further left. ``chars_before`` is a maximum: each prefix length from 0 up to ``chars_before`` (drawn from every plain Quikscript letter plus ZWNJ, so 45 entries per slot) gets compared against that baseline. The length-0 prefix is a trivial self-comparison and is always swept.
+    The baseline for each pair is the bare ``ZWNJ + L1 + L2`` sequence — i.e. the pair with only a leading ZWNJ and nothing further left. ``max_chars_before`` is a maximum: each prefix length from 0 up to ``max_chars_before`` (drawn from every plain Quikscript letter plus ZWNJ, so 45 entries per slot) gets compared against that baseline. The length-0 prefix is a trivial self-comparison and is always swept.
 
     The check looks only at the glyphs to the right of the *rightmost* ZWNJ marker in the output (HarfBuzz surfaces each surviving ZWNJ as a ``space`` glyph) — the injected ZWNJ just before L1 — so ligatures that span L1/L2 are handled naturally and prefix-internal ZWNJs drawn from the iteration set don't confuse the slice.
 
@@ -3513,7 +3513,7 @@ def _collect_left_context_changes_right_pair_across_zwnj_failures(
         if before_first_only not in valid_names:
             raise ValueError(f"before_first_only={before_first_only!r} not in context set")
 
-    before_combos = _surround_combos(context_set, chars_before, first_only=before_first_only)
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
 
     for l1_name, l1_char in letters:
         for l2_name, l2_char in letters:
@@ -3556,12 +3556,12 @@ def _collect_left_context_changes_right_pair_across_zwnj_failures(
 
 def _collect_right_context_changes_left_pair_across_zwnj_failures(
     *,
-    chars_after: int = 1,
+    max_chars_after: int = 1,
     after_first_only: str | None = None,
 ) -> list[str]:
     """Mirror of ``_collect_left_context_changes_right_pair_across_zwnj_failures``: flag every (L1, L2) pair whose chosen shapes before a ZWNJ change when the suffix on the right of the ZWNJ changes.
 
-    The baseline for each pair is ``L1 + L2 + ZWNJ`` with nothing further on the right. ``chars_after`` is a maximum: each suffix length from 0 up to ``chars_after`` (drawn from every plain Quikscript letter plus ZWNJ) is compared against that baseline. The length-0 suffix is a trivial self-comparison and is always swept. The check looks at the glyphs before the *leftmost* ZWNJ marker in the output (each surviving ZWNJ surfaces as ``space``); that marker is always the injected ZWNJ.
+    The baseline for each pair is ``L1 + L2 + ZWNJ`` with nothing further on the right. ``max_chars_after`` is a maximum: each suffix length from 0 up to ``max_chars_after`` (drawn from every plain Quikscript letter plus ZWNJ) is compared against that baseline. The length-0 suffix is a trivial self-comparison and is always swept. The check looks at the glyphs before the *leftmost* ZWNJ marker in the output (each surviving ZWNJ surfaces as ``space``); that marker is always the injected ZWNJ.
     """
     failures: list[str] = []
     context_set = _context_chars()
@@ -3572,7 +3572,7 @@ def _collect_right_context_changes_left_pair_across_zwnj_failures(
         if after_first_only not in valid_names:
             raise ValueError(f"after_first_only={after_first_only!r} not in context set")
 
-    after_combos = _surround_combos(context_set, chars_after, first_only=after_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after, first_only=after_first_only)
 
     for l1_name, l1_char in letters:
         for l2_name, l2_char in letters:
@@ -3617,7 +3617,7 @@ def _collect_right_context_changes_left_pair_across_zwnj_failures(
 def test_right_pair_after_zwnj_is_unaffected_by_left_context(before_first: str):
     _assert_no_failures(
         _collect_left_context_changes_right_pair_across_zwnj_failures(
-            chars_before=1,
+            max_chars_before=1,
             before_first_only=before_first,
         ),
         limit=None,
@@ -3628,7 +3628,7 @@ def test_right_pair_after_zwnj_is_unaffected_by_left_context(before_first: str):
 def test_left_pair_before_zwnj_is_unaffected_by_right_context(after_first: str):
     _assert_no_failures(
         _collect_right_context_changes_left_pair_across_zwnj_failures(
-            chars_after=1,
+            max_chars_after=1,
             after_first_only=after_first,
         ),
         limit=None,
