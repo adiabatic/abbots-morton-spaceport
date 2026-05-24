@@ -1121,6 +1121,7 @@ def test_build_font_uses_compiled_join_glyphs_for_feature_generation(monkeypatch
         pixel_height,
         restore_isolated_form_overrides=(),
         predecessor_demote_overrides=(),
+        trailing_demote_overrides=(),
     ):
         assert join_glyphs is compiled.join_glyphs
         assert pixel_width == data["metadata"]["pixel_size"]

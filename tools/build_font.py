@@ -62,6 +62,7 @@ def load_glyph_data(path: Path) -> GlyphData:
         kerning_defs = {}
         restore_isolated_form_overrides = []
         predecessor_demote_overrides = []
+        trailing_demote_overrides = []
         for yaml_file in sorted(path.glob("*.yaml")):
             with open(yaml_file) as f:
                 data = yaml.safe_load(f) or {}
@@ -79,6 +80,8 @@ def load_glyph_data(path: Path) -> GlyphData:
                 restore_isolated_form_overrides.extend(data["restore_isolated_form_overrides"] or [])
             if "predecessor_demote_overrides" in data:
                 predecessor_demote_overrides.extend(data["predecessor_demote_overrides"] or [])
+            if "trailing_demote_overrides" in data:
+                trailing_demote_overrides.extend(data["trailing_demote_overrides"] or [])
         return {
             "metadata": metadata,
             "glyphs": glyphs,
@@ -87,6 +90,7 @@ def load_glyph_data(path: Path) -> GlyphData:
             "kerning": kerning_defs,
             "restore_isolated_form_overrides": restore_isolated_form_overrides,
             "predecessor_demote_overrides": predecessor_demote_overrides,
+            "trailing_demote_overrides": trailing_demote_overrides,
         }
     else:
         with open(path) as f:
@@ -99,6 +103,7 @@ def load_glyph_data(path: Path) -> GlyphData:
             "kerning": data.get("kerning", {}),
             "restore_isolated_form_overrides": data.get("restore_isolated_form_overrides", []) or [],
             "predecessor_demote_overrides": data.get("predecessor_demote_overrides", []) or [],
+            "trailing_demote_overrides": data.get("trailing_demote_overrides", []) or [],
         }
 
 
@@ -1063,12 +1068,22 @@ def build_font(
             )
             for entry in raw_pred_demote
         )
+        raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
+        trailing_demote_tuples = tuple(
+            (
+                entry["leader_form"],
+                entry["trailing_form"],
+                entry["iso_form"],
+            )
+            for entry in raw_trailing_demote
+        )
         senior_fea = emit_quikscript_senior_features(
             join_glyphs,
             pixel_width,
             pixel_height,
             restore_isolated_form_overrides=restore_isolated_form_tuples,
             predecessor_demote_overrides=predecessor_demote_tuples,
+            trailing_demote_overrides=trailing_demote_tuples,
         )
         if senior_fea:
             fea_code_parts.append(senior_fea)
