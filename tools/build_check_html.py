@@ -5,6 +5,7 @@ One program, one file out. Replaces the previous arrangement where a static ``te
 The page contains:
 
 * Standard page chrome (title, intro, workflow notes, footer).
+* A curated "context-set join demo" section: the predecessor × follower matrix for the ``reaches_up_and_(way|a_little)_over...`` context_sets, so you can eyeball which predecessors reach which entry-x-height followers.
 * A "corpus render diffs" section: every multi-letter Quikscript run harvested from ``test/the-manual.html``, ``test/index.html``, and ``test/extra-senior-words.html`` whose Senior-Regular render differs between ``test/before/`` and the live build. Skipped with a notice when the snapshot is missing.
 * An "isolation leaks" section: short sequences whose adjacent non-joining pair changes shape when the pair is shaped together vs. independently — the same invariant as ``_check_break_isolation`` in ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead of ``|``) in ``data-expect``.
 * A "failing tests" section: one row per assertion line from a currently-failing pytest test under ``test/``. The row renders the input families parsed out of the failure message so you can eyeball false positives.
@@ -29,6 +30,7 @@ import re
 import sys
 import urllib.parse
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -40,6 +42,7 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
+QS_YAML_PATH = ROOT / "glyph_data" / "quikscript.yaml"
 CHECK_HTML_PATH = TEST_DIR / "check.html"
 
 # Reuse the test-suite shaping helpers so the isolation-leaks sweep matches what ``test_shaping.py`` enforces.
@@ -891,6 +894,154 @@ def _render_failing_tests_section(rows: list[FailureRow], cp_to_family: dict[int
 
 
 # ---------------------------------------------------------------------------
+# Context-set join demo (curated).
+# ---------------------------------------------------------------------------
+
+
+_CONTEXT_SET_DEMO_SUPERSET = "reaches_up_and_a_little_over_at_least_part_of_the_next_letter"
+_CONTEXT_SET_DEMO_SUBSET = "reaches_up_and_way_over_at_least_part_of_the_next_letter"
+
+# Followers picked to cover the entry-xheight forms that key off the two context_sets: ·Bay (the new join enabled by the `a_little_over` superset), plus ·They, ·They·Utter, and ·May (which stay on `way_over` and don't accept ·I).
+_CONTEXT_SET_DEMO_FOLLOWERS: tuple[tuple[str, ...], ...] = (
+    ("qsBay",),
+    ("qsThey",),
+    ("qsThey", "qsUtter"),
+    ("qsMay",),
+)
+
+
+@cache
+def _raw_glyph_data() -> dict:
+    with QS_YAML_PATH.open() as f:
+        return yaml.safe_load(f)
+
+
+def _family_sequence(family: str) -> tuple[str, ...]:
+    """Return the input-character sequence that types a given family — its `sequence` list for ligatures, else just the family name."""
+    families = _raw_glyph_data().get("glyph_families", {})
+    record = families.get(family, {})
+    seq = record.get("sequence")
+    if seq:
+        return tuple(seq)
+    return (family,)
+
+
+def _resolve_context_set_to_sequences(name: str) -> list[tuple[str, ...]]:
+    """Resolve a context_set into a deduplicated list of input-character sequences (one per member family, expanding nested context_set refs)."""
+    context_sets = _raw_glyph_data().get("context_sets", {})
+
+    seen: set[tuple[str, ...]] = set()
+    out: list[tuple[str, ...]] = []
+
+    def _visit(set_name: str, stack: tuple[str, ...]) -> None:
+        if set_name in stack:
+            cycle = " -> ".join([*stack, set_name])
+            raise ValueError(f"Cyclic context_set expansion: {cycle}")
+        for entry in context_sets.get(set_name, []):
+            if not isinstance(entry, dict):
+                continue
+            if "context_set" in entry:
+                _visit(entry["context_set"], (*stack, set_name))
+                continue
+            family = entry.get("family")
+            if not family:
+                continue
+            seq = _family_sequence(family)
+            if seq not in seen:
+                seen.add(seq)
+                out.append(seq)
+
+    _visit(name, ())
+    return out
+
+
+def _sequence_codepoints(seq: tuple[str, ...]) -> tuple[int, ...]:
+    chars = _char_map()
+    return tuple(ord(chars[name]) for name in seq)
+
+
+def _sequence_label(seq: tuple[str, ...], cp_to_family: dict[int, str]) -> str:
+    return "".join(_short_label_for_codepoint(cp, cp_to_family) for cp in _sequence_codepoints(seq))
+
+
+def _sequence_entities(seq: tuple[str, ...]) -> str:
+    return "".join(_entity_for(cp) for cp in _sequence_codepoints(seq))
+
+
+def _sequence_codepoints_strip(seq: tuple[str, ...]) -> str:
+    return " ".join(f"U+{cp:04X}" for cp in _sequence_codepoints(seq))
+
+
+def _render_context_set_joins_section(cp_to_family: dict[int, str]) -> str:
+    superset_seqs = _resolve_context_set_to_sequences(_CONTEXT_SET_DEMO_SUPERSET)
+    subset_seqs = set(_resolve_context_set_to_sequences(_CONTEXT_SET_DEMO_SUBSET))
+
+    header_cells = "".join(
+        '          <th scope="col">\n'
+        f'            <span class="follower-label">{html.escape(_sequence_label(f, cp_to_family))}</span>\n'
+        f"            <code>{_sequence_codepoints_strip(f)}</code>\n"
+        "          </th>\n"
+        for f in _CONTEXT_SET_DEMO_FOLLOWERS
+    )
+
+    row_blocks: list[str] = []
+    for pred in superset_seqs:
+        only_a_little = pred not in subset_seqs
+        marker = ' data-only-a-little="true"' if only_a_little else ""
+        pred_label = html.escape(_sequence_label(pred, cp_to_family))
+        pred_strip = _sequence_codepoints_strip(pred)
+        pred_entities = _sequence_entities(pred)
+        cells: list[str] = []
+        for follower in _CONTEXT_SET_DEMO_FOLLOWERS:
+            rendered = pred_entities + _sequence_entities(follower)
+            cells.append(f'          <td><div class="qs after">{rendered}</div></td>')
+        cells_html = "\n".join(cells)
+        row_blocks.append(
+            f"        <tr{marker}>\n"
+            '          <th scope="row">\n'
+            f'            <span class="predecessor-label">{pred_label}</span>\n'
+            f"            <code>{pred_strip}</code>\n"
+            "          </th>\n"
+            f"{cells_html}\n"
+            "        </tr>"
+        )
+
+    rows_html = "\n".join(row_blocks)
+    legend = (
+        "      <p>\n"
+        f"        Each predecessor is a member of <code>{_CONTEXT_SET_DEMO_SUPERSET}</code>,\n"
+        f"        which nests <code>{_CONTEXT_SET_DEMO_SUBSET}</code>. The follower columns\n"
+        "        are entry-x-height forms keyed off those context_sets: qsBay.entry_xheight\n"
+        "        uses the superset, while qsThey/qsThey_qsUtter/qsMay stay on the\n"
+        "        narrower subset. Rows flagged "
+        '<span class="only-a-little-flag">a_little_over only</span> are the\n'
+        "        predecessors in the superset that are <em>not</em> in the subset — i.e.\n"
+        "        they reach up to the x-height but not far enough over to dive into the\n"
+        "        narrower followers' set-back entries. ·I·May still joins in this matrix\n"
+        "        because <code>qsMay.entry_xheight_after_i</code> is a separate (non-context-set)\n"
+        "        rule.\n"
+        "      </p>\n"
+    )
+    return (
+        '    <details class="collapsible context-set-joins" open>\n'
+        "      <summary><h2>Context-set join demo: reaches_up_and_(way|a_little)_over...</h2></summary>\n"
+        f"{legend}"
+        '      <table class="join-matrix">\n'
+        "        <thead>\n"
+        "          <tr>\n"
+        '            <th scope="col">Predecessor</th>\n'
+        f"{header_cells}"
+        "          </tr>\n"
+        "        </thead>\n"
+        "        <tbody>\n"
+        f"{rows_html}\n"
+        "        </tbody>\n"
+        "      </table>\n"
+        "    </details>"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Page chrome (CSS, JS, top-level template).
 # ---------------------------------------------------------------------------
 
@@ -1259,6 +1410,77 @@ _PAGE_CSS = """      /*
           font-family: Menlo, Consolas, monospace;
           font-size: 13px;
         }
+      }
+
+      .context-set-joins .only-a-little-flag {
+        display: inline-block;
+        padding: 0 .4em;
+        border-radius: 3px;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        background: light-dark(#ffe0a8, #5a3a00);
+        color: light-dark(#5a3a00, #ffe0a8);
+      }
+
+      .context-set-joins .join-matrix {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0;
+
+        th, td {
+          padding: .75rem 1rem;
+          border-top: 1px solid light-dark(#ccc, #444);
+          vertical-align: middle;
+          text-align: left;
+        }
+
+        thead th {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+          color: light-dark(#222, #eee);
+          border-bottom: 2px solid light-dark(#888, #666);
+          background: light-dark(#fff, #2a2a2a);
+          position: sticky;
+          top: 0;
+        }
+
+        thead th .follower-label {
+          display: block;
+          font-size: 16px;
+        }
+
+        thead th code,
+        tbody th code {
+          display: block;
+          margin-top: .25rem;
+          font-family: Menlo, Consolas, monospace;
+          font-size: 12px;
+          font-weight: 400;
+          color: light-dark(#666, #aaa);
+        }
+
+        tbody th {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 16px;
+          font-weight: 500;
+          color: light-dark(#444, #ccc);
+          white-space: nowrap;
+        }
+
+        tbody tr[data-only-a-little] th {
+          border-left: 4px solid light-dark(#c08400, #ffd078);
+        }
+
+        .qs.after {
+          font-family: var(--after-font);
+          font-size: var(--font-size);
+          line-height: 1;
+          -webkit-font-smoothing: none;
+          font-smooth: never;
+          white-space: nowrap;
+        }
       }"""
 
 
@@ -1298,6 +1520,7 @@ def _render_page(
     diffs_section: str,
     leaks_section: str,
     failures_section: str,
+    context_set_joins_section: str,
 ) -> str:
     return f"""<!doctype html>
 <html lang="en">
@@ -1313,14 +1536,16 @@ def _render_page(
   <body>
     <h1>Check &mdash; before/after</h1>
     <p>
-      Side-by-side rendering harness. Three auto-generated sections cover
-      the whole page: one renders every assertion line from currently-
-      failing pytest tests so you can eyeball false positives; one diffs
-      every multi-letter Quikscript run in the test corpus between the
-      snapshot under <code>test/before/</code> and the live build under
+      Side-by-side rendering harness. Auto-generated sections cover most of
+      the page: one renders every assertion line from currently-failing
+      pytest tests so you can eyeball false positives; one diffs every
+      multi-letter Quikscript run in the test corpus between the snapshot
+      under <code>test/before/</code> and the live build under
       <code>test/</code>; one lists every short sequence whose adjacent
       non-joining pair changes shape between single-buffer and split
-      shaping.
+      shaping. A curated section also shows the predecessor &times;
+      follower matrix for the
+      <code>reaches_up_and_(way|a_little)_over...</code> context_sets.
     </p>
     <p>
       Workflow:
@@ -1346,6 +1571,8 @@ def _render_page(
         map is in <code>postscript_glyph_names.yaml</code>.
       </li>
     </ol>
+
+{context_set_joins_section}
 
 {failures_section}
 
@@ -1385,7 +1612,9 @@ def build(max_len: int) -> str:
     failure_rows = build_failure_rows(failures)
     failures_section = _render_failing_tests_section(failure_rows, cp_to_family)
 
-    return _render_page(diffs_section, leaks_section, failures_section)
+    context_set_joins_section = _render_context_set_joins_section(cp_to_family)
+
+    return _render_page(diffs_section, leaks_section, failures_section, context_set_joins_section)
 
 
 def main() -> None:

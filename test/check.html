@@ -371,19 +371,92 @@
           font-size: 13px;
         }
       }
+
+      .context-set-joins .only-a-little-flag {
+        display: inline-block;
+        padding: 0 .4em;
+        border-radius: 3px;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        text-transform: uppercase;
+        background: light-dark(#ffe0a8, #5a3a00);
+        color: light-dark(#5a3a00, #ffe0a8);
+      }
+
+      .context-set-joins .join-matrix {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 0;
+
+        th, td {
+          padding: .75rem 1rem;
+          border-top: 1px solid light-dark(#ccc, #444);
+          vertical-align: middle;
+          text-align: left;
+        }
+
+        thead th {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+          color: light-dark(#222, #eee);
+          border-bottom: 2px solid light-dark(#888, #666);
+          background: light-dark(#fff, #2a2a2a);
+          position: sticky;
+          top: 0;
+        }
+
+        thead th .follower-label {
+          display: block;
+          font-size: 16px;
+        }
+
+        thead th code,
+        tbody th code {
+          display: block;
+          margin-top: .25rem;
+          font-family: Menlo, Consolas, monospace;
+          font-size: 12px;
+          font-weight: 400;
+          color: light-dark(#666, #aaa);
+        }
+
+        tbody th {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 16px;
+          font-weight: 500;
+          color: light-dark(#444, #ccc);
+          white-space: nowrap;
+        }
+
+        tbody tr[data-only-a-little] th {
+          border-left: 4px solid light-dark(#c08400, #ffd078);
+        }
+
+        .qs.after {
+          font-family: var(--after-font);
+          font-size: var(--font-size);
+          line-height: 1;
+          -webkit-font-smoothing: none;
+          font-smooth: never;
+          white-space: nowrap;
+        }
+      }
     </style>
   </head>
   <body>
     <h1>Check &mdash; before/after</h1>
     <p>
-      Side-by-side rendering harness. Three auto-generated sections cover
-      the whole page: one renders every assertion line from currently-
-      failing pytest tests so you can eyeball false positives; one diffs
-      every multi-letter Quikscript run in the test corpus between the
-      snapshot under <code>test/before/</code> and the live build under
+      Side-by-side rendering harness. Auto-generated sections cover most of
+      the page: one renders every assertion line from currently-failing
+      pytest tests so you can eyeball false positives; one diffs every
+      multi-letter Quikscript run in the test corpus between the snapshot
+      under <code>test/before/</code> and the live build under
       <code>test/</code>; one lists every short sequence whose adjacent
       non-joining pair changes shape between single-buffer and split
-      shaping.
+      shaping. A curated section also shows the predecessor &times;
+      follower matrix for the
+      <code>reaches_up_and_(way|a_little)_over...</code> context_sets.
     </p>
     <p>
       Workflow:
@@ -409,6 +482,147 @@
         map is in <code>postscript_glyph_names.yaml</code>.
       </li>
     </ol>
+
+    <details class="collapsible context-set-joins" open>
+      <summary><h2>Context-set join demo: reaches_up_and_(way|a_little)_over...</h2></summary>
+      <p>
+        Each predecessor is a member of <code>reaches_up_and_a_little_over_at_least_part_of_the_next_letter</code>,
+        which nests <code>reaches_up_and_way_over_at_least_part_of_the_next_letter</code>. The follower columns
+        are entry-x-height forms keyed off those context_sets: qsBay.entry_xheight
+        uses the superset, while qsThey/qsThey_qsUtter/qsMay stay on the
+        narrower subset. Rows flagged <span class="only-a-little-flag">a_little_over only</span> are the
+        predecessors in the superset that are <em>not</em> in the subset — i.e.
+        they reach up to the x-height but not far enough over to dive into the
+        narrower followers' set-back entries. ·I·May still joins in this matrix
+        because <code>qsMay.entry_xheight_after_i</code> is a separate (non-context-set)
+        rule.
+      </p>
+      <table class="join-matrix">
+        <thead>
+          <tr>
+            <th scope="col">Predecessor</th>
+          <th scope="col">
+            <span class="follower-label">·Bay</span>
+            <code>U+E651</code>
+          </th>
+          <th scope="col">
+            <span class="follower-label">·They</span>
+            <code>U+E657</code>
+          </th>
+          <th scope="col">
+            <span class="follower-label">·They·Utter</span>
+            <code>U+E657 U+E67A</code>
+          </th>
+          <th scope="col">
+            <span class="follower-label">·May</span>
+            <code>U+E665</code>
+          </th>
+          </tr>
+        </thead>
+        <tbody>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Ah</span>
+            <code>U+E676</code>
+          </th>
+          <td><div class="qs after">&#xE676;&#xE651;</div></td>
+          <td><div class="qs after">&#xE676;&#xE657;</div></td>
+          <td><div class="qs after">&#xE676;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE676;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Utter</span>
+            <code>U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Day·Utter</span>
+            <code>U+E653 U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE653;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE653;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE653;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE653;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Jai·Utter</span>
+            <code>U+E65D U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE65D;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE65D;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE65D;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE65D;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Jay·Utter</span>
+            <code>U+E65F U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE65F;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE65F;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE65F;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE65F;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·See·Utter</span>
+            <code>U+E65A U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE65A;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE65A;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE65A;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE65A;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Vie·Utter</span>
+            <code>U+E659 U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE659;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE659;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE659;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE659;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Way·Utter</span>
+            <code>U+E661 U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE661;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE661;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE661;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE661;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr>
+          <th scope="row">
+            <span class="predecessor-label">·Why·Utter</span>
+            <code>U+E663 U+E67A</code>
+          </th>
+          <td><div class="qs after">&#xE663;&#xE67A;&#xE651;</div></td>
+          <td><div class="qs after">&#xE663;&#xE67A;&#xE657;</div></td>
+          <td><div class="qs after">&#xE663;&#xE67A;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE663;&#xE67A;&#xE665;</div></td>
+        </tr>
+        <tr data-only-a-little="true">
+          <th scope="row">
+            <span class="predecessor-label">·I</span>
+            <code>U+E675</code>
+          </th>
+          <td><div class="qs after">&#xE675;&#xE651;</div></td>
+          <td><div class="qs after">&#xE675;&#xE657;</div></td>
+          <td><div class="qs after">&#xE675;&#xE657;&#xE67A;</div></td>
+          <td><div class="qs after">&#xE675;&#xE665;</div></td>
+        </tr>
+        </tbody>
+      </table>
+    </details>
 
     <details class="collapsible failing-tests" open>
       <summary><h2>Auto-generated: failing tests</h2></summary>
@@ -455,55 +669,39 @@
       </div>
       <div class="row">
         <div class="label">
-          ·They ·May (qsThey_qsMay → qsThey.exit-baseline.before-may qsMay.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·They·May">U+E657 U+E665</code></div>
+          ·Pea ·Roe (qsPea.half qsRoe.entry-xheight.entry-extended-at-xheight → qsPea.half.exit-dips qsRoe.entry-xheight.entry-contracted)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe">U+E650 U+E668</code></div>
         </div>
-        <div class="qs before">&#xE657;&#xE665;</div>
-        <div class="qs after">&#xE657;&#xE665;</div>
+        <div class="qs before">&#xE650;&#xE668;</div>
+        <div class="qs after">&#xE650;&#xE668;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Fee ·May (qsFee_qsMay → qsFee.exit-xheight.before-may.exit-triply-extended qsMay.entry-xheight.after-fee)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Fee·May">U+E658 U+E665</code></div>
+          ·Pea ·I (qsPea qsI → qsPea qsI.entry-baseline.smaller-loop)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·I">U+E650 U+E675</code></div>
         </div>
-        <div class="qs before">&#xE658;&#xE665;</div>
-        <div class="qs after">&#xE658;&#xE665;</div>
+        <div class="qs before">&#xE650;&#xE675;</div>
+        <div class="qs after">&#xE650;&#xE675;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·He ·Zoo (qsHe.half.exit-contracted qsZoo.entry-extended.entry-trimmed-by-1 → qsHe.half.exit-contracted qsZoo.entry-trimmed-by-1)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·He·Zoo">U+E662 U+E65B</code></div>
+          ·Pea ·Awe (qsPea.half qsAwe.entry-extended → qsPea.half.exit-dips qsAwe)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Awe">U+E650 U+E677</code></div>
         </div>
-        <div class="qs before">&#xE662;&#xE65B;</div>
-        <div class="qs after">&#xE662;&#xE65B;</div>
+        <div class="qs before">&#xE650;&#xE677;</div>
+        <div class="qs after">&#xE650;&#xE677;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·May ·I (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·I">U+E665 U+E675</code></div>
+          ·Pea ·Roe ·It (qsPea.half qsRoe.entry-xheight.entry-extended-at-xheight qsIt → qsPea.half.exit-dips qsRoe.entry-xheight.entry-contracted qsIt)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe·It">U+E650 U+E668 U+E670</code></div>
         </div>
-        <div class="qs before">&#xE665;&#xE675;</div>
-        <div class="qs after">&#xE665;&#xE675;</div>
+        <div class="qs before">&#xE650;&#xE668;&#xE670;</div>
+        <div class="qs after">&#xE650;&#xE668;&#xE670;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·It ·Zoo (qsIt.exit-baseline.before-ing qsZoo.half → qsIt.exit-baseline qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·It·Zoo">U+E670 U+E65B</code></div>
-        </div>
-        <div class="qs before">&#xE670;&#xE65B;</div>
-        <div class="qs after">&#xE670;&#xE65B;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·At ·May (qsAt_qsMay → qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·At·May">U+E674 U+E665</code></div>
-        </div>
-        <div class="qs before">&#xE674;&#xE665;</div>
-        <div class="qs after">&#xE674;&#xE665;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Pea ·Roe ·I (qsPea.half qsRoe.exit-baseline.exit-extended qsI → qsPea.half qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop)
+          ·Pea ·Roe ·I (qsPea.half qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop → qsPea.half.exit-dips qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop)
           <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe·I">U+E650 U+E668 U+E675</code></div>
         </div>
         <div class="qs before">&#xE650;&#xE668;&#xE675;</div>
@@ -511,159 +709,79 @@
       </div>
       <div class="row">
         <div class="label">
-          ·Tea ·Roe ·I (qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI → qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Tea·Roe·I">U+E652 U+E668 U+E675</code></div>
+          ·Pea ·Roe ·Utter (qsPea.half qsRoe.entry-xheight.entry-extended-at-xheight qsUtter → qsPea.half.exit-dips qsRoe.entry-xheight.entry-contracted qsUtter)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe·Utter">U+E650 U+E668 U+E67A</code></div>
         </div>
-        <div class="qs before">&#xE652;&#xE668;&#xE675;</div>
-        <div class="qs after">&#xE652;&#xE668;&#xE675;</div>
+        <div class="qs before">&#xE650;&#xE668;&#xE67A;</div>
+        <div class="qs after">&#xE650;&#xE668;&#xE67A;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Gay ·Out ·No (qsGay.exit-baseline qsOut.exit-xheight.after-see qsNo → qsGay.exit-baseline qsOut.exit-xheight qsNo)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Gay·Out·No">U+E655 U+E67B U+E666</code></div>
+          ·Pea ·It ·-ing (qsPea.half qsIt.entry-xheight.entry-extended qsIng → qsPea.half.exit-dips qsIt.entry-xheight qsIng)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·It·-ing">U+E650 U+E670 U+E664</code></div>
         </div>
-        <div class="qs before">&#xE655;&#xE67B;&#xE666;</div>
-        <div class="qs after">&#xE655;&#xE67B;&#xE666;</div>
+        <div class="qs before">&#xE650;&#xE670;&#xE664;</div>
+        <div class="qs after">&#xE650;&#xE670;&#xE664;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Vie ·It ·-ing (qsVie qsIt.exit-baseline.before-ing qsIng → qsVie qsIt.exit-baseline qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Vie·It·-ing">U+E659 U+E670 U+E664</code></div>
+          ·Pea ·It ·Low (qsPea.half qsIt.entry-xheight.entry-extended qsLow → qsPea.half.exit-dips qsIt.entry-xheight qsLow)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·It·Low">U+E650 U+E670 U+E667</code></div>
         </div>
-        <div class="qs before">&#xE659;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE659;&#xE670;&#xE664;</div>
+        <div class="qs before">&#xE650;&#xE670;&#xE667;</div>
+        <div class="qs after">&#xE650;&#xE670;&#xE667;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·See ·Low ·Owe (qsSee.exit-baseline.exit-doubly-extended qsLow qsOwe → qsSee.exit-baseline.exit-doubly-extended qsLow.entry-extended qsOwe)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Low·Owe">U+E65A U+E667 U+E67C</code></div>
+          ·Pea ·Et ·Tea (qsPea.half qsEt.entry-extended qsTea.entry-baseline → qsPea.half.exit-dips qsEt.entry-extended qsTea.entry-baseline)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Et·Tea">U+E650 U+E672 U+E652</code></div>
         </div>
-        <div class="qs before">&#xE65A;&#xE667;&#xE67C;</div>
-        <div class="qs after">&#xE65A;&#xE667;&#xE67C;</div>
+        <div class="qs before">&#xE650;&#xE672;&#xE652;</div>
+        <div class="qs after">&#xE650;&#xE672;&#xE652;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·See ·At ·Tea (qsSee.exit-baseline qsAt qsTea → qsSee.exit-baseline qsAt.entry-extended qsTea)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·At·Tea">U+E65A U+E674 U+E652</code></div>
+          ·Pea ·Et ·No (qsPea.half qsEt.entry-extended qsNo.alt → qsPea.half.exit-dips qsEt.entry-extended qsNo.alt)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Et·No">U+E650 U+E672 U+E666</code></div>
         </div>
-        <div class="qs before">&#xE65A;&#xE674;&#xE652;</div>
-        <div class="qs after">&#xE65A;&#xE674;&#xE652;</div>
+        <div class="qs before">&#xE650;&#xE672;&#xE666;</div>
+        <div class="qs after">&#xE650;&#xE672;&#xE666;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·See ·At ·May (qsSee qsAt_qsMay → qsSee qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·At·May">U+E65A U+E674 U+E665</code></div>
+          ·Pea ·Eight ·Zoo (qsPea.half qsEight.entry-extended qsZoo.half → qsPea.half.exit-dips qsEight.entry-extended qsZoo.half)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Eight·Zoo">U+E650 U+E673 U+E65B</code></div>
         </div>
-        <div class="qs before">&#xE65A;&#xE674;&#xE665;</div>
-        <div class="qs after">&#xE65A;&#xE674;&#xE665;</div>
+        <div class="qs before">&#xE650;&#xE673;&#xE65B;</div>
+        <div class="qs after">&#xE650;&#xE673;&#xE65B;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·See ·Out ·Thaw (qsSee.exit-baseline.exit-contracted qsOut qsThaw → qsSee.exit-baseline.exit-contracted qsOut.exit-xheight.after-see.entry-trimmed-by-1 qsThaw)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Out·Thaw">U+E65A U+E67B U+E656</code></div>
+          ·Pea ·Ox ·Day (qsPea.half qsOx.entry-extended qsDay.half → qsPea.half.exit-dips qsOx qsDay.half)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Ox·Day">U+E650 U+E678 U+E653</code></div>
         </div>
-        <div class="qs before">&#xE65A;&#xE67B;&#xE656;</div>
-        <div class="qs after">&#xE65A;&#xE67B;&#xE656;</div>
+        <div class="qs before">&#xE650;&#xE678;&#xE653;</div>
+        <div class="qs after">&#xE650;&#xE678;&#xE653;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Zoo ·It ·Key (qsZoo qsIt qsKey → qsZoo qsIt.entry-baseline qsKey)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Key">U+E65B U+E670 U+E654</code></div>
+          ·Pea ·Foot ·Tea (qsPea.half qsFoot.entry-extended qsTea → qsPea.half.exit-dips qsFoot.entry-extended qsTea)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Foot·Tea">U+E650 U+E67D U+E652</code></div>
         </div>
-        <div class="qs before">&#xE65B;&#xE670;&#xE654;</div>
-        <div class="qs after">&#xE65B;&#xE670;&#xE654;</div>
+        <div class="qs before">&#xE650;&#xE67D;&#xE652;</div>
+        <div class="qs after">&#xE650;&#xE67D;&#xE652;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·May ·At ·No (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·At·No">U+E665 U+E674 U+E666</code></div>
+          ·At ·Pea ·Eight (qsAt qsPea.half qsEight.entry-extended → qsAt qsPea.half.exit-dips qsEight.entry-extended)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·At·Pea·Eight">U+E674 U+E650 U+E673</code></div>
         </div>
-        <div class="qs before">&#xE665;&#xE674;&#xE666;</div>
-        <div class="qs after">&#xE665;&#xE674;&#xE666;</div>
+        <div class="qs before">&#xE674;&#xE650;&#xE673;</div>
+        <div class="qs after">&#xE674;&#xE650;&#xE673;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·May ·At ·Roe (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·At·Roe">U+E665 U+E674 U+E668</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE674;&#xE668;</div>
-        <div class="qs after">&#xE665;&#xE674;&#xE668;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·May ·I ·Tea (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·I·Tea">U+E665 U+E675 U+E652</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE675;&#xE652;</div>
-        <div class="qs after">&#xE665;&#xE675;&#xE652;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·May ·I ·No (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·I·No">U+E665 U+E675 U+E666</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE675;&#xE666;</div>
-        <div class="qs after">&#xE665;&#xE675;&#xE666;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·May ·I ·Roe (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·I·Roe">U+E665 U+E675 U+E668</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE675;&#xE668;</div>
-        <div class="qs after">&#xE665;&#xE675;&#xE668;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·May ·Ah ·Roe (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·Ah·Roe">U+E665 U+E676 U+E668</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE676;&#xE668;</div>
-        <div class="qs after">&#xE665;&#xE676;&#xE668;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·May ·Out ·Thaw (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·May·Out·Thaw">U+E665 U+E67B U+E656</code></div>
-        </div>
-        <div class="qs before">&#xE665;&#xE67B;&#xE656;</div>
-        <div class="qs after">&#xE665;&#xE67B;&#xE656;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Low ·At ·May (qsLow qsAt_qsMay → qsLow qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Low·At·May">U+E667 U+E674 U+E665</code></div>
-        </div>
-        <div class="qs before">&#xE667;&#xE674;&#xE665;</div>
-        <div class="qs after">&#xE667;&#xE674;&#xE665;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Roe ·At ·May (qsRoe qsAt_qsMay → qsRoe qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·At·May">U+E668 U+E674 U+E665</code></div>
-        </div>
-        <div class="qs before">&#xE668;&#xE674;&#xE665;</div>
-        <div class="qs after">&#xE668;&#xE674;&#xE665;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Roe ·I ·Tea (qsRoe.exit-baseline.exit-extended qsI qsTea → qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsTea)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·I·Tea">U+E668 U+E675 U+E652</code></div>
-        </div>
-        <div class="qs before">&#xE668;&#xE675;&#xE652;</div>
-        <div class="qs after">&#xE668;&#xE675;&#xE652;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Roe ·I ·Vie (qsRoe.exit-baseline.exit-extended qsI qsVie → qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsVie)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·I·Vie">U+E668 U+E675 U+E659</code></div>
-        </div>
-        <div class="qs before">&#xE668;&#xE675;&#xE659;</div>
-        <div class="qs after">&#xE668;&#xE675;&#xE659;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Pea ·Roe ·I ·See (qsPea.half qsRoe.exit-baseline.exit-extended qsI qsSee → qsPea.half qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsSee)
+          ·Pea ·Roe ·I ·See (qsPea.half qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsSee → qsPea.half.exit-dips qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsSee)
           <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe·I·See">U+E650 U+E668 U+E675 U+E65A</code></div>
         </div>
         <div class="qs before">&#xE650;&#xE668;&#xE675;&#xE65A;</div>
@@ -671,87 +789,63 @@
       </div>
       <div class="row">
         <div class="label">
-          ·Tea ·Utter ·See ·Key (qsTea qsUtter.alt qsSee qsKey → qsTea.exit-baseline qsUtter.alt qsSee qsKey)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Tea·Utter·See·Key">U+E652 U+E67A U+E65A U+E654</code></div>
+          ·Pea ·Roe ·Ooze ·Vie (qsPea.half qsRoe.entry-xheight.entry-extended-at-xheight qsOoze qsVie → qsPea.half.exit-dips qsRoe.entry-xheight.entry-contracted qsOoze qsVie)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Roe·Ooze·Vie">U+E650 U+E668 U+E67E U+E659</code></div>
         </div>
-        <div class="qs before">&#xE652;&#xE67A;&#xE65A;&#xE654;</div>
-        <div class="qs after">&#xE652;&#xE67A;&#xE65A;&#xE654;</div>
+        <div class="qs before">&#xE650;&#xE668;&#xE67E;&#xE659;</div>
+        <div class="qs after">&#xE650;&#xE668;&#xE67E;&#xE659;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Thaw ·It ·-ing ·Key (qsThaw qsIt.exit-baseline.before-ing qsIng qsKey → qsThaw qsIt.exit-baseline qsIng qsKey)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Thaw·It·-ing·Key">U+E656 U+E670 U+E664 U+E654</code></div>
+          ·Pea ·It ·Tea ·It (qsPea.half qsIt.entry-xheight.entry-extended qsTea.half.exit-xheight qsIt.entry-xheight → qsPea.half.exit-dips qsIt.entry-xheight qsTea.half.exit-xheight qsIt.entry-xheight)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·It·Tea·It">U+E650 U+E670 U+E652 U+E670</code></div>
         </div>
-        <div class="qs before">&#xE656;&#xE670;&#xE664;&#xE654;</div>
-        <div class="qs after">&#xE656;&#xE670;&#xE664;&#xE654;</div>
+        <div class="qs before">&#xE650;&#xE670;&#xE652;&#xE670;</div>
+        <div class="qs after">&#xE650;&#xE670;&#xE652;&#xE670;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Thaw ·It ·-ing ·Zoo (qsThaw qsIt.exit-baseline.before-ing qsIng qsZoo.half → qsThaw qsIt.exit-baseline qsIng qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Thaw·It·-ing·Zoo">U+E656 U+E670 U+E664 U+E65B</code></div>
+          ·Pea ·Ox ·Day ·Zoo (qsPea.half qsOx.entry-extended qsDay.half qsZoo.half → qsPea.half.exit-dips qsOx qsDay.half qsZoo.half)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Ox·Day·Zoo">U+E650 U+E678 U+E653 U+E65B</code></div>
         </div>
-        <div class="qs before">&#xE656;&#xE670;&#xE664;&#xE65B;</div>
-        <div class="qs after">&#xE656;&#xE670;&#xE664;&#xE65B;</div>
+        <div class="qs before">&#xE650;&#xE678;&#xE653;&#xE65B;</div>
+        <div class="qs after">&#xE650;&#xE678;&#xE653;&#xE65B;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·He ·Vie ·No ·Tea (qsHe.exit-baseline qsVie.exit-baseline.entry-extended qsNo.alt qsTea.entry-baseline → qsHe.exit-baseline qsVie.exit-baseline.entry-extended qsNo.alt.after-it-and-vie qsTea.entry-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·He·Vie·No·Tea">U+E662 U+E659 U+E666 U+E652</code></div>
+          ·Pea ·Foot ·Low ·Day (qsPea.half qsFoot.entry-extended qsLow qsDay → qsPea.half.exit-dips qsFoot.entry-extended qsLow qsDay)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·Foot·Low·Day">U+E650 U+E67D U+E667 U+E653</code></div>
         </div>
-        <div class="qs before">&#xE662;&#xE659;&#xE666;&#xE652;</div>
-        <div class="qs after">&#xE662;&#xE659;&#xE666;&#xE652;</div>
+        <div class="qs before">&#xE650;&#xE67D;&#xE667;&#xE653;</div>
+        <div class="qs after">&#xE650;&#xE67D;&#xE667;&#xE653;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Roe ·Tea ·It ·-ing (qsRoe qsTea qsIt.exit-baseline.before-ing qsIng → qsRoe qsTea.half.exit-xheight qsIt.entry-xheight qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·Tea·It·-ing">U+E668 U+E652 U+E670 U+E664</code></div>
+          ·See ·Pea ·Ox ·Tea (qsSee.exit-y6 qsPea.half.entry-y6 qsOx qsTea.entry-baseline → qsSee.exit-y6 qsPea.half.entry-y6.exit-dips qsOx qsTea.entry-baseline)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Pea·Ox·Tea">U+E65A U+E650 U+E678 U+E652</code></div>
         </div>
-        <div class="qs before">&#xE668;&#xE652;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE668;&#xE652;&#xE670;&#xE664;</div>
+        <div class="qs before">&#xE65A;&#xE650;&#xE678;&#xE652;</div>
+        <div class="qs after">&#xE65A;&#xE650;&#xE678;&#xE652;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Roe ·May ·They ·Utter (qsRoe.exit-baseline qsMay qsThey_qsUtter.noentry → qsRoe.exit-baseline qsMay.entry-baseline.exit-noentry qsThey_qsUtter.noentry)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·May·They·Utter">U+E668 U+E665 U+E657 U+E67A</code></div>
+          ·Et ·Pea ·It ·-ing (qsEt qsPea.half qsIt.entry-xheight.entry-extended qsIng → qsEt qsPea.half.exit-dips qsIt.entry-xheight qsIng)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Et·Pea·It·-ing">U+E672 U+E650 U+E670 U+E664</code></div>
         </div>
-        <div class="qs before">&#xE668;&#xE665;&#xE657;&#xE67A;</div>
-        <div class="qs after">&#xE668;&#xE665;&#xE657;&#xE67A;</div>
+        <div class="qs before">&#xE672;&#xE650;&#xE670;&#xE664;</div>
+        <div class="qs after">&#xE672;&#xE650;&#xE670;&#xE664;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Roe ·It ·-ing ·Zoo (qsRoe qsIt.exit-baseline.before-ing qsIng qsZoo.half → qsRoe qsIt.exit-baseline qsIng qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·It·-ing·Zoo">U+E668 U+E670 U+E664 U+E65B</code></div>
+          ·Utter ·Pea ·Ox ·No (qsUtter qsPea.half.entry-xheight.exit-xheight qsOx.entry-extended qsNo.alt → qsUtter qsPea.half.entry-xheight.exit-xheight qsOx qsNo.alt)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Utter·Pea·Ox·No">U+E67A U+E650 U+E678 U+E666</code></div>
         </div>
-        <div class="qs before">&#xE668;&#xE670;&#xE664;&#xE65B;</div>
-        <div class="qs after">&#xE668;&#xE670;&#xE664;&#xE65B;</div>
+        <div class="qs before">&#xE67A;&#xE650;&#xE678;&#xE666;</div>
+        <div class="qs after">&#xE67A;&#xE650;&#xE678;&#xE666;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Eat ·Tea ·It ·-ing (qsEat qsTea qsIt.exit-baseline.before-ing qsIng → qsEat qsTea.half.exit-xheight qsIt.entry-xheight qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Eat·Tea·It·-ing">U+E671 U+E652 U+E670 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE671;&#xE652;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE671;&#xE652;&#xE670;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Bay ·Roe ·It ·-ing ·-ing (qsBay qsRoe qsIt.exit-baseline.before-ing qsIng qsIng → qsBay qsRoe qsIt.exit-baseline qsIng qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Bay·Roe·It·-ing·-ing">U+E651 U+E668 U+E670 U+E664 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE651;&#xE668;&#xE670;&#xE664;&#xE664;</div>
-        <div class="qs after">&#xE651;&#xE668;&#xE670;&#xE664;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Bay ·Eat ·It ·-ing ·Zoo (qsBay qsEat qsIt.exit-baseline.before-ing qsIng qsZoo.half → qsBay qsEat qsIt.exit-baseline qsIng qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Bay·Eat·It·-ing·Zoo">U+E651 U+E671 U+E670 U+E664 U+E65B</code></div>
-        </div>
-        <div class="qs before">&#xE651;&#xE671;&#xE670;&#xE664;&#xE65B;</div>
-        <div class="qs after">&#xE651;&#xE671;&#xE670;&#xE664;&#xE65B;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Tea ·Roe ·I ·Bay ·Low (qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI qsBay qsLow → qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsBay qsLow)
+          ·Tea ·Roe ·I ·Bay ·Low (qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsBay qsLow → qsTea.half.exit-xheight qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsBay.entry-xheight qsLow)
           <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Tea·Roe·I·Bay·Low">U+E652 U+E668 U+E675 U+E651 U+E667</code></div>
         </div>
         <div class="qs before">&#xE652;&#xE668;&#xE675;&#xE651;&#xE667;</div>
@@ -759,187 +853,35 @@
       </div>
       <div class="row">
         <div class="label">
-          ·He ·Utter ·See ·Key ·-ing (qsHe qsUtter.alt qsSee qsKey qsIng → qsHe.exit-baseline qsUtter.alt qsSee qsKey qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·He·Utter·See·Key·-ing">U+E662 U+E67A U+E65A U+E654 U+E664</code></div>
+          ·See ·Pea ·Et ·Low ·-ing (qsSee.exit-y6 qsPea.half.entry-y6 qsEt qsLow qsIng → qsSee.exit-y6 qsPea.half.entry-y6.exit-dips qsEt.entry-extended qsLow qsIng)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Pea·Et·Low·-ing">U+E65A U+E650 U+E672 U+E667 U+E664</code></div>
         </div>
-        <div class="qs before">&#xE662;&#xE67A;&#xE65A;&#xE654;&#xE664;</div>
-        <div class="qs after">&#xE662;&#xE67A;&#xE65A;&#xE654;&#xE664;</div>
+        <div class="qs before">&#xE65A;&#xE650;&#xE672;&#xE667;&#xE664;</div>
+        <div class="qs after">&#xE65A;&#xE650;&#xE672;&#xE667;&#xE664;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Roe ·I ·Tea ·-ing ·Zoo (qsRoe.exit-baseline.exit-extended qsI qsTea.exit-baseline qsIng.entry-extended qsZoo.half → qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsTea.exit-baseline qsIng.entry-extended qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·I·Tea·-ing·Zoo">U+E668 U+E675 U+E652 U+E664 U+E65B</code></div>
+          ·It ·May ·Pea ·Ox ·See (qsIt.exit-baseline qsMay.entry-baseline.entry-extended qsPea.half.entry-xheight.exit-xheight qsOx.entry-extended qsSee → qsIt.exit-baseline qsMay.entry-baseline.entry-extended qsPea.half.entry-xheight.exit-xheight qsOx qsSee)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·It·May·Pea·Ox·See">U+E670 U+E665 U+E650 U+E678 U+E65A</code></div>
         </div>
-        <div class="qs before">&#xE668;&#xE675;&#xE652;&#xE664;&#xE65B;</div>
-        <div class="qs after">&#xE668;&#xE675;&#xE652;&#xE664;&#xE65B;</div>
+        <div class="qs before">&#xE670;&#xE665;&#xE650;&#xE678;&#xE65A;</div>
+        <div class="qs after">&#xE670;&#xE665;&#xE650;&#xE678;&#xE65A;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Roe ·I ·Tea ·It ·-ing (qsRoe.exit-baseline.exit-extended qsI qsTea qsIt.exit-baseline.before-ing qsIng → qsRoe.exit-baseline.exit-extended qsI.entry-baseline.smaller-loop qsTea.half.exit-xheight qsIt.entry-xheight qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Roe·I·Tea·It·-ing">U+E668 U+E675 U+E652 U+E670 U+E664</code></div>
+          ·Pea ·It ·Jay ·Utter ·No ·Zoo (qsPea.half qsIt.entry-xheight.entry-extended qsJay_qsUtter qsNo qsZoo → qsPea.half.exit-dips qsIt.entry-xheight qsJay_qsUtter qsNo qsZoo)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·It·Jay·Utter·No·Zoo">U+E650 U+E670 U+E65F U+E67A U+E666 U+E65B</code></div>
         </div>
-        <div class="qs before">&#xE668;&#xE675;&#xE652;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE668;&#xE675;&#xE652;&#xE670;&#xE664;</div>
+        <div class="qs before">&#xE650;&#xE670;&#xE65F;&#xE67A;&#xE666;&#xE65B;</div>
+        <div class="qs after">&#xE650;&#xE670;&#xE65F;&#xE67A;&#xE666;&#xE65B;</div>
       </div>
       <div class="row">
         <div class="label">
-          ·Et ·Exam ·At ·May ·Zoo (qsEt qsExam qsAt_qsMay qsZoo → qsEt qsExam qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline qsZoo.entry-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Et·Exam·At·May·Zoo">U+E672 U+E66C U+E674 U+E665 U+E65B</code></div>
+          ·Et ·Excite ·Pea ·Et ·Roe ·It ·May ·No ·Tea (qsEt qsExcite.entry-baseline.noexit qsPea.half qsEt.entry-extended qsRoe qsIt.exit-baseline qsMay.entry-baseline.entry-extended qsNo qsTea → qsEt qsExcite.entry-baseline.noexit qsPea.half.exit-dips qsEt.entry-extended qsRoe qsIt.exit-baseline qsMay.entry-baseline.entry-extended qsNo qsTea)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Et·Excite·Pea·Et·Roe·It·May·No·Tea">U+E672 U+E66B U+E650 U+E672 U+E668 U+E670 U+E665 U+E666 U+E652</code></div>
         </div>
-        <div class="qs before">&#xE672;&#xE66C;&#xE674;&#xE665;&#xE65B;</div>
-        <div class="qs after">&#xE672;&#xE66C;&#xE674;&#xE665;&#xE65B;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Utter ·May ·Thaw ·It ·-ing (qsUtter.alt qsMay.entry-baseline qsThaw qsIt.exit-baseline.before-ing qsIng → qsUtter.alt.before-may qsMay.entry-baseline qsThaw qsIt.exit-baseline qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Utter·May·Thaw·It·-ing">U+E67A U+E665 U+E656 U+E670 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE67A;&#xE665;&#xE656;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE67A;&#xE665;&#xE656;&#xE670;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Utter ·No ·May ·At ·No (outline: qsMay.exit-baseline)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Utter·No·May·At·No">U+E67A U+E666 U+E665 U+E674 U+E666</code></div>
-        </div>
-        <div class="qs before">&#xE67A;&#xE666;&#xE665;&#xE674;&#xE666;</div>
-        <div class="qs after">&#xE67A;&#xE666;&#xE665;&#xE674;&#xE666;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Pea ·At ·No ·Utter ·May ·Ah (qsPea qsAt qsNo qsUtter.alt qsMay.entry-baseline qsAh → qsPea qsAt qsNo qsUtter.alt.before-may qsMay.entry-baseline qsAh)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Pea·At·No·Utter·May·Ah">U+E650 U+E674 U+E666 U+E67A U+E665 U+E676</code></div>
-        </div>
-        <div class="qs before">&#xE650;&#xE674;&#xE666;&#xE67A;&#xE665;&#xE676;</div>
-        <div class="qs after">&#xE650;&#xE674;&#xE666;&#xE67A;&#xE665;&#xE676;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Bay ·Roe ·It ·-ing ·It ·-ing (qsBay qsRoe qsIt.exit-baseline.before-ing qsIng qsIt.exit-baseline.before-ing qsIng → qsBay qsRoe qsIt.exit-baseline qsIng qsIt.exit-baseline qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Bay·Roe·It·-ing·It·-ing">U+E651 U+E668 U+E670 U+E664 U+E670 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE651;&#xE668;&#xE670;&#xE664;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE651;&#xE668;&#xE670;&#xE664;&#xE670;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Bay ·Et ·Roe ·It ·Utter ·Low (qsBay qsEt qsRoe qsIt qsUtter.alt qsLow → qsBay qsEt qsRoe qsIt.before-utter qsUtter.alt qsLow)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Bay·Et·Roe·It·Utter·Low">U+E651 U+E672 U+E668 U+E670 U+E67A U+E667</code></div>
-        </div>
-        <div class="qs before">&#xE651;&#xE672;&#xE668;&#xE670;&#xE67A;&#xE667;</div>
-        <div class="qs after">&#xE651;&#xE672;&#xE668;&#xE670;&#xE67A;&#xE667;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Day ·Ye ·Ooze ·Tea ·It ·Zoo (qsDay qsYe qsOoze qsTea.entry-baseline qsIt.exit-baseline.before-ing qsZoo.half → qsDay qsYe qsOoze qsTea.entry-baseline qsIt.exit-baseline qsZoo.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Day·Ye·Ooze·Tea·It·Zoo">U+E653 U+E660 U+E67E U+E652 U+E670 U+E65B</code></div>
-        </div>
-        <div class="qs before">&#xE653;&#xE660;&#xE67E;&#xE652;&#xE670;&#xE65B;</div>
-        <div class="qs after">&#xE653;&#xE660;&#xE67E;&#xE652;&#xE670;&#xE65B;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Key ·At ·Roe ·It ·It ·-ing (qsKey qsAt qsRoe qsIt qsIt.exit-baseline.before-ing qsIng → qsKey qsAt qsRoe qsIt.exit-xheight qsIt.exit-baseline qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Key·At·Roe·It·It·-ing">U+E654 U+E674 U+E668 U+E670 U+E670 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE654;&#xE674;&#xE668;&#xE670;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE654;&#xE674;&#xE668;&#xE670;&#xE670;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Key ·Awe ·Roe ·No ·Utter ·Roe (qsKey qsAwe qsRoe.exit-xheight qsNo.alt qsUtter qsRoe → qsKey qsAwe qsRoe qsNo.alt qsUtter qsRoe)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Key·Awe·Roe·No·Utter·Roe">U+E654 U+E677 U+E668 U+E666 U+E67A U+E668</code></div>
-        </div>
-        <div class="qs before">&#xE654;&#xE677;&#xE668;&#xE666;&#xE67A;&#xE668;</div>
-        <div class="qs after">&#xE654;&#xE677;&#xE668;&#xE666;&#xE67A;&#xE668;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Fee ·At ·May ·It ·Low ·It (qsFee qsAt_qsMay.exit-extended qsIt.entry-xheight qsLow qsIt.entry-xheight → qsFee qsAt.exit-baseline.before-may.exit-quintuply-extended qsMay.entry-baseline qsIt.entry-xheight qsLow qsIt.entry-xheight)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Fee·At·May·It·Low·It">U+E658 U+E674 U+E665 U+E670 U+E667 U+E670</code></div>
-        </div>
-        <div class="qs before">&#xE658;&#xE674;&#xE665;&#xE670;&#xE667;&#xE670;</div>
-        <div class="qs after">&#xE658;&#xE674;&#xE665;&#xE670;&#xE667;&#xE670;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·See ·At ·Tea ·It ·See ·Fee (qsSee.exit-baseline qsAt qsTea.half.exit-xheight qsIt.entry-xheight qsSee qsFee.entry-top → qsSee.exit-baseline qsAt.entry-extended qsTea.half.exit-xheight qsIt.entry-xheight qsSee qsFee.entry-top)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·At·Tea·It·See·Fee">U+E65A U+E674 U+E652 U+E670 U+E65A U+E658</code></div>
-        </div>
-        <div class="qs before">&#xE65A;&#xE674;&#xE652;&#xE670;&#xE65A;&#xE658;</div>
-        <div class="qs after">&#xE65A;&#xE674;&#xE652;&#xE670;&#xE65A;&#xE658;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·He ·Awe ·Roe ·No ·Utter ·Roe (qsHe.half qsAwe.entry-extended qsRoe.exit-xheight qsNo.alt qsUtter qsRoe → qsHe.half qsAwe.entry-extended qsRoe qsNo.alt qsUtter qsRoe)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·He·Awe·Roe·No·Utter·Roe">U+E662 U+E677 U+E668 U+E666 U+E67A U+E668</code></div>
-        </div>
-        <div class="qs before">&#xE662;&#xE677;&#xE668;&#xE666;&#xE67A;&#xE668;</div>
-        <div class="qs after">&#xE662;&#xE677;&#xE668;&#xE666;&#xE67A;&#xE668;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·It ·-ing ·Gay ·Low ·No ·Day (qsIt.exit-baseline.before-ing qsIng qsGay.exit-baseline qsLow qsNo qsDay → qsIt.exit-baseline qsIng qsGay.exit-baseline qsLow qsNo qsDay)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·It·-ing·Gay·Low·No·Day">U+E670 U+E664 U+E655 U+E667 U+E666 U+E653</code></div>
-        </div>
-        <div class="qs before">&#xE670;&#xE664;&#xE655;&#xE667;&#xE666;&#xE653;</div>
-        <div class="qs after">&#xE670;&#xE664;&#xE655;&#xE667;&#xE666;&#xE653;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Utter ·No ·Day ·Ooze ·It ·-ing (qsUtter qsNo qsDay qsOoze qsIt.exit-baseline.before-ing qsIng → qsUtter qsNo qsDay qsOoze qsIt.exit-baseline qsIng)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Utter·No·Day·Ooze·It·-ing">U+E67A U+E666 U+E653 U+E67E U+E670 U+E664</code></div>
-        </div>
-        <div class="qs before">&#xE67A;&#xE666;&#xE653;&#xE67E;&#xE670;&#xE664;</div>
-        <div class="qs after">&#xE67A;&#xE666;&#xE653;&#xE67E;&#xE670;&#xE664;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Vie ·It ·Zoo ·Ye ·Ooze ·Utter ·Low (qsVie qsIt.exit-baseline.before-ing qsZoo.half qsYe qsOoze qsUtter.alt qsLow → qsVie qsIt.exit-baseline qsZoo.half qsYe qsOoze qsUtter.alt qsLow)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Vie·It·Zoo·Ye·Ooze·Utter·Low">U+E659 U+E670 U+E65B U+E660 U+E67E U+E67A U+E667</code></div>
-        </div>
-        <div class="qs before">&#xE659;&#xE670;&#xE65B;&#xE660;&#xE67E;&#xE67A;&#xE667;</div>
-        <div class="qs after">&#xE659;&#xE670;&#xE65B;&#xE660;&#xE67E;&#xE67A;&#xE667;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Cheer ·It ·Low ·Day ·Roe ·Utter ·No (qsCheer qsIt.entry-baseline qsLow qsDay qsRoe qsUtter qsNo → qsCheer qsIt.exit-baseline qsLow qsDay qsRoe qsUtter qsNo)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Cheer·It·Low·Day·Roe·Utter·No">U+E65E U+E670 U+E667 U+E653 U+E668 U+E67A U+E666</code></div>
-        </div>
-        <div class="qs before">&#xE65E;&#xE670;&#xE667;&#xE653;&#xE668;&#xE67A;&#xE666;</div>
-        <div class="qs after">&#xE65E;&#xE670;&#xE667;&#xE653;&#xE668;&#xE67A;&#xE666;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·See ·Utter ·Gay ·Jay ·Et ·See ·Tea ·Day (qsSee_qsUtter.exit-extended qsGay qsJay qsEt qsSee qsTea.entry-top.exit-baseline qsDay.half.entry-extended → qsSee_qsUtter.exit-extended qsGay.entry-xheight qsJay qsEt qsSee qsTea.entry-top.exit-baseline qsDay.half.entry-extended)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·Utter·Gay·Jay·Et·See·Tea·Day">U+E65A U+E67A U+E655 U+E65F U+E672 U+E65A U+E652 U+E653</code></div>
-        </div>
-        <div class="qs before">&#xE65A;&#xE67A;&#xE655;&#xE65F;&#xE672;&#xE65A;&#xE652;&#xE653;</div>
-        <div class="qs after">&#xE65A;&#xE67A;&#xE655;&#xE65F;&#xE672;&#xE65A;&#xE652;&#xE653;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Key ·Ox ·No ·Fee ·It ·Day ·Utter ·No ·See (qsKey qsOx qsNo.alt qsFee.exit-xheight.before-utter.exit-extended qsIt.entry-xheight qsDay_qsUtter.half qsNo qsSee → qsKey qsOx qsNo.alt qsFee.exit-xheight.exit-extended qsIt.entry-xheight qsDay_qsUtter.half qsNo qsSee)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Key·Ox·No·Fee·It·Day·Utter·No·See">U+E654 U+E678 U+E666 U+E658 U+E670 U+E653 U+E67A U+E666 U+E65A</code></div>
-        </div>
-        <div class="qs before">&#xE654;&#xE678;&#xE666;&#xE658;&#xE670;&#xE653;&#xE67A;&#xE666;&#xE65A;</div>
-        <div class="qs after">&#xE654;&#xE678;&#xE666;&#xE658;&#xE670;&#xE653;&#xE67A;&#xE666;&#xE65A;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·See ·At ·Tea ·It ·See ·Fee ·At ·Key ·She ·No (qsSee.exit-baseline qsAt qsTea.half.exit-xheight qsIt.entry-xheight qsSee qsFee.entry-top qsAt qsKey qsShe.exit-baseline qsNo.alt → qsSee.exit-baseline qsAt.entry-extended qsTea.half.exit-xheight qsIt.entry-xheight qsSee qsFee.entry-top qsAt qsKey qsShe.exit-baseline qsNo.alt)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·See·At·Tea·It·See·Fee·At·Key·She·No">U+E65A U+E674 U+E652 U+E670 U+E65A U+E658 U+E674 U+E654 U+E65C U+E666</code></div>
-        </div>
-        <div class="qs before">&#xE65A;&#xE674;&#xE652;&#xE670;&#xE65A;&#xE658;&#xE674;&#xE654;&#xE65C;&#xE666;</div>
-        <div class="qs after">&#xE65A;&#xE674;&#xE652;&#xE670;&#xE65A;&#xE658;&#xE674;&#xE654;&#xE65C;&#xE666;</div>
-      </div>
-      <div class="row">
-        <div class="label">
-          ·Utter ·No ·Thaw ·It ·-ing ·Key ·It ·-ing ·Low ·It (qsUtter qsNo qsThaw qsIt.exit-baseline.before-ing qsIng qsKey qsIt.exit-baseline.before-ing qsIng qsLow qsIt.entry-xheight → qsUtter qsNo qsThaw qsIt.exit-baseline qsIng qsKey qsIt.exit-baseline qsIng qsLow qsIt.entry-xheight)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Utter·No·Thaw·It·-ing·Key·It·-ing·Low·It">U+E67A U+E666 U+E656 U+E670 U+E664 U+E654 U+E670 U+E664 U+E667 U+E670</code></div>
-        </div>
-        <div class="qs before">&#xE67A;&#xE666;&#xE656;&#xE670;&#xE664;&#xE654;&#xE670;&#xE664;&#xE667;&#xE670;</div>
-        <div class="qs after">&#xE67A;&#xE666;&#xE656;&#xE670;&#xE664;&#xE654;&#xE670;&#xE664;&#xE667;&#xE670;</div>
+        <div class="qs before">&#xE672;&#xE66B;&#xE650;&#xE672;&#xE668;&#xE670;&#xE665;&#xE666;&#xE652;</div>
+        <div class="qs after">&#xE672;&#xE66B;&#xE650;&#xE672;&#xE668;&#xE670;&#xE665;&#xE666;&#xE652;</div>
       </div>
     </details>
 
@@ -1014,6 +956,14 @@
       </div>
       <div class="row" data-visual="diff">
         <div class="label">
+          <a class="open-in-tables" href="tables.html#letter=It&amp;col=Key&amp;row=Exam" target="_blank" rel="noopener" title="Open ·Key·It·Exam in tables.html" aria-label="Open ·Key·It·Exam in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Key ·It | ·Exam (qsIt.entry-baseline.entry-extended → qsIt.entry-baseline; qsExam → qsExam.after-ye.after-it)
+          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Key·It·Exam">U+E654 U+E670 U+E66C</code></div>
+        </div>
+        <div class="qs in-context">&#xE654;&#xE670;&#xE66C;</div>
+        <div class="qs isolated"><span class="half">&#xE654;&#xE670;</span><span class="half">&#xE66C;</span></div>
+      </div>
+      <div class="row" data-visual="diff">
+        <div class="label">
           <a class="open-in-tables" href="tables.html#letter=It&amp;col=Zoo&amp;row=Day" target="_blank" rel="noopener" title="Open ·Zoo·It·Day in tables.html" aria-label="Open ·Zoo·It·Day in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Zoo | ·It ·Day (qsIt.before-utter → qsIt)
           <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Zoo·It·Day">U+E65B U+E670 U+E653</code></div>
         </div>
@@ -1067,22 +1017,6 @@
         </div>
         <div class="qs in-context">&#xE660;&#xE670;&#xE666;</div>
         <div class="qs isolated"><span class="half">&#xE660;</span><span class="half">&#xE670;&#xE666;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=Way&amp;row=Ah" target="_blank" rel="noopener" title="Open ·Way·Utter·Ah in tables.html" aria-label="Open ·Way·Utter·Ah in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Way | ·Utter ·Ah (qsWay → qsWay.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Way·Utter·Ah">U+E661 U+E67A U+E676</code></div>
-        </div>
-        <div class="qs in-context">&#xE661;&#xE67A;&#xE676;</div>
-        <div class="qs isolated"><span class="half">&#xE661;</span><span class="half">&#xE67A;&#xE676;</span></div>
-      </div>
-      <div class="row" data-visual="diff">
-        <div class="label">
-          <a class="open-in-tables" href="tables.html#letter=Utter&amp;col=Why&amp;row=Ah" target="_blank" rel="noopener" title="Open ·Why·Utter·Ah in tables.html" aria-label="Open ·Why·Utter·Ah in tables.html"><img src="icons/open-in-new.svg" alt="" width="12" height="12"></a><span class="visual-tag">diff</span>·Why | ·Utter ·Ah (qsWhy → qsWhy.half)
-          <div class="codepoints"><button type="button" class="copy-codepoints" title="Copy prompt preamble to clipboard" aria-label="Copy prompt preamble to clipboard"><img src="icons/copy.svg" alt="" width="12" height="12"><span class="copied-toast">Copied!</span></button><code data-letters="·Why·Utter·Ah">U+E663 U+E67A U+E676</code></div>
-        </div>
-        <div class="qs in-context">&#xE663;&#xE67A;&#xE676;</div>
-        <div class="qs isolated"><span class="half">&#xE663;</span><span class="half">&#xE67A;&#xE676;</span></div>
       </div>
       <div class="row" data-visual="diff">
         <div class="label">
