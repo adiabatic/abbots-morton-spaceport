@@ -91,6 +91,8 @@ class _JoinAnalysis:
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = ()
     # Each entry is (predecessor_form, trigger_form, iso_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by iso_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
+    # Each entry is (leader_form, trailing_form, iso_form). When a forward-pair override changes the leader into an entry-preserving form with no exit, any earlier backward upgrade on the trailing glyph can be left with a now-false joining shape. Emit a post-pass rule `sub leader_form trailing_form' by iso_form;` to restore the trailing glyph to the split-shaping form.
+    trailing_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
 
 def _backward_pair_sort_key(
@@ -342,9 +344,9 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
         extra_parts = meta.modifier_set - {"alt", "prop"}
         if extra_parts and "alt" in meta.traits and meta.entry and not meta.before:
             continue
-        if not meta.exit:
+        if not meta.exit and not (meta.before or meta.gated_before):
             continue
-        exit_y = meta.exit[0][1]
+        exit_y = meta.exit[0][1] if meta.exit else None
         base_name = meta.base_name
         if base_name not in glyph_meta:
             continue
@@ -370,6 +372,8 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
                 plan.gated_fwd_pair_overrides.setdefault(base_name, []).append(
                     (glyph_name, resolved_gated, resolved_not_after, feature_tag)
                 )
+        if exit_y is None:
+            continue
         if not calt_before and not gated_before:
             fwd_replacements.setdefault(base_name, {})[exit_y] = glyph_name
             not_before = meta.not_before
@@ -1882,6 +1886,79 @@ def _ensure_zwnj_coverage_for_calt_lookups(lines: list[str]) -> list[str]:
     return result
 
 
+def _add_zwnj_guards_for_two_position_forward_rules(lines: list[str]) -> list[str]:
+    """Block two-position forward chains like `sub TARGET' MID [LIST] by REPLACEMENT;` from matching across an intervening ZWNJ.
+
+    The standard ZWNJ firewall (`_ensure_zwnj_coverage_for_calt_lookups`) only emits single-position `ignore sub TARGET' uni200C;` guards, so a buffer `TARGET MID uni200C LIST_MEMBER` still triggers the two-position rule because HarfBuzz skips the default-ignorable uni200C at the second lookahead position. Walk every calt lookup that contains uni200C in its body, find each two-position forward rule, and inject `ignore sub TARGET' MID uni200C;` immediately ahead of it so the lookup's coverage forces uni200C onto the same footing as MID and the cross-ZWNJ match drops away.
+
+    Only fires when the rule's second lookahead position is a glyph class (`[...]`), since that's the shape `_emit_fwd_pairs` produces for the IR's `before_lig_lead_followups` records. Skips lookups exempt from the firewall (`calt_zwnj`) and lookups whose body does not already mention uni200C (those have nothing to firewall against).
+    """
+    lookup_open_pattern = re.compile(r"^(\s*)lookup\s+(calt_\S+)\s*\{\s*$")
+    lookup_close_template = "{indent}}} {name};"
+    sub_pattern = re.compile(
+        r"^(\s*)sub\s+(?:\[[^\]]+\]\s+)?([A-Za-z0-9_.]+)'\s+([A-Za-z0-9_.]+)\s+\[[^\]]+\]\s+by\s+\S+;\s*$"
+    )
+
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = lookup_open_pattern.match(line)
+        if match is None:
+            result.append(line)
+            i += 1
+            continue
+        indent = match.group(1)
+        name = match.group(2)
+        expected_close = lookup_close_template.format(indent=indent, name=name).strip()
+        close_index = None
+        for j in range(i + 1, len(lines)):
+            if lines[j].strip() == expected_close:
+                close_index = j
+                break
+        if close_index is None:
+            result.append(line)
+            i += 1
+            continue
+        if name in _ZWNJ_FIREWALL_EXEMPT_LOOKUPS:
+            result.extend(lines[i : close_index + 1])
+            i = close_index + 1
+            continue
+        body = lines[i + 1 : close_index]
+        if not any("uni200C" in body_line for body_line in body):
+            # Lookup doesn't reference uni200C at all, so it has no ZWNJ guarding to extend.
+            result.extend(lines[i : close_index + 1])
+            i = close_index + 1
+            continue
+        existing_guards: set[tuple[str, str]] = set()
+        guard_pattern = re.compile(
+            r"^\s*ignore\s+sub\s+([A-Za-z0-9_.]+)'\s+([A-Za-z0-9_.]+)\s+uni200C\s*;\s*$"
+        )
+        for body_line in body:
+            guard_match = guard_pattern.match(body_line)
+            if guard_match:
+                existing_guards.add((guard_match.group(1), guard_match.group(2)))
+        new_body: list[str] = []
+        for body_line in body:
+            sub_match = sub_pattern.match(body_line)
+            if sub_match is None:
+                new_body.append(body_line)
+                continue
+            body_indent, target, mid = sub_match.group(1), sub_match.group(2), sub_match.group(3)
+            if mid == "uni200C":
+                new_body.append(body_line)
+                continue
+            if (target, mid) not in existing_guards:
+                new_body.append(f"{body_indent}ignore sub {target}' {mid} uni200C;")
+                existing_guards.add((target, mid))
+            new_body.append(body_line)
+        result.append(line)
+        result.extend(new_body)
+        result.append(lines[close_index])
+        i = close_index + 1
+    return result
+
+
 def _format_post_liga_cleanup_rules(
     rules: list[tuple[str, str, str]],
 ) -> list[str]:
@@ -2966,6 +3043,36 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 return set(before_glyphs)
         return set()
 
+    def _entry_extension_source_glyphs(actual_variant: str, extension_variant: str) -> set[str]:
+        extension_meta = glyph_meta.get(extension_variant)
+        actual_meta = glyph_meta.get(actual_variant)
+        if extension_meta is None or actual_meta is None:
+            return set()
+        if extension_meta.extended_entry_suffix is None:
+            return set()
+
+        source_glyphs: set[str] = set()
+        for sibling_name in sorted(base_to_variants.get(actual_meta.base_name, ())):
+            sibling_meta = glyph_meta.get(sibling_name)
+            if sibling_meta is None or sibling_meta.extend_entry_after is None:
+                continue
+            sibling_extension = sibling_name + extension_meta.extended_entry_suffix
+            if sibling_extension not in glyph_names:
+                sibling_extension = sibling_name + ".entry-extended"
+            if sibling_extension not in glyph_names:
+                continue
+            sibling_extension_meta = glyph_meta.get(sibling_extension)
+            if sibling_extension_meta is None:
+                continue
+            if sibling_extension_meta.bitmap != extension_meta.bitmap:
+                continue
+            resolved = resolve_known_glyph_names(
+                list(sibling_meta.extend_entry_after.targets),
+                glyph_names,
+            )
+            source_glyphs.update(_expand_all_variants(resolved, include_base=True))
+        return source_glyphs & glyph_names
+
     def _emit_fwd_pairs(base_name: str, *, lookup_prefix: str = "calt_fwd_pair_"):
         if base_name in fwd_pair_overrides:
             sorted_overrides = sorted(
@@ -3161,12 +3268,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         set(actual_variant_meta.entry_ys) if actual_variant_meta.entry else set()
                     )
                     entry_backtrack_prefix = ""
+                    entry_backtrack_glyphs: set[str] = set()
+                    entry_extension_backtrack_glyphs: set[str] = set()
                     if actual_entry_ys and not target_has_entry:
-                        if _entry_anchor_is_visual_addition(glyph_meta, base_to_variants, actual_variant):
-                            entry_backtrack_glyphs: set[str] = set()
-                            for entry_y in actual_entry_ys:
-                                entry_backtrack_glyphs.update(exit_classes.get(entry_y, set()))
-                            entry_backtrack_glyphs -= expanded_not_after
+                        for entry_y in actual_entry_ys:
+                            entry_extension_backtrack_glyphs.update(exit_classes.get(entry_y, set()))
+                        entry_extension_backtrack_glyphs -= expanded_not_after
+                        if (
+                            "exit-noentry" in actual_variant_meta.modifiers
+                            or _entry_anchor_is_visual_addition(
+                                glyph_meta,
+                                base_to_variants,
+                                actual_variant,
+                            )
+                        ):
+                            entry_backtrack_glyphs = set(entry_extension_backtrack_glyphs)
                             if not entry_backtrack_glyphs:
                                 continue
                             entry_backtrack_prefix = f"[{' '.join(sorted(entry_backtrack_glyphs))}] "
@@ -3224,9 +3340,48 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             actual_exit_y,
                             effective_before,
                         )
-                    lines.append(
-                        f"        sub {entry_backtrack_prefix}{target}' [{effective_before_list}] by {actual_variant};"
-                    )
+                    # Split the positive substitution into a single-lookahead rule for the bulk of `effective_before` plus one two-lookahead rule per ligature-lead-only entry that `expand_selectors_for_ligatures` introduced. Each lead glyph must be followed by an actual trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). The IR records the trailing families on `before_lig_lead_followups`; the FEA emitter expands them into glyph-set lookaheads here.
+                    source_meta_for_split = _meta(variant_name)
+                    raw_lead_followups = dict(source_meta_for_split.before_lig_lead_followups)
+                    lead_only_followups: dict[str, set[str]] = {}
+                    for lead_glyph, trailing_families in raw_lead_followups.items():
+                        if lead_glyph not in effective_before:
+                            continue
+                        trailings: set[str] = set()
+                        for trailing_family in trailing_families:
+                            trailings.update(base_to_variants.get(trailing_family, ()))
+                        trailings = {g for g in trailings if g in glyph_names}
+                        if not trailings:
+                            continue
+                        lead_only_followups[lead_glyph] = trailings
+                    non_lead_before = effective_before - set(lead_only_followups)
+
+                    def _emit_positive_forward_pair(replacement_variant: str, backtrack_prefix: str) -> None:
+                        if non_lead_before:
+                            non_lead_before_list = " ".join(sorted(non_lead_before))
+                            lines.append(
+                                f"        sub {backtrack_prefix}{target}' [{non_lead_before_list}] by {replacement_variant};"
+                            )
+                        for lead_glyph in sorted(lead_only_followups):
+                            trailings_list = " ".join(sorted(lead_only_followups[lead_glyph]))
+                            lines.append(
+                                f"        sub {backtrack_prefix}{target}' {lead_glyph} [{trailings_list}] by {replacement_variant};"
+                            )
+
+                    if entry_extension_backtrack_glyphs:
+                        for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
+                            extended_variant = actual_variant + ext_suffix
+                            if extended_variant not in glyph_names:
+                                continue
+                            source_glyphs = entry_extension_backtrack_glyphs & _entry_extension_source_glyphs(
+                                actual_variant, extended_variant
+                            )
+                            if not source_glyphs:
+                                continue
+                            source_prefix = f"[{' '.join(sorted(source_glyphs))}] "
+                            _emit_positive_forward_pair(extended_variant, source_prefix)
+
+                    _emit_positive_forward_pair(actual_variant, entry_backtrack_prefix)
                 lines.append(f"    }} {lookup_name};")
 
     def _emit_fwd_general(
@@ -3269,6 +3424,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if target_name == base_name:
                     continue
                 if target_meta.is_noentry:
+                    continue
+                if "exit-noentry" in target_meta.modifiers:
                     continue
                 if target_meta.gate_feature:
                     continue
@@ -5034,6 +5191,39 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
+    # Register reflip entries for every `restore_isolated_form_overrides` entry whose intermediate heuristic in `_record_pair_guard_reflip` (the "iso_form's exit_y must reach the follower's plain entry_y" check) would otherwise reject the registration. The qsEat/qsJay/qsYe/qsIt before qsIt before qsNo cases hit this: the heuristic sees qsNo's plain entry at the x-height and refuses to commit qsIt.exit-baseline, but the post-reflip follower bk pass would re-fire qsNo.alt anyway. The pre_form here is the sibling fwd_replacement at the opposite exit_y from iso_form — that's the form the chain settles into pre-reflip when the heuristic blocked the upgrade — so the emission stays narrow instead of crossing every (pre_form × follower_variant) combination.
+    for prior_base, target_base, follower_base, iso_form in plan.restore_isolated_form_overrides:
+        if iso_form not in glyph_names:
+            continue
+        iso_meta = glyph_meta.get(iso_form)
+        if iso_meta is None or not iso_meta.exit:
+            continue
+        iso_exit_ys = set(iso_meta.exit_ys)
+        target_fwd = fwd_replacements.get(target_base, {})
+        if not target_fwd:
+            continue
+        # The chain's settled "wrong" pre_form is the fwd_replacement at a different exit_y from the iso_form's exit_y — that's what the follower's default entry coaxed the target into before the heuristic kicked in.
+        pre_forms: set[str] = set()
+        for fwd_exit_y, fwd_variant in target_fwd.items():
+            if fwd_exit_y in iso_exit_ys:
+                continue
+            if fwd_variant in glyph_names and fwd_variant != iso_form:
+                pre_forms.add(fwd_variant)
+        if not pre_forms:
+            continue
+        prior_slot = frozenset(_fwd_pair_source_slot(prior_base) & glyph_names)
+        if not prior_slot:
+            continue
+        follower_variants = sorted(base_to_variants.get(follower_base, set()) & glyph_names)
+        if not follower_variants:
+            continue
+        bucket = pair_guard_reflip.setdefault(target_base, [])
+        for pre_form in sorted(pre_forms):
+            for follower_variant in follower_variants:
+                entry = (prior_slot, pre_form, follower_variant, iso_form)
+                if entry not in bucket:
+                    bucket.append(entry)
+
     # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule substitutes the candidate's post-suppressed form back to its isolated form when the same (prior_slot, candidate, base) triple that motivated the guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate in the first place) so we see the post-fwd form, and AFTER the bk lookups that emitted the guards.
     for candidate_base in sorted(pair_guard_reflip):
         rules = pair_guard_reflip[candidate_base]
@@ -5103,6 +5293,38 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for cycle_base in sorted(cycle_bases):
             if cycle_base in early_fwd_pairs and _needs_post_cycle_fwd_pairs(cycle_base):
                 _emit_fwd_pairs(cycle_base, lookup_prefix="calt_final_fwd_pair_")
+
+    trailing_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
+    for leader_form, trailing_form, iso_form in plan.trailing_demote_overrides:
+        if leader_form not in glyph_names:
+            continue
+        if trailing_form not in glyph_names:
+            continue
+        if iso_form not in glyph_names:
+            continue
+        trailing_meta = glyph_meta.get(trailing_form)
+        if trailing_meta is None:
+            continue
+        trailing_demote_by_base.setdefault(trailing_meta.base_name, []).append(
+            (leader_form, trailing_form, iso_form)
+        )
+    for trailing_base in sorted(trailing_demote_by_base):
+        rules = trailing_demote_by_base[trailing_base]
+        seen: set[tuple[str, str, str]] = set()
+        unique: list[tuple[str, str, str]] = []
+        for rule in rules:
+            if rule in seen:
+                continue
+            seen.add(rule)
+            unique.append(rule)
+        if not unique:
+            continue
+        safe = trailing_base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_trailing_demote_{safe} {{")
+        for leader_form, trailing_form, iso_form in sorted(unique):
+            lines.append(f"        sub {leader_form} {trailing_form}' by {iso_form};")
+        lines.append(f"    }} calt_trailing_demote_{safe};")
 
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
@@ -5389,6 +5611,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     lines.append("} calt;")
     lines = _strip_post_zwnj_from_ignore_contexts(lines, base_to_variants)
     lines = _ensure_zwnj_coverage_for_calt_lookups(lines)
+    lines = _add_zwnj_guards_for_two_position_forward_rules(lines)
     lines = _coalesce_consecutive_ignore_rules(lines)
     return "\n".join(lines)
 
@@ -5742,6 +5965,7 @@ def emit_quikscript_senior_features(
     pixel_height: int,
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = (),
     predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = (),
+    trailing_demote_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> str | None:
     parts = []
 
@@ -5752,6 +5976,7 @@ def emit_quikscript_senior_features(
     analysis = _analyze_quikscript_joins(join_glyphs)
     analysis.restore_isolated_form_overrides = tuple(restore_isolated_form_overrides)
     analysis.predecessor_demote_overrides = tuple(predecessor_demote_overrides)
+    analysis.trailing_demote_overrides = tuple(trailing_demote_overrides)
 
     ss_gate_fea = _emit_quikscript_ss_gate(analysis)
     if ss_gate_fea:

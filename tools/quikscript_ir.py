@@ -50,6 +50,7 @@ class GlyphData(TypedDict):
     kerning: dict[str, Any]
     restore_isolated_form_overrides: NotRequired[list[dict[str, str]]]
     predecessor_demote_overrides: NotRequired[list[dict[str, str]]]
+    trailing_demote_overrides: NotRequired[list[dict[str, str]]]
 
 
 @dataclass(frozen=True)
@@ -102,6 +103,8 @@ class JoinGlyph:
     entry_explicitly_none: bool = False
     not_before_from_noentry_after: tuple[str, ...] = ()
     strip_entry_before: bool = False
+    # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
+    before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -2869,9 +2872,11 @@ def expand_selectors_for_ligatures(
         *,
         source_family: str | None,
         side: str,
-    ) -> set[str]:
+    ) -> tuple[set[str], dict[str, set[str]]]:
         existing = set(field)
         additions: set[str] = set()
+        # Map each newly added pre-liga lead-component endpoint to the set of trailing-component family base names whose variants must follow at runtime for the join to actually materialize. Only populated on the entry side, since calt_liga collapses forward pairs and the symmetric backward case (`after:` selectors) has no equivalent two-position downstream lookup that benefits from this metadata.
+        lead_followups: dict[str, set[str]] = {}
         for glyph in field:
             scoped_anchor = _scoped_anchor_selector(glyph)
             if scoped_anchor is None:
@@ -2879,6 +2884,9 @@ def expand_selectors_for_ligatures(
             else:
                 assert scoped_anchor.family_scope is not None
                 lookup_key = scoped_anchor.family_scope
+            # `lookup_key`'s base name identifies the component that the source's selector originally targeted. Pre-liga lead-component endpoints are registered under non-first ligature components, so when `lookup_key`'s base differs from the endpoint's base, the endpoint was added as a pre-liga proxy and needs trailing-component lookahead at FEA emission time. lookup_key may itself be a variant (e.g., qsUtter.exit-extended); strip to its family.
+            lookup_meta = join_glyphs.get(lookup_key)
+            lookup_base = lookup_meta.base_name if lookup_meta is not None else lookup_key.split(".", 1)[0]
             for endpoint, candidate_ys, canonical_ys in index.get(lookup_key, ()):
                 if endpoint in existing:
                     continue
@@ -2890,8 +2898,8 @@ def expand_selectors_for_ligatures(
                 novel_ys = (anchor_ys & candidate_ys) - canonical_ys
                 if not novel_ys:
                     continue
+                endpoint_meta = join_glyphs.get(endpoint)
                 if source_family is not None:
-                    endpoint_meta = join_glyphs.get(endpoint)
                     if endpoint_meta is not None:
                         if side == "entry" and source_family in endpoint_meta.noentry_after:
                             # The ligature drops its entry when this source family precedes it, so the source can never actually join forward into it. Adding it to the source's `before` would just confuse the join validator and emit dead post-liga rules.
@@ -2905,7 +2913,15 @@ def expand_selectors_for_ligatures(
                             # Some ligatures carry their own `select.after` / `select.before` constraint that gates whether the ligature ever fires (e.g., `qsThey_qsUtter` only collapses when its `after` lists a context-set match). If the source's family isn't in that list, the ligature never appears in the buffer next to this source — adding it to the selector list would generate a one-sided join warning.
                             continue
                 additions.add(endpoint)
-        return additions
+                if (
+                    side == "entry"
+                    and endpoint_meta is not None
+                    and not endpoint_meta.sequence
+                    and endpoint_meta.base_name != lookup_base
+                ):
+                    # The endpoint is a non-ligature glyph whose family differs from the lookup_key's family. That means the ligature-expansion mechanism added it as a pre-liga proxy for a ligature whose trailing component matched the source's selector. Record the trailing family so the FEA emitter can require an actual trailing-component glyph at the buffer position past the lead before promoting the source.
+                    lead_followups.setdefault(endpoint, set()).add(lookup_base)
+        return additions, lead_followups
 
     def _expand_filtered(
         field: tuple[str, ...],
@@ -2914,11 +2930,11 @@ def expand_selectors_for_ligatures(
         *,
         source_family: str | None,
         side: str,
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, ...], dict[str, set[str]]]:
         # An empty anchor set means the source has no cursive anchor on the side the selector cares about, so a ligature-bridged join can never form. Skip expansion entirely; the selector keeps its original literal interpretation.
         if not field or not anchor_ys:
-            return field
-        new_additions = _additions(
+            return field, {}
+        new_additions, lead_followups = _additions(
             field,
             index,
             anchor_ys,
@@ -2926,21 +2942,22 @@ def expand_selectors_for_ligatures(
             side=side,
         )
         if not new_additions:
-            return field
-        return tuple([*field, *sorted(new_additions)])
+            return field, lead_followups
+        return tuple([*field, *sorted(new_additions)]), lead_followups
 
     def _expand_gated(
         gated: tuple[tuple[str, tuple[str, ...]], ...],
         anchor_ys: frozenset[int] | None,
         *,
         source_family: str | None,
-    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    ) -> tuple[tuple[tuple[str, tuple[str, ...]], ...], dict[str, set[str]]]:
         if not gated:
-            return gated
+            return gated, {}
         rebuilt: list[tuple[str, tuple[str, ...]]] = []
+        merged_lead_followups: dict[str, set[str]] = {}
         changed = False
         for feature_tag, families in gated:
-            new_families = _expand_filtered(
+            new_families, lead_followups = _expand_filtered(
                 families,
                 forward_entries_by_component,
                 anchor_ys,
@@ -2950,9 +2967,11 @@ def expand_selectors_for_ligatures(
             if new_families is not families:
                 changed = True
             rebuilt.append((feature_tag, new_families))
+            for lead, trailings in lead_followups.items():
+                merged_lead_followups.setdefault(lead, set()).update(trailings)
         if not changed:
-            return gated
-        return tuple(rebuilt)
+            return gated, merged_lead_followups
+        return tuple(rebuilt), merged_lead_followups
 
     updated: dict[str, JoinGlyph] = {}
     for name, record in join_glyphs.items():
@@ -2963,29 +2982,38 @@ def expand_selectors_for_ligatures(
             else None
         )
         source_family = record.family or record.base_name
-        new_before = _expand_filtered(
+        new_before, lead_followups_before = _expand_filtered(
             record.before,
             forward_entries_by_component,
             source_exit_ys,
             source_family=source_family,
             side="entry",
         )
-        new_gated_before = _expand_gated(
+        new_gated_before, lead_followups_gated = _expand_gated(
             record.gated_before,
             source_exit_ys,
             source_family=source_family,
         )
-        new_after = _expand_filtered(
+        new_after, _ = _expand_filtered(
             record.after,
             backward_entries_by_component,
             source_entry_ys,
             source_family=source_family,
             side="exit",
         )
+        combined_lead_followups: dict[str, set[str]] = {}
+        for lead, trailings in lead_followups_before.items():
+            combined_lead_followups.setdefault(lead, set()).update(trailings)
+        for lead, trailings in lead_followups_gated.items():
+            combined_lead_followups.setdefault(lead, set()).update(trailings)
+        before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+            (lead, tuple(sorted(trailings))) for lead, trailings in sorted(combined_lead_followups.items())
+        )
         if (
             new_before is record.before
             and new_gated_before is record.gated_before
             and new_after is record.after
+            and before_lig_lead_followups == record.before_lig_lead_followups
         ):
             updated[name] = record
             continue
@@ -2994,6 +3022,7 @@ def expand_selectors_for_ligatures(
             before=new_before,
             gated_before=new_gated_before,
             after=new_after,
+            before_lig_lead_followups=before_lig_lead_followups,
         )
     return updated
 

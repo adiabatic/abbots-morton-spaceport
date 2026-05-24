@@ -104,16 +104,29 @@ context_sets:
 restore_isolated_form_overrides:
   # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `iso_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by iso_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
   - {prior: qsJay, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
+  - {prior: qsJay, target: qsIt, follower: qsNo, iso_form: qsIt.exit-baseline}
   - {prior: qsYe, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
+  - {prior: qsYe, target: qsIt, follower: qsNo, iso_form: qsIt.exit-baseline}
+  - {prior: qsIt, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
+  - {prior: qsEat, target: qsIt, follower: qsZoo, iso_form: qsIt.exit-baseline}
+  - {prior: qsEat, target: qsIt, follower: qsNo, iso_form: qsIt.exit-baseline}
 predecessor_demote_overrides:
   # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by iso_form;` under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt, iso_form: qsExcite}
+  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.before-utter, iso_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline, iso_form: qsExcite}
+  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsUtter.alt, iso_form: qsExcite}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, iso_form: qsJai}
   - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsMay}
   - {predecessor_form: qsMay.exit-noentry, trigger_form: qsThey_qsUtter.noentry, iso_form: qsMay}
   - {predecessor_form: qsNo.alt, trigger_form: qsIt.exit-baseline, iso_form: qsNo}
+  - {predecessor_form: qsNo.alt, trigger_form: qsUtter.alt, iso_form: qsNo}
   - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, iso_form: qsNo}
+trailing_demote_overrides:
+  # When a forward-pair override changes a leader into an entry-preserving form with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half form once the leader's no-exit form is in the buffer. Each entry compiles to `sub leader_form trailing_form' by iso_form;` under `calt_trailing_demote_<trailing_base>`.
+  - {leader_form: qsIt.entry-baseline.exit-noentry.before-day-exam, trailing_form: qsDay.half, iso_form: qsDay}
+  - {leader_form: qsIt.entry-baseline.exit-noentry.before-day-exam.entry-extended, trailing_form: qsDay.half, iso_form: qsDay}
 glyph_families:
   space:
     mono:
@@ -2293,6 +2306,12 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
         modifiers: [entry-baseline, exit-noentry]
+      entry_baseline_exit_noentry_before_day_exam:
+        inherits: entry_baseline_exit_noentry
+        select:
+          before: [{family: qsDay}, {family: qsExam}]
+          not_after: [{exit_y: 0, except: [{family: qsBay}, {family: qsDay}, {family: qsKey}, {family: qsGay}, {family: qsZoo}, {family: qsShe}, {family: qsJai}, {family: qsCheer}, {family: qsIng}, {family: qsLlan}, {family: qsExcite}, {family: qsEt}, {family: qsEight}, {family: qsAwe}, {family: qsOx}, {family: qsOy}, {family: qsOoze}]}]
+        modifiers: [before-day-exam]
       entry_nowhere_exit_xheight:
         shape: prop
         anchors:
