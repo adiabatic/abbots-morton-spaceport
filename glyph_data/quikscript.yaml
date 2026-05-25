@@ -101,6 +101,18 @@ context_sets:
   # Letters whose default form does not accept a baseline cursive entry (no anchor at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the join cannot form anyway.
   no_baseline_join_after_tall:
   - {family: qsThaw}
+  # Letters whose right side runs straight down to the baseline when they exit there — so any follower with an entry that swings in from the left at the baseline can't curl behind them.
+  flat_on_right_at_baseline:
+  - {family: qsPea, exit_y: 0}
+  - {family: qsTea, exit_y: 0}
+  - {family: qsYe, exit_y: 0}
+  - {family: qsHe, exit_y: 0}
+  - {family: qsExcite, exit_y: 0}
+  - {family: qsIt, exit_y: 0}
+  - {family: qsEat, exit_y: 0}
+  - {family: qsOx, exit_y: 0}
+  - {family: qsOy, exit_y: 0}
+  - {family: qsOoze, exit_y: 0}
 restore_isolated_form_overrides:
   # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `isolated_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by isolated_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
   - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
@@ -705,6 +717,8 @@ glyph_families:
         anchors:
           entry: [0, 0]
           exit:  [5, 5]
+        select:
+          not_after: [{context_set: flat_on_right_at_baseline}]
         modifiers: [entry-baseline]
   qsThaw:
     mono:
