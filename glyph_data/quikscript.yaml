@@ -650,6 +650,18 @@ glyph_families:
         - " #  #"
         - "  ## "
         y_offset: -3
+      reachable_from_the_left_at_the_baseline:
+        bitmap:
+        - "  ###"  #
+        - " #   "
+        - " #   "
+        - "  #  "
+        - "   # "
+        - "### #"  #
+        - " #  #"
+        - " #  #"
+        - "  ## "
+        y_offset: -3
     forms:
       exit_xheight:
         shape: mono
