@@ -638,7 +638,7 @@ glyph_families:
     prop:
       shape: mono
     shapes:
-      reachable_from_the_left:
+      reachable_from_the_left_at_the_xheight:
         bitmap:
         - "  #  "  #
         - " #   "
@@ -671,7 +671,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
         modifiers: [exit-baseline]
       entry_xheight:
-        shape: reachable_from_the_left
+        shape: reachable_from_the_left_at_the_xheight
         anchors:
           entry: [2, 5]
         select:
