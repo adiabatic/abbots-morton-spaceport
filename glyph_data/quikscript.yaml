@@ -674,6 +674,7 @@ glyph_families:
         shape: reachable_from_the_left_at_the_xheight
         anchors:
           entry: [2, 5]
+          exit:  [5, 0]
         select:
           after:
           - {family: qsUtter, exit_y: 5}
