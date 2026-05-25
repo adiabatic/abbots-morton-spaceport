@@ -637,6 +637,19 @@ glyph_families:
       y_offset: -3
     prop:
       shape: mono
+    shapes:
+      reachable_from_the_left:
+        bitmap:
+        - "  #  "  #
+        - " #   "
+        - " #   "
+        - "  #  "
+        - "   # "
+        - "  ###"  #
+        - " #  #"
+        - " #  #"
+        - "  ## "
+        y_offset: -3
     forms:
       exit_xheight:
         shape: mono
@@ -658,9 +671,9 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
         modifiers: [exit-baseline]
       entry_xheight:
-        shape: mono
+        shape: reachable_from_the_left
         anchors:
-          entry: [4, 5]
+          entry: [2, 5]
         select:
           after:
           - {family: qsUtter, exit_y: 5}
