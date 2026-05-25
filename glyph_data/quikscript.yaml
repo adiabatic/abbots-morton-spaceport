@@ -700,6 +700,12 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
+      entry_baseline:
+        shape: reachable_from_the_left_at_the_baseline
+        anchors:
+          entry: [0, 0]
+          exit:  [5, 5]
+        modifiers: [entry-baseline]
   qsThaw:
     mono:
       bitmap:
