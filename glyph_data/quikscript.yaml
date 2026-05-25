@@ -409,7 +409,7 @@ glyph_families:
           not_after: [{family: qsEt}]
           not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
         derive:
-          contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
+          contract_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsJay}]}
         traits: [half]
         modifiers: [exit-xheight]
       half_entry_top_exit_xheight:
