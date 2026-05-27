@@ -1269,7 +1269,7 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
         ),
         pytest.param(
             _qs_text("qsThaw", "qsIng"),
-            ["·Thaw ~b~ ·-ing.after-thaw.entry-doubly-extended"],
+            ["·Thaw ~b~ ·-ing.entry-doubly-extended"],
             id="thaw-before-ing",
         ),
     ],
