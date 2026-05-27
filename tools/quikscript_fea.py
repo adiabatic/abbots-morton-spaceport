@@ -3,7 +3,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
 
-from quikscript_ir import JoinGlyph, resolve_known_glyph_names
+from quikscript_ir import JoinGlyph, family_names_from_compiled, heal_glyph_name, resolve_known_glyph_names
 
 _ENTRY_EXTENSION_SUFFIXES = (
     ".entry-sextuply-extended",
@@ -2416,6 +2416,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         exit_y,
                         replacement_name,
                     )
+                    # Drop followers whose bk-upgrade at mid_exit_y is blocked by `mid_base`. They can't reach entry at mid_exit_y, so the strip never fires and the guard isn't needed for them. Mirrors the partial-ignore in `_emit_fwd_general` / `_emit_noentry_fwd_overrides` / `_emit_narrow_mid_entry_strip_guards`.
+                    blocked_by_mid_bk: set[str] = set()
+                    for trigger_glyph in trigger_contexts:
+                        trigger_meta = _meta(trigger_glyph)
+                        if trigger_meta.entry and mid_exit_y in trigger_meta.entry_ys:
+                            continue
+                        trigger_base = trigger_meta.base_name
+                        if mid_exit_y not in bk_replacements.get(trigger_base, {}):
+                            continue
+                        trigger_bk_excl_raw = bk_exclusions.get(trigger_base, {}).get(mid_exit_y, [])
+                        if not trigger_bk_excl_raw:
+                            continue
+                        expanded_trigger_excl = _expand_exclusions(trigger_bk_excl_raw)
+                        if mid_base in expanded_trigger_excl or (
+                            set(base_to_variants.get(mid_base, ())) & expanded_trigger_excl
+                        ):
+                            blocked_by_mid_bk.add(trigger_glyph)
+                    trigger_contexts -= blocked_by_mid_bk
                     _emit_guard(mid_source, trigger_contexts)
                     _emit_guard(mid_replacement, trigger_contexts)
 
@@ -2773,6 +2791,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         trigger_contexts.clear()
                     if not bare_base_noentry_fwd_relax:
                         trigger_contexts -= _entry_preserving_followers(mid_base)
+                    # Followers whose bk-upgrade at mid_exit_y has a `not_after` blocking `mid_base` can't actually reach entry at mid_exit_y when mid precedes — so the entry-strip never fires and the leader doesn't need protection from them. Mirrors the partial-ignore in `_emit_fwd_general` / `_emit_noentry_fwd_overrides`.
+                    blocked_by_mid_bk: set[str] = set()
+                    for trigger_glyph in trigger_contexts:
+                        trigger_meta = _meta(trigger_glyph)
+                        if trigger_meta.entry and mid_exit_y in trigger_meta.entry_ys:
+                            continue
+                        trigger_base = trigger_meta.base_name
+                        if mid_exit_y not in bk_replacements.get(trigger_base, {}):
+                            continue
+                        trigger_bk_excl_raw = bk_exclusions.get(trigger_base, {}).get(mid_exit_y, [])
+                        if not trigger_bk_excl_raw:
+                            continue
+                        expanded_trigger_excl = _expand_exclusions(trigger_bk_excl_raw)
+                        if mid_base in expanded_trigger_excl or (
+                            set(base_to_variants.get(mid_base, ())) & expanded_trigger_excl
+                        ):
+                            blocked_by_mid_bk.add(trigger_glyph)
+                    trigger_contexts -= blocked_by_mid_bk
                     if bare_base_relax and not bare_base_noentry_fwd_relax:
                         # The FEA emitter expands `entry_classes` to include bare bases of entry-bearing variants and their entry-stripped forward replacements (so post-cycle rules see the runtime-promoted entry). For the fwd-strip guard, that broader set is wrong: when the third position is itself a bare base whose `bk_replacements[mid_exit_y]` carries the entry, the runtime picks bk over fwd at that slot, so mid never actually forward-strips. Restricting to glyphs that literally carry an entry at mid_exit_y keeps `·Gay·Tea·Tea` joined while preserving the ·Gay·Tea·Ah guard (qsAh has a real entry at y=0).
                         trigger_contexts = {
@@ -2818,6 +2854,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     replacement_name,
                 )
                 effective_before -= _entry_preserving_followers(mid_base)
+                # Drop followers whose bk-upgrade at exit_y is blocked by `mid_base`. They can't reach entry at exit_y, so the strip never fires and the guard isn't needed for them.
+                pair_blocked_by_mid_bk: set[str] = set()
+                for trigger_glyph in effective_before:
+                    trigger_meta = _meta(trigger_glyph)
+                    if trigger_meta.entry and exit_y in trigger_meta.entry_ys:
+                        continue
+                    trigger_base = trigger_meta.base_name
+                    if exit_y not in bk_replacements.get(trigger_base, {}):
+                        continue
+                    trigger_bk_excl_raw = bk_exclusions.get(trigger_base, {}).get(exit_y, [])
+                    if not trigger_bk_excl_raw:
+                        continue
+                    expanded_trigger_excl = _expand_exclusions(trigger_bk_excl_raw)
+                    if mid_base in expanded_trigger_excl or (
+                        set(base_to_variants.get(mid_base, ())) & expanded_trigger_excl
+                    ):
+                        pair_blocked_by_mid_bk.add(trigger_glyph)
+                effective_before -= pair_blocked_by_mid_bk
                 before_tuple = tuple(sorted(effective_before))
                 if before_tuple in emitted_before_lists:
                     continue
@@ -3210,6 +3264,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             if variant_meta.exit:
                                 variant_exit_ys = set(variant_meta.exit_ys)
                                 base_for_target = target_meta.base_name
+                                # Followers the forward override itself can attach to via the variant's own exit Y. If a follower can reach both the bk path (via `bk_var`'s exit Y) and the fwd path (via `variant`'s exit Y), the author's choice to define an explicit forward-pair override for those followers should win — narrowing `compatible` here prevents the partial-ignore from blocking the override for followers that have a viable fwd-side attachment.
+                                variant_reachable_followers: set[str] = set()
+                                for variant_exit_y in variant_exit_ys:
+                                    variant_reachable_followers.update(
+                                        entry_classes.get(variant_exit_y, set()) & expanded_before
+                                    )
                                 protect_ys = set()
                                 for bk_y, bk_var in bk_replacements.get(base_for_target, {}).items():
                                     bk_meta = _meta(bk_var)
@@ -3218,11 +3278,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                         if variant_exit_ys <= bk_exit_ys:
                                             protect_ys.add(bk_y)
                                         else:
-                                            compatible = set()
+                                            bk_reachable_followers = set()
                                             for bk_exit_y in bk_exit_ys:
-                                                compatible.update(
+                                                bk_reachable_followers.update(
                                                     entry_classes.get(bk_exit_y, set()) & expanded_before
                                                 )
+                                            if not bk_reachable_followers:
+                                                protect_ys.add(bk_y)
+                                                continue
+                                            # Drop followers that the forward override itself can serve; those are not "bk-only" followers, so the bk path doesn't need protection from the override for them. If every bk-reachable follower is also fwd-reachable, the override wins for all of them and no partial-ignore is emitted.
+                                            compatible = bk_reachable_followers - variant_reachable_followers
                                             if compatible:
                                                 ig_glyphs = exit_classes.get(bk_y, set())
                                                 if ig_glyphs:
@@ -3232,8 +3297,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                                             " ".join(sorted(compatible)),
                                                         )
                                                     )
-                                            else:
-                                                protect_ys.add(bk_y)
                                 if protect_ys:
                                     guard_glyphs = set()
                                     for protect_y in protect_ys:
@@ -3470,6 +3533,31 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 exit_y,
                 effective_right_context_glyphs,
             )
+            # When a follower base F has a backward upgrade at entry_y=exit_y whose `not_after` excludes base_name (the leader), F's entry won't be activated when base_name precedes. Suppress the forward upgrade in that case: otherwise base_name reaches its exit at this Y toward an entry that never materializes, and the in-context render diverges from the isolated split.
+            blocked_follower_glyphs: set[str] = set()
+            for f_base, f_bk_at_y in bk_replacements.items():
+                if exit_y not in f_bk_at_y or f_base == base_name:
+                    continue
+                f_bk_excl_raw = bk_exclusions.get(f_base, {}).get(exit_y, [])
+                if not f_bk_excl_raw:
+                    continue
+                expanded_excl = _expand_exclusions(f_bk_excl_raw)
+                if base_name not in expanded_excl and not (
+                    set(base_to_variants.get(base_name, ())) & expanded_excl
+                ):
+                    continue
+                f_candidates = set(base_to_variants.get(f_base, ())) | {f_base}
+                for f_variant in f_candidates:
+                    if f_variant not in right_context_glyphs:
+                        continue
+                    f_var_meta = _meta(f_variant)
+                    if f_var_meta.entry and exit_y in f_var_meta.entry_ys:
+                        continue
+                    blocked_follower_glyphs.add(f_variant)
+            if blocked_follower_glyphs:
+                lines.append(
+                    f"        ignore sub {base_name}' [{' '.join(sorted(blocked_follower_glyphs))}];"
+                )
             lines.append(f"        sub {base_name}' {cls} by {variant_name};")
             emitted = True
 
@@ -3487,6 +3575,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     exit_y,
                     effective_right_context_glyphs,
                 )
+                if blocked_follower_glyphs:
+                    lines.append(
+                        f"        ignore sub {target_name}' [{' '.join(sorted(blocked_follower_glyphs))}];"
+                    )
                 lines.append(f"        sub {target_name}' {cls} by {variant_name};")
                 emitted = True
         if base_name in fwd_preferred_lookahead:
@@ -3979,6 +4071,31 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         exit_y,
                         effective_right_context_glyphs,
                     )
+                    # Mirror the partial-ignore in `_emit_fwd_general`: when a follower base F has a backward upgrade at entry_y=exit_y whose `not_after` excludes base_name, F's entry never materializes when base_name precedes. Suppress the forward upgrade in calt_cycle for those follower variants too, otherwise base_name reaches its exit at this Y toward an entry that won't be added.
+                    blocked_follower_glyphs: set[str] = set()
+                    for f_base, f_bk_at_y in bk_replacements.items():
+                        if exit_y not in f_bk_at_y or f_base == base_name:
+                            continue
+                        f_bk_excl_raw = bk_exclusions.get(f_base, {}).get(exit_y, [])
+                        if not f_bk_excl_raw:
+                            continue
+                        expanded_excl = _expand_exclusions(f_bk_excl_raw)
+                        if base_name not in expanded_excl and not (
+                            set(base_to_variants.get(base_name, ())) & expanded_excl
+                        ):
+                            continue
+                        f_candidates = set(base_to_variants.get(f_base, ())) | {f_base}
+                        for f_variant in f_candidates:
+                            if f_variant not in right_context_glyphs:
+                                continue
+                            f_var_meta = _meta(f_variant)
+                            if f_var_meta.entry and exit_y in f_var_meta.entry_ys:
+                                continue
+                            blocked_follower_glyphs.add(f_variant)
+                    if blocked_follower_glyphs:
+                        lines.append(
+                            f"        ignore sub {base_name}' [{' '.join(sorted(blocked_follower_glyphs))}];"
+                        )
                     lines.append(f"        sub {base_name}' {cls} by {variant_name};")
         lines.append("    } calt_cycle;")
 
@@ -4103,6 +4220,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             safe = f"post_override_{base_name}".replace(".", "_").replace("-", "_")
             exclusions = bk_exclusions.get(base_name, {})
+            bk_fwd_excl = plan.bk_fwd_exclusions
+            bk_fwd_excl_seq = plan.bk_fwd_exclusion_sequences
             lines.append("")
             lines.append(f"    lookup calt_{safe} {{")
             # HarfBuzz treats ZWNJ as a default-ignorable glyph and would otherwise allow this backward-context lookup to match across a ZWNJ. Mentioning uni200C in an ignore rule forces it into the lookup's coverage so HarfBuzz stops skipping it.
@@ -4110,9 +4229,23 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"        ignore sub uni200C {fwd_variant}';")
             for entry_y in sorted(relevant.keys()):
                 excluded = sorted(_expand_exclusions(exclusions.get(entry_y, [])))
+                # Mirror the YAML `not_before` (and IR-derived `bk_fwd_exclusion_sequences`) of `relevant[entry_y]` here too. Without it, an earlier `calt_fwd_{base}` lookup rewrites bare `base` to a `fwd_variant` (entryless), and this post-override pass then bk-upgrades that fwd_variant to `relevant[entry_y]` (which carries the entry anchor) regardless of follower — silently undoing `not_before`. The sub gets a broad lookahead (the union of every `@entry_y*` class — anything that could appear here as an entry-bearing follower) so the ignore rules for `not_before` and the sub end up in the same compiled subtable, while the upgrade still fires for followers (like bare qsIt at entry_y=0) whose entry sits at a Y different from the target's exit Y.
+                fwd_excl = bk_fwd_excl.get(base_name, {}).get(entry_y)
+                fwd_excl_sequences = bk_fwd_excl_seq.get(base_name, {}).get(entry_y, [])
+                excl_tokens = _excl_tokens(fwd_excl, fwd_excl_sequences)
+                sub_la = ""
+                if excl_tokens:
+                    lookahead_classes = [
+                        f"@entry_y{ey}" for ey in sorted(set(entry_classes) & set(fwd_used_ys))
+                    ]
+                    if lookahead_classes:
+                        sub_la = " [" + " ".join(lookahead_classes) + "]"
                 for fwd_variant in sorted(fwd_exit_only):
                     for excluded_glyph in excluded:
                         lines.append(f"        ignore sub {excluded_glyph} {fwd_variant}';")
+                    if sub_la:
+                        for tok in excl_tokens:
+                            lines.append(f"        ignore sub @exit_y{entry_y} {fwd_variant}' {tok};")
                     fwd_exit_y = fwd_exit_by_variant.get(fwd_variant)
                     if (
                         fwd_exit_y == entry_y
@@ -4135,7 +4268,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 lines.append(
                                     f"        ignore sub @exit_y{entry_y} {fwd_variant}' [{right_list}];"
                                 )
-                    lines.append(f"        sub @exit_y{entry_y} {fwd_variant}' by {relevant[entry_y]};")
+                    lines.append(
+                        f"        sub @exit_y{entry_y} {fwd_variant}'{sub_la} by {relevant[entry_y]};"
+                    )
             lines.append(f"    }} calt_{safe};")
 
     def _emit_reverse_upgrades():
@@ -4301,11 +4436,36 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         fwd_exit_y,
                         effective_right_context_glyphs,
                     )
+                    # Mirror the partial-ignore in `_emit_fwd_general`: when a follower base F has a backward upgrade at entry_y=fwd_exit_y whose `not_after` excludes base_name, F won't end up with an entry at fwd_exit_y after base_name. Block the entry-only → exit-only override for those F variants too.
+                    blocked_follower_glyphs: set[str] = set()
+                    for f_base, f_bk_at_y in bk_replacements.items():
+                        if fwd_exit_y not in f_bk_at_y or f_base == base_name:
+                            continue
+                        f_bk_excl_raw = bk_exclusions.get(f_base, {}).get(fwd_exit_y, [])
+                        if not f_bk_excl_raw:
+                            continue
+                        expanded_excl = _expand_exclusions(f_bk_excl_raw)
+                        if base_name not in expanded_excl and not (
+                            set(base_to_variants.get(base_name, ())) & expanded_excl
+                        ):
+                            continue
+                        f_candidates = set(base_to_variants.get(f_base, ())) | {f_base}
+                        for f_variant in f_candidates:
+                            if f_variant not in right_context_glyphs:
+                                continue
+                            f_var_meta = _meta(f_variant)
+                            if f_var_meta.entry and fwd_exit_y in f_var_meta.entry_ys:
+                                continue
+                            blocked_follower_glyphs.add(f_variant)
                     refinement = _exit_extension_refinement(fwd_var, effective_right_context_glyphs)
                     if refinement is not None:
                         ext_fwd_var, trigger_glyphs = refinement
                         trigger_list = " ".join(sorted(trigger_glyphs))
                         lines.append(f"        sub {bk_var}' [{trigger_list}] by {ext_fwd_var};")
+                    if blocked_follower_glyphs:
+                        lines.append(
+                            f"        ignore sub {bk_var}' [{' '.join(sorted(blocked_follower_glyphs))}];"
+                        )
                     lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
                     lines.append(f"    }} calt_fwd_override_{safe};")
                     for ext_suffix in _ENTRY_EXTENSION_SUFFIXES:
@@ -4339,6 +4499,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             ext_fwd_var, trigger_glyphs = ext_refinement
                             trigger_list = " ".join(sorted(trigger_glyphs))
                             lines.append(f"        sub {ext_bk}' [{trigger_list}] by {ext_fwd_var};")
+                        if blocked_follower_glyphs:
+                            lines.append(
+                                f"        ignore sub {ext_bk}' [{' '.join(sorted(blocked_follower_glyphs))}];"
+                            )
                         lines.append(f"        sub {ext_bk}' {cls} by {fwd_var};")
                         lines.append(f"    }} calt_fwd_override_{ext_safe};")
 
@@ -5593,9 +5757,19 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub {prior_form} {successor_form}' by {target_form};")
         lines.append(f"    }} calt_successor_demote_{safe};")
 
-    entry_demote_rules = (
-        ("qsOut_qsTea", "qsVie.exit-baseline.entry-extended", "qsVie.exit-baseline"),
-        ("qsOut_qsTea", "qsVie_qsUtter.entry-extended", "qsVie_qsUtter"),
+    # Heal the curated names against the live glyph set: the source-of-truth form names changed when `_synthesize_anchor_modifiers` started filling in entry-baseline / exit-baseline, so a literal `qsVie.exit-baseline` no longer compiles. `heal_glyph_name` rewrites each side of the rule to its post-synthesis counterpart.
+    _entry_demote_family_names = family_names_from_compiled(glyph_names)
+    _entry_demote_available_names = frozenset(glyph_names)
+    entry_demote_rules = tuple(
+        (
+            heal_glyph_name(prior, _entry_demote_family_names, _entry_demote_available_names),
+            heal_glyph_name(successor, _entry_demote_family_names, _entry_demote_available_names),
+            heal_glyph_name(isolated, _entry_demote_family_names, _entry_demote_available_names),
+        )
+        for prior, successor, isolated in (
+            ("qsOut_qsTea", "qsVie.exit-baseline.entry-extended", "qsVie.exit-baseline"),
+            ("qsOut_qsTea", "qsVie_qsUtter.entry-extended", "qsVie_qsUtter"),
+        )
     )
     emitted_entry_demote = False
     for prior_form, successor_form, isolated_form in entry_demote_rules:

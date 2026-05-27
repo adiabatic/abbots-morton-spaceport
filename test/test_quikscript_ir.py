@@ -132,7 +132,7 @@ def test_compiled_glyph_definitions_do_not_export_compiler_metadata_keys():
         "qsTea",
         "qsDay_qsUtter",
         "qsDay_qsUtter.noentry",
-        "qsMay.entry-baseline.entry-extended",
+        "qsMay.entry-baseline.exit-xheight.entry-extended",
     ):
         assert not any(key.startswith("_") for key in compiled.glyph_definitions[glyph_name])
 
@@ -292,7 +292,7 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
                                     {"family": "qsOther"},
                                 ],
                             },
-                            "modifiers": ["entry-top"],
+                            "modifiers": ["entry-baseline"],
                         },
                         "before_other": {
                             "shape": "prop",
@@ -331,7 +331,7 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert expanded["qsLead.entry-top.exit-contracted"].before == ("qsFollow",)
+    assert expanded["qsLead.entry-baseline.exit-baseline.exit-contracted"].before == ("qsFollow",)
     assert expanded["qsLead.before-other.exit-contracted"].before == ()
 
 
@@ -888,22 +888,23 @@ def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_cl
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    start = fea.index("lookup calt_pair_qsPea_entry-xheight {")
-    end = fea.index("} calt_pair_qsPea_entry-xheight;", start)
+    start = fea.index("lookup calt_pair_qsPea_entry-xheight_exit-baseline {")
+    end = fea.index("} calt_pair_qsPea_entry-xheight_exit-baseline;", start)
     block = fea[start:end]
 
     sub_line = next(
         line
         for line in block.splitlines()
-        if line.strip().startswith("sub [") and line.rstrip().endswith("by qsPea.entry-xheight;")
+        if line.strip().startswith("sub [")
+        and line.rstrip().endswith("by qsPea.entry-xheight.exit-baseline;")
     )
     after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
     after_glyphs = set(after_class.split())
 
     assert {
         "qsMay",
-        "qsMay.entry-baseline",
-        "qsMay.entry-baseline.entry-extended",
+        "qsMay.entry-baseline.exit-xheight",
+        "qsMay.entry-baseline.exit-xheight.entry-extended",
         "qsMay.exit-extended",
     } <= after_glyphs
     assert not (
@@ -954,10 +955,10 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert "sub qsIt.entry-xheight' [qsCheer" not in fea
-    assert "sub qsIt.entry-xheight.entry-extended' [qsCheer" not in fea
+    assert "sub qsIt.entry-xheight.exit-baseline' [qsCheer" not in fea
+    assert "sub qsIt.entry-xheight.exit-baseline.entry-extended' [qsCheer" not in fea
     for line in fea.splitlines():
-        if "by qsIt.entry-xheight.exit-extended;" in line:
+        if "by qsIt.entry-xheight.exit-baseline.exit-extended;" in line:
             assert "qsCheer" not in line
 
     upgrade_lines = [
@@ -2365,12 +2366,12 @@ def test_variant_example_finder_explains_elsewhere_example_without_source_family
         status="variant",
         label="Glyph-only example",
         families=("qsMay", "qsThey", "qsUtter"),
-        glyphs=("qsMay.entry-baseline.exit-noentry", "qsThey_qsUtter.noentry"),
+        glyphs=("qsMay.entry-baseline.exit-xheight.exit-noentry", "qsThey_qsUtter.noentry"),
     )
 
     annotated = finder._with_variant_only_context(
         suggestion,
-        "qsMay.entry-baseline.exit-noentry",
+        "qsMay.entry-baseline.exit-xheight.exit-noentry",
         example,
     )
 
@@ -2390,14 +2391,14 @@ def test_variant_example_finder_explains_elsewhere_example_with_other_source_for
         families=("qsPea", "qsMay", "qsThey", "qsUtter"),
         glyphs=(
             "qsPea",
-            "qsMay.entry-baseline.exit-noentry.entry-extended",
+            "qsMay.entry-baseline.exit-xheight.exit-noentry.entry-extended",
             "qsThey_qsUtter.noentry",
         ),
     )
 
     annotated = finder._with_variant_only_context(
         suggestion,
-        "qsMay.entry-baseline.exit-noentry.entry-extended",
+        "qsMay.entry-baseline.exit-xheight.exit-noentry.entry-extended",
         example,
     )
 

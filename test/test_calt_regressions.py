@@ -593,7 +593,7 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
     - x-height join — qsIt.exit-xheight (a single column of ink) meets
       qsRoe.entry-extended-at-xheight (top row widened to ``####``), with ink
       contact only at glyph-space y=5. ·Loch·It·Roe is the canonical example.
-    - baseline join — qsIt.entry-xheight (single column, exit at y=0) meets
+    - baseline join — qsIt.entry-xheight.exit-baseline (single column, exit at y=0) meets
       qsRoe.entry-extended-at-baseline (bottom row widened), with ink contact
       only at y=0. ·Low·It·Roe is the canonical example.
 
@@ -2703,7 +2703,7 @@ _GAY_CONTEXTS = (
 )
 
 _GAY_CONTEXT_JOIN_CASES = (
-    pytest.param("qsIt", "qsIt.entry-baseline", id="it"),
+    pytest.param("qsIt", "qsIt.entry-baseline.exit-xheight", id="it"),
     pytest.param("qsI", None, id="i"),
     pytest.param("qsExam", None, id="exam"),
 )

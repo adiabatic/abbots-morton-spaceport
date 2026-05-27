@@ -42,6 +42,7 @@ from quikscript_ir import (
     GlyphDef,
     _is_contextual_variant,
     get_base_glyph_name,
+    heal_glyph_name,
 )
 
 
@@ -1049,31 +1050,38 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
+        # Author-written compiled glyph names in these override tables predate `_synthesize_anchor_modifiers` and may name forms that have since gained synthesized anchor-Y modifiers; route them through `heal_glyph_name` so the override fires against the post-synth form.
+        senior_family_names = set(glyph_data.get("glyph_families", {}))
+        senior_available_names = frozenset(join_glyphs)
+
+        def _heal(name: str) -> str:
+            return heal_glyph_name(name, senior_family_names, senior_available_names)
+
         raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
         restore_isolated_form_tuples = tuple(
             (
-                entry["prior"],
-                entry["target"],
-                entry["follower"],
-                entry["isolated_form"],
+                _heal(entry["prior"]),
+                _heal(entry["target"]),
+                _heal(entry["follower"]),
+                _heal(entry["isolated_form"]),
             )
             for entry in raw_restore_isolated_form
         )
         raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
         predecessor_demote_tuples = tuple(
             (
-                entry["predecessor_form"],
-                entry["trigger_form"],
-                entry["isolated_form"],
+                _heal(entry["predecessor_form"]),
+                _heal(entry["trigger_form"]),
+                _heal(entry["isolated_form"]),
             )
             for entry in raw_pred_demote
         )
         raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
         trailing_demote_tuples = tuple(
             (
-                entry["leader_form"],
-                entry["trailing_form"],
-                entry["isolated_form"],
+                _heal(entry["leader_form"]),
+                _heal(entry["trailing_form"]),
+                _heal(entry["isolated_form"]),
             )
             for entry in raw_trailing_demote
         )

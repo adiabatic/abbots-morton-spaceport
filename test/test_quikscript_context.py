@@ -39,8 +39,8 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert utter.is_contextual
     assert "reaches-way-back" in utter.compat_assertions
 
-    may = meta["qsMay.entry-baseline.entry-extended"]
-    assert may.modifiers == ("entry-baseline", "entry-extended")
+    may = meta["qsMay.entry-baseline.exit-xheight.entry-extended"]
+    assert may.modifiers == ("entry-baseline", "exit-xheight", "entry-extended")
     assert may.entry_suffix == ".entry-baseline"
     assert may.extended_entry_suffix == ".entry-extended"
     assert may.is_entry_variant
@@ -217,9 +217,9 @@ def test_noentry_generation_keeps_exit_bearing_variants_usable_after_zwnj():
 
     variants = generate_noentry_variants(glyph_meta, has_zwnj=True)
 
-    assert "qsBase.exit-baseline.noentry" in variants
-    assert variants["qsBase.exit-baseline.noentry"].entry == ()
-    assert variants["qsBase.exit-baseline.noentry"].exit == ((1, 0),)
+    assert "qsBase.entry-baseline.exit-baseline.noentry" in variants
+    assert variants["qsBase.entry-baseline.exit-baseline.noentry"].entry == ()
+    assert variants["qsBase.entry-baseline.exit-baseline.noentry"].exit == ((1, 0),)
 
 
 def test_structured_family_selectors_resolve_to_compiled_names():
@@ -435,8 +435,8 @@ def test_inherits_reuses_and_clears_nested_form_context():
                         },
                         "half_entry": {
                             "inherits": "half",
-                            "anchors": {"entry": [0, 0]},
-                            "modifiers": ["entry-baseline"],
+                            "anchors": {"entry": [0, 5]},
+                            "modifiers": ["entry-xheight"],
                         },
                         "half_entry_exit": {
                             "inherits": "half",
@@ -453,7 +453,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
         }
     ).glyph_definitions
 
-    assert glyphs["qsBase.half.entry-baseline"]["calt_not_before"] == ["qsBlocker"]
+    assert glyphs["qsBase.half.entry-xheight.exit-baseline"]["calt_not_before"] == ["qsBlocker"]
     assert "calt_not_before" not in glyphs["qsBase.half.entry-baseline.exit-baseline"]
     assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["calt_before"] == ["qsOther"]
 
@@ -500,10 +500,14 @@ def test_inherited_form_shape_override_replaces_visual_fields():
     assert glyphs["qsBase.half"]["y_offset"] == -2
     assert glyphs["qsBase.half"]["advance_width"] == 4
 
-    assert glyphs["qsBase.half.entry-baseline"]["bitmap"] == ["22", " 2"]
-    assert glyphs["qsBase.half.entry-baseline"]["y_offset"] == 3
-    assert glyphs["qsBase.half.entry-baseline"]["advance_width"] == 7
-    assert meta["qsBase.half.entry-baseline"].modifiers == ("half", "entry-baseline")
+    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["bitmap"] == ["22", " 2"]
+    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["y_offset"] == 3
+    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["advance_width"] == 7
+    assert meta["qsBase.half.entry-baseline.exit-baseline"].modifiers == (
+        "half",
+        "entry-baseline",
+        "exit-baseline",
+    )
 
 
 def test_alt_and_half_are_semantic_traits():
