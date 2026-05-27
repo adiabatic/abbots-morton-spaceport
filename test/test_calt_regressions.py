@@ -2882,12 +2882,12 @@ def test_qs_gay_exit_baseline_extended_targets_include_joining_followers(target_
 
 def test_qs_gay_exit_xheight_extended_exists_for_it():
     meta = _compiled_meta()
-    variant = meta["qsGay.exit-xheight.exit-extended"]
+    variant = meta["qsGay.exit-xheight.exit-doubly-extended"]
     assert variant.exit == (
         (6, 5),
-    ), f"qsGay.exit-xheight.exit-extended should exit at x=6, y=5; got {variant.exit}"
+    ), f"qsGay.exit-xheight.exit-doubly-extended should exit at x=6, y=5; got {variant.exit}"
     assert "qsIt" in set(variant.before), (
-        f"qsGay.exit-xheight.exit-extended should name qsIt in `before`; " f"got {variant.before}"
+        f"qsGay.exit-xheight.exit-doubly-extended should name qsIt in `before`; " f"got {variant.before}"
     )
 
 
