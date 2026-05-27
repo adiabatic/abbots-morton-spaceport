@@ -327,12 +327,22 @@
         "extend_entry_after": {
           "oneOf": [
             { "$ref": "#/definitions/extensionSpec" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/definitions/extensionSpec" },
+              "minItems": 1
+            },
             { "type": "null" }
           ]
         },
         "extend_exit_before": {
           "oneOf": [
             { "$ref": "#/definitions/extensionSpec" },
+            {
+              "type": "array",
+              "items": { "$ref": "#/definitions/extensionSpec" },
+              "minItems": 1
+            },
             { "type": "null" }
           ]
         },

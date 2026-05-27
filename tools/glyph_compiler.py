@@ -71,12 +71,29 @@ def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[
                 changed = True
             glyph_def[key] = renamed
 
-        for key in (
-            "extend_entry_after",
-            "extend_exit_before",
-            "contract_entry_after",
-            "contract_exit_before",
-        ):
+        for key in ("extend_entry_after", "extend_exit_before"):
+            spec = glyph_def.get(key)
+            if not spec:
+                continue
+            rules = spec if isinstance(spec, list) else [spec]
+            new_rules = []
+            rule_changed = False
+            for rule in rules:
+                targets = rule["targets"]
+                renamed = [rename_map.get(value, value) for value in targets]
+                if renamed == list(targets):
+                    new_rules.append(rule)
+                else:
+                    rule_changed = True
+                    new_rules.append({"by": rule["by"], "targets": renamed})
+            if not rule_changed:
+                continue
+            if not changed:
+                glyph_def = dict(glyph_def)
+                changed = True
+            glyph_def[key] = new_rules if isinstance(spec, list) else new_rules[0]
+
+        for key in ("contract_entry_after", "contract_exit_before"):
             spec = glyph_def.get(key)
             if not spec:
                 continue
@@ -141,12 +158,16 @@ def _validate_compiled_glyph_references(
             continue
         for key in (*_JOIN_REF_KEYS, "preferred_over"):
             _validate_refs(glyph_name, key, glyph_def.get(key, ()))
-        for key in (
-            "extend_entry_after",
-            "extend_exit_before",
-            "contract_entry_after",
-            "contract_exit_before",
-        ):
+        for key in ("extend_entry_after", "extend_exit_before"):
+            spec = glyph_def.get(key)
+            if not spec:
+                continue
+            rules = spec if isinstance(spec, list) else [spec]
+            combined: list[str] = []
+            for rule in rules:
+                combined.extend(rule.get("targets", ()))
+            _validate_refs(glyph_name, key, combined)
+        for key in ("contract_entry_after", "contract_exit_before"):
             spec = glyph_def.get(key)
             if spec:
                 _validate_refs(glyph_name, key, spec.get("targets", ()))
@@ -156,10 +177,10 @@ def _validate_compiled_glyph_references(
         _validate_refs(glyph_name, "calt_before", join_glyph.before)
         _validate_refs(glyph_name, "calt_not_after", join_glyph.not_after)
         _validate_refs(glyph_name, "calt_not_before", join_glyph.not_before)
-        if join_glyph.extend_entry_after is not None:
-            _validate_refs(glyph_name, "extend_entry_after", join_glyph.extend_entry_after.targets)
-        if join_glyph.extend_exit_before is not None:
-            _validate_refs(glyph_name, "extend_exit_before", join_glyph.extend_exit_before.targets)
+        for rule in join_glyph.extend_entry_after:
+            _validate_refs(glyph_name, "extend_entry_after", rule.targets)
+        for rule in join_glyph.extend_exit_before:
+            _validate_refs(glyph_name, "extend_exit_before", rule.targets)
         if join_glyph.contract_entry_after is not None:
             _validate_refs(glyph_name, "contract_entry_after", join_glyph.contract_entry_after.targets)
         if join_glyph.contract_exit_before is not None:
@@ -224,7 +245,7 @@ def _validate_extensions_reach_targets(
                         f"entry at y={exit_y} reachable after {g.family}"
                     )
 
-        exit_targets = g.extend_exit_before.targets if g.extend_exit_before else ()
+        exit_targets = tuple(t for rule in g.extend_exit_before for t in rule.targets)
         for target_name in exit_targets:
             target = join_glyphs.get(target_name)
             if not target or not target.family:
@@ -245,7 +266,7 @@ def _validate_extensions_reach_targets(
             continue
         entry_y = entry_anchors[0][1]
 
-        entry_targets = g.extend_entry_after.targets if g.extend_entry_after else ()
+        entry_targets = tuple(t for rule in g.extend_entry_after for t in rule.targets)
         for target_name in entry_targets:
             target = join_glyphs.get(target_name)
             if not target or not target.family:

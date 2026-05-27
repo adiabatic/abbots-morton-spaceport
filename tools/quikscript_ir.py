@@ -38,6 +38,7 @@ _LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
 
 @dataclass(frozen=True)
 class ExtensionSpec:
+    # One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single form can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each.
     by: int
     targets: tuple[str, ...]
 
@@ -84,8 +85,8 @@ class JoinGlyph:
     bitmap: tuple[BitmapRow, ...]
     y_offset: int
     advance_width: int | None
-    extend_entry_after: ExtensionSpec | None
-    extend_exit_before: ExtensionSpec | None
+    extend_entry_after: tuple[ExtensionSpec, ...]
+    extend_exit_before: tuple[ExtensionSpec, ...]
     noentry_after: tuple[str, ...]
     extend_exit_no_entry: bool
     extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] = ()
@@ -444,6 +445,31 @@ def _filter_targets_by_reachability(
     return kept
 
 
+def _filter_extension_rules_by_reachability(
+    value: Any,
+    *,
+    form_ys: set[int],
+    glyph_families: dict[str, Any],
+    target_anchor: str,
+) -> list[dict[str, Any]] | dict[str, Any] | None:
+    raw_rules = value if isinstance(value, list) else [value]
+    kept_rules: list[dict[str, Any]] = []
+    for rule in raw_rules:
+        kept_targets = _filter_targets_by_reachability(
+            rule.get("targets", ()),
+            form_ys=form_ys,
+            glyph_families=glyph_families,
+            target_anchor=target_anchor,
+        )
+        if kept_targets:
+            kept_rules.append({**deepcopy(rule), "targets": kept_targets})
+    if not kept_rules:
+        return None
+    if isinstance(value, list):
+        return kept_rules
+    return kept_rules[0]
+
+
 def _select_applicable_family_derive(
     family_derive: dict[str, Any],
     *,
@@ -462,7 +488,29 @@ def _select_applicable_family_derive(
             applicable[key] = deepcopy(value)
             continue
 
-        if key in {"extend_exit_before", "contract_exit_before"}:
+        if key == "extend_exit_before":
+            if not form_exit_ys:
+                continue
+            kept_rules = _filter_extension_rules_by_reachability(
+                value,
+                form_ys=form_exit_ys,
+                glyph_families=glyph_families,
+                target_anchor="entry",
+            )
+            if kept_rules is not None:
+                applicable[key] = kept_rules
+        elif key == "extend_entry_after":
+            if not form_entry_ys:
+                continue
+            kept_rules = _filter_extension_rules_by_reachability(
+                value,
+                form_ys=form_entry_ys,
+                glyph_families=glyph_families,
+                target_anchor="exit",
+            )
+            if kept_rules is not None:
+                applicable[key] = kept_rules
+        elif key == "contract_exit_before":
             if not form_exit_ys:
                 continue
             kept_targets = _filter_targets_by_reachability(
@@ -474,7 +522,7 @@ def _select_applicable_family_derive(
             if not kept_targets:
                 continue
             applicable[key] = {**deepcopy(value), "targets": kept_targets}
-        elif key in {"extend_entry_after", "contract_entry_after"}:
+        elif key == "contract_entry_after":
             if not form_entry_ys:
                 continue
             kept_targets = _filter_targets_by_reachability(
@@ -1184,12 +1232,29 @@ def _family_form_to_glyph_def(
                 available_names=available_names,
             )
 
-    for key in (
-        "extend_entry_after",
-        "extend_exit_before",
-        "contract_entry_after",
-        "contract_exit_before",
-    ):
+    for key in ("extend_entry_after", "extend_exit_before"):
+        if key not in derive:
+            continue
+        raw = derive[key]
+        if raw is None:
+            glyph_def[key] = ()
+            continue
+        raw_rules = raw if isinstance(raw, list) else [raw]
+        rules: list[ExtensionSpec] = []
+        for rule in raw_rules:
+            targets = _normalize_family_refs(
+                rule["targets"],
+                family_names,
+                context_sets=context_sets,
+                context_family=family_name,
+                context_label=f"form {form_name!r}" if form_name else "base record",
+                field_name=key,
+                available_names=available_names,
+            )
+            rules.append(ExtensionSpec(by=rule["by"], targets=tuple(targets)))
+        glyph_def[key] = tuple(rules)
+
+    for key in ("contract_entry_after", "contract_exit_before"):
         if key not in derive:
             continue
         raw = derive[key]
@@ -1539,8 +1604,8 @@ def _glyph_def_to_join_glyph(
         bitmap=_normalize_bitmap(glyph_def.get("bitmap", ())),
         y_offset=int(glyph_def.get("y_offset", 0)),
         advance_width=glyph_def.get("advance_width"),
-        extend_entry_after=glyph_def.get("extend_entry_after"),
-        extend_exit_before=glyph_def.get("extend_exit_before"),
+        extend_entry_after=_normalize_extension_rules(glyph_def.get("extend_entry_after")),
+        extend_exit_before=_normalize_extension_rules(glyph_def.get("extend_exit_before")),
         extend_exit_before_gated=tuple(glyph_def.get("extend_exit_before_gated", ())),
         noentry_after=tuple(glyph_def.get("noentry_after", ())),
         extend_exit_no_entry=bool(glyph_def.get("extend_exit_no_entry")),
@@ -1557,6 +1622,18 @@ def _glyph_def_to_join_glyph(
         entry_explicitly_none=("cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None),
         strip_entry_before=bool(glyph_def.get("strip_entry_before")),
     )
+
+
+def _normalize_extension_rules(raw: object) -> tuple[ExtensionSpec, ...]:
+    if raw is None:
+        return ()
+    if isinstance(raw, ExtensionSpec):
+        return (raw,)
+    if isinstance(raw, tuple):
+        return cast(tuple[ExtensionSpec, ...], raw)
+    if isinstance(raw, list):
+        return tuple(cast(list[ExtensionSpec], raw))
+    raise TypeError(f"Unexpected extension-rules value {raw!r}")
 
 
 def _normalize_bitmap(bitmap: Sequence[str | list[int]] | None) -> tuple[BitmapRow, ...]:
@@ -1733,9 +1810,11 @@ def _expand_anchor_sentinels(metadata: dict[str, JoinGlyph]) -> dict[str, JoinGl
     return expanded_metadata
 
 
-_EXTENSION_TARGET_FIELDS: tuple[str, ...] = (
+_EXTENSION_RULES_FIELDS: tuple[str, ...] = (
     "extend_entry_after",
     "extend_exit_before",
+)
+_CONTRACTION_SPEC_FIELDS: tuple[str, ...] = (
     "contract_entry_after",
     "contract_exit_before",
 )
@@ -1748,8 +1827,26 @@ def _expand_anchor_sentinels_in_extension_targets(
 
     rewritten: dict[str, JoinGlyph] = {}
     for glyph_name, meta in metadata.items():
-        changes: dict[str, ExtensionSpec] = {}
-        for field in _EXTENSION_TARGET_FIELDS:
+        changes: dict[str, Any] = {}
+        for field in _EXTENSION_RULES_FIELDS:
+            rules: tuple[ExtensionSpec, ...] = getattr(meta, field)
+            if not rules:
+                continue
+            new_rules: list[ExtensionSpec] = []
+            rule_changed = False
+            for rule in rules:
+                if not rule.targets:
+                    new_rules.append(rule)
+                    continue
+                new_targets = expand(rule.targets)
+                if new_targets is rule.targets:
+                    new_rules.append(rule)
+                    continue
+                rule_changed = True
+                new_rules.append(ExtensionSpec(by=rule.by, targets=new_targets))
+            if rule_changed:
+                changes[field] = tuple(new_rules)
+        for field in _CONTRACTION_SPEC_FIELDS:
             spec: ExtensionSpec | None = getattr(meta, field)
             if spec is None or not spec.targets:
                 continue
@@ -1953,12 +2050,16 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
         join_glyph.reverse_upgrade_from,
     )
     _set_optional_list(glyph_def, "preferred_over", join_glyph.preferred_over)
-    for key in (
-        "extend_entry_after",
-        "extend_exit_before",
-        "contract_entry_after",
-        "contract_exit_before",
-    ):
+    for key in ("extend_entry_after", "extend_exit_before"):
+        rules: tuple[ExtensionSpec, ...] = getattr(join_glyph, key)
+        if not rules:
+            continue
+        if len(rules) == 1:
+            rule = rules[0]
+            glyph_def[key] = {"by": rule.by, "targets": list(rule.targets)}
+        else:
+            glyph_def[key] = [{"by": rule.by, "targets": list(rule.targets)} for rule in rules]
+    for key in ("contract_entry_after", "contract_exit_before"):
         spec: ExtensionSpec | None = getattr(join_glyph, key)
         if spec is not None:
             glyph_def[key] = {"by": spec.by, "targets": list(spec.targets)}
@@ -1992,8 +2093,8 @@ def derive_join_glyph(
     reverse_upgrade_from: tuple[str, ...] | object = _UNSET,
     preferred_over: tuple[str, ...] | object = _UNSET,
     word_final: bool | object = _UNSET,
-    extend_entry_after: ExtensionSpec | None | object = _UNSET,
-    extend_exit_before: ExtensionSpec | None | object = _UNSET,
+    extend_entry_after: tuple[ExtensionSpec, ...] | object = _UNSET,
+    extend_exit_before: tuple[ExtensionSpec, ...] | object = _UNSET,
     extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
     contract_entry_after: ExtensionSpec | None | object = _UNSET,
@@ -2179,8 +2280,8 @@ def generate_noentry_variants(
             join_glyph,
             name=variant_name,
             entry=(),
-            extend_entry_after=None,
-            extend_exit_before=None,
+            extend_entry_after=(),
+            extend_exit_before=(),
             extend_exit_before_gated=(),
             gated_before=(),
             contract_entry_after=None,
@@ -2245,8 +2346,8 @@ def _cleared_extension_context() -> dict[str, object]:
         "not_before": (),
         "reverse_upgrade_from": (),
         "word_final": False,
-        "extend_entry_after": None,
-        "extend_exit_before": None,
+        "extend_entry_after": (),
+        "extend_exit_before": (),
         "extend_exit_before_gated": (),
         "gated_before": (),
         "contract_entry_after": None,
@@ -2399,7 +2500,7 @@ def _add_entry_extension_variants(
         )
         if is_source:
             kwargs["after"] = filtered_after
-            kwargs["extend_entry_after"] = None
+            kwargs["extend_entry_after"] = ()
             kwargs["contract_entry_after"] = None
         else:
             kwargs.update(_cleared_extension_context())
@@ -2468,7 +2569,7 @@ def _add_exit_extension_variant(
             exit_y,
             side="entry",
         )
-        kwargs["extend_exit_before"] = None
+        kwargs["extend_exit_before"] = ()
         kwargs["extend_exit_before_gated"] = ()
         kwargs["gated_before"] = _filter_gated_context_by_anchor_y(
             join_glyphs,
@@ -2526,60 +2627,65 @@ def _generate_extended_variants(
     field = "extend_entry_after" if side == "entry" else "extend_exit_before"
     variants: dict[str, JoinGlyph] = {}
     for name, join_glyph in sorted(join_glyphs.items()):
-        spec: ExtensionSpec | None = getattr(join_glyph, field)
-        gated_entries = join_glyph.extend_exit_before_gated if side == "exit" and spec is not None else ()
-        context_glyphs = spec.targets if spec is not None else ()
-        if not context_glyphs and not gated_entries:
+        rules: tuple[ExtensionSpec, ...] = getattr(join_glyph, field)
+        gated_entries = join_glyph.extend_exit_before_gated if side == "exit" and rules else ()
+        if not rules:
             continue
         if not getattr(join_glyph, side):
             continue
 
-        count = spec.by if spec is not None else 1
-        suffix_word = _EXTENSION_SUFFIX.get(count)
-        if suffix_word is None:
-            raise ValueError(
-                f"by: {count} exceeds the supported extension ladder "
-                f"(max: {max(_EXTENSION_SUFFIX)}); add a new rung to "
-                f"_EXTENSION_SUFFIX (and the matching tables in "
-                f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
-                f"if a larger reach is needed."
-            )
         source_anchor_ys = frozenset(anchor[1] for anchor in getattr(join_glyph, side))
 
-        for target_name, target_glyph, is_source in _iter_related_extension_targets(
-            join_glyphs,
-            source_name=name,
-            source_glyph=join_glyph,
-            side=side,
-        ):
-            if side == "entry":
-                _add_entry_extension_variants(
-                    variants,
-                    join_glyphs,
-                    target_name=target_name,
-                    target_glyph=target_glyph,
-                    source_after=context_glyphs,
-                    source_entry_ys=source_anchor_ys,
-                    use_height_specific_names=len(join_glyph.entry) > 1,
-                    count=count,
-                    suffix_word=suffix_word,
-                    transforms=transforms,
-                    is_source=is_source,
+        for rule in rules:
+            context_glyphs = rule.targets
+            if not context_glyphs and not gated_entries:
+                continue
+
+            count = rule.by
+            suffix_word = _EXTENSION_SUFFIX.get(count)
+            if suffix_word is None:
+                raise ValueError(
+                    f"by: {count} exceeds the supported extension ladder "
+                    f"(max: {max(_EXTENSION_SUFFIX)}); add a new rung to "
+                    f"_EXTENSION_SUFFIX (and the matching tables in "
+                    f"tools/quikscript_fea.py and .vscode/quikscript.schema.json) "
+                    f"if a larger reach is needed."
                 )
-            else:
-                _add_exit_extension_variant(
-                    variants,
-                    join_glyphs,
-                    target_name=target_name,
-                    target_glyph=target_glyph,
-                    source_before=context_glyphs,
-                    source_gated_before=gated_entries,
-                    source_exit_ys=source_anchor_ys,
-                    count=count,
-                    suffix_word=suffix_word,
-                    transforms=transforms,
-                    is_source=is_source,
-                )
+
+            for target_name, target_glyph, is_source in _iter_related_extension_targets(
+                join_glyphs,
+                source_name=name,
+                source_glyph=join_glyph,
+                side=side,
+            ):
+                if side == "entry":
+                    _add_entry_extension_variants(
+                        variants,
+                        join_glyphs,
+                        target_name=target_name,
+                        target_glyph=target_glyph,
+                        source_after=context_glyphs,
+                        source_entry_ys=source_anchor_ys,
+                        use_height_specific_names=len(join_glyph.entry) > 1,
+                        count=count,
+                        suffix_word=suffix_word,
+                        transforms=transforms,
+                        is_source=is_source,
+                    )
+                else:
+                    _add_exit_extension_variant(
+                        variants,
+                        join_glyphs,
+                        target_name=target_name,
+                        target_glyph=target_glyph,
+                        source_before=context_glyphs,
+                        source_gated_before=gated_entries,
+                        source_exit_ys=source_anchor_ys,
+                        count=count,
+                        suffix_word=suffix_word,
+                        transforms=transforms,
+                        is_source=is_source,
+                    )
 
     return variants
 
@@ -3056,10 +3162,11 @@ def expand_selectors_for_ligatures(
             suffix_word = _CONTRACTION_SUFFIX.get(last_meta.contract_exit_before.by)
             if suffix_word:
                 return f".exit-{suffix_word}"
-        if last_meta.extend_exit_before and source_family in last_meta.extend_exit_before.targets:
-            suffix_word = _EXTENSION_SUFFIX.get(last_meta.extend_exit_before.by)
-            if suffix_word:
-                return f".exit-{suffix_word}"
+        for rule in last_meta.extend_exit_before:
+            if source_family in rule.targets:
+                suffix_word = _EXTENSION_SUFFIX.get(rule.by)
+                if suffix_word:
+                    return f".exit-{suffix_word}"
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
@@ -3071,10 +3178,11 @@ def expand_selectors_for_ligatures(
             suffix_word = _CONTRACTION_SUFFIX.get(first_meta.contract_entry_after.by)
             if suffix_word:
                 return f".entry-{suffix_word}"
-        if first_meta.extend_entry_after and source_family in first_meta.extend_entry_after.targets:
-            suffix_word = _EXTENSION_SUFFIX.get(first_meta.extend_entry_after.by)
-            if suffix_word:
-                return f".entry-{suffix_word}"
+        for rule in first_meta.extend_entry_after:
+            if source_family in rule.targets:
+                suffix_word = _EXTENSION_SUFFIX.get(rule.by)
+                if suffix_word:
+                    return f".entry-{suffix_word}"
         return ""
 
     def _selector_families(selectors: tuple[str, ...]) -> set[str]:
