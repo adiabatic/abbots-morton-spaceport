@@ -40,6 +40,7 @@ from typing import Any, cast
 from quikscript_ir import (
     GlyphData,
     GlyphDef,
+    family_names_from_compiled,
     get_base_glyph_name,
     heal_glyph_name,
 )
@@ -231,6 +232,9 @@ def build_cmap14(
     if not variation_sequences:
         return None
 
+    # Author-written variation-sequence targets like `qsWay.half` predate `_synthesize_anchor_modifiers`, so the literal name no longer exists once synthesis renames the form to `qsWay.half.exit-baseline`. Heal each target against the live glyph set before checking membership. Targets that map to multiple post-synthesis forms (e.g. `qsTea.half`, where neither the literal name nor a unique heal exists) are silently skipped, matching the pre-synthesis behavior.
+    available_names = frozenset(glyphs_def)
+    family_names = family_names_from_compiled(available_names)
     uvsDict = {}
     for vs_cp, mappings in variation_sequences.items():
         entries = []
@@ -238,7 +242,10 @@ def build_cmap14(
             base_cp = name_to_codepoint.get(base_name)
             if base_cp is None:
                 continue
-            resolved = target_name
+            try:
+                resolved = heal_glyph_name(target_name, family_names, available_names)
+            except ValueError:
+                resolved = target_name
             if resolved not in glyphs_def:
                 resolved = get_base_glyph_name(resolved)
             if resolved not in glyphs_def:
