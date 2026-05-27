@@ -558,9 +558,9 @@ def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
         "senior",
     )
 
-    spec = glyphs["qsFollow"].extend_entry_after
-    assert spec is not None
-    assert spec.targets == ("qsLead", "qsLead.exit-baseline")
+    rules = glyphs["qsFollow"].extend_entry_after
+    assert len(rules) == 1
+    assert rules[0].targets == ("qsLead", "qsLead.exit-baseline")
     assert glyphs["qsFollow.entry-extended"].after == ("qsLead", "qsLead.exit-baseline")
 
 
@@ -602,9 +602,9 @@ def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
         "senior",
     )
 
-    spec = glyphs["qsLead"].extend_exit_before
-    assert spec is not None
-    assert spec.targets == ("qsFollow", "qsFollow.entry-baseline")
+    rules = glyphs["qsLead"].extend_exit_before
+    assert len(rules) == 1
+    assert rules[0].targets == ("qsFollow", "qsFollow.entry-baseline")
     assert glyphs["qsLead.exit-extended"].before == ("qsFollow", "qsFollow.entry-baseline")
 
 
@@ -741,10 +741,10 @@ def test_extend_exit_before_targets_accept_bare_anchor_selector_with_except():
         "senior",
     )
 
-    spec = glyphs["qsLead"].extend_exit_before
-    assert spec is not None
-    assert "qsFollow" in spec.targets
-    assert "qsExempt" not in spec.targets
+    rules = glyphs["qsLead"].extend_exit_before
+    assert len(rules) == 1
+    assert "qsFollow" in rules[0].targets
+    assert "qsExempt" not in rules[0].targets
     assert "qsFollow" in glyphs["qsLead.exit-extended"].before
     assert "qsExempt" not in glyphs["qsLead.exit-extended"].before
 
@@ -1180,8 +1180,8 @@ def _make_join_glyph(
         bitmap=(),
         y_offset=0,
         advance_width=None,
-        extend_entry_after=None,
-        extend_exit_before=None,
+        extend_entry_after=(),
+        extend_exit_before=(),
         noentry_after=(),
         extend_exit_no_entry=False,
         gated_before=tuple(gated_before),

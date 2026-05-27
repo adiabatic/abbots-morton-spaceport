@@ -2929,27 +2929,29 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 require_mid_base_without_exit=True,
             )
 
-    def _exit_extension_refinement(
+    def _exit_extension_refinements(
         fwd_var: str, right_context_glyphs: set[str]
-    ) -> tuple[str, set[str]] | None:
-        # If `fwd_var` carries an `extend_exit_before` derive whose targets intersect `right_context_glyphs`, return (extended_fwd_var, trigger_glyphs) so the caller can emit a more specific rule that uses the extended variant for those triggers. Returns None when no refinement applies.
+    ) -> list[tuple[str, set[str]]]:
+        # For each `extend_exit_before` rule on `fwd_var` whose targets intersect `right_context_glyphs`, yield (extended_fwd_var, trigger_glyphs) so the caller can emit a more specific rule per rule. Returns an empty list when no refinements apply.
         fwd_meta = _meta(fwd_var)
-        spec = fwd_meta.extend_exit_before
-        if spec is None or not spec.targets:
-            return None
-        suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(spec.by)
-        if suffix_word is None:
-            return None
-        extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
-        if extended_fwd_var not in glyph_meta:
-            return None
-        trigger_glyphs: set[str] = set()
-        for target in spec.targets:
-            trigger_glyphs.update(base_to_variants.get(target, ()))
-        trigger_glyphs &= right_context_glyphs
-        if not trigger_glyphs:
-            return None
-        return extended_fwd_var, trigger_glyphs
+        refinements: list[tuple[str, set[str]]] = []
+        for spec in fwd_meta.extend_exit_before:
+            if not spec.targets:
+                continue
+            suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(spec.by)
+            if suffix_word is None:
+                continue
+            extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
+            if extended_fwd_var not in glyph_meta:
+                continue
+            trigger_glyphs: set[str] = set()
+            for target in spec.targets:
+                trigger_glyphs.update(base_to_variants.get(target, ()))
+            trigger_glyphs &= right_context_glyphs
+            if not trigger_glyphs:
+                continue
+            refinements.append((extended_fwd_var, trigger_glyphs))
+        return refinements
 
     def _expand_not_after_set(replacement_name: str) -> set[str]:
         meta = _meta(replacement_name)
@@ -3117,7 +3119,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         source_glyphs: set[str] = set()
         for sibling_name in sorted(base_to_variants.get(actual_meta.base_name, ())):
             sibling_meta = glyph_meta.get(sibling_name)
-            if sibling_meta is None or sibling_meta.extend_entry_after is None:
+            if sibling_meta is None or not sibling_meta.extend_entry_after:
                 continue
             sibling_extension = sibling_name + extension_meta.extended_entry_suffix
             if sibling_extension not in glyph_names:
@@ -3129,10 +3131,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             if sibling_extension_meta.bitmap != extension_meta.bitmap:
                 continue
-            resolved = resolve_known_glyph_names(
-                list(sibling_meta.extend_entry_after.targets),
-                glyph_names,
-            )
+            flat_targets = [t for rule in sibling_meta.extend_entry_after for t in rule.targets]
+            resolved = resolve_known_glyph_names(flat_targets, glyph_names)
             source_glyphs.update(_expand_all_variants(resolved, include_base=True))
         return source_glyphs & glyph_names
 
@@ -4463,9 +4463,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             if f_var_meta.entry and fwd_exit_y in f_var_meta.entry_ys:
                                 continue
                             blocked_follower_glyphs.add(f_variant)
-                    refinement = _exit_extension_refinement(fwd_var, effective_right_context_glyphs)
-                    if refinement is not None:
-                        ext_fwd_var, trigger_glyphs = refinement
+                    for ext_fwd_var, trigger_glyphs in _exit_extension_refinements(
+                        fwd_var, effective_right_context_glyphs
+                    ):
                         trigger_list = " ".join(sorted(trigger_glyphs))
                         lines.append(f"        sub {bk_var}' [{trigger_list}] by {ext_fwd_var};")
                     if blocked_follower_glyphs:
@@ -4498,11 +4498,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             fwd_exit_y,
                             right_context_glyphs - not_before_excluded,
                         )
-                        ext_refinement = _exit_extension_refinement(
+                        for ext_fwd_var, trigger_glyphs in _exit_extension_refinements(
                             fwd_var, right_context_glyphs - not_before_excluded
-                        )
-                        if ext_refinement is not None:
-                            ext_fwd_var, trigger_glyphs = ext_refinement
+                        ):
                             trigger_list = " ".join(sorted(trigger_glyphs))
                             lines.append(f"        sub {ext_bk}' [{trigger_list}] by {ext_fwd_var};")
                         if blocked_follower_glyphs:

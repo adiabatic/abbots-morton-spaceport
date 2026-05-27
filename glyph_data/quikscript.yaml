@@ -690,7 +690,9 @@ glyph_families:
         select:
           not_before: [{family: qsEt}, {family: qsOwe}]
         derive:
-          extend_exit_before: {by: 2, targets: [{family: qsCheer}, {family: qsIt}]}
+          extend_exit_before:
+            - {by: 2, targets: [{family: qsCheer}, {family: qsIt}]}
+            - {by: 1, targets: [{family: qsFoot, entry_y: 5}]}
         modifiers: [exit-xheight]
       exit_baseline:
         shape: mono

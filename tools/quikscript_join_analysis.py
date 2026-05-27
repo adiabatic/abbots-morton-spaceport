@@ -732,7 +732,7 @@ def _ligature_base_mutates_at_exit(
         return False
     if last_meta.contract_exit_before and opposite_family in last_meta.contract_exit_before.targets:
         return True
-    if last_meta.extend_exit_before and opposite_family in last_meta.extend_exit_before.targets:
+    if any(opposite_family in rule.targets for rule in last_meta.extend_exit_before):
         return True
     return False
 
@@ -752,7 +752,7 @@ def _ligature_base_mutates_at_entry(
         return False
     if first_meta.contract_entry_after and opposite_family in first_meta.contract_entry_after.targets:
         return True
-    if first_meta.extend_entry_after and opposite_family in first_meta.extend_entry_after.targets:
+    if any(opposite_family in rule.targets for rule in first_meta.extend_entry_after):
         return True
     return False
 
@@ -950,8 +950,13 @@ def _ligature_component_propagates_context(
         spec = getattr(variant_meta, spec_attr)
         if spec is None:
             continue
-        if any(target in spec.targets for target in opposite_targets):
-            return True
+        if spec_attr in ("extend_entry_after", "extend_exit_before"):
+            rules = spec
+        else:
+            rules = (spec,)
+        for rule in rules:
+            if any(target in rule.targets for target in opposite_targets):
+                return True
     return False
 
 
