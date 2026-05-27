@@ -612,21 +612,8 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
-_ANCHOR_Y_MODIFIER_LABELS = frozenset(_EXTENDED_HEIGHT_LABELS.values())
-
-
 # CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two forms whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-form name; downstream variant generation (`.noentry`, `.entry-extended`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
 _SYNTHESIZED_NAME_LENGTH_CAP = 63
-
-
-def _has_anchor_y_modifier(authored: Sequence[str]) -> bool:
-    for modifier in authored:
-        if not isinstance(modifier, str) or "-" not in modifier:
-            continue
-        side, _, rest = modifier.partition("-")
-        if side in ("entry", "exit") and rest in _ANCHOR_Y_MODIFIER_LABELS:
-            return True
-    return False
 
 
 def _synthesize_anchor_modifiers(
@@ -635,13 +622,10 @@ def _synthesize_anchor_modifiers(
 ) -> tuple[str, ...]:
     """Fill in entry-<label> / exit-<label> modifiers derived from the resolved form's anchors.
 
-    Only fires on forms whose authored modifier list already contains at least one bare anchor-Y modifier — that's the signal that this form is "named by its anchors", and the author may have written one side and forgotten the other. Trait-only forms (`qsNo.alt`, `qsTea.half`, `qsIng.after_thaw`, etc.) carry no anchor-Y modifier and are intentionally named by trait/context alone; they pass through untouched.
+    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `entry-<label>` / `exit-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, `qsIng.after_thaw`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
 
     The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `entry-<something>-at-<label>` (or `exit-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[entry-<label>, exit-<label>, *remaining_author]`.
     """
-    if not _has_anchor_y_modifier(authored):
-        return tuple(authored)
-
     synthesized: list[str] = []
     if anchors:
         for side in ("entry", "exit"):
@@ -808,10 +792,52 @@ def _heal_renamed_selector(
 ) -> str:
     """When a selector references a form by its pre-synthesis compiled name, find the post-synthesis form whose (traits, modifiers) supersets the selector's and return its name instead.
 
-    Without this, a YAML selector like `{family: qsOut, modifiers: [exit-xheight, exit-extended]}` keeps constructing `qsOut.exit-xheight.exit-extended` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.entry-baseline.exit-xheight`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry. We split off any runtime-extension modifier (e.g. `exit-extended`) before searching `available_names`, since the extended variants haven't been generated yet; we re-attach them in the same order to the healed base name. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
+    Without this, a YAML selector like `{family: qsOut, modifiers: [exit-xheight, exit-extended]}` keeps constructing `qsOut.exit-xheight.exit-extended` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.entry-baseline.exit-xheight`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry.
+
+    Two passes:
+
+    1. Treat the selector's full modifier set as a constraint and look for a post-synth form whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored forms that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [exit-extended]` on a form with `exit: […, 0]` becomes `qsX.exit-baseline.exit-extended`).
+
+    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `exit-extended`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
     """
     if available_names is None or candidate in available_names:
         return candidate
+
+    selector_traits = frozenset(traits)
+    selector_modifiers_set = frozenset(modifiers)
+    prefix = target_family + "."
+
+    full_matches: list[tuple[int, str]] = []
+    for name in available_names:
+        if name != target_family and not name.startswith(prefix):
+            continue
+        parsed = _split_family_compiled_name(name, family_names)
+        if parsed is None:
+            continue
+        fam, name_traits, name_modifiers = parsed
+        if fam != target_family:
+            continue
+        name_traits_set = frozenset(name_traits)
+        if selector_traits != name_traits_set:
+            continue
+        name_modifiers_set = frozenset(name_modifiers)
+        if not (selector_modifiers_set <= name_modifiers_set):
+            continue
+        extra_modifiers = name_modifiers_set - selector_modifiers_set
+        if not extra_modifiers <= _SYNTHESIZED_MODIFIER_TOKENS:
+            continue
+        full_matches.append((len(extra_modifiers), name))
+
+    if full_matches:
+        full_matches.sort(key=lambda entry: (entry[0], entry[1]))
+        closest = full_matches[0][0]
+        tied = [name for extra_count, name in full_matches if extra_count == closest]
+        if len(tied) > 1:
+            raise ValueError(
+                f"Selector for {target_family} with traits {list(traits)!r} modifiers {list(modifiers)!r} "
+                f"matches multiple post-synthesis forms equally ({sorted(tied)}); add a disambiguator."
+            )
+        return tied[0]
 
     base_modifiers, extension_modifiers = _split_selector_extensions(modifiers)
     base_candidate = _compiled_family_glyph_name(target_family, traits, base_modifiers)
@@ -820,9 +846,7 @@ def _heal_renamed_selector(
             return candidate
         return _compiled_family_glyph_name(target_family, traits, (*base_modifiers, *extension_modifiers))
 
-    selector_traits = frozenset(traits)
     selector_base = frozenset(base_modifiers)
-    prefix = target_family + "."
     matches: list[tuple[int, str, tuple[str, ...], tuple[str, ...]]] = []
     for name in available_names:
         if name != target_family and not name.startswith(prefix):
@@ -1283,7 +1307,7 @@ def _iter_compiled_family_forms(
             modifiers = _synthesize_anchor_modifiers(resolved.get("anchors", {}), authored_modifiers)
             output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if len(output_name) > _SYNTHESIZED_NAME_LENGTH_CAP and modifiers != authored_modifiers:
-                # Synthesis would push the compiled name past the CFF1 truncation point; HarfBuzz would then collapse this form into a sibling whose first 63 bytes match. Keep the author's name unchanged so downstream shaping still routes through this form distinctly.
+                # Synthesis would push the compiled base name past HarfBuzz's 63-byte name budget; two such names would become indistinguishable to anything that inspects glyph names. Keep the author's name so shaping can still route through this form distinctly.
                 modifiers = authored_modifiers
                 output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if output_name == family_name:

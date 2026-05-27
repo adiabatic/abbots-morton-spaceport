@@ -34,8 +34,8 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert tea.modifiers == ()
     assert not tea.is_contextual
 
-    utter = meta["qsUtter.alt.reaches-way-back"]
-    assert utter.modifiers == ("alt", "reaches-way-back")
+    utter = meta["qsUtter.alt.entry-xheight.exit-baseline.reaches-way-back"]
+    assert utter.modifiers == ("alt", "entry-xheight", "exit-baseline", "reaches-way-back")
     assert utter.is_contextual
     assert "reaches-way-back" in utter.compat_assertions
 
@@ -93,8 +93,8 @@ def test_family_form_modifiers_are_preserved_from_authored_form_data():
         }
     ).glyph_meta
 
-    form = meta["qsTest.alt.reaches-way-back"]
-    assert form.modifiers == ("alt", "reaches-way-back")
+    form = meta["qsTest.alt.exit-baseline.reaches-way-back"]
+    assert form.modifiers == ("alt", "exit-baseline", "reaches-way-back")
     assert {"alt", "reaches-way-back"} <= form.compat_assertions
 
 
@@ -143,7 +143,10 @@ def test_form_keys_are_local_labels():
     ).glyph_meta
 
     assert left.keys() == right.keys()
-    assert left["qsTest.alt.reaches-way-back"].modifiers == right["qsTest.alt.reaches-way-back"].modifiers
+    assert (
+        left["qsTest.alt.exit-baseline.reaches-way-back"].modifiers
+        == right["qsTest.alt.exit-baseline.reaches-way-back"].modifiers
+    )
 
 
 def test_noentry_generation_uses_authored_modifiers_not_compiled_name():
@@ -281,14 +284,14 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     meta = compiled.glyph_meta
     glyphs = compiled.glyph_definitions
 
-    contracted = meta["qsHe.half.exit-contracted"]
-    plain_half = meta["qsHe.half"]
+    contracted = meta["qsHe.half.exit-xheight.exit-contracted"]
+    plain_half = meta["qsHe.half.exit-xheight"]
     assert contracted.bitmap == plain_half.bitmap
     assert contracted.exit == ((0, 5),)
     assert plain_half.exit == ((1, 5),)
     assert contracted.before == ("qsZoo",)
     assert "half" in contracted.traits
-    assert glyphs["qsHe.half.exit-contracted"]["calt_before"] == ["qsZoo"]
+    assert glyphs["qsHe.half.exit-xheight.exit-contracted"]["calt_before"] == ["qsZoo"]
 
     plain_zoo = meta["qsZoo"]
     trimmed = meta["qsZoo.entry-trimmed-by-1"]
@@ -299,14 +302,14 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     assert trimmed.exit == plain_zoo.exit
     assert trimmed.y_offset == plain_zoo.y_offset
     assert trimmed.after == (
-        "qsHe.half.exit-contracted",
+        "qsHe.half.exit-xheight.exit-contracted",
         "qsTea.half.entry-top.exit-xheight.exit-contracted",
         "qsTea.half.exit-xheight.exit-contracted",
     )
     assert trimmed.transform_kind == "entry-trimmed"
     assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-1"} <= trimmed.compat_assertions
     assert glyphs["qsZoo.entry-trimmed-by-1"]["calt_after"] == [
-        "qsHe.half.exit-contracted",
+        "qsHe.half.exit-xheight.exit-contracted",
         "qsTea.half.entry-top.exit-xheight.exit-contracted",
         "qsTea.half.exit-xheight.exit-contracted",
     ]
@@ -403,7 +406,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
     }
     assert glyphs["qsTarget.entry-baseline"]["calt_after"] == [
         "qsPrimary",
-        "qsLead.exit-extended",
+        "qsLead.exit-baseline.exit-extended",
     ]
 
 
@@ -496,9 +499,9 @@ def test_inherited_form_shape_override_replaces_visual_fields():
     glyphs = compiled.glyph_definitions
     meta = compiled.glyph_meta
 
-    assert glyphs["qsBase.half"]["bitmap"] == ["11"]
-    assert glyphs["qsBase.half"]["y_offset"] == -2
-    assert glyphs["qsBase.half"]["advance_width"] == 4
+    assert glyphs["qsBase.half.exit-baseline"]["bitmap"] == ["11"]
+    assert glyphs["qsBase.half.exit-baseline"]["y_offset"] == -2
+    assert glyphs["qsBase.half.exit-baseline"]["advance_width"] == 4
 
     assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["bitmap"] == ["22", " 2"]
     assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["y_offset"] == 3
@@ -513,10 +516,11 @@ def test_inherited_form_shape_override_replaces_visual_fields():
 def test_alt_and_half_are_semantic_traits():
     meta = _compiled_meta()
 
-    assert "alt" in meta["qsNo.alt"].traits
-    assert "half" in meta["qsPea.half"].traits
-    assert "alt" in meta["qsUtter.alt.reaches-way-back"].traits
-    assert "reaches-way-back" in meta["qsUtter.alt.reaches-way-back"].compat_assertions
+    assert "alt" in meta["qsNo.alt.entry-baseline.exit-baseline"].traits
+    assert "half" in meta["qsPea.half.exit-xheight"].traits
+    utter_name = "qsUtter.alt.entry-xheight.exit-baseline.reaches-way-back"
+    assert "alt" in meta[utter_name].traits
+    assert "reaches-way-back" in meta[utter_name].compat_assertions
 
 
 def test_generated_entry_and_ligature_metadata_keep_logical_identity():

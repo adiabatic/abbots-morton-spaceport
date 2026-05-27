@@ -40,7 +40,6 @@ from typing import Any, cast
 from quikscript_ir import (
     GlyphData,
     GlyphDef,
-    _is_contextual_variant,
     get_base_glyph_name,
     heal_glyph_name,
 )
@@ -743,13 +742,11 @@ def build_font(
     cap_height = metadata["cap_height"]
     x_height = metadata["x_height"]
 
-    # Build glyph order (must include .notdef first). For mono font, exclude .prop glyphs entirely
+    # Build glyph order (must include .notdef first). For the mono build, exclude .prop glyphs entirely; the IR's per-variant filtering already keeps contextual/shaping-only forms out of mono/junior, so no name-based exclusion is needed here.
     glyph_names = [
         name
         for name in glyphs_def.keys()
-        if name not in (".notdef", "space")
-        and (is_proportional or (not is_proportional_glyph(name) and not _is_contextual_variant(name)))
-        and (is_senior or not _is_contextual_variant(name))
+        if name not in (".notdef", "space") and (is_proportional or not is_proportional_glyph(name))
     ]
     postscript_glyph_names = load_postscript_glyph_names()
 

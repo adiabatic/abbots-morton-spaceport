@@ -366,6 +366,17 @@ def load_font(variant: str = "senior") -> hb.Font:
     return hb.Font(face)
 
 
+def _tt_font(variant: str) -> TTFont:
+    if variant not in _TT_FONTS:
+        _TT_FONTS[variant] = TTFont(str(FONT_PATHS[variant]))
+    return _TT_FONTS[variant]
+
+
+def shaped_glyph_name(variant: str, gid: int) -> str:
+    """Return the full compiled glyph name for a GID, bypassing HarfBuzz's 63-byte truncation in `font.glyph_to_string`."""
+    return _tt_font(variant).getGlyphName(gid)
+
+
 def build_anchor_map(variant: str = "senior") -> tuple[AnchorMap, dict[str, set[int]]]:
     data = load_glyph_data(GLYPH_DATA_DIR)
     _COMPILED_GLYPH_META[variant] = compile_glyph_set(data, variant).glyph_meta
@@ -585,7 +596,7 @@ def run_shaping_test(
         hb.shape(font, buf)
 
     infos = buf.glyph_infos
-    glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
+    glyph_names = [shaped_glyph_name(variant, info.codepoint) for info in infos]
 
     interpretations = _expand_maybe_ligatures(tokens, connections)
 
@@ -677,7 +688,7 @@ def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, i
 
 
 def _shape_text_glyph_names(
-    font: hb.Font, text: str, features: dict[str, bool] | None
+    font: hb.Font, text: str, features: dict[str, bool] | None, variant: str = "senior"
 ) -> tuple[list[str], list]:
     buf = hb.Buffer()
     buf.add_str(text)
@@ -686,13 +697,17 @@ def _shape_text_glyph_names(
         hb.shape(font, buf, features)
     else:
         hb.shape(font, buf)
-    names = [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    names = [shaped_glyph_name(variant, info.codepoint) for info in buf.glyph_infos]
     positions = list(buf.glyph_positions)
     return names, positions
 
 
 def _isolation_glyphs_split(
-    font: hb.Font, text: str, segment_breaks: list[int], features: dict[str, bool] | None
+    font: hb.Font,
+    text: str,
+    segment_breaks: list[int],
+    features: dict[str, bool] | None,
+    variant: str = "senior",
 ) -> tuple[list[str], list]:
     """Shape each segment of ``text`` separately and concatenate glyph names.
 
@@ -708,6 +723,7 @@ def _isolation_glyphs_split(
             font,
             text[start:end],
             features,
+            variant,
         )
         names.extend(seg_names)
         positions.extend(seg_positions)
@@ -792,6 +808,7 @@ def _check_break_isolation(
         text,
         segment_breaks,
         features,
+        variant,
     )
 
     expected_len = len(tokens)
@@ -961,7 +978,7 @@ def run_shaping_test_runs(
             hb.shape(font, buf)
 
         infos = buf.glyph_infos
-        glyph_names = [font.glyph_to_string(info.codepoint) for info in infos]
+        glyph_names = [shaped_glyph_name(variant, info.codepoint) for info in infos]
         glyph_positions = list(buf.glyph_positions)
 
         interpretations = _expand_maybe_ligatures(sub_tokens, sub_conns)

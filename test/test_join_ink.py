@@ -20,6 +20,7 @@ from quikscript_shaping_helpers import (
     _compiled_meta,
     _context_chars,
     _font,
+    _gid_to_full_name,
     _plain_quikscript_letters,
     _qs_text,
 )
@@ -94,7 +95,7 @@ def _shape(text: str) -> tuple[list[str], list]:
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf)
-    names = [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    names = [_gid_to_full_name(info.codepoint) for info in buf.glyph_infos]
     positions = list(buf.glyph_positions)
     return names, positions
 
