@@ -18,6 +18,9 @@ dev = [
     "pre-commit>=4.6.0",
 ]
 
+[tool.uv]
+cache-dir = ".uv-cache"
+
 [tool.black]
 line-length = 110
 target-version = ["py314"]
