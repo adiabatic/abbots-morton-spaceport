@@ -869,7 +869,7 @@ def test_real_join_warning_collector_is_clean():
 
 
 def test_default_default_pair_warns_on_bitmap_gap():
-    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.entry-xheight pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits one column past the entry anchor."""
+    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.entry-xheight.exit-baseline pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits one column past the entry anchor."""
     qs_left = _make_glyph(
         name="qsLeft",
         base_name="qsLeft",
@@ -1127,7 +1127,7 @@ def test_concrete_selector_allows_unexpanded_incompatible_sibling():
         entry=((0, 5),),
     )
     qs_may_entry_baseline = _make_glyph(
-        name="qsMay.entry-baseline",
+        name="qsMay.entry-baseline.exit-xheight",
         base_name="qsMay",
         family="qsMay",
         modifiers=("entry-baseline",),
@@ -1140,7 +1140,7 @@ def test_concrete_selector_allows_unexpanded_incompatible_sibling():
             "qsPea": qs_pea,
             "qsPea.before-may": qs_pea_before_may,
             "qsMay": qs_may,
-            "qsMay.entry-baseline": qs_may_entry_baseline,
+            "qsMay.entry-baseline.exit-xheight": qs_may_entry_baseline,
         }
     )
 
@@ -1552,14 +1552,14 @@ def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    key = ("qsOut", "qsOut.exit-xheight.exit-extended", 5)
+    key = ("qsOut", "qsOut.entry-baseline.exit-xheight.exit-extended", 5)
     assert key in fwd_strip, sorted(fwd_strip)[:5]
     mid_bases = {guard.mid_base for guard in fwd_strip[key]}
     assert "qsFee" in mid_bases
 
 
 def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
-    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to qsIt.exit-xheight (stripped) but its `bk_replacements[5]` upgrade to qsIt.entry-xheight wins at runtime when qsTea's exit y=5 precedes. The plain `qsTea.half.exit-xheight` predecessor has no extended exit arm, so the structural pass should not emit a guard against qsIt for it."""
+    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to qsIt.exit-xheight (stripped) but its `bk_replacements[5]` upgrade to qsIt.entry-xheight.exit-baseline wins at runtime when qsTea's exit y=5 precedes. The plain `qsTea.half.exit-xheight` predecessor has no extended exit arm, so the structural pass should not emit a guard against qsIt for it."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 

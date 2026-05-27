@@ -612,6 +612,66 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
+_ANCHOR_Y_MODIFIER_LABELS = frozenset(_EXTENDED_HEIGHT_LABELS.values())
+
+
+# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two forms whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-form name; downstream variant generation (`.noentry`, `.entry-extended`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
+_SYNTHESIZED_NAME_LENGTH_CAP = 63
+
+
+def _has_anchor_y_modifier(authored: Sequence[str]) -> bool:
+    for modifier in authored:
+        if not isinstance(modifier, str) or "-" not in modifier:
+            continue
+        side, _, rest = modifier.partition("-")
+        if side in ("entry", "exit") and rest in _ANCHOR_Y_MODIFIER_LABELS:
+            return True
+    return False
+
+
+def _synthesize_anchor_modifiers(
+    anchors: dict[str, Any] | None,
+    authored: Sequence[str],
+) -> tuple[str, ...]:
+    """Fill in entry-<label> / exit-<label> modifiers derived from the resolved form's anchors.
+
+    Only fires on forms whose authored modifier list already contains at least one bare anchor-Y modifier — that's the signal that this form is "named by its anchors", and the author may have written one side and forgotten the other. Trait-only forms (`qsNo.alt`, `qsTea.half`, `qsIng.after_thaw`, etc.) carry no anchor-Y modifier and are intentionally named by trait/context alone; they pass through untouched.
+
+    The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `entry-<something>-at-<label>` (or `exit-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[entry-<label>, exit-<label>, *remaining_author]`.
+    """
+    if not _has_anchor_y_modifier(authored):
+        return tuple(authored)
+
+    synthesized: list[str] = []
+    if anchors:
+        for side in ("entry", "exit"):
+            anchor = anchors.get(side)
+            if not isinstance(anchor, (list, tuple)) or len(anchor) < 2:
+                continue
+            y = anchor[1]
+            label = _EXTENDED_HEIGHT_LABELS.get(y)
+            if label is None:
+                continue
+            qualifier_suffix = f"-at-{label}"
+            if any(
+                isinstance(modifier, str)
+                and modifier.startswith(f"{side}-")
+                and modifier.endswith(qualifier_suffix)
+                for modifier in authored
+            ):
+                continue
+            synthesized.append(f"{side}-{label}")
+
+    if not synthesized:
+        return tuple(authored)
+    synth_set = set(synthesized)
+    authored_set = set(authored)
+    if synth_set <= authored_set:
+        # Nothing genuinely new — author already wrote both anchor-Y modifiers. Don't churn the existing order.
+        return tuple(authored)
+    return (*synthesized, *(m for m in authored if m not in synth_set))
+
+
 def _compiled_family_glyph_name(
     family_name: str,
     traits: Sequence[str] = (),
@@ -655,13 +715,21 @@ def _resolve_family_selector_name(
     context_family: str,
     context_label: str,
     field_name: str,
+    available_names: frozenset[str] | None = None,
 ) -> str:
     context = f"{context_label} {field_name}"
     if isinstance(value, str):
         resolved_family = _split_family_compiled_name(value, family_names)
         if resolved_family is not None:
             family_name, traits, modifiers = resolved_family
-            return _compiled_family_glyph_name(family_name, traits, modifiers)
+            return _heal_renamed_selector(
+                _compiled_family_glyph_name(family_name, traits, modifiers),
+                family_name,
+                traits,
+                modifiers,
+                family_names=family_names,
+                available_names=available_names,
+            )
         return get_base_glyph_name(value)
 
     if not isinstance(value, dict):
@@ -693,7 +761,148 @@ def _resolve_family_selector_name(
         family_name=context_family,
         context=context,
     )
-    return _compiled_family_glyph_name(target_family, traits, modifiers)
+    return _heal_renamed_selector(
+        _compiled_family_glyph_name(target_family, traits, modifiers),
+        target_family,
+        traits,
+        modifiers,
+        family_names=family_names,
+        available_names=available_names,
+    )
+
+
+_RUNTIME_EXTENSION_MODIFIER_RE = re.compile(
+    r"^(?:entry|exit)-(?:doubly-|triply-|quadruply-|quintuply-|sextuply-)?(?:extended|contracted)$|"
+    r"^(?:entry|exit)-trimmed-by-\d+$"
+)
+_SYNTHESIZED_MODIFIER_TOKENS = frozenset(
+    f"{side}-{label}" for side in ("entry", "exit") for label in _EXTENDED_HEIGHT_LABELS.values()
+)
+
+
+def _split_selector_extensions(
+    modifiers: Sequence[str],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Partition a selector's modifier list into (base_modifiers, runtime_extension_modifiers).
+
+    Runtime extensions like `exit-extended` / `entry-doubly-contracted` / `entry-trimmed-by-2` name variants generated late in `build_join_glyphs`; they aren't in `available_names` at selector-resolution time. The healer matches the base part against `available_names` and then re-attaches the extensions to the healed name.
+    """
+    base: list[str] = []
+    extensions: list[str] = []
+    for modifier in modifiers:
+        if isinstance(modifier, str) and _RUNTIME_EXTENSION_MODIFIER_RE.fullmatch(modifier):
+            extensions.append(modifier)
+        else:
+            base.append(modifier)
+    return tuple(base), tuple(extensions)
+
+
+def _heal_renamed_selector(
+    candidate: str,
+    target_family: str,
+    traits: Sequence[str],
+    modifiers: Sequence[str],
+    *,
+    family_names: set[str],
+    available_names: frozenset[str] | None,
+) -> str:
+    """When a selector references a form by its pre-synthesis compiled name, find the post-synthesis form whose (traits, modifiers) supersets the selector's and return its name instead.
+
+    Without this, a YAML selector like `{family: qsOut, modifiers: [exit-xheight, exit-extended]}` keeps constructing `qsOut.exit-xheight.exit-extended` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.entry-baseline.exit-xheight`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry. We split off any runtime-extension modifier (e.g. `exit-extended`) before searching `available_names`, since the extended variants haven't been generated yet; we re-attach them in the same order to the healed base name. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
+    """
+    if available_names is None or candidate in available_names:
+        return candidate
+
+    base_modifiers, extension_modifiers = _split_selector_extensions(modifiers)
+    base_candidate = _compiled_family_glyph_name(target_family, traits, base_modifiers)
+    if base_candidate in available_names:
+        if not extension_modifiers:
+            return candidate
+        return _compiled_family_glyph_name(target_family, traits, (*base_modifiers, *extension_modifiers))
+
+    selector_traits = frozenset(traits)
+    selector_base = frozenset(base_modifiers)
+    prefix = target_family + "."
+    matches: list[tuple[int, str, tuple[str, ...], tuple[str, ...]]] = []
+    for name in available_names:
+        if name != target_family and not name.startswith(prefix):
+            continue
+        parsed = _split_family_compiled_name(name, family_names)
+        if parsed is None:
+            continue
+        fam, name_traits, name_modifiers = parsed
+        if fam != target_family:
+            continue
+        # A name with its own runtime-extension modifier represents a different variant and shouldn't be picked when the selector asked for the unextended base.
+        name_base_modifiers, name_extensions = _split_selector_extensions(name_modifiers)
+        if name_extensions:
+            continue
+        name_traits_set = frozenset(name_traits)
+        name_base_set = frozenset(name_base_modifiers)
+        # Traits (`half` / `alt`) are categorical: a selector with no traits names the non-trait variant, not a `half` or `alt` sibling. Require exact equality so a `qsTea.entry-xheight` selector doesn't accidentally match `qsTea.half.entry-xheight`.
+        if selector_traits != name_traits_set:
+            continue
+        if not (selector_base <= name_base_set):
+            continue
+        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate form differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `exit-noentry` variant.
+        extra_modifiers = name_base_set - selector_base
+        if not extra_modifiers <= _SYNTHESIZED_MODIFIER_TOKENS:
+            continue
+        extra = len(name_base_set) - len(selector_base)
+        matches.append((extra, name, name_traits, name_base_modifiers))
+
+    if not matches:
+        return candidate
+
+    matches.sort(key=lambda entry: entry[0])
+    closest = matches[0][0]
+    tied = [entry for entry in matches if entry[0] == closest]
+    if len(tied) > 1:
+        tied_names = [entry[1] for entry in tied]
+        raise ValueError(
+            f"Selector for {target_family} with traits {list(traits)!r} modifiers {list(modifiers)!r} "
+            f"matches multiple post-synthesis forms equally ({tied_names}); add a disambiguator."
+        )
+
+    _, _, healed_traits, healed_base = tied[0]
+    return _compiled_family_glyph_name(target_family, healed_traits, (*healed_base, *extension_modifiers))
+
+
+def family_names_from_compiled(compiled_names: set[str] | frozenset[str]) -> set[str]:
+    """Recover the family-name set used by `heal_glyph_name` from a collection of compiled glyph names.
+
+    Useful for callers that have `join_glyphs` / similar mappings in hand but never received the original `glyph_families` keys.
+    """
+    return {name.split(".", 1)[0] for name in compiled_names}
+
+
+def heal_glyph_name(
+    name: str,
+    family_names: set[str],
+    available_names: frozenset[str] | set[str],
+) -> str:
+    """Heal a bare compiled glyph name string written before `_synthesize_anchor_modifiers` renamed its underlying form.
+
+    Used by `build_font.py` for author-written name references in `predecessor_demote_overrides` / `trailing_demote_overrides` / `restore_isolated_form_overrides` and by curated tables like `_PENDING_BK_ENTRY_GUARDS` that name compiled forms by literal string instead of going through selector resolution. The logic mirrors `_heal_renamed_selector`: parse the name, look it up, and if missing find the post-synth form whose modifiers superset it (modulo `_SYNTHESIZED_MODIFIER_TOKENS`).
+    """
+    if not isinstance(available_names, frozenset):
+        available_names = frozenset(available_names)
+    if name in available_names:
+        return name
+    parsed = _split_family_compiled_name(name, family_names)
+    if parsed is None:
+        return name
+    family_name, traits, modifiers = parsed
+    if family_name not in family_names:
+        return name
+    return _heal_renamed_selector(
+        name,
+        family_name,
+        traits,
+        modifiers,
+        family_names=family_names,
+        available_names=available_names,
+    )
 
 
 def _normalize_family_refs(
@@ -704,6 +913,7 @@ def _normalize_family_refs(
     context_family: str,
     context_label: str,
     field_name: str,
+    available_names: frozenset[str] | None = None,
 ) -> list[str]:
     if not isinstance(values, list):
         raise ValueError(f"{context_family} {context_label} {field_name} must be a list")
@@ -811,6 +1021,7 @@ def _normalize_family_refs(
                 context_family=context_family,
                 context_label=context_label,
                 field_name=field_name,
+                available_names=available_names,
             )
         ]
 
@@ -865,6 +1076,7 @@ def _family_form_to_glyph_def(
     contextual: bool,
     family_names: set[str],
     context_sets: dict[str, list[Any]],
+    available_names: frozenset[str] | None = None,
 ) -> GlyphDef:
     glyph_def: GlyphDef = {}
 
@@ -914,6 +1126,7 @@ def _family_form_to_glyph_def(
                 context_family=family_name,
                 context_label=f"form {form_name!r}" if form_name else "base record",
                 field_name=source_key,
+                available_names=available_names,
             )
 
     # When a form mixes `after: [{context_set: …}]` with `not_after: [{family: X}]` (and likewise for `before` / `not_before`), the context_set's expansion can include the negatively-listed family; subtract it now so downstream emitters can treat `after` as a clean trigger list. The build's literal-overlap check rejects the case where both lists name the same family directly, so we only have to handle the context_set-vs-literal mismatch here.
@@ -944,6 +1157,7 @@ def _family_form_to_glyph_def(
                 context_family=family_name,
                 context_label=f"form {form_name!r}" if form_name else "base record",
                 field_name=source_key,
+                available_names=available_names,
             )
 
     for key in (
@@ -965,6 +1179,7 @@ def _family_form_to_glyph_def(
                 context_family=family_name,
                 context_label=f"form {form_name!r}" if form_name else "base record",
                 field_name=key,
+                available_names=available_names,
             )
             glyph_def[key] = ExtensionSpec(by=raw["by"], targets=tuple(targets))
 
@@ -980,6 +1195,7 @@ def _family_form_to_glyph_def(
                     context_family=family_name,
                     context_label=f"form {form_name!r}" if form_name else "base record",
                     field_name="extend_exit_before_gated",
+                    available_names=available_names,
                 )
             )
         glyph_def["extend_exit_before_gated"] = tuple(sorted(resolved_gated.items()))
@@ -1042,6 +1258,7 @@ def _iter_compiled_family_forms(
                 "contextual": False,
                 "traits": (),
                 "modifiers": (),
+                "authored_modifiers": (),
             }
 
         for form_name in family_def.get("forms", {}):
@@ -1058,12 +1275,17 @@ def _iter_compiled_family_forms(
                 family_name=family_name,
                 context=f"form {form_name!r}",
             )
-            modifiers = _normalize_source_modifiers(
+            authored_modifiers = _normalize_source_modifiers(
                 resolved.get("modifiers", ()),
                 family_name=family_name,
                 context=f"form {form_name!r}",
             )
+            modifiers = _synthesize_anchor_modifiers(resolved.get("anchors", {}), authored_modifiers)
             output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
+            if len(output_name) > _SYNTHESIZED_NAME_LENGTH_CAP and modifiers != authored_modifiers:
+                # Synthesis would push the compiled name past the CFF1 truncation point; HarfBuzz would then collapse this form into a sibling whose first 63 bytes match. Keep the author's name unchanged so downstream shaping still routes through this form distinctly.
+                modifiers = authored_modifiers
+                output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if output_name == family_name:
                 raise ValueError(
                     f"Glyph family '{family_name}' form '{form_name}' must declare traits or modifiers"
@@ -1088,6 +1310,7 @@ def _iter_compiled_family_forms(
                 "contextual": _is_contextual_family_form(resolved),
                 "traits": traits,
                 "modifiers": modifiers,
+                "authored_modifiers": authored_modifiers,
             }
 
 
@@ -1103,7 +1326,11 @@ def compile_glyph_families(
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
-    for record in _iter_compiled_family_forms(glyph_families, variant, context_sets=context_sets):
+    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis form (e.g. `qsOut.exit-xheight`) to the post-synthesis form that supersets it (`qsOut.entry-baseline.exit-xheight`).
+    records = list(_iter_compiled_family_forms(glyph_families, variant, context_sets=context_sets))
+    available_names = frozenset(record["output_name"] for record in records)
+
+    for record in records:
         output_name = record["output_name"]
         if output_name in compiled:
             raise ValueError(f"Duplicate compiled glyph name {output_name!r}")
@@ -1115,6 +1342,7 @@ def compile_glyph_families(
             contextual=record["contextual"],
             family_names=family_names,
             context_sets=context_sets,
+            available_names=available_names,
         )
 
     return compiled
@@ -1241,11 +1469,14 @@ def _glyph_def_to_join_glyph(
     noentry_for: str | None = None,
     generated_from: str | None = None,
     transform_kind: str | None = None,
+    authored_modifiers: Sequence[str] | None = None,
 ) -> JoinGlyph:
     resolved_traits = frozenset(traits)
     resolved_modifiers = (
         tuple(modifiers) if modifiers is not None else tuple(_glyph_name_modifiers(glyph_name))
     )
+    # `is_entry_variant` semantically means "the author chose to author this form as an entry-side restriction"; an `_synthesize_anchor_modifiers` insertion shouldn't flip it. When the caller can supply the pre-synthesis modifier list, use that — otherwise fall back to the resolved modifiers, which preserves the legacy behavior for callers that never touched synthesis.
+    classifier_source = tuple(authored_modifiers) if authored_modifiers is not None else resolved_modifiers
     resolved_contextual = _is_contextual_variant(glyph_name) if contextual is None else bool(contextual)
     resolved_is_noentry = ("noentry" in resolved_modifiers) if is_noentry is None else bool(is_noentry)
 
@@ -1274,7 +1505,7 @@ def _glyph_def_to_join_glyph(
         preferred_over=tuple(glyph_def.get("preferred_over", ())),
         word_final=bool(glyph_def.get("calt_word_final")),
         is_contextual=resolved_contextual,
-        is_entry_variant=any(modifier.startswith("entry-") for modifier in resolved_modifiers),
+        is_entry_variant=any(modifier.startswith("entry-") for modifier in classifier_source),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -1842,7 +2073,9 @@ def derive_join_glyph(
         preferred_over=resolved_preferred_over,
         word_final=resolved_word_final,
         is_contextual=contextual,
-        is_entry_variant=any(modifier.startswith("entry-") for modifier in resolved_modifiers),
+        # Preserve the source's authorial classification; an extension/contraction transform only flips it to True when the transform adds its own entry-* modifier (e.g. `entry-extended`). Synthesized entry-* tokens already on the source don't count — they're carried by `source.is_entry_variant` if applicable.
+        is_entry_variant=source.is_entry_variant
+        or any(modifier.startswith("entry-") for modifier in add_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -3055,11 +3288,15 @@ def compile_quikscript_ir(
     family_names = set(glyph_families)
 
     join_glyphs = {}
-    for record in _iter_compiled_family_forms(
-        glyph_families,
-        variant,
-        context_sets=context_sets,
-    ):
+    records = list(
+        _iter_compiled_family_forms(
+            glyph_families,
+            variant,
+            context_sets=context_sets,
+        )
+    )
+    available_names = frozenset(record["output_name"] for record in records)
+    for record in records:
         glyph_def = _family_form_to_glyph_def(
             record["family_name"],
             record["family_def"],
@@ -3068,6 +3305,7 @@ def compile_quikscript_ir(
             contextual=record["contextual"],
             family_names=family_names,
             context_sets=context_sets,
+            available_names=available_names,
         )
         if record["output_name"] in join_glyphs:
             raise ValueError(f"Duplicate compiled glyph name {record['output_name']!r}")
@@ -3080,6 +3318,7 @@ def compile_quikscript_ir(
             traits=record["traits"],
             modifiers=[*record["traits"], *record["modifiers"]],
             contextual=record["contextual"],
+            authored_modifiers=[*record["traits"], *record.get("authored_modifiers", record["modifiers"])],
         )
     join_glyphs = _expand_anchor_sentinels_in_extension_targets(join_glyphs)
     transforms: list[JoinTransform] = []
@@ -3168,7 +3407,13 @@ def _find_lead_entry_source(
     if lead_prop is not None and lead_prop.entry:
         return lead_prop.entry, lead_prop
 
-    canonical = join_glyphs.get(f"{lead_family}.entry-xheight")
+    # `_synthesize_anchor_modifiers` may have renamed the canonical entry-xheight form to e.g. `qsJai.entry-xheight.exit-baseline`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
+    canonical_name = heal_glyph_name(
+        f"{lead_family}.entry-xheight",
+        family_names_from_compiled(set(join_glyphs)),
+        frozenset(join_glyphs),
+    )
+    canonical = join_glyphs.get(canonical_name)
     if canonical is not None and canonical.entry:
         if not canonical.after:
             return canonical.entry, canonical

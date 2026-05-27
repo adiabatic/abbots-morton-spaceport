@@ -1778,15 +1778,44 @@ def _format_backward_error(
     )
 
 
+def _heal_curated_guards_table(
+    table: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]],
+    reachability: JoinReachability,
+) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
+    """Route every curated glyph-name reference through `heal_glyph_name` so the table survives `_synthesize_anchor_modifiers` renames without hand-editing each entry."""
+    from quikscript_ir import family_names_from_compiled, heal_glyph_name
+
+    available = frozenset(reachability.glyph_meta)
+    families = family_names_from_compiled(available)
+
+    def _heal(name: str) -> str:
+        return heal_glyph_name(name, families, available)
+
+    healed: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {}
+    for (source, replacement, entry_y), guards in table.items():
+        healed_key = (_heal(source), _heal(replacement), entry_y)
+        healed_guards = tuple(
+            DerivedBkGuard(
+                tuple(_heal(g) for g in guard.guard_glyphs),
+                tuple(_heal(b) for b in guard.before_bases) if guard.before_bases else (),
+            )
+            for guard in guards
+        )
+        healed[healed_key] = healed_guards
+    return healed
+
+
 def derive_pending_bk_entry_guards(
     reachability: JoinReachability,
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
     """Return the curated `_PENDING_BK_ENTRY_GUARDS` table.
 
-    The ``reachability`` argument is unused — the table is hand-curated to match the runtime emitter's per-call-site narrowing in ``_emit_pending_bk_entry_guards`` (see `tools/quikscript_fea.py`) — and is accepted for signature symmetry with ``derive_pending_fwd_strip_guards``.
+    The curated names predate `_synthesize_anchor_modifiers`; we route each through `heal_glyph_name` so renames like `qsExcite.exit-baseline.before-vertical` → `qsExcite.entry-baseline.exit-baseline.before-vertical` resolve transparently.
     """
-    del reachability
-    return {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()}
+    return _heal_curated_guards_table(
+        {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()},
+        reachability,
+    )
 
 
 def derive_pending_liga_entry_guards(
@@ -1796,8 +1825,10 @@ def derive_pending_liga_entry_guards(
 
     Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component sources.
     """
-    del reachability
-    return {key: tuple(guards) for key, guards in _PENDING_LIGA_ENTRY_GUARDS.items()}
+    return _heal_curated_guards_table(
+        {key: tuple(guards) for key, guards in _PENDING_LIGA_ENTRY_GUARDS.items()},
+        reachability,
+    )
 
 
 def derive_pending_fwd_strip_guards(

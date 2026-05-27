@@ -101,7 +101,7 @@ context_sets:
   # Letters whose default form does not accept a baseline cursive entry (no anchor at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the join cannot form anyway.
   no_baseline_join_after_tall:
   - {family: qsThaw}
-  # Letters whose right side runs straight down to the baseline when they exit there — so any follower with an entry that swings in from the left at the baseline can't curl behind them.
+  # Letters whose right side runs straight down to the baseline (or tails off down-and-to-the-right) when they exit there — so any follower with an entry that swings in from the left at the baseline can't curl behind them.
   flat_on_right_at_baseline:
   - {family: qsPea, exit_y: 0}
   - {family: qsTea, exit_y: 0}
@@ -109,7 +109,9 @@ context_sets:
   - {family: qsHe, exit_y: 0}
   - {family: qsExcite, exit_y: 0}
   - {family: qsIt, exit_y: 0}
+  - {family: qsIng, exit_y: 0}
   - {family: qsEat, exit_y: 0}
+  - {family: qsEight, exit_y: 0}
   - {family: qsOx, exit_y: 0}
   - {family: qsOy, exit_y: 0}
   - {family: qsOoze, exit_y: 0}
@@ -124,17 +126,25 @@ restore_isolated_form_overrides:
   - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
 predecessor_demote_overrides:
   # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.after-ye}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsUtter.alt, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.exit-baseline.before-vertical.after-baseline-letter, trigger_form: qsGay, isolated_form: qsExcite.entry-baseline.noexit}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, isolated_form: qsJai}
   - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, isolated_form: qsJai}
+  - {predecessor_form: qsMay.exit-baseline, trigger_form: qsGay.exit-baseline, isolated_form: qsMay}
   - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, isolated_form: qsMay}
   - {predecessor_form: qsMay.exit-noentry, trigger_form: qsThey_qsUtter.noentry, isolated_form: qsMay}
+  - {predecessor_form: qsNo.alt, trigger_form: qsGay.exit-baseline, isolated_form: qsNo}
   - {predecessor_form: qsNo.alt, trigger_form: qsIt.exit-baseline, isolated_form: qsNo}
   - {predecessor_form: qsNo.alt, trigger_form: qsUtter.alt, isolated_form: qsNo}
   - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, isolated_form: qsNo}
+  - {predecessor_form: qsWay.half, trigger_form: qsGay.exit-baseline, isolated_form: qsWay}
+  - {predecessor_form: qsWay.half, trigger_form: qsGay.exit-baseline.exit-extended, isolated_form: qsWay}
+  - {predecessor_form: qsWhy.half, trigger_form: qsGay.exit-baseline, isolated_form: qsWhy}
+  - {predecessor_form: qsWhy.half, trigger_form: qsGay.exit-baseline.exit-extended, isolated_form: qsWhy}
 trailing_demote_overrides:
   # When a forward-pair override changes a leader into an entry-preserving form with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half form once the leader's no-exit form is in the buffer. Each entry compiles to `sub leader_form trailing_form' by isolated_form;` under `calt_trailing_demote_<trailing_base>`.
   - {leader_form: qsIt.entry-baseline.exit-noentry.before-day-exam, trailing_form: qsDay.half, isolated_form: qsDay}
@@ -719,6 +729,7 @@ glyph_families:
           exit:  [5, 5]
         select:
           not_after: [{context_set: flat_on_right_at_baseline}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]
         modifiers: [entry-baseline]
   qsThaw:
     mono:
@@ -2138,7 +2149,7 @@ glyph_families:
           exit: [7, 0]
         select:
           after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
-          before: [{entry_y: 0, except: [{family: qsPea}, {family: qsThaw}]}]
+          before: [{entry_y: 0, except: [{family: qsPea}, {family: qsGay}, {family: qsThaw}]}]
           not_before: [{family: qsThaw}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
