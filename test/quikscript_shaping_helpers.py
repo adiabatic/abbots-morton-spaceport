@@ -4,6 +4,7 @@ from pathlib import Path
 
 import uharfbuzz as hb
 import yaml
+from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
@@ -26,6 +27,16 @@ def _font() -> hb.Font:
     return hb.Font(face)
 
 
+@cache
+def _tt_font() -> TTFont:
+    # HarfBuzz's `glyph_to_string` truncates names to 63 bytes, so we resolve GIDs to full glyph names through fontTools instead.
+    return TTFont(str(FONT_PATH))
+
+
+def _gid_to_full_name(gid: int) -> str:
+    return _tt_font().getGlyphName(gid)
+
+
 # pytest-xdist runs each worker in its own subprocess, so there's no cross-thread reuse risk.
 # Invariant for callers of `_BUF`: materialize `buf.glyph_infos` / `buf.glyph_positions` into a list (comprehension or `list(...)`) before the function returns. Never return the property itself or a generator over it — the next `_shape()` call will `clear_contents()` and overwrite the buffer, invalidating any unmaterialized view.
 _BUF: hb.Buffer = hb.Buffer()
@@ -39,7 +50,7 @@ def _shape(text: str) -> list[str]:
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf)
-    return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    return [_gid_to_full_name(info.codepoint) for info in buf.glyph_infos]
 
 
 @lru_cache(maxsize=None)
@@ -53,7 +64,7 @@ def _shape_with_features(
     buf.add_str(text)
     buf.guess_segment_properties()
     hb.shape(font, buf, dict(feature_items))
-    return [font.glyph_to_string(info.codepoint) for info in buf.glyph_infos]
+    return [_gid_to_full_name(info.codepoint) for info in buf.glyph_infos]
 
 
 @cache

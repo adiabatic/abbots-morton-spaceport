@@ -4,7 +4,6 @@ from quikscript_ir import (
     GlyphData,
     GlyphDef,
     JoinGlyph,
-    _is_contextual_variant,
     build_join_glyphs,
     compile_quikscript_ir,
     flatten_join_glyphs,
@@ -113,18 +112,12 @@ def prepare_proportional_glyphs(glyphs_def: dict[str, GlyphDef | None]) -> dict[
 
 def _compile_legacy_glyphs(glyph_data: GlyphData, variant: str) -> dict[str, GlyphDef | None]:
     is_proportional = variant != "mono"
-    is_senior = variant == "senior"
 
     legacy_glyphs = {
         name: (dict(glyph_def) if glyph_def is not None else None)
         for name, glyph_def in glyph_data.get("glyphs", {}).items()
         if ".unused" not in name
     }
-
-    if not is_senior:
-        legacy_glyphs = {
-            name: glyph_def for name, glyph_def in legacy_glyphs.items() if not _is_contextual_variant(name)
-        }
 
     if is_proportional:
         legacy_glyphs = prepare_proportional_glyphs(legacy_glyphs)

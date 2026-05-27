@@ -332,7 +332,7 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
     assert expanded["qsLead.entry-baseline.exit-baseline.exit-contracted"].before == ("qsFollow",)
-    assert expanded["qsLead.before-other.exit-contracted"].before == ()
+    assert expanded["qsLead.exit-baseline.before-other.exit-contracted"].before == ()
 
 
 def test_contract_exit_before_emits_paired_trimmed_receiver():
@@ -1453,7 +1453,7 @@ def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    record = join_glyphs["qsIt.before-utter"]
+    record = join_glyphs["qsIt.entry-baseline.exit-baseline.before-utter"]
     assert "qsUtter" in record.before
     assert "qsDay" in record.before
 
@@ -1904,8 +1904,8 @@ def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
     assert join_glyphs["qsRight.entry-xheight"].after == (
-        "qsLeft.alt",
-        "qsLeft.alt.before-right",
+        "qsLeft.alt.exit-xheight",
+        "qsLeft.alt.exit-xheight.before-right",
     )
 
 
