@@ -2520,9 +2520,9 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
 
     Only the "not half" half of the invariant is universal: families end up in ``not_before`` for two distinct reasons — either the full form legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection behavior is asserted in the targeted parametrizations above; this test covers the part they share.
     """
-    half_meta = _compiled_meta()[f"{left_base}.half"]
+    half_meta = _compiled_meta()[f"{left_base}.half.exit-baseline"]
     deny_families = sorted(half_meta.not_before)
-    assert deny_families, f"{left_base}.half should declare a non-empty not_before"
+    assert deny_families, f"{left_base}.half.exit-baseline should declare a non-empty not_before"
 
     meta_map = _compiled_meta()
     failures: list[str] = []

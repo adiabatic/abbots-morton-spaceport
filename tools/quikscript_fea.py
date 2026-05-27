@@ -3,7 +3,13 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from itertools import product
 
-from quikscript_ir import JoinGlyph, family_names_from_compiled, heal_glyph_name, resolve_known_glyph_names
+from quikscript_ir import (
+    _SYNTHESIZED_MODIFIER_TOKENS,
+    JoinGlyph,
+    family_names_from_compiled,
+    heal_glyph_name,
+    resolve_known_glyph_names,
+)
 
 _ENTRY_EXTENSION_SUFFIXES = (
     ".entry-sextuply-extended",
@@ -344,7 +350,7 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             continue
         if "half" in meta.traits and meta.entry and not meta.before:
             continue
-        extra_parts = meta.modifier_set - {"alt", "prop"}
+        extra_parts = meta.modifier_set - {"alt", "prop"} - _SYNTHESIZED_MODIFIER_TOKENS
         if extra_parts and "alt" in meta.traits and meta.entry and not meta.before:
             continue
         if not meta.exit and not (meta.before or meta.gated_before):
@@ -5222,6 +5228,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         from itertools import product
 
         # Ligation lives inside `calt`, not the dedicated `liga` feature, so it runs after `calt_cycle`'s contextual form selection within the same feature pass. That ordering lets a forward `calt` rule change a component's glyph identity (e.g., qsUtter -> qsUtter.alt in ·Day·Utter·Low) before the ligature lookup sees it, which in turn blocks the `qsDay qsUtter` ligature from firing because the matched sequence is now `qsDay qsUtter.alt`. Putting these rules in `liga` would force ligation to run as its own feature pass and lose that interleaving.
+        # Constructed variant names (`lig_name + ".half"`, `actual_lig + ".exit-extended"`, etc.) miss the post-synthesis forms whose anchor-Y labels were filled in by `_synthesize_anchor_modifiers` — e.g. `qsDay_qsUtter.half` is really `qsDay_qsUtter.half.entry-baseline.exit-xheight`. `heal_glyph_name` rewrites the literal name to its post-synthesis counterpart before we test membership in `glyph_names`.
+        _lig_family_names = family_names_from_compiled(glyph_names)
+        _lig_available_names = frozenset(glyph_names)
+
+        def _resolve(name: str) -> str:
+            return heal_glyph_name(name, _lig_family_names, _lig_available_names)
+
         lines.append("")
         lines.append("    lookup calt_liga {")
         for lig_name, components in sorted(ligatures):
@@ -5233,9 +5246,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 actual_lig = lig_name
                 suffix = _meta(combo[0]).extended_entry_suffix
                 if suffix:
-                    ext_lig = lig_name + suffix
+                    ext_lig = _resolve(lig_name + suffix)
                     if ext_lig not in glyph_names:
-                        ext_lig = lig_name + ".entry-extended"
+                        ext_lig = _resolve(lig_name + ".entry-extended")
                     if ext_lig in glyph_names:
                         # Only inherit the entry-extension onto the ligature when the source's entry Y matches the target's. The `.entry-extended` suffix means different things on forms with different entry geometries (e.g., `qsDay.half.entry-extended` extends entry at y=0 while `qsDay_qsEat.entry-extended` extends entry at y=5) — copying it across mismatched Ys produces a ligature variant whose extension is geometrically unrelated to the predecessor join that triggered it.
                         ext_lig_entry_ys = set(_meta(ext_lig).entry_ys)
@@ -5244,21 +5257,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             actual_lig = ext_lig
                 contracted_entry_suffix = _meta(combo[0]).contracted_entry_suffix
                 if contracted_entry_suffix:
-                    contracted_lig = lig_name + contracted_entry_suffix
+                    contracted_lig = _resolve(lig_name + contracted_entry_suffix)
                     if contracted_lig in glyph_names:
                         actual_lig = contracted_lig
                 if "half" in _meta(combo[0]).traits:
-                    half_lig = lig_name + ".half"
+                    half_lig = _resolve(lig_name + ".half")
                     if half_lig in glyph_names:
                         actual_lig = half_lig
                 exit_suffix = _meta(combo[-1]).extended_exit_suffix
                 if exit_suffix:
-                    ext_lig = actual_lig + ".exit-extended"
+                    ext_lig = _resolve(actual_lig + ".exit-extended")
                     if ext_lig in glyph_names:
                         actual_lig = ext_lig
                 contracted_suffix = _meta(combo[-1]).contracted_exit_suffix
                 if contracted_suffix:
-                    contracted_lig = actual_lig + contracted_suffix
+                    contracted_lig = _resolve(actual_lig + contracted_suffix)
                     if contracted_lig in glyph_names:
                         actual_lig = contracted_lig
                 lines.append(f"        sub {component_str} by {actual_lig};")

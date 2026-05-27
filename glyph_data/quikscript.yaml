@@ -303,7 +303,6 @@ glyph_families:
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
       half_entry_y6_exit_y6:
         inherits: half_entry_y6
         anchors:
@@ -432,7 +431,6 @@ glyph_families:
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
-        modifiers: [entry-top]
       entry_top:
         shape: prop
         anchors:
