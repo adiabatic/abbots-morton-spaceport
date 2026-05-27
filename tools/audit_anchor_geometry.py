@@ -19,8 +19,6 @@ Usage::
     uv run python tools/audit_anchor_geometry.py            # both sides
     uv run python tools/audit_anchor_geometry.py --side entry
     uv run python tools/audit_anchor_geometry.py --side exit --family qsTea
-
-If the default uv cache is unwritable, prefix with ``UV_CACHE_DIR=.uv-cache``.
 """
 
 from __future__ import annotations

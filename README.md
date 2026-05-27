@@ -188,7 +188,7 @@ That tells `git blame` to skip the revisions listed in [`.git-blame-ignore-revs`
 Also run this once after cloning to install the pre-push hook that keeps unformatted Python out of the repo:
 
 ```sh
-UV_CACHE_DIR=.uv-cache uv run pre-commit install
+uv run pre-commit install
 ```
 
 On every `git push`, the hook runs `black --check` against the tree. If anything would be reformatted, the push is aborted; run `make prettier` to fix it, commit the result, and push again.

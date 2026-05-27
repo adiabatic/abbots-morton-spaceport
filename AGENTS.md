@@ -26,9 +26,9 @@
 
 ## Python
 
-IMPORTANT: Always use `UV_CACHE_DIR=.uv-cache uv run` instead of `python` or `python3` directly. The `UV_CACHE_DIR=.uv-cache` prefix points `uv` at a project-local cache so it works in sandboxed environments that can't reach the default `uv` cache (`~/.cache/uv` or `~/Library/Caches/uv`). For example:
+IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. The project pins `cache-dir = ".uv-cache"` under `[tool.uv]` in `pyproject.toml` so the cache stays inside the repo, which is needed in sandboxed environments where the default `uv` cache (`~/.cache/uv` or `~/Library/Caches/uv`) isn't writable. For example:
 
-- `UV_CACHE_DIR=.uv-cache uv run pytest` not `pytest`
+- `uv run pytest` not `pytest`
 
 IMPORTANT: After any Python changes, run `make prettier` to format the code.
 
