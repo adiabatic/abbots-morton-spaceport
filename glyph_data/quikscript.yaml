@@ -645,7 +645,7 @@ glyph_families:
   qsGay:
     mono:
       bitmap:
-      - "  ###"  #
+      - "  ## "  #
       - " #   "
       - " #   "
       - "  #  "
@@ -672,7 +672,7 @@ glyph_families:
         y_offset: -3
       reachable_from_the_left_at_the_baseline:
         bitmap:
-        - "  ###"  #
+        - "  ## "  #
         - " #   "
         - " #   "
         - "  #  "
@@ -686,11 +686,11 @@ glyph_families:
       exit_xheight:
         shape: mono
         anchors:
-          exit: [5, 5]
+          exit: [4, 5]
         select:
           not_before: [{family: qsEt}, {family: qsOwe}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsCheer}, {family: qsIt}]}
+          extend_exit_before: {by: 2, targets: [{family: qsCheer}, {family: qsIt}]}
         modifiers: [exit-xheight]
       exit_baseline:
         shape: mono
@@ -724,7 +724,7 @@ glyph_families:
         shape: reachable_from_the_left_at_the_baseline
         anchors:
           entry: [0, 0]
-          exit:  [5, 5]
+          exit:  [4, 5]
         select:
           not_after: [{context_set: flat_on_right_at_baseline}]
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]
