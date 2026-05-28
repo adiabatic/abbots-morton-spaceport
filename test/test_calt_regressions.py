@@ -960,7 +960,7 @@ def test_qs_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
 def test_qs_owe_at_word_start_before_fee_has_no_left_anchor():
     _assert_expect_any(
         _qs_text("qsOwe", "qsFee"),
-        ["·Owe.exit-extended ~x~ ·Fee"],
+        ["·Owe ~x~ ·Fee"],
     )
 
 
