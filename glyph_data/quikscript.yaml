@@ -1142,7 +1142,7 @@ glyph_families:
         anchors:
           exit: [3, 0]
         select:
-          before: [{family: qsExcite, entry_y: 0}, {family: qsAt, entry_y: 0}, {family: qsOut, entry_y: 0}]
+          before: [{family: qsAt, entry_y: 0}, {family: qsOut, entry_y: 0}]
           not_after: [{family: qsIt}]
         derive:
           extend_exit_before: {by: 2, targets: [{family: qsLow}]}
@@ -2144,7 +2144,7 @@ glyph_families:
           entry: [0, 0]
           exit: [7, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
           before: [{entry_y: 0, except: [{family: qsPea}, {family: qsGay}, {family: qsThaw}]}]
           not_before: [{family: qsThaw}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
@@ -2162,7 +2162,7 @@ glyph_families:
         anchors:
           entry: [0, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
           not_before: [{entry_y: 0, except: [{family: qsThaw}]}]
         modifiers: [entry-baseline, noexit]
       noentry_exit_baseline:
