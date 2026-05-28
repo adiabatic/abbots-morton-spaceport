@@ -1179,6 +1179,7 @@ glyph_families:
       - "#    "
       - "#    "  #
       anchors:
+        entry: null
         exit: [5, 5]
       derive:
         extend_exit_before: {by: 1, targets: [{family: qsMay}]}

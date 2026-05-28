@@ -3026,8 +3026,6 @@ def expand_selectors_for_ligatures(
             continue
         if record.is_noentry:
             continue
-        if record.entry_explicitly_none:
-            continue
         if record.extended_entry_suffix is not None:
             continue
         if record.extended_exit_suffix is not None:
