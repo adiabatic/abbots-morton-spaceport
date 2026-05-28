@@ -825,7 +825,7 @@ glyph_families:
         anchors:
           exit: [3, 5]
         select:
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsCheer}, {family: qsJay}, {family: qsYe}, {family: qsMay}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsJai}, {family: qsCheer}, {family: qsJay}, {family: qsYe}, {family: qsMay}]
         modifiers: [exit-xheight]
   qsThey_qsZoo:
     sequence:
