@@ -932,6 +932,7 @@ glyph_families:
         - family: qsIt
         - family: qsEt
         - family: qsEight
+        - family: qsOwe
         - family: qsFoot
       extend_exit_before_gated:
         ss03: [{family: qsTea}]
@@ -2797,7 +2798,9 @@ glyph_families:
       - "#   #"
       - " ### "  #
     derive:
-      extend_exit_before: {by: 1, targets: [{family: qsFee}, {family: qsRoe}, {family: qsIt}]}
+      extend_exit_before:
+      - {by: 1, targets: [{family: qsRoe}, {family: qsIt}]}
+      - {by: 2, targets: [{family: qsFee}]}
       extend_exit_before_gated:
         ss03: [{family: qsTea}]
     shapes:
