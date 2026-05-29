@@ -2798,7 +2798,7 @@ glyph_families:
       - " ### "  #
     derive:
       extend_exit_before:
-      - {by: 1, targets: [{family: qsRoe}, {family: qsIt}]}
+      - {by: 1, targets: [{family: qsCheer}, {family: qsRoe}, {family: qsIt}]}
       - {by: 2, targets: [{family: qsFee}]}
       extend_exit_before_gated:
         ss03: [{family: qsTea}]
