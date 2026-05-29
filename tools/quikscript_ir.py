@@ -106,6 +106,8 @@ class JoinGlyph:
     strip_entry_before: bool = False
     # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
     before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # Set (to N) on a backward-entry-upgrade target form to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this form (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the exit-extended-by-N variant when a glyph that literally enters at the form's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup form, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
+    extend_exit_when_entered: int | None = None
 
     @property
     def entry_ys(self) -> tuple[int, ...]:
@@ -144,6 +146,7 @@ _KNOWN_DERIVE_DIRECTIVES = frozenset(
         "extend_entry_after",
         "extend_exit_before",
         "extend_exit_before_gated",
+        "extend_exit_when_entered",
         "contract_entry_after",
         "contract_exit_before",
         "noentry_after",
@@ -1289,6 +1292,10 @@ def _family_form_to_glyph_def(
             )
         glyph_def["extend_exit_before_gated"] = tuple(sorted(resolved_gated.items()))
 
+    when_entered = derive.get("extend_exit_when_entered")
+    if when_entered is not None:
+        glyph_def["extend_exit_when_entered"] = int(when_entered["by"])
+
     revert_feature = form_def.get("revert_feature")
     if revert_feature is not None:
         glyph_def["revert_feature"] = revert_feature
@@ -1607,6 +1614,7 @@ def _glyph_def_to_join_glyph(
         extend_entry_after=_normalize_extension_rules(glyph_def.get("extend_entry_after")),
         extend_exit_before=_normalize_extension_rules(glyph_def.get("extend_exit_before")),
         extend_exit_before_gated=tuple(glyph_def.get("extend_exit_before_gated", ())),
+        extend_exit_when_entered=glyph_def.get("extend_exit_when_entered"),
         noentry_after=tuple(glyph_def.get("noentry_after", ())),
         extend_exit_no_entry=bool(glyph_def.get("extend_exit_no_entry")),
         noentry_for=noentry_for,
@@ -2096,6 +2104,7 @@ def derive_join_glyph(
     extend_entry_after: tuple[ExtensionSpec, ...] | object = _UNSET,
     extend_exit_before: tuple[ExtensionSpec, ...] | object = _UNSET,
     extend_exit_before_gated: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
+    extend_exit_when_entered: int | None | object = _UNSET,
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] | object = _UNSET,
     contract_entry_after: ExtensionSpec | None | object = _UNSET,
     contract_exit_before: ExtensionSpec | None | object = _UNSET,
@@ -2134,6 +2143,10 @@ def derive_join_glyph(
     )
     resolved_extend_exit_before_gated = (
         source.extend_exit_before_gated if extend_exit_before_gated is _UNSET else extend_exit_before_gated
+    )
+    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.exit-extended` / `.entry-extended` / `.noentry` siblings would risk re-processing the already-extended form.
+    resolved_extend_exit_when_entered = (
+        None if extend_exit_when_entered is _UNSET else extend_exit_when_entered
     )
     resolved_gated_before = source.gated_before if gated_before is _UNSET else gated_before
     resolved_contract_entry_after = (
@@ -2213,6 +2226,7 @@ def derive_join_glyph(
         extend_entry_after=resolved_extend_entry_after,
         extend_exit_before=resolved_extend_exit_before,
         extend_exit_before_gated=resolved_extend_exit_before_gated,
+        extend_exit_when_entered=resolved_extend_exit_when_entered,
         gated_before=resolved_gated_before,
         noentry_after=resolved_noentry_after,
         extend_exit_no_entry=resolved_extend_exit_no_entry,

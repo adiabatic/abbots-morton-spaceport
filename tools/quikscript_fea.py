@@ -5800,6 +5800,54 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     _emit_pred_demote_lookups("calt_final_pred_demote")
 
+    # Glyphs that literally carry an entry anchor at Y — the receivers a `extend_exit_when_entered` exit may attach to. NOT `@entry_y{N}`: that class also holds bare bases and entry-stripped forward replacements that could promote to an entry at Y but don't in their final form (e.g. the trailing qsMay in ·Bay·May·May·Ah settles on qsMay.exit-baseline, no entry). Extending toward those would strand the extra ink, so the lookahead is restricted to glyphs whose final form actually receives.
+    def _literal_entry_receivers(target_y: int) -> list[str]:
+        return sorted(
+            g
+            for g in glyph_names
+            if any(a[1] == target_y for a in (*_meta(g).entry, *_meta(g).entry_curs_only))
+        )
+
+    # `extend_exit_when_entered`: lengthen a backward-entry-upgrade target's exit toward its x-height receivers, kept gated on the predecessor that supplied the entry join. The carrier form and its entry-extension siblings only ever appear after that join (word-initial / non-baseline contexts settle on the bare base), so this final lookup matches them directly — no backtrack — without leaking onto the bare form. Placed last so it sees whichever entry-side form the predecessor produced (plain or entry-extended).
+    receivers_by_exit_y: dict[int, str] = {}
+    for carrier in sorted(n for n in glyph_names if _meta(n).extend_exit_when_entered):
+        carrier_meta = _meta(carrier)
+        by = carrier_meta.extend_exit_when_entered
+        if by is None:
+            continue
+        suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(by)
+        if suffix_word is None:
+            continue
+        carrier_mods = set(carrier_meta.modifiers)
+        when_entered_rules: list[str] = []
+        for variant in sorted(base_to_variants.get(carrier_meta.base_name, ())):
+            vm = _meta(variant)
+            # Match the carrier and its entry-side siblings (entry-extended, …) but not the bare base nor any already exit-modified form.
+            if not vm.entry or not vm.exit or vm.is_noentry:
+                continue
+            if not carrier_mods <= set(vm.modifiers):
+                continue
+            if any(not extra.startswith("entry-") for extra in set(vm.modifiers) - carrier_mods):
+                continue
+            if vm.extended_exit_suffix or vm.contracted_exit_suffix:
+                continue
+            combined = f"{variant}.exit-{suffix_word}"
+            if combined not in glyph_names:
+                continue
+            for exit_y in sorted(set(vm.exit_ys)):
+                if exit_y not in receivers_by_exit_y:
+                    members = _literal_entry_receivers(exit_y)
+                    receivers_by_exit_y[exit_y] = " ".join(members) if members else ""
+                receivers = receivers_by_exit_y[exit_y]
+                if receivers:
+                    when_entered_rules.append(f"        sub {variant}' [{receivers}] by {combined};")
+        if when_entered_rules:
+            safe = carrier.replace(".", "_").replace("-", "_")
+            lines.append("")
+            lines.append(f"    lookup calt_when_entered_{safe} {{")
+            lines.extend(when_entered_rules)
+            lines.append(f"    }} calt_when_entered_{safe};")
+
     lines.append("} calt;")
     lines = _strip_post_zwnj_from_ignore_contexts(lines, base_to_variants)
     lines = _ensure_zwnj_coverage_for_calt_lookups(lines)

@@ -1848,6 +1848,7 @@ glyph_families:
           entry: [0, 0]
           exit: [5, 5]
         derive:
+          extend_exit_when_entered: {by: 1}
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
         modifiers: [entry-baseline]
       entry_baseline_exit_noentry:
