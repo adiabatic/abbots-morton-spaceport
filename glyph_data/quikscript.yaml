@@ -1712,14 +1712,7 @@ glyph_families:
           - {by: 1, targets: [{family: qsTea}]}
           - {by: 2, targets: [{family: qsThaw, exit_y: 0}]}
         extend_exit_before: {by: 3, targets: [{family: qsThaw}]}
-    forms:
-      noentry_after_he_or_ye:
-        shape: mono
-        anchors:
-          entry: null
-        select:
-          after: [{family: qsYe}, {family: qsHe}]
-        modifiers: [after-he-or-ye]
+        noentry_after: [{family: qsYe}, {family: qsHe}]
   qsMay:
     notes: |
       - ·May can join to the preceding letter or subsequent letter at the baseline, but it can’t do both.
