@@ -1334,7 +1334,6 @@ glyph_families:
             - {family: qsTea}
             - {family: qsThey}
             - {family: qsHe}
-            - {family: qsIt}
         modifiers: [entry-xheight]
       exit_baseline:
         shape: prop
