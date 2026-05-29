@@ -4672,7 +4672,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(f"    }} calt_post_context_pair_{safe};")
 
     def _emit_post_context_null_entry_revert():
-        # When a pair_override variant on family X has `entry: null` (e.g. qsIng.after-he-or-ye), bare X is still in @exit_y0 at the time the cycle's BK substitution fires for a follower Y (qsZoo.half etc.), so Y is upgraded based on X's transient exit. After the late `calt_post_context_pair_*` lookup turns X into the null-entry variant, that variant has neither entry nor exit anchors — its presence can't justify Y's upgrade. Revert Y back to its base.
+        # When a pair_override variant on family X has `entry: null` (e.g. qsSee.after-ye), bare X is still in @exit_y0 at the time the cycle's BK substitution fires for a follower Y (qsZoo.half etc.), so Y is upgraded based on X's transient exit. After the late `calt_post_context_pair_*` lookup turns X into the null-entry variant, that variant has neither entry nor exit anchors — its presence can't justify Y's upgrade. Revert Y back to its base.
         for base_name in sorted(pair_overrides):
             base_meta = glyph_meta.get(base_name)
             if base_meta is None:

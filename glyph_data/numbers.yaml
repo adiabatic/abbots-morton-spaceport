@@ -112,7 +112,7 @@ glyphs:
       - "    #"
       - " ### " #
 
-  # Cap-height fractions: 8 rows
+  # Cap-height fractions: 13 rows
   onehalf.prop:  # ½ U+00BD
     y_offset: -3
     bitmap:
@@ -266,7 +266,7 @@ glyphs:
       - "#  #"
       - " ## "
 
-  # Superscript: 5 rows, y_offset 3, width 3
+  # Superscript: 5 rows, y_offset 3, width 3–4
   onesuperior.prop:  # ¹ U+00B9
     y_offset: 3
     bitmap: &ONESUPERIOR

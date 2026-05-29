@@ -6,7 +6,7 @@ The output is stable and diff-friendly: capture a baseline before a YAML change,
 
 Examples:
 
-    uv run python tools/shape_sequences.py tools/fixtures/qspea.txt
+    uv run python tools/shape_sequences.py path/to/sequences.txt
     uv run python tools/shape_sequences.py path/to/sequences.txt --features ss03
 
 Fixture line format:

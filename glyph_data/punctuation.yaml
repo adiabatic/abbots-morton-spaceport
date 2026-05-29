@@ -682,7 +682,7 @@ glyphs:
       - "  #  "
       - "  #  "
 
-  # Small high: 5 rows, y_offset 3
+  # Small high: 5 rows, y_offset 2
   asterisk.prop:  # * U+002A
     y_offset: 2
     bitmap:
@@ -1134,7 +1134,7 @@ glyphs:
       - "#  #  #"
       - "#  #  #"
 
-  # Underscore: 2 rows, y_offset -1
+  # Underscore: 1 row, y_offset -1
   underscore.prop:  # _ U+005F
     y_offset: -1
     bitmap:

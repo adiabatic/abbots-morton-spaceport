@@ -869,7 +869,7 @@ def test_real_join_warning_collector_is_clean():
 
 
 def test_default_default_pair_warns_on_bitmap_gap():
-    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.entry-xheight.exit-baseline pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits one column past the entry anchor."""
+    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.entry-xheight.exit-baseline pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits right at the entry anchor."""
     qs_left = _make_glyph(
         name="qsLeft",
         base_name="qsLeft",

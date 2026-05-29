@@ -673,7 +673,7 @@ def _synthesize_anchor_modifiers(
 ) -> tuple[str, ...]:
     """Fill in entry-<label> / exit-<label> modifiers derived from the resolved form's anchors.
 
-    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `entry-<label>` / `exit-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, `qsIng.after_thaw`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
+    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `entry-<label>` / `exit-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
 
     The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `entry-<something>-at-<label>` (or `exit-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[entry-<label>, exit-<label>, *remaining_author]`.
     """

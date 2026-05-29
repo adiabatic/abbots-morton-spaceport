@@ -77,7 +77,7 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 - Family-scoped anchor selectors may still compile to include the bare scoped glyph when that bare glyph is the pre-lookup form for an unrestricted entry/exit upgrade at the requested Y; this lets cyclic joins like ·They·May use `{family: qsMay, entry_y: 0}` instead of widening back to `{family: qsMay}`.
 - Don't mechanically replace long family lists with `{entry_y: …}` / `{exit_y: …}` just because the list is long. Anchor selectors expand to every matching variant, so a shorter source list can still change generated FEA or create join warnings; prove equivalence with the generated Senior feature code or the shaping tests before committing such a cleanup.
 - To prove a scoped-anchor narrowing (`{family: qsX}` → `{family: qsX, entry_y: N}` / `exit_y: N`) is a pure source cleanup, run `make snapshot-before` first, make the change, run `make all`, then `diff test/before/AbbotsMortonSpaceportSansSenior-Regular.fea test/AbbotsMortonSpaceportSansSenior-Regular.fea` (or sha1sum the six OTFs in each directory). Byte-identical means the change is equivalent and `make test` + `make review` is enough; any divergence is a real shaping change — surface the diff for review instead of treating it as a cleanup.
-- When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first. `qsThaw.after-ing` must beat `qsThaw.after-tall`.
+- When a narrow `after:` selector competes with a broad fallback like a `context_set`, make sure the narrow selector wins first.
 
 ### Anchors
 
@@ -86,7 +86,7 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 
 ### Miscellaneous
 
-- When the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit. `·Excite·Tea·Oy` is the worked example: `qsTea_qsOy` has no baseline entry, so `qsExcite.exit-baseline.before-vertical` must surrender its exit. Extend `_PENDING_LIGA_ENTRY_GUARDS` in `tools/quikscript_fea.py` rather than broadening the plain pair-guard machinery.
+- When the right glyph is about to be consumed into a ligature with no matching entry, the left glyph must not keep a now-false exit. `·Excite·Tea·Oy` is the worked example: `qsTea_qsOy` has no baseline entry, so `qsExcite.exit-baseline.before-vertical` must surrender its exit. Extend `_PENDING_LIGA_ENTRY_GUARDS` in `tools/quikscript_join_analysis.py` rather than broadening the plain pair-guard machinery.
 - When you'd otherwise author a near-duplicate `before:` form so an entryless forward-exit form can displace its entry-bearing siblings, reach for `strip_entry_before: true` instead; see `qsAt.entry_nowhere_exit_baseline` for the worked example, and the JSON schema description for the full rules.
 - In `calt` selectors, ZWNJ is the literal `uni200C` glyph — list it alongside `space` in `after` / `not_after` when blocking word boundaries.
 - Two-glyph ligatures inherit their entry anchor from the lead automatically (see `_inherit_ligature_entries_from_lead`); the build emits `LigatureEntryInheritanceWarning` for any redundant or mismatched explicit declaration. Keep an explicit entry only when the lead's inheritable form is context-restricted (e.g. `qsThey.entry-xheight`) or the ligature's bitmap doesn't share the lead's leftmost-ink column at the entry's Y.
@@ -126,6 +126,7 @@ When a form needs both a forced positive trigger and a broad anchor-class fallba
 1. Update `version` in `glyph_data/metadata.yaml` (e.g., `3.000`)
 2. Update `version` in `pyproject.toml` (e.g., `3.0.0`)
 3. Run `uv sync` to update `uv.lock`
+4. Add a `### X.YYY` changelog entry for the new version under the `## Changelog` heading in `FONTLOG.md` if one doesn't already exist; leave it empty if there's nothing to record yet
 
 ## Visual before/after diffs
 

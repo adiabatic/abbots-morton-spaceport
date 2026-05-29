@@ -65,7 +65,7 @@ That said, I _am_ legitimately proud of my J’ai work; I expect this font to be
   - Don’t join ·Way·Ye, ·He·Ye, ·They·Ye, ·Why·Ye
   - Don’t join ·It·Ye and ·Ye·It
   - Don’t join ·Ye·See, ·Ye·-ing, ·Pea·Ye, ·Tea·Ye
-  - Don’t connect ·Ye to ·Excite or ·Examine
+  - Don’t connect ·Ye to ·Excite or ·Exam
   - Extend ·Ye·I so the join reads cleanly
 - ·Tea join cleanup:
   - Stop ·Tea·Cheer from joining
@@ -74,7 +74,7 @@ That said, I _am_ legitimately proud of my J’ai work; I expect this font to be
   - Make ·Out·Tea·Day use a full-size ·Day; prefer ·Tea joins with ·Out in ·Out·Tea·X
 - ·Pea join cleanup:
   - Only ·Utter and ·May now join to ·Pea
-  - Break up ·Pea·Excite and ·Pea·Examine
+  - Break up ·Pea·Excite and ·Pea·Exam
 - ·Gay changes:
   - Add more ·Gay extensions
   - Don’t join ·Gay·Ooze or ·Gay·Excite

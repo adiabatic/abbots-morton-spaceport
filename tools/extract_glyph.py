@@ -150,7 +150,7 @@ def get_glyph_metrics(font_path: str, glyph_name: str) -> dict[str, int]:
 
 
 def print_bitmap_yaml(glyph_name: str, bitmap: list[str], y_offset: int) -> None:
-    """Print bitmap in YAML format suitable for glyph_data.yaml."""
+    """Print bitmap in YAML format suitable for the glyphs: mapping in the glyph data YAML files under glyph_data/."""
     print(f"  {glyph_name}:")
     if y_offset != 0:
         print(f"    y_offset: {y_offset}")
