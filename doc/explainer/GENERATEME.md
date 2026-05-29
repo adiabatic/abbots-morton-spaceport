@@ -91,11 +91,12 @@ c. **How the build script works at a high level** — YAML glyph data goes in, P
 Explain glyph substitution (GSUB) features used in this font:
 
 a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs and swaps in the right variant. This is the heart of making joins work.
-   - **Backward-looking rules** — "if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y." Walk through a concrete example.
-   - **Forward-looking rules** — "if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y." Walk through a concrete example.
-   - **Explicit overrides** — the Quikscript family data stores context overrides under `select.before`, `select.after`, `select.not_before`, and `select.not_after`; explain how the build expands those into the specific substitution rules that override the height-based defaults.
-   - **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
-   - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
+
+- **Backward-looking rules** — "if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y." Walk through a concrete example.
+- **Forward-looking rules** — "if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y." Walk through a concrete example.
+- **Explicit overrides** — the Quikscript family data stores context overrides under `select.before`, `select.after`, `select.not_before`, and `select.not_after`; explain how the build expands those into the specific substitution rules that override the height-based defaults.
+- **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
+- **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
 
 b. **Ligature substitutions inside `calt`** — when two specific letters appear in sequence, the join machinery can replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). In the current build these substitutions are emitted from the Quikscript `calt` path (`calt_liga`), not from a separate standalone `liga` feature. Mention that ligatures can themselves have cursive anchors.
 
@@ -104,10 +105,11 @@ b. **Ligature substitutions inside `calt`** — when two specific letters appear
 Explain glyph positioning (GPOS) features:
 
 a. **`curs` (cursive attachment)** — the feature that actually slides glyphs together at their anchors.
-   - **Anchor format** — each glyph declares an entry anchor, an exit anchor, or both, as `<anchor X Y>` in font units.
-   - **How attachment works** — the text engine adjusts the position of each glyph in a cursive chain so that the exit anchor of glyph N overlaps with the entry anchor of glyph N+1.
-   - **Y-grouped lookups** — explain the critical detail that glyphs are grouped into separate lookups by their Y values. This prevents a glyph entering at the baseline from accidentally attaching to a glyph exiting at the x-height. Walk through why this grouping is necessary with a concrete bad-case example.
-   - **Multiple entry anchors** — some glyphs (like ·Roe) declare multiple entry anchors at different heights, meaning they can participate in cursive chains at either height.
+
+- **Anchor format** — each glyph declares an entry anchor, an exit anchor, or both, as `<anchor X Y>` in font units.
+- **How attachment works** — the text engine adjusts the position of each glyph in a cursive chain so that the exit anchor of glyph N overlaps with the entry anchor of glyph N+1.
+- **Y-grouped lookups** — explain the critical detail that glyphs are grouped into separate lookups by their Y values. This prevents a glyph entering at the baseline from accidentally attaching to a glyph exiting at the x-height. Walk through why this grouping is necessary with a concrete bad-case example.
+- **Multiple entry anchors** — some glyphs (like ·Roe) declare multiple entry anchors at different heights, meaning they can participate in cursive chains at either height.
 
 b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pairs (like `f` before short letters). This is separate from the Quikscript joining system.
 
