@@ -1264,7 +1264,7 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
     [
         pytest.param(
             _qs_text("qsIng", "qsThaw"),
-            ["·-ing.exit-triply-extended ~b~ ·Thaw"],
+            ["·-ing.exit-doubly-extended ~b~ ·Thaw"],
             id="ing-before-thaw",
         ),
         pytest.param(
@@ -1394,6 +1394,39 @@ def test_qs_they_may_keeps_manual_baseline_join():
         _qs_text("qsThey", "qsMay"),
         ["·They.before-may ~b~ ·May"],
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(
+            _qs_text("qsBay", "qsMay", "qsNo"), ["·Bay ~b~ ·May.exit-extended ~x~ ·No"], id="bay-may-no"
+        ),
+        pytest.param(
+            _qs_text("qsBay", "qsMay", "qsOwe"), ["·Bay ~b~ ·May.exit-extended ~x~ ·Owe"], id="bay-may-owe"
+        ),
+        # ·He / ·It / ·Pea / ·Tea / ·Ye extend ·May's entry, so the exit join lands one further out still (entry-extended + exit-extended).
+        pytest.param(
+            _qs_text("qsHe", "qsMay", "qsNo"), ["·He ~b~ ·May.exit-extended ~x~ ·No"], id="he-may-no"
+        ),
+        pytest.param(
+            _qs_text("qsTea", "qsMay", "qsNo"), ["·Tea ~b~ ·May.exit-extended ~x~ ·No"], id="tea-may-no"
+        ),
+    ],
+)
+def test_qs_may_exit_extends_one_pixel_after_a_baseline_join(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsMay", "qsNo"), ["·May.∅ ~x~ ·No"], id="may-no"),
+        pytest.param(_qs_text("qsMay", "qsOwe"), ["·May.∅ ~x~ ·Owe"], id="may-owe"),
+    ],
+)
+def test_qs_may_exit_unextended_without_a_baseline_predecessor(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
 
 
 @pytest.mark.parametrize(
