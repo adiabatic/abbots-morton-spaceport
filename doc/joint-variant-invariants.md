@@ -10,7 +10,7 @@ A GSUB lookup that picks the left slot's variant typically sees only the predece
 
 For each adjacent slot pair `(i, i+1)` in the shaped output, let
 
-```
+```text
 Lᵢ    = meta_map[glyphs[i]]               # left glyph's compiled metadata
 Rᵢ    = meta_map[glyphs[i + 1]]           # right glyph's compiled metadata
 Tₗᵢ   = Lᵢ.traits                         # actual trait set on the chosen left variant
@@ -19,7 +19,7 @@ Tᵣᵢ   = Rᵢ.traits                         # actual trait set on the chosen
 
 and let the caller's inputs be
 
-```
+```text
 L*    = left_base                         # base name the left slot must equal
 R*    = right_base                        # base name the right slot must equal
 Fₗ    = forbidden_left_traits             # trait subset the left must carry to count
@@ -28,7 +28,7 @@ Fᵣ    = forbidden_right_traits            # trait subset the right must carry 
 
 The slot pair is *in scope* when both base names match, with the usual ligature accommodation: the left also matches when `Lᵢ.sequence` ends with `L*`, and the right also matches when `Rᵢ.sequence` starts with `R*`. Every `_collect_pair_*` helper uses this same convention. The slot pair is *forbidden* when
 
-```
+```text
 Fₗ ⊆ Tₗᵢ   ∧   Fᵣ ⊆ Tᵣᵢ              (★)
 ```
 
@@ -50,7 +50,7 @@ The two degenerate cases drop out cleanly from (★) and are worth holding in yo
 
 Let `Σ = _context_chars()` (45 entries: every plain Quikscript letter plus ZWNJ). The full assertion the helper makes is
 
-```
+```text
 ∀ before ∈ Σ^chars_before,  ∀ after ∈ Σ^chars_after :
     ∀ adjacent (i, i+1) in shape(before · L* · R* · after) :
         in_scope(i)  →  ¬(Fₗ ⊆ Tₗᵢ  ∧  Fᵣ ⊆ Tᵣᵢ)
