@@ -1711,7 +1711,7 @@ glyph_families:
         extend_entry_after:
           - {by: 1, targets: [{family: qsTea}]}
           - {by: 2, targets: [{family: qsThaw, exit_y: 0}]}
-        extend_exit_before: {by: 3, targets: [{family: qsThaw}]}
+        extend_exit_before: {by: 2, targets: [{family: qsThaw}]}
         noentry_after: [{family: qsYe}, {family: qsHe}]
   qsMay:
     notes: |
