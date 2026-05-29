@@ -41,7 +41,7 @@ The QS text with wrapping looks like:
   <span data-expect="">︎︎︎</span>
   <span data-expect="">︎︎</span>
 
-  ·<span data-expect="">︎︎︎︎︎︎︎</span>
+  <span data-expect="">·︎︎︎︎︎︎︎</span>
 </p>
 ```
 
