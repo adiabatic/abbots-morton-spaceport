@@ -115,6 +115,36 @@ context_sets:
   - {family: qsOx, exit_y: 0}
   - {family: qsOy, exit_y: 0}
   - {family: qsOoze, exit_y: 0}
+  # Half-letters that exit at the x-height (qsPea/qsTea/qsHe, via halves_exit_xheight) plus ·I, whose exit sits one pixel past its own right edge — the predecessors whose exit gets a 1-pixel nudge to reach ·They's deeply set-back x-height entry.
+  halves_and_i_exit_xheight:
+  - {family: qsI}
+  - {context_set: halves_exit_xheight}
+  # The followers ·Gay reaches toward at the baseline: when one comes next, ·Gay widens its baseline exit by a pixel, and the same set is the one excluded from ·Gay's entry_baseline form.
+  gay_reaches_baseline_exit_forward:
+  - {family: qsTea}
+  - {family: qsDay}
+  - {family: qsZoo}
+  - {family: qsRoe}
+  - {family: qsExam}
+  - {family: qsIt}
+  - {family: qsI}
+  # Followers that don't accept ·Tea's half-form x-height exit, so ·Tea's x-height-exit half forms must not be picked before them.
+  followers_that_reject_tea_half_xheight_exit:
+  - {family: qsTea}
+  - {family: qsFee}
+  - {family: qsCheer}
+  - {family: qsYe}
+  - {family: qsOwe}
+  - {family: qsFoot}
+  # Predecessors after which ·Excite abandons its left-side join — its entryless forms fire after exactly these.
+  excite_drops_entry_after:
+  - {family: qsPea}
+  - {family: qsTea}
+  - {family: qsYe}
+  # Predecessors (·May, ·Utter) that exit at the x-height, so they join into ·Pea's x-height entry.
+  xheight_exit_into_pea_xheight_entry:
+  - {family: qsMay, exit_y: 5}
+  - {family: qsUtter, exit_y: 5}
 restore_isolated_form_overrides:
   # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `isolated_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by isolated_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
   - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
@@ -243,7 +273,7 @@ glyph_families:
           entry: [0, 5]
           exit: [4, 0]
         select:
-          after: [{family: qsMay, exit_y: 5}, {family: qsUtter, exit_y: 5}]
+          after: [{context_set: xheight_exit_into_pea_xheight_entry}]
           not_before: [{family: qsZoo}, {family: qsCheer}, {family: qsJay}, {family: qsNo}, {family: qsRoe}, {family: qsLlan}, {family: qsIt}, {family: qsEt}, {family: qsEight}, {family: qsAwe}, {family: qsOx}, {family: qsOwe}, {family: qsFoot}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -299,7 +329,7 @@ glyph_families:
         anchors:
           entry: [0, 5]
         select:
-          after: [{family: qsMay, exit_y: 5}, {family: qsUtter, exit_y: 5}]
+          after: [{context_set: xheight_exit_into_pea_xheight_entry}]
         derive:
           reverse_upgrade_from: [{family: qsPea, traits: [half]}]
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -416,7 +446,7 @@ glyph_families:
           exit: [1, 5]
         select:
           not_after: [{family: qsEt}]
-          not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
+          not_before: [{context_set: followers_that_reject_tea_half_xheight_exit}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsJay}]}
         traits: [half]
@@ -427,7 +457,7 @@ glyph_families:
           entry: [0, 8]
           exit: [1, 5]
         select:
-          not_before: [{family: qsTea}, {family: qsFee}, {family: qsCheer}, {family: qsYe}, {family: qsOwe}, {family: qsFoot}]
+          not_before: [{context_set: followers_that_reject_tea_half_xheight_exit}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
@@ -705,7 +735,7 @@ glyph_families:
           before: [{family: qsNo, entry_y: 0}, {family: qsOut, entry_y: 0}]
           not_before: [{family: qsExcite}, {family: qsOoze}]
         derive:
-          extend_exit_before: {by: 1, targets: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]}
+          extend_exit_before: {by: 1, targets: [{context_set: gay_reaches_baseline_exit_forward}]}
         modifiers: [exit-baseline]
       entry_xheight:
         shape: reachable_from_the_left_at_the_xheight
@@ -732,7 +762,7 @@ glyph_families:
           exit:  [4, 5]
         select:
           not_after: [{context_set: flat_on_right_at_baseline}]
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsZoo}, {family: qsRoe}, {family: qsExam}, {family: qsIt}, {family: qsI}]
+          not_before: [{context_set: gay_reaches_baseline_exit_forward}]
         modifiers: [entry-baseline]
   qsThaw:
     mono:
@@ -801,7 +831,7 @@ glyph_families:
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
-          extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_baseline_before_may:
         shape: before_may
@@ -818,7 +848,7 @@ glyph_families:
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
-          extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
+          extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
         modifiers: [entry-xheight]
       exit_xheight:
         shape: mono
@@ -871,7 +901,7 @@ glyph_families:
         - {family: qsFoot}
         extend_exit_before_gated:
           ss03: [{family: qsTea}]
-        extend_entry_after: {by: 1, targets: [{family: qsI}, {context_set: halves_exit_xheight}]}
+        extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
       select:
         after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
@@ -2138,7 +2168,7 @@ glyph_families:
         select:
           after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
           before: [{entry_y: 0, except: [{family: qsPea}, {family: qsGay}, {family: qsThaw}]}]
-          not_before: [{family: qsThaw}]
+          not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
@@ -2163,7 +2193,7 @@ glyph_families:
           entry: null
           exit: [6, 0]
         select:
-          after: [{family: qsPea}, {family: qsTea}, {family: qsYe}]
+          after: [{context_set: excite_drops_entry_after}]
           not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [noentry, exit-baseline]
       noentry_exit_xheight:
@@ -2172,7 +2202,7 @@ glyph_families:
           entry: null
           exit: [6, 5]
         select:
-          after: [{family: qsPea}, {family: qsTea}, {family: qsYe}]
+          after: [{context_set: excite_drops_entry_after}]
           not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [noentry, exit-xheight]
       noentry_after_ye:
