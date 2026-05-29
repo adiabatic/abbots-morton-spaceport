@@ -4,7 +4,7 @@ Drive HarfBuzz with every plain ·X·Y pair surrounded by 1 left + 1 right conte
 
 The companion `_collect_bitmap_gap_warnings` in `tools/quikscript_join_analysis.py` performs the cursive-meet case structurally (no shaping). The shaped pass is the ground truth: it sees the exact glyph variant calt selects in context, and the cursive shifts GPOS actually applies. The stranded-extension cases mirror what `test_no_stranded_extension_joins_anywhere` flags by anchor metadata, but expressed as a measured ink gap.
 
-Many pairs currently fail — see `_ACCEPTED_SHAPED_INK_GAPS` for the triaged list. Treat each entry as a TODO, not a permanent acceptance.
+Every intended join currently meets with no gap, so `_ACCEPTED_SHAPED_INK_GAPS` is empty. It's an escape hatch for `(left_variant, right_variant, join_y)` triples whose rendered ink overlap or gap is genuinely intended — add an entry only after verifying the visual rendering, never to silence a real regression.
 """
 
 from functools import cache

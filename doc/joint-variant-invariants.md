@@ -1,6 +1,6 @@
 # Joint-variant invariants on adjacent pairs
 
-A common shape for cursive-attachment regression tests in this repo is "the shaped output may not contain an adjacent slot pair whose chosen variants land in a forbidden region of the (left-variant × right-variant) product space, no matter what surrounds the pair". This page collects the set math behind that pattern so you can read tests like `_collect_pair_with_forbidden_trait_co_occurrence_failures` (and its narrower siblings `_collect_left_becomes_half_before_right_failures` and `_collect_left_must_stay_isolated_before_right_failures`) without re-deriving it from the code each time.
+A common shape for cursive-attachment regression tests in this repo is "the shaped output may not contain an adjacent slot pair whose chosen variants land in a forbidden region of the (left-variant × right-variant) product space, no matter what surrounds the pair". This page collects the set math behind that pattern so you can read tests like `_collect_pair_with_forbidden_trait_co_occurrence_failures` (and its narrower sibling `_collect_left_must_stay_isolated_before_right_failures`) without re-deriving it from the code each time.
 
 ## Why the pattern matters
 
@@ -43,7 +43,7 @@ Traits are an additive vocabulary: a single compiled variant can simultaneously 
 The two degenerate cases drop out cleanly from (★) and are worth holding in your head:
 
 - `Fₗ = ∅` makes (★)'s left conjunct trivially true (every trait set is a superset of ∅), so the sweep flags every in-scope slot pair where the right carries `Fᵣ`. Read this as "the right may never end up with `Fᵣ` immediately after `L*`, no matter what left variant won".
-- `Fᵣ = ∅` is the mirror image: "the left may never end up with `Fₗ` immediately before `R*`, no matter what right variant won". This is exactly the case the existing `_collect_left_becomes_half_before_right_failures` covers, with `Fₗ = {"half"}`.
+- `Fᵣ = ∅` is the mirror image: "the left may never end up with `Fₗ` immediately before `R*`, no matter what right variant won". This is exactly the case `test_qs_way_and_qs_why_stay_full_and_nonjoining_before_right_base_in_context` covers, with `Fₗ = {"half"}` (it passes `forbidden_left_traits = {"half"}` to `_collect_pair_with_forbidden_trait_co_occurrence_failures`).
 - `Fₗ = ∅ ∧ Fᵣ = ∅` flags every in-scope slot pair unconditionally — i.e. asserts that `L*` may never appear immediately before `R*`. Don't reach for the trait-co-occurrence helper for that; `_collect_pair_must_not_join_regardless_of_what_comes_before_or_after` is what you almost always actually mean, since it adds the cursive-join check on top of bare adjacency.
 
 ## Universal quantification over surround
@@ -56,7 +56,7 @@ Let `Σ = _context_chars()` (45 entries: every plain Quikscript letter plus ZWNJ
         in_scope(i)  →  ¬(Fₗ ⊆ Tₗᵢ  ∧  Fᵣ ⊆ Tᵣᵢ)
 ```
 
-With the default `chars_before = chars_after = 1`, that is 45 × 45 = 2025 shaped strings; `chars_before = chars_after = 2` is 45⁴ ≈ 4.1 M, so consider sharding. `before_first_only` is the per-shard hook: it restricts the outer product so the first `before` slot is fixed to the named context glyph (`"qsPea"`, `"ZWNJ"`, …), letting parametrized callers fan a single logical test across pytest-xdist workers exactly the same way the other `_collect_pair_*` helpers do.
+With the default `chars_before = chars_after = 1`, that is (1 + 45) × (1 + 45) = 2116 shaped strings; `chars_before = chars_after = 2` is 2071² ≈ 4.3 M, so consider sharding. `before_first_only` is the per-shard hook: it restricts the outer product so the first `before` slot is fixed to the named context glyph (`"qsPea"`, `"ZWNJ"`, …), letting parametrized callers fan a single logical test across pytest-xdist workers exactly the same way the other `_collect_pair_*` helpers do.
 
 ## Worked example
 

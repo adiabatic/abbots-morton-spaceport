@@ -98,7 +98,7 @@ context_sets:
   - {family: qsWhy}
   - {family: qsMay}
   - {family: qsExam}
-  # Letters whose default form does not accept a baseline cursive entry (no anchor at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the join cannot form anyway.
+  # Letters that drop their baseline cursive entry after a tall (qsThaw does this via its `noentry_after_tall` form, which sets `entry: null` for `after: talls`, even though its default `prop` form keeps an entry at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the follower won't keep an entry to join to.
   no_baseline_join_after_tall:
   - {family: qsThaw}
   # Letters whose right side runs straight down to the baseline (or tails off down-and-to-the-right) when they exit there — so any follower with an entry that swings in from the left at the baseline can't curl behind them.

@@ -1900,7 +1900,7 @@ def _predecessor_visually_reaches(
 ) -> bool:
     """Whether the predecessor variant's exit stroke is a connector that visually reaches toward the next glyph (deep-letter terminal arm, or explicit exit extension).
 
-    Two paths qualify:
+    Three paths qualify:
 
     * Deep-letter terminal arms: when the variant has ink below the exit anchor's row, the exit stroke is a connector. ``qsGay.exit-baseline`` exits at y=0 with body continuing below, so its y=0 stroke is a connector reaching out to join the next glyph. A short letter that exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom edge, terminating at its own bounding box; it sits cleanly next to whatever follows even without a cursive join.
 

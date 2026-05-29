@@ -2453,7 +2453,7 @@ _DAY_PAIR_LIGATURES = frozenset(
 def _non_bridging_middle_bases() -> list[tuple[str, str]]:
     """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry across their variants) but have no single variant combining y=0 entry with y=5 exit — i.e. cannot bridge Way.half's y=0 exit up to a y=5-only-entry follower, so the 2-glyph preferred-lookahead must not fire for them.
 
-    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half;` correctly fires and selecting half-·Way is fine.
+    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half.exit-baseline;` correctly fires and selecting half-·Way is fine.
     """
     meta_map = _compiled_meta()
     variants_by_base: dict[str, list] = {}

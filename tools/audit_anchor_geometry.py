@@ -10,7 +10,7 @@ This script walks every compiled form (post-inheritance, post-derive expansion) 
 Reading the report, two derive-generated buckets look anomalous but are intentional and follow from a tight source:
 
     * `*.entry-contracted` / `*.exit-contracted` variants land at gap = +N (entry side) or gap = -N (exit side) by design — the contract shifts the anchor inward by N to shorten the join, leaving the bitmap unchanged on that side.
-    * `*.entry-trimmed-by-N` variants land at gap = -N. The receiver's leftmost N ink columns are trimmed at the entry's row to make room for the predecessor's overlapping exit stroke; the entry stays at the original attachment point so the predecessor's exit meets the receiver where the receiver's ink used to begin.
+    * `*.entry-trimmed-by-N` variants land at gap = entry.x - N, which is -N only when the entry sat at x=0 (qsZoo, qsJay); for an already-inset entry the gap is less negative — qsJai's entry sits at x=1, so its `entry-trimmed-by-3` lands at gap -2 and its `entry-trimmed-by-2` at gap -1. The receiver's leftmost N bitmap columns are blanked at the entry's row (whether or not they held ink) to make room for the predecessor's overlapping exit stroke; the entry stays at the original attachment point so the predecessor's exit meets the receiver where the receiver's ink used to begin.
 
 Both follow mechanically from the source declaration. Tighten the source, and those two buckets either move with it (contract) or stay correct (trim).
 

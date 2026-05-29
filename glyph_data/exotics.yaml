@@ -218,7 +218,7 @@ glyphs:
       - "#     #  "
       - "######   " #
 
-  uni2327.prop:  # ⌧ X in a rectangle open (Clear key)
+  uni2327.prop:  # ⌧ X in a rectangle box (Clear key)
     bitmap:
       - "#########"
       - "#       #" #

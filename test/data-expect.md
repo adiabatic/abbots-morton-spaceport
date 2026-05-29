@@ -1,6 +1,6 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in `test/index.html` describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment against compiled glyph metadata.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`test/index.html`, `test/the-manual.html`, and `test/extra-senior-words.html`) describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment against compiled glyph metadata.
 
 The `data-expect-noncanonically` attribute uses the exact same syntax and test semantics as `data-expect`. It marks noncanonical Senior Quikscript joins that are valuable to test but are not found in Read's manual.
 
@@ -85,7 +85,7 @@ Concretely: there's no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on ei
 
 ### When the font legitimately leaks across a non-join: `|?|`
 
-A few font shapes are intentional "looks-better-when-adjacent" rules that fire on glyph-name signature alone — for instance, `qsThaw.noentry-after-tall` removes Thaw's entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn't fire. But in test, `|` doesn't insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
+A few font shapes are intentional "looks-better-when-adjacent" rules that fire on glyph-name signature alone — for instance, `qsThaw.after-tall` removes Thaw's entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn't fire. But in test, `|` doesn't insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
 
 Use `|?|` instead of `|` for these specific cases. It still asserts that the two glyphs do not cursive-attach (no shared entry/exit Y), but skips the isolation invariant. Reach for `|?|` only when the cross-break shape difference is purely cosmetic / glyph-name-only (same bitmap, same effective cursive position), and adjacent letters in real text would naturally suppress the rule because of the intervening space or ZWNJ glyph.
 

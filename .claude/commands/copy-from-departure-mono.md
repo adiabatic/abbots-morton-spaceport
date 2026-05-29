@@ -10,7 +10,7 @@ Steps:
 
 2. Create the `.prop` variant by trimming any leading or trailing columns that are all spaces across every row.
 
-3. Add the `.prop` glyph to @glyph_data/latin.yaml in the "Non-Quikscript glyphs" section at the end, sorted by Unicode code point (not alphabetically by glyph name).
+3. Add the `.prop` glyph to the appropriate file under @glyph_data/ (for example @glyph_data/numbers.yaml for digits, @glyph_data/punctuation.yaml for punctuation, @glyph_data/exotics.yaml for symbols and arrows, @glyph_data/latin_letters.yaml for letters), sorted by Unicode code point (not alphabetically by glyph name).
 
 4. Rebuild fonts:
 

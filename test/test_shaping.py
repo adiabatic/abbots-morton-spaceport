@@ -1,6 +1,6 @@
 """HarfBuzz shaping test helpers for the Senior Sans font.
 
-Parses data-expect attributes from test/index.html and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
+Parses data-expect attributes from the test HTML corpora (test/index.html, test/the-manual.html, and test/extra-senior-words.html) and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
 """
 
 import re
@@ -116,7 +116,8 @@ def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
         base      – e.g. "qsBay"
         lig_base  – e.g. "qsUtter" if ligature, else None
         lig_mode  – None (must-ligate), "maybe" (+?), or "maybe_break" (+|)
-        variants  – list of variant assertion strings, e.g. ["half"]
+        variants  – list of positive variant assertion strings, e.g. ["half"]
+        neg_variants – list of negated variant assertion strings from .!variant, e.g. ["half"]
         exact_glyph – whether .∅ requires the exact expected glyph name
     connections: list of dicts (len = len(tokens) - 1) with keys:
         kind      – "join", "break", "break_no_isolation", "height", or "maybe"

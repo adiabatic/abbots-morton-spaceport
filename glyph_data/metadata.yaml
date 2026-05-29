@@ -39,7 +39,6 @@ metadata:
   # 300 = 6 × 50, meaning the main body of lowercase letters is 6 pixels tall. This matches Departure Mono and is measured from the baseline to the top of flat lowercase letters like 'x' or 'e'.
   x_height: 300
 
-  # sample_text: Text displayed in font previews (Name ID 19 in the OpenType name table). Used by font managers and OS font previews.
   variation_sequences:
     0xFE00:  # VS1: alternate forms
       qsUtter: qsUtter.alt
@@ -53,4 +52,5 @@ metadata:
       qsWhy: qsWhy.half
       qsZoo: qsZoo.half
 
+  # sample_text: Text displayed in font previews (Name ID 19 in the OpenType name table). Used by font managers and OS font previews.
   sample_text: "\uE657\uE65A \uE65B \uE657 \uE661\uE673 \uE652 \uE653 \uE670" # this is the way to do it
