@@ -1365,12 +1365,27 @@ def test_qs_no_alt_selected_when_preceded_by_baseline_exit():
         pytest.param(_qs_text("qsWhy", "qsYe"), ["·Why.∅ | ·Ye.∅"], id="why-ye"),
         pytest.param(_qs_text("qsYe", "qsExam"), ["·Ye.∅ |?| ·Exam.after-ye"], id="ye-exam"),
         pytest.param(_qs_text("qsYe", "qsExcite"), ["·Ye.∅ |?| ·Excite.after-ye"], id="ye-excite"),
-        pytest.param(_qs_text("qsYe", "qsIng"), ["·Ye.∅ |?| ·-ing.after-he-or-ye"], id="ye-ing"),
+        pytest.param(_qs_text("qsYe", "qsIng"), ["·Ye.∅ |?| ·-ing.noentry"], id="ye-ing"),
         pytest.param(_qs_text("qsYe", "qsIt"), ["·Ye.∅ | ·It.∅"], id="ye-it"),
         pytest.param(_qs_text("qsYe", "qsSee"), ["·Ye.∅ |?| ·See.after-ye"], id="ye-see"),
     ],
 )
 def test_qs_ye_sequences_keep_the_nonjoining_forms(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(
+            _qs_text("qsYe", "qsIng", "qsThaw"), ["·Ye.∅ |?| ·-ing.noentry ~b~ ·Thaw"], id="ye-ing-thaw"
+        ),
+        pytest.param(
+            _qs_text("qsHe", "qsIng", "qsThaw"), ["·He |?| ·-ing.noentry ~b~ ·Thaw"], id="he-ing-thaw"
+        ),
+    ],
+)
+def test_qs_ing_never_joins_after_he_or_ye_even_before_thaw(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
