@@ -2440,6 +2440,8 @@ glyph_families:
       anchors:
         entry: [0, 0]
         exit: [4, 0]
+      derive:
+        extend_exit_before: {by: 1, targets: [{family: qsI}]}
   qsEt:
     mono:
       bitmap:
