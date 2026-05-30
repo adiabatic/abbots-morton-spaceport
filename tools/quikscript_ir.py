@@ -608,6 +608,7 @@ def _validate_source_modifier(
         "reaches-way-back",
         "smaller-loop",
         "noentry",
+        "nonjoining-left",
         "noexit",
         "gapped",
     }:

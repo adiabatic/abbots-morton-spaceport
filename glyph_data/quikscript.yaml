@@ -156,7 +156,7 @@ restore_isolated_form_overrides:
   - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
 predecessor_demote_overrides:
   # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
-  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.after-ye}
+  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.nonjoining-left}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline, isolated_form: qsExcite}
@@ -2219,13 +2219,13 @@ glyph_families:
           after: [{context_set: excite_drops_entry_after}]
           not_before: [{context_set: no_baseline_join_after_tall}]
         modifiers: [noentry, exit-xheight]
-      noentry_after_ye:
+      noentry_after_nonjoining_left:
         shape: mono
         anchors:
           entry: null
         select:
           after: [{family: qsPea}, {family: qsTea}, {family: qsYe}]
-        modifiers: [after-ye]
+        modifiers: [nonjoining-left]
   qsExam:
     mono:
       bitmap:
@@ -2244,13 +2244,13 @@ glyph_families:
       anchors:
         entry: [0, 0]
     forms:
-      noentry_after_ye:
+      noentry_after_nonjoining_left:
         shape: mono
         anchors:
           entry: null
         select:
           after: [{family: qsPea}, {family: qsTea}, {family: qsYe}, {family: qsIt}, {family: qsEat}]
-        modifiers: [after-ye]
+        modifiers: [nonjoining-left]
   qsAngleParenLeft:
     mono:
       bitmap:
