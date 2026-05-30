@@ -1085,7 +1085,7 @@ glyph_families:
           entry: [0, 0]
           exit: [8, 0]
         select:
-          before: [{family: qsIng, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsLow, entry_y: 0}, {family: qsRoe, entry_y: 0}, {family: qsExcite, entry_y: 0}]
+          before: [{family: qsYe, entry_y: 0}, {family: qsHe, entry_y: 0}, {family: qsIng, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsLow, entry_y: 0}, {family: qsRoe, entry_y: 0}, {family: qsExcite, entry_y: 0}]
         modifiers: [exit-baseline]
   qsVie_qsUtter:
     sequence:
@@ -1516,6 +1516,23 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
+      entry_baseline:
+        # ·He and ·Ye gain a baseline entry reachable by a preceding baseline-exit letter. The excepted set mirrors ·Excite's entry_baseline_noexit (same baseline-left-entry geometry): the letters that run flat down to the baseline on their right and so can't feed a follower whose entry swings in from the left there. ·See belongs here because it only exits at the baseline when its arm is twisted out of the way, so it isn't generally a baseline-exit letter at all. ·Ye's stroke sits a column in, so it keeps its usual baseline exit alongside the new entry (unlike ·He, which must surrender its exit).
+        shape: prop
+        anchors:
+          entry: [1, 0]
+          exit: [2, 0]
+        select:
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+        modifiers: [entry-baseline]
+      entry_baseline_exit_noentry:
+        # When ·Ye took its new baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, ·Ye must surrender the rightward exit it would otherwise keep toward that follower. Keeping the entry preserves the predecessor join (·Awe·Ye stays joined), so ·Ye renders the same in context as it does in isolation. Authoring this opts ·Ye out of the calt_cycle guard that would otherwise revert it to the bare base before ·Ing — the post-liga cleanup routes the predecessor here, so the form carries no selectors of its own.
+        inherits: entry_baseline
+        anchors:
+          exit: null
+        select:
+          after: null
+        modifiers: [exit-noentry]
   qsWay:
     mono:
       bitmap:
@@ -1644,6 +1661,14 @@ glyph_families:
           before: [{family: qsDay, entry_y: 0}]
           not_before: [{family: qsTea}, {family: qsThaw}, {family: qsSee}, {family: qsExcite}]
         modifiers: [exit-baseline]
+      entry_baseline:
+        # Full ·He receiving a baseline entry from a preceding baseline-exit letter (see ·Ye's entry_baseline for the shared predecessor set). ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He can join on the left here or on the right elsewhere, but not both. So this form carries no exit: once ·He joins a baseline-exit predecessor it joins nothing after it.
+        shape: prop
+        anchors:
+          entry: [0, 0]
+        select:
+          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+        modifiers: [entry-baseline]
   qsWhy:
     mono:
       bitmap:

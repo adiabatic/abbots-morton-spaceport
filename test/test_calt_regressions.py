@@ -3273,6 +3273,25 @@ def _he_day_cases() -> list[tuple[str, str, str]]:
     day_half = "·Day.half"
     out: list[tuple[str, str, str]] = []
 
+    # Baseline-exit predecessors join ·He on its left, so ·He takes its entry-baseline form and surrenders its exit. With no exit, ·He breaks before a full (not half) ·Day.
+    he_entry_baseline_preds = {
+        "Bay",
+        "Day",
+        "Key",
+        "Zoo",
+        "Cheer",
+        "Jay",
+        "-ing",
+        "Llan",
+        "Eat",
+        "Et",
+        "Eight",
+        "Awe",
+        "Ox",
+        "Oy",
+        "Ooze",
+    }
+
     out.append(
         (
             _case_id("He", "Day"),
@@ -3281,11 +3300,15 @@ def _he_day_cases() -> list[tuple[str, str, str]]:
         )
     )
     for name, code in LETTERS:
+        if name in he_entry_baseline_preds:
+            expect = f"{_expect_tok(name)} ~b~ ·He.entry-baseline | ·Day.!half"
+        else:
+            expect = f"{_expect_tok(name)} ? {he_nhalf} ~b~ {day_half}"
         out.append(
             (
                 _case_id(name, "He", "Day"),
                 chr(code) + chr(HE) + chr(DAY),
-                f"{_expect_tok(name)} ? {he_nhalf} ~b~ {day_half}",
+                expect,
             )
         )
     for name, code in LETTERS:
