@@ -5754,6 +5754,31 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 (prior_form, successor_form, target_form)
             )
 
+    # An entry-extension form that also picked up an exit modifier (e.g. `qsRoe.exit-baseline.entry-extended-at-xheight`, which exits toward a baseline follower) has its `select.after` cleared on the derived variant, so the loop above skips it. But it needs the same demotion: after a prior whose exit lands at the wrong Y for its entry, the entry side can't actually join, and the in-context render must fall back to the same target the bare entry-extension form does. Mirror every rule onto the form's exit-modifier siblings, dropping the now-unreachable exit by reusing the parent's target. The target (an entry-extension form at the prior-matching Y) carries no exit itself, so the demoted glyph surrenders its follower join — correct, since the letter can't enter and exit at the same Y.
+    for successor_base in sorted(successor_demote_by_base):
+        sibling_rules: list[tuple[str, str, str]] = []
+        for prior_form, successor_form, target_form in successor_demote_by_base[successor_base]:
+            successor_meta = glyph_meta.get(successor_form)
+            if successor_meta is None or successor_meta.extended_entry_suffix is None:
+                continue
+            for sibling_name in sorted(glyph_names):
+                if sibling_name == successor_form:
+                    continue
+                sibling_meta = glyph_meta.get(sibling_name)
+                if sibling_meta is None or sibling_meta.after:
+                    continue
+                if sibling_meta.base_name != successor_base:
+                    continue
+                if sibling_meta.extended_entry_suffix != successor_meta.extended_entry_suffix:
+                    continue
+                if set(sibling_meta.all_entry_ys) != set(successor_meta.all_entry_ys):
+                    continue
+                # The sibling is the entry-extension form plus one or more exit modifiers; demote it the same way (the parent had no exit, so the sibling drops its exit on the way down).
+                if not (set(successor_meta.modifiers) < set(sibling_meta.modifiers)):
+                    continue
+                sibling_rules.append((prior_form, sibling_name, target_form))
+        successor_demote_by_base[successor_base].extend(sibling_rules)
+
     for successor_base in sorted(successor_demote_by_base):
         successor_rules = successor_demote_by_base[successor_base]
         successor_seen: set[tuple[str, str, str]] = set()
