@@ -19,6 +19,7 @@ from quikscript_shaping_helpers import (
     _pair_join_ys,
     _plain_quikscript_letters,
     _qs_text,
+    _senior_shaping_env,
     _shape,
     _shape_qs,
     _shape_with_features,
@@ -30,7 +31,7 @@ _SS07_FEATURE = (("ss07", True),)
 
 from build_font import load_glyph_data
 from quikscript_ir import _EXTENSION_SUFFIX
-from test_shaping import run_shaping_test_runs
+from test_shaping import _try_interpretation, parse_expect, run_shaping_test_runs
 from test_join_ink import (
     PIXEL_SIZE,
     _bitmap_origin_x_offset,
@@ -668,6 +669,78 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
                         f"{label}: {glyph_name} -> {glyphs[index + 1]} cursive-joins at "
                         f"y={join_y} but rendered ink touches at Ys={touching_label} "
                         f"in {glyphs}"
+                    )
+
+    return failures
+
+
+_IT_DAY_BASELINE_EXPECT = "·It ~b~ ·Day.half"
+
+
+def _collect_it_day_baseline_uses_half_day_failures(
+    *,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every surround of ·It·Day where ·It doesn't take a baseline join from its predecessor yet ·It·Day fails to connect as ``·It ~b~ ·Day.half``.
+
+    ·It is written so that joining its predecessor at the baseline forces it to exit at the x-height, while *not* joining at the baseline lets it exit at the baseline. ·Day's full form enters at the x-height and ·It·Day is forbidden from joining there (see ``test_it_day_never_joins_at_xheight``), so the only way ·It·Day can connect once ·It exits at the baseline is for ·Day to take its half form, which enters at the baseline. This collector pins that invariant: whenever ·It has no baseline predecessor join (including the word-initial case where it has no predecessor at all), the ·It·Day pair must satisfy the ``data-expect`` expression ``·It ~b~ ·Day.half`` — ·It exiting at the baseline into a half-·Day. Surrounds where ·It *does* join its predecessor at the baseline are skipped; the rule is conditional and silent there.
+
+    The expectation is checked through the real ``data-expect`` runner (``parse_expect`` + ``_try_interpretation``) so ``.half`` is verified against compiled traits and ``~b~`` against the senior anchor map, rather than by a bespoke anchor check.
+
+    ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. ``before_first_only`` mirrors the per-shard hook on the sibling ``_collect_pair_*`` helpers — it narrows the non-empty ``before`` combinations and still sweeps the empty prefix.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+    pair_text = _qs_text("qsIt", "qsDay")
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    tokens, connections = parse_expect(_IT_DAY_BASELINE_EXPECT)
+    fonts, anchor_maps, potentials = _senior_shaping_env()
+
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + pair_text + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / qsIt / qsDay / [{after_label}]"
+
+            for index, glyph_name in enumerate(glyphs[:-1]):
+                left_meta = meta_map.get(glyph_name)
+                right_meta = meta_map.get(glyphs[index + 1])
+                if left_meta is None or right_meta is None:
+                    continue
+                if left_meta.base_name != "qsIt" or right_meta.base_name != "qsDay":
+                    continue
+
+                joins_predecessor_at_baseline = index > 0 and 0 in _pair_join_ys(glyphs, index - 1)
+                if joins_predecessor_at_baseline:
+                    continue
+
+                error = _try_interpretation(
+                    fonts["senior"],
+                    anchor_maps["senior"],
+                    [glyph_name, glyphs[index + 1]],
+                    tokens,
+                    connections,
+                    potentials["senior"],
+                )
+                if error:
+                    failures.append(
+                        f"{label}: expected {_IT_DAY_BASELINE_EXPECT!r} for the ·It·Day pair "
+                        f"(·It does not join its predecessor at the baseline), but {error} in {glyphs}"
                     )
 
     return failures
@@ -1469,6 +1542,18 @@ def test_it_day_never_joins_at_xheight(before_first: str):
             "qsIt",
             "qsDay",
             forbidden_y=5,
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_it_day_joins_half_day_at_baseline_when_it_has_no_baseline_predecessor(before_first: str):
+    _assert_no_failures(
+        _collect_it_day_baseline_uses_half_day_failures(
             max_chars_before=2,
             max_chars_after=2,
             before_first_only=before_first,
