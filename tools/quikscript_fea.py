@@ -2018,6 +2018,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     from quikscript_join_analysis import (
         DerivedBkGuard,
         JoinReachability,
+        _revert_keeps_reaching_exit,
         derive_pending_bk_entry_guards,
         derive_pending_fwd_strip_guards,
         derive_pending_liga_entry_guards,
@@ -2530,6 +2531,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         Covers both general forward substitutions (``fwd_replacements``) and pair-specific ones (``fwd_pair_overrides``). Without these guards, the left glyph's exit ends up orphaned against the stripped mid glyph.
         """
         if replacement_name not in glyph_meta or exit_y not in _meta(replacement_name).exit_ys:
+            return
+        # When demoting `replacement_name` back to bare `source_name` would leave the very same reaching exit stroke (a deep half/entry form that shares its full base's lower body, like qsDay.half), the guard removes nothing on the right yet drops a left-side join the bare form can't make. Skip it and let the joining form stand. See `_revert_keeps_reaching_exit`'s docstring for the worked ·It·Day case.
+        if _revert_keeps_reaching_exit(glyph_meta, source_name, replacement_name, exit_y):
             return
 
         emitted: set[tuple[str, tuple[str, ...]]] = set()
