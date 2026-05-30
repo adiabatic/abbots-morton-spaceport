@@ -452,15 +452,14 @@ glyph_families:
         traits: [half]
         modifiers: [exit-xheight]
       half_entry_top_exit_xheight:
-        shape: half
+        inherits: half_exit_xheight
         anchors:
+          entry_curs_only: null
           entry: [0, 8]
-          exit: [1, 5]
         select:
-          not_before: [{context_set: followers_that_reject_tea_half_xheight_exit}]
+          not_after: null
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
-        traits: [half]
       entry_top:
         shape: prop
         anchors:
@@ -2368,12 +2367,15 @@ glyph_families:
         gate_feature_behind: ss04
         modifiers: [before-day]
       entry_baseline_exit_noentry:
-        shape: prop
+        inherits: entry_baseline_exit_xheight
         anchors:
-          entry: [0, 0]
+          exit: null
+        select:
+          not_after: null
+          not_before: null
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
-        modifiers: [entry-baseline, exit-noentry]
+        modifiers: [exit-noentry]
       entry_baseline_exit_noentry_before_day_exam:
         inherits: entry_baseline_exit_noentry
         select:
@@ -2773,16 +2775,15 @@ glyph_families:
           after: [{family: qsSee, exit_y: 0}]
         modifiers: [after-see]
       exit_xheight_after_see:
+        inherits: exit_xheight
         shape: exit_xheight_after_see
         anchors:
-          entry: [0, 0]
           exit: [6, 5]
         select:
           after: [{family: qsSee, exit_y: 0}]
-          not_before: [{family: qsIt}]
         derive:
           contract_exit_before: {by: 3, targets: [{family: qsJai}]}
-        modifiers: [exit-xheight, after-see]
+        modifiers: [after-see]
       exit_xheight:
         shape: exit_xheight
         anchors:
