@@ -1676,7 +1676,7 @@ glyph_families:
         anchors:
           entry: [0, 0]
         select:
-          not_after: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsFee}, {family: qsVie}, {family: qsSee}, {family: qsShe}, {family: qsJai}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsMay}, {family: qsNo}, {family: qsLow}, {family: qsRoe}, {family: qsLoch}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsUtter}, {family: qsOut}, {family: qsOwe}, {family: qsFoot}]
+          not_after: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsFee}, {family: qsVie}, {family: qsSee}, {family: qsShe}, {family: qsJai}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsMay}, {family: qsNo}, {family: qsLow}, {family: qsRoe}, {family: qsLoch}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsEat}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsUtter}, {family: qsOut}, {family: qsOwe}, {family: qsFoot}]
         modifiers: [entry-baseline]
   qsWhy:
     mono:
