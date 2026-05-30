@@ -1993,7 +1993,7 @@ glyph_families:
       anchors:
         entry: [[0, 0], [0, 5]]
       derive:
-        extend_entry_after: {by: 1, targets: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEight}, {context_set: halves_exit_xheight_no_pea}]}
+        extend_entry_after: {by: 1, targets: [{family: qsJay}, {family: qsYe}, {family: qsIt}, {family: qsEat}, {family: qsEight}, {context_set: halves_exit_xheight_no_pea}]}
     shapes:
       shortened_top:
         bitmap:
@@ -2033,7 +2033,7 @@ glyph_families:
         anchors:
           entry: [0, 0]
         select:
-          after: [{family: qsJay}, {family: qsYe}, {family: qsIt, exit_y: 0}, {family: qsEight}]
+          after: [{family: qsJay}, {family: qsYe}, {family: qsIt, exit_y: 0}, {family: qsEat}, {family: qsEight}]
         modifiers: [entry-extended-at-baseline]
       entry_extended_at_xheight:
         shape: shortened_bottom

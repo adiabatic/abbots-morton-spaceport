@@ -3486,6 +3486,34 @@ def test_roe_ah_connects_at_baseline():
     )
 
 
+def test_eat_roe_uses_shortened_top_by_default():
+    """·Eat exits at the baseline, so ·Eat·Roe takes ·Roe's shortened_top (entry-extended-at-baseline) shape — not the bare ·Roe."""
+    _assert_expect_any(
+        _qs_text("qsEat", "qsRoe"),
+        ["·Eat ~b~ ·Roe.entry-extended-at-baseline"],
+    )
+
+
+def test_eat_roe_stays_shortened_top_before_non_xheight_follower():
+    """A follower that doesn't enter at the x-height (·Ah) leaves ·Eat·Roe in shortened_top; ·Roe must not falsely upgrade to the x-height exit and breaks cleanly into ·Ah."""
+    _assert_expect_any(
+        _qs_text("qsEat", "qsRoe", "qsAh"),
+        ["·Eat ~b~ ·Roe.entry-extended-at-baseline | ·Ah"],
+    )
+
+
+@pytest.mark.parametrize(
+    "follower, expect",
+    [
+        pytest.param("qsNo", "·Eat ~b~ ·Roe.exit-xheight ~x~ ·No", id="no"),
+        pytest.param("qsEight", "·Eat ~b~ ·Roe.exit-xheight ~x~ ·Eight", id="eight"),
+    ],
+)
+def test_eat_roe_kicks_up_to_xheight_before_canonical_follower(follower: str, expect: str):
+    """When ·Roe goes on to one of its canonical forward x-height followers, the forward override wins over shortened_top: ·Roe surfaces as giga_extended_short_height (exit-xheight) and reaches the follower."""
+    _assert_expect_any(_qs_text("qsEat", "qsRoe", follower), [expect])
+
+
 def test_at_may_has_no_entry_anchor():
     meta_map = _compiled_meta()
     base_name = "qsAt.exit-baseline.before-may"
