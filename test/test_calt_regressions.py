@@ -3273,25 +3273,7 @@ def _he_day_cases() -> list[tuple[str, str, str]]:
     day_half = "·Day.half"
     out: list[tuple[str, str, str]] = []
 
-    # Baseline-exit predecessors join ·He on its left, so ·He takes its entry-baseline form and surrenders its exit. With no exit, ·He breaks before a full (not half) ·Day.
-    he_entry_baseline_preds = {
-        "Bay",
-        "Day",
-        "Key",
-        "Zoo",
-        "Cheer",
-        "Jay",
-        "-ing",
-        "Llan",
-        "Eat",
-        "Et",
-        "Eight",
-        "Awe",
-        "Ox",
-        "Oy",
-        "Ooze",
-    }
-
+    # ·He always prefers the following letter at the baseline, so before ·Day it exits forward into a half ·Day no matter what precedes it — even a baseline-exit predecessor that could otherwise feed ·He's left entry surrenders that join (the forward join wins, see test_he_joins_at_most_one_baseline_direction). The predecessor connection is therefore left loose (`?`).
     out.append(
         (
             _case_id("He", "Day"),
@@ -3300,15 +3282,11 @@ def _he_day_cases() -> list[tuple[str, str, str]]:
         )
     )
     for name, code in LETTERS:
-        if name in he_entry_baseline_preds:
-            expect = f"{_expect_tok(name)} ~b~ ·He.entry-baseline | ·Day.!half"
-        else:
-            expect = f"{_expect_tok(name)} ? {he_nhalf} ~b~ {day_half}"
         out.append(
             (
                 _case_id(name, "He", "Day"),
                 chr(code) + chr(HE) + chr(DAY),
-                expect,
+                f"{_expect_tok(name)} ? {he_nhalf} ~b~ {day_half}",
             )
         )
     for name, code in LETTERS:
@@ -3522,6 +3500,76 @@ def test_owe_day_never_joins(shaping_env: dict, text: str, expect: str) -> None:
 @pytest.mark.parametrize(("text", "expect"), _THEY_JAY_PARAMS, ids=_THEY_JAY_IDS)
 def test_they_jay_never_joins(shaping_env: dict, text: str, expect: str) -> None:
     _run(shaping_env, text, expect)
+
+
+def _baseline_join_at(glyphs: list[str], boundary_index: int) -> bool:
+    """Whether the cursive join across the boundary after ``glyphs[boundary_index]`` lands at the baseline (y=0)."""
+    if boundary_index < 0 or boundary_index + 1 >= len(glyphs):
+        return False
+    return 0 in _pair_join_ys(glyphs, boundary_index)
+
+
+def _collect_he_ye_single_baseline_direction_failures(center: str) -> list[str]:
+    """Exhaustively flag every ``pred + center + follower`` surround where ·He / ·Ye breaks the one-baseline-direction rule.
+
+    ·He and ·Ye are written with a single-direction stroke at the baseline — drawn either downward toward the baseline or upward away from it, but in one direction only, so the pen never doubles back. A given letter can therefore attach at the baseline on at most one side, and when a baseline join is possible in either direction it must prefer the *following* letter (forward). This sweeps the full cross product of predecessor × follower (each over every letter plus the word edge) for ``center`` and asserts two things at the baseline (y=0), measured structurally through the chosen variants' anchors rather than hand-authored ``data-expect`` strings:
+
+    1. No double-back: the center never joins at the baseline on both sides at once.
+    2. Forward preference: whenever a baseline join is independently possible on *both* sides (proven by the two-glyph pairs ``pred+center`` and ``center+follower``), the forward join (center → follower) is the one that fires and the backward one is dropped.
+
+    x-height (y=5) joins are a separate concern and intentionally ignored — the rule is about baseline joins only. ·He and ·Ye take part in no ligatures, so the center is always a single glyph with its predecessor and follower as its immediate neighbors.
+    """
+    failures: list[str] = []
+    letters: list[tuple[str, str]] = [(name, chr(code)) for name, code in LETTERS]
+    surround: list[tuple[str | None, str | None]] = [(None, None), *letters]
+
+    back_possible: dict[str | None, bool] = {None: False}
+    for pred_name, pred_char in letters:
+        pair = _shape_qs(pred_char, center)
+        center_index = _find_base_index(pair, center)
+        back_possible[pred_name] = center_index is not None and _baseline_join_at(pair, center_index - 1)
+
+    fwd_possible: dict[str | None, bool] = {None: False}
+    for follower_name, follower_char in letters:
+        pair = _shape_qs(center, follower_char)
+        center_index = _find_base_index(pair, center)
+        fwd_possible[follower_name] = center_index is not None and _baseline_join_at(pair, center_index)
+
+    center_label = center.removeprefix("qs")
+    for pred_name, pred_char in surround:
+        for follower_name, follower_char in surround:
+            parts = [p for p in (pred_char, center, follower_char) if p is not None]
+            glyphs = _shape_qs(*parts)
+            center_index = _find_base_index(glyphs, center)
+            if center_index is None:
+                failures.append(
+                    f"[{pred_name}] / {center_label} / [{follower_name}]: no {center} glyph in {glyphs}"
+                )
+                continue
+
+            back = pred_char is not None and _baseline_join_at(glyphs, center_index - 1)
+            fwd = follower_char is not None and _baseline_join_at(glyphs, center_index)
+            label = f"[{pred_name or '∅'}] / {center_label} / [{follower_name or '∅'}]"
+
+            if back and fwd:
+                failures.append(
+                    f"{label}: {center_label} double-backs — joins at the baseline on both sides in {glyphs}"
+                )
+            if back_possible[pred_name] and fwd_possible[follower_name] and not (fwd and not back):
+                failures.append(
+                    f"{label}: baseline join possible in both directions, so {center_label} should join the "
+                    f"follower forward and drop the backward join, but got back={back} fwd={fwd} in {glyphs}"
+                )
+
+    return failures
+
+
+def test_he_joins_at_most_one_baseline_direction():
+    _assert_no_failures(_collect_he_ye_single_baseline_direction_failures("qsHe"))
+
+
+def test_ye_joins_at_most_one_baseline_direction():
+    _assert_no_failures(_collect_he_ye_single_baseline_direction_failures("qsYe"))
 
 
 _JAI_XHEIGHT_LEFTS = [
