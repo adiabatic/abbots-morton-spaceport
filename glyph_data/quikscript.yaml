@@ -2057,7 +2057,16 @@ glyph_families:
           entry: [[0, 5]]
           exit: [5, 0]
         select:
-          before: [{family: qsThaw, entry_y: 0}, {family: qsVie, entry_y: 0}, {family: qsSee, entry_y: 0}, {family: qsIng, entry_y: 0}, {family: qsMay, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsAt, entry_y: 0}, {family: qsAh, entry_y: 0}]
+          before:
+          - {family: qsThaw, entry_y: 0}
+          - {family: qsVie, entry_y: 0}
+          - {family: qsSee, entry_y: 0}
+          - {family: qsIng, entry_y: 0}
+          - {family: qsMay, entry_y: 0}
+          - {family: qsNo, entry_y: 0}
+          - {family: qsRoe, entry_y: 0}
+          - {family: qsAt, entry_y: 0}
+          - {family: qsAh, entry_y: 0}
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsLow}, {family: qsI}]}
         modifiers: [exit-baseline]
@@ -2067,7 +2076,13 @@ glyph_families:
           entry: [0, 0]
           exit: [6, 5]
         select:
-          before: [{family: qsJai, entry_y: 5}, {family: qsNo, entry_y: 5}, {family: qsEight, entry_y: 5}, {family: qsAwe, entry_y: 5}, {family: qsOx, entry_y: 5}]
+          before:
+          - {family: qsJai, entry_y: 5}
+          - {family: qsNo, entry_y: 5}
+          - {family: qsRoe, entry_y: 5}
+          - {family: qsEight, entry_y: 5}
+          - {family: qsAwe, entry_y: 5}
+          - {family: qsOx, entry_y: 5}
         modifiers: [exit-xheight]
   qsLoch:
     mono:
