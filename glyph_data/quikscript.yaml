@@ -848,6 +848,7 @@ glyph_families:
           entry: [2, 5]
         select:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
+          not_before: [{family: qsYe}, {family: qsHe}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
         modifiers: [entry-xheight]
@@ -1085,7 +1086,7 @@ glyph_families:
           entry: [0, 0]
           exit: [8, 0]
         select:
-          before: [{family: qsYe, entry_y: 0}, {family: qsHe, entry_y: 0}, {family: qsIng, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsLow, entry_y: 0}, {family: qsRoe, entry_y: 0}, {family: qsExcite, entry_y: 0}]
+          before: [{family: qsIng, entry_y: 0}, {family: qsNo, entry_y: 0}, {family: qsLow, entry_y: 0}, {family: qsRoe, entry_y: 0}, {family: qsExcite, entry_y: 0}]
         modifiers: [exit-baseline]
   qsVie_qsUtter:
     sequence:
@@ -1516,22 +1517,29 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [entry-xheight]
+      exit_baseline:
+        # ·Ye's forward baseline exit, mirroring ·Tea's exit_baseline. The bare ·Ye already carries this exit, but registering it as a `calt_cycle` forward arm (a `not_before`-gated forward replacement, no positive `before`) is what lets the cycle prefer the follower join over the backward entry above — without it, the backward `entry_baseline` sub fires first and ·Ye loses its exit before it can reach the follower. The `not_before` lists the followers whose baseline entry is only nominal after ·Ye: ·Thaw drops its entry after a tall, ·See twists its arm aside, ·Exam goes nonjoining-left, and a following ·Ye takes its own backward entry — so ·Ye must not promote toward an exit that would dangle.
+        shape: prop
+        anchors:
+          exit: [2, 0]
+        select:
+          not_before: [{family: qsThaw}, {family: qsSee}, {family: qsYe}, {family: qsExam}]
+        modifiers: [exit-baseline]
       entry_baseline:
-        # ·He and ·Ye gain a baseline entry reachable by a preceding baseline-exit letter. The excepted set mirrors ·Excite's entry_baseline_noexit (same baseline-left-entry geometry): the letters that run flat down to the baseline on their right and so can't feed a follower whose entry swings in from the left there. ·See belongs here because it only exits at the baseline when its arm is twisted out of the way, so it isn't generally a baseline-exit letter at all. ·Ye's stroke sits a column in, so it keeps its usual baseline exit alongside the new entry (unlike ·He, which must surrender its exit).
+        # ·Ye receiving a baseline entry from a preceding baseline-exit letter, mirroring ·He and ·Tea: an entry-only form gated by `not_after` (no positive `after`) so it rides `calt_cycle` and yields to a forward baseline join. ·Ye's single-direction stroke can't both take a baseline entry on the left and give a baseline exit on the right, so this form surrenders the exit and prefers the follower; the bare ·Ye keeps its baseline exit, so the forward join still happens when a baseline-entry follower is available. The excepted predecessors (folded into `not_after` here) mirror ·Excite's entry_baseline_noexit geometry: the letters that run flat down to the baseline on their right and so can't feed a left-swinging baseline entry; ·See belongs there because it only exits at the baseline when its arm is twisted aside. The `not_after` set matches ·He's.
         shape: prop
         anchors:
           entry: [1, 0]
-          exit: [2, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+          not_after: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsFee}, {family: qsVie}, {family: qsSee}, {family: qsShe}, {family: qsJai}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsMay}, {family: qsNo}, {family: qsLow}, {family: qsRoe}, {family: qsLoch}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsUtter}, {family: qsOut}, {family: qsOwe}, {family: qsFoot}]
         modifiers: [entry-baseline]
       entry_baseline_exit_noentry:
-        # When ·Ye took its new baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, ·Ye must surrender the rightward exit it would otherwise keep toward that follower. Keeping the entry preserves the predecessor join (·Awe·Ye stays joined), so ·Ye renders the same in context as it does in isolation. Authoring this opts ·Ye out of the calt_cycle guard that would otherwise revert it to the bare base before ·Ing — the post-liga cleanup routes the predecessor here, so the form carries no selectors of its own.
+        # When ·Ye took its baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, the post-liga cleanup routes the predecessor here. ·Ye's entry_baseline already carries no exit, so this form is geometrically identical to it; it exists only so the `.exit-noentry` post-liga fallback has a sibling matching the entry-baseline input. It carries no selectors of its own (the inherited `not_after` is cleared) so it is reachable only through that cleanup.
         inherits: entry_baseline
         anchors:
           exit: null
         select:
-          after: null
+          not_after: null
         modifiers: [exit-noentry]
   qsWay:
     mono:
@@ -1654,20 +1662,21 @@ glyph_families:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
       exit_baseline:
+        # ·He's forward baseline exit. The broad forward arm (`calt_fwd_qsHe`) reaches most baseline-entry followers, and the positive `before: qsDay` adds the ·Day pair that the broad arm doesn't fire on its own (·He·Day renders as full ·He into a half ·Day, not a half ·He at the x-height). `not_before` keeps ·He from reaching followers it can't actually join: ·Tea/·Thaw/·See/·Excite (geometry), ·Ye/·He themselves (two adjacent verticals don't join at the baseline), and ·-ing (which drops its entry after ·He via `noentry_after`, so a forward exit toward it would dangle).
         shape: prop
         anchors:
           exit: [1, 0]
         select:
           before: [{family: qsDay, entry_y: 0}]
-          not_before: [{family: qsTea}, {family: qsThaw}, {family: qsSee}, {family: qsExcite}]
+          not_before: [{family: qsTea}, {family: qsThaw}, {family: qsSee}, {family: qsYe}, {family: qsHe}, {family: qsIng}, {family: qsExcite}]
         modifiers: [exit-baseline]
       entry_baseline:
-        # Full ·He receiving a baseline entry from a preceding baseline-exit letter (see ·Ye's entry_baseline for the shared predecessor set). ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He can join on the left here or on the right elsewhere, but not both. So this form carries no exit: once ·He joins a baseline-exit predecessor it joins nothing after it.
+        # Full ·He receiving a baseline entry from a preceding baseline-exit letter, mirroring ·Tea's entry_baseline (and ·Ye's): an entry-only form gated by `not_after` rather than a positive `after`, so it rides `calt_cycle` and yields to a forward baseline join instead of out-prioritizing it. ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He joins on the left here or on the right elsewhere, never both, and prefers the follower when a baseline join is possible in either direction. So this form carries no exit: once ·He takes a baseline entry it joins nothing after it. The `not_after` set is the complement of the predecessors that feed it cleanly — the letters whose own baseline exit lands at ·He's left edge without a reaching stroke. It excludes the flat-bottomed exiters that can't reach a left-swinging entry, every letter that doesn't exit at the baseline at all, and the wide-reaching exiters (·Vie/·May/·No/·Excite/·Utter/…) whose extended baseline-exit form would dangle when ·He instead goes forward — those reach toward ·He from their own forms (suppressed there) rather than feeding it here.
         shape: prop
         anchors:
           entry: [0, 0]
         select:
-          after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
+          not_after: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsFee}, {family: qsVie}, {family: qsSee}, {family: qsShe}, {family: qsJai}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsMay}, {family: qsNo}, {family: qsLow}, {family: qsRoe}, {family: qsLoch}, {family: qsExcite}, {family: qsExam}, {family: qsIt}, {family: qsAt}, {family: qsI}, {family: qsAh}, {family: qsUtter}, {family: qsOut}, {family: qsOwe}, {family: qsFoot}]
         modifiers: [entry-baseline]
   qsWhy:
     mono:
@@ -1886,6 +1895,8 @@ glyph_families:
           - family: qsDay
           - family: qsThaw
           - family: qsZoo
+          - family: qsYe
+          - family: qsHe
           - family: qsNo
           - family: qsRoe
           - family: qsIt
@@ -2208,8 +2219,8 @@ glyph_families:
           exit: [7, 0]
         select:
           after: [{exit_y: 0, except: [{family: qsPea}, {family: qsTea}, {family: qsGay}, {family: qsThaw}, {family: qsThey}, {family: qsSee}, {family: qsYe}, {family: qsWay}, {family: qsHe}, {family: qsWhy}, {family: qsRoe}, {family: qsAt}]}]
-          before: [{entry_y: 0, except: [{family: qsPea}, {family: qsGay}, {family: qsThaw}]}]
-          not_before: [{context_set: no_baseline_join_after_tall}]
+          before: [{entry_y: 0, except: [{family: qsPea}, {family: qsGay}, {family: qsThaw}, {family: qsYe}, {family: qsHe}]}]
+          not_before: [{context_set: no_baseline_join_after_tall}, {family: qsYe}, {family: qsHe}]
         modifiers: [exit-baseline, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
@@ -2218,7 +2229,7 @@ glyph_families:
           exit: [6, 0]
         select:
           not_after: [space, uni200C, periodcentered]
-          not_before: [{context_set: no_baseline_join_after_tall}]
+          not_before: [{context_set: no_baseline_join_after_tall}, {family: qsYe}, {family: qsHe}]
         modifiers: [exit-baseline, before-vertical]
       entry_baseline_noexit:
         shape: wide_on_left_at_baseline
@@ -2723,7 +2734,7 @@ glyph_families:
         anchors:
           exit: [5, 0]
         select:
-          not_before: [{family: qsUtter}]
+          not_before: [{family: qsYe}, {family: qsHe}, {family: qsUtter}]
         traits: [alt]
         variants:
         - mono
