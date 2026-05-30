@@ -1894,6 +1894,38 @@ def _compute_derived_fwd_strip_guards(
     return out
 
 
+def _revert_keeps_reaching_exit(
+    glyph_meta: Mapping[str, JoinGlyph],
+    source_base: str,
+    predecessor_variant: str,
+    exit_y: int,
+) -> bool:
+    """Whether reverting ``predecessor_variant`` to its bare ``source_base`` would leave the very same reaching exit stroke in place.
+
+    A forward-strip guard exists to erase a predecessor's dangling exit connector by demoting it back to the bare base when the follower strips its entry. That only helps when the bare base's exit at ``exit_y`` is shorter (or absent). For a deep half form that shares its full base's lower body — ``qsDay.half`` / ``qsZoo.half``, whose riser is trimmed but whose baseline exit connector is byte-identical to the full form — demoting half→full removes nothing on the right yet costs the left-side join (the full form enters at the x-height, so it can no longer attach to a baseline-exiting predecessor). When that is the case the guard is futile and harmful, so callers skip it and let the half form stand.
+    """
+    bare_meta = glyph_meta.get(source_base)
+    variant_meta = glyph_meta.get(predecessor_variant)
+    if bare_meta is None or variant_meta is None or source_base == predecessor_variant:
+        return False
+    if exit_y not in set(bare_meta.exit_ys) or exit_y not in set(variant_meta.exit_ys):
+        return False
+    if not _predecessor_visually_reaches(glyph_meta, source_base):
+        return False
+    # The revert must also cost a left-side join: the variant carries an entry at a Y the bare base can't offer (the half form's baseline entry vs. the full form's x-height entry). Without this the variant is just an exit-only or noentry sibling, and dropping its guard would change shaping for forms that don't need rescuing.
+    if not set(variant_meta.all_entry_ys) - set(bare_meta.all_entry_ys):
+        return False
+    y = exit_y
+    while True:
+        bare_row = _bitmap_row_at_y(bare_meta, y)
+        variant_row = _bitmap_row_at_y(variant_meta, y)
+        if bare_row is None and variant_row is None:
+            return True
+        if bare_row != variant_row:
+            return False
+        y -= 1
+
+
 def _predecessor_visually_reaches(
     glyph_meta: Mapping[str, JoinGlyph],
     variant_name: str,

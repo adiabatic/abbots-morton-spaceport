@@ -147,6 +147,7 @@ context_sets:
   - {family: qsUtter, exit_y: 5}
 restore_isolated_form_overrides:
   # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `isolated_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by isolated_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
+  - {prior: qsNo, target: qsIt, follower: qsDay, isolated_form: qsIt.entry-xheight.exit-baseline}
   - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
   - {prior: qsJay, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
   - {prior: qsYe, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
@@ -156,6 +157,7 @@ restore_isolated_form_overrides:
   - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
 predecessor_demote_overrides:
   # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline.before-day.after-no-baseline-join, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.nonjoining-left}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
   - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
@@ -2389,6 +2391,14 @@ glyph_families:
           not_after: [{family: qsBay}, {family: qsDay}, {family: qsGay}, {family: qsShe}]
           not_before: [{family: qsTea}, {family: qsIt}, {family: qsRoe}]
         modifiers: [exit-baseline]
+      entry_nowhere_exit_baseline_before_day:
+        # When ·It doesn't join its predecessor at the baseline (word-initial, after a word break, or after a non-joining letter) and ·Day follows, ·It exits at the baseline into a half-·Day — the only legal ·It·Day join, since the full ·Day's x-height entry would force the forbidden x-height join. This is a separate form (not `entry_nowhere_exit_baseline`, which carries `strip_entry_before` and handles every other follower) so adding a ·Day trigger here can't disturb the baseline join into ·No/·Zoo/·May. The three modifiers are deliberate: a fwd-pair lookup with more modifiers sorts (and so runs) before one with fewer, and this needs to beat `entry_baseline_exit_noentry_before_day_exam` (three modifiers) so the post-ZWNJ `qsIt.noentry` upgrades to this exit-baseline form instead of being reverted to the bare base by before-day-exam's entry-preserving noentry rule.
+        shape: prop
+        anchors:
+          exit: [1, 0]
+        select:
+          before: [{family: qsDay, entry_y: 0}]
+        modifiers: [exit-baseline, before-day, after-no-baseline-join]
       before_utter: # needed to make words ending in -ian look right
         shape: prop
         anchors:
