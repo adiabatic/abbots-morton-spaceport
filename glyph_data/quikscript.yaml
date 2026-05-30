@@ -2224,18 +2224,8 @@ glyph_families:
         anchors:
           entry: null
         select:
-          after: [{family: qsYe}]
+          after: [{family: qsPea}, {family: qsTea}, {family: qsYe}]
         modifiers: [after-ye]
-      noentry_after_pea:
-        inherits: noentry_after_ye
-        select:
-          after: [{family: qsPea}]
-        modifiers: [after-pea]
-      noentry_after_tea:
-        inherits: noentry_after_ye
-        select:
-          after: [{family: qsTea}]
-        modifiers: [after-tea]
   qsExam:
     mono:
       bitmap:
