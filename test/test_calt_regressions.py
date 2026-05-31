@@ -1633,6 +1633,47 @@ def test_ye_owe_never_joins(before_first: str):
     )
 
 
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsJay", "qsYe"), ["·Jay.exit-extended ~b~ ·Ye"], id="jay-ye"),
+        pytest.param(_qs_text("qsJai", "qsYe"), ["·J’ai.exit-extended ~b~ ·Ye"], id="jai-ye"),
+    ],
+)
+def test_jay_and_jai_join_ye_at_the_baseline_with_one_extra_pixel(text: str, expects: list[str]):
+    _assert_expect_any(text, expects)
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_jay_ye_extends_by_one_pixel_when_joined(before_first: str):
+    _assert_no_failures(
+        _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
+            "qsJay",
+            "qsYe",
+            pixels=1,
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_jai_ye_extends_by_one_pixel_when_joined(before_first: str):
+    _assert_no_failures(
+        _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
+            "qsJai",
+            "qsYe",
+            pixels=1,
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
     _assert_no_failures(
