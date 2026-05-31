@@ -1606,6 +1606,20 @@ def test_eat_ye_never_joins(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_jay_he_never_joins(before_first: str):
+    _assert_no_failures(
+        _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+            "qsJay",
+            "qsHe",
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_he_owe_never_joins(before_first: str):
     _assert_no_failures(
         _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
