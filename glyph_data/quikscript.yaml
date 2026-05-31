@@ -3043,6 +3043,14 @@ glyph_families:
         - "  # #  "
         - " #     "
         - "#      "  #
+      exit_xheight_after_see_extended:
+        bitmap:
+        - "     ###"  #
+        - "    #   "
+        - "   # #  "
+        - "  # #   "
+        - " #      "
+        - "#       "  #
       exit_xheight:
         bitmap:
         - "   ##"  #
@@ -3069,10 +3077,22 @@ glyph_families:
         derive:
           contract_exit_before: {by: 3, targets: [{family: qsJai}]}
         modifiers: [after-see]
-      exit_xheight_after_see_before_fee:
+      exit_xheight_after_see_before_oy:
         inherits: exit_xheight_after_see
         anchors:
           exit: [7, 5]
+        select:
+          after: [{family: qsSee, exit_y: 0}]
+          not_before: [{family: qsFee}]
+        derive:
+          contract_exit_before: null
+          reverse_upgrade_from: [{family: qsOut, modifiers: [ex-y5, after-see]}]
+        modifiers: [after-see, before-oy]
+      exit_xheight_after_see_before_fee:
+        inherits: exit_xheight_after_see
+        shape: exit_xheight_after_see_extended
+        anchors:
+          exit: [8, 5]
         select:
           after: [{family: qsSee, exit_y: 0}]
         derive:
