@@ -1533,6 +1533,8 @@ glyph_families:
       - " #  "  #
       anchors:
         exit: [2, 0]
+      derive:
+        extend_exit_before: {by: 1, targets: [{family: qsI}]}
     shapes:
       from_short_height:
         bitmap:
@@ -1560,6 +1562,7 @@ glyph_families:
             - {family: qsWhy}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
+          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [entry-xheight]
       exit_baseline:
         # ·Ye's forward baseline exit, mirroring ·Tea's exit_baseline. The bare ·Ye already carries this exit, but registering it as a `calt_cycle` forward arm (a `not_before`-gated forward replacement, no positive `before`) is what lets the cycle prefer the follower join over the backward entry above — without it, the backward `entry_baseline` sub fires first and ·Ye loses its exit before it can reach the follower. The `not_before` lists the followers whose baseline entry is only nominal after ·Ye: ·Thaw drops its entry after a tall, ·See twists its arm aside, ·Exam goes nonjoining-left, and a following ·Ye takes its own backward entry — so ·Ye must not promote toward an exit that would dangle.
@@ -1568,6 +1571,8 @@ glyph_families:
           exit: [2, 0]
         select:
           not_before: [{family: qsThaw}, {family: qsSee}, {family: qsYe}, {family: qsExam}]
+        derive:
+          extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [exit-baseline]
       entry_baseline:
         # ·Ye receiving a baseline entry from a preceding baseline-exit letter, mirroring ·He and ·Tea: an entry-only form gated by `not_after` (no positive `after`) so it rides `calt_cycle` and yields to a forward baseline join. ·Ye's single-direction stroke can't both take a baseline entry on the left and give a baseline exit on the right, so this form surrenders the exit and prefers the follower; the bare ·Ye keeps its baseline exit, so the forward join still happens when a baseline-entry follower is available. The excepted predecessors (folded into `not_after` here) mirror ·Excite's entry_baseline_noexit geometry: the letters that run flat down to the baseline on their right and so can't feed a left-swinging baseline entry; ·See belongs there because it only exits at the baseline when its arm is twisted aside. The set matches ·He's except that ·J'ai and ·Jay are absent here — their rightward baseline exits reach ·Ye's entry, so ·J'ai·Ye and ·Jay·Ye both join even though ·J'ai·He and ·Jay·He don't.
@@ -2793,7 +2798,6 @@ glyph_families:
         entry: [0, 0]
         exit: [5, 5]
       derive:
-        extend_entry_after: {by: 1, targets: [{family: qsYe}]}
         extend_exit_before:
           by: 1
           targets:
