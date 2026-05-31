@@ -34,34 +34,34 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert tea.modifiers == ()
     assert not tea.is_contextual
 
-    utter = meta["qsUtter.alt.entry-xheight.exit-baseline.reaches-way-back"]
-    assert utter.modifiers == ("alt", "entry-xheight", "exit-baseline", "reaches-way-back")
+    utter = meta["qsUtter.alt.en-y5.ex-y0.reaches-way-back"]
+    assert utter.modifiers == ("alt", "en-y5", "ex-y0", "reaches-way-back")
     assert utter.is_contextual
     assert "reaches-way-back" in utter.compat_assertions
 
-    may = meta["qsMay.entry-baseline.exit-xheight.entry-extended"]
-    assert may.modifiers == ("entry-baseline", "exit-xheight", "entry-extended")
-    assert may.entry_suffix == ".entry-baseline"
-    assert may.extended_entry_suffix == ".entry-extended"
+    may = meta["qsMay.en-y0.ex-y5.en-ext-1"]
+    assert may.modifiers == ("en-y0", "ex-y5", "en-ext-1")
+    assert may.entry_suffix == ".en-y0"
+    assert may.extended_entry_suffix == ".en-ext-1"
     assert may.is_entry_variant
-    assert {"entry", "extended", "entry-extended"} <= may.compat_assertions
+    assert {"entry", "extended", "en-ext-1"} <= may.compat_assertions
 
-    ing = meta["qsIng.exit-doubly-extended"]
+    ing = meta["qsIng.ex-ext-2"]
     assert {
         "exit",
         "extended",
-        "doubly-extended",
-        "exit-doubly-extended",
+        "ext-2",
+        "ex-ext-2",
     } <= ing.compat_assertions
 
-    ing_entry = meta["qsIng.entry-extended"]
-    assert ing_entry.modifiers == ("entry-extended",)
-    assert ing_entry.extended_entry_suffix == ".entry-extended"
+    ing_entry = meta["qsIng.en-ext-1"]
+    assert ing_entry.modifiers == ("en-ext-1",)
+    assert ing_entry.extended_entry_suffix == ".en-ext-1"
     assert ing_entry.is_entry_variant
-    assert {"entry", "extended", "entry-extended"} <= ing_entry.compat_assertions
+    assert {"entry", "extended", "en-ext-1"} <= ing_entry.compat_assertions
     assert ing_entry.after == ("qsTea", "qsTea_qsOy")
 
-    day_lig = meta["qsDay_qsUtter.entry-extended"]
+    day_lig = meta["qsDay_qsUtter.en-ext-1"]
     assert day_lig.base_name == "qsDay_qsUtter"
     assert day_lig.sequence == ("qsDay", "qsUtter")
 
@@ -93,8 +93,8 @@ def test_family_form_modifiers_are_preserved_from_authored_form_data():
         }
     ).glyph_meta
 
-    form = meta["qsTest.alt.exit-baseline.reaches-way-back"]
-    assert form.modifiers == ("alt", "exit-baseline", "reaches-way-back")
+    form = meta["qsTest.alt.ex-y0.reaches-way-back"]
+    assert form.modifiers == ("alt", "ex-y0", "reaches-way-back")
     assert {"alt", "reaches-way-back"} <= form.compat_assertions
 
 
@@ -144,8 +144,8 @@ def test_form_keys_are_local_labels():
 
     assert left.keys() == right.keys()
     assert (
-        left["qsTest.alt.exit-baseline.reaches-way-back"].modifiers
-        == right["qsTest.alt.exit-baseline.reaches-way-back"].modifiers
+        left["qsTest.alt.ex-y0.reaches-way-back"].modifiers
+        == right["qsTest.alt.ex-y0.reaches-way-back"].modifiers
     )
 
 
@@ -210,7 +210,7 @@ def test_noentry_generation_keeps_exit_bearing_variants_usable_after_zwnj():
                                 "entry": [0, 0],
                                 "exit": [1, 0],
                             },
-                            "modifiers": ["exit-baseline"],
+                            "modifiers": ["ex-y0"],
                         },
                     },
                 },
@@ -220,9 +220,9 @@ def test_noentry_generation_keeps_exit_bearing_variants_usable_after_zwnj():
 
     variants = generate_noentry_variants(glyph_meta, has_zwnj=True)
 
-    assert "qsBase.entry-baseline.exit-baseline.noentry" in variants
-    assert variants["qsBase.entry-baseline.exit-baseline.noentry"].entry == ()
-    assert variants["qsBase.entry-baseline.exit-baseline.noentry"].exit == ((1, 0),)
+    assert "qsBase.en-y0.ex-y0.noentry" in variants
+    assert variants["qsBase.en-y0.ex-y0.noentry"].entry == ()
+    assert variants["qsBase.en-y0.ex-y0.noentry"].exit == ((1, 0),)
 
 
 def test_structured_family_selectors_resolve_to_compiled_names():
@@ -263,10 +263,10 @@ def test_structured_family_selectors_resolve_to_compiled_names():
                             "anchors": {
                                 "entry": [0, 0],
                             },
-                            "modifiers": ["entry-baseline"],
+                            "modifiers": ["en-y0"],
                             "select": {
                                 "after": [
-                                    {"family": "qsLeft", "modifiers": ["exit-extended"]},
+                                    {"family": "qsLeft", "modifiers": ["ex-ext-1"]},
                                 ],
                             },
                         },
@@ -276,7 +276,7 @@ def test_structured_family_selectors_resolve_to_compiled_names():
         }
     ).glyph_definitions
 
-    assert glyphs["qsRight.entry-baseline"]["calt_after"] == ["qsLeft.exit-extended"]
+    assert glyphs["qsRight.en-y0"]["calt_after"] == ["qsLeft.ex-ext-1"]
 
 
 def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
@@ -284,17 +284,17 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     meta = compiled.glyph_meta
     glyphs = compiled.glyph_definitions
 
-    contracted = meta["qsHe.half.exit-xheight.exit-contracted"]
-    plain_half = meta["qsHe.half.exit-xheight"]
+    contracted = meta["qsHe.half.ex-y5.ex-con-1"]
+    plain_half = meta["qsHe.half.ex-y5"]
     assert contracted.bitmap == plain_half.bitmap
     assert contracted.exit == ((0, 5),)
     assert plain_half.exit == ((1, 5),)
     assert contracted.before == ("qsZoo",)
     assert "half" in contracted.traits
-    assert glyphs["qsHe.half.exit-xheight.exit-contracted"]["calt_before"] == ["qsZoo"]
+    assert glyphs["qsHe.half.ex-y5.ex-con-1"]["calt_before"] == ["qsZoo"]
 
     plain_zoo = meta["qsZoo"]
-    trimmed = meta["qsZoo.entry-trimmed-by-1"]
+    trimmed = meta["qsZoo.en-trim-1"]
     assert plain_zoo.bitmap[0] == "###  "
     assert trimmed.bitmap[0] == " ##  "
     assert trimmed.bitmap[1:] == plain_zoo.bitmap[1:]
@@ -302,18 +302,18 @@ def test_qs_he_half_contracted_pairs_with_trimmed_qs_zoo():
     assert trimmed.exit == plain_zoo.exit
     assert trimmed.y_offset == plain_zoo.y_offset
     assert trimmed.after == (
-        "qsHe.half.exit-xheight.exit-contracted",
-        "qsTea.half.entry-top.exit-xheight.exit-contracted",
-        "qsTea.half.exit-xheight.exit-contracted",
+        "qsHe.half.ex-y5.ex-con-1",
+        "qsTea.half.en-y8.ex-y5.ex-con-1",
+        "qsTea.half.ex-y5.ex-con-1",
     )
     assert trimmed.transform_kind == "entry-trimmed"
-    assert {"entry", "trimmed", "entry-trimmed", "entry-trimmed-by-1"} <= trimmed.compat_assertions
-    assert glyphs["qsZoo.entry-trimmed-by-1"]["calt_after"] == [
-        "qsHe.half.exit-xheight.exit-contracted",
-        "qsTea.half.entry-top.exit-xheight.exit-contracted",
-        "qsTea.half.exit-xheight.exit-contracted",
+    assert {"entry", "trimmed", "en-trim", "en-trim-1"} <= trimmed.compat_assertions
+    assert glyphs["qsZoo.en-trim-1"]["calt_after"] == [
+        "qsHe.half.ex-y5.ex-con-1",
+        "qsTea.half.en-y8.ex-y5.ex-con-1",
+        "qsTea.half.ex-y5.ex-con-1",
     ]
-    assert "qsZoo.entry-extended.entry-trimmed-by-1" not in meta
+    assert "qsZoo.en-ext-1.en-trim-1" not in meta
 
 
 def test_qs_may_extends_qs_zoo_entry_by_one_unchanged():
@@ -322,15 +322,15 @@ def test_qs_may_extends_qs_zoo_entry_by_one_unchanged():
     glyphs = compiled.glyph_definitions
 
     plain_zoo = meta["qsZoo"]
-    extended = meta["qsZoo.entry-extended"]
+    extended = meta["qsZoo.en-ext-1"]
     assert extended.bitmap[0] == "####  "
     assert plain_zoo.bitmap[0] == "###  "
     assert extended.entry == plain_zoo.entry
     assert extended.exit == ((plain_zoo.exit[0][0] + 1, plain_zoo.exit[0][1]),)
-    assert extended.transform_kind == "entry-extended"
+    assert extended.transform_kind == "en-ext-1"
     assert "qsMay" in extended.after
     assert "qsPea.half" not in extended.after
-    assert glyphs["qsZoo.entry-extended"]["calt_after"] == list(extended.after)
+    assert glyphs["qsZoo.en-ext-1"]["calt_after"] == list(extended.after)
 
 
 def test_context_sets_expand_and_compose_inside_select_and_derive():
@@ -338,7 +338,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
         {
             "context_sets": {
                 "extended_leads": [
-                    {"family": "qsLead", "modifiers": ["exit-extended"]},
+                    {"family": "qsLead", "modifiers": ["ex-ext-1"]},
                 ],
                 "after_sources": [
                     {"family": "qsPrimary"},
@@ -365,7 +365,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                         "extended_exit": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
-                            "modifiers": ["exit-extended"],
+                            "modifiers": ["ex-ext-1"],
                         },
                     },
                 },
@@ -389,7 +389,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                         "baseline_entry": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 0]},
-                            "modifiers": ["entry-baseline"],
+                            "modifiers": ["en-y0"],
                             "select": {
                                 "after": [{"context_set": "after_sources"}],
                             },
@@ -404,9 +404,9 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
         "by": 1,
         "targets": ["qsExtOne", "qsExtTwo"],
     }
-    assert glyphs["qsTarget.entry-baseline"]["calt_after"] == [
+    assert glyphs["qsTarget.en-y0"]["calt_after"] == [
         "qsPrimary",
-        "qsLead.exit-baseline.exit-extended",
+        "qsLead.ex-y0.ex-ext-1",
     ]
 
 
@@ -439,7 +439,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
                         "half_entry": {
                             "inherits": "half",
                             "anchors": {"entry": [0, 5]},
-                            "modifiers": ["entry-xheight"],
+                            "modifiers": ["en-y5"],
                         },
                         "half_entry_exit": {
                             "inherits": "half",
@@ -448,7 +448,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
                                 "not_before": None,
                                 "before": [{"family": "qsOther"}],
                             },
-                            "modifiers": ["entry-baseline", "exit-baseline"],
+                            "modifiers": ["en-y0", "ex-y0"],
                         },
                     },
                 },
@@ -456,9 +456,9 @@ def test_inherits_reuses_and_clears_nested_form_context():
         }
     ).glyph_definitions
 
-    assert glyphs["qsBase.half.entry-xheight.exit-baseline"]["calt_not_before"] == ["qsBlocker"]
-    assert "calt_not_before" not in glyphs["qsBase.half.entry-baseline.exit-baseline"]
-    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["calt_before"] == ["qsOther"]
+    assert glyphs["qsBase.half.en-y5.ex-y0"]["calt_not_before"] == ["qsBlocker"]
+    assert "calt_not_before" not in glyphs["qsBase.half.en-y0.ex-y0"]
+    assert glyphs["qsBase.half.en-y0.ex-y0"]["calt_before"] == ["qsOther"]
 
 
 def test_inherited_form_shape_override_replaces_visual_fields():
@@ -489,7 +489,7 @@ def test_inherited_form_shape_override_replaces_visual_fields():
                             "inherits": "half",
                             "shape": "second",
                             "anchors": {"entry": [0, 0]},
-                            "modifiers": ["entry-baseline"],
+                            "modifiers": ["en-y0"],
                         },
                     },
                 },
@@ -499,26 +499,26 @@ def test_inherited_form_shape_override_replaces_visual_fields():
     glyphs = compiled.glyph_definitions
     meta = compiled.glyph_meta
 
-    assert glyphs["qsBase.half.exit-baseline"]["bitmap"] == ["11"]
-    assert glyphs["qsBase.half.exit-baseline"]["y_offset"] == -2
-    assert glyphs["qsBase.half.exit-baseline"]["advance_width"] == 4
+    assert glyphs["qsBase.half.ex-y0"]["bitmap"] == ["11"]
+    assert glyphs["qsBase.half.ex-y0"]["y_offset"] == -2
+    assert glyphs["qsBase.half.ex-y0"]["advance_width"] == 4
 
-    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["bitmap"] == ["22", " 2"]
-    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["y_offset"] == 3
-    assert glyphs["qsBase.half.entry-baseline.exit-baseline"]["advance_width"] == 7
-    assert meta["qsBase.half.entry-baseline.exit-baseline"].modifiers == (
+    assert glyphs["qsBase.half.en-y0.ex-y0"]["bitmap"] == ["22", " 2"]
+    assert glyphs["qsBase.half.en-y0.ex-y0"]["y_offset"] == 3
+    assert glyphs["qsBase.half.en-y0.ex-y0"]["advance_width"] == 7
+    assert meta["qsBase.half.en-y0.ex-y0"].modifiers == (
         "half",
-        "entry-baseline",
-        "exit-baseline",
+        "en-y0",
+        "ex-y0",
     )
 
 
 def test_alt_and_half_are_semantic_traits():
     meta = _compiled_meta()
 
-    assert "alt" in meta["qsNo.alt.entry-baseline.exit-baseline"].traits
-    assert "half" in meta["qsPea.half.exit-xheight"].traits
-    utter_name = "qsUtter.alt.entry-xheight.exit-baseline.reaches-way-back"
+    assert "alt" in meta["qsNo.alt.en-y0.ex-y0"].traits
+    assert "half" in meta["qsPea.half.ex-y5"].traits
+    utter_name = "qsUtter.alt.en-y5.ex-y0.reaches-way-back"
     assert "alt" in meta[utter_name].traits
     assert "reaches-way-back" in meta[utter_name].compat_assertions
 
@@ -535,18 +535,18 @@ def test_generated_entry_and_ligature_metadata_keep_logical_identity():
 def test_height_suffixes_are_available_as_compat_assertions():
     meta = _compiled_meta()
 
-    roe = meta["qsRoe.exit-baseline"]
-    assert {"exit", "exit-baseline", "baseline"} <= roe.compat_assertions
+    roe = meta["qsRoe.ex-y0"]
+    assert {"exit", "ex-y0", "y0"} <= roe.compat_assertions
 
 
 def test_reverse_upgrade_metadata_is_preserved():
     meta = _compiled_meta()
 
-    pea = meta["qsPea.half.entry-xheight.exit-xheight"]
+    pea = meta["qsPea.half.en-y5.ex-y5"]
     assert pea.base_name == "qsPea"
     assert pea.reverse_upgrade_from
-    assert pea.entry_suffix == ".entry-xheight"
-    assert pea.exit_suffix == ".exit-xheight"
+    assert pea.entry_suffix == ".en-y5"
+    assert pea.exit_suffix == ".ex-y5"
 
-    roe = meta["qsRoe.exit-baseline"]
-    assert "baseline" in roe.compat_assertions
+    roe = meta["qsRoe.ex-y0"]
+    assert "y0" in roe.compat_assertions

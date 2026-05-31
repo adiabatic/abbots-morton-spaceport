@@ -16,20 +16,20 @@ GlyphDef = dict[str, Any]
 
 
 _EXTENSION_SUFFIX = {
-    1: "extended",
-    2: "doubly-extended",
-    3: "triply-extended",
-    4: "quadruply-extended",
-    5: "quintuply-extended",
-    6: "sextuply-extended",
+    1: "ext-1",
+    2: "ext-2",
+    3: "ext-3",
+    4: "ext-4",
+    5: "ext-5",
+    6: "ext-6",
 }
 _CONTRACTION_SUFFIX = {
-    1: "contracted",
-    2: "doubly-contracted",
-    3: "triply-contracted",
-    4: "quadruply-contracted",
-    5: "quintuply-contracted",
-    6: "sextuply-contracted",
+    1: "con-1",
+    2: "con-2",
+    3: "con-3",
+    4: "con-4",
+    5: "con-5",
+    6: "con-6",
 }
 
 # Sentinel used by `expand_selectors_for_ligatures` to mark a ligature-glyph endpoint addition. The novelty filter inside `_additions` subtracts this set from the candidate Y intersection; an empty set leaves the intersection alone so the addition fires whenever the ligature has an anchor Y the source can meet. Pre-liga literal endpoints carry the canonical component's Ys here instead, which lets the novelty filter suppress redundant additions.
@@ -106,7 +106,7 @@ class JoinGlyph:
     strip_entry_before: bool = False
     # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
     before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    # Set (to N) on a backward-entry-upgrade target form to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this form (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the exit-extended-by-N variant when a glyph that literally enters at the form's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup form, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
+    # Set (to N) on a backward-entry-upgrade target form to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this form (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the `ex-ext-N` variant when a glyph that literally enters at the form's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup form, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
     extend_exit_when_entered: int | None = None
 
     @property
@@ -138,9 +138,9 @@ class JoinTransform:
 
 
 _SOURCE_FAMILY_TRAITS = frozenset({"alt", "half"})
-_ENTRY_EXIT_MODIFIER_RE = re.compile(r"^(?:entry|exit)-[a-z0-9]+(?:-[a-z0-9]+)*(?:-at-[a-z0-9]+)?$")
+_ENTRY_EXIT_MODIFIER_RE = re.compile(r"^(?:en|ex)-[a-z0-9]+(?:-[a-z0-9]+)*(?:-at-[a-z0-9]+)?$")
 _BEFORE_AFTER_MODIFIER_RE = re.compile(r"^(?:before|after)-[a-z0-9]+(?:-[a-z0-9]+)*$")
-_EXTENDED_HEIGHT_LABELS = {0: "baseline", 5: "xheight", 6: "y6", 8: "top"}
+_EXTENDED_HEIGHT_LABELS = {0: "y0", 5: "y5", 6: "y6", 8: "y8"}
 _KNOWN_DERIVE_DIRECTIVES = frozenset(
     {
         "extend_entry_after",
@@ -664,7 +664,7 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
-# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two forms whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-form name; downstream variant generation (`.noentry`, `.entry-extended`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
+# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two forms whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-form name; downstream variant generation (`.noentry`, `.en-ext-1`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
 _SYNTHESIZED_NAME_LENGTH_CAP = 63
 
 
@@ -672,15 +672,15 @@ def _synthesize_anchor_modifiers(
     anchors: dict[str, Any] | None,
     authored: Sequence[str],
 ) -> tuple[str, ...]:
-    """Fill in entry-<label> / exit-<label> modifiers derived from the resolved form's anchors.
+    """Fill in en-<label> / ex-<label> modifiers derived from the resolved form's anchors.
 
-    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `entry-<label>` / `exit-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
+    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `en-<label>` / `ex-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
 
-    The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `entry-<something>-at-<label>` (or `exit-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[entry-<label>, exit-<label>, *remaining_author]`.
+    The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `en-<something>-at-<Y>` (or `ex-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[en-<label>, ex-<label>, *remaining_author]`.
     """
     synthesized: list[str] = []
     if anchors:
-        for side in ("entry", "exit"):
+        for side, short in (("entry", "en"), ("exit", "ex")):
             anchor = anchors.get(side)
             if not isinstance(anchor, (list, tuple)) or len(anchor) < 2:
                 continue
@@ -688,15 +688,15 @@ def _synthesize_anchor_modifiers(
             label = _EXTENDED_HEIGHT_LABELS.get(y)
             if label is None:
                 continue
-            qualifier_suffix = f"-at-{label}"
+            qualifier_suffix = f"-at-{y}"
             if any(
                 isinstance(modifier, str)
-                and modifier.startswith(f"{side}-")
+                and modifier.startswith(f"{short}-")
                 and modifier.endswith(qualifier_suffix)
                 for modifier in authored
             ):
                 continue
-            synthesized.append(f"{side}-{label}")
+            synthesized.append(f"{short}-{label}")
 
     if not synthesized:
         return tuple(authored)
@@ -807,12 +807,9 @@ def _resolve_family_selector_name(
     )
 
 
-_RUNTIME_EXTENSION_MODIFIER_RE = re.compile(
-    r"^(?:entry|exit)-(?:doubly-|triply-|quadruply-|quintuply-|sextuply-)?(?:extended|contracted)$|"
-    r"^(?:entry|exit)-trimmed-by-\d+$"
-)
+_RUNTIME_EXTENSION_MODIFIER_RE = re.compile(r"^(?:en|ex)-(?:ext|con)-\d+$|^(?:en|ex)-trim-\d+$")
 _SYNTHESIZED_MODIFIER_TOKENS = frozenset(
-    f"{side}-{label}" for side in ("entry", "exit") for label in _EXTENDED_HEIGHT_LABELS.values()
+    f"{side}-{label}" for side in ("en", "ex") for label in _EXTENDED_HEIGHT_LABELS.values()
 )
 
 
@@ -821,7 +818,7 @@ def _split_selector_extensions(
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Partition a selector's modifier list into (base_modifiers, runtime_extension_modifiers).
 
-    Runtime extensions like `exit-extended` / `entry-doubly-contracted` / `entry-trimmed-by-2` name variants generated late in `build_join_glyphs`; they aren't in `available_names` at selector-resolution time. The healer matches the base part against `available_names` and then re-attaches the extensions to the healed name.
+    Runtime extensions like `ex-ext-1` / `en-con-2` / `en-trim-2` name variants generated late in `build_join_glyphs`; they aren't in `available_names` at selector-resolution time. The healer matches the base part against `available_names` and then re-attaches the extensions to the healed name.
     """
     base: list[str] = []
     extensions: list[str] = []
@@ -844,13 +841,13 @@ def _heal_renamed_selector(
 ) -> str:
     """When a selector references a form by its pre-synthesis compiled name, find the post-synthesis form whose (traits, modifiers) supersets the selector's and return its name instead.
 
-    Without this, a YAML selector like `{family: qsOut, modifiers: [exit-xheight, exit-extended]}` keeps constructing `qsOut.exit-xheight.exit-extended` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.entry-baseline.exit-xheight`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry.
+    Without this, a YAML selector like `{family: qsOut, modifiers: [ex-y5, ex-ext-1]}` keeps constructing `qsOut.ex-y5.ex-ext-1` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.en-y0.ex-y5`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry.
 
     Two passes:
 
-    1. Treat the selector's full modifier set as a constraint and look for a post-synth form whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored forms that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [exit-extended]` on a form with `exit: […, 0]` becomes `qsX.exit-baseline.exit-extended`).
+    1. Treat the selector's full modifier set as a constraint and look for a post-synth form whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored forms that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [ex-ext-1]` on a form with `exit: […, 0]` becomes `qsX.ex-y0.ex-ext-1`).
 
-    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `exit-extended`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
+    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `ex-ext-1`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
     """
     if available_names is None or candidate in available_names:
         return candidate
@@ -915,12 +912,12 @@ def _heal_renamed_selector(
             continue
         name_traits_set = frozenset(name_traits)
         name_base_set = frozenset(name_base_modifiers)
-        # Traits (`half` / `alt`) are categorical: a selector with no traits names the non-trait variant, not a `half` or `alt` sibling. Require exact equality so a `qsTea.entry-xheight` selector doesn't accidentally match `qsTea.half.entry-xheight`.
+        # Traits (`half` / `alt`) are categorical: a selector with no traits names the non-trait variant, not a `half` or `alt` sibling. Require exact equality so a `qsTea.en-y5` selector doesn't accidentally match `qsTea.half.en-y5`.
         if selector_traits != name_traits_set:
             continue
         if not (selector_base <= name_base_set):
             continue
-        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate form differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `exit-noentry` variant.
+        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate form differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `ex-noentry` variant.
         extra_modifiers = name_base_set - selector_base
         if not extra_modifiers <= _SYNTHESIZED_MODIFIER_TOKENS:
             continue
@@ -1423,7 +1420,7 @@ def compile_glyph_families(
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
-    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis form (e.g. `qsOut.exit-xheight`) to the post-synthesis form that supersets it (`qsOut.entry-baseline.exit-xheight`).
+    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis form (e.g. `qsOut.ex-y5`) to the post-synthesis form that supersets it (`qsOut.en-y0.ex-y5`).
     records = list(_iter_compiled_family_forms(glyph_families, variant, context_sets=context_sets))
     available_names = frozenset(record["output_name"] for record in records)
 
@@ -1455,7 +1452,7 @@ def _normalize_anchors(raw: list[list[int]] | list[int] | None) -> list[list[int
 
 def _is_contextual_variant(glyph_name: str) -> bool:
     parts = glyph_name.split(".")[1:]
-    return any(part.startswith("entry-") or part.startswith("exit-") or part == "half" for part in parts)
+    return any(part.startswith("en-") or part.startswith("ex-") or part == "half" for part in parts)
 
 
 def _glyph_name_modifiers(glyph_name: str) -> list[str]:
@@ -1468,23 +1465,23 @@ def _compat_assertions_from_modifiers(
 ) -> frozenset[str]:
     compat = set(modifiers) | set(traits)
     for modifier in modifiers:
-        if modifier.startswith("entry-"):
-            compat.update({"entry", modifier.removeprefix("entry-")})
-        elif modifier.startswith("exit-"):
-            compat.update({"exit", modifier.removeprefix("exit-")})
-        for side in ("entry", "exit"):
+        if modifier.startswith("en-"):
+            compat.update({"entry", modifier.removeprefix("en-")})
+        elif modifier.startswith("ex-"):
+            compat.update({"exit", modifier.removeprefix("ex-")})
+        for side, short in (("entry", "en"), ("exit", "ex")):
             for suffix in _EXTENSION_SUFFIX.values():
-                prefix = f"{side}-{suffix}"
+                prefix = f"{short}-{suffix}"
                 if modifier.startswith(prefix):
                     compat.update({side, "extended", suffix, prefix})
                     break
             for suffix in _CONTRACTION_SUFFIX.values():
-                prefix = f"{side}-{suffix}"
+                prefix = f"{short}-{suffix}"
                 if modifier.startswith(prefix):
                     compat.update({side, "contracted", suffix, prefix})
                     break
-        for side in ("entry", "exit"):
-            prefix = f"{side}-trimmed"
+        for side, short in (("entry", "en"), ("exit", "ex")):
+            prefix = f"{short}-trim"
             if modifier.startswith(prefix):
                 compat.update({side, "trimmed", prefix})
                 break
@@ -1493,22 +1490,22 @@ def _compat_assertions_from_modifiers(
 
 def _entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     for modifier in modifiers:
-        if modifier.startswith("entry-"):
+        if modifier.startswith("en-"):
             return "." + modifier
     return None
 
 
 def _exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     for modifier in modifiers:
-        if modifier.startswith("exit-"):
+        if modifier.startswith("ex-"):
             return "." + modifier
     return None
 
 
-_EXTENDED_ENTRY_PREFIXES = tuple(f"entry-{s}" for s in _EXTENSION_SUFFIX.values())
-_EXTENDED_EXIT_PREFIXES = tuple(f"exit-{s}" for s in _EXTENSION_SUFFIX.values())
-_CONTRACTED_ENTRY_PREFIXES = tuple(f"entry-{s}" for s in _CONTRACTION_SUFFIX.values())
-_CONTRACTED_EXIT_PREFIXES = tuple(f"exit-{s}" for s in _CONTRACTION_SUFFIX.values())
+_EXTENDED_ENTRY_PREFIXES = tuple(f"en-{s}" for s in _EXTENSION_SUFFIX.values())
+_EXTENDED_EXIT_PREFIXES = tuple(f"ex-{s}" for s in _EXTENSION_SUFFIX.values())
+_CONTRACTED_ENTRY_PREFIXES = tuple(f"en-{s}" for s in _CONTRACTION_SUFFIX.values())
+_CONTRACTED_EXIT_PREFIXES = tuple(f"ex-{s}" for s in _CONTRACTION_SUFFIX.values())
 
 
 def _extended_entry_suffix_from_modifiers(modifiers: list[str]) -> str | None:
@@ -1539,16 +1536,14 @@ def _contracted_exit_suffix_from_modifiers(modifiers: list[str]) -> str | None:
     return None
 
 
+_ENTRY_RESTRICTION_AT_RE = re.compile(r"^en-(?:ext|con)-\d+-at-(\d+)$")
+
+
 def _entry_restriction_y_from_modifiers(modifiers: list[str]) -> int | None:
     for modifier in modifiers:
-        for prefix in ("entry-extended-at-", "entry-contracted-at-"):
-            if not modifier.startswith(prefix):
-                continue
-            label = modifier.removeprefix(prefix)
-            return next(
-                (y for y, known_label in _EXTENDED_HEIGHT_LABELS.items() if known_label == label),
-                None,
-            )
+        match = _ENTRY_RESTRICTION_AT_RE.match(modifier)
+        if match is not None:
+            return int(match.group(1))
     return None
 
 
@@ -1602,7 +1597,7 @@ def _glyph_def_to_join_glyph(
         preferred_over=tuple(glyph_def.get("preferred_over", ())),
         word_final=bool(glyph_def.get("calt_word_final")),
         is_contextual=resolved_contextual,
-        is_entry_variant=any(modifier.startswith("entry-") for modifier in classifier_source),
+        is_entry_variant=any(modifier.startswith("en-") for modifier in classifier_source),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -2145,7 +2140,7 @@ def derive_join_glyph(
     resolved_extend_exit_before_gated = (
         source.extend_exit_before_gated if extend_exit_before_gated is _UNSET else extend_exit_before_gated
     )
-    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.exit-extended` / `.entry-extended` / `.noentry` siblings would risk re-processing the already-extended form.
+    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.ex-ext-1` / `.en-ext-1` / `.noentry` siblings would risk re-processing the already-extended form.
     resolved_extend_exit_when_entered = (
         None if extend_exit_when_entered is _UNSET else extend_exit_when_entered
     )
@@ -2162,7 +2157,7 @@ def derive_join_glyph(
     )
     resolved_noentry_for = source.noentry_for if noentry_for is _UNSET else noentry_for
 
-    # When the caller explicitly sets `after` (or `before`) but lets the negative selector inherit from `source`, drop any inherited `not_after` / `not_before` family that overlaps the explicit positive list. The explicit selector is the form's reason to exist; an inherited negative for the same family would silently suppress it. Extension generators (e.g. `_add_entry_extension_variants`) hit this: `qsDay.half.entry-extended` gets `after = (qsTea, qsYe, …)` from the `extend_entry_after` directive while inheriting `qsDay.half`'s `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
+    # When the caller explicitly sets `after` (or `before`) but lets the negative selector inherit from `source`, drop any inherited `not_after` / `not_before` family that overlaps the explicit positive list. The explicit selector is the form's reason to exist; an inherited negative for the same family would silently suppress it. Extension generators (e.g. `_add_entry_extension_variants`) hit this: `qsDay.half.en-ext-1` gets `after = (qsTea, qsYe, …)` from the `extend_entry_after` directive while inheriting `qsDay.half`'s `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
     if (
         after is not _UNSET
         and not_after is _UNSET
@@ -2212,9 +2207,9 @@ def derive_join_glyph(
         preferred_over=resolved_preferred_over,
         word_final=resolved_word_final,
         is_contextual=contextual,
-        # Preserve the source's authorial classification; an extension/contraction transform only flips it to True when the transform adds its own entry-* modifier (e.g. `entry-extended`). Synthesized entry-* tokens already on the source don't count — they're carried by `source.is_entry_variant` if applicable.
+        # Preserve the source's authorial classification; an extension/contraction transform only flips it to True when the transform adds its own en-* modifier (e.g. `en-ext-1`). Synthesized en-* tokens already on the source don't count — they're carried by `source.is_entry_variant` if applicable.
         is_entry_variant=source.is_entry_variant
-        or any(modifier.startswith("entry-") for modifier in add_modifiers),
+        or any(modifier.startswith("en-") for modifier in add_modifiers),
         entry_suffix=_entry_suffix_from_modifiers(list(resolved_modifiers)),
         exit_suffix=_exit_suffix_from_modifiers(list(resolved_modifiers)),
         extended_entry_suffix=_extended_entry_suffix_from_modifiers(list(resolved_modifiers)),
@@ -2476,17 +2471,17 @@ def _add_entry_extension_variants(
     is_source: bool,
 ) -> None:
     entries = target_glyph.entry
-    kind = f"entry-{suffix_word}"
+    kind = f"en-{suffix_word}"
 
     for anchor in entries if use_height_specific_names else (entries[0],):
         y = anchor[1]
         if use_height_specific_names:
-            label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-            modifier = f"entry-{suffix_word}-at-{label}"
-            variant_name = f"{target_name}.entry-{suffix_word}-at-{label}"
+            label = str(y)
+            modifier = f"en-{suffix_word}-at-{label}"
+            variant_name = f"{target_name}.en-{suffix_word}-at-{label}"
         else:
-            modifier = f"entry-{suffix_word}"
-            variant_name = f"{target_name}.entry-{suffix_word}"
+            modifier = f"en-{suffix_word}"
+            variant_name = f"{target_name}.en-{suffix_word}"
 
         if variant_name in join_glyphs or (not is_source and variant_name in variants):
             continue
@@ -2555,8 +2550,8 @@ def _add_exit_extension_variant(
     transforms: list[JoinTransform] | None,
     is_source: bool,
 ) -> None:
-    kind = f"exit-{suffix_word}"
-    variant_name = f"{target_name}.exit-{suffix_word}"
+    kind = f"ex-{suffix_word}"
+    variant_name = f"{target_name}.ex-{suffix_word}"
     if variant_name in join_glyphs or (not is_source and variant_name in variants):
         return
 
@@ -2572,7 +2567,7 @@ def _add_exit_extension_variant(
         "bitmap": new_bitmap,
         "exit": _shift_anchors(target_glyph.exit, dx=count),
         "extend_exit_no_entry": False,
-        "add_modifiers": (f"exit-{suffix_word}",),
+        "add_modifiers": (f"ex-{suffix_word}",),
         "generated_from": target_name,
         "transform_kind": kind,
     }
@@ -2720,17 +2715,17 @@ def _add_entry_contraction_variants(
     is_source: bool,
 ) -> None:
     entries = target_glyph.entry
-    kind = f"entry-{suffix_word}"
+    kind = f"en-{suffix_word}"
 
     for anchor in entries if use_height_specific_names else (entries[0],):
         y = anchor[1]
         if use_height_specific_names:
-            label = _EXTENDED_HEIGHT_LABELS.get(y, f"y{y}")
-            modifier = f"entry-{suffix_word}-at-{label}"
-            variant_name = f"{target_name}.entry-{suffix_word}-at-{label}"
+            label = str(y)
+            modifier = f"en-{suffix_word}-at-{label}"
+            variant_name = f"{target_name}.en-{suffix_word}-at-{label}"
         else:
-            modifier = f"entry-{suffix_word}"
-            variant_name = f"{target_name}.entry-{suffix_word}"
+            modifier = f"en-{suffix_word}"
+            variant_name = f"{target_name}.en-{suffix_word}"
 
         if variant_name in join_glyphs or (not is_source and variant_name in variants):
             continue
@@ -2802,15 +2797,15 @@ def _add_exit_contraction_variant(
     transforms: list[JoinTransform] | None,
     is_source: bool,
 ) -> None:
-    kind = f"exit-{suffix_word}"
-    variant_name = f"{target_name}.exit-{suffix_word}"
+    kind = f"ex-{suffix_word}"
+    variant_name = f"{target_name}.ex-{suffix_word}"
     if variant_name in join_glyphs or (not is_source and variant_name in variants):
         return
 
     exit_y = target_glyph.exit[0][1]
     kwargs = {
         "exit": _shift_anchors(target_glyph.exit, dx=-count),
-        "add_modifiers": (f"exit-{suffix_word}",),
+        "add_modifiers": (f"ex-{suffix_word}",),
         "generated_from": target_name,
         "transform_kind": kind,
     }
@@ -2866,7 +2861,7 @@ def _add_entry_trimmed_variant(
         if entry_anchor[1] != join_y:
             continue
         entry_y = entry_anchor[1]
-        modifier = f"entry-trimmed-by-{count}"
+        modifier = f"en-trim-{count}"
         variant_name = f"{receiver_name}.{modifier}"
 
         existing = variants.get(variant_name)
@@ -2987,7 +2982,7 @@ def _generate_contracted_variants(
                 )
 
         if side == "exit":
-            contracted_source_name = f"{name}.exit-{suffix_word}"
+            contracted_source_name = f"{name}.ex-{suffix_word}"
             if contracted_source_name in variants:
                 join_y = join_glyph.exit[0][1]
                 for receiver_family in context_glyphs:
@@ -3130,7 +3125,7 @@ def expand_selectors_for_ligatures(
 
         # Post-liga matching: register every variant of the ligature itself under the component-variant key it represents, so a successor's selector that names that component variant matches the ligature glyph after `calt_liga` collapses it. Without this, the post-liga cleanup at `quikscript_fea.py::_collect_post_liga_right_cleanup_rules` finds no ligature glyph in the source's `after_glyphs` and downgrades the variant back to base. Adding the ligature glyphs also unlocks the calt-post-liga forward-rule emission, which only fires when a ligature glyph already appears in `after_glyphs`.
         #
-        # Each ligature variant is keyed under the trailing component's base name (covers `after: [qsY]` which means "any qsY variant") and, if the variant carries an exit-side suffix (`extended_exit_suffix` or `contracted_exit_suffix`), also under the trailing component variant carrying that same suffix (covers `after: [qsY.exit-extended]` etc., which discriminate by component state). Symmetric for entry-side suffix and the lead component on the forward side. This mirrors the `calt_liga` glyph-selection rule that maps `(qsX, qsY.<suffix>)` to `qsX_qsY.<suffix>`: the same suffix carries from component-variant to ligature-variant, so the inverse mapping is unambiguous.
+        # Each ligature variant is keyed under the trailing component's base name (covers `after: [qsY]` which means "any qsY variant") and, if the variant carries an exit-side suffix (`extended_exit_suffix` or `contracted_exit_suffix`), also under the trailing component variant carrying that same suffix (covers `after: [qsY.ex-ext-1]` etc., which discriminate by component state). Symmetric for entry-side suffix and the lead component on the forward side. This mirrors the `calt_liga` glyph-selection rule that maps `(qsX, qsY.<suffix>)` to `qsX_qsY.<suffix>`: the same suffix carries from component-variant to ligature-variant, so the inverse mapping is unambiguous.
         for lig_variant_name in sorted(base_to_variants.get(record.base_name, {record.name})):
             lig_variant = join_glyphs[lig_variant_name]
             lig_variant_entry_ys = frozenset(
@@ -3142,7 +3137,7 @@ def expand_selectors_for_ligatures(
             forward_keys: set[str] = set(sequence)
             backward_keys: set[str] = set(sequence)
 
-            # Suffix-aware keying lets a selector that names a specific component variant (e.g., `qsUtter.exit-doubly-contracted`) match only the ligature variants that represent the same state — `calt_liga` maps `(qsX, qsUtter.exit-doubly-contracted)` to `qsX_qsUtter.exit-doubly-contracted`, so the same suffix carries through. Without this, a base ligature like `qsX_qsUtter` would also match `qsUtter.exit-doubly-contracted` selectors and leave bitmap-misalignment warnings.
+            # Suffix-aware keying lets a selector that names a specific component variant (e.g., `qsUtter.ex-con-2`) match only the ligature variants that represent the same state — `calt_liga` maps `(qsX, qsUtter.ex-con-2)` to `qsX_qsUtter.ex-con-2`, so the same suffix carries through. Without this, a base ligature like `qsX_qsUtter` would also match `qsUtter.ex-con-2` selectors and leave bitmap-misalignment warnings.
             entry_suffix = lig_variant.extended_entry_suffix or ""
             if entry_suffix:
                 first_variant = first + entry_suffix
@@ -3167,19 +3162,19 @@ def expand_selectors_for_ligatures(
                     )
 
     def _expected_runtime_exit_suffix(source_family: str, last_family: str) -> str:
-        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base form mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.exit-doubly-contracted` always wins before `qsJai`."""
+        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base form mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.ex-con-2` always wins before `qsJai`."""
         last_meta = join_glyphs.get(last_family)
         if last_meta is None:
             return ""
         if last_meta.contract_exit_before and source_family in last_meta.contract_exit_before.targets:
             suffix_word = _CONTRACTION_SUFFIX.get(last_meta.contract_exit_before.by)
             if suffix_word:
-                return f".exit-{suffix_word}"
+                return f".ex-{suffix_word}"
         for rule in last_meta.extend_exit_before:
             if source_family in rule.targets:
                 suffix_word = _EXTENSION_SUFFIX.get(rule.by)
                 if suffix_word:
-                    return f".exit-{suffix_word}"
+                    return f".ex-{suffix_word}"
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
@@ -3190,12 +3185,12 @@ def expand_selectors_for_ligatures(
         if first_meta.contract_entry_after and source_family in first_meta.contract_entry_after.targets:
             suffix_word = _CONTRACTION_SUFFIX.get(first_meta.contract_entry_after.by)
             if suffix_word:
-                return f".entry-{suffix_word}"
+                return f".en-{suffix_word}"
         for rule in first_meta.extend_entry_after:
             if source_family in rule.targets:
                 suffix_word = _EXTENSION_SUFFIX.get(rule.by)
                 if suffix_word:
-                    return f".entry-{suffix_word}"
+                    return f".en-{suffix_word}"
         return ""
 
     def _selector_families(selectors: tuple[str, ...]) -> set[str]:
@@ -3262,7 +3257,7 @@ def expand_selectors_for_ligatures(
             else:
                 assert scoped_anchor.family_scope is not None
                 lookup_key = scoped_anchor.family_scope
-            # `lookup_key`'s base name identifies the component that the source's selector originally targeted. Pre-liga lead-component endpoints are registered under non-first ligature components, so when `lookup_key`'s base differs from the endpoint's base, the endpoint was added as a pre-liga proxy and needs trailing-component lookahead at FEA emission time. lookup_key may itself be a variant (e.g., qsUtter.exit-extended); strip to its family.
+            # `lookup_key`'s base name identifies the component that the source's selector originally targeted. Pre-liga lead-component endpoints are registered under non-first ligature components, so when `lookup_key`'s base differs from the endpoint's base, the endpoint was added as a pre-liga proxy and needs trailing-component lookahead at FEA emission time. lookup_key may itself be a variant (e.g., qsUtter.ex-ext-1); strip to its family.
             lookup_meta = join_glyphs.get(lookup_key)
             lookup_base = lookup_meta.base_name if lookup_meta is not None else lookup_key.split(".", 1)[0]
             for endpoint, candidate_ys, canonical_ys in index.get(lookup_key, ()):
@@ -3539,12 +3534,12 @@ def _find_lead_entry_source(
 
     Preference order:
       1. The compiled lead-prop glyph (named exactly ``lead_family``) if its entry is non-empty. The prop is the unrestricted default form, so its entry coordinates are always safe to copy.
-      2. The compiled glyph named ``f"{lead_family}.entry-xheight"`` if it exists and has an entry, when one of:
+      2. The compiled glyph named ``f"{lead_family}.en-y5"`` if it exists and has an entry, when one of:
            a. It has no ``after`` constraint (the form is unrestricted).
-           b. The ligature carries a ``select.after`` whose compiled set equals the lead's ``entry-xheight.after`` set. Mirroring the restriction means the ligature only fires for the same predecessors the lead's entry-xheight fires for, so the inherited entry is context-equivalent.
-         An ``after``-restricted ``entry-xheight`` whose restriction the ligature does NOT mirror is rejected: copying its anchor would silently grant the ligature an entry for predecessors the lead wouldn't accept.
+           b. The ligature carries a ``select.after`` whose compiled set equals the lead's ``en-y5.after`` set. Mirroring the restriction means the ligature only fires for the same predecessors the lead's en-y5 fires for, so the inherited entry is context-equivalent.
+         An ``after``-restricted ``en-y5`` whose restriction the ligature does NOT mirror is rejected: copying its anchor would silently grant the ligature an entry for predecessors the lead wouldn't accept.
 
-    More-specific entry forms (e.g. ``qsTea.entry-xheight.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical form. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
+    More-specific entry forms (e.g. ``qsTea.en-y5.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical form. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
 
     Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry exists.
     """
@@ -3552,9 +3547,9 @@ def _find_lead_entry_source(
     if lead_prop is not None and lead_prop.entry:
         return lead_prop.entry, lead_prop
 
-    # `_synthesize_anchor_modifiers` may have renamed the canonical entry-xheight form to e.g. `qsJai.entry-xheight.exit-baseline`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
+    # `_synthesize_anchor_modifiers` may have renamed the canonical en-y5 form to e.g. `qsJai.en-y5.ex-y0`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
     canonical_name = heal_glyph_name(
-        f"{lead_family}.entry-xheight",
+        f"{lead_family}.en-y5",
         family_names_from_compiled(set(join_glyphs)),
         frozenset(join_glyphs),
     )
@@ -3611,7 +3606,7 @@ def _inherit_ligature_entries_from_lead(
                 f"{name}: declares entry {_format_anchors(glyph.entry)}; "
                 f"lead {lead} has no auto-inheritable entry-bearing form. "
                 f"The explicit declaration is therefore load-bearing; "
-                f"consider adding an entry-xheight form on {lead} or "
+                f"consider adding an en-y5 form on {lead} or "
                 f"documenting why this ligature is special.",
                 LigatureEntryInheritanceWarning,
                 stacklevel=2,
@@ -3660,10 +3655,8 @@ def has_entry_preserving_exit_noentry_sibling(
     base_to_variants: dict[str, set[str]],
     join_glyphs: dict[str, JoinGlyph],
 ) -> bool:
-    """True if ``l_meta`` has a sibling form that preserves its entry side and drops the exit (the ``.exit-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
-    expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("exit-")) | {
-        "exit-noentry"
-    }
+    """True if ``l_meta`` has a sibling form that preserves its entry side and drops the exit (the ``.ex-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
+    expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("ex-")) | {"ex-noentry"}
     for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
         sibling = join_glyphs.get(sibling_name)
         if sibling is None or sibling.is_noentry:
@@ -3676,7 +3669,7 @@ def has_entry_preserving_exit_noentry_sibling(
             continue
         if sibling.after or sibling.before or sibling.not_after or sibling.not_before:
             continue
-        if "exit-noentry" not in sibling.modifiers:
+        if "ex-noentry" not in sibling.modifiers:
             continue
         if frozenset(sibling.modifiers) == expected_modifiers:
             return True
@@ -3690,7 +3683,7 @@ def _propagate_noentry_after_to_not_before(
 
     For every glyph ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, append ``V_R``'s family name to ``not_before`` on every variant of every named family ``F_i`` whose exit Y matches — making the joining-shape selection on the left side impossible whenever ``V_R``'s `.noentry` substitution would void the join. This subsumes the manual ``not_before`` edits that previously had to accompany each `noentry_after` directive.
 
-    Skipped when the left variant has an entry-preserving ``.exit-noentry`` sibling: the post-liga cleanup will route there cleanly, so blocking calt_cycle's selection would only deprive the predecessor of a usable baseline join with no benefit on the right.
+    Skipped when the left variant has an entry-preserving ``.ex-noentry`` sibling: the post-liga cleanup will route there cleanly, so blocking calt_cycle's selection would only deprive the predecessor of a usable baseline join with no benefit on the right.
     """
     base_to_variants: dict[str, set[str]] = {}
     for name, glyph in join_glyphs.items():

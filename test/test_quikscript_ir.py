@@ -132,7 +132,7 @@ def test_compiled_glyph_definitions_do_not_export_compiler_metadata_keys():
         "qsTea",
         "qsDay_qsUtter",
         "qsDay_qsUtter.noentry",
-        "qsMay.entry-baseline.exit-xheight.entry-extended",
+        "qsMay.en-y0.ex-y5.en-ext-1",
     ):
         assert not any(key.startswith("_") for key in compiled.glyph_definitions[glyph_name])
 
@@ -201,14 +201,14 @@ def test_expand_join_transforms_tracks_generated_sources_and_kinds():
     expanded, transforms = expand_join_transforms(glyphs, has_zwnj=True)
 
     assert "qsLead.noentry" in expanded
-    assert "qsLead.exit-extended" in expanded
-    assert "qsFollow.entry-extended" in expanded
+    assert "qsLead.ex-ext-1" in expanded
+    assert "qsFollow.en-ext-1" in expanded
     assert expanded["qsLead.noentry"].generated_from == "qsLead"
-    assert expanded["qsLead.exit-extended"].transform_kind == "exit-extended"
-    assert expanded["qsFollow.entry-extended"].transform_kind == "entry-extended"
+    assert expanded["qsLead.ex-ext-1"].transform_kind == "ex-ext-1"
+    assert expanded["qsFollow.en-ext-1"].transform_kind == "en-ext-1"
     assert {transform.kind for transform in transforms} == {
-        "entry-extended",
-        "exit-extended",
+        "en-ext-1",
+        "ex-ext-1",
         "noentry",
     }
 
@@ -248,16 +248,16 @@ def test_contract_exit_before_shifts_anchor_left_without_widening_bitmap():
 
     expanded, transforms = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsLead.exit-contracted" in expanded
-    contracted = expanded["qsLead.exit-contracted"]
+    assert "qsLead.ex-con-1" in expanded
+    contracted = expanded["qsLead.ex-con-1"]
     assert contracted.exit == ((1, 2),)
     assert contracted.bitmap == (" ##", "#  ", "#  ")
     assert contracted.before == ("qsFollow",)
-    assert contracted.transform_kind == "exit-contracted"
-    assert "exit-contracted" in contracted.modifiers
-    assert "exit-contracted" in contracted.compat_assertions
+    assert contracted.transform_kind == "ex-con-1"
+    assert "ex-con-1" in contracted.modifiers
+    assert "ex-con-1" in contracted.compat_assertions
     assert "contracted" in contracted.compat_assertions
-    assert any(t.kind == "exit-contracted" for t in transforms)
+    assert any(t.kind == "ex-con-1" for t in transforms)
 
 
 def test_contract_exit_before_preserves_compatible_context_on_generated_sibling():
@@ -292,7 +292,7 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
                                     {"family": "qsOther"},
                                 ],
                             },
-                            "modifiers": ["entry-baseline"],
+                            "modifiers": ["en-y0"],
                         },
                         "before_other": {
                             "shape": "prop",
@@ -331,8 +331,8 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert expanded["qsLead.entry-baseline.exit-baseline.exit-contracted"].before == ("qsFollow",)
-    assert expanded["qsLead.exit-baseline.before-other.exit-contracted"].before == ()
+    assert expanded["qsLead.en-y0.ex-y0.ex-con-1"].before == ("qsFollow",)
+    assert expanded["qsLead.ex-y0.before-other.ex-con-1"].before == ()
 
 
 def test_contract_exit_before_emits_paired_trimmed_receiver():
@@ -371,31 +371,29 @@ def test_contract_exit_before_emits_paired_trimmed_receiver():
 
     expanded, transforms = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsLead.exit-doubly-contracted" in expanded
-    contracted = expanded["qsLead.exit-doubly-contracted"]
+    assert "qsLead.ex-con-2" in expanded
+    contracted = expanded["qsLead.ex-con-2"]
     assert contracted.exit == ((0, 2),)
     assert contracted.before == ("qsFollow",)
-    assert "qsLead.exit-contracted" not in expanded
+    assert "qsLead.ex-con-1" not in expanded
 
-    assert "qsFollow.entry-trimmed-by-2" in expanded
-    trimmed = expanded["qsFollow.entry-trimmed-by-2"]
+    assert "qsFollow.en-trim-2" in expanded
+    trimmed = expanded["qsFollow.en-trim-2"]
     assert trimmed.bitmap == ("    ", "##  ", "##  ")
     assert trimmed.entry == ((1, 2),)
     assert trimmed.exit == ((3, 0),)
     assert trimmed.y_offset == 0
-    assert trimmed.after == ("qsLead.exit-doubly-contracted",)
+    assert trimmed.after == ("qsLead.ex-con-2",)
     assert trimmed.before == ()
     assert trimmed.transform_kind == "entry-trimmed"
-    assert "entry-trimmed-by-2" in trimmed.modifiers
+    assert "en-trim-2" in trimmed.modifiers
     assert {
         "entry",
         "trimmed",
-        "entry-trimmed",
-        "entry-trimmed-by-2",
+        "en-trim",
+        "en-trim-2",
     } <= trimmed.compat_assertions
-    assert any(
-        t.kind == "entry-trimmed" and t.target_name == "qsFollow.entry-trimmed-by-2" for t in transforms
-    )
+    assert any(t.kind == "entry-trimmed" and t.target_name == "qsFollow.en-trim-2" for t in transforms)
 
 
 def test_contract_exit_before_trim_depth_matches_by():
@@ -428,10 +426,10 @@ def test_contract_exit_before_trim_depth_matches_by():
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsFollow.entry-trimmed-by-1" in expanded
-    trimmed = expanded["qsFollow.entry-trimmed-by-1"]
+    assert "qsFollow.en-trim-1" in expanded
+    trimmed = expanded["qsFollow.en-trim-1"]
     assert trimmed.bitmap == (" ##  ", "###  ", "###  ")
-    assert trimmed.after == ("qsLead.exit-contracted",)
+    assert trimmed.after == ("qsLead.ex-con-1",)
 
 
 def test_contract_exit_before_merges_trimmed_receivers_across_sources():
@@ -473,11 +471,11 @@ def test_contract_exit_before_merges_trimmed_receivers_across_sources():
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsFollow.entry-trimmed-by-2" in expanded
-    trimmed = expanded["qsFollow.entry-trimmed-by-2"]
+    assert "qsFollow.en-trim-2" in expanded
+    trimmed = expanded["qsFollow.en-trim-2"]
     assert trimmed.after == (
-        "qsLeadA.exit-doubly-contracted",
-        "qsLeadB.exit-doubly-contracted",
+        "qsLeadA.ex-con-2",
+        "qsLeadB.ex-con-2",
     )
     assert trimmed.bitmap == ("    ", "##  ", "##  ")
 
@@ -512,12 +510,12 @@ def test_contract_entry_after_shifts_entry_right_without_widening_bitmap():
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsFollow.entry-contracted" in expanded
-    contracted = expanded["qsFollow.entry-contracted"]
+    assert "qsFollow.en-con-1" in expanded
+    contracted = expanded["qsFollow.en-con-1"]
     assert contracted.entry == ((1, 0),)
     assert contracted.bitmap == ("###",)
     assert contracted.after == ("qsLead",)
-    assert contracted.transform_kind == "entry-contracted"
+    assert contracted.transform_kind == "en-con-1"
 
 
 def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
@@ -535,7 +533,7 @@ def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
-                            "modifiers": ["exit-baseline"],
+                            "modifiers": ["ex-y0"],
                         },
                     },
                 },
@@ -560,8 +558,8 @@ def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
 
     rules = glyphs["qsFollow"].extend_entry_after
     assert len(rules) == 1
-    assert rules[0].targets == ("qsLead", "qsLead.exit-baseline")
-    assert glyphs["qsFollow.entry-extended"].after == ("qsLead", "qsLead.exit-baseline")
+    assert rules[0].targets == ("qsLead", "qsLead.ex-y0")
+    assert glyphs["qsFollow.en-ext-1"].after == ("qsLead", "qsLead.ex-y0")
 
 
 def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
@@ -591,7 +589,7 @@ def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
                         "entry_baseline": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 0]},
-                            "modifiers": ["entry-baseline"],
+                            "modifiers": ["en-y0"],
                         },
                     },
                 },
@@ -604,8 +602,8 @@ def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
 
     rules = glyphs["qsLead"].extend_exit_before
     assert len(rules) == 1
-    assert rules[0].targets == ("qsFollow", "qsFollow.entry-baseline")
-    assert glyphs["qsLead.exit-extended"].before == ("qsFollow", "qsFollow.entry-baseline")
+    assert rules[0].targets == ("qsFollow", "qsFollow.en-y0")
+    assert glyphs["qsLead.ex-ext-1"].before == ("qsFollow", "qsFollow.en-y0")
 
 
 def test_contract_entry_after_targets_accept_family_scoped_anchor_selector():
@@ -623,7 +621,7 @@ def test_contract_entry_after_targets_accept_family_scoped_anchor_selector():
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
-                            "modifiers": ["exit-baseline"],
+                            "modifiers": ["ex-y0"],
                         },
                     },
                 },
@@ -648,8 +646,8 @@ def test_contract_entry_after_targets_accept_family_scoped_anchor_selector():
 
     spec = glyphs["qsFollow"].contract_entry_after
     assert spec is not None
-    assert spec.targets == ("qsLead", "qsLead.exit-baseline")
-    assert glyphs["qsFollow.entry-contracted"].after == ("qsLead", "qsLead.exit-baseline")
+    assert spec.targets == ("qsLead", "qsLead.ex-y0")
+    assert glyphs["qsFollow.en-con-1"].after == ("qsLead", "qsLead.ex-y0")
 
 
 def test_contract_exit_before_targets_accept_family_scoped_anchor_selector():
@@ -682,7 +680,7 @@ def test_contract_exit_before_targets_accept_family_scoped_anchor_selector():
                         "entry_high": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 2]},
-                            "modifiers": ["entry-high"],
+                            "modifiers": ["en-high"],
                         },
                     },
                 },
@@ -695,8 +693,8 @@ def test_contract_exit_before_targets_accept_family_scoped_anchor_selector():
 
     spec = glyphs["qsLead"].contract_exit_before
     assert spec is not None
-    assert spec.targets == ("qsFollow", "qsFollow.entry-high")
-    assert glyphs["qsLead.exit-contracted"].before == ("qsFollow", "qsFollow.entry-high")
+    assert spec.targets == ("qsFollow", "qsFollow.en-high")
+    assert glyphs["qsLead.ex-con-1"].before == ("qsFollow", "qsFollow.en-high")
 
 
 def test_extend_exit_before_targets_accept_bare_anchor_selector_with_except():
@@ -745,8 +743,8 @@ def test_extend_exit_before_targets_accept_bare_anchor_selector_with_except():
     assert len(rules) == 1
     assert "qsFollow" in rules[0].targets
     assert "qsExempt" not in rules[0].targets
-    assert "qsFollow" in glyphs["qsLead.exit-extended"].before
-    assert "qsExempt" not in glyphs["qsLead.exit-extended"].before
+    assert "qsFollow" in glyphs["qsLead.ex-ext-1"].before
+    assert "qsExempt" not in glyphs["qsLead.ex-ext-1"].before
 
 
 def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
@@ -779,12 +777,12 @@ def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
 
     expanded, _ = expand_join_transforms(glyphs, has_zwnj=False)
 
-    assert "qsFollow.entry-doubly-contracted" in expanded
-    contracted = expanded["qsFollow.entry-doubly-contracted"]
+    assert "qsFollow.en-con-2" in expanded
+    contracted = expanded["qsFollow.en-con-2"]
     assert contracted.entry == ((2, 0),)
     assert contracted.bitmap == (" ##  ",)
     assert contracted.after == ("qsLead",)
-    assert contracted.transform_kind == "entry-doubly-contracted"
+    assert contracted.transform_kind == "en-con-2"
 
 
 def test_senior_feature_emitter_includes_join_and_gate_features():
@@ -807,7 +805,7 @@ def test_coalesce_consecutive_ignore_rules_groups_unmarked_context_glyphs():
         "    lookup calt_sample {",
         "        ignore sub qsA qsTarget' @entry_y5;",
         "        ignore sub qsB qsTarget' @entry_y5;",
-        "        sub qsTarget' @entry_y5 by qsTarget.exit-xheight;",
+        "        sub qsTarget' @entry_y5 by qsTarget.ex-y5;",
         "        ignore sub qsC qsOther' @entry_y0;",
         "        ignore sub qsD qsOther' @entry_y0;",
         "    } calt_sample;",
@@ -816,7 +814,7 @@ def test_coalesce_consecutive_ignore_rules_groups_unmarked_context_glyphs():
     assert _coalesce_consecutive_ignore_rules(lines) == [
         "    lookup calt_sample {",
         "        ignore sub [qsA qsB] qsTarget' @entry_y5;",
-        "        sub qsTarget' @entry_y5 by qsTarget.exit-xheight;",
+        "        sub qsTarget' @entry_y5 by qsTarget.ex-y5;",
         "        ignore sub [qsC qsD] qsOther' @entry_y0;",
         "    } calt_sample;",
     ]
@@ -844,13 +842,13 @@ def test_coalesce_consecutive_ignore_rules_keeps_unparsed_lines_as_barriers():
 def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
     assert _format_post_liga_cleanup_rules(
         [
-            ("qsLigOne", "qsRight.entry-xheight", "qsRight"),
-            ("qsLigTwo", "qsRight.entry-xheight", "qsRight"),
-            ("qsLigTwo", "qsOther.entry-baseline", "qsOther"),
+            ("qsLigOne", "qsRight.en-y5", "qsRight"),
+            ("qsLigTwo", "qsRight.en-y5", "qsRight"),
+            ("qsLigTwo", "qsOther.en-y0", "qsOther"),
         ]
     ) == [
-        "        sub [qsLigOne qsLigTwo] qsRight.entry-xheight' by qsRight;",
-        "        sub qsLigTwo qsOther.entry-baseline' by qsOther;",
+        "        sub [qsLigOne qsLigTwo] qsRight.en-y5' by qsRight;",
+        "        sub qsLigTwo qsOther.en-y0' by qsOther;",
     ]
 
 
@@ -888,33 +886,32 @@ def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_cl
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    start = fea.index("lookup calt_pair_qsPea_entry-xheight_exit-baseline {")
-    end = fea.index("} calt_pair_qsPea_entry-xheight_exit-baseline;", start)
+    start = fea.index("lookup calt_pair_qsPea_en-y5_ex-y0 {")
+    end = fea.index("} calt_pair_qsPea_en-y5_ex-y0;", start)
     block = fea[start:end]
 
     sub_line = next(
         line
         for line in block.splitlines()
-        if line.strip().startswith("sub [")
-        and line.rstrip().endswith("by qsPea.entry-xheight.exit-baseline;")
+        if line.strip().startswith("sub [") and line.rstrip().endswith("by qsPea.en-y5.ex-y0;")
     )
     after_class = sub_line[sub_line.index("[") + 1 : sub_line.index("]")]
     after_glyphs = set(after_class.split())
 
     assert {
         "qsMay",
-        "qsMay.entry-baseline.exit-xheight",
-        "qsMay.entry-baseline.exit-xheight.entry-extended",
-        "qsMay.exit-extended",
+        "qsMay.en-y0.ex-y5",
+        "qsMay.en-y0.ex-y5.en-ext-1",
+        "qsMay.ex-ext-1",
     } <= after_glyphs
     assert not (
         {
-            "qsMay.entry-xheight",
-            "qsMay.entry-xheight.after-fee",
-            "qsMay.entry-xheight.after-fee.entry-extended",
-            "qsMay.entry-xheight.after-i",
-            "qsMay.entry-xheight.after-i.entry-extended",
-            "qsMay.entry-xheight.entry-extended",
+            "qsMay.en-y5",
+            "qsMay.en-y5.after-fee",
+            "qsMay.en-y5.after-fee.en-ext-1",
+            "qsMay.en-y5.after-i",
+            "qsMay.en-y5.after-i.en-ext-1",
+            "qsMay.en-y5.en-ext-1",
         }
         & after_glyphs
     )
@@ -927,12 +924,12 @@ def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    pair_lookup = "lookup calt_pair_qsOwe_entry-xheight_entry-extended {"
-    upgrade_lookup = "lookup calt_upgrade_qsOwe_entry-xheight_exit-xheight_entry-extended {"
+    pair_lookup = "lookup calt_pair_qsOwe_en-y5_en-ext-1 {"
+    upgrade_lookup = "lookup calt_upgrade_qsOwe_en-y5_ex-y5_en-ext-1 {"
 
     assert pair_lookup in fea
     assert upgrade_lookup in fea
-    assert "lookup calt_pair_qsOwe_entry-xheight_exit-xheight_entry-extended {" not in fea
+    assert "lookup calt_pair_qsOwe_en-y5_ex-y5_en-ext-1 {" not in fea
     assert fea.index(pair_lookup) < fea.index(upgrade_lookup)
 
 
@@ -943,9 +940,7 @@ def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extend
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert fea.index("lookup calt_fwd_pair_qsThaw_exit-baseline {") < fea.index(
-        "lookup calt_pair_qsIng_entry-extended {"
-    )
+    assert fea.index("lookup calt_fwd_pair_qsThaw_ex-y0 {") < fea.index("lookup calt_pair_qsIng_en-ext-1 {")
 
 
 def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
@@ -955,20 +950,18 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert "sub qsIt.entry-xheight.exit-baseline' [qsCheer" not in fea
-    assert "sub qsIt.entry-xheight.exit-baseline.entry-extended' [qsCheer" not in fea
+    assert "sub qsIt.en-y5.ex-y0' [qsCheer" not in fea
+    assert "sub qsIt.en-y5.ex-y0.en-ext-1' [qsCheer" not in fea
     for line in fea.splitlines():
-        if "by qsIt.entry-xheight.exit-baseline.exit-extended;" in line:
+        if "by qsIt.en-y5.ex-y0.ex-ext-1;" in line:
             assert "qsCheer" not in line
 
     upgrade_lines = [
-        line
-        for line in fea.splitlines()
-        if "sub qsIt'" in line and "by qsIt.exit-xheight.exit-extended;" in line
+        line for line in fea.splitlines() if "sub qsIt'" in line and "by qsIt.ex-y5.ex-ext-1;" in line
     ]
-    assert upgrade_lines, "expected qsIt -> qsIt.exit-xheight.exit-extended upgrade substitution"
+    assert upgrade_lines, "expected qsIt -> qsIt.ex-y5.ex-ext-1 upgrade substitution"
     assert any(
-        "qsCheer" in line and "qsCheer.entry-extended" in line and "qsCheer.noentry" in line
+        "qsCheer" in line and "qsCheer.en-ext-1" in line and "qsCheer.noentry" in line
         for line in upgrade_lines
     )
 
@@ -998,7 +991,7 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
                             "anchors": {
                                 "exit": [1, 0],
                             },
-                            "modifiers": ["exit-baseline"],
+                            "modifiers": ["ex-y0"],
                         },
                     },
                 },
@@ -1018,7 +1011,7 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
                             "select": {
                                 "before": [{"family": "qsRight"}],
                             },
-                            "modifiers": ["exit-baseline"],
+                            "modifiers": ["ex-y0"],
                         },
                     },
                 },
@@ -1040,8 +1033,8 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
     fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
     assert fea is not None
 
-    assert "ignore sub qsLeft' [qsMid qsMid.exit-baseline] qsRight;" in fea
-    assert "ignore sub qsLeft.noentry' [qsMid qsMid.exit-baseline] qsRight;" in fea
+    assert "ignore sub qsLeft' [qsMid qsMid.ex-y0] qsRight;" in fea
+    assert "ignore sub qsLeft.noentry' [qsMid qsMid.ex-y0] qsRight;" in fea
 
 
 def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
@@ -1376,11 +1369,11 @@ def test_expand_selectors_skips_noentry_and_extended_ligature_records():
             is_noentry=True,
             entry=((0, 0),),
         ),
-        "qsA_qsB.entry-extended": _make_join_glyph(
-            "qsA_qsB.entry-extended",
+        "qsA_qsB.en-ext-1": _make_join_glyph(
+            "qsA_qsB.en-ext-1",
             base_name="qsA_qsB",
             sequence=("qsA", "qsB"),
-            extended_entry_suffix="entry-extended",
+            extended_entry_suffix="en-ext-1",
             entry=((0, 0),),
         ),
     }
@@ -1422,8 +1415,8 @@ def test_expand_selectors_adds_ligature_variants_to_trailing_after():
         "qsA": _make_join_glyph("qsA"),
         "qsB": _make_join_glyph("qsB"),
         "qsA_qsB": _make_join_glyph("qsA_qsB", sequence=("qsA", "qsB"), exit=((2, 0),)),
-        "qsA_qsB.exit-extended": _make_join_glyph(
-            "qsA_qsB.exit-extended",
+        "qsA_qsB.ex-ext-1": _make_join_glyph(
+            "qsA_qsB.ex-ext-1",
             base_name="qsA_qsB",
             sequence=("qsA", "qsB"),
             exit=((3, 0),),
@@ -1433,7 +1426,7 @@ def test_expand_selectors_adds_ligature_variants_to_trailing_after():
     expanded = expand_selectors_for_ligatures(metadata)
 
     assert "qsA_qsB" in expanded["qsRight"].after
-    assert "qsA_qsB.exit-extended" in expanded["qsRight"].after
+    assert "qsA_qsB.ex-ext-1" in expanded["qsRight"].after
 
 
 def test_expand_selectors_skips_ligature_glyph_when_anchor_y_does_not_match():
@@ -1453,7 +1446,7 @@ def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
     data = load_glyph_data(ROOT / "glyph_data")
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    record = join_glyphs["qsIt.entry-baseline.exit-baseline.before-utter"]
+    record = join_glyphs["qsIt.en-y0.ex-y0.before-utter"]
     assert "qsUtter" in record.before
     assert "qsDay" in record.before
 
@@ -1729,7 +1722,7 @@ def test_select_before_and_not_before_cannot_share_family():
                         "before": [{"family": "qsRight"}],
                         "not_before": [{"family": "qsRight"}],
                     },
-                    "modifiers": ["exit-baseline"],
+                    "modifiers": ["ex-y0"],
                 },
             },
         },
@@ -1762,7 +1755,7 @@ def test_select_after_and_not_after_cannot_share_family():
                         "after": [{"family": "qsLeft"}],
                         "not_after": [{"family": "qsLeft"}],
                     },
-                    "modifiers": ["entry-baseline"],
+                    "modifiers": ["en-y0"],
                 },
             },
         },
@@ -1789,7 +1782,7 @@ def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_fami
                         "before": [{"family": "qsRight"}],
                         "not_before": [{"entry_y": 0, "except": [{"family": "qsRight"}]}],
                     },
-                    "modifiers": ["exit-baseline"],
+                    "modifiers": ["ex-y0"],
                 },
             },
         },
@@ -1803,7 +1796,7 @@ def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_fami
     }
 
     compiled = compile_glyph_families(families, "senior")
-    assert "qsLeft.exit-baseline" in compiled
+    assert "qsLeft.ex-y0" in compiled
 
 
 def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
@@ -1822,12 +1815,12 @@ def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                     "exit_baseline": {
                         "shape": "prop",
                         "anchors": {"exit": [1, 0]},
-                        "modifiers": ["exit-baseline"],
+                        "modifiers": ["ex-y0"],
                     },
                 },
             },
@@ -1838,7 +1831,7 @@ def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
                         "select": {"after": [{"family": "qsLeft", "exit_y": 5}]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -1847,7 +1840,7 @@ def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsRight.entry-xheight"].after == ("qsLeft",)
+    assert join_glyphs["qsRight.en-y5"].after == ("qsLeft",)
 
 
 def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
@@ -1894,7 +1887,7 @@ def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
                                 }
                             ]
                         },
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -1903,9 +1896,9 @@ def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsRight.entry-xheight"].after == (
-        "qsLeft.alt.exit-xheight",
-        "qsLeft.alt.exit-xheight.before-right",
+    assert join_glyphs["qsRight.en-y5"].after == (
+        "qsLeft.alt.ex-y5",
+        "qsLeft.alt.ex-y5.before-right",
     )
 
 
@@ -1923,7 +1916,7 @@ def test_family_scoped_anchor_selector_mirrors_ligature_family_expansion():
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
                         "select": {"after": [{"family": "qsA", "exit_y": 0}]},
-                        "modifiers": ["entry-baseline"],
+                        "modifiers": ["en-y0"],
                     },
                 },
             },
@@ -1948,7 +1941,7 @@ def test_family_scoped_anchor_selector_mirrors_ligature_family_expansion():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsRight.entry-baseline"].after == ("qsA", "qsA_qsB", "qsB")
+    assert join_glyphs["qsRight.en-y0"].after == ("qsA", "qsA_qsB", "qsB")
 
 
 def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
@@ -1965,7 +1958,7 @@ def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
                         "select": {"after": [{"family": "qsA", "exit_y": 5}]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -1990,7 +1983,7 @@ def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsRight.entry-xheight"].after == ()
+    assert join_glyphs["qsRight.en-y5"].after == ()
 
 
 def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
@@ -2007,7 +2000,7 @@ def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
                         "shape": "prop",
                         "anchors": {"exit": [1, 0]},
                         "select": {"before": [{"family": "qsRight", "entry_y": 0}]},
-                        "modifiers": ["exit-baseline"],
+                        "modifiers": ["ex-y0"],
                     },
                 },
             },
@@ -2017,7 +2010,7 @@ def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
                     "entry_baseline": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
-                        "modifiers": ["entry-baseline"],
+                        "modifiers": ["en-y0"],
                     },
                 },
             },
@@ -2026,9 +2019,9 @@ def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsLeft.exit-baseline"].before == (
+    assert join_glyphs["qsLeft.ex-y0"].before == (
         "qsRight",
-        "qsRight.entry-baseline",
+        "qsRight.en-y0",
     )
 
 
@@ -2045,7 +2038,7 @@ def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
                     "exit_baseline": {
                         "shape": "prop",
                         "anchors": {"exit": [1, 0]},
-                        "modifiers": ["exit-baseline"],
+                        "modifiers": ["ex-y0"],
                     },
                 },
             },
@@ -2056,7 +2049,7 @@ def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
                         "select": {"after": [{"family": "qsLeft", "exit_y": 0}]},
-                        "modifiers": ["entry-baseline"],
+                        "modifiers": ["en-y0"],
                     },
                 },
             },
@@ -2065,9 +2058,9 @@ def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
 
     join_glyphs, _ = compile_quikscript_ir(data, "senior")
 
-    assert join_glyphs["qsRight.entry-baseline"].after == (
+    assert join_glyphs["qsRight.en-y0"].after == (
         "qsLeft",
-        "qsLeft.exit-baseline",
+        "qsLeft.ex-y0",
     )
 
 
@@ -2083,7 +2076,7 @@ def test_family_scoped_anchor_selector_rejects_invalid_y():
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
                     "select": {"after": [{"family": "qsLeft", "exit_y": "5"}]},
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
             },
         },
@@ -2104,7 +2097,7 @@ def test_family_scoped_anchor_selector_rejects_unknown_family():
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
                     "select": {"after": [{"family": "qsMissing", "exit_y": 5}]},
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
             },
         },
@@ -2134,7 +2127,7 @@ def test_family_scoped_anchor_selector_rejects_invalid_trait():
                             }
                         ]
                     },
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
             },
         },
@@ -2156,7 +2149,7 @@ def test_family_scoped_anchor_selector_rejects_both_anchor_sides():
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
                     "select": {"after": [{"family": "qsLeft", "exit_y": 5, "entry_y": 5}]},
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
             },
         },
@@ -2178,7 +2171,7 @@ def test_family_scoped_anchor_selector_collides_with_negative_family_selector():
                         "before": [{"family": "qsRight", "entry_y": 0}],
                         "not_before": [{"family": "qsRight"}],
                     },
-                    "modifiers": ["exit-baseline"],
+                    "modifiers": ["ex-y0"],
                 },
             },
         },
@@ -2218,12 +2211,12 @@ def _scoped_selector_suggester_fixture(
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
                 "exit_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [1, 0]},
-                    "modifiers": ["exit-baseline"],
+                    "modifiers": ["ex-y0"],
                 },
             },
         },
@@ -2234,7 +2227,7 @@ def _scoped_selector_suggester_fixture(
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
                     "select": {"after": [selector]},
-                    "modifiers": ["entry-xheight"],
+                    "modifiers": ["en-y5"],
                 },
             },
         },
@@ -2266,13 +2259,13 @@ def test_scoped_anchor_suggester_reports_overbroad_family_selector():
     assert suggestion.current == "{family: qsLeft}"
     assert suggestion.suggested == "{family: qsLeft, exit_y: 5}"
     assert suggestion.compatible == ("qsLeft",)
-    assert "qsLeft.entry-xheight" in suggestion.incompatible
+    assert "qsLeft.en-y5" in suggestion.incompatible
     assert suggestion.family_name == "qsRight"
     assert suggestion.record_name == "entry_xheight"
     assert suggestion.record_kind == "forms"
     assert suggestion.field_name == "after"
     assert suggestion.selector_index == 0
-    assert suggestion.selected_name == "qsRight.entry-xheight"
+    assert suggestion.selected_name == "qsRight.en-y5"
     assert suggestion.target_family == "qsLeft"
     assert suggestion.anchor_key == "exit_y"
     assert suggestion.required_y == 5
@@ -2290,7 +2283,7 @@ def test_scoped_anchor_reviewer_applies_suggestion_to_copy_only():
     assert patched_selector == {"family": "qsLeft", "exit_y": 5}
 
     join_glyphs, _ = compile_quikscript_ir(patched, "senior")
-    assert join_glyphs["qsRight.entry-xheight"].after == ("qsLeft",)
+    assert join_glyphs["qsRight.en-y5"].after == ("qsLeft",)
 
 
 def _scoped_selector_review_fixture(selector) -> GlyphData:
@@ -2339,7 +2332,7 @@ def test_variant_example_finder_prefers_exact_suggestion_context(tmp_path):
     assert example.label == "Reviewed context"
     assert "reviewed selector context" in example.title
     assert example.families == ("qsMay", "qsPea")
-    assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
+    assert example.glyphs == ("qsMay", "qsPea.en-y5")
 
 
 def test_variant_example_finder_falls_back_to_variant_only_context(tmp_path):
@@ -2347,13 +2340,13 @@ def test_variant_example_finder_falls_back_to_variant_only_context(tmp_path):
     suggestion = suggest_scoped_anchor_selectors(data)[0]
     finder, _ = _variant_example_finder(data, tmp_path)
 
-    example = finder.find(suggestion, "qsPea.entry-xheight")
+    example = finder.find(suggestion, "qsPea.en-y5")
 
     assert example.status == "variant"
     assert example.label == "Glyph-only example\n(different position)"
     assert "not next to this qsMay glyph in the reviewed position" in example.title
     assert example.families == ("qsMay", "qsPea")
-    assert example.glyphs == ("qsMay", "qsPea.entry-xheight")
+    assert example.glyphs == ("qsMay", "qsPea.en-y5")
 
 
 def test_variant_example_finder_explains_elsewhere_example_without_source_family():
@@ -2366,12 +2359,12 @@ def test_variant_example_finder_explains_elsewhere_example_without_source_family
         status="variant",
         label="Glyph-only example",
         families=("qsMay", "qsThey", "qsUtter"),
-        glyphs=("qsMay.entry-baseline.exit-xheight.exit-noentry", "qsThey_qsUtter.noentry"),
+        glyphs=("qsMay.en-y0.ex-y5.ex-noentry", "qsThey_qsUtter.noentry"),
     )
 
     annotated = finder._with_variant_only_context(
         suggestion,
-        "qsMay.entry-baseline.exit-xheight.exit-noentry",
+        "qsMay.en-y0.ex-y5.ex-noentry",
         example,
     )
 
@@ -2391,19 +2384,19 @@ def test_variant_example_finder_explains_elsewhere_example_with_other_source_for
         families=("qsPea", "qsMay", "qsThey", "qsUtter"),
         glyphs=(
             "qsPea",
-            "qsMay.entry-baseline.exit-xheight.exit-noentry.entry-extended",
+            "qsMay.en-y0.ex-y5.ex-noentry.en-ext-1",
             "qsThey_qsUtter.noentry",
         ),
     )
 
     annotated = finder._with_variant_only_context(
         suggestion,
-        "qsMay.entry-baseline.exit-xheight.exit-noentry.entry-extended",
+        "qsMay.en-y0.ex-y5.ex-noentry.en-ext-1",
         example,
     )
 
     assert annotated.label == "Glyph-only example\n(different ·Pea form)"
-    assert "not qsPea.entry-xheight" in annotated.title
+    assert "not qsPea.en-y5" in annotated.title
 
 
 def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
@@ -2491,7 +2484,7 @@ def test_scoped_anchor_suggester_skips_all_compatible_family_selector():
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
                         "select": {"after": [{"family": "qsLeft"}]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -2558,7 +2551,7 @@ def test_inherit_ligature_entry_from_entry_xheight_form():
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [1, 5], "exit": [3, 0]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -2585,7 +2578,7 @@ def test_no_inheritance_when_entry_xheight_is_after_restricted():
                         "shape": "prop",
                         "anchors": {"entry": [1, 5], "exit": [3, 0]},
                         "select": {"after": [{"family": "qsFollow"}]},
-                        "modifiers": ["entry-xheight"],
+                        "modifiers": ["en-y5"],
                     },
                 },
             },
@@ -2682,7 +2675,7 @@ def test_bitmap_misalignment_blocks_inheritance():
 
 
 def test_inheritance_skipped_in_junior_variant():
-    # Junior has no contextual entry-xheight forms compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
+    # Junior has no contextual en-y5 forms compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
     import warnings as _warnings
 
     with _warnings.catch_warnings():

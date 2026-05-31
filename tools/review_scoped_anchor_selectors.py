@@ -743,7 +743,7 @@ def _family_labels_html(
 def _glyph_name_html(name: str) -> str:
     """Escape ``name`` and bias soft line breaks to its periods.
 
-    Browsers break after hyphens by default, so names like ``qsMay.entry-xheight.after-fee`` wrap as ``qsMay.entry-`` / ``xheight.after-`` / ``fee``. Wrapping each period-separated chunk in a no-wrap span and adding a ``<wbr>`` after each period flips the preference to break at the periods. The copied text content is unchanged (``<wbr>`` and ``<span>`` contribute nothing extra to plain-text selection).
+    Browsers break after hyphens by default, so names like ``qsMay.en-y5.after-fee`` wrap as ``qsMay.entry-`` / ``xheight.after-`` / ``fee``. Wrapping each period-separated chunk in a no-wrap span and adding a ``<wbr>`` after each period flips the preference to break at the periods. The copied text content is unchanged (``<wbr>`` and ``<span>`` contribute nothing extra to plain-text selection).
     """
     parts = [html.escape(part) for part in name.split(".")]
     if len(parts) == 1:

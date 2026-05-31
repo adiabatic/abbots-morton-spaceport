@@ -372,10 +372,10 @@ def test_generated_forward_variant_covers_backward_selection():
         y_offset=5,
     )
     qs_pea_before_tea = _make_glyph(
-        name="qsPea.exit-contracted",
+        name="qsPea.ex-con-1",
         base_name="qsPea",
         family="qsPea",
-        modifiers=("exit-contracted",),
+        modifiers=("ex-con-1",),
         exit=((2, 5),),
         before=("qsTea",),
         bitmap=("###",),
@@ -396,7 +396,7 @@ def test_generated_forward_variant_covers_backward_selection():
     warnings = collect_join_warnings(
         {
             "qsPea": qs_pea,
-            "qsPea.exit-contracted": qs_pea_before_tea,
+            "qsPea.ex-con-1": qs_pea_before_tea,
             "qsTea.after-pea": qs_tea_after_pea,
         }
     )
@@ -516,10 +516,10 @@ def test_backward_intent_warns_when_right_family_has_noentry_after():
         noentry_after=("qsHe",),
     )
     qs_cheer_after_he_half = _make_glyph(
-        name="qsCheer.entry-extended",
+        name="qsCheer.en-ext-1",
         base_name="qsCheer",
         family="qsCheer",
-        modifiers=("entry-extended",),
+        modifiers=("en-ext-1",),
         entry=((1, 5),),
         after=("qsHe.half",),
         bitmap=("#",),
@@ -531,14 +531,14 @@ def test_backward_intent_warns_when_right_family_has_noentry_after():
         {
             "qsHe.half": qs_he_half,
             "qsCheer": qs_cheer,
-            "qsCheer.entry-extended": qs_cheer_after_he_half,
+            "qsCheer.en-ext-1": qs_cheer_after_he_half,
         }
     )
 
     assert any(
         warning
         == (
-            "join-selection-one-sided: qsCheer.entry-extended enters y=5 after qsHe, "
+            "join-selection-one-sided: qsCheer.en-ext-1 enters y=5 after qsHe, "
             "but qsHe has no matching before-selector for qsCheer at y=5"
         )
         for warning in warnings
@@ -609,10 +609,10 @@ def test_bitmap_gap_uses_pair_specific_generated_replacement():
         y_offset=5,
     )
     qs_pea_contracted = _make_glyph(
-        name="qsPea.exit-contracted",
+        name="qsPea.ex-con-1",
         base_name="qsPea",
         family="qsPea",
-        modifiers=("exit-contracted",),
+        modifiers=("ex-con-1",),
         exit=((1, 5),),
         before=("qsTea",),
         bitmap=("#",),
@@ -633,7 +633,7 @@ def test_bitmap_gap_uses_pair_specific_generated_replacement():
     warnings = collect_join_warnings(
         {
             "qsPea": qs_pea,
-            "qsPea.exit-contracted": qs_pea_contracted,
+            "qsPea.ex-con-1": qs_pea_contracted,
             "qsTea.after-pea": qs_tea_after_pea,
         }
     )
@@ -698,10 +698,10 @@ def test_bitmap_gap_uses_exit_ink_y_hint():
         y_offset=5,
     )
     qs_roe_after_pea = _make_glyph(
-        name="qsRoe.entry-xheight",
+        name="qsRoe.en-y5",
         base_name="qsRoe",
         family="qsRoe",
-        modifiers=("entry-xheight",),
+        modifiers=("en-y5",),
         entry=((1, 5),),
         after=("qsPea.half",),
         bitmap=("#",),
@@ -711,7 +711,7 @@ def test_bitmap_gap_uses_exit_ink_y_hint():
     warnings = collect_join_warnings(
         {
             "qsPea.half": qs_pea_half,
-            "qsRoe.entry-xheight": qs_roe_after_pea,
+            "qsRoe.en-y5": qs_roe_after_pea,
         }
     )
 
@@ -869,7 +869,7 @@ def test_real_join_warning_collector_is_clean():
 
 
 def test_default_default_pair_warns_on_bitmap_gap():
-    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.entry-xheight.exit-baseline pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits right at the entry anchor."""
+    """Two families with no explicit `before:` / `after:` selectors but with matching exit / entry Ys must still be checked for bitmap gaps. Before the default-default sweep landed, this case slipped through silently because no pair-intent key referenced it. The synthetic shapes mirror the real qsHe.half → qsJai.en-y5.ex-y0 pair: a left exit with the anchor two columns past its rightmost ink, and a right bitmap whose leftmost ink sits right at the entry anchor."""
     qs_left = _make_glyph(
         name="qsLeft",
         base_name="qsLeft",
@@ -1036,10 +1036,10 @@ def test_concrete_after_selector_rejects_member_missing_required_exit():
         entry=((0, 0),),
     )
     qs_pea_entry_both_after_may = _make_glyph(
-        name="qsPea.entry-both-after-may",
+        name="qsPea.en-both-after-may",
         base_name="qsPea",
         family="qsPea",
-        modifiers=("entry-both-after-may",),
+        modifiers=("en-both-after-may",),
         entry=((0, 0), (0, 5)),
         after=("qsMay",),
     )
@@ -1051,13 +1051,13 @@ def test_concrete_after_selector_rejects_member_missing_required_exit():
                 "qsMay.after-other": qs_may_after_other,
                 "qsOther": qs_other,
                 "qsPea": qs_pea,
-                "qsPea.entry-both-after-may": qs_pea_entry_both_after_may,
+                "qsPea.en-both-after-may": qs_pea_entry_both_after_may,
             }
         )
 
     message = str(exc_info.value)
     assert "concrete-selector-mismatch" in message
-    assert "qsPea.entry-both-after-may enters y=5 after qsMay" in message
+    assert "qsPea.en-both-after-may enters y=5 after qsMay" in message
     assert "selector qsMay expands to qsMay with no y=5 exit" in message
 
 
@@ -1127,10 +1127,10 @@ def test_concrete_selector_allows_unexpanded_incompatible_sibling():
         entry=((0, 5),),
     )
     qs_may_entry_baseline = _make_glyph(
-        name="qsMay.entry-baseline.exit-xheight",
+        name="qsMay.en-y0.ex-y5",
         base_name="qsMay",
         family="qsMay",
-        modifiers=("entry-baseline",),
+        modifiers=("en-y0",),
         entry=((0, 0),),
         is_entry_variant=True,
     )
@@ -1140,7 +1140,7 @@ def test_concrete_selector_allows_unexpanded_incompatible_sibling():
             "qsPea": qs_pea,
             "qsPea.before-may": qs_pea_before_may,
             "qsMay": qs_may,
-            "qsMay.entry-baseline.exit-xheight": qs_may_entry_baseline,
+            "qsMay.en-y0.ex-y5": qs_may_entry_baseline,
         }
     )
 
@@ -1288,7 +1288,7 @@ def test_ss_gated_swap_adds_a_mismatch():
 def test_regression_075d485_fee_exits_xheight_before_utter():
     """075d485 — Fix ·Fee→·Utter and ·See→·At cursive connections.
 
-    Pre-fix: qsFee.exit-xheight declared ``before: qsUtter`` and exits at y=5, but qsUtter's only y=5 entry-bearing variant is a backward-pair override (``after: qsAh, qsTea``) that cannot select after qsFee. Modeled here as qsUtter having no y=5 entry at all — the validator is family-level and surfaces the same missing-y mismatch.
+    Pre-fix: qsFee.ex-y5 declared ``before: qsUtter`` and exits at y=5, but qsUtter's only y=5 entry-bearing variant is a backward-pair override (``after: qsAh, qsTea``) that cannot select after qsFee. Modeled here as qsUtter having no y=5 entry at all — the validator is family-level and surfaces the same missing-y mismatch.
     """
     qs_fee = _make_glyph(
         name="qsFee",
@@ -1297,10 +1297,10 @@ def test_regression_075d485_fee_exits_xheight_before_utter():
         exit=((4, 0),),
     )
     qs_fee_exit_xheight = _make_glyph(
-        name="qsFee.exit-xheight",
+        name="qsFee.ex-y5",
         base_name="qsFee",
         family="qsFee",
-        modifiers=("exit-xheight",),
+        modifiers=("ex-y5",),
         exit=((4, 5),),
         before=("qsUtter",),
     )
@@ -1316,12 +1316,12 @@ def test_regression_075d485_fee_exits_xheight_before_utter():
         _validate_synthetic(
             {
                 "qsFee": qs_fee,
-                "qsFee.exit-xheight": qs_fee_exit_xheight,
+                "qsFee.ex-y5": qs_fee_exit_xheight,
                 "qsUtter": qs_utter,
             }
         )
     message = str(exc_info.value)
-    assert "qsFee.exit-xheight" in message
+    assert "qsFee.ex-y5" in message
     assert "qsUtter" in message
     assert "y=5" in message
 
@@ -1379,7 +1379,7 @@ def test_regression_8c7c486_no_alt_after_it_and_vie_overreaches():
 def test_regression_d641641_tea_x_must_not_pick_joining_x():
     """d641641 — ·Tea·X shouldn't pick a joining X when they don't join anyway.
 
-    Pre-fix (FEA-only): qsTea.exit-baseline could preselect an X variant that, after later substitutions, no longer carried the matching y=0 entry. Fixture: qsTea.exit-baseline exits y=0 listing ``before: qsExample``, but qsExample's only variant has ``noentry_after: [qsTea]``, so the entry is stripped specifically when qsTea is the predecessor — no reachable y=0 entry remains.
+    Pre-fix (FEA-only): qsTea.ex-y0 could preselect an X variant that, after later substitutions, no longer carried the matching y=0 entry. Fixture: qsTea.ex-y0 exits y=0 listing ``before: qsExample``, but qsExample's only variant has ``noentry_after: [qsTea]``, so the entry is stripped specifically when qsTea is the predecessor — no reachable y=0 entry remains.
     """
     qs_tea = _make_glyph(
         name="qsTea",
@@ -1389,10 +1389,10 @@ def test_regression_d641641_tea_x_must_not_pick_joining_x():
         exit=((4, 5),),
     )
     qs_tea_exit_baseline = _make_glyph(
-        name="qsTea.exit-baseline",
+        name="qsTea.ex-y0",
         base_name="qsTea",
         family="qsTea",
-        modifiers=("exit-baseline",),
+        modifiers=("ex-y0",),
         entry=((0, 0),),
         exit=((4, 0),),
         before=("qsExample",),
@@ -1410,12 +1410,12 @@ def test_regression_d641641_tea_x_must_not_pick_joining_x():
         _validate_synthetic(
             {
                 "qsTea": qs_tea,
-                "qsTea.exit-baseline": qs_tea_exit_baseline,
+                "qsTea.ex-y0": qs_tea_exit_baseline,
                 "qsExample": qs_example,
             }
         )
     message = str(exc_info.value)
-    assert "qsTea.exit-baseline" in message
+    assert "qsTea.ex-y0" in message
     assert "qsExample" in message
     assert "y=0" in message
 
@@ -1479,7 +1479,7 @@ def test_regression_714a2d5_tea_oy_ligature_after_tea():
 def test_regression_77ca573_ing_before_may_thaw_ligature():
     """77ca573 — Have ·May·Thaw look right after ·-ing.
 
-    Pre-fix (FEA-only): forward calt on qsIng targeting the qsMay+qsThaw ligature didn't agree on entry height. Fixture: qsIng.exit-extended exits y=5 listing ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a y=0 entry — no y=5 entry on any reachable candidate.
+    Pre-fix (FEA-only): forward calt on qsIng targeting the qsMay+qsThaw ligature didn't agree on entry height. Fixture: qsIng.ex-ext-1 exits y=5 listing ``before: qsMay_qsThaw``, but the ·May+Thaw ligature has only a y=0 entry — no y=5 entry on any reachable candidate.
     """
     qs_ing = _make_glyph(
         name="qsIng",
@@ -1488,10 +1488,10 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
         exit=((4, 0),),
     )
     qs_ing_exit_extended = _make_glyph(
-        name="qsIng.exit-extended",
+        name="qsIng.ex-ext-1",
         base_name="qsIng",
         family="qsIng",
-        modifiers=("exit-extended",),
+        modifiers=("ex-ext-1",),
         exit=((4, 5),),
         before=("qsMay_qsThaw",),
     )
@@ -1520,26 +1520,26 @@ def test_regression_77ca573_ing_before_may_thaw_ligature():
         _validate_synthetic(
             {
                 "qsIng": qs_ing,
-                "qsIng.exit-extended": qs_ing_exit_extended,
+                "qsIng.ex-ext-1": qs_ing_exit_extended,
                 "qsMay": qs_may,
                 "qsThaw": qs_thaw,
                 "qsMay_qsThaw": qs_may_qs_thaw,
             }
         )
     message = str(exc_info.value)
-    assert "qsIng.exit-extended" in message
+    assert "qsIng.ex-ext-1" in message
     assert "qsMay_qsThaw" in message
     assert "y=5" in message
 
 
 def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
-    """·Gay·Tea·Ah is the motivating bug: qsGay's exit-baseline.exit-extended reaches at y=0 onto qsTea, whose forward upgrade to qsTea.exit-baseline strips the entry. The structural pass must emit a guard so the FEA emitter can suppress qsGay's substitution when the predecessor's connector arm would land on a stripped follower."""
+    """·Gay·Tea·Ah is the motivating bug: qsGay's ex-y0.ex-ext-1 reaches at y=0 onto qsTea, whose forward upgrade to qsTea.ex-y0 strips the entry. The structural pass must emit a guard so the FEA emitter can suppress qsGay's substitution when the predecessor's connector arm would land on a stripped follower."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    key = ("qsGay", "qsGay.exit-baseline.exit-extended", 0)
+    key = ("qsGay", "qsGay.ex-y0.ex-ext-1", 0)
     assert key in fwd_strip, sorted(fwd_strip)[:5]
     mid_bases = {guard.mid_base for guard in fwd_strip[key]}
     assert "qsTea" in mid_bases
@@ -1552,20 +1552,20 @@ def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    key = ("qsOut", "qsOut.entry-baseline.exit-xheight.exit-extended", 5)
+    key = ("qsOut", "qsOut.en-y0.ex-y5.ex-ext-1", 5)
     assert key in fwd_strip, sorted(fwd_strip)[:5]
     mid_bases = {guard.mid_base for guard in fwd_strip[key]}
     assert "qsFee" in mid_bases
 
 
 def test_derive_fwd_strip_guards_skips_qstea_qsit_at_xheight():
-    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to qsIt.exit-xheight (stripped) but its `bk_replacements[5]` upgrade to qsIt.entry-xheight.exit-baseline wins at runtime when qsTea's exit y=5 precedes. The plain `qsTea.half.exit-xheight` predecessor has no extended exit arm, so the structural pass should not emit a guard against qsIt for it."""
+    """·Tea·It·Et must keep joining at x-height: qsIt's forward upgrade is to qsIt.ex-y5 (stripped) but its `bk_replacements[5]` upgrade to qsIt.en-y5.ex-y0 wins at runtime when qsTea's exit y=5 precedes. The plain `qsTea.half.ex-y5` predecessor has no extended exit arm, so the structural pass should not emit a guard against qsIt for it."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 
     fwd_strip = derive_pending_fwd_strip_guards(reach)
 
-    key = ("qsTea", "qsTea.half.exit-xheight", 5)
+    key = ("qsTea", "qsTea.half.ex-y5", 5)
     mid_bases = {guard.mid_base for guard in fwd_strip.get(key, ())}
     assert "qsIt" not in mid_bases
 
