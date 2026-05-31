@@ -3,7 +3,6 @@ context_sets:
   - {family: qsI}
   - {family: qsAh, modifiers: [exit-extended]}
   - {family: qsUtter, modifiers: [exit-extended]}
-  # `_iter_related_extension_targets` propagates qsUtter's `extend_exit_before` onto every `qsX_qsUtter` ligature, so the ligatures pick up `.exit-extended` before qsBay/qsFee/qsGay/qsThey too. The followers' entry-xheight selectors need to recognize the ligature variant the same way they recognize qsUtter.exit-extended; otherwise the join silently breaks and the extension is just a cosmetic flourish (see ·See|·Utter·Bay isolation leak).
   - {family: qsDay_qsUtter, modifiers: [exit-extended]}
   - {family: qsJai_qsUtter, modifiers: [exit-extended]}
   - {family: qsJay_qsUtter, modifiers: [exit-extended]}
@@ -944,6 +943,8 @@ glyph_families:
   qsFee:
     notes: |
       No matter what, ·Fee cannot join both to and from at the x-height on the same letter.
+    ductus: |
+      Written clockwise from the top. Potentially exits at the x-height.
     mono:
       bitmap:
       - "  #  "
@@ -955,8 +956,6 @@ glyph_families:
       - "#   #"
       - "#   #"
       - " ### "  #
-      ductus: |
-        Written clockwise from the top. Potentially exits at the x-height.
     prop:
       shape: mono
     shapes:
@@ -1932,6 +1931,8 @@ glyph_families:
     notes: |
       - ·May can join to the preceding letter or subsequent letter at the baseline, but it can’t do both.
       - ·May can join to the preceding letter or subsequent letter at the x-height, but it can’t do both.
+    ductus: |
+      Written clockwise, starting from the leftmost pixel at the baseline, Then it continues right, loops around underneath the baseline, and then exits at the x-height on the right.
     mono:
       bitmap:
       - "   ##"  #
@@ -1944,8 +1945,6 @@ glyph_families:
       - " #  #"
       - "  ## "
       y_offset: -3
-      ductus: |
-        Written clockwise, starting from the leftmost pixel at the baseline, Then it continues right, loops around underneath the baseline, and then exits at the x-height on the right.
     prop:
       shape: mono
       anchors:
@@ -2101,6 +2100,8 @@ glyph_families:
           - family: qsOoze
         modifiers: [exit-baseline]
   qsNo:
+    ductus: |
+      Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
     mono:
       bitmap:
       - "#   #"  #
@@ -2109,8 +2110,6 @@ glyph_families:
       - " # # "
       - " # # "
       - "  #  "  #
-      ductus: |
-        Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
     prop:
       shape: mono
       anchors:
