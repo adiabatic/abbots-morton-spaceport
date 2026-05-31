@@ -1592,6 +1592,34 @@ def test_it_it_never_joins(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_he_owe_never_joins(before_first: str):
+    _assert_no_failures(
+        _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+            "qsHe",
+            "qsOwe",
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_ye_owe_never_joins(before_first: str):
+    _assert_no_failures(
+        _collect_pair_must_not_join_regardless_of_what_comes_before_or_after(
+            "qsYe",
+            "qsOwe",
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_it_owe_extends_by_one_pixel_when_joined(before_first: str):
     _assert_no_failures(
         _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
