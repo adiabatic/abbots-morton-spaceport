@@ -66,6 +66,14 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 - Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see @postscript_glyph_names.yaml). For ligatures, sort by the lead family's code point, with the bare lead before any ligature that starts with it.
 - When multiple Quikscript forms share the same selector or anchor scaffolding, prefer `inherits` over copying the whole form, and clear inherited nested keys with `null` when a child form needs to drop them.
 
+### Ductus
+
+`ductus` describes how a letter is drawn by hand (pen direction, stroke order, where the stroke enters and exits). It exists to clarify the strokes to readers — including agents — who aren't drawing the letters themselves. Keep it separate from `notes`, which records join *constraints* ("·Fee cannot join both to and from at the x-height on the same letter") rather than how-to-draw.
+
+- **Put the canonical `ductus` at the family level**, as a sibling of `mono` / `prop` / `shapes` / `forms` (see `qsIt`, `qsFee`, `qsMay`, `qsNo`). It describes the abstract stroke and so covers both `mono` and `prop` at once — even when their bitmaps differ (as with `qsPea` and `qsTea`), because the drawing motion is the same. Don't hang the default `ductus` off the `mono` record.
+- **When one bitmap supports several valid drawing orders** (e.g. `qsTea` is written top-to-bottom *or* bottom-to-top), keep them in the single family-level block scalar as `-` bullets rather than duplicating anything. See `qsIt`.
+- **Give a `shapes:` or `forms:` entry its own `ductus` only when it is genuinely drawn differently** from the family default (see `qsFee.shapes.connect_from_short_height` and `continues_stroke_from_top`, which loop the opposite way and enter at a different height). A variant's `ductus` **fully replaces** the family default for forms built on that shape, so write it as a complete stroke description, not a delta. A variant with no `ductus` inherits the family one.
+
 ### Formatting
 
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
