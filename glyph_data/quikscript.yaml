@@ -1740,7 +1740,7 @@ glyph_families:
         anchors:
           exit: [1, 5]
         select:
-          not_before: [{family: qsFee}, {family: qsYe}]
+          not_before: [{family: qsFee}, {family: qsYe}, {family: qsOwe}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}]}
         traits: [half]
