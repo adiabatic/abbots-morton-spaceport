@@ -748,6 +748,7 @@ glyph_families:
         anchors:
           exit: [4, 5]
         select:
+          before: [{family: qsOy}]
           not_before: [{family: qsEt}, {family: qsOwe}]
         derive:
           extend_exit_before:
@@ -1043,6 +1044,7 @@ glyph_families:
         anchors:
           exit: [5, 5]
         select:
+          before: [{family: qsOy}]
           not_before: [{family: qsTea}]
         modifiers: [ex-y5]
       exit_xheight_before_utter:
@@ -2297,6 +2299,7 @@ glyph_families:
           - {family: qsEight, entry_y: 5}
           - {family: qsAwe, entry_y: 5}
           - {family: qsOx, entry_y: 5}
+          - {family: qsOy}
         modifiers: [ex-y5]
   qsLoch:
     mono:
@@ -2932,7 +2935,7 @@ glyph_families:
           entry: [0, 5]
           exit: [5, 0]
         select:
-          after: [{family: qsNo, exit_y: 5}, {family: qsLow}]
+          after: [{family: qsGay, exit_y: 5}, {family: qsFee, modifiers: [ex-y5]}, {family: qsMay, exit_y: 5}, {family: qsNo, exit_y: 5}, {family: qsLow}, {family: qsRoe, exit_y: 5}, {family: qsI, exit_y: 5}, {family: qsAh, exit_y: 5}, {family: qsUtter, exit_y: 5}, {family: qsOut, exit_y: 5}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         modifiers: [en-y5]
@@ -3072,6 +3075,7 @@ glyph_families:
           entry: [0, 0]
           exit: [5, 5]
         select:
+          before: [{family: qsOy}]
           not_before: [{family: qsIt}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsFee}]}
