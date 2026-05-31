@@ -42,11 +42,11 @@ from test_join_ink import (
 
 _EXIT_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
     None: 0,
-    **{f".exit-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
+    **{f".ex-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
 }
 _ENTRY_EXTENSION_PIXELS_BY_SUFFIX: dict[str | None, int] = {
     None: 0,
-    **{f".entry-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
+    **{f".en-{word}": count for count, word in _EXTENSION_SUFFIX.items()},
 }
 _INTENTIONAL_QS_GAY_EXIT_EXTENSION_TARGETS = frozenset({"qsIt", "qsI", "qsExam"})
 
@@ -400,7 +400,7 @@ def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_be
 ) -> list[str]:
     """Flag every (left_base, right_base) pair whose joined extension width is not exactly ``pixels``, when surrounded by up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` characters on the right. ``max_chars_before`` and ``max_chars_after`` are maxima: each sweep covers every prefix/suffix length from 0 up to the supplied value. The iteration set is every plain Quikscript letter plus ZWNJ, so 45 entries per slot; with the default 1+1 surround that is (1 + 45) × (1 + 45) = 2116 shaped strings.
 
-    The extension between two joined letters is the sum of both sides: the left glyph can carry an ``.exit-<word>`` suffix from its family's ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right glyph can carry an ``.entry-<word>`` suffix from its family's ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel extension might come 2 from the left's ``.exit-doubly-extended`` and 1 from the right's ``.entry-extended``; any split that sums to ``pixels`` is fine.
+    The extension between two joined letters is the sum of both sides: the left glyph can carry an ``.exit-<word>`` suffix from its family's ``extend_exit_before`` (surfaced as ``extended_exit_suffix``), and the right glyph can carry an ``.entry-<word>`` suffix from its family's ``extend_entry_after`` (surfaced as ``extended_entry_suffix``). A 3-pixel extension might come 2 from the left's ``.ex-ext-2`` and 1 from the right's ``.en-ext-1``; any split that sums to ``pixels`` is fine.
 
     Pairs that do *not* join in the current context are skipped — the rule is conditional ("if they join at all, then their extension must be N pixels"). Use ``pixels=0`` to assert "if they join, neither side may carry an extension suffix".
 
@@ -591,11 +591,11 @@ def _collect_it_roe_join_only_at_cursive_join_row_failures(
 
     The qsIt·qsRoe pair has two acceptable shapes in Senior Quikscript:
 
-    - x-height join — qsIt.exit-xheight (a single column of ink) meets
-      qsRoe.entry-extended-at-xheight (top row widened to ``####``), with ink
+    - x-height join — qsIt.ex-y5 (a single column of ink) meets
+      qsRoe.en-ext-1-at-5 (top row widened to ``####``), with ink
       contact only at glyph-space y=5. ·Loch·It·Roe is the canonical example.
-    - baseline join — qsIt.entry-xheight.exit-baseline (single column, exit at y=0) meets
-      qsRoe.entry-extended-at-baseline (bottom row widened), with ink contact
+    - baseline join — qsIt.en-y5.ex-y0 (single column, exit at y=0) meets
+      qsRoe.en-ext-1-at-0 (bottom row widened), with ink contact
       only at y=0. ·Low·It·Roe is the canonical example.
 
     The rule policed here: when ·It·Roe cursive-attach in a surround, exactly one row of their bitmaps may have touching ink, and that row must equal the single cursive-join Y, which must itself be 0 or 5. Bare ``qsRoe`` (whose ``###`` top *and* bottom rows both brush a full-height ``qsIt`` column), cursive joins at unexpected Ys, multi-Y joins, and gaps at the join Y are all flagged.
@@ -945,7 +945,7 @@ def test_see_ooze_is_sensible():
     _assert_expect_any(
         _qs_text("qsSee", "qsOoze"),
         [
-            "·See.exit-baseline-right ~b~ ·Ooze",
+            "·See.ex-y0-right ~b~ ·Ooze",
         ],
     )
 
@@ -992,8 +992,8 @@ def test_may_it_see_low_is_sensible():
     _assert_expect_any(
         _qs_text("qsMay", "qsIt", "qsSee", "qsLow"),
         [
-            "·May.exit-extended ~x~ ·It ~b~ ·See  |  ·Low",
-            "·May.exit-extended ~x~ ·It  |  ·See ~b~ ·Low",
+            "·May.ex-ext-1 ~x~ ·It ~b~ ·See  |  ·Low",
+            "·May.ex-ext-1 ~x~ ·It  |  ·See ~b~ ·Low",
         ],
     )
 
@@ -1023,7 +1023,7 @@ def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]
 
 
 def test_owe_after_pea_keeps_right_exit_with_real_follower():
-    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.exit-xheight ~x~ ·No"])
+    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.ex-y5 ~x~ ·No"])
 
 
 def test_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
@@ -1040,15 +1040,15 @@ def test_owe_at_word_start_before_fee_has_no_left_anchor():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param(_qs_text("qsMay", "qsFee"), ["·May.exit-extended ~x~ ·Fee"], id="qsMay"),
-        pytest.param(_qs_text("qsNo", "qsFee"), ["·No.exit-extended ~x~ ·Fee"], id="qsNo"),
-        pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.exit-extended ~x~ ·Fee"], id="qsLow"),
-        pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.exit-extended ~x~ ·Fee"], id="qsAh"),
-        pytest.param(_qs_text("qsUtter", "qsFee"), ["·Utter.exit-extended ~x~ ·Fee"], id="qsUtter"),
+        pytest.param(_qs_text("qsMay", "qsFee"), ["·May.ex-ext-1 ~x~ ·Fee"], id="qsMay"),
+        pytest.param(_qs_text("qsNo", "qsFee"), ["·No.ex-ext-1 ~x~ ·Fee"], id="qsNo"),
+        pytest.param(_qs_text("qsLow", "qsFee"), ["·Low.ex-ext-1 ~x~ ·Fee"], id="qsLow"),
+        pytest.param(_qs_text("qsAh", "qsFee"), ["·Ah.ex-ext-1 ~x~ ·Fee"], id="qsAh"),
+        pytest.param(_qs_text("qsUtter", "qsFee"), ["·Utter.ex-ext-1 ~x~ ·Fee"], id="qsUtter"),
     ],
 )
 def test_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
-    """When a predecessor extends its exit before qsFee, qsFee must take its entry-xheight form so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.exit-extended) from late_contexts, so the qsFee.entry-xheight substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height."""
+    """When a predecessor extends its exit before qsFee, qsFee must take its en-y5 form so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.ex-ext-1) from late_contexts, so the qsFee.en-y5 substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height."""
     _assert_expect_any(text, expects)
 
 
@@ -1062,7 +1062,7 @@ def test_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[s
         ),
         pytest.param(
             _qs_text("qsOut", "qsFee", "qsCheer"),
-            ["·Out.∅ |?| ·Fee.exit-extended ~x~ ·Cheer"],
+            ["·Out.∅ |?| ·Fee.ex-ext-1 ~x~ ·Cheer"],
             id="qsCheer",
         ),
         pytest.param(
@@ -1081,7 +1081,7 @@ def test_out_fee_utter_lets_out_reach_for_fee():
     _assert_expect_any(
         _qs_text("qsOut", "qsFee", "qsUtter"),
         [
-            "·Out.exit-extended ~x~ ·Fee | ·Utter",
+            "·Out.ex-ext-1 ~x~ ·Fee | ·Utter",
         ],
     )
 
@@ -1091,7 +1091,7 @@ def test_ah_fee_utter_keeps_left_join():
     _assert_expect_any(
         _qs_text("qsAh", "qsFee", "qsUtter"),
         [
-            "·Ah.exit-extended ~x~ ·Fee | ·Utter.∅",
+            "·Ah.ex-ext-1 ~x~ ·Fee | ·Utter.∅",
         ],
     )
 
@@ -1135,7 +1135,7 @@ def test_way_does_not_join_tea_under_ss03():
 
 
 def test_fee_may_uses_extension_pair():
-    """·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `triply-extended`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning."""
+    """·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `ext-3`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning."""
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
         ["·Fee.before-may ~x~ ·May.after-fee"],
@@ -1143,7 +1143,7 @@ def test_fee_may_uses_extension_pair():
 
 
 def test_owe_fee_may_owe_joins_fee_at_xheight():
-    """Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to ·Owe→·Fee joined at the x-height, then ·Fee.entry-xheight (entryless on its right) leaves ·May unconnected — ·Fee can't join both to and from at the x-height on the same letter (see the qsFee notes block)."""
+    """Without the qsFee_qsMay ligature, ·Owe·Fee·May falls through to ·Owe→·Fee joined at the x-height, then ·Fee.en-y5 (entryless on its right) leaves ·May unconnected — ·Fee can't join both to and from at the x-height on the same letter (see the qsFee notes block)."""
     _assert_expect_any(
         _qs_text("qsOwe", "qsFee", "qsMay"),
         ["·Owe ~x~ ·Fee | ·May"],
@@ -1160,7 +1160,7 @@ def test_owe_fee_may_owe_joins_fee_at_xheight():
     ],
 )
 def test_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
-    """The pair-extension path (·Fee.exit-xheight.before-may + ·May.entry-xheight) must keep working under every stylistic set, just like the old ligature did."""
+    """The pair-extension path (·Fee.ex-y5.before-may + ·May.en-y5) must keep working under every stylistic set, just like the old ligature did."""
     glyphs = _shape_qs("qsOwe", "qsFee", "qsMay", features=feature_items)
     assert len(glyphs) == 3, (
         f"·Owe·Fee·May should not ligate under features={feature_label}; " f"got {glyphs}"
@@ -1169,8 +1169,7 @@ def test_owe_fee_may_under_each_stylistic_set(feature_label, feature_items):
         f"·Owe must reach into ·Fee at the x-height under features={feature_label}; " f"got {glyphs}"
     )
     assert _pair_join_ys(glyphs, 1) == set(), (
-        f"·Fee.entry-xheight has no exit; ·Fee→·May must not join under "
-        f"features={feature_label}; got {glyphs}"
+        f"·Fee.en-y5 has no exit; ·Fee→·May must not join under " f"features={feature_label}; got {glyphs}"
     )
 
 
@@ -1341,12 +1340,12 @@ def test_middle_pea_xheight_left_join_is_limited_to_utter_and_may():
     [
         pytest.param(
             _qs_text("qsIng", "qsThaw"),
-            ["·-ing.exit-doubly-extended ~b~ ·Thaw"],
+            ["·-ing.ex-ext-2 ~b~ ·Thaw"],
             id="ing-before-thaw",
         ),
         pytest.param(
             _qs_text("qsThaw", "qsIng"),
-            ["·Thaw ~b~ ·-ing.entry-doubly-extended"],
+            ["·Thaw ~b~ ·-ing.en-ext-2"],
             id="thaw-before-ing",
         ),
     ],
@@ -1376,7 +1375,7 @@ def test_it_preserves_baseline_entry_when_ing_join_is_blocked():
 def test_it_preserves_baseline_entry_before_zoo():
     _assert_expect_any(
         _qs_text("qsBay", "qsIt", "qsZoo"),
-        ["·Bay ~b~ ·It.exit-extended ~x~ ·Zoo"],
+        ["·Bay ~b~ ·It.ex-ext-1 ~x~ ·Zoo"],
     )
 
 
@@ -1384,7 +1383,7 @@ def test_zwnj_keeps_it_entryless_while_still_joining_zoo():
     _assert_expect_any(
         _qs_text("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe"),
         [
-            "·Day | ◊ZWNJ | ·It.noentry.exit-extended ~x~ ·Zoo ~b~ ·I.exit-extended ~x~ ·Roe",
+            "·Day | ◊ZWNJ | ·It.noentry.ex-ext-1 ~x~ ·Zoo ~b~ ·I.ex-ext-1 ~x~ ·Roe",
         ],
     )
 
@@ -1480,19 +1479,13 @@ def test_they_may_keeps_manual_baseline_join():
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
+        pytest.param(_qs_text("qsBay", "qsMay", "qsNo"), ["·Bay ~b~ ·May.ex-ext-1 ~x~ ·No"], id="bay-may-no"),
         pytest.param(
-            _qs_text("qsBay", "qsMay", "qsNo"), ["·Bay ~b~ ·May.exit-extended ~x~ ·No"], id="bay-may-no"
+            _qs_text("qsBay", "qsMay", "qsOwe"), ["·Bay ~b~ ·May.ex-ext-1 ~x~ ·Owe"], id="bay-may-owe"
         ),
-        pytest.param(
-            _qs_text("qsBay", "qsMay", "qsOwe"), ["·Bay ~b~ ·May.exit-extended ~x~ ·Owe"], id="bay-may-owe"
-        ),
-        # ·He / ·It / ·Pea / ·Tea / ·Ye extend ·May's entry, so the exit join lands one further out still (entry-extended + exit-extended).
-        pytest.param(
-            _qs_text("qsHe", "qsMay", "qsNo"), ["·He ~b~ ·May.exit-extended ~x~ ·No"], id="he-may-no"
-        ),
-        pytest.param(
-            _qs_text("qsTea", "qsMay", "qsNo"), ["·Tea ~b~ ·May.exit-extended ~x~ ·No"], id="tea-may-no"
-        ),
+        # ·He / ·It / ·Pea / ·Tea / ·Ye extend ·May's entry, so the exit join lands one further out still (en-ext-1 + ex-ext-1).
+        pytest.param(_qs_text("qsHe", "qsMay", "qsNo"), ["·He ~b~ ·May.ex-ext-1 ~x~ ·No"], id="he-may-no"),
+        pytest.param(_qs_text("qsTea", "qsMay", "qsNo"), ["·Tea ~b~ ·May.ex-ext-1 ~x~ ·No"], id="tea-may-no"),
     ],
 )
 def test_may_exit_extends_one_pixel_after_a_baseline_join(text: str, expects: list[str]):
@@ -1650,8 +1643,8 @@ def test_ye_owe_never_joins(before_first: str):
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
-        pytest.param(_qs_text("qsJay", "qsYe"), ["·Jay.exit-extended ~b~ ·Ye"], id="jay-ye"),
-        pytest.param(_qs_text("qsJai", "qsYe"), ["·J’ai.exit-extended ~b~ ·Ye"], id="jai-ye"),
+        pytest.param(_qs_text("qsJay", "qsYe"), ["·Jay.ex-ext-1 ~b~ ·Ye"], id="jay-ye"),
+        pytest.param(_qs_text("qsJai", "qsYe"), ["·J’ai.ex-ext-1 ~b~ ·Ye"], id="jai-ye"),
     ],
 )
 def test_jay_and_jai_join_ye_at_the_baseline_with_one_extra_pixel(text: str, expects: list[str]):
@@ -1976,16 +1969,16 @@ def test_may_thaw_ing_is_sensible():
     _assert_expect_any(
         _qs_text("qsMay", "qsThaw", "qsIng"),
         [
-            "·May.!exit-baseline  |  ·Thaw ~b~ ·-ing",
+            "·May.!ex-y0  |  ·Thaw ~b~ ·-ing",
             "·May                ~b~ ·Thaw  |  ·-ing",
         ],
     )
 
 
 def _may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
-    """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay picked a contextual ``exit-baseline`` variant even though the following qsThaw variant no longer accepts a baseline entry.
+    """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay picked a contextual ``ex-y0`` variant even though the following qsThaw variant no longer accepts a baseline entry.
 
-    Flagging the ``exit-baseline`` modifier specifically — rather than any mismatched exit — is intentional: qsMay's default (and ``.noentry``) form has a y-height exit that could never attach to qsThaw anyway. The bug is narrower: qsMay's lookup saw qsThaw's default baseline entry and moved qsMay to ``.exit-baseline`` on the assumption that a baseline join was about to form, and then qsThaw's own forward substitution stripped the entry out from under it.
+    Flagging the ``ex-y0`` modifier specifically — rather than any mismatched exit — is intentional: qsMay's default (and ``.noentry``) form has a y-height exit that could never attach to qsThaw anyway. The bug is narrower: qsMay's lookup saw qsThaw's default baseline entry and moved qsMay to ``.ex-y0`` on the assumption that a baseline join was about to form, and then qsThaw's own forward substitution stripped the entry out from under it.
     """
     failures: list[str] = []
     meta = _compiled_meta()
@@ -1996,12 +1989,12 @@ def _may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
             continue
         if left_meta.base_name != "qsMay" or right_meta.base_name != "qsThaw":
             continue
-        if "exit-baseline" not in left_meta.modifiers:
+        if "ex-y0" not in left_meta.modifiers:
             continue
         right_entries = set(right_meta.entry_ys) | {anchor[1] for anchor in right_meta.entry_curs_only}
         if 0 not in right_entries:
             failures.append(
-                f"{label}: qsMay picked exit-baseline ({glyph}) but adjacent "
+                f"{label}: qsMay picked ex-y0 ({glyph}) but adjacent "
                 f"qsThaw variant {glyphs[index + 1]} has no baseline entry "
                 f"(entries Y={sorted(right_entries)}) in {glyphs}"
             )
@@ -2064,7 +2057,7 @@ def test_may_thaw_stays_isolated_across_zwnj():
     _assert_expect_any(
         text,
         [
-            "·Tea | ◊ZWNJ | ·May.noentry.!exit-baseline | ·Thaw ~b~ ·-ing",
+            "·Tea | ◊ZWNJ | ·May.noentry.!ex-y0 | ·Thaw ~b~ ·-ing",
         ],
     )
 
@@ -2217,7 +2210,7 @@ def _excite_baseline_receiver_shape_failures() -> list[str]:
                         f"{' / '.join(parts)}: {right_name} joins left and right at "
                         f"baseline but is not the both-side visible shape in {glyphs}"
                     )
-            elif "entry-baseline" not in assertions and "after-baseline-letter" not in assertions:
+            elif "en-y0" not in assertions and "after-baseline-letter" not in assertions:
                 failures.append(
                     f"{' / '.join(parts)}: {right_name} joins left at baseline but "
                     f"does not use a visible baseline-entry shape in {glyphs}"
@@ -2322,7 +2315,7 @@ def test_et_tea_can_double_join_at_baseline_in_ss05():
         "qsRoe",
         features=_SS05_FEATURE,
     )
-    assert glyphs == ["qsBay", "qsEt", "qsTea.entry-baseline.exit-baseline", "qsUtter", "qsRoe"]
+    assert glyphs == ["qsBay", "qsEt", "qsTea.en-y0.ex-y0", "qsUtter", "qsRoe"]
     assert not _pair_join_ys(glyphs, 0)
     assert _pair_join_ys(glyphs, 1) == {0}
     assert _pair_join_ys(glyphs, 2) == {0}
@@ -2590,21 +2583,21 @@ def test_utter_alt_variants_always_keep_the_joins_they_require():
 def test_tea_before_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsTea", "qsI"),
-        ["·Tea.entry-top.exit-extended ~b~ ·I"],
+        ["·Tea.en-y8.ex-ext-1 ~b~ ·I"],
     )
 
 
 def test_see_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsSee", "qsTea", "qsI"),
-        ["·See.∅ ~t~ ·Tea.exit-extended ~b~ ·I.∅"],
+        ["·See.∅ ~t~ ·Tea.ex-ext-1 ~b~ ·I.∅"],
     )
 
 
 def test_fee_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsFee", "qsTea", "qsI"),
-        ["·Fee.∅ |?| ·Tea.entry-top.exit-extended ~b~ ·I.∅"],
+        ["·Fee.∅ |?| ·Tea.en-y8.ex-ext-1 ~b~ ·I.∅"],
     )
 
 
@@ -2623,7 +2616,7 @@ def test_et_tea_i_extends_exit_in_ss05():
     )
     assert glyphs == [
         "qsEt",
-        "qsTea.entry-baseline.exit-baseline.exit-extended",
+        "qsTea.en-y0.ex-y0.ex-ext-1",
         "qsI",
     ]
     assert _pair_join_ys(glyphs, 0) == {0}
@@ -2631,7 +2624,7 @@ def test_et_tea_i_extends_exit_in_ss05():
 
 
 def test_i_before_tea_unchanged_by_forward_extension():
-    _assert_expect_any(_qs_text("qsI", "qsTea"), ["·I.∅ | ·Tea.!exit-extended"])
+    _assert_expect_any(_qs_text("qsI", "qsTea"), ["·I.∅ | ·Tea.!ex-ext-1"])
 
 
 # ---------------------------------------------------------------------------
@@ -2653,7 +2646,7 @@ _DAY_PAIR_LIGATURES = frozenset(
 def _non_bridging_middle_bases() -> list[tuple[str, str]]:
     """Quikscript bases that are *multi-entry* (accept both y=0 and y=5 entry across their variants) but have no single variant combining y=0 entry with y=5 exit — i.e. cannot bridge Way.half's y=0 exit up to a y=5-only-entry follower, so the 2-glyph preferred-lookahead must not fire for them.
 
-    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half.exit-baseline;` correctly fires and selecting half-·Way is fine.
+    Single-y=0-entry letters (qsAh, qsExam, qsExcite, …) are excluded: for those the 1-glyph rule `sub qsWay' @entry_only_y0 by qsWay.half.ex-y0;` correctly fires and selecting half-·Way is fine.
     """
     meta_map = _compiled_meta()
     variants_by_base: dict[str, list] = {}
@@ -2768,9 +2761,9 @@ def test_half_form_not_before_list_keeps_left_full(left_base: str):
 
     Only the "not half" half of the invariant is universal: families end up in ``not_before`` for two distinct reasons — either the full form legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection behavior is asserted in the targeted parametrizations above; this test covers the part they share.
     """
-    half_meta = _compiled_meta()[f"{left_base}.half.exit-baseline"]
+    half_meta = _compiled_meta()[f"{left_base}.half.ex-y0"]
     deny_families = sorted(half_meta.not_before)
-    assert deny_families, f"{left_base}.half.exit-baseline should declare a non-empty not_before"
+    assert deny_families, f"{left_base}.half.ex-y0 should declare a non-empty not_before"
 
     meta_map = _compiled_meta()
     failures: list[str] = []
@@ -2954,7 +2947,7 @@ _GAY_CONTEXTS = (
 )
 
 _GAY_CONTEXT_JOIN_CASES = (
-    pytest.param("qsIt", "qsIt.entry-baseline.exit-xheight", id="it"),
+    pytest.param("qsIt", "qsIt.en-y0.ex-y5", id="it"),
     pytest.param("qsI", None, id="i"),
     pytest.param("qsExam", None, id="exam"),
 )
@@ -3007,7 +3000,7 @@ def _append_gay_joining_context_failures(
 
     entry_ys = _entry_ys(target_name)
     if not entry_ys:
-        if glyphs[gay_index] == "qsGay.exit-baseline.exit-extended":
+        if glyphs[gay_index] == "qsGay.ex-y0.ex-ext-1":
             failures.append(
                 f"{label}: qsGay kept a baseline extension before entryless "
                 f"{target_name} (full: {glyphs!r})"
@@ -3019,10 +3012,9 @@ def _append_gay_joining_context_failures(
             f"not at baseline; entry_ys={entry_ys} (full: {glyphs!r})"
         )
         return
-    if glyphs[gay_index] != "qsGay.exit-baseline.exit-extended":
+    if glyphs[gay_index] != "qsGay.ex-y0.ex-ext-1":
         failures.append(
-            f"{label}: expected qsGay.exit-baseline.exit-extended, "
-            f"got {glyphs[gay_index]} (full: {glyphs!r})"
+            f"{label}: expected qsGay.ex-y0.ex-ext-1, " f"got {glyphs[gay_index]} (full: {glyphs!r})"
         )
 
 
@@ -3057,10 +3049,10 @@ def _append_gay_nonjoining_context_failures(
 @pytest.mark.parametrize(
     ("target", "expect"),
     [
-        pytest.param("qsTea", "·Gay.exit-extended ~b~ ·Tea", id="tea"),
-        pytest.param("qsIt", "·Gay.exit-extended ~b~ ·It", id="it"),
-        pytest.param("qsI", "·Gay.exit-extended ~b~ ·I.∅", id="i"),
-        pytest.param("qsExam", "·Gay.exit-extended ~b~ ·Exam.∅", id="exam"),
+        pytest.param("qsTea", "·Gay.ex-ext-1 ~b~ ·Tea", id="tea"),
+        pytest.param("qsIt", "·Gay.ex-ext-1 ~b~ ·It", id="it"),
+        pytest.param("qsI", "·Gay.ex-ext-1 ~b~ ·I.∅", id="i"),
+        pytest.param("qsExam", "·Gay.ex-ext-1 ~b~ ·Exam.∅", id="exam"),
     ],
 )
 def test_gay_extends_before_selected_targets(target: str, expect: str):
@@ -3122,23 +3114,19 @@ def test_gay_joining_targets_share_shifted_baseline_anchor(target_base: str):
 @pytest.mark.parametrize("target_base", _GAY_BASELINE_EXTENDED_TARGETS)
 def test_gay_exit_baseline_extended_targets_include_joining_followers(target_base):
     meta = _compiled_meta()
-    variant = meta["qsGay.exit-baseline.exit-extended"]
-    assert variant.exit == (
-        (6, 0),
-    ), f"qsGay.exit-baseline.exit-extended should exit at x=6, y=0; got {variant.exit}"
+    variant = meta["qsGay.ex-y0.ex-ext-1"]
+    assert variant.exit == ((6, 0),), f"qsGay.ex-y0.ex-ext-1 should exit at x=6, y=0; got {variant.exit}"
     assert target_base in set(variant.before), (
-        f"qsGay.exit-baseline.exit-extended should name {target_base} in `before`; " f"got {variant.before}"
+        f"qsGay.ex-y0.ex-ext-1 should name {target_base} in `before`; " f"got {variant.before}"
     )
 
 
 def test_gay_exit_xheight_extended_exists_for_it():
     meta = _compiled_meta()
-    variant = meta["qsGay.exit-xheight.exit-doubly-extended"]
-    assert variant.exit == (
-        (6, 5),
-    ), f"qsGay.exit-xheight.exit-doubly-extended should exit at x=6, y=5; got {variant.exit}"
+    variant = meta["qsGay.ex-y5.ex-ext-2"]
+    assert variant.exit == ((6, 5),), f"qsGay.ex-y5.ex-ext-2 should exit at x=6, y=5; got {variant.exit}"
     assert "qsIt" in set(variant.before), (
-        f"qsGay.exit-xheight.exit-doubly-extended should name qsIt in `before`; " f"got {variant.before}"
+        f"qsGay.ex-y5.ex-ext-2 should name qsIt in `before`; " f"got {variant.before}"
     )
 
 
@@ -3188,7 +3176,7 @@ def test_gay_nonjoining_targets_do_not_join_in_any_trailing_context(target_base)
 def test_gay_extended_variants_exclude_nonjoining_targets(target_base):
     meta = _compiled_meta()
     for name, variant in meta.items():
-        if name.startswith("qsGay") and "exit-extended" in name:
+        if name.startswith("qsGay") and "ex-ext-1" in name:
             assert target_base not in set(
                 variant.before
             ), f"{name}.before should not include {target_base}; got {variant.before}"
@@ -3755,10 +3743,10 @@ def test_roe_ah_connects_at_baseline():
 
 
 def test_eat_roe_uses_shortened_top_by_default():
-    """·Eat exits at the baseline, so ·Eat·Roe takes ·Roe's shortened_top (entry-extended-at-baseline) shape — not the bare ·Roe."""
+    """·Eat exits at the baseline, so ·Eat·Roe takes ·Roe's shortened_top (en-ext-1-at-0) shape — not the bare ·Roe."""
     _assert_expect_any(
         _qs_text("qsEat", "qsRoe"),
-        ["·Eat ~b~ ·Roe.entry-extended-at-baseline"],
+        ["·Eat ~b~ ·Roe.en-ext-1-at-0"],
     )
 
 
@@ -3766,25 +3754,25 @@ def test_eat_roe_stays_shortened_top_before_non_xheight_follower():
     """A follower that doesn't enter at the x-height (·Ah) leaves ·Eat·Roe in shortened_top; ·Roe must not falsely upgrade to the x-height exit and breaks cleanly into ·Ah."""
     _assert_expect_any(
         _qs_text("qsEat", "qsRoe", "qsAh"),
-        ["·Eat ~b~ ·Roe.entry-extended-at-baseline | ·Ah"],
+        ["·Eat ~b~ ·Roe.en-ext-1-at-0 | ·Ah"],
     )
 
 
 @pytest.mark.parametrize(
     "follower, expect",
     [
-        pytest.param("qsNo", "·Eat ~b~ ·Roe.exit-xheight ~x~ ·No", id="no"),
-        pytest.param("qsEight", "·Eat ~b~ ·Roe.exit-xheight ~x~ ·Eight", id="eight"),
+        pytest.param("qsNo", "·Eat ~b~ ·Roe.ex-y5 ~x~ ·No", id="no"),
+        pytest.param("qsEight", "·Eat ~b~ ·Roe.ex-y5 ~x~ ·Eight", id="eight"),
     ],
 )
 def test_eat_roe_kicks_up_to_xheight_before_canonical_follower(follower: str, expect: str):
-    """When ·Roe goes on to one of its canonical forward x-height followers, the forward override wins over shortened_top: ·Roe surfaces as giga_extended_short_height (exit-xheight) and reaches the follower."""
+    """When ·Roe goes on to one of its canonical forward x-height followers, the forward override wins over shortened_top: ·Roe surfaces as giga_extended_short_height (ex-y5) and reaches the follower."""
     _assert_expect_any(_qs_text("qsEat", "qsRoe", follower), [expect])
 
 
 def test_at_may_has_no_entry_anchor():
     meta_map = _compiled_meta()
-    base_name = "qsAt.exit-baseline.before-may"
+    base_name = "qsAt.ex-y0.before-may"
     variants = {
         name: meta for name, meta in meta_map.items() if name == base_name or name.startswith(base_name + ".")
     }
@@ -3804,14 +3792,14 @@ def test_at_may_has_no_entry_anchor():
 def test_roe_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsRoe", "qsMay", "qsThey", "qsUtter"),
-        ["·Roe ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
+        ["·Roe ~b~ ·May.ex-noentry |?| ·They+Utter.noentry"],
     )
 
 
 def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
-        ["·At.before-may.exit-quintuply-extended ~b~ ·May.exit-noentry |?| ·They+Utter.noentry"],
+        ["·At.before-may.ex-ext-5 ~b~ ·May.ex-noentry |?| ·They+Utter.noentry"],
     )
 
 

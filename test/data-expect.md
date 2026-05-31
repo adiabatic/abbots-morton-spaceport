@@ -30,9 +30,9 @@ Prefix a modifier with `!` to assert the selected glyph does **not** carry that 
 | `.!alt` | `·No.!alt` |
 | `.!half` | `·Pea.!half` |
 
-The `.∅` assertion uses U+2205 EMPTY SET and is exact: `·May.∅` passes only when the shaped glyph is literally `qsMay`, not `qsMay.noentry`, `qsMay.exit-baseline`, or another sibling. It cannot be combined with other variant assertions.
+The `.∅` assertion uses U+2205 EMPTY SET and is exact: `·May.∅` passes only when the shaped glyph is literally `qsMay`, not `qsMay.noentry`, `qsMay.ex-y0`, or another sibling. It cannot be combined with other variant assertions.
 
-Other modifiers used by the corpus, such as `entry`, `exit`, `extended`, `noentry`, `entry-baseline`, `exit-baseline`, `exit-xheight`, and `reaches-way-back`, are compatibility-only. They are matched against compiler-provided compatibility metadata, not against glyph-name substrings.
+Other modifiers used by the corpus, such as `entry`, `exit`, `extended`, `noentry`, `en-y0`, `ex-y0`, `ex-y5`, and `reaches-way-back`, are compatibility-only. They are matched against compiler-provided compatibility metadata, not against glyph-name substrings.
 
 Variant assertions are optional. Without them, any variant of the base letter satisfies the check.
 

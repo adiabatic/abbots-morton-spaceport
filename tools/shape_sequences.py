@@ -17,7 +17,7 @@ Fixture line format:
 
 Each output line is:
 
-    qsMay qsPea -> qsMay/exit=(6,5) | qsPea.entry-xheight/entry=(1,5)/exit=(5,0)
+    qsMay qsPea -> qsMay/exit=(6,5) | qsPea.en-y5/entry=(1,5)/exit=(5,0)
 """
 
 from __future__ import annotations

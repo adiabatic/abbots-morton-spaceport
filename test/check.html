@@ -445,7 +445,7 @@
       </p>
       <p>
         Each row's label names the change in glyph terms (e.g.
-        <code>qsTea → qsTea.exit-xheight</code>). Scan for sequences you
+        <code>qsTea → qsTea.ex-y5</code>). Scan for sequences you
         weren't intending to touch — those are the regressions.
       </p>
       <p class="snapshot-missing">No differences found across the
@@ -479,7 +479,7 @@
         halves differ in their per-glyph (pixels, absolute origin)
         sequence — are shown. Comparing absolute origins (not just
         pixels) catches cursive-positioning leaks: e.g.
-        <code>qsIt</code> vs <code>qsIt.exit-xheight</code> have
+        <code>qsIt</code> vs <code>qsIt.ex-y5</code> have
         identical bitmaps but the latter's exit anchor pulls the
         next glyph leftward via GPOS <code>curs</code>. Pure
         glyph-name-signature changes with no visible effect (the

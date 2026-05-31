@@ -90,39 +90,39 @@ class _PairIntent:
 
 # Curated `ignore sub` narrowings consumed by `_emit_pending_bk_entry_guards` in `tools/quikscript_fea.py`. Each entry says "when forward-subbing `source` to `replacement` at `entry_y`, suppress the substitution after these `guard_glyphs`, optionally narrowed by `before_bases`." The per-replacement `before_bases` values depend on the FEA emitter's per-call-site right-context narrowing, which can't be derived from `JoinReachability` alone — that's why these tables are curated rather than computed. When adding entries, mirror the runtime behavior at the relevant call site in `_emit_quikscript_calt` and verify with a FEA byte-diff.
 _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
-    ("qsTea", "qsTea.exit-baseline", 0): (
+    ("qsTea", "qsTea.ex-y0", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsAh", "qsTea"),
         ),
         DerivedBkGuard(
-            ("qsShe.exit-baseline",),
+            ("qsShe.ex-y0",),
             ("qsTea",),
         ),
     ),
-    ("qsTea", "qsTea.half.exit-xheight", 0): (
+    ("qsTea", "qsTea.half.ex-y5", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsAwe",),
         ),
         DerivedBkGuard(
-            ("qsShe.exit-baseline",),
+            ("qsShe.ex-y0",),
             ("qsTea",),
         ),
     ),
-    ("qsTea.entry-baseline", "qsTea.exit-baseline", 0): (
+    ("qsTea.en-y0", "qsTea.ex-y0", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsAh", "qsTea"),
         ),
     ),
-    ("qsTea.entry-baseline", "qsTea.half.exit-xheight", 0): (
+    ("qsTea.en-y0", "qsTea.half.ex-y5", 0): (
         DerivedBkGuard(("qsEt",)),
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsAwe",),
         ),
     ),
@@ -135,13 +135,13 @@ _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 _PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
     ("qsTea", "qsTea_qsOy", 0): (
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsOy",),
         ),
     ),
-    ("qsTea.entry-baseline", "qsTea_qsOy", 0): (
+    ("qsTea.en-y0", "qsTea_qsOy", 0): (
         DerivedBkGuard(
-            ("qsExcite.exit-baseline.before-vertical",),
+            ("qsExcite.ex-y0.before-vertical",),
             ("qsOy",),
         ),
     ),
@@ -1815,7 +1815,7 @@ def derive_pending_bk_entry_guards(
 ) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
     """Return the curated `_PENDING_BK_ENTRY_GUARDS` table.
 
-    The curated names predate `_synthesize_anchor_modifiers`; we route each through `heal_glyph_name` so renames like `qsExcite.exit-baseline.before-vertical` → `qsExcite.entry-baseline.exit-baseline.before-vertical` resolve transparently.
+    The curated names predate `_synthesize_anchor_modifiers`; we route each through `heal_glyph_name` so renames like `qsExcite.ex-y0.before-vertical` → `qsExcite.en-y0.ex-y0.before-vertical` resolve transparently.
     """
     return _heal_curated_guards_table(
         {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()},
@@ -1934,9 +1934,9 @@ def _predecessor_visually_reaches(
 
     Three paths qualify:
 
-    * Deep-letter terminal arms: when the variant has ink below the exit anchor's row, the exit stroke is a connector. ``qsGay.exit-baseline`` exits at y=0 with body continuing below, so its y=0 stroke is a connector reaching out to join the next glyph. A short letter that exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom edge, terminating at its own bounding box; it sits cleanly next to whatever follows even without a cursive join.
+    * Deep-letter terminal arms: when the variant has ink below the exit anchor's row, the exit stroke is a connector. ``qsGay.ex-y0`` exits at y=0 with body continuing below, so its y=0 stroke is a connector reaching out to join the next glyph. A short letter that exits at its bottom row (e.g. ``qsUtter.alt``) has no ink below — its y=0 stroke is just the bottom edge, terminating at its own bounding box; it sits cleanly next to whatever follows even without a cursive join.
 
-    * Explicit exit extensions: ``.exit-extended`` (and friends) widen the glyph's bitmap toward the follower, materializing real ink that strands when the follower can't receive it. Short letters that gain an extension (e.g. ``qsEight.exit-extended``) qualify here even though no ink sits below the exit row in the source bitmap.
+    * Explicit exit extensions: ``.ex-ext-1`` (and friends) widen the glyph's bitmap toward the follower, materializing real ink that strands when the follower can't receive it. Short letters that gain an extension (e.g. ``qsEight.ex-ext-1``) qualify here even though no ink sits below the exit row in the source bitmap.
 
     * Tall baseline-exit forms: these flatten or carry a tall body's lower stroke into a baseline connector. If the follower later strips its baseline entry, that connector becomes a visible isolation leak even without an explicit extension suffix.
 
@@ -1948,7 +1948,7 @@ def _predecessor_visually_reaches(
     if meta.extended_exit_suffix is not None:
         return True
     exit_y = meta.exit[0][1]
-    if exit_y == 0 and "exit-baseline" in meta.modifiers and len(meta.bitmap) >= 9:
+    if exit_y == 0 and "ex-y0" in meta.modifiers and len(meta.bitmap) >= 9:
         return True
     top_y = meta.y_offset + len(meta.bitmap) - 1
     for row_idx, row in enumerate(meta.bitmap):

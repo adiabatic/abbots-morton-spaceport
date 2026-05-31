@@ -1,16 +1,16 @@
 context_sets:
   reaches_up_and_way_over_at_least_part_of_the_next_letter:
   - {family: qsI}
-  - {family: qsAh, modifiers: [exit-extended]}
-  - {family: qsUtter, modifiers: [exit-extended]}
-  - {family: qsDay_qsUtter, modifiers: [exit-extended]}
-  - {family: qsJai_qsUtter, modifiers: [exit-extended]}
-  - {family: qsJay_qsUtter, modifiers: [exit-extended]}
-  - {family: qsSee_qsUtter, modifiers: [exit-extended]}
-  - {family: qsVie_qsUtter, modifiers: [exit-extended]}
-  - {family: qsWay_qsUtter, modifiers: [exit-extended]}
-  - {family: qsWhy_qsUtter, modifiers: [exit-extended]}
-  # Superset of `reaches_up_and_way_over...`, for followers whose entry-xheight will accept any predecessor that gets up to the x-height — including ·I, whose exit is just one pixel past its own right edge. The narrower "way over" set stays the right choice for followers (qsThey, qsMay, qsThey_qsUtter) whose entry is set back far enough that only a deeply-extended predecessor exit can reach it.
+  - {family: qsAh, modifiers: [ex-ext-1]}
+  - {family: qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsDay_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsJai_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsJay_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsSee_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsVie_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsWay_qsUtter, modifiers: [ex-ext-1]}
+  - {family: qsWhy_qsUtter, modifiers: [ex-ext-1]}
+  # Superset of `reaches_up_and_way_over...`, for followers whose en-y5 will accept any predecessor that gets up to the x-height — including ·I, whose exit is just one pixel past its own right edge. The narrower "way over" set stays the right choice for followers (qsThey, qsMay, qsThey_qsUtter) whose entry is set back far enough that only a deeply-extended predecessor exit can reach it.
   reaches_up_and_a_little_over_at_least_part_of_the_next_letter:
   - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
   - {family: qsI}
@@ -21,10 +21,10 @@ context_sets:
   - {family: qsHe}
   - {family: qsIt}
   utter_reaches_way_back_after:
-  - {family: qsFee, modifiers: [exit-xheight, before-utter]}
+  - {family: qsFee, modifiers: [ex-y5, before-utter]}
   - {family: qsMay}
   xheight_exit_reaches_into_may:
-  - {family: qsFee, modifiers: [exit-xheight]}
+  - {family: qsFee, modifiers: [ex-y5]}
   utter_reaches_way_back_before:
   - {family: qsSee}
   - {family: qsIng}
@@ -32,18 +32,18 @@ context_sets:
   - {family: qsLow}
   utter_before_may:
   - {family: qsMay}
-  - {family: qsMay, modifiers: [entry-baseline]}
-  - {family: qsMay, modifiers: [entry-baseline, entry-extended]}
-  - {family: qsMay, modifiers: [entry-baseline, exit-extended]}
-  - {family: qsMay, modifiers: [entry-baseline, entry-extended, exit-extended]}
+  - {family: qsMay, modifiers: [en-y0]}
+  - {family: qsMay, modifiers: [en-y0, en-ext-1]}
+  - {family: qsMay, modifiers: [en-y0, ex-ext-1]}
+  - {family: qsMay, modifiers: [en-y0, en-ext-1, ex-ext-1]}
   halves_exit_xheight:
   - {family: qsPea, traits: [half]}
-  - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
-  - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
+  - {family: qsTea, traits: [half], modifiers: [ex-y5]}
+  - {family: qsTea, traits: [half], modifiers: [en-y8, ex-y5]}
   - {family: qsHe, traits: [half]}
   halves_exit_xheight_no_pea:
-  - {family: qsTea, traits: [half], modifiers: [exit-xheight]}
-  - {family: qsTea, traits: [half], modifiers: [entry-top, exit-xheight]}
+  - {family: qsTea, traits: [half], modifiers: [ex-y5]}
+  - {family: qsTea, traits: [half], modifiers: [en-y8, ex-y5]}
   - {family: qsHe, traits: [half]}
   # The Quikscript letter families fall into three height categories:
   # - Shorts fit within the x-height (6-pixel bitmap, baseline at y=0)
@@ -146,40 +146,40 @@ context_sets:
   - {family: qsUtter, exit_y: 5}
 restore_isolated_form_overrides:
   # When a forward-pair YAML `not_after` blocks an upgrade and leaves the target as bare `target`, but isolated shaping of `target follower` would render `isolated_form`, emit a post-pass rule `sub [prior_variants] target' follower_variants by isolated_form;` so the in-context render matches the isolated render. Each entry compiles to a rule under `calt_pair_guard_reflip_<target_base>`.
-  - {prior: qsNo, target: qsIt, follower: qsDay, isolated_form: qsIt.entry-xheight.exit-baseline}
-  - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsJay, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsYe, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsYe, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsIt, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsEat, target: qsIt, follower: qsZoo, isolated_form: qsIt.exit-baseline}
-  - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.exit-baseline}
+  - {prior: qsNo, target: qsIt, follower: qsDay, isolated_form: qsIt.en-y5.ex-y0}
+  - {prior: qsJay, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
+  - {prior: qsJay, target: qsIt, follower: qsNo, isolated_form: qsIt.ex-y0}
+  - {prior: qsYe, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
+  - {prior: qsYe, target: qsIt, follower: qsNo, isolated_form: qsIt.ex-y0}
+  - {prior: qsIt, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
+  - {prior: qsEat, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
+  - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.ex-y0}
 predecessor_demote_overrides:
   # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
-  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline.before-day.after-no-baseline-join, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.entry-baseline.exit-baseline.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.nonjoining-left}
-  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsIt.exit-baseline, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.exit-baseline.before-vertical, trigger_form: qsUtter.alt, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.exit-baseline.before-vertical.after-baseline-letter, trigger_form: qsGay, isolated_form: qsExcite.entry-baseline.noexit}
-  - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsIt.exit-baseline, isolated_form: qsJai}
-  - {predecessor_form: qsJai.entry-xheight.exit-extended, trigger_form: qsTea.exit-baseline, isolated_form: qsJai}
-  - {predecessor_form: qsMay.exit-baseline, trigger_form: qsGay.exit-baseline, isolated_form: qsMay}
-  - {predecessor_form: qsMay.exit-extended, trigger_form: qsFee.exit-xheight, isolated_form: qsMay}
-  - {predecessor_form: qsMay.exit-noentry, trigger_form: qsThey_qsUtter.noentry, isolated_form: qsMay}
-  - {predecessor_form: qsNo.alt, trigger_form: qsGay.exit-baseline, isolated_form: qsNo}
-  - {predecessor_form: qsNo.alt, trigger_form: qsIt.exit-baseline, isolated_form: qsNo}
+  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical, trigger_form: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.nonjoining-left}
+  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt.ex-y0, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsUtter.alt, isolated_form: qsExcite}
+  - {predecessor_form: qsExcite.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsIt.ex-y0, isolated_form: qsJai}
+  - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsTea.ex-y0, isolated_form: qsJai}
+  - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay.ex-y0, isolated_form: qsMay}
+  - {predecessor_form: qsMay.ex-ext-1, trigger_form: qsFee.ex-y5, isolated_form: qsMay}
+  - {predecessor_form: qsMay.ex-noentry, trigger_form: qsThey_qsUtter.noentry, isolated_form: qsMay}
+  - {predecessor_form: qsNo.alt, trigger_form: qsGay.ex-y0, isolated_form: qsNo}
+  - {predecessor_form: qsNo.alt, trigger_form: qsIt.ex-y0, isolated_form: qsNo}
   - {predecessor_form: qsNo.alt, trigger_form: qsUtter.alt, isolated_form: qsNo}
-  - {predecessor_form: qsNo.exit-extended, trigger_form: qsFee.exit-xheight, isolated_form: qsNo}
-  - {predecessor_form: qsWay.half, trigger_form: qsGay.exit-baseline, isolated_form: qsWay}
-  - {predecessor_form: qsWay.half, trigger_form: qsGay.exit-baseline.exit-extended, isolated_form: qsWay}
-  - {predecessor_form: qsWhy.half, trigger_form: qsGay.exit-baseline, isolated_form: qsWhy}
-  - {predecessor_form: qsWhy.half, trigger_form: qsGay.exit-baseline.exit-extended, isolated_form: qsWhy}
+  - {predecessor_form: qsNo.ex-ext-1, trigger_form: qsFee.ex-y5, isolated_form: qsNo}
+  - {predecessor_form: qsWay.half, trigger_form: qsGay.ex-y0, isolated_form: qsWay}
+  - {predecessor_form: qsWay.half, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsWay}
+  - {predecessor_form: qsWhy.half, trigger_form: qsGay.ex-y0, isolated_form: qsWhy}
+  - {predecessor_form: qsWhy.half, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsWhy}
 trailing_demote_overrides:
   # When a forward-pair override changes a leader into an entry-preserving form with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half form once the leader's no-exit form is in the buffer. Each entry compiles to `sub leader_form trailing_form' by isolated_form;` under `calt_trailing_demote_<trailing_base>`.
-  - {leader_form: qsIt.entry-baseline.exit-noentry.before-day-exam, trailing_form: qsDay.half, isolated_form: qsDay}
-  - {leader_form: qsIt.entry-baseline.exit-noentry.before-day-exam.entry-extended, trailing_form: qsDay.half, isolated_form: qsDay}
+  - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam, trailing_form: qsDay.half, isolated_form: qsDay}
+  - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1, trailing_form: qsDay.half, isolated_form: qsDay}
 glyph_families:
   space:
     mono:
@@ -260,7 +260,7 @@ glyph_families:
         shape: prop
         anchors:
           entry: [0, 6]
-        modifiers: [entry-y6]
+        modifiers: [en-y6]
       entry_y6_exit_baseline:
         inherits: entry_y6
         anchors:
@@ -274,7 +274,7 @@ glyph_families:
                 - {family: qsFee}
                 - {family: qsYe}
                 - {family: qsMay}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_xheight:
         shape: dips_down_to_short_height
         anchors:
@@ -298,19 +298,19 @@ glyph_families:
             - {family: qsFoot}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       entry_baseline_exit_noentry:
         shape: prop
         anchors:
           entry: [3, 0]
         select:
           after: [{family: qsEt}, {family: qsAwe}]
-        modifiers: [entry-baseline, exit-noentry]
+        modifiers: [en-y0, ex-noentry]
       half_entry_y6:
         inherits: half
         anchors:
           entry: [0, 6]
-        modifiers: [entry-y6]
+        modifiers: [en-y6]
       half:
         shape: half
         anchors:
@@ -333,7 +333,7 @@ glyph_families:
           - {family: qsJai, entry_y: 5}
           - {family: qsJay, entry_y: 5}
           - {family: qsOwe, entry_y: 5}
-        modifiers: [exit-dips]
+        modifiers: [ex-dips]
       half_entry_y6_exit_dips_to_xheight:
         inherits: half_entry_y6
         shape: half_right_dips_down_to_xheight
@@ -342,8 +342,8 @@ glyph_families:
         select:
           not_before: null
         derive:
-          reverse_upgrade_from: [{family: qsPea, traits: [half], modifiers: [exit-dips]}]
-        modifiers: [entry-y6, exit-dips]
+          reverse_upgrade_from: [{family: qsPea, traits: [half], modifiers: [ex-dips]}]
+        modifiers: [en-y6, ex-dips]
       half_entry_and_exit_at_xheight:
         inherits: half
         shape: half_dips_down_to_xheight
@@ -361,7 +361,7 @@ glyph_families:
         select:
           not_before: null
           before: [{family: qsPea, entry_y: 6}]
-        modifiers: [exit-y6]
+        modifiers: [ex-y6]
   qsBay:
     mono:
       bitmap:
@@ -389,7 +389,7 @@ glyph_families:
           after: [{context_set: reaches_up_and_a_little_over_at_least_part_of_the_next_letter}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
   qsTea:
     mono:
       bitmap:
@@ -435,7 +435,7 @@ glyph_families:
         select:
           not_after: [{family: qsEt}]
           not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}, {family: qsIt}]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       half_entry_xheight:
         shape: half
         anchors:
@@ -445,7 +445,7 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
         traits: [half]
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       half_entry_xheight_ss03:
         inherits: half_entry_xheight
         select:
@@ -471,7 +471,7 @@ glyph_families:
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsJay}]}
         traits: [half]
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       half_entry_top_exit_xheight:
         inherits: half_exit_xheight
         anchors:
@@ -485,14 +485,14 @@ glyph_families:
         shape: prop
         anchors:
           entry: [0, 8]
-        modifiers: [entry-top]
+        modifiers: [en-y8]
       entry_top_exit_baseline:
         inherits: entry_top
         anchors:
           exit: [1, 0]
         select:
           not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_baseline:
         shape: prop
         anchors:
@@ -508,7 +508,7 @@ glyph_families:
             - {family: qsEat}
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}, {family: qsJay}, {family: qsEight}]}
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
       entry_baseline_exit_baseline_ss05:
         inherits: entry_baseline
         anchors:
@@ -517,7 +517,7 @@ glyph_families:
           not_after: null
           after: [{family: qsEt}]
         gate_feature_behind: ss05
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_xheight:
         shape: prop
         anchors:
@@ -526,7 +526,7 @@ glyph_families:
         select:
           after: [{family: qsI}]
         gate_feature_behind: ss02
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       entry_xheight_after_fee:
         inherits: entry_xheight
         select:
@@ -753,7 +753,7 @@ glyph_families:
           extend_exit_before:
             - {by: 2, targets: [{family: qsJai}, {family: qsCheer}, {family: qsIt}]}
             - {by: 1, targets: [{family: qsFoot, entry_y: 5}]}
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       exit_baseline:
         shape: mono
         anchors:
@@ -763,7 +763,7 @@ glyph_families:
           not_before: [{family: qsExcite}, {family: qsOoze}]
         derive:
           extend_exit_before: {by: 1, targets: [{context_set: gay_reaches_baseline_exit_forward}]}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_xheight:
         shape: reachable_from_the_left_at_the_xheight
         anchors:
@@ -781,7 +781,7 @@ glyph_families:
           - {family: qsWhy_qsUtter, exit_y: 5}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       entry_baseline:
         shape: reachable_from_the_left_at_the_baseline
         anchors:
@@ -790,7 +790,7 @@ glyph_families:
         select:
           not_after: [{context_set: flat_on_right_at_baseline}]
           not_before: [{context_set: gay_reaches_baseline_exit_forward}]
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
   qsThaw:
     mono:
       bitmap:
@@ -814,7 +814,7 @@ glyph_families:
           exit: [3, 0]
         select:
           before: [{family: qsIng, entry_y: 0}]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       noentry_after_tall:
         shape: mono
         anchors:
@@ -859,7 +859,7 @@ glyph_families:
           after: [{context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       exit_baseline_before_may:
         shape: before_may
         anchors:
@@ -867,7 +867,7 @@ glyph_families:
           exit_ink_y: -1
         select:
           before: [{family: qsMay, entry_y: 0}]
-        modifiers: [exit-baseline, before-may]
+        modifiers: [ex-y0, before-may]
       entry_xheight_exit_baseline_before_may:
         inherits: exit_baseline_before_may
         anchors:
@@ -877,7 +877,7 @@ glyph_families:
           not_before: [{family: qsYe}, {family: qsHe}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_and_i_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       exit_xheight:
         shape: mono
         anchors:
@@ -891,7 +891,7 @@ glyph_families:
             - {family: qsJay}
             - {family: qsYe}
             - {family: qsMay}
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
   qsThey_qsZoo:
     sequence:
     - qsThey
@@ -1009,42 +1009,42 @@ glyph_families:
         select:
           after:
           - family: qsMay
-            modifiers: [exit-extended]
+            modifiers: [ex-ext-1]
           - family: qsNo
-            modifiers: [exit-extended]
+            modifiers: [ex-ext-1]
           - family: qsLow
-            modifiers: [exit-extended]
+            modifiers: [ex-ext-1]
           - family: qsI
           - family: qsAh
-            modifiers: [exit-extended]
+            modifiers: [ex-ext-1]
           - {family: qsUtter, exit_y: 5}
           - family: qsUtter
-            modifiers: [exit-extended]
+            modifiers: [ex-ext-1]
           - family: qsOut
-            modifiers: [exit-xheight, exit-extended]
+            modifiers: [ex-y5, ex-ext-1]
           - family: qsOwe
             exit_y: 5
-          - {family: qsDay_qsUtter, modifiers: [exit-extended]}
-          - {family: qsJai_qsUtter, modifiers: [exit-extended]}
-          - {family: qsJay_qsUtter, modifiers: [exit-extended]}
-          - {family: qsSee_qsUtter, modifiers: [exit-extended]}
-          - {family: qsVie_qsUtter, modifiers: [exit-extended]}
-          - {family: qsWay_qsUtter, modifiers: [exit-extended]}
-          - {family: qsWhy_qsUtter, modifiers: [exit-extended]}
-        modifiers: [entry-xheight]
+          - {family: qsDay_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsJai_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsJay_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsSee_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsVie_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsWay_qsUtter, modifiers: [ex-ext-1]}
+          - {family: qsWhy_qsUtter, modifiers: [ex-ext-1]}
+        modifiers: [en-y5]
       entry_top:
         shape: continues_stroke_from_top
         anchors:
           entry: [0, 8]
           exit: [5, 5]
-        modifiers: [entry-top]
+        modifiers: [en-y8]
       exit_xheight:
         shape: mono
         anchors:
           exit: [5, 5]
         select:
           not_before: [{family: qsTea}]
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       exit_xheight_before_utter:
         inherits: exit_xheight
         select:
@@ -1125,7 +1125,7 @@ glyph_families:
             - {family: qsLow, entry_y: 0}
             - {family: qsRoe, entry_y: 0}
             - {family: qsExcite, entry_y: 0}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
   qsVie_qsUtter:
     sequence:
     - qsVie
@@ -1206,7 +1206,7 @@ glyph_families:
         anchors:
           entry: [0, 0]
           exit: [6, 6]
-        modifiers: [exit-y6]
+        modifiers: [ex-y6]
       exit_baseline:
         shape: exit_baseline
         anchors:
@@ -1217,7 +1217,7 @@ glyph_families:
         derive:
           extend_exit_before: {by: 2, targets: [{family: qsLow}]}
           contract_exit_before: {by: 1, targets: [{family: qsOut}]}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       noentry_after_ye:
         shape: mono
         anchors:
@@ -1232,7 +1232,7 @@ glyph_families:
         select:
           before: [{family: qsOoze, entry_y: 0}]
           not_after: [{family: qsIt}]
-        modifiers: [exit-baseline-right]
+        modifiers: [ex-y0-right]
   qsSee_qsUtter:
     sequence:
     - qsSee
@@ -1348,7 +1348,7 @@ glyph_families:
           exit: [5, 0]
         select:
           not_before: [{context_set: no_baseline_join_after_tall}]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
   qsJai:
     mono:
       bitmap:
@@ -1401,16 +1401,16 @@ glyph_families:
           contract_entry_after:
             by: 1
             targets:
-            - {family: qsPea, traits: [half], modifiers: [exit-dips]}
+            - {family: qsPea, traits: [half], modifiers: [ex-dips]}
             - {family: qsTea}
             - {family: qsThey}
             - {family: qsHe}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       exit_baseline:
         shape: prop
         anchors:
           exit: [6, 0]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
   qsJai_qsUtter:
     sequence:
     - qsJai
@@ -1485,8 +1485,8 @@ glyph_families:
           exit: [5, 0]
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsIt}, {context_set: halves_exit_xheight_no_pea}]}
-          contract_entry_after: {by: 1, targets: [{family: qsHe}, {family: qsPea, traits: [half], modifiers: [exit-dips]}]}
-        modifiers: [entry-xheight]
+          contract_entry_after: {by: 1, targets: [{family: qsHe}, {family: qsPea, traits: [half], modifiers: [ex-dips]}]}
+        modifiers: [en-y5]
   qsJay_qsUtter:
     sequence:
     - qsJay
@@ -1563,7 +1563,7 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
           extend_exit_before: {by: 1, targets: [{family: qsI}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       exit_baseline:
         # ·Ye's forward baseline exit, mirroring ·Tea's exit_baseline. The bare ·Ye already carries this exit, but registering it as a `calt_cycle` forward arm (a `not_before`-gated forward replacement, no positive `before`) is what lets the cycle prefer the follower join over the backward entry above — without it, the backward `entry_baseline` sub fires first and ·Ye loses its exit before it can reach the follower. The `not_before` lists the followers whose baseline entry is only nominal after ·Ye: ·Thaw drops its entry after a tall, ·See twists its arm aside, ·Exam goes nonjoining-left, and a following ·Ye takes its own backward entry — so ·Ye must not promote toward an exit that would dangle.
         shape: prop
@@ -1573,7 +1573,7 @@ glyph_families:
           not_before: [{family: qsThaw}, {family: qsSee}, {family: qsYe}, {family: qsExam}]
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsI}]}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_baseline:
         # ·Ye receiving a baseline entry from a preceding baseline-exit letter, mirroring ·He and ·Tea: an entry-only form gated by `not_after` (no positive `after`) so it rides `calt_cycle` and yields to a forward baseline join. ·Ye's single-direction stroke can't both take a baseline entry on the left and give a baseline exit on the right, so this form surrenders the exit and prefers the follower; the bare ·Ye keeps its baseline exit, so the forward join still happens when a baseline-entry follower is available. The excepted predecessors (folded into `not_after` here) mirror ·Excite's entry_baseline_noexit geometry: the letters that run flat down to the baseline on their right and so can't feed a left-swinging baseline entry; ·See belongs there because it only exits at the baseline when its arm is twisted aside. The set matches ·He's except that ·J'ai and ·Jay are absent here — their rightward baseline exits reach ·Ye's entry, so ·J'ai·Ye and ·Jay·Ye both join even though ·J'ai·He and ·Jay·He don't.
         shape: prop
@@ -1610,15 +1610,15 @@ glyph_families:
             - {family: qsOut}
             - {family: qsOwe}
             - {family: qsFoot}
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
       entry_baseline_exit_noentry:
-        # When ·Ye took its baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, the post-liga cleanup routes the predecessor here. ·Ye's entry_baseline already carries no exit, so this form is geometrically identical to it; it exists only so the `.exit-noentry` post-liga fallback has a sibling matching the entry-baseline input. It carries no selectors of its own (the inherited `not_after` is cleared) so it is reachable only through that cleanup.
+        # When ·Ye took its baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, the post-liga cleanup routes the predecessor here. ·Ye's entry_baseline already carries no exit, so this form is geometrically identical to it; it exists only so the `.ex-noentry` post-liga fallback has a sibling matching the en-y0 input. It carries no selectors of its own (the inherited `not_after` is cleared) so it is reachable only through that cleanup.
         inherits: entry_baseline
         anchors:
           exit: null
         select:
           not_after: null
-        modifiers: [exit-noentry]
+        modifiers: [ex-noentry]
   qsWay:
     mono:
       bitmap:
@@ -1764,7 +1764,7 @@ glyph_families:
             - {family: qsHe}
             - {family: qsIng}
             - {family: qsExcite}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_baseline:
         # Full ·He receiving a baseline entry from a preceding baseline-exit letter, mirroring ·Tea's entry_baseline (and ·Ye's): an entry-only form gated by `not_after` rather than a positive `after`, so it rides `calt_cycle` and yields to a forward baseline join instead of out-prioritizing it. ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He joins on the left here or on the right elsewhere, never both, and prefers the follower when a baseline join is possible in either direction. So this form carries no exit: once ·He takes a baseline entry it joins nothing after it. The `not_after` set is the complement of the predecessors that feed it cleanly — the letters whose own baseline exit lands at ·He's left edge without a reaching stroke. It excludes the flat-bottomed exiters that can't reach a left-swinging entry, every letter that doesn't exit at the baseline at all, and the wide-reaching exiters (·Vie/·May/·No/·Excite/·Utter/…) whose extended baseline-exit form would dangle when ·He instead goes forward — those reach toward ·He from their own forms (suppressed there) rather than feeding it here.
         shape: prop
@@ -1803,7 +1803,7 @@ glyph_families:
             - {family: qsOut}
             - {family: qsOwe}
             - {family: qsFoot}
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
   qsWhy:
     mono:
       bitmap:
@@ -1862,7 +1862,7 @@ glyph_families:
             - {family: qsOut}
             - {family: qsOwe}
             - {family: qsOoze}
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       half:
         shape: half
         anchors:
@@ -2034,14 +2034,14 @@ glyph_families:
           - {context_set: reaches_up_and_way_over_at_least_part_of_the_next_letter}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       entry_xheight_after_fee:
         shape: pulled_back_a_bit_for_entry_at_short_height_without_stubbie
         anchors:
           entry: [2, 5]
         select:
           after: [{context_set: xheight_exit_reaches_into_may}]
-        modifiers: [entry-xheight, after-fee]
+        modifiers: [en-y5, after-fee]
       entry_xheight_after_i:
         inherits: entry_xheight
         select:
@@ -2066,7 +2066,7 @@ glyph_families:
           - family: qsEat
           - family: qsUtter
           - family: qsOoze
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_xheight_exit_baseline_after_i:
         inherits: entry_xheight_exit_baseline
         select:
@@ -2080,16 +2080,16 @@ glyph_families:
         derive:
           extend_exit_when_entered: {by: 1}
           extend_entry_after: {by: 1, targets: [{context_set: vie_may_entry_extend_triggers}]}
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
       entry_baseline_exit_noentry:
         inherits: entry_baseline
         shape: pulled_back_a_bit_for_entry_at_short_height
         anchors:
           exit: null
-        modifiers: [exit-noentry]
+        modifiers: [ex-noentry]
       exit_noentry:
         shape: pulled_back_a_bit_for_entry_at_short_height
-        modifiers: [exit-noentry]
+        modifiers: [ex-noentry]
       exit_baseline:
         shape: exits_at_baseline
         anchors:
@@ -2104,7 +2104,7 @@ glyph_families:
           - family: qsEat
           - family: qsUtter
           - family: qsOoze
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
   qsNo:
     ductus: |
       Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
@@ -2248,14 +2248,14 @@ glyph_families:
             - {family: qsIt, exit_y: 0}
             - {family: qsEat}
             - {family: qsEight}
-        modifiers: [entry-extended-at-baseline]
+        modifiers: [en-ext-1-at-0]
       entry_extended_at_xheight:
         shape: shortened_bottom
         anchors:
           entry: [0, 5]
         select:
           after: [{family: qsMay, exit_y: 5}, {family: qsIt, exit_y: 5}]
-        modifiers: [entry-extended-at-xheight]
+        modifiers: [en-ext-1-at-5]
       entry_xheight:
         shape: mono
         anchors:
@@ -2263,8 +2263,8 @@ glyph_families:
         select:
           after: [{context_set: halves_exit_xheight}]
         derive:
-          contract_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsHe}, {family: qsPea, traits: [half], modifiers: [exit-dips]}]}
-        modifiers: [entry-xheight]
+          contract_entry_after: {by: 1, targets: [{family: qsTea}, {family: qsHe}, {family: qsPea, traits: [half], modifiers: [ex-dips]}]}
+        modifiers: [en-y5]
       exit_baseline:
         shape: giga_extended_baseline
         anchors:
@@ -2283,7 +2283,7 @@ glyph_families:
           - {family: qsAh, entry_y: 0}
         derive:
           extend_exit_before: {by: 1, targets: [{family: qsLow}, {family: qsI}]}
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       exit_xheight:
         shape: giga_extended_short_height
         anchors:
@@ -2297,7 +2297,7 @@ glyph_families:
           - {family: qsEight, entry_y: 5}
           - {family: qsAwe, entry_y: 5}
           - {family: qsOx, entry_y: 5}
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
   qsLoch:
     mono:
       bitmap:
@@ -2418,7 +2418,7 @@ glyph_families:
                 - {family: qsYe}
                 - {family: qsHe}
           not_before: [{context_set: no_baseline_join_after_tall}, {family: qsYe}, {family: qsHe}]
-        modifiers: [exit-baseline, before-vertical, after-baseline-letter]
+        modifiers: [ex-y0, before-vertical, after-baseline-letter]
       exit_baseline_before_vertical:
         shape: wide_on_right_at_baseline
         anchors:
@@ -2427,7 +2427,7 @@ glyph_families:
         select:
           not_after: [space, uni200C, periodcentered]
           not_before: [{context_set: no_baseline_join_after_tall}, {family: qsYe}, {family: qsHe}]
-        modifiers: [exit-baseline, before-vertical]
+        modifiers: [ex-y0, before-vertical]
       entry_baseline_noexit:
         shape: wide_on_left_at_baseline
         anchors:
@@ -2449,7 +2449,7 @@ glyph_families:
                 - {family: qsRoe}
                 - {family: qsAt}
           not_before: [{entry_y: 0, except: [{family: qsThaw}]}]
-        modifiers: [entry-baseline, noexit]
+        modifiers: [en-y0, noexit]
       noentry_exit_baseline:
         shape: wide_on_right_at_baseline
         anchors:
@@ -2458,7 +2458,7 @@ glyph_families:
         select:
           after: [{context_set: excite_drops_entry_after}]
           not_before: [{context_set: no_baseline_join_after_tall}]
-        modifiers: [noentry, exit-baseline]
+        modifiers: [noentry, ex-y0]
       noentry_exit_xheight:
         shape: wide_on_right_at_short_height
         anchors:
@@ -2467,7 +2467,7 @@ glyph_families:
         select:
           after: [{context_set: excite_drops_entry_after}]
           not_before: [{context_set: no_baseline_join_after_tall}]
-        modifiers: [noentry, exit-xheight]
+        modifiers: [noentry, ex-y5]
       noentry_after_nonjoining_left:
         shape: mono
         anchors:
@@ -2571,7 +2571,7 @@ glyph_families:
           not_after: [{family: qsIt}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       entry_baseline_exit_xheight:
         shape: prop
         anchors:
@@ -2583,7 +2583,7 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
           extend_exit_before: {by: 1, targets: [{family: qsZoo}, {family: qsJai}, {family: qsCheer}, {family: qsOwe}]}
-        modifiers: [entry-baseline]
+        modifiers: [en-y0]
       entry_baseline_after_day:
         inherits: entry_baseline_exit_xheight
         anchors:
@@ -2619,7 +2619,7 @@ glyph_families:
           not_before: null
         derive:
           extend_entry_after: {by: 1, targets: [{family: qsKey}]}
-        modifiers: [exit-noentry]
+        modifiers: [ex-noentry]
       entry_baseline_exit_noentry_before_day_exam:
         inherits: entry_baseline_exit_noentry
         select:
@@ -2652,7 +2652,7 @@ glyph_families:
         select:
           not_after: [{family: qsOwe}]
           not_before: [{family: qsDay, entry_y: 5}, {family: qsYe}, {family: qsZoo}]
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       entry_nowhere_exit_baseline:
         shape: prop
         anchors:
@@ -2661,15 +2661,15 @@ glyph_families:
         select:
           not_after: [{family: qsBay}, {family: qsDay}, {family: qsGay}, {family: qsShe}]
           not_before: [{family: qsTea}, {family: qsIt}, {family: qsRoe}]
-        modifiers: [exit-baseline]
+        modifiers: [ex-y0]
       entry_nowhere_exit_baseline_before_day:
-        # When ·It doesn't join its predecessor at the baseline (word-initial, after a word break, or after a non-joining letter) and ·Day follows, ·It exits at the baseline into a half-·Day — the only legal ·It·Day join, since the full ·Day's x-height entry would force the forbidden x-height join. This is a separate form (not `entry_nowhere_exit_baseline`, which carries `strip_entry_before` and handles every other follower) so adding a ·Day trigger here can't disturb the baseline join into ·No/·Zoo/·May. The three modifiers are deliberate: a fwd-pair lookup with more modifiers sorts (and so runs) before one with fewer, and this needs to beat `entry_baseline_exit_noentry_before_day_exam` (three modifiers) so the post-ZWNJ `qsIt.noentry` upgrades to this exit-baseline form instead of being reverted to the bare base by before-day-exam's entry-preserving noentry rule.
+        # When ·It doesn't join its predecessor at the baseline (word-initial, after a word break, or after a non-joining letter) and ·Day follows, ·It exits at the baseline into a half-·Day — the only legal ·It·Day join, since the full ·Day's x-height entry would force the forbidden x-height join. This is a separate form (not `entry_nowhere_exit_baseline`, which carries `strip_entry_before` and handles every other follower) so adding a ·Day trigger here can't disturb the baseline join into ·No/·Zoo/·May. The three modifiers are deliberate: a fwd-pair lookup with more modifiers sorts (and so runs) before one with fewer, and this needs to beat `entry_baseline_exit_noentry_before_day_exam` (three modifiers) so the post-ZWNJ `qsIt.noentry` upgrades to this ex-y0 form instead of being reverted to the bare base by before-day-exam's entry-preserving noentry rule.
         shape: prop
         anchors:
           exit: [1, 0]
         select:
           before: [{family: qsDay, entry_y: 0}]
-        modifiers: [exit-baseline, before-day, after-no-baseline-join]
+        modifiers: [ex-y0, before-day, after-no-baseline-join]
       before_utter: # needed to make words ending in -ian look right
         shape: prop
         anchors:
@@ -2782,7 +2782,7 @@ glyph_families:
           before: [{family: qsMay, entry_y: 0}]
         derive:
           extend_exit_before: {by: 5, targets: [{family: qsMay}]}
-        modifiers: [exit-baseline, before-may]
+        modifiers: [ex-y0, before-may]
   qsI:
     mono:
       bitmap:
@@ -2830,10 +2830,10 @@ glyph_families:
           entry: [0, 0]
           exit: [5, 5]
         select:
-          after: [{family: qsPea, exit_y: 0}, {family: qsRoe, modifiers: [exit-baseline]}]
+          after: [{family: qsPea, exit_y: 0}, {family: qsRoe, modifiers: [ex-y0]}]
         derive:
           contract_exit_before: {by: 1, targets: [{family: qsJai}]}
-        modifiers: [entry-baseline, smaller-loop]
+        modifiers: [en-y0, smaller-loop]
   qsAh:
     mono:
       bitmap:
@@ -2935,7 +2935,7 @@ glyph_families:
           after: [{family: qsNo, exit_y: 5}, {family: qsLow}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
   qsUtter:
     mono:
       bitmap:
@@ -3078,7 +3078,7 @@ glyph_families:
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
           contract_exit_before: {by: 2, targets: [{family: qsJai}]}
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
   qsOut_qsTea:
     sequence:
     - qsOut
@@ -3144,14 +3144,14 @@ glyph_families:
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}
-        modifiers: [entry-xheight]
+        modifiers: [en-y5]
       exit_xheight:
         shape: exit_xheight
         anchors:
           exit: [5, 5]
         select:
           not_before: [{family: qsTea}, {family: qsDay}, {family: qsMay}, {family: qsLlan}]
-        modifiers: [exit-xheight]
+        modifiers: [ex-y5]
       entry_and_exit_at_xheight:
         inherits: [entry_xheight, exit_xheight]
         shape: entry_and_exit_at_xheight

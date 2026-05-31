@@ -12,31 +12,31 @@ from quikscript_ir import (
 )
 
 _ENTRY_EXTENSION_SUFFIXES = (
-    ".entry-sextuply-extended",
-    ".entry-quintuply-extended",
-    ".entry-quadruply-extended",
-    ".entry-triply-extended",
-    ".entry-doubly-extended",
-    ".entry-extended",
+    ".en-ext-6",
+    ".en-ext-5",
+    ".en-ext-4",
+    ".en-ext-3",
+    ".en-ext-2",
+    ".en-ext-1",
 )
 
 
 _EXIT_EXTENSION_WORD_BY_COUNT = {
-    1: "extended",
-    2: "doubly-extended",
-    3: "triply-extended",
-    4: "quadruply-extended",
-    5: "quintuply-extended",
-    6: "sextuply-extended",
+    1: "ext-1",
+    2: "ext-2",
+    3: "ext-3",
+    4: "ext-4",
+    5: "ext-5",
+    6: "ext-6",
 }
 
 _EXIT_CONTRACTION_WORD_BY_COUNT = {
-    1: "contracted",
-    2: "doubly-contracted",
-    3: "triply-contracted",
-    4: "quadruply-contracted",
-    5: "quintuply-contracted",
-    6: "sextuply-contracted",
+    1: "con-1",
+    2: "con-2",
+    3: "con-3",
+    4: "con-4",
+    5: "con-5",
+    6: "con-6",
 }
 
 
@@ -142,7 +142,7 @@ def _expand_join_variants(
         if base in analysis.fwd_pair_overrides:
             all_variants.update(variant_name for variant_name, _, _ in analysis.fwd_pair_overrides[base])
         if base in analysis.fwd_upgrades:
-            # `fwd_upgrades` holds entry+exit forms whose entry_y collides with an entry-only sibling already in `bk_replacements`; without this branch a `{family: qsX}` selector silently drops these forms (e.g. qsTea.half.entry-top.exit-xheight), so derive lookups that should fire after them — like qsRoe.entry_xheight.contract_entry_after — miss the bare form and fall through to a broader competing lookup.
+            # `fwd_upgrades` holds entry+exit forms whose entry_y collides with an entry-only sibling already in `bk_replacements`; without this branch a `{family: qsX}` selector silently drops these forms (e.g. qsTea.half.en-y8.ex-y5), so derive lookups that should fire after them — like qsRoe.entry_xheight.contract_entry_after — miss the bare form and fall through to a broader competing lookup.
             all_variants.update(entry_exit_var for entry_exit_var, _, _, _ in analysis.fwd_upgrades[base])
         if form_specific:
             prefix = glyph + "."
@@ -175,8 +175,8 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             continue
         if meta.is_noentry:
             continue
-        if "exit-noentry" in meta.modifiers:
-            # exit-noentry forms exist only as post-liga substitution targets (the calt cleanup pass routes the predecessor of a noentry_after ligature here). They must not enter bk_replacements / fwd_upgrades — the entry-bearing variants of these forms would otherwise displace the regular entry-only forms from pre-liga selection.
+        if "ex-noentry" in meta.modifiers:
+            # ex-noentry forms exist only as post-liga substitution targets (the calt cleanup pass routes the predecessor of a noentry_after ligature here). They must not enter bk_replacements / fwd_upgrades — the entry-bearing variants of these forms would otherwise displace the regular entry-only forms from pre-liga selection.
             continue
         if not meta.is_entry_variant:
             if not meta.entry and not meta.after:
@@ -927,14 +927,14 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
 
         if variant_is_exit_side:
             orthogonal_kinds = {
-                "entry-extended",
-                "entry-contracted",
+                "en-ext-1",
+                "en-con-1",
                 "entry-trimmed",
             }
         else:
             orthogonal_kinds = {
-                "exit-extended",
-                "exit-contracted",
+                "ex-ext-1",
+                "ex-con-1",
                 "exit-trimmed",
             }
 
@@ -965,7 +965,7 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
         if suffix:
             extended = variant_name + suffix
             if extended not in glyph_names:
-                extended = variant_name + ".entry-extended"
+                extended = variant_name + ".en-ext-1"
             if extended in glyph_names:
                 actual_variant = extended
         return _resolve_noentry_replacement(
@@ -1070,7 +1070,7 @@ def _populate_exit_reachability(plan: _JoinAnalysis) -> None:
                 before_bases=before_bases,
             )
 
-    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward replacement (e.g. `qsTea.entry-baseline`) gets a context-gated forward override to the matching exit-only forward replacement of its base (e.g. → `qsTea.exit-baseline` when the follower is in `@entry_only_y0`, or → `qsTea.half.exit-xheight` when it's in `@entry_y5`). Without recording these paths here, `_can_eventually_exit_at(qsTea.entry-baseline, 0, before_base=qsDay)` returns False, so qsTea.entry-baseline is dropped from the lookbehind class for qsDay.half.entry-extended. That drop is what makes the in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.exit-xheight, qsDay.entry-extended) at y=5 while isolated shaping of `qsTea qsDay` joins at y=0. The same override fires on the `.entry-{N}-extended` derivatives of the entry-only variant, so propagate the reachability to them too.
+    # Mirror `_emit_noentry_fwd_overrides`: every entry-only backward replacement (e.g. `qsTea.en-y0`) gets a context-gated forward override to the matching exit-only forward replacement of its base (e.g. → `qsTea.ex-y0` when the follower is in `@entry_only_y0`, or → `qsTea.half.ex-y5` when it's in `@entry_y5`). Without recording these paths here, `_can_eventually_exit_at(qsTea.en-y0, 0, before_base=qsDay)` returns False, so qsTea.en-y0 is dropped from the lookbehind class for qsDay.half.en-ext-1. That drop is what makes the in-context shaping of `qsBay qsTea qsDay` flip to (qsTea.half.ex-y5, qsDay.en-ext-1) at y=5 while isolated shaping of `qsTea qsDay` joins at y=0. The same override fires on the `.en-ext-{N}` derivatives of the entry-only variant, so propagate the reachability to them too.
     for base_name, bk_variants in plan.bk_replacements.items():
         if base_name not in plan.fwd_replacements:
             continue
@@ -2625,7 +2625,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if suffix:
                 extended = pair_variant + suffix
                 if extended not in glyph_names:
-                    extended = pair_variant + ".entry-extended"
+                    extended = pair_variant + ".en-ext-1"
                 if extended in glyph_names:
                     actual_variant = extended
             actual_variant = _resolve_noentry_replacement(
@@ -2656,9 +2656,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     candidate_meta.contracted_entry_suffix,
                 ]
                 suffixes.extend(
-                    f".{modifier}"
-                    for modifier in candidate_meta.modifiers
-                    if modifier.startswith("entry-trimmed-by-")
+                    f".{modifier}" for modifier in candidate_meta.modifiers if modifier.startswith("en-trim-")
                 )
                 for suffix in suffixes:
                     if suffix and suffix in candidate:
@@ -2945,7 +2943,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             suffix_word = _EXIT_EXTENSION_WORD_BY_COUNT.get(spec.by)
             if suffix_word is None:
                 continue
-            extended_fwd_var = f"{fwd_var}.exit-{suffix_word}"
+            extended_fwd_var = f"{fwd_var}.ex-{suffix_word}"
             if extended_fwd_var not in glyph_meta:
                 continue
             trigger_glyphs: set[str] = set()
@@ -3012,11 +3010,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub [{usable_list}] {fpt}' by {fpt_replacement};")
 
     def _refined_bk_replacement(fpt: str, default_replacement: str) -> str:
-        # When `fpt` (a fwd-pair-override variant) is being reverted to the bk_replacement `default_replacement` because its entry doesn't fit the preceding glyph, prefer a replacement that still carries fpt's exit-extension. First try `default_replacement + ext_suffix` (e.g. ``qsX.entry-baseline.exit-extended`` when the family declares such a variant); failing that, fall back to an entryless sibling of fpt whose bitmap matches (e.g. ``qsTea.exit-baseline.exit-extended`` for ``qsTea.entry-top.exit-baseline.exit-extended``). The sibling drops the wrong entry — same bitmap, no cursive attachment to the preceding glyph either way — but preserves the join extension into the next glyph.
+        # When `fpt` (a fwd-pair-override variant) is being reverted to the bk_replacement `default_replacement` because its entry doesn't fit the preceding glyph, prefer a replacement that still carries fpt's exit-extension. First try `default_replacement + ext_suffix` (e.g. ``qsX.en-y0.ex-ext-1`` when the family declares such a variant); failing that, fall back to an entryless sibling of fpt whose bitmap matches (e.g. ``qsTea.ex-y0.ex-ext-1`` for ``qsTea.en-y8.ex-y0.ex-ext-1``). The sibling drops the wrong entry — same bitmap, no cursive attachment to the preceding glyph either way — but preserves the join extension into the next glyph.
         #
-        # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the isolated-shaping path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; isolated shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the isolated exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with the isolated render (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.entry-xheight.exit-extended instead of the entryless qsIt.exit-xheight.exit-extended sibling, which loses the lead's baseline reach).
+        # Preferred path: when ``default_replacement + ext_suffix`` exists and its exit_y matches the isolated-shaping path's choice for fpt's followers (each follower in ``fpt_meta.before`` proposes an entry_y; isolated shaping of the base before that follower picks ``fwd_replacements[base][entry_y]`` whose exit_y is the isolated exit_y), return the candidate even if its bitmap doesn't match fpt's. That keeps the in-context render aligned with the isolated render (``·Ah ·It ·Zoo`` now matches ``·It ·Zoo`` on the qsIt side: qsIt.en-y5.ex-ext-1 instead of the entryless qsIt.ex-y5.ex-ext-1 sibling, which loses the lead's baseline reach).
         #
-        # Stranded-extension guard: if any follower-family in fpt's before list has no variant whose entry matches the candidate's exit_y, the extension would be wasted ink for that follower (·May·It·Owe is the worked example — qsOwe never accepts a baseline entry, so the swap that turns qsIt.entry-baseline.exit-extended into qsIt.entry-xheight.exit-extended would leave the trailing pixel dangling). In that case fall through to the suffixless ``default_replacement`` rather than preserving an extension that no follower can land.
+        # Stranded-extension guard: if any follower-family in fpt's before list has no variant whose entry matches the candidate's exit_y, the extension would be wasted ink for that follower (·May·It·Owe is the worked example — qsOwe never accepts a baseline entry, so the swap that turns qsIt.en-y0.ex-ext-1 into qsIt.en-y5.ex-ext-1 would leave the trailing pixel dangling). In that case fall through to the suffixless ``default_replacement`` rather than preserving an extension that no follower can land.
         fpt_meta = _meta(fpt)
         ext_suffix = fpt_meta.extended_exit_suffix
         if not ext_suffix:
@@ -3028,7 +3026,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if cand_meta is not None:
             cand_exit_ys = set(cand_meta.exit_ys)
             if not _all_follower_families_accept(fpt, fpt_meta, cand_exit_ys):
-                # The candidate-with-suffix points at an exit Y that at least one follower-family can't receive. Preserving the suffix would leave that follower with stranded extension ink; drop straight to the suffixless default. Don't fall through to the entryless-sibling fallback either: that fallback exists for cases where the candidate glyph simply doesn't exist, not for cases where the partner's reception is the problem (preserving the right-side extension via an entryless sibling just relocates the stranded ink to the predecessor's side, since whatever pushed the predecessor toward `.exit-extended` expected fpt to receive at its old entry Y).
+                # The candidate-with-suffix points at an exit Y that at least one follower-family can't receive. Preserving the suffix would leave that follower with stranded extension ink; drop straight to the suffixless default. Don't fall through to the entryless-sibling fallback either: that fallback exists for cases where the candidate glyph simply doesn't exist, not for cases where the partner's reception is the problem (preserving the right-side extension via an entryless sibling just relocates the stranded ink to the predecessor's side, since whatever pushed the predecessor toward `.ex-ext-1` expected fpt to receive at its old entry Y).
                 return default_replacement
             if isolated_exit_ys and cand_exit_ys & isolated_exit_ys:
                 return candidate
@@ -3127,7 +3125,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 continue
             sibling_extension = sibling_name + extension_meta.extended_entry_suffix
             if sibling_extension not in glyph_names:
-                sibling_extension = sibling_name + ".entry-extended"
+                sibling_extension = sibling_name + ".en-ext-1"
             if sibling_extension not in glyph_names:
                 continue
             sibling_extension_meta = glyph_meta.get(sibling_extension)
@@ -3173,7 +3171,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 variant_meta = _meta(variant_name)
                 variant_entry_ys = set(variant_meta.entry_ys) if variant_meta.entry else None
 
-                # Walk extension/contraction/trim derivations on the side orthogonal to the variant's own modification, so pair overrides also fire on inputs already pre-modified by an earlier same-direction lookup (e.g. a ·Tea form that picked up `entry-extended` after `qsKey` should still receive the exit-side contraction before `qsZoo`).
+                # Walk extension/contraction/trim derivations on the side orthogonal to the variant's own modification, so pair overrides also fire on inputs already pre-modified by an earlier same-direction lookup (e.g. a ·Tea form that picked up `en-ext-1` after `qsKey` should still receive the exit-side contraction before `qsZoo`).
                 variant_is_exit_side = bool(
                     variant_meta.extended_exit_suffix or variant_meta.contracted_exit_suffix
                 )
@@ -3184,14 +3182,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if variant_is_exit_side != variant_is_entry_side:
                     if variant_is_exit_side:
                         orthogonal_kinds = {
-                            "entry-extended",
-                            "entry-contracted",
+                            "en-ext-1",
+                            "en-con-1",
                             "entry-trimmed",
                         }
                     else:
                         orthogonal_kinds = {
-                            "exit-extended",
-                            "exit-contracted",
+                            "ex-ext-1",
+                            "ex-con-1",
                             "exit-trimmed",
                         }
                     derivation_seeds = set(targets)
@@ -3324,7 +3322,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if suffix:
                         extended = variant_name + suffix
                         if extended not in glyph_names:
-                            extended = variant_name + ".entry-extended"
+                            extended = variant_name + ".en-ext-1"
                         if extended in glyph_names:
                             actual_variant = extended
                     actual_variant = _resolve_noentry_replacement(
@@ -3350,13 +3348,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         for entry_y in actual_entry_ys:
                             entry_extension_backtrack_glyphs.update(exit_classes.get(entry_y, set()))
                         entry_extension_backtrack_glyphs -= expanded_not_after
-                        if (
-                            "exit-noentry" in actual_variant_meta.modifiers
-                            or _entry_anchor_is_visual_addition(
-                                glyph_meta,
-                                base_to_variants,
-                                actual_variant,
-                            )
+                        if "ex-noentry" in actual_variant_meta.modifiers or _entry_anchor_is_visual_addition(
+                            glyph_meta,
+                            base_to_variants,
+                            actual_variant,
                         ):
                             entry_backtrack_glyphs = set(entry_extension_backtrack_glyphs)
                             if not entry_backtrack_glyphs:
@@ -3501,7 +3496,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     continue
                 if target_meta.is_noentry:
                     continue
-                if "exit-noentry" in target_meta.modifiers:
+                if "ex-noentry" in target_meta.modifiers:
                     continue
                 if target_meta.gate_feature:
                     continue
@@ -3617,7 +3612,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if fwd_bk_excl and not _meta(variant_name).strip_entry_before:
                     for bg in sorted(_expand_exclusions(fwd_bk_excl)):
                         lines.append(f"        ignore sub {bg} {noentry_name}' {cls};")
-                # Apply the YAML `not_before` exclusions on the `.noentry` upgrade too: without these, calt_zwnj's swap to the `.noentry` form would smuggle the base form past its own `not_before` guard (e.g., qsIt.noentry → qsIt.exit-xheight before qsDay even though the YAML says not_before qsDay). Intersect the excluded set with this rule's right-side class so siblings whose entry is at a different Y (e.g., qsZoo.half at y=0 when this rule is the @entry_y5 upgrade) can still be picked up by a later upgrade in the same lookup.
+                # Apply the YAML `not_before` exclusions on the `.noentry` upgrade too: without these, calt_zwnj's swap to the `.noentry` form would smuggle the base form past its own `not_before` guard (e.g., qsIt.noentry → qsIt.ex-y5 before qsDay even though the YAML says not_before qsDay). Intersect the excluded set with this rule's right-side class so siblings whose entry is at a different Y (e.g., qsZoo.half at y=0 when this rule is the @entry_y5 upgrade) can still be picked up by a later upgrade in the same lookup.
                 right_context_glyphs = set(entry_exclusive[exit_y] if use_excl else entry_classes[exit_y])
                 excluded = _expand_exclusions(exclusions.get(exit_y, [])) & right_context_glyphs
                 for excluded_glyph in sorted(excluded):
@@ -4592,7 +4587,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _late_context_glyphs() -> set[str]:
         """Variants that can appear after the first backward-pair pass.
 
-        Seeds with outputs of every channel that can mutate a glyph during the forward calt passes — generic entry/exit substitutions plus pair-specific overrides (forward and backward, gated and ungated). Pair-specific outputs are kept here so post-context bk-pair re-emission can match consumers whose backtrack names a fwd-pair-override result (e.g. ``qsFee.entry-xheight`` after ``qsMay.exit-extended``). The post-context emitter still applies its own guards (``not_before``, entry-strip, terminal-entry-only ignores), so a wider seed cannot revive a join that the original ``calt_pair_*`` rule blocks.
+        Seeds with outputs of every channel that can mutate a glyph during the forward calt passes — generic entry/exit substitutions plus pair-specific overrides (forward and backward, gated and ungated). Pair-specific outputs are kept here so post-context bk-pair re-emission can match consumers whose backtrack names a fwd-pair-override result (e.g. ``qsFee.en-y5`` after ``qsMay.ex-ext-1``). The post-context emitter still applies its own guards (``not_before``, entry-strip, terminal-entry-only ignores), so a wider seed cannot revive a join that the original ``calt_pair_*`` rule blocks.
         """
         late: set[str] = set()
         for replacements in bk_replacements.values():
@@ -5003,9 +4998,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if not fallback_meta.exit:
             return None
 
-        # Match the candidate's entry side so a baseline-joining input (e.g. qsMay.entry-baseline) routes to a baseline-joining replacement (qsMay.entry-baseline.exit-noentry), not the entryless fallback. The replacement's modifier set should match the input's minus any exit-* modifiers (those describe the exit shape we're discarding) plus 'exit-noentry'.
-        expected_modifiers = frozenset(m for m in fallback_meta.modifiers if not m.startswith("exit-")) | {
-            "exit-noentry"
+        # Match the candidate's entry side so a baseline-joining input (e.g. qsMay.en-y0) routes to a baseline-joining replacement (qsMay.en-y0.ex-noentry), not the entryless fallback. The replacement's modifier set should match the input's minus any ex-* modifiers (those describe the exit shape we're discarding) plus 'ex-noentry'.
+        expected_modifiers = frozenset(m for m in fallback_meta.modifiers if not m.startswith("ex-")) | {
+            "ex-noentry"
         }
 
         candidates: list[tuple[tuple, str]] = []
@@ -5013,7 +5008,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             candidate_meta = glyph_meta[candidate_name]
             if candidate_meta.is_noentry:
                 continue
-            if "exit-noentry" not in candidate_meta.modifiers:
+            if "ex-noentry" not in candidate_meta.modifiers:
                 continue
             if candidate_meta.exit:
                 continue
@@ -5197,7 +5192,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _collect_noentry_after_pre_predecessor_revert_rules(
         demotion_rules: list[tuple[str, str, str]],
     ) -> list[tuple[str, str, str]]:
-        # When `_collect_noentry_after_left_cleanup_rules` demotes a predecessor (e.g. qsMay.entry-baseline -> qsMay.exit-noentry), any glyph whose `before:` clause selected its variant on the demoted family is now extending toward an entryless follower. Revert those pre-predecessor variants to their bare base in the context of the demoted replacement so the would-be join stroke doesn't dangle. Runs as its own lookup after the demotion pass so the lookahead can match the freshly substituted replacement. Skip when the replacement still carries an entry: the pre-predecessor's exit can still attach there, so the `before:`-driven shape selection remains correct.
+        # When `_collect_noentry_after_left_cleanup_rules` demotes a predecessor (e.g. qsMay.en-y0 -> qsMay.ex-noentry), any glyph whose `before:` clause selected its variant on the demoted family is now extending toward an entryless follower. Revert those pre-predecessor variants to their bare base in the context of the demoted replacement so the would-be join stroke doesn't dangle. Runs as its own lookup after the demotion pass so the lookahead can match the freshly substituted replacement. Skip when the replacement still carries an entry: the pre-predecessor's exit can still attach there, so the `before:`-driven shape selection remains correct.
         seen: set[tuple[str, str, str]] = set()
         rules: list[tuple[str, str, str]] = []
         for _lig_target, candidate, replacement in demotion_rules:
@@ -5230,7 +5225,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         from itertools import product
 
         # Ligation lives inside `calt`, not the dedicated `liga` feature, so it runs after `calt_cycle`'s contextual form selection within the same feature pass. That ordering lets a forward `calt` rule change a component's glyph identity (e.g., qsUtter -> qsUtter.alt in ·Day·Utter·Low) before the ligature lookup sees it, which in turn blocks the `qsDay qsUtter` ligature from firing because the matched sequence is now `qsDay qsUtter.alt`. Putting these rules in `liga` would force ligation to run as its own feature pass and lose that interleaving.
-        # Constructed variant names (`lig_name + ".half"`, `actual_lig + ".exit-extended"`, etc.) miss the post-synthesis forms whose anchor-Y labels were filled in by `_synthesize_anchor_modifiers` — e.g. `qsDay_qsUtter.half` is really `qsDay_qsUtter.half.entry-baseline.exit-xheight`. `heal_glyph_name` rewrites the literal name to its post-synthesis counterpart before we test membership in `glyph_names`.
+        # Constructed variant names (`lig_name + ".half"`, `actual_lig + ".ex-ext-1"`, etc.) miss the post-synthesis forms whose anchor-Y labels were filled in by `_synthesize_anchor_modifiers` — e.g. `qsDay_qsUtter.half` is really `qsDay_qsUtter.half.en-y0.ex-y5`. `heal_glyph_name` rewrites the literal name to its post-synthesis counterpart before we test membership in `glyph_names`.
         _lig_family_names = family_names_from_compiled(glyph_names)
         _lig_available_names = frozenset(glyph_names)
 
@@ -5250,9 +5245,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if suffix:
                     ext_lig = _resolve(lig_name + suffix)
                     if ext_lig not in glyph_names:
-                        ext_lig = _resolve(lig_name + ".entry-extended")
+                        ext_lig = _resolve(lig_name + ".en-ext-1")
                     if ext_lig in glyph_names:
-                        # Only inherit the entry-extension onto the ligature when the source's entry Y matches the target's. The `.entry-extended` suffix means different things on forms with different entry geometries (e.g., `qsDay.half.entry-extended` extends entry at y=0 while `qsDay_qsEat.entry-extended` extends entry at y=5) — copying it across mismatched Ys produces a ligature variant whose extension is geometrically unrelated to the predecessor join that triggered it.
+                        # Only inherit the entry-extension onto the ligature when the source's entry Y matches the target's. The `.en-ext-1` suffix means different things on forms with different entry geometries (e.g., `qsDay.half.en-ext-1` extends entry at y=0 while `qsDay_qsEat.en-ext-1` extends entry at y=5) — copying it across mismatched Ys produces a ligature variant whose extension is geometrically unrelated to the predecessor join that triggered it.
                         ext_lig_entry_ys = set(_meta(ext_lig).entry_ys)
                         combo_entry_ys = set(_meta(combo[0]).entry_ys)
                         if not combo_entry_ys or not ext_lig_entry_ys or combo_entry_ys & ext_lig_entry_ys:
@@ -5268,7 +5263,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         actual_lig = half_lig
                 exit_suffix = _meta(combo[-1]).extended_exit_suffix
                 if exit_suffix:
-                    ext_lig = _resolve(actual_lig + ".exit-extended")
+                    ext_lig = _resolve(actual_lig + ".ex-ext-1")
                     if ext_lig in glyph_names:
                         actual_lig = ext_lig
                 contracted_suffix = _meta(combo[-1]).contracted_exit_suffix
@@ -5289,7 +5284,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if not any(glyph in lig_glyph_names for glyph in after_glyphs):
                     continue
                 expanded_after = _expanded_pair_after(variant_name, after_glyphs)
-                # Narrow the post-liga trigger class to ligature-derived glyphs only. The whole point of this lookup is to re-fire form selection when a ligature glyph is the new immediate predecessor; including the variant's non-ligature after entries here would over-fire on plain pre-liga sequences whose predecessor mutated during `calt_cycle` (e.g., `qsUtter qsThey qsJay` where forward extension turns qsUtter into qsUtter.exit-extended *after* qsThey's backward lookup already declined to fire). Ligature-only ensures the rule truly only triggers post-collapse.
+                # Narrow the post-liga trigger class to ligature-derived glyphs only. The whole point of this lookup is to re-fire form selection when a ligature glyph is the new immediate predecessor; including the variant's non-ligature after entries here would over-fire on plain pre-liga sequences whose predecessor mutated during `calt_cycle` (e.g., `qsUtter qsThey qsJay` where forward extension turns qsUtter into qsUtter.ex-ext-1 *after* qsThey's backward lookup already declined to fire). Ligature-only ensures the rule truly only triggers post-collapse.
                 ligature_after = sorted(
                     glyph
                     for glyph in expanded_after
@@ -5373,7 +5368,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for base_name in sorted(lig_fwd_bases):
             _emit_fwd(base_name)
 
-    # Register reflip entries for every `restore_isolated_form_overrides` entry whose intermediate heuristic in `_record_pair_guard_reflip` (the "isolated_form's exit_y must reach the follower's plain entry_y" check) would otherwise reject the registration. The qsEat/qsJay/qsYe/qsIt before qsIt before qsNo cases hit this: the heuristic sees qsNo's plain entry at the x-height and refuses to commit qsIt.exit-baseline, but the post-reflip follower bk pass would re-fire qsNo.alt anyway. The pre_form here is the sibling fwd_replacement at the opposite exit_y from isolated_form — that's the form the chain settles into pre-reflip when the heuristic blocked the upgrade — so the emission stays narrow instead of crossing every (pre_form × follower_variant) combination.
+    # Register reflip entries for every `restore_isolated_form_overrides` entry whose intermediate heuristic in `_record_pair_guard_reflip` (the "isolated_form's exit_y must reach the follower's plain entry_y" check) would otherwise reject the registration. The qsEat/qsJay/qsYe/qsIt before qsIt before qsNo cases hit this: the heuristic sees qsNo's plain entry at the x-height and refuses to commit qsIt.ex-y0, but the post-reflip follower bk pass would re-fire qsNo.alt anyway. The pre_form here is the sibling fwd_replacement at the opposite exit_y from isolated_form — that's the form the chain settles into pre-reflip when the heuristic blocked the upgrade — so the emission stays narrow instead of crossing every (pre_form × follower_variant) combination.
     for prior_base, target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
         if isolated_form not in glyph_names:
             continue
@@ -5536,7 +5531,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if isolated_form is not None:
             return isolated_form
         meta = glyph_meta.get(name)
-        if meta is not None and meta.base_name == "qsShe" and name == "qsShe.exit-baseline":
+        if meta is not None and meta.base_name == "qsShe" and name == "qsShe.ex-y0":
             return meta.base_name
         return None
 
@@ -5565,9 +5560,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 candidate_meta.contracted_entry_suffix,
             ]
             suffixes.extend(
-                f".{modifier}"
-                for modifier in candidate_meta.modifiers
-                if modifier.startswith("entry-trimmed-by-")
+                f".{modifier}" for modifier in candidate_meta.modifiers if modifier.startswith("en-trim-")
             )
             for suffix in suffixes:
                 if suffix and suffix in candidate:
@@ -5664,7 +5657,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         if suffix_word is None:
             continue
         noentry_form = f"{source_form}.noentry"
-        replacement = f"{noentry_form}.exit-{suffix_word}"
+        replacement = f"{noentry_form}.ex-{suffix_word}"
         if noentry_form not in glyph_names or replacement not in glyph_names:
             continue
         trigger_forms = _expand_all_variants(source_meta.contract_exit_before.targets, include_base=True)
@@ -5707,8 +5700,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         # match the successor's entry, prefer a sibling whose entry actually does
         # match the prior's exit and whose own `select.after` claims this prior —
         # falling back on the bare isolated form silently drops the cursive-join
-        # upgrade for an otherwise-valid pair (e.g. `qsIt.entry-xheight qsRoe`
-        # should land on `qsRoe.entry-extended-at-baseline`, not bare `qsRoe`).
+        # upgrade for an otherwise-valid pair (e.g. `qsIt.en-y5 qsRoe`
+        # should land on `qsRoe.en-ext-1-at-0`, not bare `qsRoe`).
         if not prior_meta.exit_ys:
             return None
         prior_exit_ys = set(prior_meta.exit_ys)
@@ -5754,7 +5747,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 (prior_form, successor_form, target_form)
             )
 
-    # An entry-extension form that also picked up an exit modifier (e.g. `qsRoe.exit-baseline.entry-extended-at-xheight`, which exits toward a baseline follower) has its `select.after` cleared on the derived variant, so the loop above skips it. But it needs the same demotion: after a prior whose exit lands at the wrong Y for its entry, the entry side can't actually join, and the in-context render must fall back to the same target the bare entry-extension form does. Mirror every rule onto the form's exit-modifier siblings, dropping the now-unreachable exit by reusing the parent's target. The target (an entry-extension form at the prior-matching Y) carries no exit itself, so the demoted glyph surrenders its follower join — correct, since the letter can't enter and exit at the same Y.
+    # An entry-extension form that also picked up an exit modifier (e.g. `qsRoe.ex-y0.en-ext-1-at-5`, which exits toward a baseline follower) has its `select.after` cleared on the derived variant, so the loop above skips it. But it needs the same demotion: after a prior whose exit lands at the wrong Y for its entry, the entry side can't actually join, and the in-context render must fall back to the same target the bare entry-extension form does. Mirror every rule onto the form's exit-modifier siblings, dropping the now-unreachable exit by reusing the parent's target. The target (an entry-extension form at the prior-matching Y) carries no exit itself, so the demoted glyph surrenders its follower join — correct, since the letter can't enter and exit at the same Y.
     for successor_base in sorted(successor_demote_by_base):
         sibling_rules: list[tuple[str, str, str]] = []
         for prior_form, successor_form, target_form in successor_demote_by_base[successor_base]:
@@ -5797,7 +5790,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub {prior_form} {successor_form}' by {target_form};")
         lines.append(f"    }} calt_successor_demote_{safe};")
 
-    # Heal the curated names against the live glyph set: the source-of-truth form names changed when `_synthesize_anchor_modifiers` started filling in entry-baseline / exit-baseline, so a literal `qsVie.exit-baseline` no longer compiles. `heal_glyph_name` rewrites each side of the rule to its post-synthesis counterpart.
+    # Heal the curated names against the live glyph set: the source-of-truth form names changed when `_synthesize_anchor_modifiers` started filling in en-y0 / ex-y0, so a literal `qsVie.ex-y0` no longer compiles. `heal_glyph_name` rewrites each side of the rule to its post-synthesis counterpart.
     _entry_demote_family_names = family_names_from_compiled(glyph_names)
     _entry_demote_available_names = frozenset(glyph_names)
     entry_demote_rules = tuple(
@@ -5807,8 +5800,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             heal_glyph_name(isolated, _entry_demote_family_names, _entry_demote_available_names),
         )
         for prior, successor, isolated in (
-            ("qsOut_qsTea", "qsVie.exit-baseline.entry-extended", "qsVie.exit-baseline"),
-            ("qsOut_qsTea", "qsVie_qsUtter.entry-extended", "qsVie_qsUtter"),
+            ("qsOut_qsTea", "qsVie.ex-y0.en-ext-1", "qsVie.ex-y0"),
+            ("qsOut_qsTea", "qsVie_qsUtter.en-ext-1", "qsVie_qsUtter"),
         )
     )
     emitted_entry_demote = False
@@ -5829,7 +5822,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
 
     _emit_pred_demote_lookups("calt_final_pred_demote")
 
-    # Glyphs that literally carry an entry anchor at Y — the receivers a `extend_exit_when_entered` exit may attach to. NOT `@entry_y{N}`: that class also holds bare bases and entry-stripped forward replacements that could promote to an entry at Y but don't in their final form (e.g. the trailing qsMay in ·Bay·May·May·Ah settles on qsMay.exit-baseline, no entry). Extending toward those would strand the extra ink, so the lookahead is restricted to glyphs whose final form actually receives.
+    # Glyphs that literally carry an entry anchor at Y — the receivers a `extend_exit_when_entered` exit may attach to. NOT `@entry_y{N}`: that class also holds bare bases and entry-stripped forward replacements that could promote to an entry at Y but don't in their final form (e.g. the trailing qsMay in ·Bay·May·May·Ah settles on qsMay.ex-y0, no entry). Extending toward those would strand the extra ink, so the lookahead is restricted to glyphs whose final form actually receives.
     def _literal_entry_receivers(target_y: int) -> list[str]:
         return sorted(
             g
@@ -5837,7 +5830,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if any(a[1] == target_y for a in (*_meta(g).entry, *_meta(g).entry_curs_only))
         )
 
-    # `extend_exit_when_entered`: lengthen a backward-entry-upgrade target's exit toward its x-height receivers, kept gated on the predecessor that supplied the entry join. The carrier form and its entry-extension siblings only ever appear after that join (word-initial / non-baseline contexts settle on the bare base), so this final lookup matches them directly — no backtrack — without leaking onto the bare form. Placed last so it sees whichever entry-side form the predecessor produced (plain or entry-extended).
+    # `extend_exit_when_entered`: lengthen a backward-entry-upgrade target's exit toward its x-height receivers, kept gated on the predecessor that supplied the entry join. The carrier form and its entry-extension siblings only ever appear after that join (word-initial / non-baseline contexts settle on the bare base), so this final lookup matches them directly — no backtrack — without leaking onto the bare form. Placed last so it sees whichever entry-side form the predecessor produced (plain or en-ext-1).
     receivers_by_exit_y: dict[int, str] = {}
     for carrier in sorted(n for n in glyph_names if _meta(n).extend_exit_when_entered):
         carrier_meta = _meta(carrier)
@@ -5851,16 +5844,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         when_entered_rules: list[str] = []
         for variant in sorted(base_to_variants.get(carrier_meta.base_name, ())):
             vm = _meta(variant)
-            # Match the carrier and its entry-side siblings (entry-extended, …) but not the bare base nor any already exit-modified form.
+            # Match the carrier and its entry-side siblings (en-ext-1, …) but not the bare base nor any already exit-modified form.
             if not vm.entry or not vm.exit or vm.is_noentry:
                 continue
             if not carrier_mods <= set(vm.modifiers):
                 continue
-            if any(not extra.startswith("entry-") for extra in set(vm.modifiers) - carrier_mods):
+            if any(not extra.startswith("en-") for extra in set(vm.modifiers) - carrier_mods):
                 continue
             if vm.extended_exit_suffix or vm.contracted_exit_suffix:
                 continue
-            combined = f"{variant}.exit-{suffix_word}"
+            combined = f"{variant}.ex-{suffix_word}"
             if combined not in glyph_names:
                 continue
             for exit_y in sorted(set(vm.exit_ys)):
@@ -6192,7 +6185,7 @@ def _emit_quikscript_ss_gate(analysis: _JoinAnalysis) -> str | None:
                 if suffix:
                     extended = variant_name + suffix
                     if extended not in glyph_names:
-                        extended = variant_name + ".entry-extended"
+                        extended = variant_name + ".en-ext-1"
                     if extended in glyph_names:
                         actual_variant = extended
                 actual_variant = _resolve_noentry_replacement(

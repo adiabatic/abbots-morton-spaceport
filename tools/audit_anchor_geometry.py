@@ -9,8 +9,8 @@ This script walks every compiled form (post-inheritance, post-derive expansion) 
 
 Reading the report, two derive-generated buckets look anomalous but are intentional and follow from a tight source:
 
-    * `*.entry-contracted` / `*.exit-contracted` variants land at gap = +N (entry side) or gap = -N (exit side) by design — the contract shifts the anchor inward by N to shorten the join, leaving the bitmap unchanged on that side.
-    * `*.entry-trimmed-by-N` variants land at gap = entry.x - N, which is -N only when the entry sat at x=0 (qsZoo, qsJay); for an already-inset entry the gap is less negative — qsJai's entry sits at x=1, so its `entry-trimmed-by-3` lands at gap -2 and its `entry-trimmed-by-2` at gap -1. The receiver's leftmost N bitmap columns are blanked at the entry's row (whether or not they held ink) to make room for the predecessor's overlapping exit stroke; the entry stays at the original attachment point so the predecessor's exit meets the receiver where the receiver's ink used to begin.
+    * `*.en-con-1` / `*.ex-con-1` variants land at gap = +N (entry side) or gap = -N (exit side) by design — the contract shifts the anchor inward by N to shorten the join, leaving the bitmap unchanged on that side.
+    * `*.en-trim-N` variants land at gap = entry.x - N, which is -N only when the entry sat at x=0 (qsZoo, qsJay); for an already-inset entry the gap is less negative — qsJai's entry sits at x=1, so its `en-trim-3` lands at gap -2 and its `en-trim-2` at gap -1. The receiver's leftmost N bitmap columns are blanked at the entry's row (whether or not they held ink) to make room for the predecessor's overlapping exit stroke; the entry stays at the original attachment point so the predecessor's exit meets the receiver where the receiver's ink used to begin.
 
 Both follow mechanically from the source declaration. Tighten the source, and those two buckets either move with it (contract) or stay correct (trim).
 
@@ -135,18 +135,18 @@ def collect(side, defs, meta, family_filter=None):
 
 
 _DERIVED_ENTRY_MODIFIERS = (
-    "entry-extended",
-    "entry-doubly-extended",
-    "entry-contracted",
-    "entry-doubly-contracted",
-    "entry-trimmed-by-",
+    "en-ext-1",
+    "en-ext-2",
+    "en-con-1",
+    "en-con-2",
+    "en-trim-",
 )
 _DERIVED_EXIT_MODIFIERS = (
-    "exit-extended",
-    "exit-doubly-extended",
-    "exit-contracted",
-    "exit-doubly-contracted",
-    "exit-trimmed-by-",
+    "ex-ext-1",
+    "ex-ext-2",
+    "ex-con-1",
+    "ex-con-2",
+    "ex-trim-",
 )
 
 

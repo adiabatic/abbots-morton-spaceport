@@ -76,7 +76,7 @@ a. **Monospace vs. proportional** — the Quikscript source data defines separat
 b. **Entry/exit variants** — a letter like ·Tea might need forms that enter at the top, at the x-height, at the baseline, or not at all. Each is a separate glyph in the font.
 c. **Half-letter variants** — some Tall/Deep letters have a half-height form used when connecting to certain neighbors (e.g., ·Pea half). Explain with an example.
 d. **Alternate forms** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
-e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Quikscript concepts preserved in the source model, while other compiled names like `qsTea.entry-xheight.exit-baseline` are generated implementation detail from family `forms` and build-time variant expansion
+e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Quikscript concepts preserved in the source model, while other compiled names like `qsTea.en-y5.ex-y0` are generated implementation detail from family `forms` and build-time variant expansion
 
 ### 4. Feature files and the OpenType pipeline
 
