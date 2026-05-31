@@ -1735,7 +1735,6 @@ def test_it_jai_extends_by_one_pixel_when_joined(before_first: str):
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_ye_i_extends_by_one_pixel_when_joined(before_first: str):
-    """·Ye·I always joins with one pixel of extension, whatever follows ·I. ·I's entry extends a pixel toward ·Ye's baseline exit (qsI.prop.derive.extend_entry_after targets qsYe), so the join carries a connecting pixel. The regression: when the follower pulls ·I's x-height forward exit (·Day, ·Fee, ·May, …) or ·J'ai's exit contraction, ·I switches to qsI.exit-extended / qsI.exit-contracted and silently drops the entry extension, so the ·Ye·I pixel goes missing for those followers only."""
     _assert_no_failures(
         _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
             "qsYe",
