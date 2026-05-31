@@ -4279,6 +4279,37 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    }} calt_{safe};")
 
     def _emit_reverse_upgrades():
+        def _forward_exit_derivatives(root: str) -> list[str]:
+            # Transitive exit-side derivatives (extend/contract) of `root`, skipping
+            # entry-side and noentry forms. These are the forms a follower can force
+            # onto `root` before the left context resolves.
+            found: list[str] = []
+            queue = deque([root])
+            seen = {root}
+            while queue:
+                parent = queue.popleft()
+                for child in generation_children.get(parent, ()):
+                    if child in seen:
+                        continue
+                    seen.add(child)
+                    queue.append(child)
+                    child_meta = glyph_meta.get(child)
+                    if child_meta is None or child_meta.is_noentry:
+                        continue
+                    if child_meta.transform_kind == "entry-trimmed":
+                        continue
+                    if not (child_meta.extended_exit_suffix or child_meta.contracted_exit_suffix):
+                        continue
+                    found.append(child)
+            return found
+
+        def _exit_xy(name: str) -> tuple[int, int] | None:
+            meta = glyph_meta.get(name)
+            if meta is None or not meta.exit:
+                return None
+            anchor = meta.exit[0]
+            return (anchor[0], anchor[1])
+
         for base_name in sorted(fwd_upgrades):
             for entry_exit_var, entry_only_var, exit_y, not_before in fwd_upgrades[base_name]:
                 entry_meta = _meta(entry_only_var)
@@ -4323,6 +4354,35 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     else:
                         lines.append(f"        ignore sub {exit_only_var}' [{not_before_list}];")
                 lines.append(f"        sub {left_context_token} {exit_only_var}' by {entry_exit_var};")
+                if after_glyphs:
+                    # The base rule above re-applies the after-context shape only to the bare
+                    # `exit_only_var`. But when the after-context (e.g. ·See) resolves later than the
+                    # follower, the follower has already forced a forward exit-treatment onto the
+                    # exit-only form, so the buffer holds e.g. `qsOut.en-y0.ex-y5.ex-con-2`, not the bare
+                    # `qsOut.en-y0.ex-y5`, and the base rule misses it. Re-apply the shape to those
+                    # forward-treated forms too, pairing each to the after-context variant that lands the
+                    # follower at the same exit anchor — the shifted after-context body needs one more
+                    # contraction / one less extension to reach the same X. Without this, ·See·Out·{J'ai,Fee}
+                    # keep the un-shifted body and collide with the preceding letter.
+                    after_by_exit: dict[tuple[int, int], str] = {}
+                    after_candidates = [entry_exit_var, *_forward_exit_derivatives(entry_exit_var)]
+                    for candidate in sorted(
+                        after_candidates, key=lambda name: (len(glyph_meta[name].modifiers), name)
+                    ):
+                        xy = _exit_xy(candidate)
+                        if xy is not None:
+                            after_by_exit.setdefault(xy, candidate)
+                    for plain in sorted(_forward_exit_derivatives(exit_only_var)):
+                        plain_meta = glyph_meta[plain]
+                        if not (plain_meta.before or plain_meta.gated_before):
+                            continue
+                        xy = _exit_xy(plain)
+                        if xy is None:
+                            continue
+                        target = after_by_exit.get(xy)
+                        if target is None or target == plain:
+                            continue
+                        lines.append(f"        sub {left_context_token} {plain}' by {target};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
         for variant_name, source_variants, entry_ys, after_glyphs, not_before in plan.reverse_only_upgrades:
@@ -5284,12 +5344,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if not any(glyph in lig_glyph_names for glyph in after_glyphs):
                     continue
                 expanded_after = _expanded_pair_after(variant_name, after_glyphs)
-                # Narrow the post-liga trigger class to ligature-derived glyphs only. The whole point of this lookup is to re-fire form selection when a ligature glyph is the new immediate predecessor; including the variant's non-ligature after entries here would over-fire on plain pre-liga sequences whose predecessor mutated during `calt_cycle` (e.g., `qsUtter qsThey qsJay` where forward extension turns qsUtter into qsUtter.ex-ext-1 *after* qsThey's backward lookup already declined to fire). Ligature-only ensures the rule truly only triggers post-collapse.
-                ligature_after = sorted(
-                    glyph
-                    for glyph in expanded_after
-                    if glyph in glyph_meta and glyph_meta[glyph].base_name in lig_glyph_names
-                )
+                if base_name in lig_glyph_names:
+                    # When the after-context form belongs to a ligature, the ligature glyph only exists *after* liga, so its pre-liga `calt_post_context_pair` can never match — a non-ligature predecessor (e.g. ·See's baseline exit before ·See·Out·Tea) has no earlier chance to trigger the upgrade. Keep the full predecessor class so it fires here, post-collapse.
+                    ligature_after = sorted(expanded_after)
+                else:
+                    # Narrow the post-liga trigger class to ligature-derived glyphs only. The whole point of this lookup is to re-fire form selection when a ligature glyph is the new immediate predecessor; including the variant's non-ligature after entries here would over-fire on plain pre-liga sequences whose predecessor mutated during `calt_cycle` (e.g., `qsUtter qsThey qsJay` where forward extension turns qsUtter into qsUtter.ex-ext-1 *after* qsThey's backward lookup already declined to fire). Ligature-only ensures the rule truly only triggers post-collapse.
+                    ligature_after = sorted(
+                        glyph
+                        for glyph in expanded_after
+                        if glyph in glyph_meta and glyph_meta[glyph].base_name in lig_glyph_names
+                    )
                 if ligature_after:
                     post_liga_rules.append((base_name, variant_name, ligature_after))
 

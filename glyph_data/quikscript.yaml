@@ -3098,6 +3098,24 @@ glyph_families:
       - "#    ## "
       - "#       "
       - "#       "  #
+    shapes:
+      after_see:
+        bitmap:
+        - "     #   "
+        - "     #   "
+        - "     #   "
+        - "     ### "  #
+        - "    ##  #"
+        - "   # #  #"
+        - "  #   ## "
+        - " #       "
+        - "#        "  #
+    forms:
+      after_see:
+        shape: after_see
+        select:
+          after: [{family: qsSee, exit_y: 0}]
+        modifiers: [after-see]
   qsOwe:
     mono:
       bitmap:
