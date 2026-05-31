@@ -6,6 +6,7 @@
 - When a request mentions a letter by name (e.g., "after ·Pea", "before ·Tea") and that family has multiple variants (half/full, alt, entry-y6, exit-baseline, etc.), don't silently default to a bare `{family: qsX}` selector. Before editing, look up the family in `glyph_data/quikscript.yaml`, enumerate its variants (and the relevant axis — half vs. full, exit Y, traits, etc.), and present them as a clarifying question so the user can pick the intended subset without needing the YAML in front of them.
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
+- When the work reaches a natural commit point, don't just offer to commit — spawn a fresh sub-agent to draft commit-message suggestions, then present those for approval.
 - In this repository only, it’s OK to have multiline commit messages, although by no means mandatory.
 - Prefer commit messages that either:
   - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
