@@ -2750,7 +2750,7 @@ glyph_families:
         exit: [5, 0]
       derive:
         extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
-        extend_exit_before: {by: 1, targets: [{family: qsExam}, {family: qsIt}]}
+        extend_exit_before: {by: 1, targets: [{family: qsYe}, {family: qsHe}, {family: qsExam}, {family: qsIt}]}
   qsAt:
     mono:
       bitmap:
