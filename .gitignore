@@ -19,3 +19,6 @@ wheels/
 
 # Scratch files
 tmp/
+
+# Claude Code local state
+.claude/scheduled_tasks.lock
