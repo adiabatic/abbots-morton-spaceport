@@ -3069,6 +3069,16 @@ glyph_families:
         derive:
           contract_exit_before: {by: 3, targets: [{family: qsJai}]}
         modifiers: [after-see]
+      exit_xheight_after_see_before_fee:
+        inherits: exit_xheight_after_see
+        anchors:
+          exit: [7, 5]
+        select:
+          after: [{family: qsSee, exit_y: 0}]
+        derive:
+          contract_exit_before: null
+          reverse_upgrade_from: [{family: qsOut, modifiers: [ex-y5, after-see]}]
+        modifiers: [after-see, before-fee]
       exit_xheight:
         shape: exit_xheight
         anchors:
