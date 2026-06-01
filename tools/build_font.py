@@ -935,11 +935,14 @@ def build_font(
 
         # Calculate advance width
         advance_width = glyph_def.get("advance_width")
+        senior_tighten = False
         if advance_width is None:
             if is_prop_glyph:
                 # Proportional glyphs: bitmap width + 2 pixel spacing
                 max_col = max((len(row) for row in bitmap), default=0)
                 advance_width = (max_col + 2) * pixel_width
+                # Senior sits one pixel tighter than Junior by default: shave a pixel off the right sidebearing of every Quikscript letter. Cursive joins are positioned by exit/entry anchors, so this only closes up non-joining boundaries.
+                senior_tighten = is_senior and is_quikscript
             else:
                 # Monospace glyphs: use fixed mono_width
                 advance_width = mono_width
@@ -953,6 +956,10 @@ def build_font(
             x_offset = -(bitmap_width // 2)
         else:
             x_offset = (advance_width - bitmap_width) // 2
+
+        # Trim the right sidebearing after centering so the ink keeps its pixel-grid position and only the advance shrinks.
+        if senior_tighten:
+            advance_width -= pixel_width
 
         # Calculate left side bearing (LSB) with offset applied
         if advance_width == 0:
