@@ -4,6 +4,76 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 15.000
+
+Insectoid aliens and gut punches edition
+
+The bulk of this release’s work is cleaning up a long tail of obviously-incorrect glyph selections. If you tried Abbots Morton Spaceport Sans Senior and thought “nice font, but I’m writing science fiction and it’s screwing up the names of my insectoid aliens that make lots of consonant-heavy chittering noises and use ·Excite and ·Exam in their names, and things don’t look right when my protagonist gets punched in the stomach and makes noises like \*gurk\*”, then this is the release you’ve been waiting for.
+
+According to Claude, this is what’s changed since the last release:
+
+#### Quikscript Senior
+
+- Join into ·He and ·Ye at the baseline:
+  - Baseline-exiting letters now connect into ·He and ·Ye at the baseline
+  - Join ·Jay·Ye and ·J’ai·Ye at the baseline, extending both J-letters’ ·Ye joins by a pixel
+  - Prefer joining to the following letter over the preceding one when ·He or ·Ye could go either way
+  - But don’t join ·Jay·He, ·Eat·He, ·Eat·Ye, ·He·Owe, or ·Ye·Owe
+  - Don’t let ·He·-ing or ·Ye·-ing join — especially not when ·Thaw follows
+- ·It overhaul:
+  - Join ·It·Day at the baseline (·It exits at the baseline into a half-·Day) whenever ·It isn’t already taking a baseline join from the letter before it; never join ·It·Day at the x-height, and never across a ZWNJ
+  - Stop ·It from joining at the baseline on *both* sides at once by default; ss04 now also gates ·It’s baseline joins before ·Day and before ·Utter
+  - Never join ·It·It or ·It·Exam
+  - Don’t join ·Eat·It; stop ·Ye·It from joining at the baseline, even word-initially
+  - Connect ·It·Roe at a single height (the x-height)
+  - Collapse ·Zoo to its half form after ·It consistently (·Jay·It·Zoo, ·Ye·It·Zoo, ·Eat·It·Zoo, ·It·It·Zoo, and after any tall letter)
+  - Let ·Zoo join ·It at the baseline like ·Bay·It and ·Day·It do
+  - Extend ·It·Owe (both directions, including ·It·Owe·It), ·It·Cheer, ·It·J’ai, and ·Eight·It each by a pixel; stop contracting ·It·J’ai
+- Redraw ·May and retire its ligatures:
+  - New ·May glyph
+  - Break up the ·Fee·May, ·They·May, and ·At·May ligatures into contextual joins — they’re now two glyphs that connect (at the x-height for ·Fee·May, at the baseline for ·At·May), not single ligated forms
+  - Keep ·May·Fee joined at the x-height even when ·Utter follows
+  - Keep ·Roe·May joined when ·They+Utter follows, and trim ·May’s dangling exit before an entryless ·They+Utter
+  - Make ·Utter·They join again
+  - Extend ·May’s exit by a pixel when it follows a baseline join; extend ·May·J’ai by a pixel
+- ·Pea joins:
+  - Limit ·Pea to joining ·Utter and ·Zoo at the x-height; let ·Pea join ·Et, ·Awe, ·Ox, and ·Oy at the baseline
+  - Never join ·Oy·Pea or ·Pea·Owe, and stop letters that would scrape up against ·Pea from joining it
+  - Join ·Pea·Pea·May at the baseline
+  - Dip half-·Pea’s right leg to the x-height before ·Zoo (contracted by two pixels) and remove the no-ink gap that used to sit below half-·Pea on the right
+  - Pick the right ·Pea half after extended ·May and ·Utter exits
+- ·Gay:
+  - Shorten ·Gay by default and give it a form reachable from the left at the baseline
+  - ·Gay·Out joins now
+  - Extend ·Gay·Owe by two pixels and ·Gay·J’ai by a lot (no longer contracting it)
+  - Extend ·Gay·It and ·Gay·Cheer by a pixel so they stay in contact with the shortened ·Gay
+- ·See·Out cleanup:
+  - Tidy up ·See·Out·Tea, ·See·Out·Fee, ·See·Out·Oy, and ·See·Out·J’ai
+  - Add an alternate ·Out bitmap and use it where it reads better
+  - Keep ·See·Out short at the end of a word, and pick the right ·Out when the following letter can’t be joined to
+  - Don’t join ·See·Utter or ·See·Excite at the baseline
+- Let ·Gay, ·Fee, ·May, ·Roe, ·I, ·Ah, ·Utter, and ·Out join ·Oy at the x-height; keep ·Oy plain after ·Roe·No
+- ·Roe:
+  - Tighten ·Roe considerably and be pickier about ·Roe·J’ai joins
+  - Have ·Roe join to itself, and use the shortened-top ·Roe after ·Jay and ·Eat
+  - Extend ·Eat·Roe and ·Owe·Roe by a pixel; contract ·Tea·Roe by a pixel
+- ·He:
+  - Extend ·He·Exam by a pixel; contract ·He·Owe, tighten ·He·Roe, shorten ·He·Jay, and contract ·He·Zoo a little less
+  - Close the one-pixel gaps between half-letters and ·J’ai
+- ·Excite: have late ·Excite joins use the reaching-back shape; don’t join ·Roe·Excite, ·No·Excite, ·Zoo·Excite, or ·See·Excite
+- ·Why: don’t join ·Why to ·Ah, ·At, ·Eat, ·Exam, ·-ing, ·Low, ·May, ·Ooze, ·Out, or ·Ye; use the dipped ·Why after ·Utter
+- Don’t join ·Way·Ooze or ·Way·Tea (even with ss03 on); join ·Way·Roe at the baseline
+- Extend ·Ye·I (always, when joined), ·Eight·Ye, ·Eight·He, ·Eight·Exam, and ·Eat·I each by a pixel
+- Tighten ·Tea·Zoo and ·He·Zoo by a pixel; make ·Tea·Tea·Zoo and ·Pea·Zoo sensible; stop treating ·Zoo’s descender curl as a broken join
+- ·Owe: trim its wings (it’s a pixel narrower); extend ·Owe·Cheer and ·Owe·It by a pixel; stop contracting ·Owe·J’ai
+- Have ·Fee reach back to meet ·May, ·No, ·Low, ·Ah, and ·Utter; stop contracting ·Fee·J’ai; let ·See·Utter join its follower at the x-height the way ·Utter does
+- Never join ·They·J’ai
+- Stop letters that don’t join from influencing each other’s shape choice — a large round of fixes so that a letter in the middle of a broken chain renders the way it does on its own (e.g. ·She stays plain in ·She·Tea·Ah, ·Gay stays plain in ·Gay·It·Ah, ·Owe stays plain before ·May)
+
+#### Not really user-facing, but…
+
+- Shorten compiled glyph form names (e.g. `entry-xheight`/`exit-baseline` become `en-y5`/`ex-y0`), and have every compiled form name say where it joins. This changes the names inside the font file but not how anything renders.
+
 ### 14.003
 
 The main reason I’m publishing this is to push out the addition of page numbers to The Manual. Still, there’s:
