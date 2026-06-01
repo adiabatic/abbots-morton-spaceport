@@ -1,263 +1,6092 @@
 {
+  "qsAh|qsUtter": [
+    {
+      "left": {
+        "family": "qsAh",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsAh",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsAt|qsUtter": [
+    {
+      "left": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsAwe|qsNo": [
+    {
+      "left": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsAwe|qsUtter": [
+    {
+      "left": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsBay|qsNo": [
+    {
+      "left": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsBay|qsUtter": [
+    {
+      "left": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsCheer|qsNo": [
+    {
+      "left": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsCheer|qsUtter": [
+    {
+      "left": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsDay|qsNo": [
+    {
+      "left": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsDay|qsUtter": [
+    {
+      "left": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    }
+  ],
   "qsEat|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
+    }
+  ],
+  "qsEat|qsNo": [
+    {
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsEat|qsUtter": [
+    {
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsEight|qsNo": [
+    {
+      "left": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsEight|qsUtter": [
+    {
+      "left": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsEt|qsNo": [
+    {
+      "left": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsEt|qsUtter": [
+    {
+      "left": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsExam|qsNo": [
+    {
+      "left": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsExam|qsUtter": [
+    {
+      "left": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsExcite|qsGay": [
     {
-      "leftForm": "qsExcite.en-y0.noexit",
-      "rightForm": null,
+      "left": {
+        "family": "qsExcite",
+        "kind": "form",
+        "form": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
       "context": "",
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsExcite|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0.before-day.after-no-baseline-join",
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0.before-day.after-no-baseline-join",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0.before-utter",
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0.before-utter",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsExcite|qsNo": [
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsExcite|qsUtter": [
     {
-      "leftForm": null,
-      "rightForm": "qsUtter.alt.ex-y0",
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsFee|qsNo": [
+    {
+      "left": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsFee|qsUtter": [
+    {
+      "left": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsFoot|qsUtter": [
+    {
+      "left": {
+        "family": "qsFoot",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsFoot",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsGay|qsNo": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsGay|qsUtter": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsHe|qsNo": [
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsHe|qsUtter": [
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsIng|qsNo": [
+    {
+      "left": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsIng|qsUtter": [
+    {
+      "left": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsIt|qsDay": [
     {
-      "leftForm": "qsIt.en-y5.ex-y0",
-      "rightForm": "qsDay.half.en-y0.ex-y0",
+      "left": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.en-y5.ex-y0",
+        "except": null
+      },
+      "right": {
+        "family": "qsDay",
+        "kind": "form",
+        "form": "qsDay.half.en-y0.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
     }
   ],
   "qsIt|qsIt": [
     {
-      "leftForm": "qsIt.ex-y5",
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
+    }
+  ],
+  "qsIt|qsNo": [
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 6,
+      "junctionEnd": 8,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsIt|qsUtter": [
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 6,
+      "junctionEnd": 8,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsI|qsUtter": [
+    {
+      "left": {
+        "family": "qsI",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsI",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsJai|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsNo": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsJai|qsTea": [
     {
-      "leftForm": null,
-      "rightForm": "qsTea.ex-y0",
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "form",
+        "form": "qsTea.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsUtter": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
     }
   ],
   "qsJay|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
+    }
+  ],
+  "qsJay|qsNo": [
+    {
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsJay|qsUtter": [
+    {
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    }
+  ],
+  "qsKey|qsNo": [
+    {
+      "left": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsKey|qsUtter": [
+    {
+      "left": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsLlan|qsNo": [
+    {
+      "left": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsLlan|qsUtter": [
+    {
+      "left": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsLoch|qsNo": [
+    {
+      "left": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsLoch|qsUtter": [
+    {
+      "left": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsLow|qsUtter": [
+    {
+      "left": {
+        "family": "qsLow",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsLow",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsMay|qsFee": [
     {
-      "leftForm": null,
-      "rightForm": "qsFee.ex-y5",
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsFee",
+        "kind": "form",
+        "form": "qsFee.ex-y5",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsMay|qsGay": [
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0",
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "form",
+        "form": "qsGay.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsMay|qsNo": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsMay|qsUtter": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsAh": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsAh",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsAh",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsAt": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsAwe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsAwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsBay": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsBay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsCheer": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsCheer",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsDay": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 7,
+      "junctionEnd": 9,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsDay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsEat": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsEat",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsEight": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsEight",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsEt": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 5,
+      "junctionEnd": 7,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsEt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsExam": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsExam",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsExcite": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsNo|qsFee": [
     {
-      "leftForm": null,
-      "rightForm": "qsFee.ex-y5",
-      "context": "",
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsFee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsFoot": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsFoot",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsFoot",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsNo|qsGay": [
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0",
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsHe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsHe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsI": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsI",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsI",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsIng": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsIng",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsNo|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
-      "context": "",
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsJai": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsJay": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsJay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsKey": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsKey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsLlan": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsLlan",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsLoch": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsLoch",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsLow": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsLow",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsLow",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsMay": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 5,
+      "junctionEnd": 7,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsNo": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsOoze": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsOut": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsOwe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsOx": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsOy": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsPea": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsRoe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsSee": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 7,
+      "junctionEnd": 9,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsShe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsTea": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsThaw": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsThey": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "qsNo|qsUtter": [
     {
-      "leftForm": null,
-      "rightForm": "qsUtter.alt.ex-y0",
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
-      "table": "predecessor_demote"
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsVie": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsWay": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsWay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsWay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsWhy": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsYe": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 6,
+      "junctionEnd": 8,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 3,
+      "junctionEnd": 5,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsNo|qsZoo": [
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOoze|qsNo": [
+    {
+      "left": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOoze|qsUtter": [
+    {
+      "left": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 4,
+      "junctionEnd": 6,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOoze",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOut|qsNo": [
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOut|qsUtter": [
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOwe|qsNo": [
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOwe|qsUtter": [
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOx|qsNo": [
+    {
+      "left": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOx|qsUtter": [
+    {
+      "left": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOx",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOy|qsNo": [
+    {
+      "left": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsOy|qsUtter": [
+    {
+      "left": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsOy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsPea|qsNo": [
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsPea|qsUtter": [
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsRoe|qsNo": [
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsRoe|qsUtter": [
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsSee|qsNo": [
+    {
+      "left": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsSee|qsUtter": [
+    {
+      "left": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    }
+  ],
+  "qsShe|qsNo": [
+    {
+      "left": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsShe|qsUtter": [
+    {
+      "left": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsShe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsTea|qsNo": [
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsTea|qsUtter": [
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsThaw|qsNo": [
+    {
+      "left": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsThaw|qsUtter": [
+    {
+      "left": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsThey|qsNo": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsThey|qsUtter": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    }
+  ],
+  "qsUtter|qsAt": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsAt",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsGay": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsMay": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsMay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsNo": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 6,
+      "junctionEnd": 8,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsSee": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsThaw": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsUtter|qsUtter": [
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsVie|qsNo": [
+    {
+      "left": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsVie|qsUtter": [
+    {
+      "left": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "‌",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsVie",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
     }
   ],
   "qsWay|qsGay": [
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0",
+      "left": {
+        "family": "qsWay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "form",
+        "form": "qsGay.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0.ex-ext-1",
+      "left": {
+        "family": "qsWay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "form",
+        "form": "qsGay.ex-y0.ex-ext-1",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsWay|qsUtter": [
+    {
+      "left": {
+        "family": "qsWay",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
     }
   ],
   "qsWhy|qsGay": [
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0",
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "form",
+        "form": "qsGay.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsGay.ex-y0.ex-ext-1",
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "form",
+        "form": "qsGay.ex-y0.ex-ext-1",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
-      "table": "predecessor_demote"
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsWhy|qsUtter": [
+    {
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
     }
   ],
   "qsYe|qsIt": [
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
     },
     {
-      "leftForm": null,
-      "rightForm": "qsIt.ex-y0",
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "form",
+        "form": "qsIt.ex-y0",
+        "except": null
+      },
       "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "literal",
-      "table": "restore_isolated_form"
+      "origin": "restore_isolated_form",
+      "isolated": false
+    }
+  ],
+  "qsYe|qsNo": [
+    {
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsYe|qsUtter": [
+    {
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsYe",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsZoo|qsNo": [
+    {
+      "left": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsNo.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsNo",
+        "kind": "alt",
+        "form": "qsNo.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
+    }
+  ],
+  "qsZoo|qsUtter": [
+    {
+      "left": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "alt",
+        "form": "qsUtter.alt",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "form": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsUtter",
+        "kind": "plain",
+        "form": null,
+        "except": [
+          "qsUtter.alt"
+        ]
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "corpus",
+      "origin": "alt-axis",
+      "isolated": true
     }
   ],
   "_skipped": [
@@ -282,11 +6111,56 @@
     {
       "table": "predecessor_demote",
       "entry": {
+        "predecessor_form": "qsExcite.ex-y0.before-vertical",
+        "trigger_form": "qsUtter.alt",
+        "isolated_form": "qsExcite"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
         "predecessor_form": "qsMay.ex-noentry",
         "trigger_form": "qsThey_qsUtter.noentry",
         "isolated_form": "qsMay"
       },
       "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_form": "qsNo.alt",
+        "trigger_form": "qsGay.ex-y0",
+        "isolated_form": "qsNo"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_form": "qsNo.alt",
+        "trigger_form": "qsIt.ex-y0",
+        "isolated_form": "qsNo"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_form": "qsNo.alt",
+        "trigger_form": "qsUtter.alt",
+        "isolated_form": "qsNo"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_form": "qsNo.ex-ext-1",
+        "trigger_form": "qsFee.ex-y5",
+        "isolated_form": "qsNo"
+      },
+      "reason": "superseded_by_alt_axis"
     },
     {
       "table": "trailing_demote",

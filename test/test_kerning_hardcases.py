@@ -20,6 +20,7 @@ if TOOLS_PATH not in sys.path:
     sys.path.insert(0, TOOLS_PATH)
 
 from build_font import generate_kern_fea
+from build_kerning_hardcases import _glyph_kind
 
 ALLOWED_SKIP_REASONS = {
     "ligature",
@@ -28,6 +29,7 @@ ALLOWED_SKIP_REASONS = {
     "no_context",
     "cluster_ambiguous",
     "not_hidden",
+    "superseded_by_alt_axis",
 }
 
 
@@ -103,42 +105,47 @@ def test_context_reshapes_to_junction() -> None:
                     )
                     continue
 
-            if _base_name(left_name) != left_family:
-                failures.append(
-                    f"{label}: left junction base {_base_name(left_name)!r} ({left_name!r}) "
-                    f"!= {left_family!r}"
-                )
-            if _base_name(right_name) != right_family:
-                failures.append(
-                    f"{label}: right junction base {_base_name(right_name)!r} ({right_name!r}) "
-                    f"!= {right_family!r}"
-                )
-
-            left_form = junction["leftForm"]
-            if left_form is None:
-                if left_name != left_family:
-                    failures.append(
-                        f"{label}: leftForm is null but left junction glyph {left_name!r} "
-                        f"is not the bare family {left_family!r}"
-                    )
-            elif not _matches_form(left_name, left_form):
-                failures.append(
-                    f"{label}: left junction glyph {left_name!r} does not match leftForm {left_form!r}"
-                )
-
-            right_form = junction["rightForm"]
-            if right_form is None:
-                if right_name != right_family:
-                    failures.append(
-                        f"{label}: rightForm is null but right junction glyph {right_name!r} "
-                        f"is not the bare family {right_family!r}"
-                    )
-            elif not _matches_form(right_name, right_form):
-                failures.append(
-                    f"{label}: right junction glyph {right_name!r} does not match rightForm {right_form!r}"
-                )
+            _check_side(failures, label, "left", junction["left"], left_family, left_name)
+            _check_side(failures, label, "right", junction["right"], right_family, right_name)
 
     _assert_no_failures(failures, limit=20)
+
+
+def _check_side(failures: list[str], label: str, side: str, selector: dict, family: str, glyph: str) -> None:
+    """Assert the rendered ``glyph`` matches the junction's per-side selector: the right base family, and a kind that agrees with the glyph's discrete-alternate trait (``alt``/``half``/``plain``) or with the explicit form-prefix for table-derived ``form`` selectors."""
+    if selector["family"] != family:
+        failures.append(f"{label} {side}: selector family {selector['family']!r} != key family {family!r}")
+    if _base_name(glyph) != family:
+        failures.append(f"{label} {side}: rendered base {_base_name(glyph)!r} ({glyph!r}) != {family!r}")
+
+    kind = selector["kind"]
+    form = selector["form"]
+    if kind == "form":
+        if not form or not _matches_form(glyph, form):
+            failures.append(f"{label} {side}: glyph {glyph!r} does not match form selector {form!r}")
+    elif kind == "plain":
+        if form is not None:
+            failures.append(f"{label} {side}: plain selector unexpectedly carries form {form!r}")
+        if _glyph_kind(glyph) != "plain":
+            failures.append(f"{label} {side}: glyph {glyph!r} is {_glyph_kind(glyph)!r}, not plain")
+    else:  # an alternate axis, e.g. "alt"
+        if form != f"{family}.{kind}":
+            failures.append(f"{label} {side}: {kind} selector form {form!r} != {family}.{kind!r}")
+        if _glyph_kind(glyph) != kind or not _matches_form(glyph, f"{family}.{kind}"):
+            failures.append(
+                f"{label} {side}: glyph {glyph!r} ({_glyph_kind(glyph)!r}) is not {kind} of {family!r}"
+            )
+
+
+def test_no_utter_alt_combos() -> None:
+    """·No·Utter must surface all three hidden alternate-form combinations and reserve (alt, plain) as the isolated grid cell."""
+    data = _load_data()
+    junctions = data["qsNo|qsUtter"]
+    hidden = {(j["left"]["kind"], j["right"]["kind"]) for j in junctions if not j["isolated"]}
+    assert hidden == {("plain", "plain"), ("plain", "alt"), ("alt", "alt")}, hidden
+    isolated = [j for j in junctions if j["isolated"]]
+    assert len(isolated) == 1, isolated
+    assert (isolated[0]["left"]["kind"], isolated[0]["right"]["kind"]) == ("alt", "plain")
 
 
 def test_skipped_reasons_are_intentional() -> None:
@@ -247,3 +254,65 @@ def test_generate_kern_fea_left_form_and_except_left() -> None:
 
     assert _left_set(fea, "lf") == {"qsNo.alt", "qsNo.alt.en-y0"}
     assert _left_set(fea, "el") == {"qsNo", "qsNo.en-ext-1"}
+
+
+def _coverage(fea: str) -> dict[tuple[str, str], str]:
+    """Map each (left, right) glyph pair to the single lookup tag that kerns it, asserting no pair is claimed twice."""
+    pattern = re.compile(
+        r"lookup kern_(?P<tag>\w+) \{\s*pos \[(?P<left>[^\]]*)\] \[(?P<right>[^\]]*)\] -?\d+;"
+    )
+    cover: dict[tuple[str, str], str] = {}
+    for match in pattern.finditer(fea):
+        tag = match.group("tag")
+        for left in match.group("left").split():
+            for right in match.group("right").split():
+                assert (
+                    left,
+                    right,
+                ) not in cover, f"{(left, right)} kerned by both {cover[(left, right)]} and {tag}"
+                cover[(left, right)] = tag
+    return cover
+
+
+def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
+    """The four quadrant lookups the page emits for an alt pair (plain/alt on either side, carved with both-sided except) must partition the family×family space without overlap."""
+    all_glyph_names = [
+        "qsNo",
+        "qsNo.alt",
+        "qsNo.alt.en-y0",
+        "qsNo.en-ext-1",
+        "qsUtter",
+        "qsUtter.alt",
+        "qsUtter.alt.ex-y0",
+    ]
+    quadrants = {
+        "pp": {
+            "left_family": ["qsNo"],
+            "except_left": ["qsNo.alt"],
+            "right_family": ["qsUtter"],
+            "except_right": ["qsUtter.alt"],
+            "value": -1,
+        },
+        "pa": {
+            "left_family": ["qsNo"],
+            "except_left": ["qsNo.alt"],
+            "right_form": ["qsUtter.alt"],
+            "value": -3,
+        },
+        "aa": {"left_form": ["qsNo.alt"], "right_form": ["qsUtter.alt"], "value": -1},
+        "ap": {
+            "left_form": ["qsNo.alt"],
+            "right_family": ["qsUtter"],
+            "except_right": ["qsUtter.alt"],
+            "value": -1,
+        },
+    }
+    fea = generate_kern_fea(quadrants, {}, all_glyph_names, 50)
+    cover = _coverage(fea)
+
+    # Every (qsNo*, qsUtter*) pair is covered exactly once across the four quadrants.
+    no_glyphs = [g for g in all_glyph_names if g.startswith("qsNo")]
+    utter_glyphs = [g for g in all_glyph_names if g.startswith("qsUtter")]
+    for left in no_glyphs:
+        for right in utter_glyphs:
+            assert (left, right) in cover, f"{(left, right)} kerned by no quadrant"

@@ -357,7 +357,7 @@
       let cellValues = new Map();
       // "qsLeft|qsRight" -> integer pixels the loaded font already bakes into its kern feature. We fake only (desired - baked) so baked kerning is shown once by the font itself, not doubled by letter-spacing.
       let bakedDeltas = new Map();
-      // "<leftSel>|<rightSel>" (form-prefix or bare family on each side) -> desired integer pixels for a single form-junction. This is the absolute target value, not a delta off the family rule.
+      // junctionKey -> {left, right, value}: the per-side selectors and desired absolute integer pixels for a single form-junction. Carries the selectors (not just the value) so serialize can re-emit either/both sides as a form-prefix or a plain-with-carve-out without re-deriving intent.
       let formOverrides = new Map();
       // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
       let passthrough = [];
@@ -375,12 +375,49 @@
         return sel.split(".")[0];
       }
 
-      // The override key uses the form-prefix where the junction overrides a form, else the bare family.
-      function junctionKey(pairKey, junction) {
-        const [leftFamily, rightFamily] = pairKey.split("|");
-        const leftSel = junction.leftForm ?? leftFamily;
-        const rightSel = junction.rightForm ?? rightFamily;
-        return `${leftSel}|${rightSel}`;
+      // One side of a junction is a selector {family, kind, form, except}. Its canonical key distinguishes a form-prefix (qsNo.alt), a plain-with-carve-out (qsNo minus its qsNo.alt sub-family), and a bare whole family — so a parsed YAML doc and a precomputed junction collapse to the same key.
+      function sideKey(side) {
+        if (side.form) return side.form;
+        const except = (side.except || []).slice().sort();
+        return except.length ? `${side.family}~${except.join(",")}` : side.family;
+      }
+
+      function junctionKey(junction) {
+        return `${sideKey(junction.left)}|${sideKey(junction.right)}`;
+      }
+
+      // The YAML body for one disjoint kern lookup: a form-prefix emits `*_form`, a plain side emits `*_family` plus an `except_*` carve-out when it must exclude its own alternate sub-families.
+      function selectorLines(side, which) {
+        if (side.form) return [`${which}_form: [${side.form}]`];
+        const lines = [`${which}_family: [${side.family}]`];
+        if (side.except && side.except.length) lines.push(`except_${which}: [${side.except.join(", ")}]`);
+        return lines;
+      }
+
+      function ruleBody(left, right, value) {
+        return [...selectorLines(left, "left"), ...selectorLines(right, "right"), `value: ${value}`].join("\n");
+      }
+
+      // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction (hidden rows and the isolated/residual quadrant alike), so the YAML round-trip can tell a hidden-junction override from the family-cell value an alt pair stores in its isolated quadrant.
+      function knownJunctions() {
+        const known = new Map();
+        for (const [pairKey, junctions] of hardCasesByPair) {
+          for (const junction of junctions) {
+            known.set(junctionKey(junction), {
+              pairKey,
+              isolated: !!junction.isolated,
+              left: junction.left,
+              right: junction.right,
+            });
+          }
+        }
+        return known;
+      }
+
+      // The full quadrant partition an alt pair carves into: every precomputed alt-axis junction (hidden rows plus the isolated residual). Empty for table-derived-only pairs, which keep the legacy whole-family-cell-plus-form-override serialization.
+      function altQuadrants(pairKey) {
+        const junctions = hardCasesByPair.get(pairKey) || [];
+        return junctions.filter((j) => j.origin === "alt-axis");
       }
 
       function parseInlineList(raw) {
@@ -419,109 +456,77 @@
         if (current !== null) docs.push(current.join("\n"));
         preamble = preLines.join("\n");
 
-        // Two managed shapes are coupled and must round-trip together: a carve-out family doc (`except_left`/`except_right`) and the override doc it carves out for. We classify each parsed doc, then pair them; any leftover routes verbatim to passthrough so nothing is lost.
         const parsed = docs
           .map((body) => ({ body: body.trim(), fields: parseDocBody(body) }))
           .filter((d) => d.body !== "");
 
-        const overrideDocs = [];
-        const carveOutDocs = [];
+        const known = knownJunctions();
         const leftover = [];
 
-        for (const doc of parsed) {
-          const { fields, body } = doc;
+        // Parse one side of a doc into a list of {family, form, except} selectors, or null if a referenced family is unknown. A `*_form` list yields one form-selector per entry; a `*_family` list yields one plain-selector per family, sharing the side's `except_*` carve-out.
+        function parseSide(which, fields) {
+          if (`${which}_form` in fields) {
+            const forms = parseInlineList(fields[`${which}_form`]);
+            if (!forms.length || !forms.every((f) => KNOWN_FAMILIES.has(familyOfSelector(f)))) return null;
+            return forms.map((form) => ({ family: familyOfSelector(form), form, except: null }));
+          }
+          if (`${which}_family` in fields) {
+            const families = parseInlineList(fields[`${which}_family`]);
+            if (!families.length || !families.every((f) => KNOWN_FAMILIES.has(f))) return null;
+            const exceptKey = `except_${which}`;
+            const except = exceptKey in fields ? parseInlineList(fields[exceptKey]) : [];
+            return families.map((family) => ({ family, form: null, except: except.length ? except : null }));
+          }
+          return null;
+        }
+
+        const allowedKeys = new Set([
+          "left_family", "left_form", "except_left",
+          "right_family", "right_form", "except_right", "value",
+        ]);
+
+        for (const { fields, body } of parsed) {
           const keys = Object.keys(fields);
-          const isGridShape =
-            "left_family" in fields &&
-            "right_family" in fields &&
-            "value" in fields &&
-            keys.every((k) => k === "left_family" || k === "right_family" || k === "value");
-          const isCarveOut =
-            "left_family" in fields &&
-            "right_family" in fields &&
-            "value" in fields &&
-            ("except_left" in fields || "except_right" in fields) &&
-            keys.every((k) => k === "left_family" || k === "right_family" || k === "value" || k === "except_left" || k === "except_right");
-          const isOverride =
-            "value" in fields &&
-            ("left_form" in fields || "right_form" in fields) &&
-            ("left_form" in fields || "left_family" in fields) &&
-            ("right_form" in fields || "right_family" in fields) &&
-            keys.every((k) => k === "left_form" || k === "left_family" || k === "right_form" || k === "right_family" || k === "value");
-
-          if (isGridShape) {
-            const lefts = parseInlineList(fields.left_family);
-            const rights = parseInlineList(fields.right_family);
-            const value = Number(fields.value);
-            const allKnown = [...lefts, ...rights].every((n) => KNOWN_FAMILIES.has(n));
-            if (allKnown && Number.isInteger(value) && lefts.length && rights.length) {
-              for (const lf of lefts) {
-                for (const rf of rights) {
-                  if (value === 0) cellValues.delete(cellKey(lf, rf));
-                  else cellValues.set(cellKey(lf, rf), value);
-                }
-              }
-              continue;
-            }
-            leftover.push(body);
-            continue;
-          }
-          if (isCarveOut) { carveOutDocs.push(doc); continue; }
-          if (isOverride) { overrideDocs.push(doc); continue; }
-          leftover.push(body);
-        }
-
-        // An override doc applies its value to each form-junction in its (left × right) selector cross-product, where exactly one side is a form-prefix and the other a single family.
-        for (const doc of overrideDocs) {
-          const { fields, body } = doc;
           const value = Number(fields.value);
-          const lefts = "left_form" in fields ? parseInlineList(fields.left_form) : parseInlineList(fields.left_family);
-          const rights = "right_form" in fields ? parseInlineList(fields.right_form) : parseInlineList(fields.right_family);
-          const leftFamiliesKnown = !("left_form" in fields) ? lefts.every((n) => KNOWN_FAMILIES.has(n)) : lefts.every((n) => KNOWN_FAMILIES.has(familyOfSelector(n)));
-          const rightFamiliesKnown = !("right_form" in fields) ? rights.every((n) => KNOWN_FAMILIES.has(n)) : rights.every((n) => KNOWN_FAMILIES.has(familyOfSelector(n)));
-          if (!Number.isInteger(value) || !lefts.length || !rights.length || !leftFamiliesKnown || !rightFamiliesKnown) {
+          const lefts = parseSide("left", fields);
+          const rights = parseSide("right", fields);
+          if (
+            !keys.every((k) => allowedKeys.has(k)) ||
+            !("value" in fields) ||
+            !Number.isInteger(value) ||
+            !lefts ||
+            !rights
+          ) {
             leftover.push(body);
             continue;
           }
-          for (const l of lefts) {
-            for (const r of rights) {
-              if (value === 0) formOverrides.delete(`${l}|${r}`);
-              else formOverrides.set(`${l}|${r}`, value);
+          for (const left of lefts) {
+            for (const right of rights) {
+              const key = junctionKey({ left, right });
+              const match = known.get(key);
+              if (match && match.isolated) {
+                // The isolated/residual quadrant of an alt pair carries that pair's family-cell value.
+                if (value === 0) cellValues.delete(match.pairKey);
+                else cellValues.set(match.pairKey, value);
+              } else if (match || left.form || right.form) {
+                // A precomputed hidden junction, or any other form-prefix rule, is a per-junction override.
+                if (value === 0) formOverrides.delete(key);
+                else formOverrides.set(key, { left, right, value });
+              } else {
+                // A plain family×family rule (optionally with a carve-out the serializer re-derives) is the grid cell.
+                if (value === 0) cellValues.delete(cellKey(left.family, right.family));
+                else cellValues.set(cellKey(left.family, right.family), value);
+              }
             }
           }
         }
 
-        // A carve-out only documents which form-prefixes are excluded from a family rule; its own family value was already absorbed by the grid pass equivalent above. We accept it as managed only when a matching override doc carved the same prefix(es); otherwise the pair is unbalanced and both go to passthrough verbatim.
-        for (const doc of carveOutDocs) {
-          const { fields, body } = doc;
-          const lefts = parseInlineList(fields.left_family);
-          const rights = parseInlineList(fields.right_family);
-          const value = Number(fields.value);
-          const excludeLeft = "except_left" in fields ? parseInlineList(fields.except_left) : [];
-          const excludeRight = "except_right" in fields ? parseInlineList(fields.except_right) : [];
-          const excludedForms = [...excludeLeft, ...excludeRight];
-          const allKnown = [...lefts, ...rights].every((n) => KNOWN_FAMILIES.has(n));
-          const paired = excludedForms.length > 0 && excludedForms.every((form) => {
-            const fam = familyOfSelector(form);
-            const side = excludeLeft.includes(form) ? "left" : "right";
-            for (const l of lefts) {
-              for (const r of rights) {
-                const candidateKey = side === "left" ? `${form}|${r}` : `${l}|${form}`;
-                if (formOverrides.has(candidateKey) && (side === "left" ? l : r) === fam) return true;
-              }
-            }
-            return false;
-          });
-          if (allKnown && Number.isInteger(value) && lefts.length && rights.length && paired) {
-            for (const lf of lefts) {
-              for (const rf of rights) {
-                if (value === 0) cellValues.delete(cellKey(lf, rf));
-                else cellValues.set(cellKey(lf, rf), value);
-              }
-            }
-            continue;
+        // serialize() spreads an alt pair's family-cell value across its non-overridden quadrants, so on reload those quadrants look like explicit overrides equal to the cell. Strip them back to "default" so the panel only shows genuine overrides.
+        for (const [key, override] of [...formOverrides]) {
+          const match = known.get(key);
+          if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === cellValues.get(match.pairKey)) {
+            formOverrides.delete(key);
           }
-          leftover.push(body);
         }
 
         passthrough.push(...leftover);
@@ -536,50 +541,57 @@
       }
 
       function serialize() {
-        // Group every form override under its owning family pair, recording which side carries the non-bare form-prefix so the carve-out and override docs can be coupled.
+        // Group every form override under its owning family pair.
         const overridesByPair = new Map();
-        for (const [key, value] of formOverrides) {
-          if (value === 0) continue;
-          const [leftSel, rightSel] = key.split("|");
-          const leftFamily = familyOfSelector(leftSel);
-          const rightFamily = familyOfSelector(rightSel);
-          const pairKey = cellKey(leftFamily, rightFamily);
-          if (!overridesByPair.has(pairKey)) {
-            overridesByPair.set(pairKey, { exceptLeft: new Set(), exceptRight: new Set(), overrides: [] });
-          }
-          const group = overridesByPair.get(pairKey);
-          if (leftSel !== leftFamily) group.exceptLeft.add(leftSel);
-          if (rightSel !== rightFamily) group.exceptRight.add(rightSel);
-          group.overrides.push({ leftSel, rightSel, leftFamily, rightFamily, value });
+        for (const [key, override] of formOverrides) {
+          if (override.value === 0) continue;
+          const pairKey = cellKey(override.left.family, override.right.family);
+          if (!overridesByPair.has(pairKey)) overridesByPair.set(pairKey, new Map());
+          overridesByPair.get(pairKey).set(key, override);
         }
 
-        const entries = [...cellValues.entries()].filter(([, v]) => v !== 0);
-        entries.sort((a, b) => pairCodeOrder(a[0], b[0]));
+        const pairKeys = [...new Set([...cellValues.keys(), ...overridesByPair.keys()])].sort(pairCodeOrder);
 
         const bodies = [];
-        for (const [key, value] of entries) {
-          const [lf, rf] = key.split("|");
-          const group = overridesByPair.get(key);
-          if (group) {
-            // This pair has both a family rule and form overrides, so the family rule must carve the overridden prefixes out.
-            const lines = [`left_family: [${lf}]`, `right_family: [${rf}]`];
-            if (group.exceptLeft.size) lines.push(`except_left: [${[...group.exceptLeft].join(", ")}]`);
-            if (group.exceptRight.size) lines.push(`except_right: [${[...group.exceptRight].join(", ")}]`);
-            lines.push(`value: ${value}`);
-            bodies.push(lines.join("\n"));
-          } else {
-            bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${value}`);
-          }
-        }
+        for (const pairKey of pairKeys) {
+          const [lf, rf] = pairKey.split("|");
+          const cellValue = cellValues.get(pairKey) || 0;
+          const overrides = overridesByPair.get(pairKey);
+          const quadrants = altQuadrants(pairKey);
 
-        // Emit each form-override doc after the carve-outs, in family-pair then selector order. A pair with no family value emits only its override docs (no carve-out needed).
-        const overrideEntries = [...overridesByPair.entries()].sort((a, b) => pairCodeOrder(a[0], b[0]));
-        for (const [, group] of overrideEntries) {
-          group.overrides.sort((a, b) => (a.leftSel + "|" + a.rightSel).localeCompare(b.leftSel + "|" + b.rightSel));
-          for (const ov of group.overrides) {
-            const leftField = ov.leftSel === ov.leftFamily ? `left_family: [${ov.leftFamily}]` : `left_form: [${ov.leftSel}]`;
-            const rightField = ov.rightSel === ov.rightFamily ? `right_family: [${ov.rightFamily}]` : `right_form: [${ov.rightSel}]`;
-            bodies.push(`${leftField}\n${rightField}\nvalue: ${ov.value}`);
+          if (quadrants.length && overrides && overrides.size) {
+            // Alt pair with overrides: emit one disjoint lookup per quadrant so the family-cell value (carried on every non-overridden quadrant) never overlaps an override. Each quadrant's selectors already partition the family×family space.
+            const emitted = new Set();
+            for (const quadrant of quadrants) {
+              const quadrantKey = junctionKey(quadrant);
+              emitted.add(quadrantKey);
+              const value = overrides.has(quadrantKey) ? overrides.get(quadrantKey).value : cellValue;
+              if (value !== 0) bodies.push(ruleBody(quadrant.left, quadrant.right, value));
+            }
+            // A ligature-isolated alt pair (no residual quadrant) can still carry overrides on selectors outside the partition; keep them verbatim.
+            for (const [overrideKey, override] of overrides) {
+              if (!emitted.has(overrideKey)) bodies.push(ruleBody(override.left, override.right, override.value));
+            }
+          } else if (overrides && overrides.size) {
+            // Legacy table-derived pair: a whole-family cell carved to exclude the overridden form-prefixes, then each form-override doc.
+            if (cellValue !== 0) {
+              const exceptLeft = new Set();
+              const exceptRight = new Set();
+              for (const [, override] of overrides) {
+                if (override.left.form) exceptLeft.add(override.left.form);
+                if (override.right.form) exceptRight.add(override.right.form);
+              }
+              const lines = [`left_family: [${lf}]`, `right_family: [${rf}]`];
+              if (exceptLeft.size) lines.push(`except_left: [${[...exceptLeft].join(", ")}]`);
+              if (exceptRight.size) lines.push(`except_right: [${[...exceptRight].join(", ")}]`);
+              lines.push(`value: ${cellValue}`);
+              bodies.push(lines.join("\n"));
+            }
+            for (const [, override] of [...overrides].sort((a, b) => a[0].localeCompare(b[0]))) {
+              bodies.push(ruleBody(override.left, override.right, override.value));
+            }
+          } else if (cellValue !== 0) {
+            bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${cellValue}`);
           }
         }
 
@@ -768,38 +780,47 @@
         return junction.context.slice(junction.beforeEnd, junction.junctionEnd);
       }
 
-      function renderJunctionRow(rowEl, valueEl, pairKey, junction) {
-        const key = junctionKey(pairKey, junction);
+      function renderJunctionRow(rowEl, valueEl, junction) {
+        const key = junctionKey(junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
         const override = formOverrides.get(key);
-        const effective = override ?? baked;
+        const effective = override ? override.value : baked;
         const parts = [`${effective > 0 ? "+" : ""}${effective}`];
-        if (override != null) parts.push("·");
+        if (override) parts.push("·");
         valueEl.textContent = parts.join("");
-        valueEl.title = override != null ? `override ${override} (baked ${baked})` : `baked ${baked} — click to override`;
+        valueEl.title = override ? `override ${override.value} (baked ${baked})` : `baked ${baked} — click to override`;
         rowEl.classList.toggle("tighter", effective < 0);
         rowEl.classList.toggle("looser", effective > 0);
-        rowEl.classList.toggle("pending", override != null);
+        rowEl.classList.toggle("pending", !!override);
         // The rendered run already carries the font's `baked` kerning between the two junction glyphs; fake only the remainder so the gap shows the desired total without doubling.
         const fake = effective - baked;
         const kernSpan = rowEl.querySelector(".junction-kern");
         if (kernSpan) kernSpan.style.letterSpacing = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
       }
 
-      function adjustJunction(rowEl, valueEl, pairKey, junction, delta) {
-        const key = junctionKey(pairKey, junction);
+      function adjustJunction(rowEl, valueEl, junction, delta) {
+        const key = junctionKey(junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
-        const current = formOverrides.get(key) ?? baked;
-        const next = current + delta;
+        const override = formOverrides.get(key);
+        const next = (override ? override.value : baked) + delta;
         if (next === baked) formOverrides.delete(key);
-        else formOverrides.set(key, next);
-        renderJunctionRow(rowEl, valueEl, pairKey, junction);
+        else formOverrides.set(key, { left: junction.left, right: junction.right, value: next });
+        renderJunctionRow(rowEl, valueEl, junction);
         textarea.value = serialize();
       }
 
+      // A junction side reads as its form-prefix, or "qsX (plain)" when it is the family minus its alternate sub-families, or the bare family otherwise.
+      function describeSide(side) {
+        if (side.form) return side.form;
+        return side.except && side.except.length ? `${side.family} (plain)` : side.family;
+      }
+
       function openJunctionPanel(pairKey) {
-        const junctions = hardCasesByPair.get(pairKey);
-        if (!junctions) return;
+        const all = hardCasesByPair.get(pairKey);
+        if (!all) return;
+        // The isolated/residual quadrant is the grid cell itself, not a hidden junction, so it never gets its own row.
+        const junctions = all.filter((j) => !j.isolated);
+        if (!junctions.length) return;
         openJunctionPairKey = pairKey;
         const [leftFamily, rightFamily] = pairKey.split("|");
         junctionPanel.innerHTML = "";
@@ -839,17 +860,17 @@
 
           const label = document.createElement("span");
           label.className = "junction-label";
-          label.textContent = `${junction.leftForm ?? leftFamily} / ${junction.rightForm ?? rightFamily}`;
+          label.textContent = `${describeSide(junction.left)} / ${describeSide(junction.right)}`;
 
           const valueEl = document.createElement("span");
           valueEl.className = "junction-value";
 
           rowEl.append(render, label, valueEl);
-          renderJunctionRow(rowEl, valueEl, pairKey, junction);
-          rowEl.addEventListener("click", () => adjustJunction(rowEl, valueEl, pairKey, junction, -1));
+          renderJunctionRow(rowEl, valueEl, junction);
+          rowEl.addEventListener("click", () => adjustJunction(rowEl, valueEl, junction, -1));
           rowEl.addEventListener("contextmenu", (e) => {
             e.preventDefault();
-            adjustJunction(rowEl, valueEl, pairKey, junction, 1);
+            adjustJunction(rowEl, valueEl, junction, 1);
           });
 
           junctionPanel.appendChild(rowEl);
