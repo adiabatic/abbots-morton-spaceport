@@ -2,8 +2,11 @@
 
 A pixel-font pair (mostly) for [Quikscript][]. Available as a sans-serif version, or you can pair its monospace version with [Departure Mono][] to get a full-featured monospace font.
 
+Want to see what it looks like? Look at [its demo website][demo].
+
 [departure mono]: https://departuremono.com/
 [quikscript]:     https://www.quikscript.net/
+[demo]:           https://adiabatic.github.io/abbots-morton-spaceport/
 
 You can get a copy of the latest .otf and .woff2 files from [the Releases page][r].
 
