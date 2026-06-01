@@ -780,6 +780,10 @@
         rowEl.classList.toggle("tighter", effective < 0);
         rowEl.classList.toggle("looser", effective > 0);
         rowEl.classList.toggle("pending", override != null);
+        // The rendered run already carries the font's `baked` kerning between the two junction glyphs; fake only the remainder so the gap shows the desired total without doubling.
+        const fake = effective - baked;
+        const kernSpan = rowEl.querySelector(".junction-kern");
+        if (kernSpan) kernSpan.style.letterSpacing = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
       }
 
       function adjustJunction(rowEl, valueEl, pairKey, junction, delta) {
@@ -822,12 +826,16 @@
           const prefix = document.createElement("span");
           prefix.className = "dimmed";
           prefix.textContent = context.slice(0, beforeEnd);
-          const mid = document.createElement("span");
-          mid.textContent = context.slice(beforeEnd, junctionEnd);
+          // The junction is two glyphs; splitting them lets us fake the kerning between them with letter-spacing, the way the grid fakes it inside a cell.
+          const leftGlyph = document.createElement("span");
+          leftGlyph.className = "junction-kern";
+          leftGlyph.textContent = context.slice(beforeEnd, beforeEnd + 1);
+          const rightGlyph = document.createElement("span");
+          rightGlyph.textContent = context.slice(beforeEnd + 1, junctionEnd);
           const suffix = document.createElement("span");
           suffix.className = "dimmed";
           suffix.textContent = context.slice(junctionEnd);
-          render.append(prefix, mid, suffix);
+          render.append(prefix, leftGlyph, rightGlyph, suffix);
 
           const label = document.createElement("span");
           label.className = "junction-label";
