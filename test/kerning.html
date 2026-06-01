@@ -11,8 +11,79 @@
         --font-size: 22px;
       }
 
-      body {
+      body.kern-page {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding: 1.5rem 2rem;
         font-size: var(--font-size);
+      }
+
+      .kern-page h1 {
+        font-size: 44px;
+        margin: 0 0 0.5rem;
+      }
+
+      /* On this page the controls ride in the normal flow as a top toolbar, so they don't sit over the textarea panel. */
+      .kern-page .toggle-buttons {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 0.75rem;
+      }
+
+      .kern-page footer {
+        flex: 0 0 auto;
+        margin-top: 0.75rem;
+      }
+
+      .kern-layout {
+        display: flex;
+        flex: 1 1 auto;
+        gap: 1.5rem;
+        min-height: 0;
+        align-items: stretch;
+      }
+
+      .matrix-scroll {
+        flex: 1 1 auto;
+        min-width: 0;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .kern-yaml {
+        flex: 0 0 auto;
+        width: clamp(24ch, 28vw, 46ch);
+        margin: 0;
+        padding: 0.75rem;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.4;
+        background: light-dark(#fff, #1e1e1e);
+        color: light-dark(#222, #e0e0e0);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+        resize: none;
+        tab-size: 2;
+      }
+
+      .help {
+        margin: 0 0 0.75rem;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 14px;
+        color: light-dark(#555, #aaa);
+
+        kbd {
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 0.9em;
+          padding: 0 0.3em;
+          border: 1px solid light-dark(#bbb, #555);
+          border-radius: 3px;
+          background: light-dark(#f0f0f0, #2a2a2a);
+        }
       }
 
       .matrix {
@@ -53,7 +124,29 @@
         }
 
         td {
+          position: relative;
           white-space: nowrap;
+          cursor: pointer;
+          user-select: none;
+        }
+
+        td.tighter {
+          background: light-dark(#ffe0e0, #5a2a2a);
+        }
+
+        td.looser {
+          background: light-dark(#e0ecff, #233a5a);
+        }
+
+        .kern-val {
+          position: absolute;
+          top: 0;
+          right: 1px;
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 8px;
+          line-height: 1;
+          color: light-dark(#666, #bbb);
+          pointer-events: none;
         }
 
         .boundary-left {
@@ -78,17 +171,150 @@
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
 
+      const FAMILY_TO_LETTER = new Map(LETTERS.map((l) => [l.family, l]));
+      const KNOWN_FAMILIES = new Set(LETTERS.map((l) => l.family));
+
       const table = document.getElementById("matrix-table");
+      const textarea = document.getElementById("kern-yaml");
+
       const VOWEL_FIRST_CODE = 0xe670;
       const CONSONANT_LAST_CODE = 0xe66c;
+      // One font pixel = pixel_size / units_per_em = 50 / 550 em = 1/11 em.
+      const PIXEL_DENOMINATOR = 11;
+
+      // "qsLeft|qsRight" -> integer pixels (negative tightens, positive loosens).
+      let cellValues = new Map();
+      // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
+      let passthrough = [];
+      // Everything before the first `---` (the file's comment header); preserved verbatim.
+      let preamble = "";
+
+      const keyToCell = new Map();
+
+      function cellKey(leftFamily, rightFamily) {
+        return `${leftFamily}|${rightFamily}`;
+      }
+
+      function parseInlineList(raw) {
+        const s = raw.trim();
+        if (s.startsWith("[")) {
+          return s.replace(/^\[/, "").replace(/\]$/, "").split(",").map((x) => x.trim()).filter(Boolean);
+        }
+        return s ? [s] : [];
+      }
+
+      function parseDocBody(body) {
+        const fields = {};
+        for (const line of body.split("\n")) {
+          const m = line.match(/^\s*([A-Za-z_]+):\s*(.*)$/);
+          if (m) fields[m[1]] = m[2];
+        }
+        return fields;
+      }
+
+      function loadFromText(text) {
+        cellValues = new Map();
+        passthrough = [];
+        const preLines = [];
+        const docs = [];
+        let current = null;
+        for (const line of text.split("\n")) {
+          if (line.trim() === "---") {
+            if (current === null) current = [];
+            else { docs.push(current.join("\n")); current = []; }
+            continue;
+          }
+          if (current === null) preLines.push(line);
+          else current.push(line);
+        }
+        if (current !== null) docs.push(current.join("\n"));
+        preamble = preLines.join("\n");
+
+        for (const body of docs) {
+          if (body.trim() === "") continue;
+          const fields = parseDocBody(body);
+          const keys = Object.keys(fields);
+          const isGridShape =
+            "left_family" in fields &&
+            "right_family" in fields &&
+            "value" in fields &&
+            keys.every((k) => k === "left_family" || k === "right_family" || k === "value");
+          if (isGridShape) {
+            const lefts = parseInlineList(fields.left_family);
+            const rights = parseInlineList(fields.right_family);
+            const value = Number(fields.value);
+            const allKnown = [...lefts, ...rights].every((n) => KNOWN_FAMILIES.has(n));
+            if (allKnown && Number.isInteger(value) && lefts.length && rights.length) {
+              for (const lf of lefts) {
+                for (const rf of rights) {
+                  if (value === 0) cellValues.delete(cellKey(lf, rf));
+                  else cellValues.set(cellKey(lf, rf), value);
+                }
+              }
+              continue;
+            }
+          }
+          passthrough.push(body.trim());
+        }
+      }
+
+      function serialize() {
+        const entries = [...cellValues.entries()].filter(([, v]) => v !== 0);
+        entries.sort((a, b) => {
+          const [al, ar] = a[0].split("|");
+          const [bl, br] = b[0].split("|");
+          const leftDelta = FAMILY_TO_LETTER.get(al).code - FAMILY_TO_LETTER.get(bl).code;
+          if (leftDelta !== 0) return leftDelta;
+          return FAMILY_TO_LETTER.get(ar).code - FAMILY_TO_LETTER.get(br).code;
+        });
+
+        const bodies = [];
+        for (const [key, value] of entries) {
+          const [lf, rf] = key.split("|");
+          bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${value}`);
+        }
+        bodies.push(...passthrough);
+
+        const parts = [];
+        const pre = preamble.replace(/\s+$/, "");
+        if (pre) parts.push(pre);
+        for (const body of bodies) parts.push(`---\n${body}`);
+        return parts.join("\n\n") + "\n";
+      }
+
+      function applyCellVisual(td, value) {
+        td.style.letterSpacing = value ? `calc(${value} * 1em / ${PIXEL_DENOMINATOR})` : "";
+        td.classList.toggle("tighter", value < 0);
+        td.classList.toggle("looser", value > 0);
+        let badge = td.querySelector(".kern-val");
+        if (value) {
+          if (!badge) {
+            badge = document.createElement("span");
+            badge.className = "kern-val";
+            td.appendChild(badge);
+          }
+          badge.textContent = value > 0 ? `+${value}` : String(value);
+        } else if (badge) {
+          badge.remove();
+        }
+        td.title = value ? `${td.dataset.pair} (value: ${value})` : td.dataset.pair;
+      }
+
+      function refreshAllCells() {
+        for (const [key, td] of keyToCell) {
+          applyCellVisual(td, cellValues.get(key) || 0);
+        }
+      }
 
       function buildTable() {
         table.innerHTML = "";
+        keyToCell.clear();
 
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
         const corner = document.createElement("th");
         corner.textContent = "·X·Y";
+        corner.title = "column = first letter, row = second letter";
         headerRow.appendChild(corner);
         for (const col of LETTERS) {
           const th = document.createElement("th");
@@ -115,11 +341,15 @@
           for (const col of LETTERS) {
             const td = document.createElement("td");
             td.textContent = String.fromCodePoint(col.code, row.code);
-            td.title = `·${col.name}·${row.name}`;
+            const key = cellKey(col.family, row.family);
+            td.dataset.key = key;
+            td.dataset.pair = `·${col.name}·${row.name}`;
+            td.title = td.dataset.pair;
             if (col.code === VOWEL_FIRST_CODE) td.classList.add("boundary-left");
             if (col.code === CONSONANT_LAST_CODE) td.classList.add("boundary-right");
             if (rowAtVowelStart) td.classList.add("boundary-top");
             if (rowAtConsonantEnd) td.classList.add("boundary-bottom");
+            keyToCell.set(key, td);
             tr.appendChild(td);
           }
           tbody.appendChild(tr);
@@ -127,7 +357,39 @@
         table.appendChild(tbody);
       }
 
+      function adjust(td, delta) {
+        const key = td.dataset.key;
+        const next = (cellValues.get(key) || 0) + delta;
+        if (next === 0) cellValues.delete(key);
+        else cellValues.set(key, next);
+        applyCellVisual(td, next);
+        textarea.value = serialize();
+      }
+
+      table.addEventListener("click", (e) => {
+        const td = e.target.closest("td");
+        if (td) adjust(td, -1);
+      });
+
+      table.addEventListener("contextmenu", (e) => {
+        const td = e.target.closest("td");
+        if (!td) return;
+        e.preventDefault();
+        adjust(td, 1);
+      });
+
+      let reparseTimer = null;
+      textarea.addEventListener("input", () => {
+        clearTimeout(reparseTimer);
+        reparseTimer = setTimeout(() => {
+          loadFromText(textarea.value);
+          refreshAllCells();
+        }, 150);
+      });
+
       buildTable();
+      loadFromText(textarea.value);
+      refreshAllCells();
 
       initToggles({
         sizeToggle: "size-toggle",
@@ -138,7 +400,7 @@
       });
     </script>
   </head>
-  <body>
+  <body class="kern-page">
     <h1>Kerning</h1>
 
     <div class="toggle-buttons">
@@ -153,8 +415,15 @@
       <button id="weight-toggle">Regular</button>
     </div>
 
-    <div class="matrix-scroll">
-      <table class="matrix" id="matrix-table"></table>
+    <p class="help">
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done.
+    </p>
+
+    <div class="kern-layout">
+      <div class="matrix-scroll">
+        <table class="matrix" id="matrix-table"></table>
+      </div>
+      <textarea id="kern-yaml" class="kern-yaml" spellcheck="false" placeholder="Paste senior_quikscript_kerning.yaml here…"></textarea>
     </div>
 
     <footer>
