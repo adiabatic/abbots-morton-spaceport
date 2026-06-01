@@ -2884,7 +2884,15 @@ def _add_entry_trimmed_variant(
             "transform_kind": "entry-trimmed",
         }
         kwargs.update(_cleared_extension_context())
+        # An entry-side trim leaves the glyph's exit untouched, so its forward (exit-side) join gates still describe the trimmed glyph. Inherit them from the source instead of clearing, so the after-·See en-trim column mirrors the non-trim column's baseline-default-plus-reverse-upgrade structure rather than collapsing every receiver onto a single catch-all that draws the connecting nub indiscriminately.
+        for inherited in ("before", "not_before", "reverse_upgrade_from"):
+            kwargs.pop(inherited)
         kwargs["after"] = (source_contracted_name,)
+        # `reverse_upgrade_from` targets are resolved glyph names, so retarget them at the trimmed sibling: a non-trim source never appears after a contracted lead.
+        if receiver_glyph.reverse_upgrade_from:
+            kwargs["reverse_upgrade_from"] = tuple(
+                f"{target}.{modifier}" for target in receiver_glyph.reverse_upgrade_from
+            )
         variants[variant_name] = derive_join_glyph(
             receiver_glyph,
             name=variant_name,
