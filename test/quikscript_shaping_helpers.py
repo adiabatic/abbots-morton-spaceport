@@ -140,31 +140,22 @@ def _exit_ys(glyph_name: str) -> set[int]:
     return {anchor[1] for anchor in meta.exit}
 
 
-def _rightmost_ink_x_at_y(meta: JoinGlyph, y: int) -> int | None:
-    top_y = meta.y_offset + len(meta.bitmap) - 1
-    row_index = top_y - y
-    if row_index < 0 or row_index >= len(meta.bitmap):
-        return None
-    row = meta.bitmap[row_index]
-    ink_xs = [x for x, cell in enumerate(row) if cell == "#"]
-    return max(ink_xs) if ink_xs else None
-
-
-def _has_xheight_forward_nub(glyph_name: str) -> bool:
-    """True when the glyph's ink reaches farther right at the x-height (glyph-space y=5) than at every other row — the forward connector stub a letter shows when it means to hand off to a follower's x-height entry. Deliberately a *shape* test, independent of the exit anchor: a glyph can keep this connecting body after its exit anchor is stripped, and the stub still dangles. Detecting the protruding x-height ink — rather than `5 in _exit_ys(...)` — is what keeps the ·See·Out invariant from being satisfied by dropping the anchor alone."""
+def _declared_exit_ys(glyph_name: str) -> set[int]:
+    """The exit heights a glyph's compiled ``modifiers`` explicitly promise via an ``ex-yN`` modifier, read independently of the glyph's actual exit anchors. Matches ``ex-yN`` exactly, so the extension/contraction siblings ``ex-ext-N`` / ``ex-con-N`` (and ``ex-dips``) are never mistaken for a connector-height declaration. Keying on this declared identity — rather than re-deriving "is this glyph connecting?" from the silhouette — is what generalizes across families: a shape rule like "the ink reaches farthest right at the exit row" misfires on every letter that exits from the left or middle (·He, ·Ye, ·Gay, ·They, …), whereas the modifier reads the same everywhere and survives the exit anchor being stripped."""
     meta = _compiled_meta().get(glyph_name)
     if meta is None:
-        return False
-    xheight_right = _rightmost_ink_x_at_y(meta, 5)
-    if xheight_right is None:
-        return False
-    for y in range(meta.y_offset, meta.y_offset + len(meta.bitmap)):
-        if y == 5:
-            continue
-        other_right = _rightmost_ink_x_at_y(meta, y)
-        if other_right is not None and other_right >= xheight_right:
-            return False
-    return True
+        return set()
+    declared: set[int] = set()
+    for modifier in meta.modifiers:
+        height = modifier[len("ex-y") :]
+        if modifier.startswith("ex-y") and height.isdigit():
+            declared.add(int(height))
+    return declared
+
+
+def _declares_xheight_exit(glyph_name: str) -> bool:
+    """True when the glyph's compiled form identity declares an x-height (glyph-space y=5) forward exit, i.e. it carries the ``ex-y5`` modifier — the connecting body a letter shows when it means to hand its stroke off to a follower's x-height entry. See ``_declared_exit_ys`` for why this declared-identity test is preferred over reading the bitmap, and ``test_declared_exit_height_matches_exit_anchor`` for the invariant that keeps the modifier honest about the real anchor."""
+    return 5 in _declared_exit_ys(glyph_name)
 
 
 def _base_names(glyph_names: list[str]) -> tuple[str, ...]:

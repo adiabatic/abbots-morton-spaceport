@@ -13,10 +13,11 @@ from quikscript_shaping_helpers import (
     _char_map,
     _compiled_meta,
     _context_chars,
+    _declared_exit_ys,
+    _declares_xheight_exit,
     _entry_ys,
     _exit_ys,
     _find_base_index,
-    _has_xheight_forward_nub,
     _pair_join_ys,
     _plain_quikscript_letters,
     _qs_text,
@@ -398,7 +399,7 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
 ) -> list[str]:
     """Flag every ·See→·Out adjacency where the chosen ·Out glyph presents an x-height connecting body but the glyph that immediately follows ·Out does not receive at the x-height. The invariant is that ·Out may show a connecting (x-height) body ONLY when its follower receives it at the x-height (y=5); a word-final ·Out, or a ·Out followed by a glyph whose entry sits only at some other height (or that does not join at all), must rest on a non-connecting body. Word-final and non-x-height-receiving followers are strict violations, not tolerated edge cases.
 
-    "Connecting" is defined shape-side, via ``_has_xheight_forward_nub(out_glyph_name)``: the ·Out bitmap protrudes farther right at y=5 than at any other row — the forward stub that means to hand off to a follower's x-height entry. This is deliberately NOT the exit-anchor proxy ``5 in _exit_ys(...)``: that proxy can be satisfied by stripping the exit anchor while the connecting body — and so the dangling stub — stays drawn. The follower receives the stub when it carries an entry anchor at y=5 (``5 in _entry_ys(follower)``). A failure is any ·Out drawn with the x-height stub while its follower does not receive at y=5.
+    "Connecting" is defined by the ·Out glyph's declared form identity, via ``_declares_xheight_exit(out_glyph_name)``: the glyph carries the ``ex-y5`` modifier that marks its forward stub as an x-height hand-off. This is deliberately NOT the exit-anchor proxy ``5 in _exit_ys(...)`` — that proxy can be satisfied by stripping the exit anchor while the connecting body, and so the dangling stub, stays drawn (the ``ex-y5`` modifier outlives the anchor, so the form still reads as connecting). It is also not a bitmap-shape test: "the ink reaches farthest right at y=5" misfires on every letter that exits from the left or middle, so it does not generalize, whereas the modifier reads the same for every family. ``test_declared_exit_height_matches_exit_anchor`` separately pins the ``ex-y5`` modifier to a real exit anchor, so trusting the modifier here cannot be gamed by relabeling. The follower receives the stub when it carries an entry anchor at y=5 (``5 in _entry_ys(follower)``). A failure is any ·Out drawn with the x-height-exit form while its follower does not receive at y=5.
 
     Ligatures whose sequence ends with ``qsSee`` count as the ·See side, and ligatures whose sequence starts with ``qsOut`` count as the ·Out side, mirroring the other ``_collect_pair_*`` helpers.
 
@@ -440,7 +441,7 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
                 if not left_is_see or not out_is_out:
                     continue
                 out_glyph_name = glyphs[out_index]
-                connecting = _has_xheight_forward_nub(out_glyph_name)
+                connecting = _declares_xheight_exit(out_glyph_name)
                 follower_receives_at_xheight = (out_index + 1 < len(glyphs)) and (
                     5 in _entry_ys(glyphs[out_index + 1])
                 )
@@ -450,11 +451,31 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
                         sorted(_entry_ys(glyphs[out_index + 1])) if out_index + 1 < len(glyphs) else []
                     )
                     failures.append(
-                        f"{label}: {out_glyph_name} draws the x-height connecting body "
-                        f"but its follower {follower!r} does not receive at the x-height "
+                        f"{label}: {out_glyph_name} declares the x-height connecting body "
+                        f"(ex-y5) but its follower {follower!r} does not receive at the x-height "
                         f"(follower entry Ys={follower_entry_ys}) in {glyphs}"
                     )
 
+    return failures
+
+
+def _collect_declared_exit_height_without_matching_anchor_failures() -> list[str]:
+    """Flag every compiled glyph whose ``ex-yN`` modifier promises a forward exit at height N that the glyph's real exit anchors do not keep. An ``ex-yN`` modifier is the form's declared claim "I connect at glyph-space row N"; that claim must be backed by an actual exit anchor at N, or the glyph presents a connecting form identity (and the connecting body the build drew for it) while shaping has nothing to attach there — exactly the dangling stub the d7a8afd anchor-drop produced when it stripped the exit off an entry-trimmed ·Out but left its ``ex-y5`` modifier and protruding x-height body in place.
+
+    This is the single font-wide pin that lets the rest of the suite trust the ``ex-y5`` modifier as a stand-in for "is this glyph connecting?" (see ``_declares_xheight_exit`` and the ·See·Out collector): because the modifier can no longer drift away from the anchor unnoticed, the join sweeps don't each have to re-derive connectedness from the bitmap — a shape heuristic that misfires on every letter that exits from the left or middle (·He, ·Ye, ·Gay, ·They, …) and so never generalized.
+
+    Only the ``ex-yN`` ⟹ anchor direction is asserted. The converse (every exit anchor implies an ``ex-yN`` modifier) is deliberately not checked: a form's default exit height is implicit and carries no ``ex-yN`` modifier, so hundreds of legitimate exit-bearing glyphs would otherwise be flagged. The biconditional holds only on the subset that explicitly declares ``ex-yN``.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    for name in sorted(meta_map):
+        exit_ys = _exit_ys(name)
+        for declared_y in sorted(_declared_exit_ys(name)):
+            if declared_y not in exit_ys:
+                failures.append(
+                    f"{name}: declares ex-y{declared_y} but carries no exit anchor at y={declared_y} "
+                    f"(exit Ys={sorted(exit_ys)}, modifiers={list(meta_map[name].modifiers)})"
+                )
     return failures
 
 
@@ -1610,6 +1631,10 @@ def test_it_day_never_joins_at_xheight(before_first: str):
         ),
         limit=None,
     )
+
+
+def test_declared_exit_height_matches_exit_anchor():
+    _assert_no_failures(_collect_declared_exit_height_without_matching_anchor_failures())
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
