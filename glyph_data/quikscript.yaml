@@ -3112,7 +3112,6 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsFee}]}
           extend_exit_before_gated:
             ss03: [{family: qsTea}]
-          contract_exit_before: {by: 2, targets: [{family: qsJai}]}
         modifiers: [ex-y5]
   qsOut_qsTea:
     sequence:
