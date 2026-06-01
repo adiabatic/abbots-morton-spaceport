@@ -3077,7 +3077,8 @@ glyph_families:
         derive:
           contract_exit_before: {by: 3, targets: [{family: qsJai}]}
         modifiers: [after-see]
-      exit_xheight_after_see_before_oy:
+      # The after-·See exit that just touches its follower. `not_before: qsFee` lets the longer `before-fee` form below claim ·See·Out·Fee; this form takes ·See·Out·Oy and word-final ·See·Out. The `before-default` modifier is deliberately named to sort before `before-fee`: the word-final entry-trim lookups are emitted in compiled-glyph-name order, so this touch body must sort first to win the word-final ·See·Out (which has no follower to extend toward).
+      exit_xheight_after_see_before_default:
         inherits: exit_xheight_after_see
         anchors:
           exit: [7, 5]
@@ -3087,7 +3088,7 @@ glyph_families:
         derive:
           contract_exit_before: null
           reverse_upgrade_from: [{family: qsOut, modifiers: [ex-y5, after-see]}]
-        modifiers: [after-see, before-oy]
+        modifiers: [after-see, before-default]
       exit_xheight_after_see_before_fee:
         inherits: exit_xheight_after_see
         shape: exit_xheight_after_see_extended
