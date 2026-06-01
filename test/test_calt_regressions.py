@@ -2217,6 +2217,22 @@ def test_excite_reaches_left_only_before_thaw():
     )
 
 
+def test_excite_thaw_does_not_leak_shape_across_break():
+    """·Excite before ·Thaw must not leak shape across the non-join; ·Excite stays proportional and the pair breaks."""
+    _assert_expect_any(
+        _qs_text("qsExcite", "qsThaw"),
+        ["·Excite | ·Thaw"],
+    )
+
+
+def test_it_excite_thaw_keeps_excite_proportional():
+    """·It joins ·Excite at the baseline, and ·Excite stays proportional as it breaks before ·Thaw."""
+    _assert_expect_any(
+        _qs_text("qsIt", "qsExcite", "qsThaw"),
+        ["·It ~b~ ·Excite | ·Thaw"],
+    )
+
+
 def test_it_excite_uses_the_visible_baseline_entry_shape():
     _assert_expect_any(
         _qs_text("qsIt", "qsExcite"),
@@ -3773,6 +3789,34 @@ def test_jai_utter_ligature_joins_designated_left_letters_at_xheight(text: str, 
 
 
 @pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsAh", "qsJay", "qsUtter"), ["·Ah ~x~ ·Jay+Utter"], id="ah"),
+        pytest.param(_qs_text("qsNo", "qsJay", "qsUtter"), ["·No ~x~ ·Jay+Utter"], id="no"),
+    ],
+)
+def test_jay_utter_ligature_joins_designated_left_letters_at_xheight(text: str, expects: list[str]) -> None:
+    """·Ah and ·No connect to the ·Jay+Utter ligature at the x-height just as they do to bare ·Jay."""
+    _assert_expect_any(text, expects)
+
+
+def test_jay_utter_contracts_before_jai():
+    """·Jay+Utter contracts its exit (ex-con-2) before ·J’ai and joins at the x-height."""
+    _assert_expect_any(
+        _qs_text("qsAh", "qsJay", "qsUtter", "qsJai"),
+        ["·Ah ~x~ ·Jay+Utter.ex-con-2 ~x~ ·J’ai"],
+    )
+
+
+def test_jay_utter_extends_before_fee():
+    """·Jay+Utter extends its exit (ex-ext-1) before ·Fee, just as bare ·Utter does."""
+    _assert_expect_any(
+        _qs_text("qsAh", "qsJay", "qsUtter", "qsFee"),
+        ["·Ah ~x~ ·Jay+Utter.ex-ext-1 ~x~ ·Fee"],
+    )
+
+
+@pytest.mark.parametrize(
     "left_base",
     [pytest.param(name, id=_family_to_label(name).lower()) for name, _ in _plain_quikscript_letters()],
 )
@@ -3787,6 +3831,14 @@ def test_roe_stays_bare_before_at_may():
     _assert_expect_any(
         _qs_text("qsRoe", "qsAt", "qsMay"),
         ["·Roe.∅ | ·At.before-may ~b~ ·May"],
+    )
+
+
+def test_see_stays_bare_before_at_may():
+    """·See stays bare before ·At·May — same mechanism as ·Roe: the contextual ·At before-may form has no entry, so nothing joins into it."""
+    _assert_expect_any(
+        _qs_text("qsSee", "qsAt", "qsMay"),
+        ["·See | ·At ~b~ ·May"],
     )
 
 
@@ -3855,6 +3907,48 @@ def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
         ["·At.before-may.ex-ext-5 ~b~ ·May.ex-noentry |?| ·They+Utter.noentry"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Noncanonical Senior joins migrated out of test/extra-senior-words.html.
+# Joins not found in the manual but valuable to verify.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expects"),
+    [
+        pytest.param(_qs_text("qsWhy", "qsIt", "qsCheer"), ["·Why ~x~ ·It | ·Cheer"], id="which"),
+        pytest.param(_qs_text("qsWay", "qsIt", "qsCheer"), ["·Way ~x~ ·It | ·Cheer"], id="witch"),
+    ],
+)
+def test_letter_before_it_cheer_joins_then_breaks(text: str, expects: list[str]):
+    """·Why/·Way join ·It at the x-height, then ·It breaks cleanly before ·Cheer ("which", "witch")."""
+    _assert_expect_any(text, expects)
+
+
+def test_tea_foot_key_stays_unjoined():
+    """The word "took": ·Tea, ·Foot, and ·Key stand apart with no cursive joins."""
+    _assert_expect_any(
+        _qs_text("qsTea", "qsFoot", "qsKey"),
+        ["·Tea | ·Foot | ·Key"],
+    )
+
+
+def test_he_vie_utter_day_joins_baseline_then_xheight():
+    """The word "Hvəd": ·He joins the ·Vie+Utter ligature at the baseline, and the ligature's extended exit reaches ·Day at the x-height."""
+    _assert_expect_any(
+        _qs_text("qsHe", "qsVie", "qsUtter", "qsDay"),
+        ["·He ~b~ ·Vie+Utter.en-ext-1 ~x~ ·Day"],
+    )
+
+
+def test_at_pea_half_eight_uses_xheight_half_pea():
+    """·At breaks before ·Pea, which takes its x-height half form to join ·Eight."""
+    _assert_expect_any(
+        _qs_text("qsAt", "qsPea", "qsEight"),
+        ["·At | ·Pea.half ~x~ ·Eight"],
     )
 
 
