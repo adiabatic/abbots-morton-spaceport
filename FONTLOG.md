@@ -22,7 +22,7 @@ According to Claude, this is what’s changed since the last release:
   - Don’t let ·He·-ing or ·Ye·-ing join — especially not when ·Thaw follows
 - ·It overhaul:
   - Join ·It·Day at the baseline (·It exits at the baseline into a half-·Day) whenever ·It isn’t already taking a baseline join from the letter before it; never join ·It·Day at the x-height, and never across a ZWNJ
-  - Stop ·It from joining at the baseline on *both* sides at once by default; ss04 now also gates ·It’s baseline joins before ·Day and before ·Utter
+  - Stop ·It from joining at the baseline on _both_ sides at once by default; ss04 now also gates ·It’s baseline joins before ·Day and before ·Utter
   - Never join ·It·It or ·It·Exam
   - Don’t join ·Eat·It; stop ·Ye·It from joining at the baseline, even word-initially
   - Connect ·It·Roe at a single height (the x-height)
