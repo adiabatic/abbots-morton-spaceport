@@ -294,7 +294,6 @@ glyph_families:
             - {family: qsEight}
             - {family: qsAwe}
             - {family: qsOx}
-            - {family: qsOwe}
             - {family: qsFoot}
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight}]}
@@ -317,7 +316,7 @@ glyph_families:
           exit: [4, 5]
           exit_ink_y: 6
         select:
-          not_before: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]
+          not_before: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsOwe}]
         traits: [half]
       half_exit_dips_to_xheight:
         inherits: half
@@ -328,11 +327,10 @@ glyph_families:
           not_before: null
           not_after: [{family: qsMay}, {family: qsUtter}]
           before:
-          - {entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}]}
+          - {entry_y: 5, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsOwe}]}
           - {family: qsIt, entry_y: 5}
           - {family: qsJai, entry_y: 5}
           - {family: qsJay, entry_y: 5}
-          - {family: qsOwe, entry_y: 5}
         modifiers: [ex-dips]
       half_entry_y6_exit_dips_to_xheight:
         inherits: half_entry_y6
@@ -3192,7 +3190,7 @@ glyph_families:
         anchors:
           entry: [0, 5]
         select:
-          not_after: [{family: qsTea}, {family: qsLow}]
+          not_after: [{family: qsPea}, {family: qsTea}, {family: qsLow}]
         derive:
           extend_entry_after: {by: 1, targets: [{context_set: halves_exit_xheight_no_pea}]}
           contract_entry_after: {by: 1, targets: [{family: qsHe}]}

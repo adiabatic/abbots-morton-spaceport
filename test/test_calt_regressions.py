@@ -926,55 +926,6 @@ def _utter_alt_invariant_failures() -> list[str]:
     return failures
 
 
-def _append_terminal_owe_failures(failures: list[str], label: str, text: str) -> None:
-    glyphs = _shape(text)
-    meta_map = _compiled_meta()
-
-    if not glyphs:
-        failures.append(f"{label}: expected a terminal qsOwe glyph")
-        return
-
-    index = len(glyphs) - 1
-    glyph_name = glyphs[index]
-    meta = meta_map.get(glyph_name)
-    if meta is None or meta.base_name != "qsOwe":
-        failures.append(f"{label}: expected terminal qsOwe glyph, got {glyphs}")
-        return
-    entry_ys = _entry_ys(glyph_name)
-    exit_ys = _exit_ys(glyph_name)
-
-    if not entry_ys:
-        failures.append(f"{label}: {glyph_name} has no left-entry Ys in {glyphs}")
-    elif index == 0:
-        failures.append(f"{label}: {glyph_name} starts the run in {glyphs}")
-    else:
-        prev_name = glyphs[index - 1]
-        common = _exit_ys(prev_name) & entry_ys
-        if not common:
-            failures.append(
-                f"{label}: {glyph_name} does not join left to {prev_name} "
-                f"(prev exits={sorted(_exit_ys(prev_name))}, entry={sorted(entry_ys)}) in {glyphs}"
-            )
-    if exit_ys:
-        failures.append(f"{label}: {glyph_name} has right-exit Ys {sorted(exit_ys)} at end in {glyphs}")
-
-
-def _owe_terminal_invariant_failures() -> list[str]:
-    failures: list[str] = []
-    chars = _char_map()
-    pea = chars["qsPea"]
-    owe = chars["qsOwe"]
-
-    for left_name, left_char in _plain_quikscript_letters():
-        _append_terminal_owe_failures(
-            failures,
-            f"{left_name} / qsPea / qsOwe / end",
-            left_char + pea + owe,
-        )
-
-    return failures
-
-
 def _middle_pea_xheight_left_gate_failures() -> list[str]:
     failures: list[str] = []
     chars = _char_map()
@@ -1093,31 +1044,28 @@ def test_may_it_see_low_is_sensible():
     [
         pytest.param(
             _qs_text("qsPea", "qsOwe"),
-            ["·Pea.half ~x~ ·Owe"],
+            ["·Pea | ·Owe"],
             id="bare",
         ),
         pytest.param(
             _qs_text("qsBay", "qsPea", "qsOwe"),
-            ["·Bay | ·Pea.half ~x~ ·Owe"],
+            ["·Bay | ·Pea | ·Owe"],
             id="after-bay",
         ),
         pytest.param(
             _qs_text("qsTea", "qsPea", "qsOwe"),
-            ["·Tea | ·Pea.half ~x~ ·Owe"],
+            ["·Tea | ·Pea | ·Owe"],
             id="after-tea",
         ),
     ],
 )
-def test_owe_after_pea_stays_left_only_at_word_end(text: str, expects: list[str]):
+def test_pea_never_joins_owe_at_word_end(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
-def test_owe_after_pea_keeps_right_exit_with_real_follower():
-    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea.half ~x~ ·Owe.ex-y5 ~x~ ·No"])
-
-
-def test_owe_stays_left_only_at_word_end_after_any_plain_letter_then_pea():
-    _assert_no_failures(_owe_terminal_invariant_failures())
+def test_owe_keeps_right_exit_with_real_follower_after_pea():
+    """·Pea·Owe never joins, but ·Owe still takes its right exit into a real follower."""
+    _assert_expect_any(_qs_text("qsPea", "qsOwe", "qsNo"), ["·Pea | ·Owe.ex-y5 ~x~ ·No"])
 
 
 def test_owe_at_word_start_before_fee_has_no_left_anchor():
@@ -2018,6 +1966,7 @@ def test_day_always_picks_half_after_it_in_any_context():
     ("left_base", "right_base"),
     [
         pytest.param("qsOwe", "qsTea", id="owe-tea"),
+        pytest.param("qsPea", "qsOwe", id="pea-owe"),
         pytest.param("qsShe", "qsThaw", id="she-thaw"),
         pytest.param("qsTea", "qsOwe", id="tea-owe"),
         pytest.param("qsWay", "qsSee", id="way-see"),
