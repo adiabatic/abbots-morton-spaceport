@@ -16,6 +16,7 @@ from quikscript_shaping_helpers import (
     _entry_ys,
     _exit_ys,
     _find_base_index,
+    _has_xheight_forward_nub,
     _pair_join_ys,
     _plain_quikscript_letters,
     _qs_text,
@@ -389,15 +390,15 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
     return failures
 
 
-def _collect_see_out_connecting_exit_without_xheight_receiver_failures(
+def _collect_see_out_connecting_body_without_xheight_receiver_failures(
     *,
     max_chars_before: int = 2,
     max_chars_after: int = 2,
     before_first_only: str | None = None,
 ) -> list[str]:
-    """Flag every ·See→·Out adjacency where the chosen ·Out glyph carries an x-height exit anchor but the glyph that immediately follows ·Out does not actually join it at the x-height. The invariant is that ·Out may show a connecting (x-height) exit ONLY when its follower receives that exit at the x-height (y=5); a word-final ·Out, or a ·Out followed by a glyph that joins only at some other height (or not at all), must not present an x-height exit. Word-final and non-x-height-joining followers are strict violations, not tolerated edge cases.
+    """Flag every ·See→·Out adjacency where the chosen ·Out glyph presents an x-height connecting body but the glyph that immediately follows ·Out does not receive at the x-height. The invariant is that ·Out may show a connecting (x-height) body ONLY when its follower receives it at the x-height (y=5); a word-final ·Out, or a ·Out followed by a glyph whose entry sits only at some other height (or that does not join at all), must rest on a non-connecting body. Word-final and non-x-height-receiving followers are strict violations, not tolerated edge cases.
 
-    "Connecting" is defined anchor-side: an x-height exit is present when ``5 in _exit_ys(out_glyph_name)``. The follower receives it when ``5 in _pair_join_ys(glyphs, out_index)`` — i.e. the follower carries an entry anchor at y=5 that meets ·Out's exit. A failure is any ·Out that is connecting at the x-height while its follower is not joining there.
+    "Connecting" is defined shape-side, via ``_has_xheight_forward_nub(out_glyph_name)``: the ·Out bitmap protrudes farther right at y=5 than at any other row — the forward stub that means to hand off to a follower's x-height entry. This is deliberately NOT the exit-anchor proxy ``5 in _exit_ys(...)``: that proxy can be satisfied by stripping the exit anchor while the connecting body — and so the dangling stub — stays drawn. The follower receives the stub when it carries an entry anchor at y=5 (``5 in _entry_ys(follower)``). A failure is any ·Out drawn with the x-height stub while its follower does not receive at y=5.
 
     Ligatures whose sequence ends with ``qsSee`` count as the ·See side, and ligatures whose sequence starts with ``qsOut`` count as the ·Out side, mirroring the other ``_collect_pair_*`` helpers.
 
@@ -439,17 +440,19 @@ def _collect_see_out_connecting_exit_without_xheight_receiver_failures(
                 if not left_is_see or not out_is_out:
                     continue
                 out_glyph_name = glyphs[out_index]
-                connecting = 5 in _exit_ys(out_glyph_name)
-                joins_next_at_xheight = (out_index + 1 < len(glyphs)) and (
-                    5 in _pair_join_ys(glyphs, out_index)
+                connecting = _has_xheight_forward_nub(out_glyph_name)
+                follower_receives_at_xheight = (out_index + 1 < len(glyphs)) and (
+                    5 in _entry_ys(glyphs[out_index + 1])
                 )
-                if connecting and not joins_next_at_xheight:
+                if connecting and not follower_receives_at_xheight:
                     follower = glyphs[out_index + 1] if out_index + 1 < len(glyphs) else "word-final"
+                    follower_entry_ys = (
+                        sorted(_entry_ys(glyphs[out_index + 1])) if out_index + 1 < len(glyphs) else []
+                    )
                     failures.append(
-                        f"{label}: {out_glyph_name} shows x-height exit "
-                        f"(exit Ys={sorted(_exit_ys(out_glyph_name))}) but its follower {follower!r} "
-                        f"does not join at the x-height (join Ys={sorted(_pair_join_ys(glyphs, out_index))}) "
-                        f"in {glyphs}"
+                        f"{label}: {out_glyph_name} draws the x-height connecting body "
+                        f"but its follower {follower!r} does not receive at the x-height "
+                        f"(follower entry Ys={follower_entry_ys}) in {glyphs}"
                     )
 
     return failures
@@ -1610,9 +1613,9 @@ def test_it_day_never_joins_at_xheight(before_first: str):
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
-def test_see_out_connecting_exit_only_when_next_joins_at_xheight(before_first: str):
+def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first: str):
     _assert_no_failures(
-        _collect_see_out_connecting_exit_without_xheight_receiver_failures(
+        _collect_see_out_connecting_body_without_xheight_receiver_failures(
             max_chars_before=2,
             max_chars_after=2,
             before_first_only=before_first,
