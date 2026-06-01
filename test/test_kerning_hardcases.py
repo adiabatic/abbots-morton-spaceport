@@ -27,6 +27,7 @@ ALLOWED_SKIP_REASONS = {
     "shared_kern_entangled",
     "no_context",
     "cluster_ambiguous",
+    "not_hidden",
 }
 
 

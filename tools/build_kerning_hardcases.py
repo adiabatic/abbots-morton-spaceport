@@ -1,8 +1,8 @@
 """Enumerate Quikscript "hard-case" form-junctions and emit JSON for test/kerning.html.
 
-The kerning matrix in ``test/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some form-to-form junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter.alt`` in isolation, but in any real context where ·Utter takes its ``.alt`` form, ·No demotes back to plain ``qsNo``. Those hidden junctions live in the ``predecessor_demote_overrides`` and ``trailing_demote_overrides`` tables in ``glyph_data/quikscript.yaml``.
+The kerning matrix in ``test/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some form-to-form junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter.alt`` in isolation, but in any real context where ·Utter takes its ``.alt`` form, ·No demotes back to plain ``qsNo``. Those hidden junctions live in the ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml``.
 
-This generator walks both demote tables, derives the adjacent rendered glyph pair each override is really about, finds a real corpus context that produces that pair, and records the dimming offsets the web page needs to highlight just the junction.
+This generator walks those tables, derives the adjacent rendered glyph pair each override is really about, and emits only the junctions that are genuinely *hidden* — i.e. that you can't reproduce by typing the two base families as bare letters (the isolated two-letter rendering). For each surviving junction it looks for a context that reproduces it (under relaxed prefix matching), preferring a literal/corpus context and falling back to a bounded, deterministic synthetic search, then records the dimming offsets the web page needs to highlight just the junction.
 
 Run (after ``make all``)::
 
@@ -28,6 +28,8 @@ if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))
 
 from quikscript_shaping_helpers import (  # noqa: E402
+    ZWNJ,
+    _char_map,
     _compiled_meta,
     _font,
     _gid_to_full_name,
@@ -48,6 +50,35 @@ ENTITY_HEX_RE = re.compile(r"&#x([0-9A-Fa-f]+);")
 ENTITY_DEC_RE = re.compile(r"&#(\d+);")
 
 ENTRYLESS_MARKERS = (".noentry", ".ex-noentry", ".nonjoining-left")
+
+
+def _plain_families_by_codepoint() -> list[str]:
+    """Plain Quikscript family names (no ligatures, no variant forms, no angle parens), in code-point order."""
+    chars = _char_map()
+    plain = [
+        name
+        for name in chars
+        if name.startswith("qs")
+        and "_" not in name
+        and "." not in name
+        and name not in {"qsAngleParenLeft", "qsAngleParenRight"}
+    ]
+    return sorted(plain, key=lambda name: ord(chars[name]))
+
+
+def _family_char(family: str) -> str | None:
+    """The single code point a plain Quikscript family maps to, or ``None`` for anything not in the char map."""
+    return _char_map().get(family)
+
+
+def _prefix_match(glyph_name: str, target: str) -> bool:
+    """``glyph_name`` reproduces ``target``.
+
+    A bare-family ``target`` (no ``.`` in the name) requires an *exact* match: the demote tables' bare ``isolated_form`` means exactly that bare glyph, so a context that renders a sibling contextual form (``qsJai.en-y5.ex-y0`` for target ``qsJai``) is a *different* junction and must not be accepted. A dotted-form ``target`` (e.g. ``qsGay.ex-y0``) prefix-matches, tolerating deeper exit/entry modifiers (``qsGay.ex-y0.ex-ext-1``).
+    """
+    if "." not in target:
+        return glyph_name == target
+    return glyph_name == target or glyph_name.startswith(target + ".")
 
 
 def _decode_entities(text: str) -> str:
@@ -120,13 +151,16 @@ class _ClusterAmbiguous:
 
 def _find_context(
     sequences: list[str], left: str, right: str
-) -> tuple[str, int, int] | _NoContext | _ClusterAmbiguous:
-    """Return ``(context, beforeEnd, junctionEnd)`` for the first corpus run whose adjacent shaped pair is exactly ``(left, right)``, or ``_NoContext`` if no run produces the pair, or ``_ClusterAmbiguous`` if a producing run's junction can't be carved into two disjoint contiguous input ranges with a clean remainder."""
+) -> tuple[str, int, int, str, str] | _NoContext | _ClusterAmbiguous:
+    """Return ``(context, beforeEnd, junctionEnd, leftGlyph, rightGlyph)`` for the first run whose adjacent shaped pair prefix-matches ``(left, right)`` (per :func:`_prefix_match`), or ``_NoContext`` if no run produces the pair, or ``_ClusterAmbiguous`` if a producing run's junction can't be carved into two disjoint contiguous input ranges with a clean remainder.
+
+    ``leftGlyph`` / ``rightGlyph`` are the actual rendered glyph names (which may carry extra exit/entry modifiers beyond the prefix targets).
+    """
     found_pair_but_ambiguous = False
     for context in sequences:
         names, clusters = _shape_clusters(context)
         for i in range(len(names) - 1):
-            if names[i] == left and names[i + 1] == right:
+            if _prefix_match(names[i], left) and _prefix_match(names[i + 1], right):
                 text_len = len(context)
                 left_start, left_end = _cluster_input_range(clusters, i, text_len)
                 right_start, right_end = _cluster_input_range(clusters, i + 1, text_len)
@@ -136,7 +170,7 @@ def _find_context(
                 if left_end != right_start:
                     found_pair_but_ambiguous = True
                     continue
-                return context, left_start, right_end
+                return context, left_start, right_end, names[i], names[i + 1]
     if found_pair_but_ambiguous:
         return _ClusterAmbiguous()
     return _NoContext()
@@ -146,7 +180,7 @@ def _verify(context: str, left: str, right: str, before_end: int, junction_end: 
     names, clusters = _shape_clusters(context)
     text_len = len(context)
     for i in range(len(names) - 1):
-        if names[i] == left and names[i + 1] == right:
+        if _prefix_match(names[i], left) and _prefix_match(names[i + 1], right):
             left_start, left_end = _cluster_input_range(clusters, i, text_len)
             right_start, right_end = _cluster_input_range(clusters, i + 1, text_len)
             if left_start == before_end and left_end == right_start and right_end == junction_end:
@@ -154,21 +188,112 @@ def _verify(context: str, left: str, right: str, before_end: int, junction_end: 
     return False
 
 
+def _is_hidden(left: str, right: str) -> bool:
+    """A junction is *hidden* when shaping the two base families as bare letters does not already reproduce it.
+
+    Returns ``True`` (worth emitting) unless the isolated two-letter rendering of ``char(leftBase) + char(rightBase)`` yields an adjacent pair that prefix-matches ``(left, right)``.
+    """
+    left_char = _family_char(_base_name(left))
+    right_char = _family_char(_base_name(right))
+    if left_char is None or right_char is None:
+        # Ligatures and other non-plain bases have no two-letter isolated rendering; treat as hidden.
+        return True
+    names, _ = _shape_clusters(left_char + right_char)
+    for i in range(len(names) - 1):
+        if _prefix_match(names[i], left) and _prefix_match(names[i + 1], right):
+            return False
+    return True
+
+
+def _synthetic_contexts(left_base: str, right_base: str) -> list[str]:
+    """Bounded, deterministic search space of candidate context strings for a target whose base families are ``(left_base, right_base)``.
+
+    Ordered shortest-first, then by the documented family-position sweep, capped at four glyphs. ``None`` bases (ligatures etc.) yield no candidates.
+    """
+    left_char = _family_char(left_base)
+    right_char = _family_char(right_base)
+    if left_char is None or right_char is None:
+        return []
+    fillers: list[str] = [_char_map()[name] for name in _plain_families_by_codepoint()]
+    fillers.append(ZWNJ)
+    pair = left_char + right_char
+    candidates: list[str] = [pair]
+    for x in fillers:
+        candidates.append(pair + x)
+    for x in fillers:
+        candidates.append(x + pair)
+    for x in fillers:
+        for y in fillers:
+            candidates.append(pair + x + y)
+    for x in fillers:
+        for y in fillers:
+            candidates.append(x + pair + y)
+    for x in fillers:
+        for y in fillers:
+            candidates.append(x + y + pair)
+    return candidates
+
+
 def _junction_targets(table_name: str, entry: dict) -> tuple[str, str]:
-    """The adjacent rendered glyph pair ``(left, right)`` an override entry is really about, named by the entry's raw (pre-heal) form strings."""
+    """The adjacent rendered glyph pair ``(left, right)`` a demote-table override entry is really about, named by the entry's raw (pre-heal) form strings."""
     if table_name == "predecessor_demote":
         return entry["isolated_form"], entry["trigger_form"]
     return entry["leader_form"], entry["isolated_form"]
 
 
+def _resolve_record(
+    target_left: str,
+    target_right: str,
+    table_name: str,
+    context_sources: list[tuple[str, list[str]]],
+) -> dict | str:
+    """Run a target junction ``(target_left, target_right)`` through the full pipeline against each ``(source, candidate_contexts)`` group in order. Return the emit-ready record (sans dedupe handling) or a skip-reason string.
+
+    The hidden filter (#1) is applied once up front; context groups are tried in the given order, with ``_ClusterAmbiguous`` from one group not blocking later groups.
+    """
+    skip = _skip_reason(target_left, target_right)
+    if skip is not None:
+        return skip
+
+    if not _is_hidden(target_left, target_right):
+        return "not_hidden"
+
+    saw_ambiguous = False
+    for source, candidates in context_sources:
+        result = _find_context(candidates, target_left, target_right)
+        if isinstance(result, _NoContext):
+            continue
+        if isinstance(result, _ClusterAmbiguous):
+            saw_ambiguous = True
+            continue
+
+        context, before_end, junction_end, left_glyph, right_glyph = result
+        if not _verify(context, left_glyph, right_glyph, before_end, junction_end):
+            print(
+                f"self-check failed for {table_name} {left_glyph!r}+{right_glyph!r} in {context!r}; refusing to emit",
+                file=sys.stderr,
+            )
+            continue
+
+        left_base = _base_name(left_glyph)
+        right_base = _base_name(right_glyph)
+        return {
+            "leftForm": _form_prefix(target_left, left_base),
+            "rightForm": _form_prefix(target_right, right_base),
+            "context": context,
+            "beforeEnd": before_end,
+            "junctionEnd": junction_end,
+            "source": source,
+            "table": table_name,
+            "_key": f"{left_base}|{right_base}",
+        }
+
+    return "cluster_ambiguous" if saw_ambiguous else "no_context"
+
+
 def build(out_path: Path) -> None:
     with QUIKSCRIPT_YAML.open() as f:
         data = yaml.safe_load(f)
-
-    tables = {
-        "predecessor_demote": data.get("predecessor_demote_overrides", []),
-        "trailing_demote": data.get("trailing_demote_overrides", []),
-    }
 
     sequences = _harvest_sequences(CORPUS_FILES)
 
@@ -182,68 +307,74 @@ def build(out_path: Path) -> None:
     skipped: list[dict] = []
     seen_per_key: dict[str, set[tuple]] = {}
 
-    for table_name, entries in tables.items():
+    def emit(record: dict) -> None:
+        key = record.pop("_key")
+        dedupe_key = (
+            record["leftForm"],
+            record["rightForm"],
+            record["context"],
+        )
+        if dedupe_key in seen_per_key.setdefault(key, set()):
+            return
+        seen_per_key[key].add(dedupe_key)
+        junctions.setdefault(key, []).append(record)
+
+    def context_sources_for(target_left: str, target_right: str) -> list[tuple[str, list[str]]]:
+        synthetic = _synthetic_contexts(_base_name(target_left), _base_name(target_right))
+        return [("corpus", sequences), ("synthetic", synthetic)]
+
+    # Demote tables: one target junction per entry.
+    demote_tables = {
+        "predecessor_demote": data.get("predecessor_demote_overrides", []),
+        "trailing_demote": data.get("trailing_demote_overrides", []),
+    }
+    for table_name, entries in demote_tables.items():
         for entry in entries:
             raw_left, raw_right = _junction_targets(table_name, entry)
             # The build heals these author-written strings against the post-synthesis glyph set before they hit the font, so match the healed names against real shaped output.
             target_left, target_right = heal(raw_left), heal(raw_right)
-
-            reason = _skip_reason(target_left, target_right)
-            if reason is not None:
-                skipped.append({"table": table_name, "entry": entry, "reason": reason})
-                continue
-
-            result = _find_context(sequences, target_left, target_right)
-            if isinstance(result, _NoContext):
-                skipped.append({"table": table_name, "entry": entry, "reason": "no_context"})
-                continue
-            if isinstance(result, _ClusterAmbiguous):
-                skipped.append({"table": table_name, "entry": entry, "reason": "cluster_ambiguous"})
-                continue
-
-            context, before_end, junction_end = result
-
-            shaped_names, _ = _shape_clusters(context)
-            left_glyph = right_glyph = None
-            for i in range(len(shaped_names) - 1):
-                if shaped_names[i] == target_left and shaped_names[i + 1] == target_right:
-                    left_glyph, right_glyph = shaped_names[i], shaped_names[i + 1]
-                    break
-            assert left_glyph is not None and right_glyph is not None
-
-            if not _verify(context, left_glyph, right_glyph, before_end, junction_end):
-                print(
-                    f"self-check failed for {table_name} {left_glyph!r}+{right_glyph!r} in {context!r}; refusing to emit",
-                    file=sys.stderr,
-                )
-                continue
-
-            left_base = _base_name(left_glyph)
-            right_base = _base_name(right_glyph)
-            key = f"{left_base}|{right_base}"
-
-            record = {
-                "leftForm": _form_prefix(left_glyph, left_base),
-                "rightForm": _form_prefix(right_glyph, right_base),
-                "context": context,
-                "beforeEnd": before_end,
-                "junctionEnd": junction_end,
-                "source": "corpus",
-                "table": table_name,
-            }
-
-            dedupe_key = (
-                record["leftForm"],
-                record["rightForm"],
-                record["context"],
-                record["beforeEnd"],
-                record["junctionEnd"],
-                record["table"],
+            outcome = _resolve_record(
+                target_left,
+                target_right,
+                table_name,
+                context_sources_for(target_left, target_right),
             )
-            if dedupe_key in seen_per_key.setdefault(key, set()):
-                continue
-            seen_per_key[key].add(dedupe_key)
-            junctions.setdefault(key, []).append(record)
+            if isinstance(outcome, str):
+                skipped.append({"table": table_name, "entry": entry, "reason": outcome})
+            else:
+                emit(outcome)
+
+    # restore_isolated_form: the literal 3-codepoint context yields two adjacent junctions, both run through the pipeline.
+    for entry in data.get("restore_isolated_form_overrides", []):
+        prior, target, follower = entry["prior"], entry["target"], entry["follower"]
+        prior_char = _family_char(prior)
+        target_char = _family_char(target)
+        follower_char = _family_char(follower)
+        if prior_char is None or target_char is None or follower_char is None:
+            skipped.append({"table": "restore_isolated_form", "entry": entry, "reason": "no_context"})
+            continue
+        literal = prior_char + target_char + follower_char
+        literal_names, _ = _shape_clusters(literal)
+        if len(literal_names) < 3:
+            skipped.append({"table": "restore_isolated_form", "entry": entry, "reason": "no_context"})
+            continue
+
+        for left_glyph, right_glyph in (
+            (literal_names[0], literal_names[1]),
+            (literal_names[1], literal_names[2]),
+        ):
+            # The literal output glyphs are already the healed, fully rendered forms, so they double as the target prefixes; the literal context is tried first, then corpus, then synthetic.
+            context_sources = [("literal", [literal])] + context_sources_for(left_glyph, right_glyph)
+            outcome = _resolve_record(
+                left_glyph,
+                right_glyph,
+                "restore_isolated_form",
+                context_sources,
+            )
+            if isinstance(outcome, str):
+                skipped.append({"table": "restore_isolated_form", "entry": entry, "reason": outcome})
+            else:
+                emit(outcome)
 
     output: dict = {key: junctions[key] for key in sorted(junctions)}
     output["_skipped"] = skipped
