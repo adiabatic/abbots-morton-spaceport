@@ -56,6 +56,16 @@ for (const l of LETTERS) {
 
 NAME_TO_CP["Jai"] = NAME_TO_CP["J'ai"];
 
+const PIXEL_FONT_RE = /Abbots Morton Spaceport|Departure Mono/;
+
+// Smoothing must travel with the font: any code that sets --font-stack must set the --font-smoothing* trio alongside it. The pixel fonts want smoothing off; everything else wants the platform default.
+function applyFontSmoothing(el, fontStack) {
+  const pixel = PIXEL_FONT_RE.test(fontStack.split(',')[0]);
+  el.style.setProperty('--font-smoothing', pixel ? 'none' : 'subpixel-antialiased');
+  el.style.setProperty('--font-smoothing-osx', pixel ? 'grayscale' : 'auto');
+  el.style.setProperty('--font-smooth', pixel ? 'never' : 'auto');
+}
+
 export function initToggles(opts = {}) {
   const fontOrderToggle = opts.fontOrderToggle && document.getElementById(opts.fontOrderToggle);
   const fontToggle = opts.fontToggle && document.getElementById(opts.fontToggle);
@@ -100,6 +110,7 @@ export function initToggles(opts = {}) {
       : `${fontFamily}, 'Departure Mono', monospace`;
 
     document.documentElement.style.setProperty('--font-stack', fontStack);
+    applyFontSmoothing(document.documentElement, fontStack);
     const fontWeight = isSans ? weights[weightIndex] : 400;
     document.documentElement.style.setProperty('--font-weight', String(fontWeight));
     if (titleEl) titleEl.textContent = fontTitle;
