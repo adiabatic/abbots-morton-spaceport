@@ -1,25 +1,266 @@
 {
+  "qsEat|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    }
+  ],
+  "qsExcite|qsGay": [
+    {
+      "leftForm": "qsExcite.en-y0.noexit",
+      "rightForm": null,
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsExcite|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0.before-day.after-no-baseline-join",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0.before-utter",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsExcite|qsUtter": [
+    {
+      "leftForm": null,
+      "rightForm": "qsUtter.alt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsIt|qsDay": [
+    {
+      "leftForm": "qsIt.en-y5.ex-y0",
+      "rightForm": "qsDay.half.en-y0.ex-y0",
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    }
+  ],
+  "qsIt|qsIt": [
+    {
+      "leftForm": "qsIt.ex-y5",
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    }
+  ],
+  "qsJai|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsJai|qsTea": [
+    {
+      "leftForm": null,
+      "rightForm": "qsTea.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsJay|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    }
+  ],
+  "qsMay|qsFee": [
+    {
+      "leftForm": null,
+      "rightForm": "qsFee.ex-y5",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsMay|qsGay": [
+    {
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsNo|qsFee": [
+    {
+      "leftForm": null,
+      "rightForm": "qsFee.ex-y5",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsNo|qsGay": [
+    {
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsNo|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
   "qsNo|qsUtter": [
     {
       "leftForm": null,
       "rightForm": "qsUtter.alt.ex-y0",
-      "context": "",
+      "context": "",
       "beforeEnd": 2,
       "junctionEnd": 4,
       "source": "corpus",
       "table": "predecessor_demote"
     }
   ],
-  "_skipped": [
+  "qsWay|qsGay": [
     {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsExcite.en-y0.ex-y0.before-vertical",
-        "trigger_form": "qsIt.ex-y0.before-day.after-no-baseline-join",
-        "isolated_form": "qsExcite"
-      },
-      "reason": "no_context"
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
     },
+    {
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0.ex-ext-1",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsWhy|qsGay": [
+    {
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsGay.ex-y0.ex-ext-1",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "table": "predecessor_demote"
+    }
+  ],
+  "qsYe|qsIt": [
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    },
+    {
+      "leftForm": null,
+      "rightForm": "qsIt.ex-y0",
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "literal",
+      "table": "restore_isolated_form"
+    }
+  ],
+  "_skipped": [
     {
       "table": "predecessor_demote",
       "entry": {
@@ -41,146 +282,11 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical",
-        "trigger_form": "qsIt.before-utter",
-        "isolated_form": "qsExcite"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical",
-        "trigger_form": "qsIt.ex-y0",
-        "isolated_form": "qsExcite"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical",
-        "trigger_form": "qsUtter.alt",
-        "isolated_form": "qsExcite"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical.after-baseline-letter",
-        "trigger_form": "qsGay",
-        "isolated_form": "qsExcite.en-y0.noexit"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsJai.en-y5.ex-ext-1",
-        "trigger_form": "qsIt.ex-y0",
-        "isolated_form": "qsJai"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsJai.en-y5.ex-ext-1",
-        "trigger_form": "qsTea.ex-y0",
-        "isolated_form": "qsJai"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsMay.ex-y0",
-        "trigger_form": "qsGay.ex-y0",
-        "isolated_form": "qsMay"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsMay.ex-ext-1",
-        "trigger_form": "qsFee.ex-y5",
-        "isolated_form": "qsMay"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
         "predecessor_form": "qsMay.ex-noentry",
         "trigger_form": "qsThey_qsUtter.noentry",
         "isolated_form": "qsMay"
       },
       "reason": "ligature"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsNo.alt",
-        "trigger_form": "qsGay.ex-y0",
-        "isolated_form": "qsNo"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsNo.alt",
-        "trigger_form": "qsIt.ex-y0",
-        "isolated_form": "qsNo"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsNo.ex-ext-1",
-        "trigger_form": "qsFee.ex-y5",
-        "isolated_form": "qsNo"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsWay.half",
-        "trigger_form": "qsGay.ex-y0",
-        "isolated_form": "qsWay"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsWay.half",
-        "trigger_form": "qsGay.ex-y0.ex-ext-1",
-        "isolated_form": "qsWay"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsWhy.half",
-        "trigger_form": "qsGay.ex-y0",
-        "isolated_form": "qsWhy"
-      },
-      "reason": "no_context"
-    },
-    {
-      "table": "predecessor_demote",
-      "entry": {
-        "predecessor_form": "qsWhy.half",
-        "trigger_form": "qsGay.ex-y0.ex-ext-1",
-        "isolated_form": "qsWhy"
-      },
-      "reason": "no_context"
     },
     {
       "table": "trailing_demote",
@@ -199,6 +305,86 @@
         "isolated_form": "qsDay"
       },
       "reason": "entryless"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsNo",
+        "target": "qsIt",
+        "follower": "qsDay",
+        "isolated_form": "qsIt.en-y5.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsJay",
+        "target": "qsIt",
+        "follower": "qsZoo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsJay",
+        "target": "qsIt",
+        "follower": "qsNo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsYe",
+        "target": "qsIt",
+        "follower": "qsZoo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsYe",
+        "target": "qsIt",
+        "follower": "qsNo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsIt",
+        "target": "qsIt",
+        "follower": "qsZoo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsEat",
+        "target": "qsIt",
+        "follower": "qsZoo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "restore_isolated_form",
+      "entry": {
+        "prior": "qsEat",
+        "target": "qsIt",
+        "follower": "qsNo",
+        "isolated_form": "qsIt.ex-y0"
+      },
+      "reason": "not_hidden"
     }
   ]
 }
