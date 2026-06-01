@@ -389,6 +389,72 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
     return failures
 
 
+def _collect_see_out_connecting_exit_without_xheight_receiver_failures(
+    *,
+    max_chars_before: int = 2,
+    max_chars_after: int = 2,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every ·See→·Out adjacency where the chosen ·Out glyph carries an x-height exit anchor but the glyph that immediately follows ·Out does not actually join it at the x-height. The invariant is that ·Out may show a connecting (x-height) exit ONLY when its follower receives that exit at the x-height (y=5); a word-final ·Out, or a ·Out followed by a glyph that joins only at some other height (or not at all), must not present an x-height exit. Word-final and non-x-height-joining followers are strict violations, not tolerated edge cases.
+
+    "Connecting" is defined anchor-side: an x-height exit is present when ``5 in _exit_ys(out_glyph_name)``. The follower receives it when ``5 in _pair_join_ys(glyphs, out_index)`` — i.e. the follower carries an entry anchor at y=5 that meets ·Out's exit. A failure is any ·Out that is connecting at the x-height while its follower is not joining there.
+
+    Ligatures whose sequence ends with ``qsSee`` count as the ·See side, and ligatures whose sequence starts with ``qsOut`` count as the ·Out side, mirroring the other ``_collect_pair_*`` helpers.
+
+    The sweep mirrors the sibling pair collectors: the iteration set is the 46-entry context set (every plain Quikscript letter plus ZWNJ), and the default 2+2 surround covers every prefix/suffix length from 0 up to 2 on each side. ``before_first_only`` restricts the non-empty ``before`` combinations to those whose first entry is the named context glyph, sharding the logical test across pytest-xdist workers; the empty prefix is still swept.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + _qs_text("qsSee", "qsOut") + after_text
+            glyphs = _shape(text)
+            label = f"[{before_label}] / qsSee / qsOut / [{after_label}]"
+
+            for out_index in range(1, len(glyphs)):
+                left_meta = meta_map.get(glyphs[out_index - 1])
+                out_meta = meta_map.get(glyphs[out_index])
+                if left_meta is None or out_meta is None:
+                    continue
+                left_is_see = left_meta.base_name == "qsSee" or (
+                    left_meta.sequence and left_meta.sequence[-1] == "qsSee"
+                )
+                out_is_out = out_meta.base_name == "qsOut" or (
+                    out_meta.sequence and out_meta.sequence[0] == "qsOut"
+                )
+                if not left_is_see or not out_is_out:
+                    continue
+                out_glyph_name = glyphs[out_index]
+                connecting = 5 in _exit_ys(out_glyph_name)
+                joins_next_at_xheight = (out_index + 1 < len(glyphs)) and (
+                    5 in _pair_join_ys(glyphs, out_index)
+                )
+                if connecting and not joins_next_at_xheight:
+                    follower = glyphs[out_index + 1] if out_index + 1 < len(glyphs) else "word-final"
+                    failures.append(
+                        f"{label}: {out_glyph_name} shows x-height exit "
+                        f"(exit Ys={sorted(_exit_ys(out_glyph_name))}) but its follower {follower!r} "
+                        f"does not join at the x-height (join Ys={sorted(_pair_join_ys(glyphs, out_index))}) "
+                        f"in {glyphs}"
+                    )
+
+    return failures
+
+
 def _collect_pair_extension_must_be_exactly_n_pixels_regardless_of_what_comes_before_or_after_if_they_join_at_all(
     left_base: str,
     right_base: str,
@@ -1535,6 +1601,18 @@ def test_it_day_never_joins_at_xheight(before_first: str):
             "qsIt",
             "qsDay",
             forbidden_y=5,
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_see_out_connecting_exit_only_when_next_joins_at_xheight(before_first: str):
+    _assert_no_failures(
+        _collect_see_out_connecting_exit_without_xheight_receiver_failures(
             max_chars_before=2,
             max_chars_after=2,
             before_first_only=before_first,
