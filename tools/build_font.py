@@ -53,20 +53,43 @@ def load_postscript_glyph_names() -> dict[str, int]:
         return yaml.safe_load(f)
 
 
+# Top-level keys that mark a YAML document as one of the structured glyph-data records. A document carrying none of these is read as a bare Senior-only kerning rule (see senior_quikscript_kerning.yaml).
+_STRUCTURAL_KEYS = frozenset(
+    {
+        "metadata",
+        "glyphs",
+        "glyph_families",
+        "context_sets",
+        "kerning",
+        "restore_isolated_form_overrides",
+        "predecessor_demote_overrides",
+        "trailing_demote_overrides",
+    }
+)
+
+
 def load_glyph_data(path: Path) -> GlyphData:
-    """Load glyph definitions from a YAML file or directory of YAML files."""
-    if path.is_dir():
-        metadata = {}
-        glyphs = {}
-        glyph_families = {}
-        context_sets = {}
-        kerning_defs = {}
-        restore_isolated_form_overrides = []
-        predecessor_demote_overrides = []
-        trailing_demote_overrides = []
-        for yaml_file in sorted(path.glob("*.yaml")):
-            with open(yaml_file) as f:
-                data = yaml.safe_load(f) or {}
+    """Load glyph definitions from a YAML file or directory of YAML files.
+
+    Each file may hold a single document (the usual `glyphs:` / `kerning:` / ... record) or several `---`-separated documents. A document that is a bare mapping with none of the structural keys is read as one Senior-only kerning rule, so those rules carry no name of their own — the build synthesizes a unique lookup identifier per rule.
+    """
+    metadata: dict[str, Any] = {}
+    glyphs: dict[str, Any] = {}
+    glyph_families: dict[str, Any] = {}
+    context_sets: dict[str, Any] = {}
+    kerning_defs: dict[str, Any] = {}
+    senior_kerning_rules: list[dict[str, Any]] = []
+    restore_isolated_form_overrides: list[Any] = []
+    predecessor_demote_overrides: list[Any] = []
+    trailing_demote_overrides: list[Any] = []
+
+    files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
+    for yaml_file in files:
+        with open(yaml_file) as f:
+            documents = list(yaml.safe_load_all(f))
+        for data in documents:
+            if not isinstance(data, dict) or not data:
+                continue
             if "metadata" in data:
                 metadata = data["metadata"]
             if "glyphs" in data:
@@ -83,29 +106,20 @@ def load_glyph_data(path: Path) -> GlyphData:
                 predecessor_demote_overrides.extend(data["predecessor_demote_overrides"] or [])
             if "trailing_demote_overrides" in data:
                 trailing_demote_overrides.extend(data["trailing_demote_overrides"] or [])
-        return {
-            "metadata": metadata,
-            "glyphs": glyphs,
-            "glyph_families": glyph_families,
-            "context_sets": context_sets,
-            "kerning": kerning_defs,
-            "restore_isolated_form_overrides": restore_isolated_form_overrides,
-            "predecessor_demote_overrides": predecessor_demote_overrides,
-            "trailing_demote_overrides": trailing_demote_overrides,
-        }
-    else:
-        with open(path) as f:
-            data = yaml.safe_load(f) or {}
-        return {
-            "metadata": data.get("metadata", {}),
-            "glyphs": data.get("glyphs", {}),
-            "glyph_families": data.get("glyph_families", {}),
-            "context_sets": data.get("context_sets", {}),
-            "kerning": data.get("kerning", {}),
-            "restore_isolated_form_overrides": data.get("restore_isolated_form_overrides", []) or [],
-            "predecessor_demote_overrides": data.get("predecessor_demote_overrides", []) or [],
-            "trailing_demote_overrides": data.get("trailing_demote_overrides", []) or [],
-        }
+            if not _STRUCTURAL_KEYS.intersection(data):
+                senior_kerning_rules.append(data)
+
+    return {
+        "metadata": metadata,
+        "glyphs": glyphs,
+        "glyph_families": glyph_families,
+        "context_sets": context_sets,
+        "kerning": kerning_defs,
+        "senior_kerning": senior_kerning_rules,
+        "restore_isolated_form_overrides": restore_isolated_form_overrides,
+        "predecessor_demote_overrides": predecessor_demote_overrides,
+        "trailing_demote_overrides": trailing_demote_overrides,
+    }
 
 
 def _extract_feature_lookup_names(fea_code: str | None, feature_tag: str) -> list[str]:
@@ -304,6 +318,13 @@ def generate_kern_fea(
         if "right_group" in definition:
             suffix = "." + definition["right_group"]
             right_glyphs = [g for g in all_glyph_names if g.endswith(suffix)]
+        elif "right_family" in definition:
+            prefixes = [f"{b}." for b in definition["right_family"]]
+            right_glyphs = [
+                g
+                for g in all_glyph_names
+                if g in definition["right_family"] or any(g.startswith(p) for p in prefixes)
+            ]
         else:
             right_glyphs = definition["right"]
         if not right_glyphs:
@@ -1099,6 +1120,14 @@ def build_font(
         )
         if senior_fea:
             fea_code_parts.append(senior_fea)
+
+        senior_kerning_rules = glyph_data.get("senior_kerning", [])
+        if senior_kerning_rules:
+            kerning_groups = collect_kerning_groups(glyphs_def)
+            senior_kerning_defs = {f"senior_{i}": rule for i, rule in enumerate(senior_kerning_rules)}
+            fea_code_parts.append(
+                generate_kern_fea(senior_kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width)
+            )
     elif is_proportional:
         ss_fea = emit_quikscript_ss(join_glyphs)
         if ss_fea:

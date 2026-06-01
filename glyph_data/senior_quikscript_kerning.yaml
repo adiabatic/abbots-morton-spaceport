@@ -1,0 +1,24 @@
+# Senior-only Quikscript kerning.
+#
+# This file is a series of `---`-separated YAML documents. Each document is one kerning rule — just the body, with no name. The build gives every rule its own unique lookup under the hood, so rules never need naming.
+#
+# Rules here compile into the `kern` GPOS feature for the Sans Senior fonts only (both weights). They are not applied to Sans Junior or Mono. Shared, all-proportional kerning still lives under the `kerning` key in opentype-features.yaml and applies to Junior and Senior alike; put a pair here only when it should affect the ligated Senior cut and not the unligated Junior one.
+#
+# `value` is in pixels (one pixel = 50 font units), multiplied by the pixel width at build time. Negative tightens, positive loosens.
+#
+# Left side, pick one:
+#   left_family: [qsPea, ...]   # expands to the bare family glyph plus every contextual variant (qsPea, qsPea.en-y0, ...)
+#   left: [qsPea, ...]          # explicit glyph names, no variant expansion
+#   (omit both)                 # every glyph except those carrying this rule's per-glyph kerning tag
+#
+# Right side, pick one:
+#   right_family: [qsTea, ...]  # expands to the bare family glyph plus every contextual variant
+#   right: [qsTea, ...]         # explicit glyph names, no variant expansion
+#   right_group: noentry        # every glyph whose name ends in `.noentry`; emits the contextual before-ZWNJ form
+#
+# Add a rule by appending a document below, for example:
+#
+# ---
+# left_family: [qsPea]
+# right_family: [qsTea]
+# value: -1
