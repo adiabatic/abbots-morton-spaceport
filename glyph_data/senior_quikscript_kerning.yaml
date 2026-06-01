@@ -22,3 +22,677 @@
 # left_family: [qsPea]
 # right_family: [qsTea]
 # value: -1
+---
+left_family: [qsBay]
+right_family: [qsPea]
+value: -1
+
+---
+left_family: [qsBay]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsDay]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsDay]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsGay]
+right_family: [qsPea]
+value: -1
+
+---
+left_family: [qsThaw]
+right_family: [qsSee]
+value: -1
+
+---
+left_family: [qsThaw]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsThaw]
+right_family: [qsMay]
+value: -1
+
+---
+left_family: [qsThaw]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsThey]
+right_family: [qsPea]
+value: -2
+
+---
+left_family: [qsThey]
+right_family: [qsThaw]
+value: -1
+
+---
+left_family: [qsThey]
+right_family: [qsFee]
+value: -2
+
+---
+left_family: [qsThey]
+right_family: [qsSee]
+value: -1
+
+---
+left_family: [qsThey]
+right_family: [qsCheer]
+value: -1
+
+---
+left_family: [qsThey]
+right_family: [qsYe]
+value: -2
+
+---
+left_family: [qsThey]
+right_family: [qsHe]
+value: -2
+
+---
+left_family: [qsThey]
+right_family: [qsIng]
+value: -2
+
+---
+left_family: [qsThey]
+right_family: [qsLow]
+value: -2
+
+---
+left_family: [qsFee]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsFee]
+right_family: [qsWhy]
+value: -1
+
+---
+left_family: [qsVie]
+right_family: [qsPea]
+value: -1
+
+---
+left_family: [qsVie]
+right_family: [qsYe]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsBay]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsDay]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsGay]
+value: -2
+
+---
+left_family: [qsSee]
+right_family: [qsZoo]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsShe]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsSee]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsSee]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsMay]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsNo]
+value: -2
+
+---
+left_family: [qsSee]
+right_family: [qsLoch]
+value: -1
+
+---
+left_family: [qsSee]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsZoo]
+right_family: [qsPea]
+value: -2
+
+---
+left_family: [qsZoo]
+right_family: [qsKey]
+value: -1
+
+---
+left_family: [qsZoo]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsShe]
+right_family: [qsBay]
+value: -1
+
+---
+left_family: [qsShe]
+right_family: [qsYe]
+value: -1
+
+---
+left_family: [qsShe]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsShe]
+right_family: [qsWhy]
+value: -1
+
+---
+left_family: [qsCheer]
+right_family: [qsPea]
+value: -1
+
+---
+left_family: [qsCheer]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsYe]
+right_family: [qsBay]
+value: -2
+
+---
+left_family: [qsYe]
+right_family: [qsGay]
+value: -2
+
+---
+left_family: [qsYe]
+right_family: [qsFee]
+value: -1
+
+---
+left_family: [qsYe]
+right_family: [qsShe]
+value: -1
+
+---
+left_family: [qsYe]
+right_family: [qsJai]
+value: -1
+
+---
+left_family: [qsYe]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsYe]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsYe]
+right_family: [qsLoch]
+value: -1
+
+---
+left_family: [qsWay]
+right_family: [qsBay]
+value: -2
+
+---
+left_family: [qsWay]
+right_family: [qsThaw]
+value: -2
+
+---
+left_family: [qsWay]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsWay]
+right_family: [qsFee]
+value: -1
+
+---
+left_family: [qsWay]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsWay]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsHe]
+right_family: [qsBay]
+value: -2
+
+---
+left_family: [qsHe]
+right_family: [qsGay]
+value: -3
+
+---
+left_family: [qsHe]
+right_family: [qsFee]
+value: -2
+
+---
+left_family: [qsHe]
+right_family: [qsSee]
+value: -1
+
+---
+left_family: [qsHe]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsHe]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsHe]
+right_family: [qsLoch]
+value: -2
+
+---
+left_family: [qsWhy]
+right_family: [qsBay]
+value: -1
+
+---
+left_family: [qsWhy]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsWhy]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsWhy]
+right_family: [qsWhy]
+value: -1
+
+---
+left_family: [qsWhy]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsIng]
+right_family: [qsGay]
+value: -1
+
+---
+left_family: [qsNo]
+right_family: [qsBay]
+value: -2
+
+---
+left_family: [qsNo]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsNo]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsLow]
+right_family: [qsBay]
+value: -1
+
+---
+left_family: [qsLow]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsLow]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsLow]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsLow]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsLow]
+right_family: [qsMay]
+value: -1
+
+---
+left_family: [qsLow]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsPea]
+value: -2
+
+---
+left_family: [qsRoe]
+right_family: [qsBay]
+value: -2
+
+---
+left_family: [qsRoe]
+right_family: [qsGay]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsZoo]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsJay]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsYe]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsRoe]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsLlan]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsLlan]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsEt]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsEt]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsAt]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsAt]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsAt]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsAt]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsI]
+right_family: [qsVie]
+value: -1
+
+---
+left_family: [qsI]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsI]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsI]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsI]
+right_family: [qsLow]
+value: -2
+
+---
+left_family: [qsAh]
+right_family: [qsKey]
+value: -1
+
+---
+left_family: [qsAh]
+right_family: [qsVie]
+value: -1
+
+---
+left_family: [qsAh]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsAh]
+right_family: [qsLow]
+value: -2
+
+---
+left_family: [qsAwe]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsAwe]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsOx]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsOx]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsOy]
+right_family: [qsPea]
+value: -3
+
+---
+left_family: [qsOy]
+right_family: [qsLlan]
+value: -1
+
+---
+left_family: [qsUtter]
+right_family: [qsKey]
+value: -1
+
+---
+left_family: [qsUtter]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsUtter]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsOut]
+right_family: [qsBay]
+value: -3
+
+---
+left_family: [qsOut]
+right_family: [qsVie]
+value: -1
+
+---
+left_family: [qsOut]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsOut]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsOut]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsOut]
+right_family: [qsMay]
+value: -1
+
+---
+left_family: [qsOut]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsOwe]
+right_family: [qsBay]
+value: -1
+
+---
+left_family: [qsOwe]
+right_family: [qsWay]
+value: -1
+
+---
+left_family: [qsOwe]
+right_family: [qsWhy]
+value: -1
+
+---
+left_family: [qsFoot]
+right_family: [qsThey]
+value: -1
+
+---
+left_family: [qsFoot]
+right_family: [qsSee]
+value: -1
+
+---
+left_family: [qsFoot]
+right_family: [qsWay]
+value: -2
+
+---
+left_family: [qsFoot]
+right_family: [qsWhy]
+value: -2
+
+---
+left_family: [qsFoot]
+right_family: [qsIng]
+value: -1
+
+---
+left_family: [qsFoot]
+right_family: [qsMay]
+value: -1
+
+---
+left_family: [qsFoot]
+right_family: [qsLow]
+value: -1
+
+---
+left_family: [qsOoze]
+right_family: [qsPea]
+value: -2
+
+---
+left_family: [qsOoze]
+right_family: [qsGay]
+value: -1
+
+---
+left_family: [qsOoze]
+right_family: [qsLlan]
+value: -1
