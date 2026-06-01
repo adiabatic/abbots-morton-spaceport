@@ -270,6 +270,22 @@
           gap: 0.75rem;
           padding: 0.4rem 0;
           border-top: 1px solid light-dark(#e0d0f0, #3a2d4a);
+          cursor: pointer;
+          user-select: none;
+
+          &.tighter {
+            background: light-dark(#ffe0e0, #5a2a2a);
+          }
+
+          &.looser {
+            background: light-dark(#e0ecff, #233a5a);
+          }
+
+          /* An override differs from what the loaded font bakes in, so it needs a rebuild to become real. */
+          &.pending {
+            outline: 2px dashed light-dark(#e0a000, #d0a020);
+            outline-offset: -2px;
+          }
         }
 
         .junction-render {
@@ -752,7 +768,7 @@
         return junction.context.slice(junction.beforeEnd, junction.junctionEnd);
       }
 
-      function renderJunctionValue(valueEl, pairKey, junction) {
+      function renderJunctionRow(rowEl, valueEl, pairKey, junction) {
         const key = junctionKey(pairKey, junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
         const override = formOverrides.get(key);
@@ -761,16 +777,19 @@
         if (override != null) parts.push("·");
         valueEl.textContent = parts.join("");
         valueEl.title = override != null ? `override ${override} (baked ${baked})` : `baked ${baked} — click to override`;
+        rowEl.classList.toggle("tighter", effective < 0);
+        rowEl.classList.toggle("looser", effective > 0);
+        rowEl.classList.toggle("pending", override != null);
       }
 
-      function adjustJunction(valueEl, pairKey, junction, delta) {
+      function adjustJunction(rowEl, valueEl, pairKey, junction, delta) {
         const key = junctionKey(pairKey, junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
         const current = formOverrides.get(key) ?? baked;
         const next = current + delta;
         if (next === baked) formOverrides.delete(key);
         else formOverrides.set(key, next);
-        renderJunctionValue(valueEl, pairKey, junction);
+        renderJunctionRow(rowEl, valueEl, pairKey, junction);
         textarea.value = serialize();
       }
 
@@ -816,14 +835,15 @@
 
           const valueEl = document.createElement("span");
           valueEl.className = "junction-value";
-          renderJunctionValue(valueEl, pairKey, junction);
-          valueEl.addEventListener("click", () => adjustJunction(valueEl, pairKey, junction, -1));
-          valueEl.addEventListener("contextmenu", (e) => {
-            e.preventDefault();
-            adjustJunction(valueEl, pairKey, junction, 1);
-          });
 
           rowEl.append(render, label, valueEl);
+          renderJunctionRow(rowEl, valueEl, pairKey, junction);
+          rowEl.addEventListener("click", () => adjustJunction(rowEl, valueEl, pairKey, junction, -1));
+          rowEl.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            adjustJunction(rowEl, valueEl, pairKey, junction, 1);
+          });
+
           junctionPanel.appendChild(rowEl);
         }
 
@@ -920,7 +940,7 @@
     </div>
 
     <p class="help">
-      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel that lets you kern those junctions individually.
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
     </p>
 
     <div class="kern-layout">
