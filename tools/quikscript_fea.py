@@ -293,7 +293,24 @@ def _analyze_quikscript_joins(join_glyphs: dict[str, JoinGlyph]) -> _JoinAnalysi
             key = tuple(sorted(after))
             by_after.setdefault(key, []).append((variant_name, after))
         deferred_pair_exit_variants: set[str] = set()
+        subgroups: list[list[tuple[str, list[str]]]] = []
         for group in by_after.values():
+            # When one left-context group holds two complete body lineages — each with its own entry-only and entry+exit form — the upgrade pairing must stay within a lineage so a bare entry-only form isn't lifted into a lead-specific exit body (·Out's bare en-trim vs. its after-·See en-trim, both firing after a contracted ·See). Such self-contained lineages are split out by their `after-…` signature. Lopsided signatures (only an entry-only or only an entry+exit member, as with ·Excite's `noexit` paired against `before-vertical.after-baseline-letter`) must keep cross-matching, so they fall back into one residual group that reproduces the original single-pair behavior.
+            by_after_modifiers: dict[tuple, list[tuple[str, list[str]]]] = {}
+            for variant_name, after in group:
+                after_sig = tuple(sorted(m for m in _meta(variant_name).modifiers if m.startswith("after-")))
+                by_after_modifiers.setdefault(after_sig, []).append((variant_name, after))
+            residual: list[tuple[str, list[str]]] = []
+            for members in by_after_modifiers.values():
+                has_with = any(_meta(name).exit for name, _ in members)
+                has_without = any(not _meta(name).exit for name, _ in members)
+                if has_with and has_without:
+                    subgroups.append(members)
+                else:
+                    residual.extend(members)
+            if residual:
+                subgroups.append(residual)
+        for group in subgroups:
             with_exit = []
             without_exit = []
             for variant_name, after in group:
