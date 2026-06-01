@@ -165,6 +165,12 @@
           background: light-dark(#e0ecff, #233a5a);
         }
 
+        /* The desired value differs from what the loaded font already bakes in: this pair is being faked and needs a rebuild to become real. */
+        td.pending {
+          outline: 2px dashed light-dark(#e0a000, #d0a020);
+          outline-offset: -2px;
+        }
+
         .kern-val {
           position: absolute;
           top: 0;
@@ -194,6 +200,26 @@
           border-bottom-color: light-dark(#999, #666);
         }
       }
+
+      /* Offscreen harness for measuring the loaded font's own kerning. Rendered at a large fixed size (kerning scales with size, so the font-pixel result is size-independent) in the matrix's current family/weight. */
+      .kern-measure {
+        position: absolute;
+        left: -99999px;
+        top: 0;
+        visibility: hidden;
+        white-space: pre;
+        font-family: var(--font-stack);
+        font-size: 220px;
+        font-weight: var(--font-weight, 400);
+
+        span {
+          display: inline-block;
+        }
+
+        &.kern-off {
+          font-kerning: none;
+        }
+      }
     </style>
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
@@ -208,9 +234,14 @@
       const CONSONANT_LAST_CODE = 0xe66c;
       // One font pixel = pixel_size / units_per_em = 50 / 550 em = 1/11 em.
       const PIXEL_DENOMINATOR = 11;
+      // Measure the font's own kerning at a large fixed size so the rounded font-pixel result is crisp; kerning scales with size, so this holds at every display size.
+      const MEASURE_FONT_PX = 220;
+      const MEASURE_PIXEL = MEASURE_FONT_PX / PIXEL_DENOMINATOR;
 
       // "qsLeft|qsRight" -> integer pixels (negative tightens, positive loosens).
       let cellValues = new Map();
+      // "qsLeft|qsRight" -> integer pixels the loaded font already bakes into its kern feature. We fake only (desired - baked) so baked kerning is shown once by the font itself, not doubled by letter-spacing.
+      let bakedDeltas = new Map();
       // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
       let passthrough = [];
       // Everything before the first `---` (the file's comment header); preserved verbatim.
@@ -311,9 +342,13 @@
       }
 
       function applyCellVisual(td, value) {
-        td.style.letterSpacing = value ? `calc(${value} * 1em / ${PIXEL_DENOMINATOR})` : "";
+        const baked = bakedDeltas.get(td.dataset.key) || 0;
+        // The font already moves baked pixels; fake only the rest so the displayed total equals the desired value without doubling.
+        const fake = value - baked;
+        td.style.letterSpacing = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
         td.classList.toggle("tighter", value < 0);
         td.classList.toggle("looser", value > 0);
+        td.classList.toggle("pending", fake !== 0);
         let badge = td.querySelector(".kern-val");
         if (value) {
           if (!badge) {
@@ -325,13 +360,67 @@
         } else if (badge) {
           badge.remove();
         }
-        td.title = value ? `${td.dataset.pair} (value: ${value})` : td.dataset.pair;
+        if (value || baked) {
+          const parts = [];
+          if (value) parts.push(`value ${value}`);
+          if (baked) parts.push(`baked ${baked}`);
+          td.title = `${td.dataset.pair} (${parts.join(", ")})`;
+        } else {
+          td.title = td.dataset.pair;
+        }
       }
 
       function refreshAllCells() {
         for (const [key, td] of keyToCell) {
           applyCellVisual(td, cellValues.get(key) || 0);
         }
+      }
+
+      function pairGlyphs(key) {
+        const [lf, rf] = key.split("|");
+        return String.fromCodePoint(FAMILY_TO_LETTER.get(lf).code, FAMILY_TO_LETTER.get(rf).code);
+      }
+
+      // Render every pair offscreen with kerning on and off; the width difference is what the loaded font's kern feature already does, rounded to whole font pixels.
+      function measureBakedDeltas() {
+        const onDiv = document.createElement("div");
+        onDiv.className = "kern-measure kern-on";
+        const offDiv = document.createElement("div");
+        offDiv.className = "kern-measure kern-off";
+        const keys = [...keyToCell.keys()];
+        const onSpans = [];
+        const offSpans = [];
+        for (const key of keys) {
+          const glyphs = pairGlyphs(key);
+          const sOn = document.createElement("span");
+          sOn.textContent = glyphs;
+          const sOff = document.createElement("span");
+          sOff.textContent = glyphs;
+          onDiv.appendChild(sOn);
+          offDiv.appendChild(sOff);
+          onSpans.push(sOn);
+          offSpans.push(sOff);
+        }
+        document.body.append(onDiv, offDiv);
+        const deltas = new Map();
+        for (let i = 0; i < keys.length; i++) {
+          const diff = onSpans[i].getBoundingClientRect().width - offSpans[i].getBoundingClientRect().width;
+          const pixels = Math.round(diff / MEASURE_PIXEL);
+          if (pixels !== 0) deltas.set(keys[i], pixels);
+        }
+        onDiv.remove();
+        offDiv.remove();
+        return deltas;
+      }
+
+      let bakedFontSig = null;
+      async function recomputeBakedDeltas() {
+        const sig = bakedFontSig;
+        await document.fonts.ready;
+        // A newer font switch already superseded this measurement; let its run win.
+        if (sig !== bakedFontSig) return;
+        bakedDeltas = measureBakedDeltas();
+        refreshAllCells();
       }
 
       function buildTable() {
@@ -440,6 +529,14 @@
         fontToggle: "font-toggle",
         levelToggle: "level-toggle",
         weightToggle: "weight-toggle",
+        onApply: (state) => {
+          // Baked kerning depends only on which family/level is shown (the kern feature is Sans-Senior-only and weight-independent), so re-measure only when that changes — not on size or weight.
+          const sig = `${state.isSans}|${state.isSenior}`;
+          if (sig !== bakedFontSig) {
+            bakedFontSig = sig;
+            recomputeBakedDeltas();
+          }
+        },
       });
     </script>
   </head>
