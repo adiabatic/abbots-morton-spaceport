@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly typecheck print-job serve explainer snapshot-before check-html review test-and-review prettier
+.PHONY: all test test-slowly typecheck print-job serve explainer snapshot-before check-html build-kerning-hardcases review test-and-review prettier
 
 all:
 	uv run python tools/build_font.py glyph_data/ test/
@@ -6,6 +6,9 @@ all:
 
 check-html: all
 	uv run python tools/build_check_html.py
+
+build-kerning-hardcases: all
+	uv run python tools/build_kerning_hardcases.py
 
 snapshot-before: all
 	mkdir -p test/before
