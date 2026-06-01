@@ -2885,6 +2885,9 @@ def _add_entry_trimmed_variant(
         }
         kwargs.update(_cleared_extension_context())
         kwargs["after"] = (source_contracted_name,)
+        # A receiver whose exit only exists because a following glyph reverse-upgrades it to a connecting body (`reverse_upgrade_from`) must not keep that exit once trimmed: the trim clears the forward context, so the trimmed child becomes the word-final / no-receiver resting body, and a dangling exit nothing receives is exactly what that body must avoid. Drop the exit so the trimmed child is non-connecting, matching the family's exit-less resting form.
+        if receiver_glyph.reverse_upgrade_from:
+            kwargs["exit"] = ()
         variants[variant_name] = derive_join_glyph(
             receiver_glyph,
             name=variant_name,
