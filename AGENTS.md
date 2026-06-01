@@ -69,10 +69,10 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 
 ### Ductus
 
-`ductus` describes how a letter is drawn by hand (pen direction, stroke order, where the stroke enters and exits). It exists to clarify the strokes to readers — including agents — who aren't drawing the letters themselves. Keep it separate from `notes`, which records join *constraints* ("·Fee cannot join both to and from at the x-height on the same letter") rather than how-to-draw.
+`ductus` describes how a letter is drawn by hand (pen direction, stroke order, where the stroke enters and exits). It exists to clarify the strokes to readers — including agents — who aren't drawing the letters themselves. Keep it separate from `notes`, which records join _constraints_ ("·Fee cannot join both to and from at the x-height on the same letter") rather than how-to-draw.
 
 - **Put the canonical `ductus` at the family level**, as a sibling of `mono` / `prop` / `shapes` / `forms` (see `qsIt`, `qsFee`, `qsMay`, `qsNo`). It describes the abstract stroke and so covers both `mono` and `prop` at once — even when their bitmaps differ (as with `qsPea` and `qsTea`), because the drawing motion is the same. Don't hang the default `ductus` off the `mono` record.
-- **When one bitmap supports several valid drawing orders** (e.g. `qsTea` is written top-to-bottom *or* bottom-to-top), keep them in the single family-level block scalar as `-` bullets rather than duplicating anything. See `qsIt`.
+- **When one bitmap supports several valid drawing orders** (e.g. `qsTea` is written top-to-bottom _or_ bottom-to-top), keep them in the single family-level block scalar as `-` bullets rather than duplicating anything. See `qsIt`.
 - **Give a `shapes:` or `forms:` entry its own `ductus` only when it is genuinely drawn differently** from the family default (see `qsFee.shapes.connect_from_short_height` and `continues_stroke_from_top`, which loop the opposite way and enter at a different height). A variant's `ductus` **fully replaces** the family default for forms built on that shape, so write it as a complete stroke description, not a delta. A variant with no `ductus` inherits the family one.
 
 ### Formatting

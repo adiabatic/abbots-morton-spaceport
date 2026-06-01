@@ -4,7 +4,7 @@ A common shape for cursive-attachment regression tests in this repo is "the shap
 
 ## Why the pattern matters
 
-A GSUB lookup that picks the left slot's variant typically sees only the predecessor's *pre-substitution* form of the right slot. If the right slot is about to be substituted into something incompatible, the left's choice gets stranded. The "robust under every surround" sweep is how we catch those stale variant choices in test: if any surround makes the bad combination reachable, the invariant fires.
+A GSUB lookup that picks the left slot's variant typically sees only the predecessor's _pre-substitution_ form of the right slot. If the right slot is about to be substituted into something incompatible, the left's choice gets stranded. The "robust under every surround" sweep is how we catch those stale variant choices in test: if any surround makes the bad combination reachable, the invariant fires.
 
 ## The set math
 
@@ -26,13 +26,13 @@ Fₗ    = forbidden_left_traits             # trait subset the left must carry t
 Fᵣ    = forbidden_right_traits            # trait subset the right must carry to count
 ```
 
-The slot pair is *in scope* when both base names match, with the usual ligature accommodation: the left also matches when `Lᵢ.sequence` ends with `L*`, and the right also matches when `Rᵢ.sequence` starts with `R*`. Every `_collect_pair_*` helper uses this same convention. The slot pair is *forbidden* when
+The slot pair is _in scope_ when both base names match, with the usual ligature accommodation: the left also matches when `Lᵢ.sequence` ends with `L*`, and the right also matches when `Rᵢ.sequence` starts with `R*`. Every `_collect_pair_*` helper uses this same convention. The slot pair is _forbidden_ when
 
 ```text
 Fₗ ⊆ Tₗᵢ   ∧   Fᵣ ⊆ Tᵣᵢ              (★)
 ```
 
-i.e. every trait in `forbidden_left_traits` appears on the left's chosen variant *and* every trait in `forbidden_right_traits` appears on the right's chosen variant.
+i.e. every trait in `forbidden_left_traits` appears on the left's chosen variant _and_ every trait in `forbidden_right_traits` appears on the right's chosen variant.
 
 ## Why subset and not equality
 
@@ -70,8 +70,8 @@ _collect_pair_with_forbidden_trait_co_occurrence_failures(
 )
 ```
 
-Read (★) for this call: it fires when the left slot is some qsWay variant whose traits include `"half"` *and* the adjacent right slot is some qsUtter variant whose traits include `"alt"`. An alt-half-·Way before an alt-·Utter would also fire (`"alt"` is allowed on the left, just not required); a plain half-·Way before a plain ·Utter would not (right side fails `Fᵣ ⊆ Tᵣ`); a full-·Way before an alt-·Utter would not (left side fails `Fₗ ⊆ Tₗ`).
+Read (★) for this call: it fires when the left slot is some qsWay variant whose traits include `"half"` _and_ the adjacent right slot is some qsUtter variant whose traits include `"alt"`. An alt-half-·Way before an alt-·Utter would also fire (`"alt"` is allowed on the left, just not required); a plain half-·Way before a plain ·Utter would not (right side fails `Fᵣ ⊆ Tᵣ`); a full-·Way before an alt-·Utter would not (left side fails `Fₗ ⊆ Tₗ`).
 
 ## Reading a failure message
 
-Each failure line names the surround, the matched pair's chosen glyph names (so you can grep them in the generated FEA), the actual trait sets on each side, and the forbidden subsets that triggered (★). A short failure list usually points at a single FEA rule that needs to be tightened; a long one usually means the underlying lookup is conditioning on the predecessor's *pre-substitution* form rather than the form it will eventually take, and the fix lives one layer up in `tools/quikscript_fea.py` rather than in YAML.
+Each failure line names the surround, the matched pair's chosen glyph names (so you can grep them in the generated FEA), the actual trait sets on each side, and the forbidden subsets that triggered (★). A short failure list usually points at a single FEA rule that needs to be tightened; a long one usually means the underlying lookup is conditioning on the predecessor's _pre-substitution_ form rather than the form it will eventually take, and the fix lives one layer up in `tools/quikscript_fea.py` rather than in YAML.

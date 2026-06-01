@@ -60,7 +60,7 @@ Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (
 
 ### 2. How letters join: the concept
 
-Before getting into OpenType mechanics, explain *what* joining means visually:
+Before getting into OpenType mechanics, explain _what_ joining means visually:
 
 a. **Entry and exit points** — every letter has a place where the pen arrives (entry) and a place where the pen leaves (exit). These happen at specific heights.
 b. **Height matching** — a letter's exit height must match the next letter's entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected form).
@@ -177,5 +177,5 @@ A reference section listing every key that can appear in a glyph definition in t
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
 - Read `reference/csur/index.html` for the code-point chart and character property descriptions.
 - When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
-- The audience-appropriate depth level is: explain *what* the OpenType engine does at each step, not *how* the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
+- The audience-appropriate depth level is: explain _what_ the OpenType engine does at each step, not _how_ the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
 - For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.
