@@ -182,6 +182,18 @@
           pointer-events: none;
         }
 
+        /* Cells with precomputed form-junctions get a corner triangle; clicking it opens the drill-down panel. */
+        td.has-hard-cases .hard-case-badge {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 0;
+          height: 0;
+          border-top: 9px solid light-dark(#9333ea, #c084fc);
+          border-right: 9px solid transparent;
+          cursor: pointer;
+        }
+
         .boundary-left {
           border-left-width: 3px;
           border-left-color: light-dark(#999, #666);
@@ -220,6 +232,82 @@
           font-kerning: none;
         }
       }
+
+      .junction-panel {
+        flex: 0 0 auto;
+        max-height: 40%;
+        overflow: auto;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+        background: light-dark(#faf5ff, #251a30);
+
+        &[hidden] {
+          display: none;
+        }
+
+        h2 {
+          margin: 0 0 0.5rem;
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 14px;
+          font-weight: 600;
+        }
+
+        .junction-close {
+          float: right;
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 14px;
+          line-height: 1;
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: inherit;
+        }
+
+        .junction-row {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 0.4rem 0;
+          border-top: 1px solid light-dark(#e0d0f0, #3a2d4a);
+        }
+
+        .junction-render {
+          flex: 0 0 auto;
+          font-family: var(--font-stack);
+          font-size: var(--font-size);
+          font-weight: var(--font-weight, 400);
+          -webkit-font-smoothing: none;
+          -moz-osx-font-smoothing: grayscale;
+          font-smooth: never;
+          white-space: nowrap;
+
+          .dimmed {
+            opacity: 0.3;
+          }
+        }
+
+        .junction-label {
+          flex: 1 1 auto;
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 12px;
+          color: light-dark(#555, #bbb);
+          word-break: break-all;
+        }
+
+        .junction-value {
+          flex: 0 0 auto;
+          min-width: 4ch;
+          text-align: right;
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 12px;
+          cursor: pointer;
+          user-select: none;
+          padding: 0.2rem 0.4rem;
+          border: 1px solid light-dark(#ccc, #555);
+          border-radius: 3px;
+        }
+      }
     </style>
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
@@ -229,6 +317,17 @@
 
       const table = document.getElementById("matrix-table");
       const textarea = document.getElementById("kern-yaml");
+      const junctionPanel = document.getElementById("junction-panel");
+
+      // "qsLeft|qsRight" family-pair key -> array of precomputed form-junctions that bare letters can't reproduce. Missing file means no badges and a disabled panel.
+      const hardCases = await fetch("./kerning-hardcases.json")
+        .then((r) => r.json())
+        .catch(() => ({}));
+      const hardCasesByPair = new Map();
+      for (const [key, junctions] of Object.entries(hardCases)) {
+        if (key === "_skipped" || !Array.isArray(junctions) || junctions.length === 0) continue;
+        hardCasesByPair.set(key, junctions);
+      }
 
       const VOWEL_FIRST_CODE = 0xe670;
       const CONSONANT_LAST_CODE = 0xe66c;
@@ -242,6 +341,8 @@
       let cellValues = new Map();
       // "qsLeft|qsRight" -> integer pixels the loaded font already bakes into its kern feature. We fake only (desired - baked) so baked kerning is shown once by the font itself, not doubled by letter-spacing.
       let bakedDeltas = new Map();
+      // "<leftSel>|<rightSel>" (form-prefix or bare family on each side) -> desired integer pixels for a single form-junction. This is the absolute target value, not a delta off the family rule.
+      let formOverrides = new Map();
       // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
       let passthrough = [];
       // Everything before the first `---` (the file's comment header); preserved verbatim.
@@ -251,6 +352,19 @@
 
       function cellKey(leftFamily, rightFamily) {
         return `${leftFamily}|${rightFamily}`;
+      }
+
+      // A form-prefix like "qsUtter.alt.ex-y0" belongs to the family named by its leading "qsX" segment.
+      function familyOfSelector(sel) {
+        return sel.split(".")[0];
+      }
+
+      // The override key uses the form-prefix where the junction overrides a form, else the bare family.
+      function junctionKey(pairKey, junction) {
+        const [leftFamily, rightFamily] = pairKey.split("|");
+        const leftSel = junction.leftForm ?? leftFamily;
+        const rightSel = junction.rightForm ?? rightFamily;
+        return `${leftSel}|${rightSel}`;
       }
 
       function parseInlineList(raw) {
@@ -272,6 +386,7 @@
 
       function loadFromText(text) {
         cellValues = new Map();
+        formOverrides = new Map();
         passthrough = [];
         const preLines = [];
         const docs = [];
@@ -288,15 +403,36 @@
         if (current !== null) docs.push(current.join("\n"));
         preamble = preLines.join("\n");
 
-        for (const body of docs) {
-          if (body.trim() === "") continue;
-          const fields = parseDocBody(body);
+        // Two managed shapes are coupled and must round-trip together: a carve-out family doc (`except_left`/`except_right`) and the override doc it carves out for. We classify each parsed doc, then pair them; any leftover routes verbatim to passthrough so nothing is lost.
+        const parsed = docs
+          .map((body) => ({ body: body.trim(), fields: parseDocBody(body) }))
+          .filter((d) => d.body !== "");
+
+        const overrideDocs = [];
+        const carveOutDocs = [];
+        const leftover = [];
+
+        for (const doc of parsed) {
+          const { fields, body } = doc;
           const keys = Object.keys(fields);
           const isGridShape =
             "left_family" in fields &&
             "right_family" in fields &&
             "value" in fields &&
             keys.every((k) => k === "left_family" || k === "right_family" || k === "value");
+          const isCarveOut =
+            "left_family" in fields &&
+            "right_family" in fields &&
+            "value" in fields &&
+            ("except_left" in fields || "except_right" in fields) &&
+            keys.every((k) => k === "left_family" || k === "right_family" || k === "value" || k === "except_left" || k === "except_right");
+          const isOverride =
+            "value" in fields &&
+            ("left_form" in fields || "right_form" in fields) &&
+            ("left_form" in fields || "left_family" in fields) &&
+            ("right_form" in fields || "right_family" in fields) &&
+            keys.every((k) => k === "left_form" || k === "left_family" || k === "right_form" || k === "right_family" || k === "value");
+
           if (isGridShape) {
             const lefts = parseInlineList(fields.left_family);
             const rights = parseInlineList(fields.right_family);
@@ -311,26 +447,126 @@
               }
               continue;
             }
+            leftover.push(body);
+            continue;
           }
-          passthrough.push(body.trim());
+          if (isCarveOut) { carveOutDocs.push(doc); continue; }
+          if (isOverride) { overrideDocs.push(doc); continue; }
+          leftover.push(body);
         }
+
+        // An override doc applies its value to each form-junction in its (left × right) selector cross-product, where exactly one side is a form-prefix and the other a single family.
+        for (const doc of overrideDocs) {
+          const { fields, body } = doc;
+          const value = Number(fields.value);
+          const lefts = "left_form" in fields ? parseInlineList(fields.left_form) : parseInlineList(fields.left_family);
+          const rights = "right_form" in fields ? parseInlineList(fields.right_form) : parseInlineList(fields.right_family);
+          const leftFamiliesKnown = !("left_form" in fields) ? lefts.every((n) => KNOWN_FAMILIES.has(n)) : lefts.every((n) => KNOWN_FAMILIES.has(familyOfSelector(n)));
+          const rightFamiliesKnown = !("right_form" in fields) ? rights.every((n) => KNOWN_FAMILIES.has(n)) : rights.every((n) => KNOWN_FAMILIES.has(familyOfSelector(n)));
+          if (!Number.isInteger(value) || !lefts.length || !rights.length || !leftFamiliesKnown || !rightFamiliesKnown) {
+            leftover.push(body);
+            continue;
+          }
+          for (const l of lefts) {
+            for (const r of rights) {
+              if (value === 0) formOverrides.delete(`${l}|${r}`);
+              else formOverrides.set(`${l}|${r}`, value);
+            }
+          }
+        }
+
+        // A carve-out only documents which form-prefixes are excluded from a family rule; its own family value was already absorbed by the grid pass equivalent above. We accept it as managed only when a matching override doc carved the same prefix(es); otherwise the pair is unbalanced and both go to passthrough verbatim.
+        for (const doc of carveOutDocs) {
+          const { fields, body } = doc;
+          const lefts = parseInlineList(fields.left_family);
+          const rights = parseInlineList(fields.right_family);
+          const value = Number(fields.value);
+          const excludeLeft = "except_left" in fields ? parseInlineList(fields.except_left) : [];
+          const excludeRight = "except_right" in fields ? parseInlineList(fields.except_right) : [];
+          const excludedForms = [...excludeLeft, ...excludeRight];
+          const allKnown = [...lefts, ...rights].every((n) => KNOWN_FAMILIES.has(n));
+          const paired = excludedForms.length > 0 && excludedForms.every((form) => {
+            const fam = familyOfSelector(form);
+            const side = excludeLeft.includes(form) ? "left" : "right";
+            for (const l of lefts) {
+              for (const r of rights) {
+                const candidateKey = side === "left" ? `${form}|${r}` : `${l}|${form}`;
+                if (formOverrides.has(candidateKey) && (side === "left" ? l : r) === fam) return true;
+              }
+            }
+            return false;
+          });
+          if (allKnown && Number.isInteger(value) && lefts.length && rights.length && paired) {
+            for (const lf of lefts) {
+              for (const rf of rights) {
+                if (value === 0) cellValues.delete(cellKey(lf, rf));
+                else cellValues.set(cellKey(lf, rf), value);
+              }
+            }
+            continue;
+          }
+          leftover.push(body);
+        }
+
+        passthrough.push(...leftover);
+      }
+
+      function pairCodeOrder(aKey, bKey) {
+        const [al, ar] = aKey.split("|");
+        const [bl, br] = bKey.split("|");
+        const leftDelta = FAMILY_TO_LETTER.get(al).code - FAMILY_TO_LETTER.get(bl).code;
+        if (leftDelta !== 0) return leftDelta;
+        return FAMILY_TO_LETTER.get(ar).code - FAMILY_TO_LETTER.get(br).code;
       }
 
       function serialize() {
+        // Group every form override under its owning family pair, recording which side carries the non-bare form-prefix so the carve-out and override docs can be coupled.
+        const overridesByPair = new Map();
+        for (const [key, value] of formOverrides) {
+          if (value === 0) continue;
+          const [leftSel, rightSel] = key.split("|");
+          const leftFamily = familyOfSelector(leftSel);
+          const rightFamily = familyOfSelector(rightSel);
+          const pairKey = cellKey(leftFamily, rightFamily);
+          if (!overridesByPair.has(pairKey)) {
+            overridesByPair.set(pairKey, { exceptLeft: new Set(), exceptRight: new Set(), overrides: [] });
+          }
+          const group = overridesByPair.get(pairKey);
+          if (leftSel !== leftFamily) group.exceptLeft.add(leftSel);
+          if (rightSel !== rightFamily) group.exceptRight.add(rightSel);
+          group.overrides.push({ leftSel, rightSel, leftFamily, rightFamily, value });
+        }
+
         const entries = [...cellValues.entries()].filter(([, v]) => v !== 0);
-        entries.sort((a, b) => {
-          const [al, ar] = a[0].split("|");
-          const [bl, br] = b[0].split("|");
-          const leftDelta = FAMILY_TO_LETTER.get(al).code - FAMILY_TO_LETTER.get(bl).code;
-          if (leftDelta !== 0) return leftDelta;
-          return FAMILY_TO_LETTER.get(ar).code - FAMILY_TO_LETTER.get(br).code;
-        });
+        entries.sort((a, b) => pairCodeOrder(a[0], b[0]));
 
         const bodies = [];
         for (const [key, value] of entries) {
           const [lf, rf] = key.split("|");
-          bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${value}`);
+          const group = overridesByPair.get(key);
+          if (group) {
+            // This pair has both a family rule and form overrides, so the family rule must carve the overridden prefixes out.
+            const lines = [`left_family: [${lf}]`, `right_family: [${rf}]`];
+            if (group.exceptLeft.size) lines.push(`except_left: [${[...group.exceptLeft].join(", ")}]`);
+            if (group.exceptRight.size) lines.push(`except_right: [${[...group.exceptRight].join(", ")}]`);
+            lines.push(`value: ${value}`);
+            bodies.push(lines.join("\n"));
+          } else {
+            bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${value}`);
+          }
         }
+
+        // Emit each form-override doc after the carve-outs, in family-pair then selector order. A pair with no family value emits only its override docs (no carve-out needed).
+        const overrideEntries = [...overridesByPair.entries()].sort((a, b) => pairCodeOrder(a[0], b[0]));
+        for (const [, group] of overrideEntries) {
+          group.overrides.sort((a, b) => (a.leftSel + "|" + a.rightSel).localeCompare(b.leftSel + "|" + b.rightSel));
+          for (const ov of group.overrides) {
+            const leftField = ov.leftSel === ov.leftFamily ? `left_family: [${ov.leftFamily}]` : `left_form: [${ov.leftSel}]`;
+            const rightField = ov.rightSel === ov.rightFamily ? `right_family: [${ov.rightFamily}]` : `right_form: [${ov.rightSel}]`;
+            bodies.push(`${leftField}\n${rightField}\nvalue: ${ov.value}`);
+          }
+        }
+
         bodies.push(...passthrough);
 
         const docText = bodies.map((body) => `---\n${body}`).join("\n");
@@ -413,6 +649,25 @@
         return deltas;
       }
 
+      // The baked-in kerning for a single two-glyph junction string, measured the same way as measureBakedDeltas but for one ad-hoc pair.
+      function measureBakedPixels(twoGlyphString) {
+        const onSpan = document.createElement("span");
+        onSpan.className = "kern-measure kern-on";
+        onSpan.style.position = "absolute";
+        onSpan.style.left = "-99999px";
+        onSpan.textContent = twoGlyphString;
+        const offSpan = document.createElement("span");
+        offSpan.className = "kern-measure kern-off";
+        offSpan.style.position = "absolute";
+        offSpan.style.left = "-99999px";
+        offSpan.textContent = twoGlyphString;
+        document.body.append(onSpan, offSpan);
+        const diff = onSpan.getBoundingClientRect().width - offSpan.getBoundingClientRect().width;
+        onSpan.remove();
+        offSpan.remove();
+        return Math.round(diff / MEASURE_PIXEL);
+      }
+
       let bakedFontSig = null;
       async function recomputeBakedDeltas() {
         const sig = bakedFontSig;
@@ -421,6 +676,7 @@
         if (sig !== bakedFontSig) return;
         bakedDeltas = measureBakedDeltas();
         refreshAllCells();
+        refreshOpenPanel();
       }
 
       function buildTable() {
@@ -466,6 +722,13 @@
             if (col.code === CONSONANT_LAST_CODE) td.classList.add("boundary-right");
             if (rowAtVowelStart) td.classList.add("boundary-top");
             if (rowAtConsonantEnd) td.classList.add("boundary-bottom");
+            if (hardCasesByPair.has(key)) {
+              td.classList.add("has-hard-cases");
+              const badge = document.createElement("span");
+              badge.className = "hard-case-badge";
+              badge.title = "hidden form-junctions — click to drill down";
+              td.appendChild(badge);
+            }
             keyToCell.set(key, td);
             tr.appendChild(td);
           }
@@ -483,9 +746,109 @@
         textarea.value = serialize();
       }
 
+      let openJunctionPairKey = null;
+
+      function junctionGlyphs(junction) {
+        return junction.context.slice(junction.beforeEnd, junction.junctionEnd);
+      }
+
+      function renderJunctionValue(valueEl, pairKey, junction) {
+        const key = junctionKey(pairKey, junction);
+        const baked = measureBakedPixels(junctionGlyphs(junction));
+        const override = formOverrides.get(key);
+        const effective = override ?? baked;
+        const parts = [`${effective > 0 ? "+" : ""}${effective}`];
+        if (override != null) parts.push("·");
+        valueEl.textContent = parts.join("");
+        valueEl.title = override != null ? `override ${override} (baked ${baked})` : `baked ${baked} — click to override`;
+      }
+
+      function adjustJunction(valueEl, pairKey, junction, delta) {
+        const key = junctionKey(pairKey, junction);
+        const baked = measureBakedPixels(junctionGlyphs(junction));
+        const current = formOverrides.get(key) ?? baked;
+        const next = current + delta;
+        if (next === baked) formOverrides.delete(key);
+        else formOverrides.set(key, next);
+        renderJunctionValue(valueEl, pairKey, junction);
+        textarea.value = serialize();
+      }
+
+      function openJunctionPanel(pairKey) {
+        const junctions = hardCasesByPair.get(pairKey);
+        if (!junctions) return;
+        openJunctionPairKey = pairKey;
+        const [leftFamily, rightFamily] = pairKey.split("|");
+        junctionPanel.innerHTML = "";
+
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = "junction-close";
+        closeButton.textContent = "×";
+        closeButton.title = "close";
+        closeButton.addEventListener("click", closeJunctionPanel);
+        junctionPanel.appendChild(closeButton);
+
+        const heading = document.createElement("h2");
+        heading.textContent = `·${FAMILY_TO_LETTER.get(leftFamily).name} · ·${FAMILY_TO_LETTER.get(rightFamily).name} — hidden junctions`;
+        junctionPanel.appendChild(heading);
+
+        for (const junction of junctions) {
+          const rowEl = document.createElement("div");
+          rowEl.className = "junction-row";
+
+          const render = document.createElement("span");
+          render.className = "junction-render";
+          const { context, beforeEnd, junctionEnd } = junction;
+          const prefix = document.createElement("span");
+          prefix.className = "dimmed";
+          prefix.textContent = context.slice(0, beforeEnd);
+          const mid = document.createElement("span");
+          mid.textContent = context.slice(beforeEnd, junctionEnd);
+          const suffix = document.createElement("span");
+          suffix.className = "dimmed";
+          suffix.textContent = context.slice(junctionEnd);
+          render.append(prefix, mid, suffix);
+
+          const label = document.createElement("span");
+          label.className = "junction-label";
+          label.textContent = `${junction.leftForm ?? leftFamily} / ${junction.rightForm ?? rightFamily}`;
+
+          const valueEl = document.createElement("span");
+          valueEl.className = "junction-value";
+          renderJunctionValue(valueEl, pairKey, junction);
+          valueEl.addEventListener("click", () => adjustJunction(valueEl, pairKey, junction, -1));
+          valueEl.addEventListener("contextmenu", (e) => {
+            e.preventDefault();
+            adjustJunction(valueEl, pairKey, junction, 1);
+          });
+
+          rowEl.append(render, label, valueEl);
+          junctionPanel.appendChild(rowEl);
+        }
+
+        junctionPanel.hidden = false;
+      }
+
+      function closeJunctionPanel() {
+        openJunctionPairKey = null;
+        junctionPanel.hidden = true;
+        junctionPanel.innerHTML = "";
+      }
+
+      function refreshOpenPanel() {
+        if (openJunctionPairKey !== null) openJunctionPanel(openJunctionPairKey);
+      }
+
       table.addEventListener("click", (e) => {
         const td = e.target.closest("td");
-        if (td) adjust(td, -1);
+        if (!td) return;
+        if (e.target.classList.contains("hard-case-badge") || (e.shiftKey && td.classList.contains("has-hard-cases"))) {
+          e.stopPropagation();
+          openJunctionPanel(td.dataset.key);
+          return;
+        }
+        adjust(td, -1);
       });
 
       table.addEventListener("contextmenu", (e) => {
@@ -516,6 +879,7 @@
         reparseTimer = setTimeout(() => {
           loadFromText(textarea.value);
           refreshAllCells();
+          refreshOpenPanel();
         }, 150);
       });
 
@@ -556,7 +920,7 @@
     </div>
 
     <p class="help">
-      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done.
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel that lets you kern those junctions individually.
     </p>
 
     <div class="kern-layout">
@@ -565,6 +929,7 @@
       </div>
       <div class="kern-side">
         <button id="copy-yaml" class="copy-button" type="button">Copy</button>
+        <div id="junction-panel" class="junction-panel" hidden></div>
         <textarea id="kern-yaml" class="kern-yaml" spellcheck="false" placeholder="Paste senior_quikscript_kerning.yaml here…"></textarea>
       </div>
     </div>

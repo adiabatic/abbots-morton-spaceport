@@ -8,13 +8,19 @@
 #
 # Left side, pick one:
 #   left_family: [qsPea, ...]   # expands to the bare family glyph plus every contextual variant (qsPea, qsPea.en-y0, ...)
+#   left_form: [qsNo.alt, ...]  # like left_family but matches a form sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (override rule)
 #   left: [qsPea, ...]          # explicit glyph names, no variant expansion
-#   (omit both)                 # every glyph except those carrying this rule's per-glyph kerning tag
+#   (omit all)                  # every glyph except those carrying this rule's per-glyph kerning tag
 #
 # Right side, pick one:
 #   right_family: [qsTea, ...]  # expands to the bare family glyph plus every contextual variant
+#   right_form: [qsNo.alt, ...] # like right_family but matches a form sub-family (override rule)
 #   right: [qsTea, ...]         # explicit glyph names, no variant expansion
 #   right_group: noentry        # every glyph whose name ends in `.noentry`; emits the contextual before-ZWNJ form
+#
+# After computing either side's glyph set, optionally carve out a sub-family:
+#   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_form override of the same prefix)
+#   except_right: [qsNo.alt, ...]  # same on the right side
 #
 # Add a rule by appending a document below, for example:
 #
@@ -92,7 +98,15 @@ right_family: [qsEight]
 value: -1
 ---
 left_family: [qsKey]
+right_family: [qsAwe]
+value: -1
+---
+left_family: [qsKey]
 right_family: [qsOx]
+value: -1
+---
+left_family: [qsKey]
+right_family: [qsOy]
 value: -1
 ---
 left_family: [qsKey]
@@ -707,6 +721,10 @@ left_family: [qsEt]
 right_family: [qsOy]
 value: -1
 ---
+left_family: [qsEight]
+right_family: [qsGay]
+value: -1
+---
 left_family: [qsAt]
 right_family: [qsWay]
 value: -2
@@ -961,6 +979,10 @@ value: -1
 ---
 left_family: [qsOwe]
 right_family: [qsBay]
+value: -1
+---
+left_family: [qsOwe]
+right_family: [qsThaw]
 value: -1
 ---
 left_family: [qsOwe]

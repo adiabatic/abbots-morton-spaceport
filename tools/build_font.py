@@ -298,35 +298,43 @@ def generate_kern_fea(
     pixel_width: int,
 ) -> str:
     """Generate OpenType feature code for kern feature from kerning definitions."""
+
+    def matches_prefix(glyph: str, prefix: str) -> bool:
+        return glyph == prefix or glyph.startswith(prefix + ".")
+
+    def expand_prefixes(prefixes: list[str]) -> list[str]:
+        return [g for g in all_glyph_names if any(matches_prefix(g, p) for p in prefixes)]
+
+    def subtract_prefixes(glyphs: list[str], prefixes: list[str]) -> list[str]:
+        return [g for g in glyphs if not any(matches_prefix(g, p) for p in prefixes)]
+
     preamble = []
     lines = ["feature kern {"]
     for tag_name, definition in kerning_defs.items():
         if "left_family" in definition:
-            prefixes = [f"{b}." for b in definition["left_family"]]
-            left_glyphs = [
-                g
-                for g in all_glyph_names
-                if g in definition["left_family"] or any(g.startswith(p) for p in prefixes)
-            ]
+            left_glyphs = expand_prefixes(definition["left_family"])
+        elif "left_form" in definition:
+            left_glyphs = expand_prefixes(definition["left_form"])
         elif "left" in definition:
             left_glyphs = definition["left"]
         else:
             excluded = set(kerning_groups.get(tag_name, []))
             left_glyphs = [g for g in all_glyph_names if g not in excluded]
+        if "except_left" in definition:
+            left_glyphs = subtract_prefixes(left_glyphs, definition["except_left"])
         if not left_glyphs:
             continue
         if "right_group" in definition:
             suffix = "." + definition["right_group"]
             right_glyphs = [g for g in all_glyph_names if g.endswith(suffix)]
         elif "right_family" in definition:
-            prefixes = [f"{b}." for b in definition["right_family"]]
-            right_glyphs = [
-                g
-                for g in all_glyph_names
-                if g in definition["right_family"] or any(g.startswith(p) for p in prefixes)
-            ]
+            right_glyphs = expand_prefixes(definition["right_family"])
+        elif "right_form" in definition:
+            right_glyphs = expand_prefixes(definition["right_form"])
         else:
             right_glyphs = definition["right"]
+        if "except_right" in definition and "right_group" not in definition:
+            right_glyphs = subtract_prefixes(right_glyphs, definition["except_right"])
         if not right_glyphs:
             continue
         value = definition["value"] * pixel_width
