@@ -819,7 +819,7 @@
         // The rendered run already carries the font's `baked` kerning between the two junction glyphs; fake only the remainder so the gap shows the desired total without doubling.
         const fake = effective - baked;
         const kernSpan = rowEl.querySelector(".junction-kern");
-        if (kernSpan) kernSpan.style.letterSpacing = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
+        if (kernSpan) kernSpan.style.marginLeft = fake ? `calc(${fake} * 1em / ${PIXEL_DENOMINATOR})` : "";
       }
 
       function adjustJunction(rowEl, valueEl, junction, delta) {
@@ -871,11 +871,11 @@
           const prefix = document.createElement("span");
           prefix.className = "dimmed";
           prefix.textContent = context.slice(0, beforeEnd);
-          // The junction is two glyphs; splitting them lets us fake the kerning between them with letter-spacing, the way the grid fakes it inside a cell.
+          // The junction is two glyphs. We fake the kerning between them as a left margin on the right glyph (not as trailing space on the left glyph): a margin breaks only the junction boundary itself, leaving the prefix→left-glyph bond intact, so a left form triggered by its preceding context (e.g. qsNo.alt after qsBay) keeps its shape instead of flipping to the bare letter, and the right glyph still shapes with its own following context (e.g. qsUtter.alt before qsThaw).
           const leftGlyph = document.createElement("span");
-          leftGlyph.className = "junction-kern";
           leftGlyph.textContent = context.slice(beforeEnd, beforeEnd + 1);
           const rightGlyph = document.createElement("span");
+          rightGlyph.className = "junction-kern";
           rightGlyph.textContent = context.slice(beforeEnd + 1, junctionEnd);
           const suffix = document.createElement("span");
           suffix.className = "dimmed";
