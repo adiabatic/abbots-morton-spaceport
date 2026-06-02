@@ -174,12 +174,12 @@ def _visual_signature(name: str) -> tuple:
 
 
 def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
-    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML."""
+    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual form selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two forms are visually identical."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(_qs_text(*parts))
     buf.guess_segment_properties()
-    hb.shape(font, buf)
+    hb.shape(font, buf, {"kern": False})
     pen_x = 0
     pen_y = 0
     sigs: list[tuple] = []
