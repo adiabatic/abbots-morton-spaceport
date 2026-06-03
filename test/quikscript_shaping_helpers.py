@@ -54,6 +54,21 @@ def _shape(text: str) -> list[str]:
 
 
 @lru_cache(maxsize=None)
+def _shape_with_clusters(text: str) -> tuple[tuple[str, ...], tuple[int, ...]]:
+    """Shape ``text`` and return ``(glyph_names, clusters)`` in parallel. Each glyph's cluster is the index of the earliest input codepoint it covers, so ligatures report the cluster of their first component. Clusters are monotonic non-decreasing, which is what lets a caller locate the output glyphs belonging to a known input codepoint range even when a neighbor ligates across the boundary."""
+    font = _font()
+    buf = _BUF
+    buf.clear_contents()
+    buf.add_str(text)
+    buf.guess_segment_properties()
+    hb.shape(font, buf)
+    infos = buf.glyph_infos
+    names = tuple(_gid_to_full_name(info.codepoint) for info in infos)
+    clusters = tuple(info.cluster for info in infos)
+    return names, clusters
+
+
+@lru_cache(maxsize=None)
 def _shape_with_features(
     text: str,
     feature_items: tuple[tuple[str, bool], ...],
