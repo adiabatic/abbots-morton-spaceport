@@ -791,6 +791,25 @@ glyph_families:
           not_after: [{context_set: flat_on_right_at_baseline}]
           not_before: [{context_set: gay_reaches_baseline_exit_forward}]
         modifiers: [en-y0]
+      entry_xheight_exit_noentry:
+        # ·Utter (x-height exit) hands ·Gay its x-height entry, but the next letter — ·Thaw, which has dropped its own baseline entry before ·-ing — can't receive ·Gay's forward exit. Keep the ·Utter–·Gay x-height join and surrender the forward stub instead of reverting ·Gay to its anchorless bare form.
+        inherits: entry_xheight
+        anchors:
+          exit: null
+        select:
+          after: null
+          before: [{family: qsThaw, exit_y: 0}]
+        modifiers: [en-y5, ex-noentry]
+      entry_baseline_before_tea_oy:
+        # Alt ·Utter (baseline exit) hands ·Gay a baseline entry, but the ·Tea·Oy ligature that follows has no entry to receive ·Gay's forward exit. Keep the ·Utter–·Gay baseline join and surrender the forward stub. Selected backward (after the baseline-exit alt ·Utter forms) because ·Gay's plain `entry_baseline` exits at the x-height and so is blocked before this baseline follower; this no-exit sibling carries the entry alone.
+        inherits: entry_baseline
+        anchors:
+          exit: null
+        select:
+          not_after: null
+          not_before: null
+          after: [{family: qsUtter, traits: [alt], exit_y: 0}]
+        modifiers: [en-y0, before-tea-oy]
   qsThaw:
     mono:
       bitmap:
