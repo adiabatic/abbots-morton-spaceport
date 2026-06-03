@@ -775,6 +775,7 @@ glyph_families:
           - {family: qsJai_qsUtter, exit_y: 5}
           - {family: qsJay_qsUtter, exit_y: 5}
           - {family: qsSee_qsUtter, exit_y: 5}
+          - {family: qsThey_qsUtter, exit_y: 5}
           - {family: qsVie_qsUtter, exit_y: 5}
           - {family: qsWay_qsUtter, exit_y: 5}
           - {family: qsWhy_qsUtter, exit_y: 5}
