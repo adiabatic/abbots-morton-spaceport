@@ -1722,7 +1722,7 @@ def test_utter_gay_is_sensible_regardless_of_surroundings(before_first: str):
             [
                 "·Utter.!alt ~x~ ·Gay",
                 "·Utter.alt  ~b~ ·Gay",
-                "·They+Utter ~x~ ·Gay`"
+                "·They+Utter ~x~ ·Gay"
             ],
             max_chars_before=2,
             max_chars_after=2,
