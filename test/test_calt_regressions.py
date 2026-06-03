@@ -1719,11 +1719,7 @@ def test_utter_gay_is_sensible_regardless_of_surroundings(before_first: str):
     _assert_no_failures(
         _collect_sequence_must_match_any_expect_regardless_of_what_comes_before_or_after(
             ["qsUtter", "qsGay"],
-            [
-                "·Utter.!alt ~x~ ·Gay",
-                "·Utter.alt  ~b~ ·Gay",
-                "·They+Utter ~x~ ·Gay"
-            ],
+            ["·Utter.!alt ~x~ ·Gay", "·Utter.alt  ~b~ ·Gay", "·They+Utter ~x~ ·Gay"],
             max_chars_before=2,
             max_chars_after=2,
             before_first_only=before_first,

@@ -2370,6 +2370,40 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if left_guard_name in guard.guard_glyphs
         )
 
+    def _source_strips_own_exit_before_mid(
+        source_name: str,
+        replacement_name: str,
+        mid_source: str,
+    ) -> bool:
+        # The guard that calls this blocks `source_name → replacement_name` because `replacement_name`'s exit orphans once `mid_source` forward-strips its own entry (e.g. ·Thaw dropping its baseline entry before ·-ing, or the ·Tea·Oy ligature having no entry). But if `source_name`'s base owns an entry-preserving no-exit fwd-pair override that keeps `replacement_name`'s entry while dropping its exit, and that override's lookahead admits the forward-stripped `mid_source` form, the orphaned exit is removed by the override rather than left dangling. The promotion is then safe to keep — blocking it would needlessly revert `source_name` to bare and lose the left-side join. ·Utter·Gay·Thaw·-ing and ·Utter·Gay·Tea·Oy are the worked cases: ·Gay keeps the ·Utter entry through `qsGay.en-y5.ex-noentry` / `qsGay.en-y0.ex-noentry` instead of collapsing.
+        replacement_entry_ys = set(_meta(replacement_name).entry_ys)
+        if not replacement_entry_ys:
+            return False
+        mid_base = _base_name(mid_source)
+        # The forms `mid_source` can forward-strip to that drop its entry: generic forward replacements, pair-override targets (e.g. ·Thaw → `qsThaw.ex-y0` before ·-ing), and `mid_source` itself when it is already an entryless variant.
+        stripped_mid_forms = {
+            fwd_var for fwd_var in fwd_replacements.get(mid_base, {}).values() if not _meta(fwd_var).entry
+        }
+        stripped_mid_forms.update(
+            override_var
+            for override_var, _, _ in fwd_pair_overrides.get(mid_base, [])
+            if not _meta(override_var).entry
+        )
+        if mid_source != mid_base and not _meta(mid_source).entry:
+            stripped_mid_forms.add(mid_source)
+        if not stripped_mid_forms:
+            return False
+        for override_variant, override_before, _ in fwd_pair_overrides.get(_base_name(source_name), []):
+            override_meta = _meta(override_variant)
+            if override_meta.exit:
+                continue
+            if set(override_meta.entry_ys) != replacement_entry_ys:
+                continue
+            admitted = _expand_all_variants(override_before, include_base=True)
+            if stripped_mid_forms & admitted:
+                return True
+        return False
+
     def _emit_pending_fwd_exit_guards(
         source_name: str,
         replacement_name: str,
@@ -2408,6 +2442,9 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         for mid_source in sorted(right_context_glyphs):
             mid_meta = _meta(mid_source)
             mid_base = mid_meta.base_name
+
+            if _source_strips_own_exit_before_mid(source_name, replacement_name, mid_source):
+                continue
 
             if mid_source == mid_base:
                 for mid_exit_y, mid_replacement in sorted(fwd_replacements.get(mid_base, {}).items()):
@@ -2759,6 +2796,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             mid_meta = _meta(mid_source)
             mid_base = mid_meta.base_name
             if source_lookup_base == "qsGay" and mid_base in {"qsIt", "qsI", "qsExam"}:
+                continue
+            if _source_strips_own_exit_before_mid(source_name, replacement_name, mid_source):
                 continue
             has_entry_at_y = exit_y in set(mid_meta.all_entry_ys)
             # Bare bases never satisfy `has_entry_at_y` (their own entry list is empty). When the structural pass identifies a bare base whose generic forward upgrade strips entries at this exit_y AND the predecessor's substitution fires after `calt_cycle` (so mid has already been forward-stripped), fall through to the `fwd_replacements` branch. Pair-specific strips may also need a bare-base guard before cycle because this lookup can see the stripping right context directly.
@@ -3696,6 +3735,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 guards.update(source_slot)
         return guards
 
+    def _pending_override_can_precede(pending_variant: str, right_base_name: str) -> bool:
+        # A pair-override form only displaces the bare candidate when its own `before` lookahead admits the follower actually sitting to its right. An override whose `before` is restricted to a follower set that excludes `right_base_name` can never fire in this context, so it cannot block the candidate from handing off to that follower and must not contribute a guard. An empty `before` is unconstrained and always applies.
+        before = _meta(pending_variant).before
+        if not before:
+            return True
+        return any(_base_name(glyph) == right_base_name for glyph in before)
+
     def _collect_pending_bk_pair_guards(
         candidate_name: str,
         entry_ys: set[int],
@@ -3718,6 +3764,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     right_base_name,
                 ):
                     continue
+                if not _pending_override_can_precede(pending_variant, right_base_name):
+                    continue
                 guards.update(_pending_prev_context_guards(prev_glyphs, candidate_name))
             return guards
 
@@ -3736,6 +3784,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 entry_ys,
                 right_base_name,
             ):
+                continue
+            if not _pending_override_can_precede(pending_variant, right_base_name):
                 continue
             guards.update(_pending_prev_context_guards(prev_glyphs, candidate_name))
 
