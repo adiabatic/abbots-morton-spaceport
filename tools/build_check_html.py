@@ -626,7 +626,37 @@ def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, 
     return f"{label} ({diff})", code
 
 
-def _format_leak_row(leak: Leak, example: IsolationLeakExample, visual: str) -> str:
+# The preset triage verdicts, as (button label, statement that lands in the textarea) pairs. The free-text input alongside them covers the "actually we should change something else" case (e.g. "these letters should never join; update the YAML").
+_VERDICT_CHOICES: tuple[tuple[str, str], ...] = (
+    ("broken", "in context is outright broken"),
+    ("halves better", "in context is OK, but halves-shaped-separately is better"),
+    ("in-context better", "in context is just better than halves-shaped-separately"),
+)
+
+
+def _verdict_controls(seq_label: str) -> str:
+    seq_attr = html.escape(seq_label, quote=True)
+    buttons = "".join(
+        f'<button type="button" class="verdict-btn" data-verdict="{html.escape(statement, quote=True)}">'
+        f"{html.escape(short)}</button>"
+        for short, statement in _VERDICT_CHOICES
+    )
+    placeholder = "…or type your own (e.g. these letters should never join; update the YAML)"
+    return (
+        f'        <div class="verdicts" data-seq="{seq_attr}">\n'
+        f"          {buttons}\n"
+        f'          <input type="text" class="verdict-custom" placeholder="{html.escape(placeholder, quote=True)}" aria-label="Custom verdict for this sequence">\n'
+        "        </div>\n"
+    )
+
+
+def _format_leak_row(
+    leak: Leak,
+    example: IsolationLeakExample,
+    visual: str,
+    with_verdicts: bool = False,
+    verdict_seq: str = "",
+) -> str:
     label, code = _format_leak_label(leak, example)
     cp_map = _family_to_codepoint()
     families = example.families
@@ -637,6 +667,7 @@ def _format_leak_row(leak: Leak, example: IsolationLeakExample, visual: str) -> 
     isolated = f'<span class="half">{left_entities}</span>' f'<span class="half">{right_entities}</span>'
     open_link = _open_in_tables_link(families)
     letters = html.escape("".join(_short_label(f) for f in families), quote=True)
+    verdicts = _verdict_controls(verdict_seq or label) if with_verdicts else ""
     return (
         f'      <div class="row" data-visual="{visual}">\n'
         '        <div class="label">\n'
@@ -646,6 +677,7 @@ def _format_leak_row(leak: Leak, example: IsolationLeakExample, visual: str) -> 
         "        </div>\n"
         f'        <div class="qs in-context">{full_entities}</div>\n'
         f'        <div class="qs isolated">{isolated}</div>\n'
+        f"{verdicts}"
         "      </div>"
     )
 
@@ -748,21 +780,22 @@ def _example_from_snapshot_label(label: str) -> IsolationLeakExample:
     return IsolationLeakExample(families=families, break_index=int(match.group(2)))
 
 
-def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, IsolationLeakExample]]:
-    items: list[tuple[Leak, IsolationLeakExample]] = []
+def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, IsolationLeakExample, str]]:
+    """Each item is the reconstructed leak, its example, and the verbatim snapshot line. The verbatim line is what the triage UI emits as a verdict's identity, so a collected punch list `grep -F`s straight back to the signature it came from."""
+    items: list[tuple[Leak, IsolationLeakExample, str]] = []
     for raw in path.read_text().splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         label, _, diff = line.partition(" :: ")
-        items.append((_leak_from_snapshot_diff(diff), _example_from_snapshot_label(label)))
+        items.append((_leak_from_snapshot_diff(diff), _example_from_snapshot_label(label), line))
     return items
 
 
-def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample]]) -> str:
+def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) -> str:
     rows_html: list[str] = []
     fixed = 0
-    for leak, example in sorted(items, key=_leak_sort_key):
+    for leak, example, snapshot_line in sorted(items, key=lambda item: _leak_sort_key((item[0], item[1]))):
         # A drifted snapshot whose families no longer shape to that break would raise here; the test-leaks gate would already be red, so just skip the stale row rather than abort the whole page.
         try:
             visual = _visual_status(example)
@@ -771,7 +804,9 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample]]) -> st
             continue
         if visual != "diff":
             fixed += 1
-        rows_html.append(_format_leak_row(leak, example, visual))
+        rows_html.append(
+            _format_leak_row(leak, example, visual, with_verdicts=True, verdict_seq=snapshot_line)
+        )
     rows = "\n".join(rows_html)
     fixed_note = (
         f" {fixed} of them now render identically across the break "
@@ -802,6 +837,22 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample]]) -> st
         "        whole sequence as one buffer; right splits it at the leaky\n"
         "        break into two independently-shaped halves.\n"
         "      </p>\n"
+        "      <p>\n"
+        "        To triage: click a verdict button under each row (or type\n"
+        "        your own in the box). Each choice adds one line — the\n"
+        "        snapshot signature paired with your verdict — to the\n"
+        "        collector below; <strong>Copy all verdicts</strong> puts the\n"
+        "        whole list on your clipboard. Click an active button again to\n"
+        "        retract it.\n"
+        "      </p>\n"
+        '      <div class="verdict-panel">\n'
+        '        <div class="verdict-panel-controls">\n'
+        '          <button type="button" class="verdict-copy-all">Copy all verdicts</button>\n'
+        '          <span class="verdict-count">0 verdicts</span>\n'
+        "        </div>\n"
+        '        <textarea class="verdict-output" readonly rows="5"'
+        ' placeholder="Click a verdict button on any row below — one line per sequence collects here, ready to copy."></textarea>\n'
+        "      </div>\n"
         '      <div class="col-headers">\n'
         "        <span>Sequence</span>\n"
         "        <span>In context</span>\n"
@@ -1346,6 +1397,123 @@ _PAGE_CSS = """      /*
         display: block;
       }
 
+      /* Depth-4 triage verdict UI: a sticky collector panel plus per-row verdict buttons. */
+      .leak-snapshot .col-headers {
+        position: static;
+      }
+
+      .leak-snapshot .verdict-panel {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        padding: .75rem 1.5rem;
+        background: light-dark(#fff, #2a2a2a);
+        border-bottom: 1px solid light-dark(#ccc, #444);
+
+        .verdict-panel-controls {
+          display: flex;
+          align-items: center;
+          gap: .75rem;
+          margin-bottom: .5rem;
+        }
+
+        .verdict-count {
+          font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+          font-size: 13px;
+          color: light-dark(#666, #aaa);
+        }
+
+        textarea.verdict-output {
+          width: 100%;
+          box-sizing: border-box;
+          font-family: Menlo, Consolas, monospace;
+          font-size: 12px;
+          line-height: 1.45;
+          color: light-dark(#222, #eee);
+          background: light-dark(#fafafa, #1e1e1e);
+          border: 1px solid light-dark(#bbb, #555);
+          border-radius: 4px;
+          padding: .5rem;
+          resize: vertical;
+        }
+      }
+
+      .leak-snapshot .verdict-copy-all {
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 13px;
+        padding: 4px 12px;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 4px;
+        cursor: pointer;
+
+        &:hover {
+          background: light-dark(#eee, #333);
+          border-color: light-dark(#888, #888);
+        }
+      }
+
+      .leak-snapshot .verdict-copy-all.copied {
+        color: light-dark(#fff, #062e16);
+        background: light-dark(#16a34a, #4ade80);
+        border-color: light-dark(#16a34a, #4ade80);
+      }
+
+      .leak-snapshot .row .verdicts {
+        grid-column: 1 / -1;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: .4rem;
+        margin-top: .5rem;
+        padding-top: .5rem;
+        border-top: 1px dashed light-dark(#ddd, #3a3a3a);
+      }
+
+      .leak-snapshot .verdict-btn {
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 13px;
+        padding: 3px 10px;
+        color: light-dark(#444, #ccc);
+        background: light-dark(#fafafa, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 999px;
+        cursor: pointer;
+
+        &:hover {
+          background: light-dark(#eee, #333);
+          border-color: light-dark(#888, #888);
+        }
+
+        &.active {
+          color: light-dark(#fff, #06122e);
+          background: light-dark(#2563eb, #6ea8ff);
+          border-color: light-dark(#2563eb, #6ea8ff);
+        }
+      }
+
+      .leak-snapshot .verdict-custom {
+        flex: 1 1 22ch;
+        min-width: 18ch;
+        font-family: Seravek, Corbel, "Avenir Next", sans-serif;
+        font-size: 13px;
+        padding: 3px 8px;
+        color: light-dark(#222, #eee);
+        background: light-dark(#fff, #1e1e1e);
+        border: 1px solid light-dark(#bbb, #555);
+        border-radius: 6px;
+
+        &.active {
+          border-color: light-dark(#2563eb, #6ea8ff);
+          box-shadow: 0 0 0 1px light-dark(#2563eb, #6ea8ff);
+        }
+      }
+
+      .leak-snapshot .row.has-verdict {
+        background: light-dark(#eef4ff, #1b2740);
+      }
+
       .footer {
         margin-top: 2rem;
         padding: 1rem 1.5rem;
@@ -1391,6 +1559,82 @@ _COPY_CODEPOINTS_SCRIPT = """    <script>
         const button = event.target.closest('.copy-codepoints');
         if (button) copyCodepointQuote(button);
       });
+    </script>"""
+
+
+_VERDICT_SCRIPT = """    <script>
+      (() => {
+        const section = document.querySelector('.leak-snapshot');
+        if (!section) return;
+        const groups = Array.from(section.querySelectorAll('.verdicts'));
+        const output = section.querySelector('.verdict-output');
+        const count = section.querySelector('.verdict-count');
+        const verdicts = new Map();
+
+        function rebuild() {
+          const lines = [];
+          for (const group of groups) {
+            const verdict = verdicts.get(group);
+            if (verdict) lines.push(`${group.dataset.seq} => ${verdict}`);
+          }
+          output.value = lines.join('\\n');
+          count.textContent = lines.length === 1 ? '1 verdict' : `${lines.length} verdicts`;
+        }
+
+        function apply(group, verdict, source) {
+          if (verdict) verdicts.set(group, verdict);
+          else verdicts.delete(group);
+          for (const btn of group.querySelectorAll('.verdict-btn')) {
+            btn.classList.toggle('active', btn === source);
+          }
+          const input = group.querySelector('.verdict-custom');
+          input.classList.toggle('active', input === source && Boolean(verdict));
+          const row = group.closest('.row');
+          if (row) row.classList.toggle('has-verdict', verdicts.has(group));
+          rebuild();
+        }
+
+        function copyText(text, button) {
+          const original = button.dataset.label || button.textContent;
+          button.dataset.label = original;
+          const flash = () => {
+            button.classList.add('copied');
+            button.textContent = 'Copied!';
+            setTimeout(() => {
+              button.classList.remove('copied');
+              button.textContent = original;
+            }, 1200);
+          };
+          try {
+            const result = navigator.clipboard && navigator.clipboard.writeText(text);
+            if (result && typeof result.then === 'function') {
+              result.then(flash).catch((err) => console.warn('clipboard write failed', err));
+            } else {
+              flash();
+            }
+          } catch (err) {
+            console.warn('clipboard write failed', err);
+          }
+        }
+
+        section.addEventListener('click', (event) => {
+          const btn = event.target.closest('.verdict-btn');
+          if (btn) {
+            const group = btn.closest('.verdicts');
+            const wasActive = btn.classList.contains('active');
+            apply(group, wasActive ? '' : btn.dataset.verdict, wasActive ? null : btn);
+            return;
+          }
+          const copyAll = event.target.closest('.verdict-copy-all');
+          if (copyAll) copyText(output.value, copyAll);
+        });
+
+        section.addEventListener('input', (event) => {
+          const input = event.target.closest('.verdict-custom');
+          if (!input) return;
+          apply(input.closest('.verdicts'), input.value.trim(), input);
+        });
+      })();
     </script>"""
 
 
@@ -1463,6 +1707,7 @@ def _render_page(
       <code>make check-html</code>.
     </p>
 {_COPY_CODEPOINTS_SCRIPT}
+{_VERDICT_SCRIPT}
   </body>
 </html>
 """
