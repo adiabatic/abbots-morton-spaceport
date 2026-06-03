@@ -5385,50 +5385,6 @@
       "isolated": true
     }
   ],
-  "qsUtter|qsGay": [
-    {
-      "left": {
-        "family": "qsUtter",
-        "kind": "alt",
-        "form": "qsUtter.alt",
-        "except": null
-      },
-      "right": {
-        "family": "qsGay",
-        "kind": "plain",
-        "form": null,
-        "except": null
-      },
-      "context": "",
-      "beforeEnd": 0,
-      "junctionEnd": 2,
-      "source": "synthetic",
-      "origin": "alt-axis",
-      "isolated": false
-    },
-    {
-      "left": {
-        "family": "qsUtter",
-        "kind": "plain",
-        "form": null,
-        "except": [
-          "qsUtter.alt"
-        ]
-      },
-      "right": {
-        "family": "qsGay",
-        "kind": "plain",
-        "form": null,
-        "except": null
-      },
-      "context": "",
-      "beforeEnd": 1,
-      "junctionEnd": 3,
-      "source": "corpus",
-      "origin": "alt-axis",
-      "isolated": true
-    }
-  ],
   "qsUtter|qsMay": [
     {
       "left": {

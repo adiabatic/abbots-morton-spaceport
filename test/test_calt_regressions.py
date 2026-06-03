@@ -1728,6 +1728,14 @@ def test_utter_gay_is_sensible_regardless_of_surroundings(before_first: str):
     )
 
 
+def test_utter_gay_tea_oy_uses_normal_utter():
+    # ·Utter·Gay·Tea·Oy should keep the non-alt ·Utter joining ·Gay at the x-height; ·Gay surrenders its forward exit because the ·Tea·Oy ligature has no entry to receive it, and ·Tea·Oy does not join backward to ·Gay.
+    _assert_expect_any(
+        _qs_text("qsUtter", "qsGay", "qsTea", "qsOy"),
+        ["·Utter.!alt ~x~ ·Gay.ex-noentry | ·Tea+Oy"],
+    )
+
+
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first: str):
     _assert_no_failures(
