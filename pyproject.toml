@@ -18,6 +18,11 @@ dev = [
     "pre-commit>=4.6.0",
 ]
 
+[tool.pytest.ini_options]
+# `slow` covers the deep (~50 s) isolation-leak snapshot sweep; the default run skips it. `make test-leaks` runs it on its own.
+markers = ["slow: expensive deep sweeps, excluded from the default test run"]
+addopts = "-m 'not slow'"
+
 [tool.uv]
 cache-dir = ".uv-cache"
 
