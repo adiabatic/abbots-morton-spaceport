@@ -2391,6 +2391,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         )
         if mid_source != mid_base and not _meta(mid_source).entry:
             stripped_mid_forms.add(mid_source)
+        # An entryless ligature led by `mid_source` (e.g. qsTea before qsOy collapsing to the entryless `qsTea_qsOy`) also voids `replacement_name`'s forward exit once `calt_liga` fires. The lead component appears unligated pre-liga, so the forward-strip guard would otherwise suppress `source_name`'s promotion even though the source's entry-preserving `.ex-noentry` override (whose `before` lists the ligature) cleans the orphaned exit post-liga. Add those ligatures so the guard recognizes the same opt-out it already grants for `noentry_after` ligatures.
+        for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
+            if components and components[0] == mid_base and not _meta(lig_name).entry:
+                stripped_mid_forms.add(lig_name)
         if not stripped_mid_forms:
             return False
         for override_variant, override_before, _ in fwd_pair_overrides.get(_base_name(source_name), []):
@@ -2952,6 +2956,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             mid_base = mid_meta.base_name
             if require_mid_base_without_exit and _meta(mid_base).exit:
                 continue
+            if _source_strips_own_exit_before_mid(source_name, replacement_name, mid_source):
+                continue
             for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
                 if len(components) != 2:
                     continue
@@ -3451,7 +3457,13 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(
                             f"        ignore sub [{not_after_list}] {target}' [{effective_before_list}];"
                         )
+                    converting_to_exit_noentry = (
+                        "ex-noentry" in actual_variant_meta.modifiers and not actual_variant_meta.exit
+                    )
                     for terminal in sorted(effective_before & plan.terminal_exit_only):
+                        # An `.ex-noentry` conversion exists precisely to surrender `target`'s exit before a follower that can't receive it. When that follower is itself entryless (e.g. the `qsTea_qsOy` ligature), the conversion is the intended outcome, so don't let the terminal-exit-only guard block it. Followers that still carry an entry stay guarded: there the exit could attach, so `target` should keep its joining form.
+                        if converting_to_exit_noentry and not _meta(terminal).all_entry_ys:
+                            continue
                         lines.append(f"        ignore sub {target}' {terminal};")
                     _emit_pending_bk_entry_guards(
                         target,
@@ -5163,6 +5175,30 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return candidates[0][1]
 
+    def _entry_preserving_exit_noentry_handles_lig(candidate: str, lig_target: str) -> bool:
+        # True when ``candidate``'s family owns an entry-preserving ``.ex-noentry`` sibling that keeps ``candidate``'s entry, drops the exit, and lists ``lig_target`` in its `before`. The entryless ligature voids ``candidate``'s forward exit, but a later forward-pair pass (`calt_*fwd_pair_<sibling>`) substitutes the sibling once the ligature is the immediate follower — so the post-liga left cleanup should leave ``candidate`` alone (demoting it to its entryless bare form would strip the entry the sibling is meant to keep). Mirrors `has_entry_preserving_exit_noentry_sibling`, but scoped to a sibling whose `before` admits this specific ligature. `qsGay.en-y5.ex-noentry` before `qsTea_qsOy` is the worked case.
+        candidate_meta = glyph_meta.get(candidate)
+        if candidate_meta is None or not _has_left_entry(candidate_meta):
+            return False
+        expected_modifiers = frozenset(m for m in candidate_meta.modifiers if not m.startswith("ex-")) | {
+            "ex-noentry"
+        }
+        for sibling_name in base_to_variants.get(candidate_meta.base_name, ()):
+            sibling = glyph_meta.get(sibling_name)
+            if sibling is None or sibling.is_noentry or sibling.exit:
+                continue
+            if "ex-noentry" not in sibling.modifiers:
+                continue
+            if sibling.entry != candidate_meta.entry:
+                continue
+            if sibling.entry_curs_only != candidate_meta.entry_curs_only:
+                continue
+            if frozenset(sibling.modifiers) != expected_modifiers:
+                continue
+            if lig_target in _expand_all_variants(sibling.before, include_base=True):
+                return True
+        return False
+
     def _collect_post_liga_right_cleanup_rules(
         lig_name: str,
         components: tuple[str, ...],
@@ -5271,6 +5307,8 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 }
                 for candidate in sorted(candidates):
                     if candidate in protected:
+                        continue
+                    if _entry_preserving_exit_noentry_handles_lig(candidate, lig_target):
                         continue
                     replacement = _resolve_entryless_replacement(
                         glyph_meta,
