@@ -57,6 +57,13 @@ from quikscript_shaping_helpers import (  # noqa: E402
     _shape_qs,
 )
 
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+
+from leak_contract_report import FEA_PATH as CONTRACT_FEA_PATH  # noqa: E402
+from leak_contract_report import classify as classify_leak_contract  # noqa: E402
+from leak_static_analysis import parse_calt  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Isolation-leak detection (was tools/find_isolation_leaks.py).
 # ---------------------------------------------------------------------------
@@ -792,8 +799,70 @@ def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, Iso
     return items
 
 
+# Signature -> human label + blurb for each fold of leaks the join contract takes off the triage list. The contract itself lives in doc/leak-prevention-plan.md; the per-row classification comes from tools/leak_contract_report.py.
+_MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
+    "droppable": (
+        "Contract will erase — no verdict needed",
+        "A single <code>calt</code> rule selects the changed form right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
+    ),
+    "cosmetic": (
+        "Author-declared cosmetic tucks — already labeled",
+        "These carry a <code>before-</code>/<code>after-</code> modifier naming the non-joining neighbor, so the cross-break shape change is an intentional tuck the contract keeps. Skim only if you suspect a label is wrong.",
+    ),
+}
+
+
+def _classify_snapshot(
+    items: list[tuple[Leak, IsolationLeakExample, str]],
+) -> dict[tuple[str, str, str, str], str]:
+    """Map each snapshot leak's signature to its join-contract class (``droppable`` / ``cosmetic`` / ``emergent`` / ``mixed``) so the triage list can fold away the rows the contract handles. Best-effort: if the built Senior FEA is absent or unparseable, return an empty map and the caller renders every row expanded, exactly as before the contract report existed."""
+    if not CONTRACT_FEA_PATH.exists():
+        return {}
+    snapshot = [
+        ((leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen), line)
+        for leak, _example, line in items
+    ]
+    try:
+        verdicts = classify_leak_contract(snapshot, parse_calt(str(CONTRACT_FEA_PATH)).rules)
+    except Exception as exc:  # the page is a dev aid; never let classification abort the build
+        print(f"leak-contract classification skipped: {exc}", file=sys.stderr)
+        return {}
+    return {verdict.signature: verdict.klass for verdict in verdicts}
+
+
+def _leak_snapshot_rows(
+    rows: list[tuple[Leak, IsolationLeakExample, str, str]], *, with_verdicts: bool
+) -> str:
+    return "\n".join(
+        _format_leak_row(leak, example, visual, with_verdicts=with_verdicts, verdict_seq=line)
+        for leak, example, visual, line in rows
+    )
+
+
+def _moot_fold(klass: str, rows: list[tuple[Leak, IsolationLeakExample, str, str]]) -> str:
+    """A collapsed sub-fold holding the rows the contract takes off the triage list. Rendered without verdict controls — they are not part of the punch list."""
+    if not rows:
+        return ""
+    title, blurb = _MOOT_FOLD_COPY[klass]
+    return (
+        f'      <details class="collapsible moot-leaks moot-{klass}">\n'
+        f"        <summary><h3>{title} ({len(rows)})</h3></summary>\n"
+        f"        <p>{blurb}</p>\n"
+        '        <div class="col-headers">\n'
+        "          <span>Sequence</span>\n"
+        "          <span>In context</span>\n"
+        "          <span>Halves shaped separately</span>\n"
+        "        </div>\n"
+        f"{_leak_snapshot_rows(rows, with_verdicts=False)}\n"
+        "      </details>"
+    )
+
+
 def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) -> str:
-    rows_html: list[str] = []
+    klass_by_sig = _classify_snapshot(items)
+    triage: list[tuple[Leak, IsolationLeakExample, str, str]] = []
+    droppable: list[tuple[Leak, IsolationLeakExample, str, str]] = []
+    cosmetic: list[tuple[Leak, IsolationLeakExample, str, str]] = []
     fixed = 0
     for leak, example, snapshot_line in sorted(items, key=lambda item: _leak_sort_key((item[0], item[1]))):
         # A drifted snapshot whose families no longer shape to that break would raise here; the test-leaks gate would already be red, so just skip the stale row rather than abort the whole page.
@@ -804,10 +873,29 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
             continue
         if visual != "diff":
             fixed += 1
-        rows_html.append(
-            _format_leak_row(leak, example, visual, with_verdicts=True, verdict_seq=snapshot_line)
-        )
-    rows = "\n".join(rows_html)
+        signature = (leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen)
+        row = (leak, example, visual, snapshot_line)
+        # Anything the contract cannot single-handedly prevent — emergent, mixed, or unclassified when the FEA was unavailable — still needs eyes, so it goes in the expanded triage list.
+        klass = klass_by_sig.get(signature, "emergent")
+        if klass == "droppable":
+            droppable.append(row)
+        elif klass == "cosmetic":
+            cosmetic.append(row)
+        else:
+            triage.append(row)
+    rows = _leak_snapshot_rows(triage, with_verdicts=True)
+    folds = "\n".join(
+        fold for fold in (_moot_fold("droppable", droppable), _moot_fold("cosmetic", cosmetic)) if fold
+    )
+    moot_count = len(droppable) + len(cosmetic)
+    scope_note = (
+        f" Only the <strong>{len(triage)}</strong> leaks the join contract cannot prevent on its"
+        f" own are expanded here; the <strong>{moot_count}</strong> it will erase or has already"
+        " labeled are folded away below (classification from"
+        " <code>tools/leak_contract_report.py</code>)."
+        if moot_count
+        else ""
+    )
     fixed_note = (
         f" {fixed} of them now render identically across the break "
         "(<code>same</code>) — those are fixed and can be re-blessed out with "
@@ -821,11 +909,12 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "      <p>\n"
         "        The approved depth-4 leaks frozen in\n"
         "        <code>test/isolation-leak-snapshot.txt</code>, rendered in the\n"
-        "        same side-by-side layout as the section above. This is the\n"
-        "        list to triage: each row is a known leak that needs more\n"
-        "        context than the everyday depth-3 sweep covers. Decide, per\n"
-        "        row, whether the in-context shape is the one you want; if it\n"
-        "        is, the leak is benign and the row stays approved.\n"
+        "        same side-by-side layout as the section above. Each expanded\n"
+        "        row is a known leak that needs more context than the everyday\n"
+        "        depth-3 sweep covers; decide, per row, whether the in-context\n"
+        "        shape is the one you want, and if it is, the leak is benign and\n"
+        "        the row stays approved.\n"
+        f"       {scope_note}\n"
         f"       {fixed_note}\n"
         "      </p>\n"
         "      <p>\n"
@@ -859,6 +948,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "        <span>Halves shaped separately</span>\n"
         "      </div>\n"
         f"{rows}\n"
+        f"{folds}\n"
         "    </details>"
     )
 
@@ -1195,6 +1285,26 @@ _PAGE_CSS = """      /*
         display: inline;
         margin: 0;
         font: inherit;
+      }
+
+      details.collapsible > summary > h3 {
+        display: inline;
+        margin: 0;
+        font: inherit;
+      }
+
+      /* The contract-moot folds nest inside the depth-4 triage section, so drop the standalone card chrome and read as a sub-fold with just a top divider. */
+      .leak-snapshot .moot-leaks {
+        margin: 0;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        border-bottom: none;
+      }
+
+      .leak-snapshot .moot-leaks > summary {
+        font-size: 17px;
+        color: light-dark(#555, #bbb);
       }
 
       details.collapsible > p {
