@@ -41,6 +41,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 CHECK_HTML_PATH = TEST_DIR / "check.html"
+LEAK_SNAPSHOT_PATH = TEST_DIR / "isolation-leak-snapshot.txt"
 
 # Reuse the test-suite shaping helpers so the isolation-leaks sweep matches what ``test_shaping.py`` enforces.
 if str(TEST_DIR) not in sys.path:
@@ -712,6 +713,105 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
     )
 
 
+# ---------------------------------------------------------------------------
+# Depth-4 leak-snapshot triage section.
+# ---------------------------------------------------------------------------
+#
+# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (~50 s), so its result is frozen in ``test/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
+
+_SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
+
+
+def _leak_from_snapshot_diff(diff: str) -> Leak:
+    """Reconstruct a :class:`Leak` from a snapshot line's ``L a->b | R c->d`` diff. Mirrors ``tools/leak_snapshot._parse_diff``, but builds the dataclass directly."""
+    isolated_left = left_chosen = isolated_right = right_chosen = ""
+    for clause in diff.split(" | "):
+        clause = clause.strip().lstrip("*").strip()
+        if clause.startswith("L ") and "->" in clause:
+            isolated_left, _, left_chosen = clause[2:].partition("->")
+        elif clause.startswith("R ") and "->" in clause:
+            isolated_right, _, right_chosen = clause[2:].partition("->")
+    return Leak(
+        left_chosen=left_chosen.strip(),
+        right_chosen=right_chosen.strip(),
+        isolated_left=isolated_left.strip(),
+        isolated_right=isolated_right.strip(),
+    )
+
+
+def _example_from_snapshot_label(label: str) -> IsolationLeakExample:
+    """``He Awe Thaw Ing [break 1]`` -> the families/break-index example. The label tokens are family names with the ``qs`` prefix stripped (see ``leak_snapshot._example_label``), so re-prefixing round-trips them; the swept families are always single letters, never ligatures."""
+    match = _SNAPSHOT_LABEL_RE.match(label.strip())
+    if not match:
+        raise ValueError(f"unparseable snapshot label: {label!r}")
+    families = tuple("qs" + token for token in match.group(1).split())
+    return IsolationLeakExample(families=families, break_index=int(match.group(2)))
+
+
+def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, IsolationLeakExample]]:
+    items: list[tuple[Leak, IsolationLeakExample]] = []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        label, _, diff = line.partition(" :: ")
+        items.append((_leak_from_snapshot_diff(diff), _example_from_snapshot_label(label)))
+    return items
+
+
+def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample]]) -> str:
+    rows_html: list[str] = []
+    fixed = 0
+    for leak, example in sorted(items, key=_leak_sort_key):
+        # A drifted snapshot whose families no longer shape to that break would raise here; the test-leaks gate would already be red, so just skip the stale row rather than abort the whole page.
+        try:
+            visual = _visual_status(example)
+        except RuntimeError as exc:
+            print(f"skipping unreconstructable snapshot leak {example.families!r}: {exc}", file=sys.stderr)
+            continue
+        if visual != "diff":
+            fixed += 1
+        rows_html.append(_format_leak_row(leak, example, visual))
+    rows = "\n".join(rows_html)
+    fixed_note = (
+        f" {fixed} of them now render identically across the break "
+        "(<code>same</code>) — those are fixed and can be re-blessed out with "
+        "<code>make leak-snapshot</code>."
+        if fixed
+        else ""
+    )
+    return (
+        '    <details class="collapsible isolation-leaks leak-snapshot" open>\n'
+        "      <summary><h2>Auto-generated: isolation-leak triage (depth-4 snapshot)</h2></summary>\n"
+        "      <p>\n"
+        "        The approved depth-4 leaks frozen in\n"
+        "        <code>test/isolation-leak-snapshot.txt</code>, rendered in the\n"
+        "        same side-by-side layout as the section above. This is the\n"
+        "        list to triage: each row is a known leak that needs more\n"
+        "        context than the everyday depth-3 sweep covers. Decide, per\n"
+        "        row, whether the in-context shape is the one you want; if it\n"
+        "        is, the leak is benign and the row stays approved.\n"
+        f"       {fixed_note}\n"
+        "      </p>\n"
+        "      <p>\n"
+        "        The file is regenerated with <code>make leak-snapshot</code>\n"
+        "        and gated by <code>make test-leaks</code>; this section just\n"
+        "        reads it back, so it costs nothing on the everyday\n"
+        "        <code>make check-html</code> run and never re-runs the slow\n"
+        "        sweep. Columns match the section above: middle shapes the\n"
+        "        whole sequence as one buffer; right splits it at the leaky\n"
+        "        break into two independently-shaped halves.\n"
+        "      </p>\n"
+        '      <div class="col-headers">\n'
+        "        <span>Sequence</span>\n"
+        "        <span>In context</span>\n"
+        "        <span>Halves shaped separately</span>\n"
+        "      </div>\n"
+        f"{rows}\n"
+        "    </details>"
+    )
+
+
 def _format_diff_label(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
     return " ".join(_short_label_for_codepoint(cp, cp_to_family) for cp in diff.codepoints)
 
@@ -1297,6 +1397,7 @@ _COPY_CODEPOINTS_SCRIPT = """    <script>
 def _render_page(
     diffs_section: str,
     leaks_section: str,
+    snapshot_section: str,
     failures_section: str,
 ) -> str:
     return f"""<!doctype html>
@@ -1320,7 +1421,8 @@ def _render_page(
       under <code>test/before/</code> and the live build under
       <code>test/</code>; one lists every short sequence whose adjacent
       non-joining pair changes shape between single-buffer and split
-      shaping.
+      shaping; and one reads back the approved depth-4 leak snapshot as a
+      visual triage list.
     </p>
     <p>
       Workflow:
@@ -1353,6 +1455,8 @@ def _render_page(
 
 {leaks_section}
 
+{snapshot_section}
+
     <p class="footer">
       Snapshot stale? Switch to the baseline branch, run
       <code>make snapshot-before</code>, switch back, then run
@@ -1374,6 +1478,11 @@ def build(max_len: int) -> str:
     leak_items = sorted(leaks.items(), key=_leak_sort_key)
     leaks_section = _isolation_leaks_section(leak_items, max_len)
 
+    if LEAK_SNAPSHOT_PATH.exists():
+        snapshot_section = _leak_snapshot_section(parse_leak_snapshot())
+    else:
+        snapshot_section = ""
+
     cp_to_family = _codepoint_to_family()
     if BEFORE_FONT.exists():
         diffs = sorted(find_diffs(), key=_diff_sort_key)
@@ -1385,7 +1494,7 @@ def build(max_len: int) -> str:
     failure_rows = build_failure_rows(failures)
     failures_section = _render_failing_tests_section(failure_rows, cp_to_family)
 
-    return _render_page(diffs_section, leaks_section, failures_section)
+    return _render_page(diffs_section, leaks_section, snapshot_section, failures_section)
 
 
 def main() -> None:
