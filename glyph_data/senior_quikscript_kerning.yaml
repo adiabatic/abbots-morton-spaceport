@@ -581,6 +581,10 @@ left_family: [qsIng]
 right_family: [qsFoot]
 value: -1
 ---
+left_form: [qsNo.alt]
+right_family: [qsPea]
+value: -2
+---
 left_family: [qsNo]
 right_family: [qsBay]
 value: -2
