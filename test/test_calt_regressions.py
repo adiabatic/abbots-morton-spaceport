@@ -24,6 +24,7 @@ from quikscript_shaping_helpers import (
     _senior_shaping_env,
     _shape,
     _shape_qs,
+    _shape_with_clusters,
     _shape_with_features,
 )
 
@@ -33,7 +34,13 @@ _SS07_FEATURE = (("ss07", True),)
 
 from build_font import load_glyph_data
 from quikscript_ir import _EXTENSION_SUFFIX
-from test_shaping import _try_interpretation, parse_expect, run_shaping_test_runs
+from test_shaping import (
+    ExpectToken,
+    _expand_maybe_ligatures,
+    _try_interpretation,
+    parse_expect,
+    run_shaping_test_runs,
+)
 from test_join_ink import (
     PIXEL_SIZE,
     _bitmap_origin_x_offset,
@@ -387,6 +394,128 @@ def _collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after(
                         f"{label}: {glyph_name} joins {glyphs[index + 1]} "
                         f"at Y={forbidden_y} in {glyphs} (join Ys={sorted(common)})"
                     )
+
+    return failures
+
+
+def _target_slice_bounds(clusters: tuple[int, ...], before_len: int, target_len: int) -> tuple[int, int]:
+    """Given the monotonic ``clusters`` of a shaped ``before + target + after`` run, return the half-open-free ``(lead, trail)`` glyph indices whose glyphs cover the target's input codepoints ``[before_len, before_len + target_len)``. ``lead``/``trail`` are the last glyphs whose cluster is at or before the target's first/last codepoint, so an edge glyph that ligated across the target boundary (a predecessor that swallowed the target's first letter, say) is pulled in — its cluster sits before the target range but the glyph still covers the target's first codepoint."""
+    first_cp = before_len
+    last_cp = before_len + target_len - 1
+    lead = max(i for i, c in enumerate(clusters) if c <= first_cp)
+    trail = max(i for i, c in enumerate(clusters) if c <= last_cp)
+    return lead, trail
+
+
+def _retarget_boundary_tokens(
+    tokens: list[ExpectToken], slice_glyphs: list[str], meta_map
+) -> list[ExpectToken] | None:
+    """Rewrite the first/last expect token into a two-component ligature token when the slice's edge glyph is a ligature that absorbed the target's edge letter — i.e. its compiled ``sequence`` ends with (lead) or starts with (trail) the token's base. This is what lets a bare ``·Utter ~x~ ·Gay`` assertion still apply when a predecessor fuses the leading ·Utter into ``qsThey_qsUtter``: the ligature stands in for the ·Utter token, mirroring how the join collectors match ligatures by their sequence edge. Returns a fresh token list, or None when an absorbing ligature has more than two components and so can't be written as a ligature token."""
+    result: list[ExpectToken] = [{**tok} for tok in tokens]
+
+    def retarget(index: int, edge: str) -> bool:
+        tok = result[index]
+        if tok["lig_base"] is not None:
+            return True
+        meta = meta_map.get(slice_glyphs[index])
+        if meta is None or meta.base_name == tok["base"]:
+            return True
+        seq = meta.sequence
+        absorbs = bool(seq) and (seq[-1] == tok["base"] if edge == "lead" else seq[0] == tok["base"])
+        if not absorbs:
+            return True  # genuine base mismatch — let _try_interpretation report it
+        if len(seq) != 2:
+            return False
+        tok["base"] = seq[0]
+        tok["lig_base"] = seq[1]
+        tok["exact_glyph"] = False
+        return True
+
+    if not retarget(0, "lead"):
+        return None
+    if len(result) > 1 and not retarget(len(result) - 1, "trail"):
+        return None
+    return result
+
+
+def _slice_matches_any_expect(slice_glyphs, parsed_expects, font, anchor_map, potential, meta_map):
+    """Return None if ``slice_glyphs`` satisfies at least one of the pre-parsed ``parsed_expects`` (a list of ``(expect_str, interpretations)``), otherwise a list of per-expect failure strings. Each candidate's boundary tokens are first retargeted onto any absorbing edge ligature, then validated with ``_try_interpretation``; connection assertions therefore cover only the junctions *inside* the target, never how the target attaches to its surround."""
+    slice_list = list(slice_glyphs)
+    errors = []
+    for expect_str, interps in parsed_expects:
+        interp_errors = []
+        for tokens, connections in interps:
+            retargeted = _retarget_boundary_tokens(tokens, slice_list, meta_map)
+            if retargeted is None:
+                interp_errors.append("edge ligature has more than two components")
+                continue
+            err = _try_interpretation(
+                font, anchor_map, slice_list, retargeted, connections, potential, variant="senior"
+            )
+            if err is None:
+                return None
+            interp_errors.append(err)
+        errors.append(f"{expect_str!r}: " + " / ".join(interp_errors))
+    return errors
+
+
+def _collect_sequence_must_match_any_expect_regardless_of_what_comes_before_or_after(
+    sequence: list[str],
+    expects: list[str],
+    *,
+    max_chars_before: int = 1,
+    max_chars_after: int = 1,
+    before_first_only: str | None = None,
+) -> list[str]:
+    """Flag every surround under which the ``sequence`` of Quikscript families fails to match *any* of the ``data-expect`` strings in ``expects``. The sequence is shaped with up to ``max_chars_before`` characters on the left and up to ``max_chars_after`` on the right (each a maximum, swept from 0 up), drawn from every plain Quikscript letter plus ZWNJ, exactly like ``_collect_pair_must_not_join_at_y_regardless_of_what_comes_before_or_after``.
+
+    Each ``expects`` entry describes only the target ``sequence`` itself (e.g. ``"·Utter ~x~ ·Gay"``); the helper shapes the full surrounded run, locates the target's output glyphs via HarfBuzz clusters — pulling in an edge ligature when a neighbor swallowed the target's first or last letter — and checks that slice against the candidates with any-one-true semantics. Only the junctions *inside* the target are asserted, so the test says "the sequence shapes like one of these, no matter what comes before or after". Use it when a sequence has a few legitimate context-dependent shapes and you want to lock all of them in at once.
+
+    ``before_first_only`` restricts the non-empty ``before`` combinations to those whose first entry is the named context glyph; the empty prefix is still swept. This is the per-shard hook used by parametrized callers to fan a single logical test across pytest-xdist workers.
+    """
+    failures: list[str] = []
+    meta_map = _compiled_meta()
+    context_set = _context_chars()
+
+    if before_first_only is not None:
+        valid_names = {name for name, _ in context_set}
+        if before_first_only not in valid_names:
+            raise ValueError(f"before_first_only={before_first_only!r} not in context set")
+
+    fonts, anchor_maps, potentials = _senior_shaping_env()
+    font = fonts["senior"]
+    anchor_map = anchor_maps["senior"]
+    potential = potentials["senior"]
+
+    parsed_expects = [(expect, _expand_maybe_ligatures(*parse_expect(expect))) for expect in expects]
+
+    sequence_label = "·" + "·".join(_family_to_label(family) for family in sequence)
+    target_text = _qs_text(*sequence)
+    target_len = len(target_text)
+
+    before_combos = _surround_combos(context_set, max_chars_before, first_only=before_first_only)
+    after_combos = _surround_combos(context_set, max_chars_after)
+
+    for before in before_combos:
+        before_label = "·".join(name for name, _ in before) if before else "∅"
+        before_text = "".join(char for _, char in before)
+        before_len = len(before_text)
+        for after in after_combos:
+            after_label = "·".join(name for name, _ in after) if after else "∅"
+            after_text = "".join(char for _, char in after)
+            text = before_text + target_text + after_text
+            names, clusters = _shape_with_clusters(text)
+            lead, trail = _target_slice_bounds(clusters, before_len, target_len)
+            slice_glyphs = names[lead : trail + 1]
+            errors = _slice_matches_any_expect(
+                slice_glyphs, parsed_expects, font, anchor_map, potential, meta_map
+            )
+            if errors is not None:
+                label = f"[{before_label}] / {sequence_label} / [{after_label}]"
+                detail = "\n      ".join(errors)
+                failures.append(
+                    f"{label}: no expect matched slice {list(slice_glyphs)} in {list(names)}\n      {detail}"
+                )
 
     return failures
 
@@ -1583,6 +1712,24 @@ def test_it_day_never_joins_at_xheight(before_first: str):
 
 def test_declared_exit_height_matches_exit_anchor():
     _assert_no_failures(_collect_declared_exit_height_without_matching_anchor_failures())
+
+
+@pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
+def test_utter_gay_is_sensible_regardless_of_surroundings(before_first: str):
+    _assert_no_failures(
+        _collect_sequence_must_match_any_expect_regardless_of_what_comes_before_or_after(
+            ["qsUtter", "qsGay"],
+            [
+                "·Utter ~x~ ·Gay",
+                "·Utter ~b~ ·Gay",
+                "·Utter | ·Gay",
+            ],
+            max_chars_before=2,
+            max_chars_after=2,
+            before_first_only=before_first,
+        ),
+        limit=None,
+    )
 
 
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
