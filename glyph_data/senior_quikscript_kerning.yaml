@@ -423,7 +423,7 @@ value: -2
 ---
 left_family: [qsYe]
 right_family: [qsGay]
-value: -2
+value: -4
 ---
 left_family: [qsYe]
 right_family: [qsFee]
@@ -472,6 +472,14 @@ value: -1
 left_family: [qsWay]
 right_family: [qsBay]
 value: -2
+---
+left_family: [qsWay]
+right_form: [qsGay.ex-y0]
+value: -1
+---
+left_family: [qsWay]
+right_form: [qsGay.ex-y0.ex-ext-1]
+value: -1
 ---
 left_family: [qsWay]
 right_family: [qsThaw]
@@ -542,6 +550,14 @@ right_family: [qsBay]
 value: -1
 ---
 left_family: [qsWhy]
+right_form: [qsGay.ex-y0]
+value: -1
+---
+left_family: [qsWhy]
+right_form: [qsGay.ex-y0.ex-ext-1]
+value: -1
+---
+left_family: [qsWhy]
 right_family: [qsThey]
 value: -1
 ---
@@ -581,6 +597,10 @@ left_family: [qsIng]
 right_family: [qsFoot]
 value: -1
 ---
+left_family: [qsMay]
+right_form: [qsGay.ex-y0]
+value: -1
+---
 left_form: [qsNo.alt]
 right_family: [qsPea]
 value: -2
@@ -588,6 +608,15 @@ value: -2
 left_family: [qsNo]
 right_family: [qsBay]
 value: -2
+---
+left_form: [qsNo.alt]
+right_family: [qsTea]
+value: -1
+---
+left_family: [qsNo]
+except_left: [qsNo.alt]
+right_family: [qsGay]
+value: -1
 ---
 left_family: [qsNo]
 right_family: [qsThey]
@@ -703,6 +732,10 @@ value: -1
 ---
 left_family: [qsLlan]
 right_family: [qsFoot]
+value: -1
+---
+left_form: [qsExcite.en-y0.noexit]
+right_family: [qsGay]
 value: -1
 ---
 left_family: [qsEt]
