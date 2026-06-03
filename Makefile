@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly typecheck print-job serve explainer snapshot-before check-html build-kerning-hardcases review test-and-review prettier
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer snapshot-before check-html build-kerning-hardcases review test-and-review prettier
 
 all:
 	uv run python tools/build_font.py glyph_data/ test/
@@ -31,6 +31,14 @@ test: typecheck
 # Run the test suite on efficiency cores only
 test-slowly: typecheck
 	taskpolicy -b uv run pytest test/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
+
+# Deep (~50s) isolation-leak gate: the depth-4 leak set must match test/isolation-leak-snapshot.txt.
+test-leaks: all
+	uv run pytest test/test_isolation_leaks.py -m slow
+
+# Re-bless the approved leak snapshot after an intended change (then review the diff).
+leak-snapshot: all
+	uv run python tools/leak_snapshot.py
 
 review:
 	uv run python tools/review_scoped_anchor_selectors.py --output test/scoped-anchor-review/index.html

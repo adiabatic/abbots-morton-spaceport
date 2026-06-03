@@ -4,6 +4,13 @@ The isolation-leaks section of `test/check.html` surfaces the sequences that cur
 
 The whole `test/check.html` page is generated end-to-end by `tools/build_check_html.py`; the isolation-leaks list is one of the three auto-sections it emits (alongside corpus render diffs and failing tests).
 
+## Two gates, two depths
+
+There are two automated gates over this invariant, at different sweep depths:
+
+- **Depth 3 (`make test`, fast).** `test/test_isolation_leaks.py::test_no_visible_isolation_leaks` asserts _zero_ visible leaks at `--max-len 3`. This is the everyday green/red gate.
+- **Depth 4 (`make test-leaks`, ~50 s, `slow`-marked, excluded from the default run).** `test_isolation_leak_snapshot_unchanged` freezes the (currently non-empty) set of four-letter-context leaks in `test/isolation-leak-snapshot.txt` and fails on any _change_ — a new signature is a regression you introduced; a vanished one is a leak you fixed. After an intended change, re-bless with `make leak-snapshot` and review the diff. This is what replaces hand-written `44^n` tuple tests: you never enumerate tuples, you diff a snapshot. See `doc/leak-investigation-findings.md` for why no fixed depth is provably complete (contextual `calt` rules chain across ~600 lookups) and why a static FEA checker cannot soundly replace the sweep.
+
 ## Refresh the list
 
 ```sh
