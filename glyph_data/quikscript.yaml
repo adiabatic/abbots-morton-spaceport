@@ -2112,6 +2112,7 @@ glyph_families:
           not_before:
           - family: qsDay
           - family: qsZoo
+          - family: qsHe
           - family: qsNo
           - family: qsRoe
           - family: qsIt
