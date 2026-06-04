@@ -1212,6 +1212,22 @@ def _can_eventually_exit_at(
     return False
 
 
+def _select_rule_neighbors(
+    base_name: str,
+    variant_name: str,
+    candidate_members: set[str],
+    *,
+    direction: str,
+) -> set[str]:
+    """Selection chokepoint for the derived join contract (see doc/leak-prevention-plan.md).
+
+    Every contextual `sub … by V` rule in `_emit_quikscript_calt` routes its selection-driving neighbor set through here before the rule string is built: the followers for `direction="fwd"` (the `@entry_y…` class members a forward upgrade fires against), the predecessors for `direction="bk"` (the `@exit_y…` class members a backward upgrade fires against). Returns the subset of `candidate_members` the rule may keep.
+
+    Phase 0 is an identity passthrough so the emitted FEA is byte-identical; making this a module-level function (rather than another closure buried in the 4,000-line emitter) is the point — it can be classified and tested in isolation. Phase 1 will classify each (base_name, neighbor, variant_name) triple here and warn on the non-joining ones; Phase 2 will drop the non-joining, non-cosmetic neighbors so the rule can no longer select a variant across a break it does not cursively join.
+    """
+    return set(candidate_members)
+
+
 def _has_left_entry(meta: JoinGlyph) -> bool:
     return bool(meta.entry or meta.entry_curs_only)
 
@@ -3496,12 +3512,18 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     non_lead_before = effective_before - set(lead_only_followups)
 
                     def _emit_positive_forward_pair(replacement_variant: str, backtrack_prefix: str) -> None:
-                        if non_lead_before:
-                            non_lead_before_list = " ".join(sorted(non_lead_before))
+                        kept_non_lead = _select_rule_neighbors(
+                            target, replacement_variant, non_lead_before, direction="fwd"
+                        )
+                        if kept_non_lead:
+                            non_lead_before_list = " ".join(sorted(kept_non_lead))
                             lines.append(
                                 f"        sub {backtrack_prefix}{target}' [{non_lead_before_list}] by {replacement_variant};"
                             )
-                        for lead_glyph in sorted(lead_only_followups):
+                        kept_leads = _select_rule_neighbors(
+                            target, replacement_variant, set(lead_only_followups), direction="fwd"
+                        )
+                        for lead_glyph in sorted(kept_leads):
                             trailings_list = " ".join(sorted(lead_only_followups[lead_glyph]))
                             lines.append(
                                 f"        sub {backtrack_prefix}{target}' {lead_glyph} [{trailings_list}] by {replacement_variant};"
@@ -3631,7 +3653,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 lines.append(
                     f"        ignore sub {base_name}' [{' '.join(sorted(blocked_follower_glyphs))}];"
                 )
-            lines.append(f"        sub {base_name}' {cls} by {variant_name};")
+            kept_followers = _select_rule_neighbors(
+                base_name, variant_name, right_context_glyphs, direction="fwd"
+            )
+            if kept_followers == right_context_glyphs:
+                lines.append(f"        sub {base_name}' {cls} by {variant_name};")
+            else:
+                lines.append(
+                    f"        sub {base_name}' [{' '.join(sorted(kept_followers))}] by {variant_name};"
+                )
             emitted = True
 
             for target_name in _entry_bearing_strip_targets(exit_y, variant_name):
@@ -3652,7 +3682,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     lines.append(
                         f"        ignore sub {target_name}' [{' '.join(sorted(blocked_follower_glyphs))}];"
                     )
-                lines.append(f"        sub {target_name}' {cls} by {variant_name};")
+                kept_target_followers = _select_rule_neighbors(
+                    target_name, variant_name, right_context_glyphs, direction="fwd"
+                )
+                if kept_target_followers == right_context_glyphs:
+                    lines.append(f"        sub {target_name}' {cls} by {variant_name};")
+                else:
+                    lines.append(
+                        f"        sub {target_name}' [{' '.join(sorted(kept_target_followers))}] by {variant_name};"
+                    )
                 emitted = True
         if base_name in fwd_preferred_lookahead:
             for variant_name, exit_y, sibling_y in fwd_preferred_lookahead[base_name]:
@@ -3699,7 +3737,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     exit_y,
                     right_context_glyphs - excluded,
                 )
-                lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
+                kept_noentry_followers = _select_rule_neighbors(
+                    noentry_name, actual_variant, right_context_glyphs, direction="fwd"
+                )
+                if kept_noentry_followers == right_context_glyphs:
+                    lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
+                else:
+                    lines.append(
+                        f"        sub {noentry_name}' [{' '.join(sorted(kept_noentry_followers))}] by {actual_variant};"
+                    )
                 emitted = True
         if emitted:
             lines.append(f"    }} {lookup_name};")
@@ -4031,7 +4077,14 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if entry_y in exit_classes:
                     excluded = set(_expand_exclusions(exclusions.get(entry_y, [])))
                     if excluded:
-                        filtered = sorted(exit_classes[entry_y] - excluded)
+                        filtered = sorted(
+                            _select_rule_neighbors(
+                                base_name,
+                                variant_name,
+                                exit_classes[entry_y] - excluded,
+                                direction="bk",
+                            )
+                        )
                         if filtered:
                             member_list = " ".join(filtered)
                             _emit_entry_strip_guards_for_replacement_exit(
@@ -4049,12 +4102,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                     member_list_token=f"[{member_list}]",
                                 )
                     else:
+                        candidate_preds = set(exit_classes[entry_y])
+                        kept_preds = _select_rule_neighbors(
+                            base_name,
+                            variant_name,
+                            candidate_preds,
+                            direction="bk",
+                        )
                         _emit_entry_strip_guards_for_replacement_exit(
                             base_name,
                             variant_name,
                             left_context=f"@exit_y{entry_y}",
                         )
-                        lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                        if kept_preds == candidate_preds:
+                            lines.append(f"        sub @exit_y{entry_y} {base_name}' by {variant_name};")
+                        else:
+                            lines.append(
+                                f"        sub [{' '.join(sorted(kept_preds))}] {base_name}' by {variant_name};"
+                            )
                         for fpt in _fwd_pair_bk_targets(base_name, entry_y):
                             _emit_fpt_revert(
                                 fpt,
