@@ -31,6 +31,8 @@ IMPORTANT: Always use `uv run` instead of `python` or `python3` directly. The pr
 
 - `uv run pytest` not `pytest`
 
+IMPORTANT: Never single-thread the test suite. `make test` runs `uv run pytest test/ -n auto --dist worksteal` for a reason: under xdist the full suite is ~3 minutes, but single-threaded (`-p no:xdist`) it is ~20 minutes. Run the whole suite with `make test`, and any multi-file gate with `uv run pytest <targets> -n auto --dist worksteal`. Reserve `-p no:xdist` for a single test id or a tiny handful where you want a clean, unscrambled traceback — never for a broad run. When you delegate test runs to sub-agents, tell them this explicitly: the instinct to add `-p no:xdist` for readable output is a 6× time tax.
+
 IMPORTANT: After any Python changes, run `make prettier` to format the code.
 
 ## General background information
