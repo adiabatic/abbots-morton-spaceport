@@ -9,7 +9,7 @@ If you are an agent reading this fresh: you have probably been re-invoked with n
 The loop will run for many hours across far more than one context window. It survives that because **no progress lives in the conversation** — it all lives in files:
 
 - **`test/bad-leak-backlog.txt` is the to-do list and the progress bar.** It shrinks by one entry each time you fix and re-bless a leak. A fresh window reads it to see what's left. Never hold the backlog in your head; re-read the file.
-- **`tmp/leak-loop-journal.md` is the cross-window memory.** After every fix _and_ every skip, append one entry: the signature, the lever you used (which YAML form/field), the verify result, and — for skips — why. A new window reads the journal to avoid re-attempting a leak you already proved intractable, and to know which working-tree edits are yours.
+- **`doc/shaping-leak-loop/journal.md` is the cross-window memory.** After every fix _and_ every skip, append one entry: the signature, the lever you used (which YAML form/field), the verify result, and — for skips — why. A new window reads the journal to avoid re-attempting a leak you already proved intractable, and to know which working-tree edits are yours. It is tracked (not in `tmp/`): it is the audit trail of an autonomous agent editing the font, committed with the loop's final batch.
 - **The git working tree is the accumulating batch.** You do _not_ commit mid-run (project rule, and the user chose "one approval at the end"). So the only record that fix #37 happened is: the backlog shrank, the journal logged it, and `git diff` shows the YAML edit. Those three must always agree. If they ever disagree, trust `git diff` + `make test-leaks` over the journal and reconcile.
 
 Concrete rules that keep each window cheap:
@@ -18,7 +18,7 @@ Concrete rules that keep each window cheap:
 2. **Push token-heavy work into sub-agents.** Diagnosing a dangle (reading `quikscript.yaml`, tracing selectors, finding the right lever) is exploration that bloats context. Spawn a sub-agent to do it and return _only_ the proposed edit (file, anchor, before/after). The sub-agent's exploration is discarded; your main loop keeps just the verdict.
 3. **Capture summaries, not firehoses.** Run builds/tests with output piped to `tail` (pass/fail lines only). Never paste full `make test` output into context — it is thousands of lines.
 4. **One iteration per wake, then yield.** Do a single fix-and-verify (or a small handful), append to the journal, and stop. Let the persistent `/loop` re-invoke you with a fresh window. When you notice your context is getting low _mid-iteration_, finish the current verify, journal it, and stop early — never start a new fix on a nearly-full context.
-5. **Cold-start recipe** (paste-able, for any new window): read this runbook → read `tmp/leak-loop-journal.md` → `git diff --stat` to see the accumulated batch → re-read `test/bad-leak-backlog.txt` → continue.
+5. **Cold-start recipe** (paste-able, for any new window): read this runbook → read `doc/shaping-leak-loop/journal.md` → `git diff --stat` to see the accumulated batch → re-read `test/bad-leak-backlog.txt` → continue.
 
 ## One iteration, step by step
 
@@ -45,10 +45,10 @@ The 17 signatures in `test/leak-force-bad.yaml` are the ones the per-form proxy 
 
 ## Kickoff
 
-Initialize the journal (one-time): `tmp/leak-loop-journal.md` already has a header stub. Then start the persistent loop. Suggested `/loop` prompt (self-paced, no fixed interval):
+The journal (`doc/shaping-leak-loop/journal.md`) already has a header stub. Start the persistent loop with this `/loop` prompt (self-paced, no fixed interval):
 
 ```text
-/loop Drain test/bad-leak-backlog.txt one bad shaping leak at a time, following doc/shaping-leak-loop-runbook.md exactly. Resume from the journal + backlog + git diff (you have no memory of prior iterations). Do one verified subtractive fix, re-bless, journal it, and yield. Never commit. Skip the force-bad/hard-track signatures. Stop and summarize when only hard-track entries remain.
+/loop Drain test/bad-leak-backlog.txt one bad shaping leak at a time, following doc/shaping-leak-loop/runbook.md exactly. Resume from the journal + backlog + git diff (you have no memory of prior iterations). Do one verified subtractive fix, re-bless, journal it, and yield. Never commit. Skip the force-bad/hard-track signatures. Stop and summarize when only hard-track entries remain.
 ```
 
 The loop self-paces; it does not need an interval. It will wake itself, do one iteration on a fresh context, and yield — indefinitely — until the easy backlog is drained.
