@@ -633,20 +633,20 @@ def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, 
     return f"{label} ({diff})", code
 
 
-# The preset triage verdicts, as (button label, statement that lands in the textarea) pairs. The free-text input alongside them covers the "actually we should change something else" case (e.g. "these letters should never join; update the YAML").
-_VERDICT_CHOICES: tuple[tuple[str, str], ...] = (
-    ("broken", "in context is outright broken"),
-    ("halves better", "in context is OK, but halves-shaped-separately is better"),
-    ("in-context better", "in context is just better than halves-shaped-separately"),
+# The preset triage verdicts, as (button label, statement that lands in the textarea, visual mark) triples. The mark drives the per-row highlight a click paints onto the previews: "broken" strikes the in-context preview through with a red X, "in-context" / "halves" outline whichever preview the verdict prefers in green. The free-text input alongside them covers the "actually we should change something else" case (e.g. "these letters should never join; update the YAML") and paints no mark.
+_VERDICT_CHOICES: tuple[tuple[str, str, str], ...] = (
+    ("broken", "in context is outright broken", "broken"),
+    ("in-context better", "in context is just better than halves-shaped-separately", "in-context"),
+    ("halves better", "in context is OK, but halves-shaped-separately is better", "halves"),
 )
 
 
 def _verdict_controls(seq_label: str) -> str:
     seq_attr = html.escape(seq_label, quote=True)
     buttons = "".join(
-        f'<button type="button" class="verdict-btn" data-verdict="{html.escape(statement, quote=True)}">'
+        f'<button type="button" class="verdict-btn" data-verdict="{html.escape(statement, quote=True)}" data-mark="{mark}">'
         f"{html.escape(short)}</button>"
-        for short, statement in _VERDICT_CHOICES
+        for short, statement, mark in _VERDICT_CHOICES
     )
     placeholder = "…or type your own (e.g. these letters should never join; update the YAML)"
     return (
@@ -934,18 +934,20 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "        whole list on your clipboard. Click an active button again to\n"
         "        retract it.\n"
         "      </p>\n"
-        '      <div class="verdict-panel">\n'
-        '        <div class="verdict-panel-controls">\n'
-        '          <button type="button" class="verdict-copy-all">Copy all verdicts</button>\n'
-        '          <span class="verdict-count">0 verdicts</span>\n'
-        "        </div>\n"
-        '        <textarea class="verdict-output" readonly rows="5"'
+        '      <div class="triage-sticky">\n'
+        '        <div class="verdict-panel">\n'
+        '          <div class="verdict-panel-controls">\n'
+        '            <button type="button" class="verdict-copy-all">Copy all verdicts</button>\n'
+        '            <span class="verdict-count">0 verdicts</span>\n'
+        "          </div>\n"
+        '          <textarea class="verdict-output" readonly rows="5"'
         ' placeholder="Click a verdict button on any row below — one line per sequence collects here, ready to copy."></textarea>\n'
-        "      </div>\n"
-        '      <div class="col-headers">\n'
-        "        <span>Sequence</span>\n"
-        "        <span>In context</span>\n"
-        "        <span>Halves shaped separately</span>\n"
+        "        </div>\n"
+        '        <div class="col-headers">\n'
+        "          <span>Sequence</span>\n"
+        "          <span>In context</span>\n"
+        "          <span>Halves shaped separately</span>\n"
+        "        </div>\n"
         "      </div>\n"
         f"{rows}\n"
         f"{folds}\n"
@@ -1507,15 +1509,19 @@ _PAGE_CSS = """      /*
         display: block;
       }
 
-      /* Depth-4 triage verdict UI: a sticky collector panel plus per-row verdict buttons. */
+      /* Depth-4 triage verdict UI: a sticky collector panel plus per-row verdict buttons. The collector and the column headers ride together in one sticky block so the headers stay visible no matter how far you scroll the row list. */
+      .leak-snapshot .triage-sticky {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: light-dark(#fff, #2a2a2a);
+      }
+
       .leak-snapshot .col-headers {
         position: static;
       }
 
       .leak-snapshot .verdict-panel {
-        position: sticky;
-        top: 0;
-        z-index: 2;
         padding: .75rem 1.5rem;
         background: light-dark(#fff, #2a2a2a);
         border-bottom: 1px solid light-dark(#ccc, #444);
@@ -1624,6 +1630,27 @@ _PAGE_CSS = """      /*
         background: light-dark(#eef4ff, #1b2740);
       }
 
+      /* A "broken" verdict strikes its in-context preview through with a red X; an "in-context better" / "halves better" verdict rings the preferred preview in green. */
+      .leak-snapshot .row .qs.mark-good {
+        outline: 2px solid light-dark(#16a34a, #4ade80);
+        outline-offset: 2px;
+      }
+
+      .leak-snapshot .row .qs.mark-broken {
+        position: relative;
+      }
+
+      .leak-snapshot .row .qs.mark-broken::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        --x-color: light-dark(#dc2626, #f87171);
+        background-image:
+          linear-gradient(to top right, transparent calc(50% - 1.5px), var(--x-color) calc(50% - 1.5px), var(--x-color) calc(50% + 1.5px), transparent calc(50% + 1.5px)),
+          linear-gradient(to bottom right, transparent calc(50% - 1.5px), var(--x-color) calc(50% - 1.5px), var(--x-color) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+      }
+
       .footer {
         margin-top: 2rem;
         padding: 1rem 1.5rem;
@@ -1700,7 +1727,17 @@ _VERDICT_SCRIPT = """    <script>
           const input = group.querySelector('.verdict-custom');
           input.classList.toggle('active', input === source && Boolean(verdict));
           const row = group.closest('.row');
-          if (row) row.classList.toggle('has-verdict', verdicts.has(group));
+          if (row) {
+            row.classList.toggle('has-verdict', verdicts.has(group));
+            const inContext = row.querySelector('.qs.in-context');
+            const isolated = row.querySelector('.qs.isolated');
+            if (inContext) inContext.classList.remove('mark-broken', 'mark-good');
+            if (isolated) isolated.classList.remove('mark-good');
+            const mark = verdict && source && source.dataset ? source.dataset.mark : '';
+            if (mark === 'broken' && inContext) inContext.classList.add('mark-broken');
+            else if (mark === 'in-context' && inContext) inContext.classList.add('mark-good');
+            else if (mark === 'halves' && isolated) isolated.classList.add('mark-good');
+          }
           rebuild();
         }
 
