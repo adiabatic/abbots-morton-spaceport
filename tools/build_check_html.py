@@ -799,11 +799,11 @@ def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, Iso
     return items
 
 
-# Signature -> human label + blurb for each fold of leaks the join contract takes off the triage list. The contract itself lives in doc/leak-prevention-plan.md; the per-row classification comes from tools/leak_contract_report.py.
+# Signature -> human label + blurb for each fold of leaks the join contract takes off the triage list. The contract itself lives in doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md; the per-row classification comes from tools/leak_contract_report.py.
 _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
     "droppable": (
         "Contract will erase — no verdict needed",
-        "A single <code>calt</code> rule selects the changed form right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
+        "A single <code>calt</code> rule selects the changed form right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
     ),
     "cosmetic": (
         "Author-declared cosmetic tucks — already labeled",

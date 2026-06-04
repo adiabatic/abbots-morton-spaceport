@@ -1,6 +1,6 @@
 """Group the actionable "outright broken" emergent leaks into root-cause families.
 
-Read-only. Reads the "broken" verdicts from doc/leak-emergent-verdicts.txt and groups them by the changed-form mechanism into the nine families the taxonomy in doc/leak-triage.md analyzes. Forward (left-exit) families key on the mechanism; backward (right-entry) families additionally split by predecessor context (the left neighbor across the break).
+Read-only. Reads the "broken" verdicts from doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt and groups them by the changed-form mechanism into the nine families the taxonomy in doc/history/2026-06-03--leak-cleanup/leak-triage.md analyzes. Forward (left-exit) families key on the mechanism; backward (right-entry) families additionally split by predecessor context (the left neighbor across the break).
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-VERDICTS_PATH = ROOT / "doc" / "leak-emergent-verdicts.txt"
+VERDICTS_PATH = ROOT / "doc" / "history" / "2026-06-03--leak-cleanup" / "leak-emergent-verdicts.txt"
 BROKEN_VERDICT = "in context is outright broken"
 
 

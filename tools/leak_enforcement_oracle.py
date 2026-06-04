@@ -1,8 +1,8 @@
-"""Standalone enforcement oracle for the derived join contract (see doc/leak-prevention-plan.md).
+"""Standalone enforcement oracle for the derived join contract (see doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
 
 Read-only. Applies the contract predicate to every Quikscript `sub` rule in the emitted Senior `calt` and predicts what Phase-2 enforcement would do: which adjacent Quikscript neighbors get dropped (the selected variant V cannot cursive-join them) and which rule context positions would empty out (refuse-to-emit). It then cross-checks against the snapshot partition from leak_contract_report.
 
-The point is twofold. Scoped to the snapshot rows it independently reproduces the report's 164 droppable. But the all-rules sweep shows that a *blind* FEA rewrite would touch almost every rule and empty thousands of positions -- empirical proof that enforcement must live inside the emitter (where the selection-driving neighbor is known), not as a post-hoc FEA pass. See doc/leak-triage.md.
+The point is twofold. Scoped to the snapshot rows it independently reproduces the report's 164 droppable. But the all-rules sweep shows that a *blind* FEA rewrite would touch almost every rule and empty thousands of positions -- empirical proof that enforcement must live inside the emitter (where the selection-driving neighbor is known), not as a post-hoc FEA pass. See doc/history/2026-06-03--leak-cleanup/leak-triage.md.
 
 Guard: police only Quikscript neighbors (names starting "qs"). `space` / ZWNJ (`uni200C`) / punctuation / Latin are boundary context, never join neighbors -- they have no anchors and must never be dropped.
 """

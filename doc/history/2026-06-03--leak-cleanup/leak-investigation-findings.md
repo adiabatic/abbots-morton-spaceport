@@ -36,7 +36,7 @@ Cost: depth 4 is ≈51 s (too slow for the default `make test`; fits a dedicated
 
 Because the dominant class is "exit/entry form chosen on a non-joining neighbor", the leak-free property belongs in the **emitter**, not a post-hoc checker. The direction: derive each contextual form's joinable-neighbor set from its existing anchors (no new YAML), and have the emitter refuse to select an exit/entry variant for a neighbor it does not cursively join — except where the form already carries a `before-<family>`/`after-<family>` modifier marking an intentional cosmetic tuck, which then auto-registers in the snapshot above. That makes the dominant 63% structurally impossible and turns the rest into a reviewed, enumerated set rather than a discovery problem. It does _not_ catch the emergent (composed-across-lookups) leaks, so the snapshot gate stays as the backstop. This is the high-effort, high-payoff path (depends on splitting the 4,000-line `_emit_quikscript_calt` into typed passes first) and should be chosen deliberately.
 
-The executable, phase-by-phase brief for this work is `doc/leak-prevention-plan.md`.
+The executable, phase-by-phase brief for this work is `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md`.
 
 ## Recommended sequencing
 

@@ -1,7 +1,7 @@
 # Human triage verdicts for the 209 emergent depth-4 isolation leaks (the residue the join contract cannot reach).
 # Each line: <verbatim isolation-leak-snapshot.txt signature> => <verdict>. Collected from test/check.html's depth-4 triage UI.
 # Verdicts: "in context is outright broken" (actionable backlog) | "...just better..." / "...OK, but halves..." / custom ("both fine") = accept.
-# See doc/leak-triage.md and doc/leak-prevention-plan.md.
+# See doc/history/2026-06-03--leak-cleanup/leak-triage.md and doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md.
 Pea Zoo Tea Oy [break 1] :: *L qsZoo.en-con-2->qsZoo |  R qsTea_qsOy->qsTea_qsOy => in context is outright broken
 Pea Zoo Thaw Ing [break 1] :: *L qsZoo.en-con-2->qsZoo |  R qsThaw.ex-y0->qsThaw.ex-y0 => in context is outright broken
 Pea Excite It Zoo [break 0] ::  L qsPea->qsPea | *R qsExcite->qsExcite.en-y0.ex-y0.before-vertical.noentry => in context is outright broken
