@@ -1304,6 +1304,13 @@ class _JoinContractRecorder:
                 vm = self.glyph_meta.get(var)
                 if vm is not None and vm.entry and vm.after and self._source_matches(vm.after, source_family):
                     ys.update(vm.all_entry_ys)
+        elif nmeta.exit_ys and not nmeta.all_entry_ys:
+            # `neighbor` is a forward-exit proxy of `base`: its exit is already committed (toward its own follower) while its entry stays open to a later backward upgrade. Credit it with the entry Ys of every backward-upgrade form that *preserves that committed exit* — the only upgrades that can actually fire without conflicting with the chosen exit. This heals cyclic through-joins (`qsTea.half.ex-y5 -> qsIt.ex-y0`, which settles to `qsIt.en-y5.ex-y0`, and `qsRoe.ex-y0 -> qsMay.ex-ext-1`, settling to `qsMay.en-y0.ex-y5`) without re-crediting the load-bearing drops whose entry upgrade would force a *different* exit (`qsJai.ex-y0 -> qsIt.ex-y0` would need `qsIt.en-y0.ex-y5`, flipping the committed baseline exit up to the x-height — a genuine dangle the contract must keep dropping).
+            proxy_exits = set(nmeta.exit_ys)
+            for var in self.bk_replacements.get(base, {}).values():
+                vm = self.glyph_meta.get(var)
+                if vm is not None and proxy_exits <= set(vm.exit_ys):
+                    ys.update(vm.all_entry_ys)
         for lig in self._leads.get(base, ()):
             lm = self.glyph_meta.get(lig)
             if lm is not None:
