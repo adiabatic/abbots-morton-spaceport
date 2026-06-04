@@ -756,7 +756,7 @@ def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max
 # Depth-4 leak-snapshot triage section.
 # ---------------------------------------------------------------------------
 #
-# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (~50 s), so its result is frozen in ``test/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
+# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (≈50 s), so its result is frozen in ``test/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
 
 _SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
 
@@ -1900,7 +1900,7 @@ def main() -> None:
             "sweep (default 3 — covers every pair plus single-letter "
             "context on either side, which catches context-revealed leaks "
             "without combinatorial blowup). Increase to 4 for a slower "
-            "(~30 s) but deeper sweep."
+            "(≈30 s) but deeper sweep."
         ),
     )
     parser.add_argument(

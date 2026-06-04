@@ -1,6 +1,6 @@
 """Static analysis of the emitted Senior `calt` FEA, hunting for shaping-leak risk without shaping every letter tuple.
 
-The dynamic check (`test/test_shaping.py::_check_break_isolation`, the sweep in `tools/build_check_html.py::find_leaks`) shapes sequences and flags any non-joining adjacent pair whose chosen glyphs differ in context vs. in isolation. That sweep costs ~44x per letter of depth, so it is only run to depth 3 — leaks needing 4+ letters of context go uncaught.
+The dynamic check (`test/test_shaping.py::_check_break_isolation`, the sweep in `tools/build_check_html.py::find_leaks`) shapes sequences and flags any non-joining adjacent pair whose chosen glyphs differ in context vs. in isolation. That sweep costs ≈44x per letter of depth, so it is only run to depth 3 — leaks needing 4+ letters of context go uncaught.
 
 This module instead reads the compiled FEA as a program and asks a structural question: can any contextual substitution change a glyph's shape because of a neighbor it does NOT cursively join? That is the seed of every leak. A non-join is `exit_ys(left) & entry_ys(right) == set()`, exactly as `_pair_join_ys` defines it.
 

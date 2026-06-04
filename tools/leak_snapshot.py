@@ -1,6 +1,6 @@
 """The approved-snapshot isolation-leak gate.
 
-Background: `test/test_isolation_leaks.py::test_no_visible_isolation_leaks` asserts that the depth-3 sweep finds zero visible leaks. But contextual `calt` rules chain across ~600 lookups, so a leak can need four or more letters of context to surface — and a deeper sweep (`find_leaks(max_len=4)`) currently finds hundreds the depth-3 gate never sees. Chasing those by hand-writing letter tuples is the `44^n` treadmill the rest of `doc/leak-investigation-findings.md` is about.
+Background: `test/test_isolation_leaks.py::test_no_visible_isolation_leaks` asserts that the depth-3 sweep finds zero visible leaks. But contextual `calt` rules chain across ≈600 lookups, so a leak can need four or more letters of context to surface — and a deeper sweep (`find_leaks(max_len=4)`) currently finds hundreds the depth-3 gate never sees. Chasing those by hand-writing letter tuples is the `44^n` treadmill the rest of `doc/leak-investigation-findings.md` is about.
 
 This module replaces hand-enumeration with a golden snapshot. We capture the complete set of depth-4 visible leaks as stable structural signatures and check the live build against it:
 
@@ -28,7 +28,7 @@ if str(ROOT / "tools") not in sys.path:
 
 from build_check_html import IsolationLeakExample, Leak, _visual_status, find_leaks  # noqa: E402
 
-# Depth 4 is the sweet spot: it surfaces the four-letter-context leaks the depth-3 gate misses, at ~50 s (vs. ~44x that for depth 5). It is a strong regression gate, not a completeness proof — see doc/leak-investigation-findings.md on why no fixed depth is provably complete.
+# Depth 4 is the sweet spot: it surfaces the four-letter-context leaks the depth-3 gate misses, at ≈50 s (vs. ≈44x that for depth 5). It is a strong regression gate, not a completeness proof — see doc/leak-investigation-findings.md on why no fixed depth is provably complete.
 MAX_LEN = 4
 
 # A leak's structural identity, independent of which swept sequence happened to surface it first.

@@ -32,7 +32,7 @@ test: typecheck
 test-slowly: typecheck
 	taskpolicy -b uv run pytest test/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
 
-# Deep (~50s) isolation-leak gate: the depth-4 leak set must match test/isolation-leak-snapshot.txt.
+# Deep (≈50s) isolation-leak gate: the depth-4 leak set must match test/isolation-leak-snapshot.txt.
 test-leaks: all
 	uv run pytest test/test_isolation_leaks.py -m slow
 
