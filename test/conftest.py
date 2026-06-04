@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
@@ -11,6 +12,11 @@ if TYPE_CHECKING:
     from test_shaping import Run
 
 ROOT = Path(__file__).resolve().parent.parent
+
+# Put `tools/` on the path for the xdist controller too (not just the workers, which each insert it when importing their test module). The controller imports this conftest but no test module, yet it must import `quikscript_join_analysis` to deserialize a `NonJoiningNeighborSelectionWarning` ferried from a worker (raised in-process by `emit_quikscript_senior_features`'s Phase-1 join-contract pass). Without this, xdist's warning unserialization raises ModuleNotFoundError and aborts the session.
+_TOOLS_DIR = str(ROOT / "tools")
+if _TOOLS_DIR not in sys.path:
+    sys.path.insert(0, _TOOLS_DIR)
 
 
 _shaping_cache: dict[str, Any] = {}
