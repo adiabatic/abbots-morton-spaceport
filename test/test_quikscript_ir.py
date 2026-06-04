@@ -2698,7 +2698,7 @@ def test_inheritance_skipped_in_junior_variant():
 
 
 def test_select_rule_neighbors_is_identity_without_a_recorder():
-    # The join contract (doc/leak-prevention-plan.md) routes every calt selection point through this chokepoint. It enforces (drops non-joining, non-cosmetic neighbors) only while an `_active_contract_recorder` is installed for an emit run; called directly with no recorder, it is a pure identity passthrough. The point of lifting it to a module-level function is exactly this: the selection decision is testable in isolation, without standing up the 4,000-line emitter.
+    # The join contract (doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md) routes every calt selection point through this chokepoint. It enforces (drops non-joining, non-cosmetic neighbors) only while an `_active_contract_recorder` is installed for an emit run; called directly with no recorder, it is a pure identity passthrough. The point of lifting it to a module-level function is exactly this: the selection decision is testable in isolation, without standing up the 4,000-line emitter.
     followers = {"qsTea_qsOy", "qsThaw.ex-y0", "qsDay.half"}
     kept = _select_rule_neighbors("qsGay", "qsGay.en-y5", followers, direction="fwd")
     assert kept == followers

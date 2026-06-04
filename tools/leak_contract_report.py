@@ -1,4 +1,4 @@
-"""Phase-1 reporting pass for the derived join contract (see doc/leak-prevention-plan.md).
+"""Phase-1 reporting pass for the derived join contract (see doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md).
 
 This is the cross-check oracle that brief calls for: the standalone, read-only classifier that the eventual in-emitter warn pass must agree with. It changes zero FEA bytes because it only reads the already-built Senior `calt` FEA and the approved depth-4 leak snapshot.
 

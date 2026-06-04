@@ -1,6 +1,6 @@
 # Leak triage: reconciling the 209 verdicts with the join contract
 
-This is the durable record the prevention plan (`doc/leak-prevention-plan.md`) promised: the reviewed, enumerated partition of the 387 depth-4 isolation leaks into "the contract erases it", "the design wants it", and "a human looked at it and said keep / fix". It is generated from `test/isolation-leak-snapshot.txt`, the human verdicts in `doc/leak-emergent-verdicts.txt`, and the read-only analysis in `tools/leak_contract_report.py`. Read the prevention plan first for the contract's definition and the dangle vs cross-lookup-compose distinction; the phase amendments these findings imply are folded into it.
+This is the durable record the prevention plan (`doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md`) promised: the reviewed, enumerated partition of the 387 depth-4 isolation leaks into "the contract erases it", "the design wants it", and "a human looked at it and said keep / fix". It is generated from `test/isolation-leak-snapshot.txt`, the human verdicts in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, and the read-only analysis in `tools/leak_contract_report.py`. Read the prevention plan first for the contract's definition and the dangle vs cross-lookup-compose distinction; the phase amendments these findings imply are folded into it.
 
 ## The partition (measured, independently confirmed)
 
@@ -71,7 +71,7 @@ Seven-and-a-half families share one mechanism, and it is the plan's `·Ah·May |
 
 ## Re-plan
 
-The contract direction is sound and the gates hold, but this triage forces three amendments — Phase 1's acceptance gate loosened to a superset, Phase 2 sized to shrink the snapshot by more than 164, and a new Phase 4 second-order downstream-revalidation contract that catches the 75 reachable broken rows. Those amendments are folded into `doc/leak-prevention-plan.md` (its Phase 1, Phase 2, and the new Phase 4); read them there as the executable sequence. The one-line summary: F2 → F3 → F5a → F9 → F6 → F7 → F8 → F1 for the Phase-4 build order, with F4 left in the snapshot as the cross-lookup-compose archetype.
+The contract direction is sound and the gates hold, but this triage forces three amendments — Phase 1's acceptance gate loosened to a superset, Phase 2 sized to shrink the snapshot by more than 164, and a new Phase 4 second-order downstream-revalidation contract that catches the 75 reachable broken rows. Those amendments are folded into `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` (its Phase 1, Phase 2, and the new Phase 4); read them there as the executable sequence. The one-line summary: F2 → F3 → F5a → F9 → F6 → F7 → F8 → F1 for the Phase-4 build order, with F4 left in the snapshot as the cross-lookup-compose archetype.
 
 After Phases 2 and 4, the depth-4 snapshot's residual should be: the 14 cosmetic tucks, the 110 accepted emergent leaks, the 10 F4 compose leaks, and any genuinely-unreachable tail — every entry either author-declared cosmetic or human-blessed. That is the enumerated, reviewed set the investigation promised.
 
@@ -82,4 +82,4 @@ After Phases 2 and 4, the depth-4 snapshot's residual should be: the 14 cosmetic
 - `uv run python tools/leak_enforcement_oracle.py` — the blind all-rules enforcement sizing and the snapshot cross-check.
 - `uv run python tools/leak_emergent_families.py` — the 99 broken grouped into the root-cause families.
 
-The human verdicts are in `doc/leak-emergent-verdicts.txt`, keyed by verbatim `test/isolation-leak-snapshot.txt` signature.
+The human verdicts are in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, keyed by verbatim `test/isolation-leak-snapshot.txt` signature.
