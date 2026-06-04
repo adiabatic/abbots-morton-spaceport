@@ -4,6 +4,10 @@ This is the operational runbook for deliverable B — the long-running loop that
 
 If you are an agent reading this fresh: you have probably been re-invoked with no memory of prior iterations. That is by design. **Everything you need is on disk** — reconstruct your state from the files below, do one iteration, write it down, and stop (the loop will wake you again).
 
+## Status: the one-line seam is drained — a restarted loop must target the second-order track
+
+As of the journal's "Inflection point" note, the clean one-line `not_before` / `not_after` seam this runbook's per-iteration recipe is built around is **exhausted**: fix [1] (·May→·He) was the only such fix, because ·He is the script's only universal non-receiver. The ~194 remaining backlog entries all need **second-order machinery** — entry-preserving `*.ex-noentry` forms, break-context-scoped `before:` / `after:` suppression, or demote-overrides (see the hard-track section and `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` Phase 4). A fresh window that just follows the one-line recipe below will re-read the journal, re-confirm exhaustion, and yield without a fix. **So if you are restarting the loop to make progress, retarget it at the second-order work explicitly** (the per-leak loop is a poor fit for this — a deliberate batch pass is better); otherwise stop and hand off to the user.
+
 ## How this loop manages context (read this first)
 
 The loop will run for many hours across far more than one context window. It survives that because **no progress lives in the conversation** — it all lives in files:
@@ -53,4 +57,4 @@ The journal (`doc/shaping-leak-loop/journal.md`) already has a header stub. Star
 
 The loop self-paces; it does not need an interval. It will wake itself, do one iteration on a fresh context, and yield — indefinitely — until the easy backlog is drained.
 
-**Cadence: when you yield, schedule the next wake with `delaySeconds: 60` (a 1-minute gap).** This is the author's chosen pace. Each iteration is a cold start that re-reads everything from disk, so the prompt-cache is cold regardless of the gap — ignore the usual "don't pick 300s" cache advice here and honor the 1-minute cadence. Pass the same `/loop` prompt verbatim so the next firing re-enters this runbook.
+**Cadence: when you yield, schedule the next wake with `delaySeconds: 60` (a 1-minute gap).** This is the author's chosen pace. Each iteration is a cold start that re-reads everything from disk, so prompt-cache warmth is moot regardless of the gap — just honor the 1-minute cadence. Pass the same `/loop` prompt verbatim so the next firing re-enters this runbook.
