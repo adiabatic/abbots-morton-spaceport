@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from build_check_html import IsolationLeakExample, Leak, _visual_status, find_leaks  # noqa: E402
 from leak_snapshot import SNAPSHOT_PATH, current_leaks, parse_snapshot  # noqa: E402
 
-# Matches the default the check-html target passes; deeper sweeps cost ~44× per step (see tools/build_check_html.py docstring).
+# Matches the default the check-html target passes; deeper sweeps cost ≈44× per step (see tools/build_check_html.py docstring).
 _MAX_LEN = 3
 
 
@@ -47,7 +47,7 @@ def test_no_visible_isolation_leaks() -> None:
 def test_isolation_leak_snapshot_unchanged() -> None:
     """Deeper-context gate: the set of visible leaks at depth 4 must match the approved snapshot.
 
-    Unlike the depth-3 gate above — which demands *zero* leaks — this one freezes the (currently non-empty) set of four-letter-context leaks and fails on any *change*. A new signature means a YAML/emitter change introduced a cross-break shape difference; a missing one means you fixed a leak and should re-bless the snapshot. Either way the fix is `make leak-snapshot`, then review the diff. This is the gate that retires hand-written 44^n tuple tests; it is slow (~50 s) and excluded from the default run, so invoke it via `make test-leaks`.
+    Unlike the depth-3 gate above — which demands *zero* leaks — this one freezes the (currently non-empty) set of four-letter-context leaks and fails on any *change*. A new signature means a YAML/emitter change introduced a cross-break shape difference; a missing one means you fixed a leak and should re-bless the snapshot. Either way the fix is `make leak-snapshot`, then review the diff. This is the gate that retires hand-written 44^n tuple tests; it is slow (≈50 s) and excluded from the default run, so invoke it via `make test-leaks`.
     """
     if not SNAPSHOT_PATH.exists():
         pytest.fail(f"Missing {SNAPSHOT_PATH.relative_to(ROOT)} — generate it with `make leak-snapshot`.")
