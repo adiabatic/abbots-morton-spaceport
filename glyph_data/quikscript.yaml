@@ -165,6 +165,7 @@ predecessor_demote_overrides:
   - {predecessor_form: qsExcite.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay, isolated_form: qsExcite.en-y0.noexit}
   - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsIt.ex-y0, isolated_form: qsJai}
   - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsTea.ex-y0, isolated_form: qsJai}
+  - {predecessor_form: qsJai.ex-y0, trigger_form: qsTea.ex-y0, isolated_form: qsJai}
   - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay.ex-y0, isolated_form: qsMay}
   - {predecessor_form: qsMay.ex-ext-1, trigger_form: qsFee.ex-y5, isolated_form: qsMay}
   - {predecessor_form: qsMay.ex-noentry, trigger_form: qsThey_qsUtter.noentry, isolated_form: qsMay}
@@ -180,6 +181,8 @@ trailing_demote_overrides:
   # When a forward-pair override changes a leader into an entry-preserving form with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half form once the leader's no-exit form is in the buffer. Each entry compiles to `sub leader_form trailing_form' by isolated_form;` under `calt_trailing_demote_<trailing_base>`.
   - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam, trailing_form: qsDay.half, isolated_form: qsDay}
   - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1, trailing_form: qsDay.half, isolated_form: qsDay}
+  # ·No.alt is reached through a calt_cycle backward upgrade that exits at the baseline (y0), but a trailing ·Jai may already have taken its x-height en-y5 entry from the bare ·No that still advertised an x-height exit. ·No.alt and ·Jai never join (No.alt exits y0; Jai enters y5 only), so revert the now-dangling ·Jai to its isolated form once ·No.alt is in the buffer.
+  - {leader_form: qsNo.alt.en-y0.ex-y0, trailing_form: qsJai.en-y5.ex-y0, isolated_form: qsJai}
 glyph_families:
   space:
     mono:
@@ -489,7 +492,8 @@ glyph_families:
         anchors:
           exit: [1, 0]
         select:
-          not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}]
+          # Exclude ·It for the same reason `exit_baseline` does: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke (see ·He's `not_before`). Without this, the ·See·Tea·It·It cascade pulls ·Tea down to a baseline exit into ·It instead of keeping the x-height join.
+          not_before: [{family: qsThaw}, {family: qsExcite}, {family: qsExam}, {family: qsIt}]
         modifiers: [ex-y0]
       entry_baseline:
         shape: prop
