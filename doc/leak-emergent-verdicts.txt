@@ -184,6 +184,7 @@ Awe Zoo Thaw Ing [break 1] :: *L qsZoo.half.en-y0.ex-y0->qsZoo |  R qsThaw.ex-y0
 Awe Ye No Ye [break 2] ::  L qsNo.alt.en-y0.ex-y0->qsNo.alt.en-y0.ex-y0 | *R qsYe->qsYe.en-y5.ex-y0 => in context is outright broken
 Awe Ye No Owe [break 2] ::  L qsNo.alt.en-y0.ex-y0->qsNo.alt.en-y0.ex-y0 | *R qsOwe->qsOwe.en-y5 => in context is outright broken
 Awe He No Ah [break 0] ::  L qsAwe->qsAwe | *R qsHe.half.ex-y5->qsHe.ex-y0 => in context is just better than halves-shaped-separately
+Awe He It It [break 2] :: *L qsIt.en-y5.ex-y0->qsIt.ex-y5 |  R qsIt->qsIt => in context is OK, but halves-shaped-separately is better
 Awe No Thaw Ing [break 1] :: *L qsNo.alt.en-y0.ex-y0->qsNo |  R qsThaw.ex-y0->qsThaw.ex-y0 => in context is OK, but halves-shaped-separately is better
 Awe Excite Tea Jay [break 1] :: *L qsExcite.en-y0.noexit->qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter |  R qsTea.half.ex-y5.ex-con-1->qsTea.half.ex-y5.ex-con-1 => in context is outright broken
 Awe Excite Tea I [break 1] :: *L qsExcite.en-y0.noexit->qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter | *R qsTea.en-y8.ex-y0.ex-ext-1->qsTea.ex-y0.ex-ext-1 => in context is outright broken
