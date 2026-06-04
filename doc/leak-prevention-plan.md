@@ -45,7 +45,7 @@ Add the contract as a _reporting_ pass first. At each forward/backward selection
 
 The cross-check oracle this phase validates against already exists: `tools/leak_contract_report.py` is the standalone, read-only classifier (built on `tools/leak_static_analysis.py`'s parser and `joins()` predicate) that partitions the snapshot into droppable / cosmetic / emergent and dumps the per-row breakdown to `tmp/leak-contract-report.txt`. It changes no FEA bytes because it only reads the built FEA and the snapshot. The in-emitter warn pass you add here must agree with it: same `(base, neighbor, variant)` classification, same droppable set. Run the report first to get the target numbers (currently 164 droppable, 14 cosmetic, 209 emergent of 387), then build the emitter pass to reproduce them from the inside.
 
-Acceptance gate: the warned `leak` set, projected to structural signatures, should be a subset of the current `test/isolation-leak-snapshot.txt`, and should match `leak_contract_report.py`'s droppable set. The report already confirms its half of this: every reachable verdict is a genuine non-join, with zero anomalies (no snapshot row whose changed side actually joins). If the in-emitter warned set contains signatures _not_ in the report's droppable set, the emitter classifier is over- or under-flagging — reconcile against the report before enforcing. This phase changes no FEA bytes.
+Acceptance gate: the warned `leak` set, projected to structural signatures, should be a subset of the current `test/isolation-leak-snapshot.txt`, and should be a _superset_ of `leak_contract_report.py`'s droppable set — not exactly equal. The report classifies each snapshot row by the neighbor's _settled_ form, but the in-emitter pass sees the neighbor's _bare, pre-lookup_ form at the moment the rule fires — which is what the contract actually drops. The triage in `doc/leak-triage.md` found 14 rows (family F1, the `·They`-before-may exit before bare Tea/Gay/It/Day followers) that the report tags `[no-rule]`/emergent because their settled neighbor differs, yet whose emit-time bare neighbor is genuinely non-joining and so droppable. So the correct gate is: in-emitter droppable ⊇ report droppable, and every _extra_ row must be an independently verified emit-time non-join (the F1 fourteen already are). Do not treat the superset as the classifier over-flagging; treat a row in the report's droppable set but _missing_ from the in-emitter set as the real bug. The report still confirms its half: every reachable verdict is a genuine non-join, zero anomalies. This phase changes no FEA bytes.
 
 ## Phase 2: enforce
 
@@ -54,7 +54,7 @@ Flip the pass from warn to enforce: drop non-joining, non-cosmetic neighbors fro
 Acceptance gates, all required:
 
 - `make test` stays green (the depth-3 gate and the whole shaping corpus).
-- `make test-leaks` fails with the snapshot _shrinking_ — review the removed signatures; every one should be a genuine improvement (a leak you just made impossible). Re-bless with `make leak-snapshot` and commit the shrunken snapshot in the same change.
+- `make test-leaks` fails with the snapshot _shrinking_ — review the removed signatures; every one should be a genuine improvement (a leak you just made impossible). Expect the snapshot to shrink by _more_ than the report's 164: 164 droppable plus the emit-time-droppable rows the report misses (the 14 F1 rows above, and any others that surface once measured from inside). Budget for that; do not assert "exactly 164 removed." Re-bless with `make leak-snapshot` and commit the shrunken snapshot in the same change.
 - `make check-html` and a visual pass on `test/check.html`: confirm the now-suppressed cross-break selections look _better_ (no dangling exits, no false tucks), not worse. If any intended cosmetic tuck disappeared, it was missing its `before-X`/`after-X` modifier — add it (that is the one legitimate YAML edit this phase allows) rather than weakening the contract.
 - Spot-check the reactive machinery did not start double-firing: the contract should make some existing guards redundant, but it must not contradict them.
 
@@ -62,12 +62,34 @@ Acceptance gates, all required:
 
 Once the contract holds, parts of the hand-curated leak-patching machinery become dead weight: `_PENDING_BK_ENTRY_GUARDS` and `_PENDING_LIGA_ENTRY_GUARDS` (`tools/quikscript_join_analysis.py:92`, `:135`), `_collect_noentry_shape_leak_warnings` (`:476`), and portions of the ZWNJ firewall and strip guards in the emitter. Remove only what the contract provably subsumes, one table at a time, each gated by byte-diff (`make snapshot-before`) plus `make test` plus `make test-leaks`. Do not batch these; a removed guard that was load-bearing will resurface as a snapshot regression, and you want to know exactly which removal caused it.
 
+## Phase 4 (high payoff): the downstream-revalidation (second-order) contract
+
+The per-rule contract of Phases 1–2 cannot reach the _dangle_: a contract-_compliant_ rule sets an exit (or, mirror-image, a backward entry) keyed on a join-class member that genuinely joins when the rule fires; a _later_ lookup then rewrites the actual adjacent neighbor out of that class — into an exit-only form, an entryless `noentry`/`noexit` form, or an entryless ligature (`qsTea_qsOy`, `qsSee_qsEat`, `qsThey_qsZoo`, `qsOut_qsTea`) — and the connector dangles. Every per-rule join check passes, so the per-rule contract is structurally blind. The triage (`doc/leak-triage.md`) measured this against the human verdicts: of the 99 "outright broken" emergent leaks, **75 are dangles reachable by one uniform second-order pass**, 14 are actually Phase-2 per-rule rows (F1), and 10 (family F4) are genuine cross-lookup-compose that no contract reaches.
+
+The pass: after each lookup that rewrites an adjacent neighbor, re-run `exit_ys(left) & entry_ys(right)`; when it goes empty, revert the now-dangling exit/entry to the isolated form. Verifiers confirmed the revert is _safe_ — it restores the exact isolation target and breaks no real join — and that it _subsumes_ existing ad-hoc machinery (`predecessor_demote_overrides` / `calt_pred_demote_qsExcite`, the `qsOut_qsTea` reverts, the class-keyed backward upgrades are all special cases), so Phase 4 grows what Phase 3 can retire. One nuance from family F8: when the offending form bundles an emergent _entry_ upgrade with the dangling _exit_, revert the whole form to bare, not just the exit.
+
+Build and validate it family-by-family in this order — biggest, most tractable, highest-confidence first, each gated by `make test` + `make test-leaks` with the snapshot shrinking:
+
+1. **F2 `·May` baseline-exit (15)** — the canonical `·Ah·May | ·See·At` dangle; prove the mechanism here.
+2. **F3 `·Excite` vertical-exit (14)** — second-order machinery already half-exists; the fix is enumerating unlisted demote triples, which de-risks the general pass.
+3. **F5a `·They·Zoo` predecessor (11)** — backward entry dangle on a trailing glyph (no follower), so the revert is provably consequence-free; first backward test.
+4. **F9 misc backward-entry (9)** — uniform backward dangle, all realized neighbors `exit=[]`; trivially safe revert.
+5. **F6 `·Out·Tea` predecessor (6)** — backward entry dangle keyed on `@exit_y0`; mirrors F5a/F9.
+6. **F7 `·May`/`·No` predecessor (4)** — same backward shape, smallest clean batch.
+7. **F8 `·Utter` reaches-way-back (2)** — smallest, but exercises the bundled entry+exit revert nuance.
+8. **F1 `·They` before-may exit (28)** — split: 14 Tea/Gay/It/Day rows go to Phase-2 pruning, 14 See/Thaw rows here. Do last, after the mechanism is proven on F2/F3.
+
+Family F4 (10) gets no contract work — accept it in the snapshot, and keep `·Ah·It | ·Tea·Oy` there as the documented cross-lookup-compose archetype that no contract can reach.
+
 ## Validation tooling you already have
 
 - `tools/leak_static_analysis.py` — parses the emitted `calt` into structured rules and has the `joins()` predicate; the cheap oracle for "does this rule select across a non-join?".
+- `tools/leak_contract_report.py` — partitions the snapshot into droppable / cosmetic / emergent (the Phase-1 cross-check oracle).
+- `tools/leak_enforcement_oracle.py` — predicts the Phase-2 enforcement delta and shows why a blind FEA rewrite misfires (enforcement must be in-emitter).
+- `tools/leak_verdict_reconcile.py` + `tools/leak_emergent_families.py` + `doc/leak-emergent-verdicts.txt` — the human triage of the emergent residue and its root-cause families (the Phase-4 work-list); see `doc/leak-triage.md`.
 - `tools/leak_snapshot.py` + `test/isolation-leak-snapshot.txt` — the depth-4 ground truth and the regression gate; `make leak-snapshot` re-blesses, `make test-leaks` checks.
 - `make snapshot-before` + FEA/OTF diff — the byte-identical equivalence harness for the refactor and retirement steps.
 
 ## Definition of done
 
-The single-form "selected across a non-join" class is gone from `test/isolation-leak-snapshot.txt`; everything remaining there is either an author-declared cosmetic tuck (carries a `before-X`/`after-X` modifier) or a documented emergent leak; `make test` and `make test-leaks` are green against the re-blessed snapshot; and the FEA for any non-behavioral step diffs to zero bytes. Stop there — the emergent residue is the snapshot gate's job, not this contract's.
+The single-form "selected across a non-join" class is gone from `test/isolation-leak-snapshot.txt` (Phases 1–2); `make test` and `make test-leaks` are green against the re-blessed snapshot; and the FEA for any non-behavioral step diffs to zero bytes. With Phase 4 also done, the dangle class is gone too, and everything remaining in the snapshot is one of: an author-declared cosmetic tuck (carries a `before-X`/`after-X` modifier), a `doc/leak-emergent-verdicts.txt`-accepted emergent leak (the 110 "either form is fine"), or a cross-lookup-compose leak no contract reaches (family F4). Every residual entry is then either author-declared cosmetic or human-blessed — the enumerated, reviewed set the investigation promised, not a discovery problem.
