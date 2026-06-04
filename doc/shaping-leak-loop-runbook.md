@@ -47,7 +47,7 @@ The 17 signatures in `test/leak-force-bad.yaml` are the ones the per-form proxy 
 
 Initialize the journal (one-time): `tmp/leak-loop-journal.md` already has a header stub. Then start the persistent loop. Suggested `/loop` prompt (self-paced, no fixed interval):
 
-```
+```text
 /loop Drain test/bad-leak-backlog.txt one bad shaping leak at a time, following doc/shaping-leak-loop-runbook.md exactly. Resume from the journal + backlog + git diff (you have no memory of prior iterations). Do one verified subtractive fix, re-bless, journal it, and yield. Never commit. Skip the force-bad/hard-track signatures. Stop and summarize when only hard-track entries remain.
 ```
 
