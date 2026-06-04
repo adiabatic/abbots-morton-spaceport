@@ -1,0 +1,22 @@
+# Per-signature force-benign allowlist for the shaping-leak classifier (a symmetric completion of decision 11 of doc/definitions/shaping-leakage.md).
+#
+# Some human-accepted standalone-variant swaps (e.g. qsNo -> qsNo.alt.en-y0.ex-y0) gain a break-facing anchor and so trip the additive-dangle proxy in tools/leak_classify.py, yet carry no before-/after- cosmetic modifier, so the per-form cosmetic opt-out does not rescue them. Each entry here demotes one exact swap to benign without weakening the proxy in other contexts. Force-bad outranks this.
+#
+# Each signature is [isolated_left, left_chosen, isolated_right, right_chosen] — the same 4-tuple the snapshot keys on.
+signatures:
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsFee', 'qsFee']  # Jai Gay No Fee [break 2]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsJai', 'qsJai']  # Jai Gay No Jai [break 2]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsGay.ex-y0.ex-ext-1', 'qsGay.ex-y0.ex-ext-1']  # No Gay Out Tea [break 0]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsGay.ex-y0', 'qsGay.en-y0.ex-y5']  # Roe May Gay Ah [break 1]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsGay.ex-y5', 'qsGay.en-y0.ex-y5']  # Roe May Gay Awe [break 1]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsGay', 'qsGay.en-y0.ex-y5.ex-ext-2']  # Roe May Gay Owe [break 1]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsMay.ex-ext-1', 'qsMay.en-y0.ex-y5']  # Roe May May Fee [break 1]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsMay.ex-y0', 'qsMay.en-y0.ex-y5']  # Roe May May Ah [break 1]
+  - ['qsMay.en-y0.ex-y5', 'qsMay.en-y0.ex-y5', 'qsMay', 'qsMay.en-y0.ex-y5.ex-ext-1']  # Roe May May Awe [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsSee.ex-y0.ex-ext-2', 'qsSee.ex-y0.ex-ext-2']  # Roe No See Low [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsSee_qsEat', 'qsSee_qsEat']  # Roe No See Eat [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsSee.ex-y0', 'qsSee.ex-y0']  # Roe No See At [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsSee.ex-y0.ex-con-1', 'qsSee.ex-y0.ex-con-1']  # Roe No See Out [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsSee.ex-y0.ex-y0-right', 'qsSee.ex-y0.ex-y0-right']  # Roe No See Ooze [break 1]
+  - ['qsNo', 'qsNo.alt.en-y0.ex-y0', 'qsUtter.alt.ex-y0.before-may', 'qsUtter.alt.ex-y0.before-may']  # Roe No Utter May [break 1]
+  - ['qsIt.en-y5.ex-y0', 'qsIt.ex-y5', 'qsIt', 'qsIt']  # Awe He It It [break 2]

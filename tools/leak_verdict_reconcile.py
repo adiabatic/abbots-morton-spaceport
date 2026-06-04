@@ -14,6 +14,7 @@ for _p in (str(ROOT / "tools"), str(ROOT / "test")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import leak_classify  # noqa: E402
 import leak_contract_report as rep  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
 
@@ -96,6 +97,43 @@ def main() -> None:
     )
     for sig in sorted(emergent_sigs - verdict_sigs):
         print(f"    MISSING VERDICT: {sig}")
+
+    confusion_matrix(rows)
+
+
+def confusion_matrix(rows: list[tuple[str, rep.Signature, str, str]]) -> None:
+    """Score the bad/benign proxy in leak_classify against the human verdicts: every "broken" verdict should classify bad, every accepted one benign. Print precision/recall and the two override-seed lists (the disagreements) so the proxy is trusted *with* its overrides before the loop acts on it. Every verdict comes from the depth-4 snapshot, which only records visible (diff) leaks, so visible=True throughout."""
+    force_bad = leak_classify.force_bad_signatures()
+    force_benign = leak_classify.force_benign_signatures()
+    # Confusion against the human "truth": positive = bad.
+    tp = fp = tn = fn = 0
+    broken_misses: list[tuple[str, rep.Signature]] = []  # human bad, proxy benign -> force-bad seed
+    accepted_misses: list[tuple[str, rep.Signature]] = []  # human benign, proxy bad -> force-benign seed
+    for snap, sig, _v, bucket in rows:
+        human_bad = bucket == "broken"
+        proxy = leak_classify.classify(sig, visible=True, force_bad=force_bad, force_benign=force_benign)
+        proxy_bad = proxy == "bad"
+        if human_bad and proxy_bad:
+            tp += 1
+        elif human_bad and not proxy_bad:
+            fn += 1
+            broken_misses.append((snap, sig))
+        elif not human_bad and proxy_bad:
+            fp += 1
+            accepted_misses.append((snap, sig))
+        else:
+            tn += 1
+    precision = tp / (tp + fp) if (tp + fp) else 1.0
+    recall = tp / (tp + fn) if (tp + fn) else 1.0
+    print("\n== proxy bad/benign vs human verdict ==")
+    print(f"  tp(bad,bad)={tp}  fp(benign,bad)={fp}  tn(benign,benign)={tn}  fn(bad,benign)={fn}")
+    print(f"  precision={precision:.3f}  recall={recall:.3f}")
+    print(f"\n  broken-but-proxy-benign (force-bad seeds): {len(broken_misses)}")
+    for snap, sig in broken_misses:
+        print(f"    - {list(sig)}    # {snap}")
+    print(f"\n  accepted-but-proxy-bad (force-benign seeds): {len(accepted_misses)}")
+    for snap, sig in accepted_misses:
+        print(f"    - {list(sig)}    # {snap}")
 
 
 if __name__ == "__main__":

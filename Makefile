@@ -32,11 +32,11 @@ test: typecheck
 test-slowly: typecheck
 	taskpolicy -b uv run pytest test/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
 
-# Deep (≈50s) isolation-leak gate: the depth-4 leak set must match test/isolation-leak-snapshot.txt.
+# Deep (≈1 min) isolation-leak gate: no NEW bad leak at depth 4 (test/bad-leak-backlog.txt), plus the benign census (test/benign-leak-census.txt).
 test-leaks: all
 	uv run pytest test/test_isolation_leaks.py -m slow
 
-# Re-bless the approved leak snapshot after an intended change (then review the diff).
+# Re-bless the bad-leak backlog and benign census after an intended change (then review the diff).
 leak-snapshot: all
 	uv run python tools/leak_snapshot.py
 

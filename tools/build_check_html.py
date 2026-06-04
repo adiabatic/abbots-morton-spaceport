@@ -41,25 +41,29 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 CHECK_HTML_PATH = TEST_DIR / "check.html"
-LEAK_SNAPSHOT_PATH = TEST_DIR / "isolation-leak-snapshot.txt"
+LEAK_SNAPSHOT_PATH = TEST_DIR / "bad-leak-backlog.txt"
 
 # Reuse the test-suite shaping helpers so the isolation-leaks sweep matches what ``test_shaping.py`` enforces.
 if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))
 
 from quikscript_shaping_helpers import (  # noqa: E402
+    BOUNDARY_TOKENS,
     _char_map,
     _compiled_meta,
+    _entry_ys,
+    _exit_ys,
     _font,
-    _pair_join_ys,
     _plain_quikscript_letters,
     _qs_text,
     _shape_qs,
+    _shape_with_clusters,
 )
 
 if str(ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(ROOT / "tools"))
 
+import leak_classify  # noqa: E402
 from leak_contract_report import FEA_PATH as CONTRACT_FEA_PATH  # noqa: E402
 from leak_contract_report import classify as classify_leak_contract  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
@@ -88,7 +92,7 @@ class Leak:
 @dataclass(frozen=True)
 class IsolationLeakExample:
     families: tuple[str, ...]
-    break_index: int  # output-glyph position of the leaky break
+    break_index: int  # input-family index of the left letter flanking the leaky break
 
 
 def _is_letter_glyph(name: str) -> bool:
@@ -99,81 +103,127 @@ def _is_letter_glyph(name: str) -> bool:
     return base not in {"qsAngleParenLeft", "qsAngleParenRight"}
 
 
-def _input_spans(full: list[str]) -> list[tuple[int, int]] | None:
-    """Map each output glyph to its [start, end) input-family slice."""
-    meta = _compiled_meta()
-    consumed = 0
-    spans: list[tuple[int, int]] = []
-    for g in full:
-        g_meta = meta.get(g)
-        seq_len = len(g_meta.sequence) if g_meta and g_meta.sequence else 1
-        spans.append((consumed, consumed + seq_len))
-        consumed += seq_len
-    return spans
+def _is_boundary_token(family: str) -> bool:
+    return family in BOUNDARY_TOKENS
+
+
+def _family_owner_glyphs(names: tuple[str, ...], clusters: tuple[int, ...], n_families: int) -> list[int]:
+    """For each input-family index, the output-glyph index that covers it. Built from HarfBuzz clusters so it stays correct when a ligature covers several families or a boundary token (ZWNJ) shapes to nothing — the dropped token's family index is absorbed into the preceding glyph's cluster range, but the sweep reads the token from ``families`` directly, so nothing is lost."""
+    owner = [0] * n_families
+    for k in range(len(names)):
+        start = clusters[k]
+        end = clusters[k + 1] if k + 1 < len(names) else n_families
+        for j in range(start, min(end, n_families)):
+            owner[j] = k
+    return owner
+
+
+def _last_letter(glyphs: list[str]) -> str | None:
+    return next((g for g in reversed(glyphs) if _is_letter_glyph(g)), None)
+
+
+def _first_letter(glyphs: list[str]) -> str | None:
+    return next((g for g in glyphs if _is_letter_glyph(g)), None)
 
 
 def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
-    """Return (break_index, Leak) pairs for every leaky non-join in *families*."""
-    full = _shape_qs(*families)
-    if len(full) < 2:
+    """Return (break_index, Leak) pairs for every leaky break in *families*.
+
+    A break sits between two letter families separated only by zero or more boundary tokens. When tokens are present it is always a pen-lift (cursive cannot cross ``space``/ZWNJ); with no token between, it is a break only when the two flanking glyphs do not cursive-join. The isolated reference is boundary-faithful: each half keeps the boundary token (it sits in both halves), so space-keyed ``calt`` is honored consistently and only a difference reaching *across* the token is flagged.
+    """
+    names, clusters = _shape_with_clusters(_qs_text(*families))
+    if len(names) < 2:
         return []
-    spans = _input_spans(full)
-    if spans is None or spans[-1][1] != len(families):
-        return []
+    owner = _family_owner_glyphs(names, clusters, len(families))
+    letter_positions = [j for j, fam in enumerate(families) if not _is_boundary_token(fam)]
     results: list[tuple[int, Leak]] = []
-    for i in range(len(full) - 1):
-        left = full[i]
-        right = full[i + 1]
-        if not (_is_letter_glyph(left) and _is_letter_glyph(right)):
+    for j_left, j_right in zip(letter_positions, letter_positions[1:]):
+        between = families[j_left + 1 : j_right]
+        left_chosen = names[owner[j_left]]
+        right_chosen = names[owner[j_right]]
+        if not (_is_letter_glyph(left_chosen) and _is_letter_glyph(right_chosen)):
             continue
-        if _pair_join_ys(full, i):
+        if not between and (_exit_ys(left_chosen) & _entry_ys(right_chosen)):
+            # A mid-word pair that actually cursive-joins is not a break.
             continue
-        l_end = spans[i][1]
-        r_start = spans[i + 1][0]
-        if l_end != r_start:
+        # Boundary-faithful halves: the token(s) between the letters appear in both.
+        left_shaped = _shape_qs(*families[:j_right])
+        right_shaped = _shape_qs(*families[j_left + 1 :])
+        isolated_left = _last_letter(left_shaped)
+        isolated_right = _first_letter(right_shaped)
+        if isolated_left is None or isolated_right is None:
             continue
-        left_shaped = _shape_qs(*families[:l_end])
-        right_shaped = _shape_qs(*families[r_start:])
-        if not left_shaped or not right_shaped:
-            continue
-        split_left = left_shaped[-1]
-        split_right = right_shaped[0]
-        if left == split_left and right == split_right:
+        if left_chosen == isolated_left and right_chosen == isolated_right:
             continue
         results.append(
             (
-                i,
+                j_left,
                 Leak(
-                    left_chosen=left,
-                    right_chosen=right,
-                    isolated_left=split_left,
-                    isolated_right=split_right,
+                    left_chosen=left_chosen,
+                    right_chosen=right_chosen,
+                    isolated_left=isolated_left,
+                    isolated_right=isolated_right,
                 ),
             ),
         )
     return results
 
 
+def _sweep_alphabet() -> list[str]:
+    return [name for name, _ in _plain_quikscript_letters()] + list(BOUNDARY_TOKENS)
+
+
+def _is_degenerate_sequence(families: tuple[str, ...]) -> bool:
+    """Skip sequences a boundary token could not really occupy: a token at either edge (no letter to flank), or two adjacent tokens (no real text writes ``space`` next to ZWNJ)."""
+    if _is_boundary_token(families[0]) or _is_boundary_token(families[-1]):
+        return True
+    return any(_is_boundary_token(a) and _is_boundary_token(b) for a, b in zip(families, families[1:]))
+
+
 def find_leaks(max_len: int) -> dict[Leak, IsolationLeakExample]:
-    """Enumerate sequences up to *max_len* and collect unique leaks."""
-    letters = [name for name, _ in _plain_quikscript_letters()]
+    """Enumerate sequences up to *max_len* (letters plus the boundary tokens) and collect unique (identity) leaks, mapped to the first example that surfaced each."""
+    alphabet = _sweep_alphabet()
     leaks: dict[Leak, IsolationLeakExample] = {}
     for length in range(2, max_len + 1):
-        for families in itertools.product(letters, repeat=length):
+        for families in itertools.product(alphabet, repeat=length):
+            if _is_degenerate_sequence(families):
+                continue
             for break_i, leak in _scan_sequence(families):
                 if leak not in leaks:
                     leaks[leak] = IsolationLeakExample(families=families, break_index=break_i)
     return leaks
 
 
+def find_visible_leaks(max_len: int) -> dict[tuple[str, str, str, str], IsolationLeakExample]:
+    """Map each *visible* leak signature to a representative example that renders it visibly.
+
+    Visibility is a property of the rendered run, not of the signature: the same flanking-glyph swap renders visibly in one context (a predecessor or follower that joined the now-changed edge) and invisibly in another, so a signature counts as visible if *any* swept example renders a ``diff``. Determined this way the visible set is independent of enumeration order — unlike keying off whichever example surfaced first — so adding the boundary tokens to the alphabet (whose examples often render ``same`` by boundary-faithfulness) cannot mask a letters-only leak. Once a signature is known visible its later occurrences are skipped, so the per-occurrence render is paid only until the first ``diff``.
+    """
+    alphabet = _sweep_alphabet()
+    visible: dict[tuple[str, str, str, str], IsolationLeakExample] = {}
+    for length in range(2, max_len + 1):
+        for families in itertools.product(alphabet, repeat=length):
+            if _is_degenerate_sequence(families):
+                continue
+            for break_i, leak in _scan_sequence(families):
+                sig = (leak.isolated_left, leak.left_chosen, leak.isolated_right, leak.right_chosen)
+                if sig in visible:
+                    continue
+                example = IsolationLeakExample(families=families, break_index=break_i)
+                if _visual_status(example) == "diff":
+                    visible[sig] = example
+    return visible
+
+
+def _next_letter_index(families: tuple[str, ...], after: int) -> int:
+    return next(j for j in range(after + 1, len(families)) if not _is_boundary_token(families[j]))
+
+
 def _shaped_input_spans(example: IsolationLeakExample) -> tuple[tuple[int, int], tuple[int, int]]:
-    full = _shape_qs(*example.families)
-    spans = _input_spans(full)
-    if spans is None:
-        raise RuntimeError(f"could not map spans for {example.families!r}")
-    l_end = spans[example.break_index][1]
-    r_start = spans[example.break_index + 1][0]
-    return (0, l_end), (r_start, len(example.families))
+    """The two boundary-faithful half-slices of ``example.families``. ``break_index`` is the left letter's family index; the right letter is the next non-token family. The slices overlap on any boundary token between them, because the token belongs to both halves."""
+    j_left = example.break_index
+    j_right = _next_letter_index(example.families, j_left)
+    return (0, j_right), (j_left + 1, len(example.families))
 
 
 def _visual_signature(name: str) -> tuple:
@@ -182,7 +232,7 @@ def _visual_signature(name: str) -> tuple:
 
 
 def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
-    """Shape *parts* and return per-glyph (visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual form selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two forms are visually identical."""
+    """Shape *parts* and return per-glyph (name, visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual form selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two forms are visually identical."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(_qs_text(*parts))
@@ -190,22 +240,34 @@ def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int
     hb.shape(font, buf, {"kern": False})
     pen_x = 0
     pen_y = 0
-    sigs: list[tuple] = []
+    entries: list[tuple] = []
     for info, pos in zip(buf.glyph_infos, buf.glyph_positions):
         name = font.glyph_to_string(info.codepoint)
-        sigs.append((_visual_signature(name), pen_x + pos.x_offset, pen_y + pos.y_offset))
+        entries.append((name, _visual_signature(name), pen_x + pos.x_offset, pen_y + pos.y_offset))
         pen_x += pos.x_advance
         pen_y += pos.y_advance
-    return sigs, pen_x, pen_y
+    return entries, pen_x, pen_y
 
 
 def _visual_status(example: IsolationLeakExample) -> str:
-    """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence against the concatenation of its two independently-shaped halves."""
-    full_sigs, _, _ = _abs_render_signature(example.families)
+    """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence against the concatenation of its two boundary-faithful halves.
+
+    The left half ends with the shared boundary token (if any); the right half begins with it. Since both halves are shaped *with* the token (so each flanking letter's space-keyed form is faithful), the token glyph would otherwise render twice. So when concatenating we drop the right half's leading boundary glyphs and re-base the remaining glyphs onto the left half's advance — the token is rendered exactly once, at its real position.
+    """
+    full_entries, _, _ = _abs_render_signature(example.families)
     (l0, l1), (r0, r1) = _shaped_input_spans(example)
-    left_sigs, left_x, left_y = _abs_render_signature(example.families[l0:l1])
-    right_sigs, _, _ = _abs_render_signature(example.families[r0:r1])
-    halves_sigs = left_sigs + [(sig, x + left_x, y + left_y) for sig, x, y in right_sigs]
+    left_entries, left_x, left_y = _abs_render_signature(example.families[l0:l1])
+    right_entries, _, _ = _abs_render_signature(example.families[r0:r1])
+    lead = 0
+    while lead < len(right_entries) and not _is_letter_glyph(right_entries[lead][0]):
+        lead += 1
+    trimmed = right_entries[lead:]
+    base_x = trimmed[0][2] if trimmed else 0
+    base_y = trimmed[0][3] if trimmed else 0
+    full_sigs = [(sig, x, y) for _name, sig, x, y in full_entries]
+    halves_sigs = [(sig, x, y) for _name, sig, x, y in left_entries] + [
+        (sig, x - base_x + left_x, y - base_y + left_y) for _name, sig, x, y in trimmed
+    ]
     return "same" if full_sigs == halves_sigs else "diff"
 
 
@@ -517,8 +579,14 @@ _FAMILY_TO_TABLES_NAME = {
 }
 
 
+_BOUNDARY_TOKEN_LABEL = {"space": "␣", "ZWNJ": "◊ZWNJ"}
+_BOUNDARY_TOKEN_CODEPOINT = {"space": 0x20, "ZWNJ": 0x200C}
+
+
 def _short_label(family: str) -> str:
-    """``qsRoe`` -> ``·Roe``; ``qsIng`` -> ``·-ing`` (matches data-expect style)."""
+    """``qsRoe`` -> ``·Roe``; ``qsIng`` -> ``·-ing`` (matches data-expect style); boundary tokens render as their own glyphs (``␣`` / ``◊ZWNJ``)."""
+    if family in _BOUNDARY_TOKEN_LABEL:
+        return _BOUNDARY_TOKEN_LABEL[family]
     if family in _FAMILY_TO_LABEL:
         return _FAMILY_TO_LABEL[family]
     return "·" + family[2:]
@@ -535,7 +603,9 @@ def _short_label_for_codepoint(codepoint: int, cp_to_family: dict[int, str]) -> 
 
 def _family_to_codepoint() -> dict[str, int]:
     chars = _char_map()
-    return {name: ord(chars[name]) for name in chars if name.startswith("qs") and "_" not in name}
+    cp = {name: ord(chars[name]) for name in chars if name.startswith("qs") and "_" not in name}
+    cp.update(_BOUNDARY_TOKEN_CODEPOINT)
+    return cp
 
 
 def _codepoint_to_family() -> dict[int, str]:
@@ -700,25 +770,32 @@ def _leak_sort_key(item: tuple[Leak, IsolationLeakExample]) -> tuple:
     )
 
 
-def _isolation_leaks_section(items: list[tuple[Leak, IsolationLeakExample]], max_len: int) -> str:
-    diff_items = [
-        (leak, example, visual)
-        for leak, example in items
-        for visual in (_visual_status(example),)
-        if visual == "diff"
-    ]
-    rows = "\n".join(_format_leak_row(leak, w, v) for leak, w, v in diff_items)
+def _isolation_leaks_section(
+    visible: dict[tuple[str, str, str, str], IsolationLeakExample], max_len: int
+) -> str:
+    force_bad = leak_classify.force_bad_signatures()
+    force_benign = leak_classify.force_benign_signatures()
+    items: list[tuple[Leak, IsolationLeakExample, str]] = []
+    for sig, example in visible.items():
+        leak = Leak(left_chosen=sig[1], right_chosen=sig[3], isolated_left=sig[0], isolated_right=sig[2])
+        verdict = leak_classify.classify(sig, visible=True, force_bad=force_bad, force_benign=force_benign)
+        items.append((leak, example, verdict))
+    items.sort(key=lambda it: _leak_sort_key((it[0], it[1])))
+    rows = "\n".join(_format_leak_row(leak, ex, verdict) for leak, ex, verdict in items)
+    bad_count = sum(1 for *_, v in items if v == "bad")
     return (
         '    <details class="collapsible isolation-leaks" open>\n'
         "      <summary><h2>Auto-generated: isolation leaks</h2></summary>\n"
         "      <p>\n"
         "        Sequences whose adjacent pair does not cursive-attach but\n"
         "        whose chosen glyphs differ when the pair is shaped together\n"
-        "        versus split into independent buffers. These are the\n"
-        "        cases that currently require <code>|?|</code> in\n"
-        "        <code>data-expect</code>; visually inspect each row to\n"
-        "        decide whether the cross-break shape change is cosmetic\n"
-        "        or a real bug. Generated with"
+        "        versus split into boundary-faithful independent buffers. Each\n"
+        "        row's tag is the mechanical verdict (<code>tools/leak_classify.py</code>):\n"
+        f"        <strong>{bad_count}</strong> <code>bad</code> (a visible additive\n"
+        "        dangle reaching toward an absent neighbor — the defects the fix\n"
+        "        loop targets) and the rest <code>benign</code> (subtractive trims,\n"
+        "        standalone-variant swaps, cosmetic tucks — the welcome\n"
+        "        faux-organic variation). Generated with"
         f" <code>--max-len {max_len}</code>.\n"
         "      </p>\n"
         "      <p>\n"
@@ -783,7 +860,7 @@ def _example_from_snapshot_label(label: str) -> IsolationLeakExample:
     match = _SNAPSHOT_LABEL_RE.match(label.strip())
     if not match:
         raise ValueError(f"unparseable snapshot label: {label!r}")
-    families = tuple("qs" + token for token in match.group(1).split())
+    families = tuple(token if token in BOUNDARY_TOKENS else "qs" + token for token in match.group(1).split())
     return IsolationLeakExample(families=families, break_index=int(match.group(2)))
 
 
@@ -1416,9 +1493,15 @@ _PAGE_CSS = """      /*
         vertical-align: 1px;
       }
 
-      .isolation-leaks .row[data-visual="diff"] .visual-tag {
+      .isolation-leaks .row[data-visual="diff"] .visual-tag,
+      .isolation-leaks .row[data-visual="benign"] .visual-tag {
         background: light-dark(#ffe0a8, #5a3a00);
         color: light-dark(#5a3a00, #ffe0a8);
+      }
+
+      .isolation-leaks .row[data-visual="bad"] .visual-tag {
+        background: light-dark(#ffc9c9, #5a1212);
+        color: light-dark(#7a0a0a, #ffc9c9);
       }
 
       .isolation-leaks .row .label .open-in-tables {
@@ -1866,9 +1949,7 @@ def _render_page(
 
 
 def build(max_len: int) -> str:
-    leaks = find_leaks(max_len)
-    leak_items = sorted(leaks.items(), key=_leak_sort_key)
-    leaks_section = _isolation_leaks_section(leak_items, max_len)
+    leaks_section = _isolation_leaks_section(find_visible_leaks(max_len), max_len)
 
     if LEAK_SNAPSHOT_PATH.exists():
         snapshot_section = _leak_snapshot_section(parse_leak_snapshot())

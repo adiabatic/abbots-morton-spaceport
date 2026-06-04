@@ -2,7 +2,7 @@
 
 This is the cross-check oracle that brief calls for: the standalone, read-only classifier that the eventual in-emitter warn pass must agree with. It changes zero FEA bytes because it only reads the already-built Senior `calt` FEA and the approved depth-4 leak snapshot.
 
-What it answers: of the leaks currently frozen in `test/isolation-leak-snapshot.txt`, how many will the construction-time join contract make impossible (so they are moot for hand-triage), how many are author-declared cosmetic tucks the contract is meant to keep, and how many are emergent across the chained lookups and so out of the contract's reach. That partition is the whole point — it tells you which snapshot rows you can skip when collecting verdicts.
+What it answers: of the leaks currently frozen in the bad backlog + benign census (`test/bad-leak-backlog.txt`, `test/benign-leak-census.txt`), how many will the construction-time join contract make impossible (so they are moot for hand-triage), how many are author-declared cosmetic tucks the contract is meant to keep, and how many are emergent across the chained lookups and so out of the contract's reach. That partition is the whole point — it tells you which snapshot rows you can skip when collecting verdicts.
 
 The contract's per-rule predicate (from the brief): a contextual substitution that selects variant `V` may keep a neighbor `N` only if `V` cursively joins `N` — `exit_ys(V) & entry_ys(N) != set()` for a forward (follower) neighbor, `exit_ys(N) & entry_ys(V) != set()` for a backward (predecessor) neighbor. A non-joining neighbor is dropped unless `V` carries a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) naming that neighbor's family.
 
@@ -26,7 +26,8 @@ from leak_static_analysis import Rule, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta, _entry_ys, _exit_ys  # noqa: E402
 
 FEA_PATH = TEST_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
-SNAPSHOT_PATH = TEST_DIR / "isolation-leak-snapshot.txt"
+# The full set of visible depth-4 leaks now lives partitioned across the bad backlog and the benign census; this analysis wants both halves together (the old single isolation-leak-snapshot.txt was retired when those two files began reconstructing it).
+SNAPSHOT_PATHS = (TEST_DIR / "bad-leak-backlog.txt", TEST_DIR / "benign-leak-census.txt")
 DUMP_PATH = ROOT / "tmp" / "leak-contract-report.txt"
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)
@@ -94,22 +95,23 @@ class LeakVerdict:
         return "mixed"
 
 
-def parse_snapshot(path: Path = SNAPSHOT_PATH) -> list[tuple[Signature, str]]:
-    """Read each approved leak as `(signature, example-label)`. Mirrors `leak_snapshot.parse_snapshot` but without pulling in the shaping/HTML stack."""
+def parse_snapshot(paths: tuple[Path, ...] = SNAPSHOT_PATHS) -> list[tuple[Signature, str]]:
+    """Read each approved leak as `(signature, example-label)` across the given snapshot files (default: the bad backlog + benign census, together the full visible set). Mirrors `leak_snapshot.parse_snapshot` but without pulling in the shaping/HTML stack."""
     out: list[tuple[Signature, str]] = []
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        label, _, diff = line.partition(" :: ")
-        il = lc = ir = rc = ""
-        for clause in diff.split(" | "):
-            clause = clause.strip().lstrip("*").strip()
-            if clause.startswith("L ") and "->" in clause:
-                il, _, lc = clause[2:].partition("->")
-            elif clause.startswith("R ") and "->" in clause:
-                ir, _, rc = clause[2:].partition("->")
-        out.append(((il.strip(), lc.strip(), ir.strip(), rc.strip()), label.strip()))
+    for path in paths:
+        for raw in path.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            label, _, diff = line.partition(" :: ")
+            il = lc = ir = rc = ""
+            for clause in diff.split(" | "):
+                clause = clause.strip().lstrip("*").strip()
+                if clause.startswith("L ") and "->" in clause:
+                    il, _, lc = clause[2:].partition("->")
+                elif clause.startswith("R ") and "->" in clause:
+                    ir, _, rc = clause[2:].partition("->")
+            out.append(((il.strip(), lc.strip(), ir.strip(), rc.strip()), label.strip()))
     return out
 
 
