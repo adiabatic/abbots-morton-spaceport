@@ -2290,13 +2290,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         _revert_keeps_reaching_exit,
         derive_pending_bk_entry_guards,
         derive_pending_fwd_strip_guards,
-        derive_pending_liga_entry_guards,
     )
 
     _reachability = JoinReachability.from_join_glyphs(glyph_meta)
     _derived_bk_guards = derive_pending_bk_entry_guards(_reachability)
     _derived_fwd_strip_guards = derive_pending_fwd_strip_guards(plan)
-    _derived_liga_guards = derive_pending_liga_entry_guards(_reachability)
     # Tracks whether the next emission belongs to a post-calt_cycle lookup. `_emit_narrow_mid_entry_strip_guards` only relaxes its bare-base skip for generic fwd_strip_guards once cycle has finished — pre-cycle predecessors fire before mid's bk_replacement has run, so their mid_source still picks up an entry from `calt_cycle` and no generic guard is warranted. Pair-specific forward strips are checked separately because the same lookup can see the stripping right context in lookahead.
     _fwd_strip_guards_active = [False]
 
@@ -2610,18 +2608,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if left_guard_name in guard.guard_glyphs
         )
 
-    def _matching_pending_liga_guards(
-        source_name: str,
-        lig_name: str,
-        entry_y: int,
-        left_guard_name: str,
-    ) -> tuple[DerivedBkGuard, ...]:
-        return tuple(
-            guard
-            for guard in _derived_liga_guards.get((source_name, lig_name, entry_y), ())
-            if left_guard_name in guard.guard_glyphs
-        )
-
     def _source_strips_own_exit_before_mid(
         source_name: str,
         replacement_name: str,
@@ -2753,26 +2739,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     trigger_contexts -= blocked_by_mid_bk
                     _emit_guard(mid_source, trigger_contexts)
                     _emit_guard(mid_replacement, trigger_contexts)
-
-            for lig_name, components in ligatures_by_first_component.get(mid_base, ()):
-                if len(components) != 2:
-                    continue
-                if exit_y in set(_meta(lig_name).all_entry_ys):
-                    continue
-                guards = _matching_pending_liga_guards(
-                    mid_source,
-                    lig_name,
-                    exit_y,
-                    replacement_name,
-                )
-                if not guards:
-                    continue
-                trigger_contexts = _ligature_component_variants(lig_name, components[1], 1)
-                for guard in guards:
-                    allowed_before = set(trigger_contexts)
-                    if guard.before_bases:
-                        allowed_before &= _expand_all_variants(guard.before_bases, include_base=True)
-                    _emit_guard(mid_source, allowed_before)
 
             entry_only_source = _matching_entry_only_source(mid_source)
             if entry_only_source is None or mid_base not in fwd_replacements:

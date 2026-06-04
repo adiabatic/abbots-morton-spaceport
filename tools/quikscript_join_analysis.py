@@ -49,7 +49,6 @@ __all__ = [
     "collect_join_warnings",
     "derive_pending_bk_entry_guards",
     "derive_pending_fwd_strip_guards",
-    "derive_pending_liga_entry_guards",
     "validate_join_consistency",
     "warn_join_contract_issues",
 ]
@@ -135,22 +134,6 @@ _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]
 
 # Bitmap-gap pairs the structural collector flags but we knowingly accept.
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
-
-
-_PENDING_LIGA_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]] = {
-    ("qsTea", "qsTea_qsOy", 0): (
-        DerivedBkGuard(
-            ("qsExcite.ex-y0.before-vertical",),
-            ("qsOy",),
-        ),
-    ),
-    ("qsTea.en-y0", "qsTea_qsOy", 0): (
-        DerivedBkGuard(
-            ("qsExcite.ex-y0.before-vertical",),
-            ("qsOy",),
-        ),
-    ),
-}
 
 
 @dataclass(frozen=True)
@@ -1824,19 +1807,6 @@ def derive_pending_bk_entry_guards(
     """
     return _heal_curated_guards_table(
         {key: tuple(guards) for key, guards in _PENDING_BK_ENTRY_GUARDS.items()},
-        reachability,
-    )
-
-
-def derive_pending_liga_entry_guards(
-    reachability: JoinReachability,
-) -> dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]:
-    """Return the curated `_PENDING_LIGA_ENTRY_GUARDS` table.
-
-    Mirror of ``derive_pending_bk_entry_guards`` for ligature first-component sources.
-    """
-    return _heal_curated_guards_table(
-        {key: tuple(guards) for key, guards in _PENDING_LIGA_ENTRY_GUARDS.items()},
         reachability,
     )
 
