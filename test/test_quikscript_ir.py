@@ -15,6 +15,7 @@ from quikscript_fea import (
     _analyze_quikscript_joins,
     _coalesce_consecutive_ignore_rules,
     _format_post_liga_cleanup_rules,
+    _select_rule_neighbors,
     emit_quikscript_senior_features,
 )
 from quikscript_ir import (
@@ -2695,3 +2696,24 @@ def test_inheritance_skipped_in_junior_variant():
             ),
             "junior",
         )
+
+
+def test_select_rule_neighbors_is_identity_in_phase_0():
+    # Phase 0 of the join contract (doc/leak-prevention-plan.md) routes every calt selection point through this chokepoint, which must be a pure identity passthrough so the emitted FEA stays byte-identical. The point of lifting it to a module-level function is exactly this: the selection decision is now testable in isolation, without standing up the 4,000-line emitter.
+    followers = {"qsTea_qsOy", "qsThaw.ex-y0", "qsDay.half"}
+    kept = _select_rule_neighbors("qsGay", "qsGay.en-y5", followers, direction="fwd")
+    assert kept == followers
+
+    preds = {"qsRoe.ex-y0", "qsMay.en-y5"}
+    assert _select_rule_neighbors("qsSee", "qsSee.ex-y0", preds, direction="bk") == preds
+
+    # Empty candidate set passes through cleanly (a rule whose context is already empty).
+    assert _select_rule_neighbors("qsAt", "qsAt.ex-y0.before-may", set(), direction="fwd") == set()
+
+
+def test_select_rule_neighbors_returns_a_distinct_set():
+    # Callers compare `kept == candidate_members` to decide whether to emit the bare class token (`@entry_y…` / `@exit_y…`) or fall back to an explicit member list, and the result must not alias the caller's live set. Return a fresh set so a future drop pass can't mutate the input in place.
+    candidate = {"qsTea", "qsDay"}
+    kept = _select_rule_neighbors("qsIt", "qsIt.en-y0", candidate, direction="fwd")
+    assert kept == candidate
+    assert kept is not candidate
