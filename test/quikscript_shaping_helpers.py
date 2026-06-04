@@ -109,16 +109,26 @@ def _plain_quikscript_letters() -> tuple[tuple[str, str], ...]:
     return tuple((name, chars[name]) for name in names)
 
 
+# Synthetic family-name tokens for the two real-text boundaries a reader/typist actually hits. They are not glyph families, so they carry their own name->character mapping; the sweep treats them as ordinary alphabet symbols and the isolated reference keeps them boundary-faithful (the token sits in both halves).
+BOUNDARY_TOKENS: tuple[str, ...] = ("space", "ZWNJ")
+_BOUNDARY_TOKEN_CHARS: dict[str, str] = {"space": " ", "ZWNJ": ZWNJ}
+
+
 @cache
 def _context_chars() -> tuple[tuple[str, str], ...]:
-    """Plain Quikscript letters plus ZWNJ, for context-saturated sweeps."""
-    return _plain_quikscript_letters() + (("ZWNJ", ZWNJ),)
+    """Plain Quikscript letters plus the boundary tokens (space, ZWNJ), for context-saturated and boundary-faithful sweeps."""
+    return _plain_quikscript_letters() + tuple(
+        (name, _BOUNDARY_TOKEN_CHARS[name]) for name in BOUNDARY_TOKENS
+    )
 
 
 def _qs_text(*parts: str) -> str:
     chars = _char_map()
     result = []
     for part in parts:
+        if part in _BOUNDARY_TOKEN_CHARS:
+            result.append(_BOUNDARY_TOKEN_CHARS[part])
+            continue
         if part in chars:
             result.append(chars[part])
             continue

@@ -1,0 +1,23 @@
+# Per-signature force-bad blocklist for the shaping-leak classifier (decision 11 of doc/definitions/shaping-leakage.md).
+#
+# The mechanical proxy in tools/leak_classify.py reads the break-facing edge of the *changed* flanking form. It is structurally blind to the cross-lookup-compose leak where the changed side strips to *bare* while an unchanged ligature neighbor (qsTea_qsOy, qsThey_qsZoo, qsSee_qsEat, qsOut_qsTea) absorbs the join — there the visible defect sits on the neighbor, not the changed edge. Each entry here condemns one exact swap so the loop treats it as a defect to fix; force-bad outranks every force-benign signal.
+#
+# Each signature is [isolated_left, left_chosen, isolated_right, right_chosen] — the same 4-tuple the snapshot keys on.
+signatures:
+  - ['qsZoo.en-con-2', 'qsZoo', 'qsTea_qsOy', 'qsTea_qsOy']  # Pea Zoo Tea Oy [break 1]
+  - ['qsZoo.en-con-2', 'qsZoo', 'qsThaw.ex-y0', 'qsThaw.ex-y0']  # Pea Zoo Thaw Ing [break 1]
+  - ['qsPea', 'qsPea', 'qsExcite', 'qsExcite.en-y0.ex-y0.before-vertical.noentry']  # Pea Excite It Zoo [break 0]
+  - ['qsI.en-y0.ex-y5.smaller-loop', 'qsI', 'qsThey_qsZoo', 'qsThey_qsZoo']  # Pea I They Zoo [break 1]
+  - ['qsTea', 'qsTea', 'qsExcite', 'qsExcite.en-y0.ex-y0.before-vertical.noentry']  # Tea Excite It Zoo [break 0]
+  - ['qsIng.en-ext-2', 'qsIng', 'qsTea_qsOy', 'qsTea_qsOy']  # Thaw Ing Tea Oy [break 1]
+  - ['qsYe', 'qsYe', 'qsExcite', 'qsExcite.en-y0.ex-y0.before-vertical.noentry']  # Ye Excite It Zoo [break 0]
+  - ['qsJai.en-y5.ex-y0.en-con-1', 'qsJai', 'qsTea_qsOy', 'qsTea_qsOy']  # He Jai Tea Oy [break 1]
+  - ['qsJai.en-y5.ex-y0.en-con-1', 'qsJai', 'qsThaw.ex-y0', 'qsThaw.ex-y0']  # He Jai Thaw Ing [break 1]
+  - ['qsJai.en-y5.ex-y0.en-trim-2', 'qsJai', 'qsTea_qsOy', 'qsTea_qsOy']  # Ah Jai Tea Oy [break 1]
+  - ['qsJai.en-y5.ex-y0.en-trim-2', 'qsJai', 'qsThaw.ex-y0', 'qsThaw.ex-y0']  # Ah Jai Thaw Ing [break 1]
+  - ['qsIt.en-y5.ex-y0', 'qsIt', 'qsTea_qsOy', 'qsTea_qsOy']  # Ah It Tea Oy [break 1]
+  - ['qsIt.en-y5.ex-y0', 'qsIt', 'qsThaw.ex-y0', 'qsThaw.ex-y0']  # Ah It Thaw Ing [break 1]
+  - ['qsExcite.en-y0.noexit', 'qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter', 'qsTea.half.ex-y5.ex-con-1', 'qsTea.half.ex-y5.ex-con-1']  # Awe Excite Tea Jay [break 1]
+  - ['qsExcite.en-y0.noexit', 'qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter', 'qsTea.en-y8.ex-y0.ex-ext-1', 'qsTea.ex-y0.ex-ext-1']  # Awe Excite Tea I [break 1]
+  - ['qsExcite.en-y0.noexit', 'qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter', 'qsIt.ex-y0.before-day.after-no-baseline-join', 'qsIt.ex-y0.before-day.after-no-baseline-join']  # Awe Excite It Day [break 1]
+  - ['qsExcite.en-y0.noexit', 'qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter', 'qsIt.ex-y0.before-utter', 'qsIt.ex-y0.before-utter']  # Awe Excite It Utter [break 1]

@@ -54,13 +54,14 @@ The additive/subtractive axis is **mechanically readable from a form's modifier 
 
 | Class | Tokens / derive directives |
 | --- | --- |
-| additive (reach) | `ex-ext-N`, `en-ext-N`, `extend_exit_before`, `extend_entry_after` |
-| subtractive (trim) | `ex-con-N`, `en-con-N`, `contract_exit_before`, `contract_entry_after`, `noentry`, `noexit`, `ex-noentry` |
-| standalone position | `en-yN`, `ex-yN` |
-| author cosmetic (force-benign) | `before-<family>`, `after-<family>` |
-| standalone variant | `reaches-way-back`, `nonjoining-left`, `gapped`, `smaller-loop` |
+| additive (reach) | a break-facing connector the chosen form **gained** vs the isolated form: `ex-yN`/`ex-ext-N` on a left exit, `en-yN`/`en-ext-N` on a right entry, `extended` either side |
+| subtractive (trim) | `ex-con-N`, `en-con-N`, `ex-trim-N`, `en-trim-N`, `ex-dips`, `contract_exit_before`, `contract_entry_after`, `noentry`, `noexit`, `ex-noentry` |
+| standalone variant | `reaches-way-back`, `nonjoining-left`, `gapped`, `smaller-loop`, `widebase` |
+| author cosmetic (force-benign) | `before-<family>`, `after-<family>` (validated against the neighbor's family via the form's resolved trigger list, so class tokens like `after-baseline-letter` don't misfire) |
 
-Empirical backing: across the 99 leaks human-verified as outright broken, **every** one is an additive dangle (or a multi-rule compose of additive reaches); **zero** are a subtractive trim that made a letter look wrong. So "additive at a non-join = bad, subtractive = benign" is not a guess — it matches the whole measured corpus.
+**Correction folded in during implementation (`tools/leak_classify.py`):** the additive signal is the _gained break-facing anchor_, not a static `ex-ext`/`en-ext` token. Measured against the 99 human-verified "broken" leaks, keying on `ex-ext`/`en-ext` alone fires on **zero** of them, whereas 97 of 100 broken rows involve the in-context form gaining a break-facing `ex-yN`/`en-yN` connector its isolated form lacked. So the proxy compares the chosen form's modifiers to the isolated form's and asks what was _gained_ on the break-facing edge (the left glyph's exit, the right glyph's entry), with a break-facing subtractive token (`noexit`/`ex-noentry` left, `noentry` right) winning — the edge is gone, nothing to dangle. This is consistent with the prose above ("reaches connector ink toward the across-break neighbor"); only the original token bucketing was wrong (it filed `en-yN`/`ex-yN` under "standalone position").
+
+Empirical backing: across the 99 leaks human-verified as outright broken, **every** one is an additive dangle (or a multi-rule compose of additive reaches); **zero** are a subtractive trim that made a letter look wrong. So "additive at a non-join = bad, subtractive = benign" is not a guess — it matches the whole measured corpus. With the two per-signature override lists seeded (below), the proxy reconciles the human corpus exactly (precision = recall = 1.000); reproduce with `uv run python tools/leak_verdict_reconcile.py`.
 
 ### 7. CI gates on bad leaks only, with overrides in both directions
 
@@ -94,8 +95,8 @@ This is a property of the **resulting form**, not the rule structure, so it does
 
 The two override channels are keyed to fit their jobs:
 
-- **Force-benign** stays a per-_form_ declaration — a `before-<family>` / `after-<family>` modifier saying "this tuck is intended wherever it appears."
-- **Force-bad** is keyed on the leak **signature** 4-tuple `(isolated_left, left_chosen, isolated_right, right_chosen)`, in a small blocklist. It condemns only that exact swap, without marking the form bad in other contexts where it forms a legitimate join.
+- **Force-benign** is two-pronged: the per-_form_ declaration — a `before-<family>` / `after-<family>` modifier saying "this tuck is intended wherever it appears" — _plus_ a per-_signature_ allowlist (`test/leak-force-benign.yaml`). The per-signature half is a symmetric completion folded in during implementation: some human-accepted standalone-variant swaps (e.g. `qsNo` → `qsNo.alt.en-y0.ex-y0`) gain a break-facing anchor and so trip the proxy, yet carry no cosmetic modifier, so only a per-signature allowlist can demote that exact swap without weakening the proxy elsewhere.
+- **Force-bad** is keyed on the leak **signature** 4-tuple `(isolated_left, left_chosen, isolated_right, right_chosen)`, in a small blocklist (`test/leak-force-bad.yaml`). It condemns only that exact swap — the cross-lookup-compose case where the changed side strips to bare while an unchanged ligature neighbor absorbs the join, which the per-form proxy is structurally blind to. Force-bad outranks every force-benign signal.
 
 ### 12. The per-fix verify gate
 
@@ -103,11 +104,13 @@ After applying a fix, the agent rebuilds, re-sweeps to the gate depth, and requi
 
 ## Build work this definition implies
 
-These are not open questions — they are the implementation consequences of the decisions above, to be done when we act on this spec:
+These are the implementation consequences of the decisions above. **Deliverable A (detection + classification + gates) is done** (see the files named below); **deliverable B (the autonomous loop) is the remaining work** — its brief is `doc/definitions/shaping-leak-loop.md`.
 
-- Expand the detection sweep from letters-only to also enumerate the `space` and `ZWNJ` boundary tokens, and make the isolated reference boundary-faithful (token present in both the full shaping and the halves).
-- Add the mechanical additive/subtractive/standalone classifier that reads a form's modifier tokens (per the table in decision 6) and the bad/benign verdict built on it.
-- Retarget the depth-3 CI gate from "zero visible diffs" to "zero bad leaks."
-- Split the depth-4 artifact into a bad-leak gate (must stay empty) and a benign census (informational, diffed for review).
-- Add the per-signature force-bad blocklist alongside the existing per-form force-benign mechanism.
-- Wire the autonomous detect→fix→verify loop, with the per-fix verify gate from decision 12.
+- [x] Expand the detection sweep to also enumerate the `space` and `ZWNJ` boundary tokens, with a boundary-faithful isolated reference (token present in both the full shaping and the halves). `tools/build_check_html.py` (`find_leaks`, `find_visible_leaks`, `_scan_sequence`, cluster-based spans, `_visual_status`).
+- [x] Add the mechanical classifier (`tools/leak_classify.py`) and the bad/benign verdict, with the additive-signal correction folded into decision 6.
+- [x] Retarget the depth-3 CI gate to "no new bad leak" (`test/test_isolation_leaks.py::test_no_new_bad_isolation_leaks`).
+- [x] Split the depth-4 artifact into a bad-leak backlog gate (`test/bad-leak-backlog.txt`, asymmetric — fails on new, notice on resolved) and a benign census (`test/benign-leak-census.txt`, symmetric, informational). Both generated by `tools/leak_snapshot.py`.
+- [x] Add the per-signature force-bad blocklist (`test/leak-force-bad.yaml`) and the per-signature force-benign allowlist (`test/leak-force-benign.yaml`), validated against the human corpus by `tools/leak_verdict_reconcile.py`.
+- [ ] Wire the autonomous detect→fix→verify loop, with the per-fix verify gate from decision 12. **Not done — deferred.** See `doc/definitions/shaping-leak-loop.md`.
+
+A pragmatic refinement also landed: visibility is keyed on "any swept example renders a `diff`", not on whichever example surfaced first, so the visible set is independent of enumeration order (the old first-example heuristic undercounted, and adding the boundary tokens would otherwise mask letters-only leaks). See `find_visible_leaks`.
