@@ -8,6 +8,10 @@ Starting state (bless of commit d7f3269): 195 bad in `test/bad-leak-backlog.txt`
 
 The 17 signatures in `test/leak-force-bad.yaml` are cross-lookup-compose leaks (changed side strips to bare while an unchanged ligature neighbor keeps reaching). Do not attempt these with `not_before`/contract levers; leave in the backlog and surface at handoff. See the runbook's "hard track" section.
 
+## General lessons (read before picking a target)
+
+- **A family-level `not_before: {family: qsY}` on a left glyph's default baseline-exit form breaks the real qsX→qsY baseline join.** Many backlog "single exit edge before bare follower" entries (e.g. `She No Gay Out`, the `qsGay.ex-y0`, `qsMay.ex-y0`, `qsJai.ex-y0` lines) are *default-exit dangles*: the left glyph carries its normal baseline exit because something follows in the run, but across the break the follower is shaped bare (entry y5) so the exit dangles. The catch — the same family also has a real baseline-entry variant (`qsNo.alt`, `qsZoo.half`) that the left glyph genuinely joins to in connected text, and a blanket `not_before: {family}` suppresses the exit for *both* the break and the real join, so `make test` breaks `qsX→qsY.<baseline-entry>` joins. The leak gate (`make test-leaks`) will still pass — it doesn't see real joins — so **you must run `make test` for any exit-suppression lever before trusting it.** A correct fix needs to scope the suppression to the break/non-join context only (the bare follower form), not the whole family; a coarse family `not_before` is the wrong lever for these.
+
 ## Log
 
 <!-- One entry per fix/skip. Format:
@@ -15,4 +19,5 @@ The 17 signatures in `test/leak-force-bad.yaml` are cross-lookup-compose leaks (
 - [N] SIG `...` — SKIPPED: reason
 -->
 
-(no iterations yet)
+- [skip] She No Gay Out / She Zoo Tea Oy `qsShe->qsShe.ex-y0 | qsNo->qsNo` (backlog L131-132) — SKIPPED: default-exit dangle, not a clean one-liner. Tried adding `{family: qsZoo}, {family: qsNo}` to `qsShe.forms.exit_baseline.select.not_before` (quikscript.yaml L1364). `make all` + `make test-leaks` both passed (targeted gone, 0 new bad), but `make test` failed with 8 broken joins — real `She→No.alt` / `She→Zoo.half` baseline joins (`Eight_She_b_No_alt`, `Owe_She_b_No_alt_b_Zoo_half`, etc.). Reverted. See the general lesson above; needs break-context-scoped suppression, not a family `not_before`.
+- [skip] Et Tea Day Utter `qsDay->qsDay_qsUtter.half.en-y0.ex-y5 | qsUtter->qsDay_qsUtter.half.en-y0.ex-y5` — SKIPPED: second-order. The whole `qsDay_qsUtter.half` block (11 backlog entries: Et/Awe/Tea Day Utter ± May/Jai/Bay) shares one unconditional `ex-y5` exit on `qsDay_qsUtter.forms.half` (quikscript.yaml ~645-656). Tried the entry-preserving `ex-noentry` two-form split (gate `half`'s exit behind `before: [Pea/Gay/Ye/May/It @ entry_y 5]` + add `half_exit_noentry` sibling with `exit: null`). `make all` clean but `make test-leaks` reported 3 NEW bad leaks — the `before:` gate rerouted the generated backward upgrade rule, so e.g. `They Zoo Day Utter` now upgrades the bare ligature to `.half.en-y0.ex-y5`. Reverted. Needs the second-order downstream-revalidation machinery, not a one-line lever — treat as hard-track-adjacent. Defer.
