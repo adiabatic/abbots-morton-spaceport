@@ -53,4 +53,4 @@ The journal (`doc/shaping-leak-loop/journal.md`) already has a header stub. Star
 
 The loop self-paces; it does not need an interval. It will wake itself, do one iteration on a fresh context, and yield — indefinitely — until the easy backlog is drained.
 
-**Cadence: when you yield, schedule the next wake with `delaySeconds: 300` (a 5-minute gap).** This is the author's chosen pace. Each iteration is a cold start that re-reads everything from disk, so the prompt-cache is cold regardless of the gap — ignore the usual "don't pick 300s" cache advice here and honor the 5-minute cadence. Pass the same `/loop` prompt verbatim so the next firing re-enters this runbook.
+**Cadence: when you yield, schedule the next wake with `delaySeconds: 60` (a 1-minute gap).** This is the author's chosen pace. Each iteration is a cold start that re-reads everything from disk, so the prompt-cache is cold regardless of the gap — ignore the usual "don't pick 300s" cache advice here and honor the 1-minute cadence. Pass the same `/loop` prompt verbatim so the next firing re-enters this runbook.
