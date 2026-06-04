@@ -1219,20 +1219,41 @@ _CONTRACT_EMIT_DUMP_PATH = Path(__file__).resolve().parent.parent / "tmp" / "lea
 
 @dataclass
 class _JoinContractRecorder:
-    """Phase-1 classifier for the derived join contract (doc/leak-prevention-plan.md).
+    """Classifier and enforcer for the derived join contract (doc/leak-prevention-plan.md).
 
     Installed as the module-level `_active_contract_recorder` for the duration of one `_emit_quikscript_calt` run, it observes every neighbor the selection chokepoint (`_select_rule_neighbors`) considers and partitions each `(variant, neighbor, direction)` triple into one of three verdicts:
 
     - `joining`: the selected variant `V` cursively joins the neighbor `N` — `exit_ys(V) & entry_ys(N)` (forward) or `exit_ys(N) & entry_ys(V)` (backward) is non-empty.
     - `cosmetic`: `V` carries a directional `before-<fam>` (forward) / `after-<fam>` (backward) modifier whose trigger list names `N`'s family, so this cross-break shape change is author-declared and the contract keeps it.
-    - `leak`: a non-joining, non-cosmetic selection — the single-rule isolation-leak class the contract will drop in Phase 2.
+    - `leak`: a non-joining, non-cosmetic selection — the single-rule isolation-leak class the contract drops.
 
-    Phase 1 only warns (a `NonJoiningNeighborSelectionWarning` summary) and dumps the full partition under `tmp/`; the chokepoint still returns the entire candidate set, so the emitted FEA is byte-identical. The verdicts mirror `tools/leak_contract_report.py`'s `joins` and `_is_cosmetic` exactly, so this in-emitter pass and that standalone snapshot oracle agree on every triple.
+    Phase 2 enforces: `keep` returns the candidate set minus the `leak` verdicts, so the chokepoint drops every non-joining, non-cosmetic neighbor from the rule that would have selected a variant across a break it cannot cursively join. `flush` still dumps the full partition under `tmp/` and warns a one-line summary of what was dropped. The verdicts mirror `tools/leak_contract_report.py`'s `joins` and `_is_cosmetic` exactly, so this in-emitter pass and that standalone snapshot oracle agree on every triple.
     """
 
     glyph_meta: dict[str, JoinGlyph]
+    # The plan's replacement/variant maps, threaded in so the contract can judge a neighbor by the entry/exit Ys it can *reach in context* (its backward/forward upgrade forms, source-gated pair-overrides, and led/trailed ligatures), not just its bare anchors. A bare class-proxy like `qsIt` enters nowhere on its own, but in context it is backward-upgraded to `qsIt.en-y0`, which does — so the contract must credit it with that reachable entry, or it falsely drops the cyclic `qsShe.ex-y0 -> qsIt` join.
+    bk_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
+    fwd_replacements: dict[str, dict[int, str]] = field(default_factory=dict)
+    base_to_variants: dict[str, set[str]] = field(default_factory=dict)
     verdicts: dict[tuple[str, str, str], str] = field(default_factory=dict)
     pivots: dict[tuple[str, str, str], set[str]] = field(default_factory=dict)
+    # Reachability caches, keyed by (neighbor, source_family), plus the led/trailed-ligature index built in __post_init__.
+    _entry_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
+    _exit_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
+    _leads: dict[str, set[str]] = field(default_factory=dict)
+    _trails: dict[str, set[str]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # base -> ligature variant names that lead (sequence[0]) / trail (sequence[-1]) with that base.
+        for name, meta in self.glyph_meta.items():
+            seq = meta.sequence
+            if not seq or len(seq) < 2 or name != meta.base_name:
+                continue
+            lead_base = self.glyph_meta[seq[0]].base_name if seq[0] in self.glyph_meta else seq[0]
+            trail_base = self.glyph_meta[seq[-1]].base_name if seq[-1] in self.glyph_meta else seq[-1]
+            for variant in self.base_to_variants.get(name, {name}):
+                self._leads.setdefault(lead_base, set()).add(variant)
+                self._trails.setdefault(trail_base, set()).add(variant)
 
     def observe(self, base_name: str, variant_name: str, candidate_members: set[str], direction: str) -> None:
         for neighbor in candidate_members:
@@ -1241,19 +1262,105 @@ class _JoinContractRecorder:
             if key not in self.verdicts:
                 self.verdicts[key] = self._classify(variant_name, neighbor, direction)
 
+    def keep(self, variant_name: str, candidate_members: set[str], direction: str) -> set[str]:
+        """The subset of `candidate_members` the contract allows this rule to keep: everything except the `leak` verdicts (joining, cosmetic, and unclassifiable `unknown` neighbors all stay). `observe` must have run for these triples first."""
+        return {
+            neighbor
+            for neighbor in candidate_members
+            if self.verdicts.get((variant_name, neighbor, direction)) != "leak"
+        }
+
     def _base_name(self, glyph: str) -> str:
         meta = self.glyph_meta.get(glyph)
         return meta.base_name if meta is not None else glyph
+
+    def _source_matches(self, triggers: tuple[str, ...], source_family: str) -> bool:
+        for trigger in triggers:
+            if trigger == source_family:
+                return True
+            tmeta = self.glyph_meta.get(trigger)
+            if tmeta is not None and tmeta.base_name == source_family:
+                return True
+        return False
+
+    def _reachable_entry_ys(self, neighbor: str, source_family: str) -> frozenset[int]:
+        """Entry Ys the follower `neighbor` can present once shaping settles, judged from the rule whose variant belongs to `source_family`. A concrete shaped form (e.g. `qsFee.ex-y5`) keeps only its own anchors, so genuine entry-stripped forms still read as non-joining; a bare class-proxy (`neighbor == base`) is additionally credited with the entries of its backward-upgrade forms (the exact `entry_classes` membership rule at the top of `_analyze_quikscript_joins`), its source-family-gated entry pair-overrides (the `qsFee.en-y5 after qsLow…` case), and any ligature it leads."""
+        key = (neighbor, source_family)
+        cached = self._entry_cache.get(key)
+        if cached is not None:
+            return cached
+        nmeta = self.glyph_meta.get(neighbor)
+        if nmeta is None:
+            self._entry_cache[key] = frozenset()
+            return frozenset()
+        ys: set[int] = set(nmeta.all_entry_ys)
+        base = nmeta.base_name
+        if neighbor == base:
+            for var in self.bk_replacements.get(base, {}).values():
+                vm = self.glyph_meta.get(var)
+                if vm is not None:
+                    ys.update(vm.all_entry_ys)
+            for var in self.base_to_variants.get(base, ()):
+                vm = self.glyph_meta.get(var)
+                if vm is not None and vm.entry and vm.after and self._source_matches(vm.after, source_family):
+                    ys.update(vm.all_entry_ys)
+        for lig in self._leads.get(base, ()):
+            lm = self.glyph_meta.get(lig)
+            if lm is not None:
+                ys.update(lm.all_entry_ys)
+        result = frozenset(ys)
+        self._entry_cache[key] = result
+        return result
+
+    def _reachable_exit_ys(self, neighbor: str, source_family: str) -> frozenset[int]:
+        """Mirror of `_reachable_entry_ys` for a backward predecessor: the exit Ys `neighbor` can present in context — its own exit anchors, plus (for a bare class-proxy) its forward-upgrade exit forms, its source-family-gated exit pair-overrides, and any ligature it trails."""
+        key = (neighbor, source_family)
+        cached = self._exit_cache.get(key)
+        if cached is not None:
+            return cached
+        nmeta = self.glyph_meta.get(neighbor)
+        if nmeta is None:
+            self._exit_cache[key] = frozenset()
+            return frozenset()
+        ys: set[int] = set(nmeta.exit_ys)
+        base = nmeta.base_name
+        if neighbor == base:
+            for var in self.fwd_replacements.get(base, {}).values():
+                vm = self.glyph_meta.get(var)
+                if vm is not None:
+                    ys.update(vm.exit_ys)
+            for var in self.base_to_variants.get(base, ()):
+                vm = self.glyph_meta.get(var)
+                if (
+                    vm is not None
+                    and vm.exit
+                    and vm.before
+                    and self._source_matches(vm.before, source_family)
+                ):
+                    ys.update(vm.exit_ys)
+        for lig in self._trails.get(base, ()):
+            lm = self.glyph_meta.get(lig)
+            if lm is not None:
+                ys.update(lm.exit_ys)
+        result = frozenset(ys)
+        self._exit_cache[key] = result
+        return result
 
     def _classify(self, variant_name: str, neighbor: str, direction: str) -> str:
         vmeta = self.glyph_meta.get(variant_name)
         nmeta = self.glyph_meta.get(neighbor)
         if vmeta is None or nmeta is None:
             return "unknown"
+        # A variant with no exit anchor (a surrendered `ex-noentry`/`noexit` form) has nothing to dangle forward; one with no entry anchor has nothing to dangle backward. The emitter selects such a stripped form *because* the neighbor cannot receive a join — e.g. `qsGay.en-y5.ex-noentry` before the entryless `qsTea_qsOy` ligature in ·Utter·Gay·Tea·Oy. That is the opposite of a leak, so exempt it before the join test; otherwise every exit-less forward rule would drop its entire follower set and never fire, undoing the surrender machinery.
+        if direction == "fwd" and not vmeta.exit_ys:
+            return "joining"
+        if direction == "bk" and not vmeta.all_entry_ys:
+            return "joining"
+        source_family = vmeta.base_name
         if direction == "fwd":
-            joined = bool(set(vmeta.exit_ys) & set(nmeta.all_entry_ys))
+            joined = bool(set(vmeta.exit_ys) & self._reachable_entry_ys(neighbor, source_family))
         else:
-            joined = bool(set(nmeta.exit_ys) & set(vmeta.all_entry_ys))
+            joined = bool(self._reachable_exit_ys(neighbor, source_family) & set(vmeta.all_entry_ys))
         if joined:
             return "joining"
         if self._is_cosmetic(vmeta, neighbor, direction):
@@ -1281,16 +1388,17 @@ class _JoinContractRecorder:
             counts[verdict] = counts.get(verdict, 0) + 1
 
         lines = [
-            "# Leak-contract Phase-1 in-emitter report. Generated by _emit_quikscript_calt; do not hand-edit.",
+            "# Leak-contract in-emitter report. Generated by _emit_quikscript_calt; do not hand-edit.",
             "# Each row is a (variant, neighbor, direction) triple the calt selection chokepoint considered,",
-            "# classified by the derived join contract (doc/leak-prevention-plan.md). Phase 1 only warns; the",
-            "# chokepoint still returns the full candidate set, so the emitted FEA is unchanged.",
+            "# classified by the derived join contract (doc/leak-prevention-plan.md). Phase 2 enforces: the",
+            "# `leak` rows below are dropped from their rules' context, so the emitted FEA no longer selects",
+            "# those variants across the breaks they cannot join.",
             f"# triples considered: {len(self.verdicts)}  "
             f"(leak={counts['leak']}, cosmetic={counts['cosmetic']}, joining={counts['joining']}, unknown={counts['unknown']})",
             "",
         ]
         headers = {
-            "leak": "Non-joining, non-cosmetic selections the contract will drop (Phase 2):",
+            "leak": "Non-joining, non-cosmetic selections the contract drops:",
             "cosmetic": "Author-declared cosmetic tucks the contract keeps (before-/after- modifier):",
             "unknown": "Neighbor or variant absent from glyph_meta (not classified):",
         }
@@ -1310,9 +1418,8 @@ class _JoinContractRecorder:
             from quikscript_join_analysis import NonJoiningNeighborSelectionWarning
 
             warnings.warn(
-                f"Derived join contract: {counts['leak']} single-rule cross-break selections name a "
-                f"non-joining, non-cosmetic neighbor (Phase 1 reports only; FEA unchanged). Full breakdown: "
-                f"{_CONTRACT_EMIT_DUMP_PATH}.",
+                f"Derived join contract: dropped {counts['leak']} single-rule cross-break selections that "
+                f"named a non-joining, non-cosmetic neighbor. Full breakdown: {_CONTRACT_EMIT_DUMP_PATH}.",
                 NonJoiningNeighborSelectionWarning,
                 stacklevel=2,
             )
@@ -1332,12 +1439,13 @@ def _select_rule_neighbors(
 
     Every contextual `sub … by V` rule in `_emit_quikscript_calt` routes its selection-driving neighbor set through here before the rule string is built: the followers for `direction="fwd"` (the `@entry_y…` class members a forward upgrade fires against), the predecessors for `direction="bk"` (the `@exit_y…` class members a backward upgrade fires against). Returns the subset of `candidate_members` the rule may keep.
 
-    Phase 1 classifies each `(variant_name, neighbor, direction)` triple through the installed `_active_contract_recorder` (joining / cosmetic / leak) and warns on the leaks, but still returns the full candidate set — so the emitted FEA stays byte-identical. Outside an emit run (e.g. the unit tests that call this directly) no recorder is installed and the classification is skipped. Phase 2 will drop the non-joining, non-cosmetic neighbors so the rule can no longer select a variant across a break it does not cursively join.
+    Phase 2 enforces the derived join contract through the installed `_active_contract_recorder`: it classifies each `(variant_name, neighbor, direction)` triple (joining / cosmetic / leak) and returns the candidate set minus the leaks, so the rule can no longer select a variant across a break it does not cursively join (unless the variant's `before-<fam>`/`after-<fam>` modifier marks the interaction as an author-declared cosmetic tuck, which stays). Outside an emit run (e.g. the unit tests that call this directly) no recorder is installed, so this is a pure identity passthrough — it still returns a fresh set so callers can compare `kept == candidate_members` without aliasing their live set.
     """
     recorder = _active_contract_recorder
-    if recorder is not None:
-        recorder.observe(base_name, variant_name, candidate_members, direction)
-    return set(candidate_members)
+    if recorder is None:
+        return set(candidate_members)
+    recorder.observe(base_name, variant_name, candidate_members, direction)
+    return recorder.keep(variant_name, candidate_members, direction)
 
 
 def _has_left_entry(meta: JoinGlyph) -> bool:
@@ -2161,7 +2269,12 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     base_to_variants = plan.base_to_variants
 
     # Phase-1 join-contract reporting (doc/leak-prevention-plan.md). Installing the recorder makes `_select_rule_neighbors` classify every neighbor it sees; the chokepoint still returns the full candidate set, so this changes no FEA bytes. Flushed (dump + summary warning) just before this function returns.
-    _active_contract_recorder = _JoinContractRecorder(glyph_meta)
+    _active_contract_recorder = _JoinContractRecorder(
+        glyph_meta,
+        bk_replacements=plan.bk_replacements,
+        fwd_replacements=plan.fwd_replacements,
+        base_to_variants=plan.base_to_variants,
+    )
 
     # Function-local import: quikscript_join_analysis imports from quikscript_fea, so a top-of-module import here would cycle.
     from quikscript_join_analysis import (
@@ -3774,7 +3887,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
             if kept_followers == right_context_glyphs:
                 lines.append(f"        sub {base_name}' {cls} by {variant_name};")
-            else:
+            elif kept_followers:
                 lines.append(
                     f"        sub {base_name}' [{' '.join(sorted(kept_followers))}] by {variant_name};"
                 )
@@ -3803,7 +3916,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if kept_target_followers == right_context_glyphs:
                     lines.append(f"        sub {target_name}' {cls} by {variant_name};")
-                else:
+                elif kept_target_followers:
                     lines.append(
                         f"        sub {target_name}' [{' '.join(sorted(kept_target_followers))}] by {variant_name};"
                     )
@@ -3858,7 +3971,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if kept_noentry_followers == right_context_glyphs:
                     lines.append(f"        sub {noentry_name}' {cls} by {actual_variant};")
-                else:
+                elif kept_noentry_followers:
                     lines.append(
                         f"        sub {noentry_name}' [{' '.join(sorted(kept_noentry_followers))}] by {actual_variant};"
                     )
@@ -4157,12 +4270,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     _emit_two_glyph_lookbehind_guards(expanded_after, base_name, entry_ys)
                 lookahead = ""
                 if variant_meta.before:
-                    pair_before_followers = set(_expand_all_variants(variant_meta.before))
+                    pair_before_followers = _select_rule_neighbors(
+                        base_name,
+                        variant_name,
+                        set(_expand_all_variants(variant_meta.before)),
+                        direction="fwd",
+                    )
                     before_list = " ".join(sorted(pair_before_followers))
                     if not before_list:
                         continue
                     lookahead = f" [{before_list}]"
-                    _select_rule_neighbors(base_name, variant_name, pair_before_followers, direction="fwd")
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 _emit_entry_strip_guards_for_replacement_exit(
@@ -4381,7 +4498,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     )
                     if kept_followers == right_context_glyphs:
                         lines.append(f"        sub {base_name}' {cls} by {variant_name};")
-                    else:
+                    elif kept_followers:
                         lines.append(
                             f"        sub {base_name}' [{' '.join(sorted(kept_followers))}] by {variant_name};"
                         )
@@ -4406,7 +4523,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             )
             if kept_upgrade_followers == upgrade_followers:
                 lines.append(f"        sub {entry_only_var}' {cls} by {entry_exit_var};")
-            else:
+            elif kept_upgrade_followers:
                 lines.append(
                     f"        sub {entry_only_var}' [{' '.join(sorted(kept_upgrade_followers))}] by {entry_exit_var};"
                 )
@@ -4578,12 +4695,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                                 lines.append(
                                     f"        ignore sub @exit_y{entry_y} {fwd_variant}' [{right_list}];"
                                 )
-                    # This rule pairs a backward predecessor (`@exit_y{entry_y}`) with a forward lookahead (`sub_la`) of follower entry-classes. The forward side is where the leak lives: `relevant[entry_y]` keeps its own exit Y even before followers whose entry sits at a different Y. Classify those followers (Phase 1 observes only; the multi-class union lookahead is left intact, so the emitted FEA is unchanged — Phase 2 will prune it).
-                    if sub_la:
-                        la_followers: set[str] = set()
-                        for la_ey in sorted(set(entry_classes) & set(fwd_used_ys)):
-                            la_followers |= set(entry_classes[la_ey])
-                        _select_rule_neighbors(fwd_variant, relevant[entry_y], la_followers, direction="fwd")
+                    # This rule pairs a backward predecessor (`@exit_y{entry_y}`) with a forward lookahead (`sub_la`). The join contract deliberately does NOT prune `sub_la` here: it is a backward (entry-adding) upgrade whose forward lookahead is the deliberately-broad class union (see the comment above on `sub_la`'s construction), used only as a "there exists an entry-bearing follower" gate so the entryless `fwd_variant` is not upgraded when standing alone — and to keep the `not_before` ignore rules and this sub in the same compiled subtable. Narrowing it to followers that join `relevant[entry_y]`'s exit would break that gate (the upgrade is about the predecessor join on the entry side, not the follower's exit join), so the per-rule contract leaves this rule intact; any residual exit dangle here is a downstream concern for the second-order pass (Phase 4), not this one.
                     lines.append(
                         f"        sub @exit_y{entry_y} {fwd_variant}'{sub_la} by {relevant[entry_y]};"
                     )
@@ -4847,7 +4959,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     )
                     if kept_override_followers == right_context_glyphs:
                         lines.append(f"        sub {bk_var}' {cls} by {fwd_var};")
-                    else:
+                    elif kept_override_followers:
                         lines.append(
                             f"        sub {bk_var}' [{' '.join(sorted(kept_override_followers))}] by {fwd_var};"
                         )
@@ -4890,7 +5002,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         )
                         if kept_ext_followers == right_context_glyphs:
                             lines.append(f"        sub {ext_bk}' {cls} by {fwd_var};")
-                        else:
+                        elif kept_ext_followers:
                             lines.append(
                                 f"        sub {ext_bk}' [{' '.join(sorted(kept_ext_followers))}] by {fwd_var};"
                             )
@@ -4973,7 +5085,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 )
                 if kept_pair_fwd_followers == right_context_glyphs:
                     lines.append(f"        sub {source_variant}' {cls} by {actual_variant};")
-                else:
+                elif kept_pair_fwd_followers:
                     lines.append(
                         f"        sub {source_variant}' [{' '.join(sorted(kept_pair_fwd_followers))}] by {actual_variant};"
                     )
@@ -5051,12 +5163,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                             lines.append(f"        ignore sub [{guard_list}] {candidate_name} {base_name}';")
                 lookahead = ""
                 if variant_meta.before:
-                    pair_before_followers = set(_expand_all_variants(variant_meta.before))
+                    pair_before_followers = _select_rule_neighbors(
+                        base_name,
+                        variant_name,
+                        set(_expand_all_variants(variant_meta.before)),
+                        direction="fwd",
+                    )
                     before_list = " ".join(sorted(pair_before_followers))
                     if not before_list:
                         continue
                     lookahead = f" [{before_list}]"
-                    _select_rule_neighbors(base_name, variant_name, pair_before_followers, direction="fwd")
                 for terminal in sorted(expanded_after & plan.terminal_entry_only):
                     lines.append(f"        ignore sub {terminal} {base_name}';")
                 _emit_entry_strip_guards_for_replacement_exit(
@@ -5773,12 +5889,16 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             variant_meta = _meta(variant_name)
             lookahead = ""
             if variant_meta.before:
-                pair_before_followers = set(_expand_all_variants(variant_meta.before))
+                pair_before_followers = _select_rule_neighbors(
+                    base_name,
+                    variant_name,
+                    set(_expand_all_variants(variant_meta.before)),
+                    direction="fwd",
+                )
                 before_list = " ".join(sorted(pair_before_followers))
                 if not before_list:
                     continue
                 lookahead = f" [{before_list}]"
-                _select_rule_neighbors(base_name, variant_name, pair_before_followers, direction="fwd")
             not_before_glyphs: list[str] = []
             if variant_meta.not_before:
                 resolved_nb = resolve_known_glyph_names(variant_meta.not_before, glyph_names)

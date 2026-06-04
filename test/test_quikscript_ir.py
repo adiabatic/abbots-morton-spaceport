@@ -961,10 +961,9 @@ def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
         line for line in fea.splitlines() if "sub qsIt'" in line and "by qsIt.ex-y5.ex-ext-1;" in line
     ]
     assert upgrade_lines, "expected qsIt -> qsIt.ex-y5.ex-ext-1 upgrade substitution"
-    assert any(
-        "qsCheer" in line and "qsCheer.en-ext-1" in line and "qsCheer.noentry" in line
-        for line in upgrade_lines
-    )
+    assert any("qsCheer" in line and "qsCheer.en-ext-1" in line for line in upgrade_lines)
+    # The derived join contract drops qsCheer.noentry from this exit-y5 upgrade: it enters nowhere (entry_ys == ()), so it cannot cursively join qsIt's exit and was a single-rule leak. qsCheer and qsCheer.en-ext-1 enter at y=5 and stay.
+    assert all("qsCheer.noentry" not in line for line in upgrade_lines)
 
 
 def test_senior_feature_emitter_derives_mid_entry_strip_guards():
@@ -2698,8 +2697,8 @@ def test_inheritance_skipped_in_junior_variant():
         )
 
 
-def test_select_rule_neighbors_is_identity_in_phase_0():
-    # Phase 0 of the join contract (doc/leak-prevention-plan.md) routes every calt selection point through this chokepoint, which must be a pure identity passthrough so the emitted FEA stays byte-identical. The point of lifting it to a module-level function is exactly this: the selection decision is now testable in isolation, without standing up the 4,000-line emitter.
+def test_select_rule_neighbors_is_identity_without_a_recorder():
+    # The join contract (doc/leak-prevention-plan.md) routes every calt selection point through this chokepoint. It enforces (drops non-joining, non-cosmetic neighbors) only while an `_active_contract_recorder` is installed for an emit run; called directly with no recorder, it is a pure identity passthrough. The point of lifting it to a module-level function is exactly this: the selection decision is testable in isolation, without standing up the 4,000-line emitter.
     followers = {"qsTea_qsOy", "qsThaw.ex-y0", "qsDay.half"}
     kept = _select_rule_neighbors("qsGay", "qsGay.en-y5", followers, direction="fwd")
     assert kept == followers

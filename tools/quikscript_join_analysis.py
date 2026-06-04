@@ -36,7 +36,7 @@ class OrphanAnchorWarning(UserWarning):
 
 
 class NonJoiningNeighborSelectionWarning(UserWarning):
-    """The `calt` emitter selected a contextual exit/entry variant for an adjacent neighbor it cannot cursively join, and that variant carries no directional `before-<family>`/`after-<family>` modifier naming the neighbor — a single-rule isolation leak the derived join contract will drop. Raised by the Phase-1 reporting pass in `_emit_quikscript_calt` (doc/leak-prevention-plan.md); Phase 1 only warns and dumps the full set, so the emitted FEA is unchanged."""
+    """The `calt` emitter would have selected a contextual exit/entry variant for an adjacent neighbor it cannot cursively join, with no directional `before-<family>`/`after-<family>` modifier naming the neighbor — a single-rule isolation leak. The derived join contract drops these from their rules' context; this warning summarizes how many were dropped. Raised by the enforcement pass in `_emit_quikscript_calt` (doc/leak-prevention-plan.md), which also dumps the full partition under `tmp/`."""
 
 
 __all__ = [
