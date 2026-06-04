@@ -1729,7 +1729,7 @@ def test_utter_gay_is_sensible_regardless_of_surroundings(before_first: str):
 
 
 def test_utter_gay_tea_oy_uses_normal_utter():
-    # ·Utter·Gay·Tea·Oy should keep the non-alt ·Utter joining ·Gay at the x-height; ·Gay surrenders its forward exit because the ·Tea·Oy ligature has no entry to receive it, and ·Tea·Oy does not join backward to ·Gay.
+    """·Utter·Gay·Tea·Oy should keep the non-alt ·Utter joining ·Gay at the x-height; ·Gay surrenders its forward exit because the ·Tea·Oy ligature has no entry to receive it, and ·Tea·Oy does not join backward to ·Gay."""
     _assert_expect_any(
         _qs_text("qsUtter", "qsGay", "qsTea", "qsOy"),
         ["·Utter.!alt ~x~ ·Gay.ex-noentry | ·Tea+Oy"],
