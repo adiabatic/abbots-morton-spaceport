@@ -38,7 +38,8 @@ _LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
 
 @dataclass(frozen=True)
 class ExtensionSpec:
-    # One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single form can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each.
+    """One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single form can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each."""
+
     by: int
     targets: tuple[str, ...]
 
@@ -3218,7 +3219,7 @@ def expand_selectors_for_ligatures(
         return families
 
     def _endpoint_accepts_source_family(endpoint_meta: JoinGlyph, source_family: str, side: str) -> bool:
-        # When the source's `before` adds a ligature endpoint, the source precedes the ligature. The ligature must accept the source as a left-side neighbor — i.e., source_family must be in the ligature's own `after` (positive selector) or the ligature must have no `after` constraint at all. Mirror for the `after` side.
+        """When the source's `before` adds a ligature endpoint, the source precedes the ligature. The ligature must accept the source as a left-side neighbor — i.e., source_family must be in the ligature's own `after` (positive selector) or the ligature must have no `after` constraint at all. Mirror for the `after` side."""
         if side == "entry":
             if endpoint_meta.after:
                 if source_family not in _selector_families(endpoint_meta.after):
