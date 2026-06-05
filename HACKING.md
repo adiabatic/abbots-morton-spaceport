@@ -71,6 +71,29 @@ A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 
 
 Draining a backlog of bad leaks one at a time is the kind of grind meant to be handed to an autonomous loop — but it is _not yet built_, and when it is, it still needs you at the ends: you launch it, and you approve the batch it produces. The brief for that loop (how it diagnoses each dangle, the per-fix verify gate, and the fact that it accumulates fixes and stops for one approval rather than committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fixing bad leaks is the same manual loop: pick a backlog entry, apply a subtractive fix, `make test-leaks`, re-bless, repeat.
 
+## What makes a good tester page
+
+A tester page is any side-by-side render harness you generate to eyeball glyph changes and record a verdict — `test/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one removes all ambiguity about _what to look at_ and makes giving a verdict fast enough that you actually do it. The non-negotiables and the niceties, learned from `test/check.html` and the fix-gallery harness:
+
+### Showing the glyphs
+
+- **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how long a glyph is — how far it reaches past its own ink — is often exactly what you are checking.
+- **Make it unmistakable which two letters are under review.** A test sequence is usually four or five letters, but only one join — two adjacent letters — is the point; the rest is context. Highlight that pair so there is no doubt and mute the surrounding letters. Feedback about the wrong two letters misroutes the fix, so the page must leave zero ambiguity about where to look.
+- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `test/before/`; the before/after workflow is the one the auto-generated `test/check.html` documents). The "before" shows the dangle; the "after" shows the fix.
+
+### Recording verdicts fast (the keyboard review loop)
+
+- A **highlighted "current" row** that auto-scrolls to center as you move, so you always know where you are.
+- **One-key verdicts that auto-advance**, kept on the home row for one-handed triage — the fix gallery uses `f` = fine/accept, `a` = bad, `x` = complicated (which also jumps you into a note). Tapping a verdict moves to the next row automatically.
+- **Up/down navigation on both the arrow keys and letter keys** (`i` / `k`), with Enter inside a note field blurring it and advancing.
+- A **per-row note field**, and rows **colored by their verdict** so progress is visible at a glance.
+- A **"copy my verdicts" button** that emits _only_ the rows needing attention (a non-default verdict, or a note) as plain text you can paste straight back, with a `<textarea>` fallback for when clipboard access is blocked.
+
+### General
+
+- **Self-contained** — inline all CSS and JS, reference only the font files (relatively), no CDNs — so it works offline and over `make serve`.
+- **Don't hand-edit auto-generated pages.** `test/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
+
 ## Understanding
 
 Really, you ought to ask an LLM set to maximum thinking mode to give you the 10¢ tour. Anything written down here would probably be out of date by the time you read it.
