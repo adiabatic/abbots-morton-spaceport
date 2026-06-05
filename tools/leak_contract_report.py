@@ -2,7 +2,7 @@
 
 This is the cross-check oracle that brief calls for: the standalone, read-only classifier that the eventual in-emitter warn pass must agree with. It changes zero FEA bytes because it only reads the already-built Senior `calt` FEA and the approved depth-4 leak snapshot.
 
-What it answers: of the leaks currently frozen in the bad backlog + benign census (`test/bad-leak-backlog.txt`, `test/benign-leak-census.txt`), how many will the construction-time join contract make impossible (so they are moot for hand-triage), how many are author-declared cosmetic tucks the contract is meant to keep, and how many are emergent across the chained lookups and so out of the contract's reach. That partition is the whole point — it tells you which snapshot rows you can skip when collecting verdicts.
+What it answers: of the leaks currently frozen in the bad backlog + benign census (`site/bad-leak-backlog.txt`, `site/benign-leak-census.txt`), how many will the construction-time join contract make impossible (so they are moot for hand-triage), how many are author-declared cosmetic tucks the contract is meant to keep, and how many are emergent across the chained lookups and so out of the contract's reach. That partition is the whole point — it tells you which snapshot rows you can skip when collecting verdicts.
 
 The contract's per-rule predicate (from the brief): a contextual substitution that selects variant `V` may keep a neighbor `N` only if `V` cursively joins `N` — `exit_ys(V) & entry_ys(N) != set()` for a forward (follower) neighbor, `exit_ys(N) & entry_ys(V) != set()` for a backward (predecessor) neighbor. A non-joining neighbor is dropped unless `V` carries a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) naming that neighbor's family.
 
@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 TOOLS_DIR = ROOT / "tools"
 for _p in (str(TOOLS_DIR), str(TEST_DIR)):
     if _p not in sys.path:
@@ -25,9 +26,9 @@ for _p in (str(TOOLS_DIR), str(TEST_DIR)):
 from leak_static_analysis import Rule, parse_calt  # noqa: E402
 from quikscript_shaping_helpers import _compiled_meta, _entry_ys, _exit_ys  # noqa: E402
 
-FEA_PATH = TEST_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
+FEA_PATH = SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea"
 # The full set of visible depth-4 leaks now lives partitioned across the bad backlog and the benign census; this analysis wants both halves together (the old single isolation-leak-snapshot.txt was retired when those two files began reconstructing it).
-SNAPSHOT_PATHS = (TEST_DIR / "bad-leak-backlog.txt", TEST_DIR / "benign-leak-census.txt")
+SNAPSHOT_PATHS = (SITE_DIR / "bad-leak-backlog.txt", SITE_DIR / "benign-leak-census.txt")
 DUMP_PATH = ROOT / "tmp" / "leak-contract-report.txt"
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)

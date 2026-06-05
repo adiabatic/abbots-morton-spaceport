@@ -4,8 +4,8 @@ This is the executable brief for the remaining build-work item in `doc/definitio
 
 ## What A hands the loop
 
-- `test/bad-leak-backlog.txt` — the machine-readable to-do list. Each line is `…example… [break N] :: *L il->lc | *R ir->rc`; the signature is the `(isolated_left, left_chosen, isolated_right, right_chosen)` 4-tuple after `::`. `tools/leak_snapshot.parse_snapshot` reads it.
-- `tools/leak_classify.py::classify(signature, visible=…)` — the bad/benign verdict, plus `force_bad_signatures()` / `force_benign_signatures()` (the per-signature override sets in `test/`).
+- `site/bad-leak-backlog.txt` — the machine-readable to-do list. Each line is `…example… [break N] :: *L il->lc | *R ir->rc`; the signature is the `(isolated_left, left_chosen, isolated_right, right_chosen)` 4-tuple after `::`. `tools/leak_snapshot.parse_snapshot` reads it.
+- `tools/leak_classify.py::classify(signature, visible=…)` — the bad/benign verdict, plus `force_bad_signatures()` / `force_benign_signatures()` (the per-signature override sets in `site/`).
 - The gates: `make test` (fast depth-3, asymmetric `live_bad ⊆ backlog`) and `make test-leaks` (depth-4 bad gate + benign census). Re-bless both files with `make leak-snapshot`.
 
 ## The loop, per decisions 9 and 12 of the definition
@@ -17,7 +17,7 @@ For each bad leak in the backlog:
 3. **Verify** (the decision-12 gate, all required): rebuild (`make all`), then (a) the targeted bad leak is gone; (b) **zero new bad leaks anywhere** — re-sweep with `make test-leaks` (or `uv run python tools/leak_snapshot.py` + diff); (c) `make test` green so no real cursive join broke. If any fails, revert the edit and either try a different lever or skip the leak (log it for human attention).
 4. The benign census may shift — that is informational; surface it at the end, never block on it.
 
-A few bad leaks are force-bad cross-lookup-compose cases (the changed side strips to bare while an unchanged ligature neighbor absorbs the join). These need the second-order revert machinery, not a one-line lever; the loop should recognize them (they're the `test/leak-force-bad.yaml` signatures) and flag rather than flail.
+A few bad leaks are force-bad cross-lookup-compose cases (the changed side strips to bare while an unchanged ligature neighbor absorbs the join). These need the second-order revert machinery, not a one-line lever; the loop should recognize them (they're the `site/leak-force-bad.yaml` signatures) and flag rather than flail.
 
 ## Substrate and landing (the user's choices)
 

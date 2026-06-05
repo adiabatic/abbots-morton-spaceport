@@ -4062,7 +4062,7 @@ def test_at_may_they_utter_looks_ok():
 
 
 # ---------------------------------------------------------------------------
-# Noncanonical Senior joins migrated out of test/extra-senior-words.html.
+# Noncanonical Senior joins migrated out of site/extra-senior-words.html.
 # Joins not found in the manual but valuable to verify.
 # ---------------------------------------------------------------------------
 

@@ -22,6 +22,8 @@ dev = [
 # `slow` covers the deep (~50 s) isolation-leak snapshot sweep; the default run skips it. `make test-leaks` runs it on its own.
 markers = ["slow: expensive deep sweeps, excluded from the default test run"]
 addopts = "-m 'not slow'"
+# The Python suite lives in `test/`; the data-expect HTML corpora that the root `conftest.py` collects as shaping tests live in `site/`. Both must be on the collection path.
+testpaths = ["test", "site"]
 
 [tool.uv]
 cache-dir = ".uv-cache"
@@ -33,6 +35,6 @@ target-version = ["py314"]
 [tool.pyright]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
-include = ["tools", "test"]
+include = ["tools", "test", "conftest.py"]
 extraPaths = ["tools", "test"]
 stubPath = "typings"

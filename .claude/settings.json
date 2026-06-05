@@ -27,7 +27,7 @@
           {
             "type": "command",
             "if": "Edit(*.py)|Write(*.py)",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pyright tools/ test/",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run pyright tools/ test/ conftest.py",
             "timeout": 60,
             "statusMessage": "Checking Python types with pyright..."
           }

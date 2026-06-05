@@ -15,7 +15,7 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
-TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 
 FAMILIES = [
     "AbbotsMortonSpaceportMono",
@@ -29,7 +29,7 @@ OVERSTRIKE = PIXEL_SIZE // 2  # 25 font units
 
 
 def _path(family: str, style: str) -> Path:
-    return TEST_DIR / f"{family}-{style}.otf"
+    return SITE_DIR / f"{family}-{style}.otf"
 
 
 @pytest.fixture(params=[(f, s) for f in FAMILIES for s in STYLES], ids=lambda p: f"{p[0]}-{p[1]}")

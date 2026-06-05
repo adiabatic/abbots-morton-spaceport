@@ -7,7 +7,7 @@ import yaml
 from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
-FONT_PATH = ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+FONT_PATH = ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 ZWNJ = "\u200c"
 
@@ -234,7 +234,7 @@ def _senior_shaping_env() -> tuple[dict, dict, dict]:
 def _assert_expect_any(text: str, expects: list[str]) -> None:
     """Pass if any of ``expects`` matches the senior shaping of ``text``.
 
-    Each entry in ``expects`` is a ``data-expect`` string (see ``test/data-expect.md``). Tries them in order and returns on the first match; if none match, raises ``AssertionError`` listing every attempt.
+    Each entry in ``expects`` is a ``data-expect`` string (see ``doc/data-expect.md``). Tries them in order and returns on the first match; if none match, raises ``AssertionError`` listing every attempt.
     """
     from test_shaping import Run, run_shaping_test_runs
 

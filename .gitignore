@@ -11,11 +11,11 @@ wheels/
 .uv-cache/
 
 # Build stuff
-/test/AbbotsMortonSpaceport*.otf
-/test/AbbotsMortonSpaceport*.fea
-/test/print.pdf
-/test/before/
-/test/scoped-anchor-review/
+/site/AbbotsMortonSpaceport*.otf
+/site/AbbotsMortonSpaceport*.fea
+/site/print.pdf
+/site/before/
+/site/scoped-anchor-review/
 
 # Scratch files
 tmp/

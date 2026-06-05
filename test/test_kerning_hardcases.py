@@ -13,7 +13,7 @@ from quikscript_shaping_helpers import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_PATH = ROOT / "test" / "kerning-hardcases.json"
+DATA_PATH = ROOT / "site" / "kerning-hardcases.json"
 
 TOOLS_PATH = str(ROOT / "tools")
 if TOOLS_PATH not in sys.path:

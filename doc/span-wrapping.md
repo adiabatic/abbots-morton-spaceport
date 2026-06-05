@@ -1,6 +1,6 @@
 # Wrapping QS words in `data-expect` spans
 
-When adding `<span data-expect="">` wrappers to QS passage blockquotes in `test/the-manual.html`, follow these rules.
+When adding `<span data-expect="">` wrappers to QS passage blockquotes in `site/the-manual.html`, follow these rules.
 
 ## Which words to wrap
 

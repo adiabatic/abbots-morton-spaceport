@@ -10,7 +10,7 @@ from livereload import Server
 from tornado.web import StaticFileHandler
 
 ROOT = Path(__file__).resolve().parent.parent
-TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 PORT = 7293
 
 
@@ -21,12 +21,12 @@ class NoCacheStaticHandler(StaticFileHandler):
 
 server = Server()
 server.SFH = NoCacheStaticHandler  # pyright: ignore[reportAttributeAccessIssue]
-server.watch(str(TEST_DIR / "**/*.html"))
-server.watch(str(TEST_DIR / "**/*.css"))
-server.watch(str(TEST_DIR / "**/*.otf"))
-server.watch(str(TEST_DIR / "**/*.js"))
+server.watch(str(SITE_DIR / "**/*.html"))
+server.watch(str(SITE_DIR / "**/*.css"))
+server.watch(str(SITE_DIR / "**/*.otf"))
+server.watch(str(SITE_DIR / "**/*.js"))
 server.serve(
-    root=str(TEST_DIR),
+    root=str(SITE_DIR),
     port=PORT,
     open_url_delay=None,
     live_css=False,

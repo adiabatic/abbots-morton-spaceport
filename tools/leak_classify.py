@@ -13,8 +13,8 @@ A break-facing *subtractive* edge wins over any additive token on that same edge
 ### Overrides (decision 11, plus one symmetric completion)
 
 - **Force-benign**, per form: a directional `before-<fam>`/`after-<fam>` cosmetic interaction with the across-break neighbor (decided by `leak_contract_report._is_cosmetic`, which pins the opt-out to the neighbor's family via the form's resolved trigger list, so `before-vertical`-style stems and `after-baseline-letter`-style class tokens are handled correctly).
-- **Force-benign**, per signature: `test/leak-force-benign.yaml`. A symmetric completion of decision 11 — some human-accepted standalone-variant swaps (e.g. `qsNo -> qsNo.alt.en-y0.ex-y0`) gain a facing anchor and trip the proxy yet carry no cosmetic modifier; this allowlist demotes the exact swap without weakening the proxy elsewhere.
-- **Force-bad**, per signature: `test/leak-force-bad.yaml`. The proxy is structurally blind to the cross-lookup-compose leaks where the changed side strips to bare while an *unchanged* ligature neighbor absorbs the join; this blocklist condemns the exact swap. Force-bad outranks every force-benign signal.
+- **Force-benign**, per signature: `site/leak-force-benign.yaml`. A symmetric completion of decision 11 — some human-accepted standalone-variant swaps (e.g. `qsNo -> qsNo.alt.en-y0.ex-y0`) gain a facing anchor and trip the proxy yet carry no cosmetic modifier; this allowlist demotes the exact swap without weakening the proxy elsewhere.
+- **Force-bad**, per signature: `site/leak-force-bad.yaml`. The proxy is structurally blind to the cross-lookup-compose leaks where the changed side strips to bare while an *unchanged* ligature neighbor absorbs the join; this blocklist condemns the exact swap. Force-bad outranks every force-benign signal.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "tools"
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 for _p in (str(TOOLS_DIR), str(TEST_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -37,9 +38,9 @@ from quikscript_shaping_helpers import _compiled_meta  # noqa: E402
 
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)
 
-# The override files live under test/ (not glyph_data/, which build_font.py merges as glyph families).
-FORCE_BAD_PATH = TEST_DIR / "leak-force-bad.yaml"
-FORCE_BENIGN_PATH = TEST_DIR / "leak-force-benign.yaml"
+# The override files live under site/ (not glyph_data/, which build_font.py merges as glyph families).
+FORCE_BAD_PATH = SITE_DIR / "leak-force-bad.yaml"
+FORCE_BENIGN_PATH = SITE_DIR / "leak-force-benign.yaml"
 
 # Break-facing additive connectors, by side. The left glyph's break-facing edge is its exit; the right glyph's is its entry. `extended` widens the body toward whichever side it sits on, so it counts on both.
 _LEFT_ADDITIVE_RE = re.compile(r"^(ex-y[0-9]|ex-ext-\d+|extended)$")

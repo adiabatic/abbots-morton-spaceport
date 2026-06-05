@@ -1,6 +1,6 @@
-"""Enumerate Quikscript "hard-case" form-junctions and emit JSON for test/kerning.html.
+"""Enumerate Quikscript "hard-case" form-junctions and emit JSON for site/kerning.html.
 
-The kerning matrix in ``test/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some form-to-form junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, but the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations only ever show up in longer context. This generator finds those hidden junctions two complementary ways and unions them:
+The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some form-to-form junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, but the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations only ever show up in longer context. This generator finds those hidden junctions two complementary ways and unions them:
 
 1. **Alt-axis cross-product** (the primary source for families with discrete alternates): for every family pair where at least one side has an enabled ``traits: [alt]`` form, enumerate the ``{plain, alt}`` cross-product, drop the combo equal to the isolated two-letter rendering, and keep each remaining combo that some real context realizes. The emitted selector is collapsed to the kerning-relevant axis — ``qsUtter.alt`` (a prefix matching every alt variant), and "plain" as the family minus its ``.alt`` sub-family. ``half`` is wired but disabled (see ``ALT_AXIS_KINDS``).
 2. **Demote/restore tables**: the ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` encode specific contextual corrections (``qsIt.ex-y0.before-day`` and the like) that the alt-axis pass doesn't cover. These are kept for every pair, except where a junction collapses onto a combo the alt-axis pass already owns (``superseded_by_alt_axis``).
@@ -26,6 +26,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 QUIKSCRIPT_YAML = ROOT / "glyph_data" / "quikscript.yaml"
 
 if str(TEST_DIR) not in sys.path:
@@ -43,9 +44,9 @@ from quikscript_shaping_helpers import (  # noqa: E402
 from quikscript_ir import heal_glyph_name  # noqa: E402
 
 CORPUS_FILES: tuple[Path, ...] = (
-    TEST_DIR / "the-manual.html",
-    TEST_DIR / "index.html",
-    TEST_DIR / "extra-senior-words.html",
+    SITE_DIR / "the-manual.html",
+    SITE_DIR / "index.html",
+    SITE_DIR / "extra-senior-words.html",
 )
 QS_FIRST = 0xE650
 QS_LAST = 0xE67F
@@ -609,8 +610,8 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=TEST_DIR / "kerning-hardcases.json",
-        help="Output JSON path (default: test/kerning-hardcases.json)",
+        default=SITE_DIR / "kerning-hardcases.json",
+        help="Output JSON path (default: site/kerning-hardcases.json)",
     )
     args = parser.parse_args()
     build(args.out)

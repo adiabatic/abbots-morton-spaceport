@@ -22,7 +22,7 @@
 #   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_form override of the same prefix)
 #   except_right: [qsNo.alt, ...]  # same on the right side
 #
-# Both sides may carry a form-prefix and/or a carve-out at once. The kerning drill-down in test/kerning.html emits exactly this when it splits an alternate-form pair (e.g. ·No·Utter) into disjoint quadrants: a "plain" side is the family minus its alternates (left_family + except_left: [qsNo.alt]), and an alternate side is its form-prefix (right_form: [qsUtter.alt]). The four quadrants partition the family×family space, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alt ·Utter) quadrant:
+# Both sides may carry a form-prefix and/or a carve-out at once. The kerning drill-down in site/kerning.html emits exactly this when it splits an alternate-form pair (e.g. ·No·Utter) into disjoint quadrants: a "plain" side is the family minus its alternates (left_family + except_left: [qsNo.alt]), and an alternate side is its form-prefix (right_form: [qsUtter.alt]). The four quadrants partition the family×family space, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alt ·Utter) quadrant:
 #
 # ---
 # left_family: [qsNo]

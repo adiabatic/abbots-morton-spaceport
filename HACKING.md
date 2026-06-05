@@ -10,15 +10,15 @@ Dependencies are managed with `uv` and defined in `pyproject.toml`.
 
 ## Testing
 
-Open `test/index.html` in a browser to test the font interactively.
+Open `site/index.html` in a browser to test the font interactively.
 
-For the repeatable workflow for finding Quikscript words in `test/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
+For the repeatable workflow for finding Quikscript words in `site/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
 
 ## WIP word highlighting
 
-`test/the-manual.html` is the only JavaScript consumer of `test/wip.json`. On load it fetches that file, parses it as a JSON array of strings, and adds the `.wip` class from `test/shared.css` to matching entries in the manual. If the file is missing, empty, or malformed, the code silently does nothing.
+`site/the-manual.html` is the only JavaScript consumer of `site/wip.json`. On load it fetches that file, parses it as a JSON array of strings, and adds the `.wip` class from `site/shared.css` to matching entries in the manual. If the file is missing, empty, or malformed, the code silently does nothing.
 
-Each array item is a whitespace-separated sequence of Quikscript letter names using the names from `test/shared.js` (`Day`, `Roe`, `Eight`, `J'ai`, and so on). Tokens may also include a `.variant` suffix when you want to match a specific `data-expect` token variant.
+Each array item is a whitespace-separated sequence of Quikscript letter names using the names from `site/shared.js` (`Day`, `Roe`, `Eight`, `J'ai`, and so on). Tokens may also include a `.variant` suffix when you want to match a specific `data-expect` token variant.
 
 ```json
 [
@@ -29,7 +29,7 @@ Each array item is a whitespace-separated sequence of Quikscript letter names us
 
 The matcher scans `[data-expect]`, `.pairings td`, `.pairings dd`, `.word-list td`, and `.word-list dd`. A sequence marks an element as WIP if either its `data-expect` contains the requested tokens in order or its text content contains the raw PUA substring built from the base letter names.
 
-When there is no active WIP list, `test/wip.json` is intentionally checked in as `[]` rather than deleted: the highlighting machinery stays loaded on standby, and adding a new WIP entry is a one-line edit instead of restoring a deleted file.
+When there is no active WIP list, `site/wip.json` is intentionally checked in as `[]` rather than deleted: the highlighting machinery stays loaded on standby, and adding a new WIP entry is a one-line edit instead of restoring a deleted file.
 
 ## Quikscript data
 
@@ -45,8 +45,8 @@ A "shaping leak" is a letter changing shape across a pen-lift (a non-join) becau
 
 The machinery sorts every visible leak into **bad** (a real defect — a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intentional cosmetic tuck — the slightly-hand-drawn variation we actually want). That sort is mechanical, validated to agree with your past triage exactly, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
 
-- `test/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
-- `test/benign-leak-census.txt` — the welcome variation. This is a census, not a defect list.
+- `site/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
+- `site/benign-leak-census.txt` — the welcome variation. This is a census, not a defect list.
 
 ### When a gate complains
 
@@ -58,14 +58,14 @@ The machinery sorts every visible leak into **bad** (a real defect — a dangle)
 
 The proxy occasionally mislabels a leak. You correct it per-signature, never by weakening the proxy:
 
-- `test/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
-- `test/leak-force-benign.yaml` — a leak the proxy calls bad but you've decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
+- `site/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
+- `site/leak-force-benign.yaml` — a leak the proxy calls bad but you've decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
 
 A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or census. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the proxy against your historical triage and prints precision/recall).
 
 ### Eyeballing leaks
 
-`make check-html` regenerates `test/check.html`; open it and scroll to "Auto-generated: isolation leaks". Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [test/isolation-leaks.md](test/isolation-leaks.md) for the full workflow.
+`make check-html` regenerates `site/check.html`; open it and scroll to "Auto-generated: isolation leaks". Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
 
 ### Fixing the backlog in bulk (the loop)
 
@@ -73,13 +73,13 @@ Draining a backlog of bad leaks one at a time is the kind of grind meant to be h
 
 ## What makes a good tester page
 
-A tester page is any side-by-side render harness you generate to eyeball glyph changes and record a verdict — `test/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one removes all ambiguity about _what to look at_ and makes giving a verdict fast enough that you actually do it. The non-negotiables and the niceties, learned from `test/check.html` and the fix-gallery harness:
+A tester page is any side-by-side render harness you generate to eyeball glyph changes and record a verdict — `site/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one removes all ambiguity about _what to look at_ and makes giving a verdict fast enough that you actually do it. The non-negotiables and the niceties, learned from `site/check.html` and the fix-gallery harness:
 
 ### Showing the glyphs
 
 - **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how long a glyph is — how far it reaches past its own ink — is often exactly what you are checking.
 - **Make it unmistakable which two letters are under review.** A test sequence is usually four or five letters, but only one join — two adjacent letters — is the point; the rest is context. Highlight that pair so there is no doubt and mute the surrounding letters. Feedback about the wrong two letters misroutes the fix, so the page must leave zero ambiguity about where to look.
-- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `test/before/`; the before/after workflow is the one the auto-generated `test/check.html` documents). The "before" shows the dangle; the "after" shows the fix.
+- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `site/before/`; the before/after workflow is the one the auto-generated `site/check.html` documents). The "before" shows the dangle; the "after" shows the fix.
 
 ### Recording verdicts fast (the keyboard review loop)
 
@@ -92,7 +92,7 @@ A tester page is any side-by-side render harness you generate to eyeball glyph c
 ### General
 
 - **Self-contained** — inline all CSS and JS, reference only the font files (relatively), no CDNs — so it works offline and over `make serve`.
-- **Don't hand-edit auto-generated pages.** `test/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
+- **Don't hand-edit auto-generated pages.** `site/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
 
 ## Understanding
 

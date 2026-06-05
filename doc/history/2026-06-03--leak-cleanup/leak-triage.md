@@ -1,6 +1,6 @@
 # Leak triage: reconciling the 209 verdicts with the join contract
 
-This is the durable record the prevention plan (`doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md`) promised: the reviewed, enumerated partition of the 387 depth-4 isolation leaks into "the contract erases it", "the design wants it", and "a human looked at it and said keep / fix". It is generated from `test/isolation-leak-snapshot.txt`, the human verdicts in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, and the read-only analysis in `tools/leak_contract_report.py`. Read the prevention plan first for the contract's definition and the dangle vs cross-lookup-compose distinction; the phase amendments these findings imply are folded into it.
+This is the durable record the prevention plan (`doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md`) promised: the reviewed, enumerated partition of the 387 depth-4 isolation leaks into "the contract erases it", "the design wants it", and "a human looked at it and said keep / fix". It is generated from `site/isolation-leak-snapshot.txt`, the human verdicts in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, and the read-only analysis in `tools/leak_contract_report.py`. Read the prevention plan first for the contract's definition and the dangle vs cross-lookup-compose distinction; the phase amendments these findings imply are folded into it.
 
 ## The partition (measured, independently confirmed)
 
@@ -82,4 +82,4 @@ After Phases 2 and 4, the depth-4 snapshot's residual should be: the 14 cosmetic
 - `uv run python tools/leak_enforcement_oracle.py` — the blind all-rules enforcement sizing and the snapshot cross-check.
 - `uv run python tools/leak_emergent_families.py` — the 99 broken grouped into the root-cause families.
 
-The human verdicts are in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, keyed by verbatim `test/isolation-leak-snapshot.txt` signature.
+The human verdicts are in `doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt`, keyed by verbatim `site/isolation-leak-snapshot.txt` signature.

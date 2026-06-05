@@ -1,6 +1,6 @@
 # Shaping-leak investigation: findings and recommended strategy
 
-This note records a prototype investigation (branch `prototype/leak-checker`) into making OpenType shaping/isolation leaks impossible — or at least catchable without hand-writing `44^n` tuple tests. It is evidence first, recommendation second. The shipped gate is `tools/leak_snapshot.py` + `test/isolation-leak-snapshot.txt`; the FEA parser used to reach the conclusions below is the (kept, reusable) `tools/leak_static_analysis.py`; the one-off sweep/validation scripts are throwaway in `tmp/` (gitignored).
+This note records a prototype investigation (branch `prototype/leak-checker`) into making OpenType shaping/isolation leaks impossible — or at least catchable without hand-writing `44^n` tuple tests. It is evidence first, recommendation second. The shipped gate is `tools/leak_snapshot.py` + `site/isolation-leak-snapshot.txt`; the FEA parser used to reach the conclusions below is the (kept, reusable) `tools/leak_static_analysis.py`; the one-off sweep/validation scripts are throwaway in `tmp/` (gitignored).
 
 ## What a leak is
 
