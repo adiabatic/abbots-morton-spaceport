@@ -22,27 +22,3 @@ If the same QS text content (byte-identical code points) already appears in a `d
 ## `data-expect` values
 
 Leave the `data-expect` value empty when wrapping. Values are filled in separately, either manually or automatically.
-
-## Example
-
-Given this English text (from `data-orthodox`):
-
-> He would sail a ship in the Pacific
-
-The QS text with wrapping looks like:
-
-```html
-<!-- prettier-ignore -->
-<p data-orthodox="He would sail a ship in the Pacific">
-
-  <span data-expect="">︎︎</span>
-  <span data-expect="">︎︎︎</span>
-
-  <span data-expect="">︎︎︎</span>
-  <span data-expect="">︎︎</span>
-
-  <span data-expect="">·︎︎︎︎︎︎︎</span>
-</p>
-```
-
-Where single-letter words (He, a, the) are bare text, and multi-letter words (would, sail, ship, in, Pacific) are wrapped. The namer dot for ·Pacific goes inside the span.
