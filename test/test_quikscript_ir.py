@@ -1,3 +1,4 @@
+from functools import cache
 from pathlib import Path
 import re
 import sys
@@ -46,6 +47,29 @@ from suggest_scoped_anchor_selectors import (
     ScopedAnchorSuggestion,
     suggest_scoped_anchor_selectors,
 )
+
+
+@cache
+def _real_glyph_data() -> GlyphData:
+    return load_glyph_data(ROOT / "glyph_data")
+
+
+@cache
+def _real_senior_join_glyphs() -> dict[str, JoinGlyph]:
+    join_glyphs, _ = compile_quikscript_ir(_real_glyph_data(), "senior")
+    return join_glyphs
+
+
+@cache
+def _real_senior_compiled():
+    return compile_glyph_set(_real_glyph_data(), "senior")
+
+
+@cache
+def _real_senior_fea() -> str:
+    fea = emit_quikscript_senior_features(_real_senior_join_glyphs(), 50, 50)
+    assert fea is not None
+    return fea
 
 
 def test_widen_right_at_edge_widens_by_count():
@@ -108,8 +132,7 @@ def test_widen_right_empty_bitmap():
 
 
 def test_compile_glyph_set_exposes_flat_definitions_and_metadata():
-    data = load_glyph_data(ROOT / "glyph_data")
-    compiled = compile_glyph_set(data, "senior")
+    compiled = _real_senior_compiled()
 
     assert compiled.glyph_definitions
     assert compiled.glyph_meta
@@ -117,8 +140,7 @@ def test_compile_glyph_set_exposes_flat_definitions_and_metadata():
 
 
 def test_qs_see_keeps_its_y6_forward_lookup_early_when_ye_blocks_its_entry():
-    data = load_glyph_data(ROOT / "glyph_data")
-    compiled = compile_glyph_set(data, "senior")
+    compiled = _real_senior_compiled()
     analysis = _analyze_quikscript_joins(compiled.glyph_meta)
 
     assert "qsSee" in analysis.early_pair_fwd_general
@@ -126,8 +148,7 @@ def test_qs_see_keeps_its_y6_forward_lookup_early_when_ye_blocks_its_entry():
 
 
 def test_compiled_glyph_definitions_do_not_export_compiler_metadata_keys():
-    data = load_glyph_data(ROOT / "glyph_data")
-    compiled = compile_glyph_set(data, "senior")
+    compiled = _real_senior_compiled()
 
     for glyph_name in (
         "qsTea",
@@ -787,11 +808,7 @@ def test_contract_entry_after_by_two_trims_receivers_left_ink_at_entry_row():
 
 
 def test_senior_feature_emitter_includes_join_and_gate_features():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    fea = _real_senior_fea()
 
     assert "feature curs {" in fea
     assert "feature calt {" in fea
@@ -854,11 +871,8 @@ def test_format_post_liga_cleanup_rules_groups_ligature_contexts():
 
 
 def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_class():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    join_glyphs = _real_senior_join_glyphs()
+    fea = _real_senior_fea()
 
     start = fea.index("lookup calt_pair_qsThaw_after-tall {")
     end = fea.index("} calt_pair_qsThaw_after-tall;", start)
@@ -881,11 +895,7 @@ def test_senior_feature_emitter_excludes_not_after_families_from_pair_after_clas
 
 
 def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_class():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    fea = _real_senior_fea()
 
     start = fea.index("lookup calt_pair_qsPea_en-y5_ex-y0 {")
     end = fea.index("} calt_pair_qsPea_en-y5_ex-y0;", start)
@@ -919,11 +929,7 @@ def test_senior_feature_emitter_requires_concrete_exit_reachability_for_after_cl
 
 
 def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    fea = _real_senior_fea()
 
     pair_lookup = "lookup calt_pair_qsOwe_en-y5_en-ext-1 {"
     upgrade_lookup = "lookup calt_upgrade_qsOwe_en-y5_ex-y5_en-ext-1 {"
@@ -935,21 +941,13 @@ def test_senior_feature_emitter_uses_upgrade_for_terminal_qs_owe_pair_exit():
 
 
 def test_senior_feature_emitter_keeps_thaw_exit_baseline_before_ing_entry_extended():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    fea = _real_senior_fea()
 
     assert fea.index("lookup calt_fwd_pair_qsThaw_ex-y0 {") < fea.index("lookup calt_pair_qsIng_en-ext-1 {")
 
 
 def test_fwd_pair_skips_entry_variant_with_unreachable_exit():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
-
-    fea = emit_quikscript_senior_features(join_glyphs, 50, 50)
-    assert fea is not None
+    fea = _real_senior_fea()
 
     assert "sub qsIt.en-y5.ex-y0' [qsCheer" not in fea
     assert "sub qsIt.en-y5.ex-y0.en-ext-1' [qsCheer" not in fea
@@ -1069,14 +1067,8 @@ def test_senior_feature_emitter_uses_join_glyphs_and_noentry_links():
 
 
 def test_contextual_noentry_substitutions_stay_entryless():
-    data = load_glyph_data(ROOT / "glyph_data")
-    compiled = compile_glyph_set(data, "senior")
-    fea = emit_quikscript_senior_features(
-        compiled.join_glyphs,
-        data["metadata"]["pixel_size"],
-        data["metadata"]["pixel_size"],
-    )
-    assert fea is not None
+    compiled = _real_senior_compiled()
+    fea = _real_senior_fea()
 
     contextual_sub = re.compile(r"sub ([A-Za-z0-9_.-]+)' .* by ([A-Za-z0-9_.-]+);")
     for line in fea.splitlines():
@@ -1443,8 +1435,7 @@ def test_expand_selectors_skips_ligature_glyph_when_anchor_y_does_not_match():
 
 
 def test_qs_it_before_utter_picks_up_qs_day_via_expansion_pass():
-    data = load_glyph_data(ROOT / "glyph_data")
-    join_glyphs, _ = compile_quikscript_ir(data, "senior")
+    join_glyphs = _real_senior_join_glyphs()
 
     record = join_glyphs["qsIt.en-y0.ex-y0.before-utter"]
     assert "qsUtter" in record.before
@@ -2235,7 +2226,7 @@ def _scoped_selector_suggester_fixture(
     if include_font_metadata:
         glyph_families["space"] = {"mono": {"bitmap": [], "advance_width": 7}}
     if include_font_metadata:
-        metadata = load_glyph_data(ROOT / "glyph_data")["metadata"]
+        metadata = _real_glyph_data()["metadata"]
     else:
         metadata = {}
 

@@ -15,8 +15,6 @@ TOOLS_PATH = str(ROOT / "tools")
 if TOOLS_PATH not in sys.path:
     sys.path.insert(0, TOOLS_PATH)
 
-from build_font import load_glyph_data
-from glyph_compiler import compile_glyph_set
 from quikscript_ir import JoinGlyph
 
 
@@ -82,10 +80,12 @@ def _shape_with_features(
     return [_gid_to_full_name(info.codepoint) for info in buf.glyph_infos]
 
 
-@cache
 def _compiled_meta() -> dict[str, JoinGlyph]:
-    data = load_glyph_data(ROOT / "glyph_data")
-    return compile_glyph_set(data, "senior").glyph_meta
+    import test_shaping
+
+    if "senior" not in test_shaping._COMPILED_GLYPH_META:
+        test_shaping.build_anchor_map("senior")
+    return test_shaping._COMPILED_GLYPH_META["senior"]
 
 
 @cache

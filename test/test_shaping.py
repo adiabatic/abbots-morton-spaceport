@@ -73,6 +73,7 @@ def _build_char_to_glyph_name() -> dict[str, str]:
 
 _CHAR_TO_GLYPH = _build_char_to_glyph_name()
 _COMPILED_GLYPH_META: dict[str, dict[str, JoinGlyph]] = {}
+_ANCHOR_MAPS: dict[str, tuple[AnchorMap, dict[str, set[int]]]] = {}
 _TT_FONTS: dict[str, TTFont] = {}
 _TT_GLYPH_SETS: dict[str, Any] = {}
 _OUTLINE_SIG_CACHE: dict[tuple[str, str], tuple] = {}
@@ -379,6 +380,8 @@ def shaped_glyph_name(variant: str, gid: int) -> str:
 
 
 def build_anchor_map(variant: str = "senior") -> tuple[AnchorMap, dict[str, set[int]]]:
+    if variant in _ANCHOR_MAPS:
+        return _ANCHOR_MAPS[variant]
     data = load_glyph_data(GLYPH_DATA_DIR)
     _COMPILED_GLYPH_META[variant] = compile_glyph_set(data, variant).glyph_meta
 
@@ -392,7 +395,8 @@ def build_anchor_map(variant: str = "senior") -> tuple[AnchorMap, dict[str, set[
         if entry:
             for _, y in entry:
                 base_potential_entries.setdefault(meta.base_name, set()).add(y)
-    return result, base_potential_entries
+    _ANCHOR_MAPS[variant] = (result, base_potential_entries)
+    return _ANCHOR_MAPS[variant]
 
 
 def _compiled_glyph_meta(name: str, variant: str = "senior") -> JoinGlyph:
