@@ -6025,23 +6025,27 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
         trailing_demote_by_base.setdefault(trailing_meta.base_name, []).append(
             (leader_form, trailing_form, isolated_form)
         )
-    for trailing_base in sorted(trailing_demote_by_base):
-        rules = trailing_demote_by_base[trailing_base]
-        seen: set[tuple[str, str, str]] = set()
-        unique: list[tuple[str, str, str]] = []
-        for rule in rules:
-            if rule in seen:
+
+    def _emit_trailing_demote_lookups(prefix: str) -> None:
+        for trailing_base in sorted(trailing_demote_by_base):
+            rules = trailing_demote_by_base[trailing_base]
+            seen: set[tuple[str, str, str]] = set()
+            unique: list[tuple[str, str, str]] = []
+            for rule in rules:
+                if rule in seen:
+                    continue
+                seen.add(rule)
+                unique.append(rule)
+            if not unique:
                 continue
-            seen.add(rule)
-            unique.append(rule)
-        if not unique:
-            continue
-        safe = trailing_base.replace(".", "_").replace("-", "_")
-        lines.append("")
-        lines.append(f"    lookup calt_trailing_demote_{safe} {{")
-        for leader_form, trailing_form, isolated_form in sorted(unique):
-            lines.append(f"        sub {leader_form} {trailing_form}' by {isolated_form};")
-        lines.append(f"    }} calt_trailing_demote_{safe};")
+            safe = trailing_base.replace(".", "_").replace("-", "_")
+            lines.append("")
+            lines.append(f"    lookup {prefix}_{safe} {{")
+            for leader_form, trailing_form, isolated_form in sorted(unique):
+                lines.append(f"        sub {leader_form} {trailing_form}' by {isolated_form};")
+            lines.append(f"    }} {prefix}_{safe};")
+
+    _emit_trailing_demote_lookups("calt_trailing_demote")
 
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
     pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
@@ -6409,6 +6413,10 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"    lookup calt_when_entered_{safe} {{")
             lines.extend(when_entered_rules)
             lines.append(f"    }} calt_when_entered_{safe};")
+
+    # Genuinely-last downstream revalidation (the prevention plan's "real Phase 4"): re-run the demote post-passes once more, after every neighbor-rewriting lookup — including calt_when_entered and the per-base calt_final_pred_demote passes — has settled the buffer. A demote `sub pred' trigger by iso` only fires while the trigger neighbor still sits in its bare/settled form; when an earlier-alphabetized base settles after the predecessor's demote already ran (the canonical case is qsJai's demote emitting before qsNo settles, so `·Jai·No` keeps a dangling exit), the first sweep no-ops. This second sweep sees the now-settled neighbor and fires the order-blocked reverts. It is idempotent on predecessors already reverted (the rule cannot match a form that is already its isolated target) and keyed on the exact non-joining settled neighbor, so it never disturbs a real join.
+    _emit_trailing_demote_lookups("calt_final_trailing_demote")
+    _emit_pred_demote_lookups("calt_final2_pred_demote")
 
     lines.append("} calt;")
     lines = _strip_post_zwnj_from_ignore_contexts(lines, base_to_variants)
