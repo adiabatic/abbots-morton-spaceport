@@ -8,6 +8,12 @@ If you are an agent reading this fresh: you have probably been re-invoked with n
 
 As of the journal's "Inflection point" note, the clean one-line `not_before` / `not_after` seam this runbook's per-iteration recipe is built around is **exhausted**: fix [1] (·May→·He) was the only such fix, because ·He is the script's only universal non-receiver. The ~194 remaining backlog entries all need **second-order machinery** — entry-preserving `*.ex-noentry` forms, break-context-scoped `before:` / `after:` suppression, or demote-overrides (see the hard-track section and `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` Phase 4). A fresh window that just follows the one-line recipe below will re-read the journal, re-confirm exhaustion, and yield without a fix. **So if you are restarting the loop to make progress, retarget it at the second-order work explicitly** (the per-leak loop is a poor fit for this — a deliberate batch pass is better); otherwise stop and hand off to the user.
 
+To kick off that batch pass, paste this (not the `/loop` block at the bottom):
+
+```text
+Start the second-order batch pass to drain test/bad-leak-backlog.txt. This is NOT the per-leak /loop — read doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md (Phase 4 + "Phase 4 as executed") and doc/shaping-leak-loop/journal.md first. Work the second-order machinery (entry-preserving *.ex-noentry forms, break-scoped before:/after:, predecessor/trailing demote-overrides) in deliberate family-grouped batches; build-and-bisect each batch (make all → make test-leaks must show 0 new bad → make test must stay green), re-bless with make leak-snapshot, and journal each batch. Skip the force-bad/hard-track signatures. Never commit without approval.
+```
+
 ## How this loop manages context (read this first)
 
 The loop will run for many hours across far more than one context window. It survives that because **no progress lives in the conversation** — it all lives in files:
