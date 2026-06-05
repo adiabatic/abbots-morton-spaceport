@@ -4267,3 +4267,20 @@ def test_left_pair_before_zwnj_is_unaffected_by_right_context(after_first: str):
         ),
         limit=None,
     )
+
+
+# The early `calt_trailing_demote` emission (tools/quikscript_fea.py, `_emit_trailing_demote_lookups("calt_trailing_demote")`) is load-bearing and cannot be retired in favor of the genuinely-last `calt_final_trailing_demote` twin alone — see doc/shaping-leak-loop/journal.md, "Early `calt_trailing_demote` lead closed". In `<word-boundary> ·Excite ·No ·X`, the word-initial ·Excite is exitless, so ·No takes its `qsNo.alt.en-y0.ex-y0` backward upgrade and the trailing ·X takes a baseline (y0) backward entry joining that exit; ·No then reverts to bare `qsNo` (which exits only at the x-height, y5), stranding the trailing entry. The early trailing demote reverts ·X to bare in an earlier fixpoint round; the lone final twin runs before ·No's genuinely-last settle (`calt_final2_pred_demote_qsNo`) and so misses it. The depth-4 isolation-leak gate cannot reach this 5-glyph word-boundary context, so this is the only guard for these three signatures.
+@pytest.mark.parametrize(
+    "prefix, trailing",
+    [
+        (("qsAh", "space"), "qsExcite"),
+        (("qsAh", "space"), "qsGay"),
+        (("qsThey", "qsZoo"), "qsDay"),
+    ],
+)
+def test_excite_no_trailing_stays_bare_across_word_boundary(prefix, trailing):
+    glyphs = _shape_qs(*prefix, "qsExcite", "qsNo", trailing)
+    assert glyphs[-1] == trailing, (
+        f"trailing ·{trailing[2:]} after a word-initial ·Excite·No must demote to bare "
+        f"{trailing} (early calt_trailing_demote), got a dangling backward entry: {glyphs}"
+    )
