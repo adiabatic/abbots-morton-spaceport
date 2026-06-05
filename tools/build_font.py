@@ -40,6 +40,7 @@ from typing import Any, cast
 from quikscript_ir import (
     GlyphData,
     GlyphDef,
+    JoinGlyph,
     family_names_from_compiled,
     get_base_glyph_name,
     heal_glyph_name,
@@ -736,12 +737,65 @@ def resolve_composite(
     return result_bitmap, result_y_offset
 
 
+def build_senior_fea(
+    glyph_data: GlyphData,
+    join_glyphs: dict[str, JoinGlyph],
+    pixel_width: int,
+    pixel_height: int,
+) -> str | None:
+    """Emit the senior proportional feature code (curs/calt/ss…) for the given compiled join glyphs. Identical for the Regular and Bold senior members, so it is emitted once in `main()` and shared between both builds."""
+    # Author-written compiled glyph names in these override tables predate `_synthesize_anchor_modifiers` and may name forms that have since gained synthesized anchor-Y modifiers; route them through `heal_glyph_name` so the override fires against the post-synth form.
+    senior_family_names = set(glyph_data.get("glyph_families", {}))
+    senior_available_names = frozenset(join_glyphs)
+
+    def _heal(name: str) -> str:
+        return heal_glyph_name(name, senior_family_names, senior_available_names)
+
+    raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
+    restore_isolated_form_tuples = tuple(
+        (
+            _heal(entry["prior"]),
+            _heal(entry["target"]),
+            _heal(entry["follower"]),
+            _heal(entry["isolated_form"]),
+        )
+        for entry in raw_restore_isolated_form
+    )
+    raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
+    predecessor_demote_tuples = tuple(
+        (
+            _heal(entry["predecessor_form"]),
+            _heal(entry["trigger_form"]),
+            _heal(entry["isolated_form"]),
+        )
+        for entry in raw_pred_demote
+    )
+    raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
+    trailing_demote_tuples = tuple(
+        (
+            _heal(entry["leader_form"]),
+            _heal(entry["trailing_form"]),
+            _heal(entry["isolated_form"]),
+        )
+        for entry in raw_trailing_demote
+    )
+    return emit_quikscript_senior_features(
+        join_glyphs,
+        pixel_width,
+        pixel_height,
+        restore_isolated_form_overrides=restore_isolated_form_tuples,
+        predecessor_demote_overrides=predecessor_demote_tuples,
+        trailing_demote_overrides=trailing_demote_tuples,
+    )
+
+
 def build_font(
     glyph_data: GlyphData,
     output_path: Path | None = None,
     variant: str = "mono",
     pixel_width: int | None = None,
     bold: bool = False,
+    senior_fea: str | None = None,
 ) -> TTFont:
     """
     Build font from glyph data dictionary. Creates a CFF-based OpenType font (.otf).
@@ -752,6 +806,7 @@ def build_font(
         variant: "mono", "junior", or "senior"
         pixel_width: Width of each pixel in font units. Defaults to metadata["pixel_size"]. Height is always metadata["pixel_size"].
         bold: When True, widen each drawn pixel by `pixel_width // 2` units (half-pixel rightward overstrike). The logical pixel grid, advance widths, and anchors are unchanged; only the painted rectangles grow. The resulting font is named and style-linked as the Bold member of its family.
+        senior_fea: Precomputed senior feature code, used only when `variant == "senior"`. The Regular and Bold members share byte-identical senior FEA, so `main()` emits it once with `build_senior_fea` and passes it to both jobs; left None, the senior build emits its own.
 
     Returns:
         The built TTFont object.
@@ -1090,49 +1145,9 @@ def build_font(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        # Author-written compiled glyph names in these override tables predate `_synthesize_anchor_modifiers` and may name forms that have since gained synthesized anchor-Y modifiers; route them through `heal_glyph_name` so the override fires against the post-synth form.
-        senior_family_names = set(glyph_data.get("glyph_families", {}))
-        senior_available_names = frozenset(join_glyphs)
-
-        def _heal(name: str) -> str:
-            return heal_glyph_name(name, senior_family_names, senior_available_names)
-
-        raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
-        restore_isolated_form_tuples = tuple(
-            (
-                _heal(entry["prior"]),
-                _heal(entry["target"]),
-                _heal(entry["follower"]),
-                _heal(entry["isolated_form"]),
-            )
-            for entry in raw_restore_isolated_form
-        )
-        raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
-        predecessor_demote_tuples = tuple(
-            (
-                _heal(entry["predecessor_form"]),
-                _heal(entry["trigger_form"]),
-                _heal(entry["isolated_form"]),
-            )
-            for entry in raw_pred_demote
-        )
-        raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
-        trailing_demote_tuples = tuple(
-            (
-                _heal(entry["leader_form"]),
-                _heal(entry["trailing_form"]),
-                _heal(entry["isolated_form"]),
-            )
-            for entry in raw_trailing_demote
-        )
-        senior_fea = emit_quikscript_senior_features(
-            join_glyphs,
-            pixel_width,
-            pixel_height,
-            restore_isolated_form_overrides=restore_isolated_form_tuples,
-            predecessor_demote_overrides=predecessor_demote_tuples,
-            trailing_demote_overrides=trailing_demote_tuples,
-        )
+        # The senior FEA is byte-identical for the Regular and Bold members (bold only changes pixel painting, not the join logic) and emitting it costs ~3.2s, so `main()` emits it once and threads it in via `senior_fea`. Fall back to emitting here when a caller (e.g. a test) builds a senior font directly.
+        if senior_fea is None:
+            senior_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
         if senior_fea:
             fea_code_parts.append(senior_fea)
 
@@ -1200,12 +1215,20 @@ def _install_warning_hook() -> None:
     warnings.showwarning = _show_build_warning
 
 
-def _build_one_font(input_path_str: str, output_path_str: str, variant: str, bold: bool) -> None:
+def _build_one_font(
+    input_path_str: str,
+    output_path_str: str,
+    variant: str,
+    bold: bool,
+    senior_fea: str | None = None,
+) -> None:
     # Worker entry point for ProcessPoolExecutor. Each worker reloads glyph data from
     # disk (≈125 ms) so the parent doesn't have to pickle the GlyphData payload over.
+    # The senior members receive their shared feature code via senior_fea so neither
+    # worker re-emits it (~3.2s each).
     _install_warning_hook()
     glyph_data = load_glyph_data(Path(input_path_str))
-    build_font(glyph_data, Path(output_path_str), variant=variant, bold=bold)
+    build_font(glyph_data, Path(output_path_str), variant=variant, bold=bold, senior_fea=senior_fea)
 
 
 def main() -> None:
@@ -1237,17 +1260,24 @@ def main() -> None:
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # The senior Regular and Bold members share byte-identical senior FEA, so emit it once here and hand it to both jobs instead of paying the ~3.2s emit twice across the pool.
+    parent_data = load_glyph_data(input_path)
+    pixel_size: int = parent_data.get("metadata", {})["pixel_size"]
+    senior_join_glyphs = compile_glyph_set(parent_data, "senior").join_glyphs
+    shared_senior_fea = build_senior_fea(parent_data, senior_join_glyphs, pixel_size, pixel_size)
+
     # Build six static OTFs: Regular and Bold for each family, in parallel.
     families = (
         ("AbbotsMortonSpaceportMono", "mono"),
         ("AbbotsMortonSpaceportSansJunior", "junior"),
         ("AbbotsMortonSpaceportSansSenior", "senior"),
     )
-    jobs: list[tuple[str, str, str, bool]] = []
+    jobs: list[tuple[str, str, str, bool, str | None]] = []
     for style_suffix, bold in (("-Regular", False), ("-Bold", True)):
         for file_prefix, variant in families:
             output_path = output_dir / f"{file_prefix}{style_suffix}.otf"
-            jobs.append((str(input_path), str(output_path), variant, bold))
+            job_senior_fea = shared_senior_fea if variant == "senior" else None
+            jobs.append((str(input_path), str(output_path), variant, bold, job_senior_fea))
 
     with ProcessPoolExecutor(max_workers=len(jobs)) as executor:
         futures = [executor.submit(_build_one_font, *job) for job in jobs]

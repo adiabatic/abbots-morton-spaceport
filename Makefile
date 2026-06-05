@@ -25,12 +25,13 @@ typecheck:
 prettier:
 	uv run --with black black -q tools/ test/ conftest.py
 
-test: typecheck
-	uv run pytest test/ site/ -n auto --dist worksteal
+# The pyright gate runs inside pytest_configure (via AMS_RUN_PYRIGHT) so it overlaps the font build instead of preceding it serially; it still fast-fails before the workers spawn. The `typecheck` target stays for standalone/pre-commit use.
+test:
+	AMS_RUN_PYRIGHT=1 uv run pytest test/ site/ -n auto --dist worksteal
 
 # Run the test suite on efficiency cores only
-test-slowly: typecheck
-	taskpolicy -b uv run pytest test/ site/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
+test-slowly:
+	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(sysctl -n hw.perflevel1.logicalcpu) --dist worksteal
 
 # Deep (≈1 min) isolation-leak gate: no NEW bad leak at depth 4 (site/bad-leak-backlog.txt), plus the benign census (site/benign-leak-census.txt).
 test-leaks: all
