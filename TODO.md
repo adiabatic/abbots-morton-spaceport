@@ -26,6 +26,12 @@
   - ·Tea
   - ·It
 
+## Consider making ·Jai join ·Excite and ·Gay at the baseline
+
+Surfaced during the visual review of the second-order shaping-leak fix batch (commit b6b629e, "Stop dangling join strokes across non-joining breaks"). The leak fixes for ·Out·Tea·Jai·Excite and ·Out·Tea·Jai·Gay were accepted as improvements, but with the note that it'd be better still if ·Jai actually joined its follower instead of the connection being a clean non-join. Today ·Jai→·Excite and ·Jai→·Gay are genuine non-joins, so the batch correctly removed the dangling entry stubs the follower had grown back toward ·Jai across the break (·Excite reverted `en-y0.noexit`→bare, ·Gay reverted `en-y0.ex-y5`→bare, via `trailing_demote_overrides`/`predecessor_demote_overrides`).
+
+Making them join is a separate, additive design decision — not a revert of the leak fix. Check ·Jai's baseline exit anchor against ·Excite's and ·Gay's entry geometry, decide whether a baseline join is feasible and visually desirable, and if so add the join (anchors / joining forms) so the stroke genuinely connects; the existing demote-override cleanup then becomes moot for those pairs. Scope it and present options before changing anything.
+
 ## Restructure source so join mismatches are inexpressible
 
 Follow-on to the Phase A static validator (`tools/quikscript_join_analysis.py:validate_join_consistency`) and Phase B derived guards. Once those have stabilized for a few feature additions, look at where the validator is still doing meaningful work — i.e., places where the same join is declared on both sides and the two declarations have to be kept in sync (e.g., one form's `cursive_exit` paired with another form's matching `cursive_entry` and an `extend_entry_after`).
