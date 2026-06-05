@@ -4,6 +4,10 @@ This is the operational runbook for deliverable B — the long-running loop that
 
 If you are an agent reading this fresh: you have probably been re-invoked with no memory of prior iterations. That is by design. **Everything you need is on disk** — reconstruct your state from the files below, do one iteration, write it down, and stop (the loop will wake you again).
 
+## Status: second-order batch pass drained 194 → 70 (see the journal) — the residue is hard-track
+
+A deliberate second-order batch pass (2026-06-04) drained the backlog from 194 to **70** using the `predecessor_demote_overrides` / `trailing_demote_overrides` post-pass tables — the lever that doesn't reroute the `calt_cycle` the way the old `before:`/`ex-noentry` probes did. Full per-batch log and the characterization of the remaining 70 (force-bad/hard-track, ligature-formation compose, ·Gay context-dependent cluster, inverted/lesson-3/lookup-ordering) are in `doc/shaping-leak-loop/journal.md`. The residue needs the uniform downstream-revalidation pass the prevention plan reserves; it is not drainable with the keyed post-pass tables. The change is uncommitted pending approval.
+
 ## Status: the one-line seam is drained — a restarted loop must target the second-order track
 
 As of the journal's "Inflection point" note, the clean one-line `not_before` / `not_after` seam this runbook's per-iteration recipe is built around is **exhausted**: fix [1] (·May→·He) was the only such fix, because ·He is the script's only universal non-receiver. The ~194 remaining backlog entries all need **second-order machinery** — entry-preserving `*.ex-noentry` forms, break-context-scoped `before:` / `after:` suppression, or demote-overrides (see the hard-track section and `doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md` Phase 4). A fresh window that just follows the one-line recipe below will re-read the journal, re-confirm exhaustion, and yield without a fix. **So if you are restarting the loop to make progress, retarget it at the second-order work explicitly** (the per-leak loop is a poor fit for this — a deliberate batch pass is better); otherwise stop and hand off to the user.
