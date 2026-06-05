@@ -1,5 +1,6 @@
 import sys
 import warnings
+from functools import cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -13,9 +14,14 @@ from quikscript_ir import JoinGlyph, generate_noentry_variants
 from quikscript_join_analysis import JoinContractWarning, OrphanAnchorWarning
 
 
+@cache
+def _real_compiled_set() -> CompiledGlyphSet:
+    return compile_glyph_set(load_glyph_data(ROOT / "glyph_data"), "senior")
+
+
 def _compiled_set(data: Any = None) -> CompiledGlyphSet:
     if data is None:
-        return compile_glyph_set(load_glyph_data(ROOT / "glyph_data"), "senior")
+        return _real_compiled_set()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", OrphanAnchorWarning)
         warnings.simplefilter("ignore", JoinContractWarning)
