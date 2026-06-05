@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_mono_preview_resets_to_regular_weight():
     script = textwrap.dedent("""
         import assert from 'node:assert/strict';
-        import { initToggles } from './test/shared.js';
+        import { initToggles } from './site/shared.js';
 
         function createElement() {
           return {

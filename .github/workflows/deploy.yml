@@ -37,7 +37,7 @@ jobs:
           uv pip install brotli  # for woff2 conversion
 
       - name: Type check
-        run: uv run pyright tools/ test/
+        run: uv run pyright tools/ test/ conftest.py
 
       - name: Build fonts
         run: |
@@ -56,13 +56,9 @@ jobs:
           "
 
       - name: Prepare site
+        # The web sources (HTML, CSS, JS, SVG, icons/, DepartureMono) live in site/ already; only the freshly-built fonts need copying in.
         run: |
-          mkdir -p site
           cp build/*.otf build/*.woff2 site/
-          cp test/DepartureMono-Regular.otf site/
-          cp test/*.html site/
-          cp test/shared.css test/shared.js test/gear-menu.js site/
-          cp test/quikscript-title.svg site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

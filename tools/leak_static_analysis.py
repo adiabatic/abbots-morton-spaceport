@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))
 
@@ -255,7 +256,7 @@ def any_join(lefts: frozenset[str], rights: frozenset[str]) -> bool:
 
 
 if __name__ == "__main__":
-    fea = sys.argv[1] if len(sys.argv) > 1 else str(TEST_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea")
+    fea = sys.argv[1] if len(sys.argv) > 1 else str(SITE_DIR / "AbbotsMortonSpaceportSansSenior-Regular.fea")
     prog = parse_calt(fea)
     rules = prog.rules
     n_sub = sum(1 for r in rules if r.kind == "sub")

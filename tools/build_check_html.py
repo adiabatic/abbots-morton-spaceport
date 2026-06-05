@@ -1,11 +1,11 @@
-"""Generate test/check.html — the side-by-side before/after rendering harness.
+"""Generate site/check.html — the side-by-side before/after rendering harness.
 
-One program, one file out. Replaces the previous arrangement where a static ``test/check.html`` was mutated in place by two separate splicer tools.
+One program, one file out. Replaces the previous arrangement where a static ``site/check.html`` was mutated in place by two separate splicer tools.
 
 The page contains:
 
 * Standard page chrome (title, intro, workflow notes, footer).
-* A "corpus render diffs" section: every multi-letter Quikscript run harvested from ``test/the-manual.html``, ``test/index.html``, and ``test/extra-senior-words.html`` whose Senior-Regular render differs between ``test/before/`` and the live build. Skipped with a notice when the snapshot is missing.
+* A "corpus render diffs" section: every multi-letter Quikscript run harvested from ``site/the-manual.html``, ``site/index.html``, and ``site/extra-senior-words.html`` whose Senior-Regular render differs between ``site/before/`` and the live build. Skipped with a notice when the snapshot is missing.
 * An "isolation leaks" section: short sequences whose adjacent non-joining pair changes shape when the pair is shaped together vs. independently — the same invariant as ``_check_break_isolation`` in ``test/test_shaping.py``. These are the cases that need ``|?|`` (instead of ``|``) in ``data-expect``.
 * A "failing tests" section: one row per assertion line from a currently-failing pytest test under ``test/``. The row renders the input families parsed out of the failure message so you can eyeball false positives.
 * A copy-codepoints click handler so each row's ``U+E6XX`` strip can be copied as a prompt preamble.
@@ -39,9 +39,10 @@ from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
+SITE_DIR = ROOT / "site"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
-CHECK_HTML_PATH = TEST_DIR / "check.html"
-LEAK_SNAPSHOT_PATH = TEST_DIR / "bad-leak-backlog.txt"
+CHECK_HTML_PATH = SITE_DIR / "check.html"
+LEAK_SNAPSHOT_PATH = SITE_DIR / "bad-leak-backlog.txt"
 
 # Reuse the test-suite shaping helpers so the isolation-leaks sweep matches what ``test_shaping.py`` enforces.
 if str(TEST_DIR) not in sys.path:
@@ -277,13 +278,13 @@ def _visual_status(example: IsolationLeakExample) -> str:
 
 
 CORPUS_FILES: tuple[Path, ...] = (
-    TEST_DIR / "the-manual.html",
-    TEST_DIR / "index.html",
-    TEST_DIR / "extra-senior-words.html",
+    SITE_DIR / "the-manual.html",
+    SITE_DIR / "index.html",
+    SITE_DIR / "extra-senior-words.html",
 )
 SENIOR_FONT_NAME = "AbbotsMortonSpaceportSansSenior-Regular.otf"
-BEFORE_FONT = TEST_DIR / "before" / SENIOR_FONT_NAME
-AFTER_FONT = TEST_DIR / SENIOR_FONT_NAME
+BEFORE_FONT = SITE_DIR / "before" / SENIOR_FONT_NAME
+AFTER_FONT = SITE_DIR / SENIOR_FONT_NAME
 
 QS_FIRST = 0xE650
 QS_LAST = 0xE67F
@@ -531,6 +532,7 @@ def collect_test_failures() -> list[TestFailure]:
     collector = _FailureCollector()
     args = [
         "test/",
+        "site/",
         "-q",
         "--no-header",
         "--tb=long",
@@ -833,7 +835,7 @@ def _isolation_leaks_section(
 # Depth-4 leak-snapshot triage section.
 # ---------------------------------------------------------------------------
 #
-# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (≈50 s), so its result is frozen in ``test/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
+# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (≈50 s), so its result is frozen in ``site/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
 
 _SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
 
@@ -985,7 +987,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "      <summary><h2>Auto-generated: isolation-leak triage (depth-4 snapshot)</h2></summary>\n"
         "      <p>\n"
         "        The approved depth-4 leaks frozen in\n"
-        "        <code>test/isolation-leak-snapshot.txt</code>, rendered in the\n"
+        "        <code>site/isolation-leak-snapshot.txt</code>, rendered in the\n"
         "        same side-by-side layout as the section above. Each expanded\n"
         "        row is a known leak that needs more context than the everyday\n"
         "        depth-3 sweep covers; decide, per row, whether the in-context\n"
@@ -1094,7 +1096,7 @@ def _render_diffs_section(
 ) -> str:
     if diffs is None:
         body = (
-            '      <p class="snapshot-missing">No <code>test/before/</code>\n'
+            '      <p class="snapshot-missing">No <code>site/before/</code>\n'
             "        snapshot present, so there's nothing to diff against.\n"
             "        Switch to your baseline branch, run\n"
             "        <code>make snapshot-before</code>, switch back, and rerun\n"
@@ -1104,7 +1106,7 @@ def _render_diffs_section(
         body = (
             '      <p class="snapshot-missing">No differences found across the\n'
             "        harvested corpus. Either the change is invisible at the\n"
-            "        Senior-Regular level, or <code>test/before/</code> is\n"
+            "        Senior-Regular level, or <code>site/before/</code> is\n"
             "        already in sync with the live build.</p>"
         )
     else:
@@ -1122,9 +1124,9 @@ def _render_diffs_section(
         "      <summary><h2>Auto-generated: corpus render diffs</h2></summary>\n"
         "      <p>\n"
         "        Every multi-letter Quikscript run harvested from\n"
-        "        <code>test/the-manual.html</code>, <code>test/index.html</code>,\n"
-        "        and <code>test/extra-senior-words.html</code> whose Senior-Regular\n"
-        "        render differs between <code>test/before/</code> and the live\n"
+        "        <code>site/the-manual.html</code>, <code>site/index.html</code>,\n"
+        "        and <code>site/extra-senior-words.html</code> whose Senior-Regular\n"
+        "        render differs between <code>site/before/</code> and the live\n"
         "        build. A render is the per-glyph tuple\n"
         "        <code>(glyph name, outline hash, x_advance, x_offset, y_offset)</code>,\n"
         "        so this surfaces GSUB changes (different variant chosen), GPOS\n"
@@ -1219,7 +1221,7 @@ _PAGE_CSS = """      /*
         Pre-change snapshot. Run `make snapshot-before` on the master
         branch (or any baseline you want to compare against) to refresh
         these — the target builds the fonts and copies all six OTFs into
-        test/before/, which is gitignored.
+        site/before/, which is gitignored.
       */
       @font-face {
         font-family: "AMS Sans Senior — Before";
@@ -1759,7 +1761,7 @@ _COPY_CODEPOINTS_SCRIPT = """    <script>
         const codepoints = code.textContent.trim();
         const letters = (code.dataset.letters || '').trim();
         const suffix = letters ? ` (${letters})` : '';
-        const quote = `I'm looking at test/check.html \\u2014 specifically, ${codepoints}${suffix}. `;
+        const quote = `I'm looking at site/check.html \\u2014 specifically, ${codepoints}${suffix}. `;
         const flash = () => {
           button.classList.add('copied');
           setTimeout(() => button.classList.remove('copied'), 1200);
@@ -1892,8 +1894,8 @@ def _render_page(
       the page: one renders every assertion line from currently-failing
       pytest tests so you can eyeball false positives; one diffs every
       multi-letter Quikscript run in the test corpus between the snapshot
-      under <code>test/before/</code> and the live build under
-      <code>test/</code>; one lists every short sequence whose adjacent
+      under <code>site/before/</code> and the live build under
+      <code>site/</code>; one lists every short sequence whose adjacent
       non-joining pair changes shape between single-buffer and split
       shaping; and one reads back the approved depth-4 leak snapshot as a
       visual triage list.
@@ -1905,7 +1907,7 @@ def _render_page(
       <li>
         On the baseline you want to compare against (typically
         <code>master</code>), run <code>make snapshot-before</code>. It
-        builds the fonts and copies all six OTFs into <code>test/before/</code>
+        builds the fonts and copies all six OTFs into <code>site/before/</code>
         (gitignored).
       </li>
       <li>
@@ -1988,7 +1990,7 @@ def main() -> None:
         "--out",
         type=Path,
         default=CHECK_HTML_PATH,
-        help="Output path (default test/check.html).",
+        help="Output path (default site/check.html).",
     )
     args = parser.parse_args()
 

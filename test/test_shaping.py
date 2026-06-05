@@ -1,6 +1,6 @@
 """HarfBuzz shaping test helpers for the Senior Sans font.
 
-Parses data-expect attributes from the test HTML corpora (test/index.html, test/the-manual.html, and test/extra-senior-words.html) and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
+Parses data-expect attributes from the test HTML corpora (site/index.html, site/the-manual.html, and site/extra-senior-words.html) and verifies that HarfBuzz produces the expected glyph sequence and cursive connections.
 """
 
 import re
@@ -16,8 +16,8 @@ from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT_PATHS = {
-    "senior": ROOT / "test" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-    "junior": ROOT / "test" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
+    "senior": ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
+    "junior": ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
 }
 GLYPH_DATA_DIR = ROOT / "glyph_data"
 PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"

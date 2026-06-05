@@ -178,4 +178,4 @@ A reference section listing every key that can appear in a glyph definition in t
 - Read `reference/csur/index.html` for the code-point chart and character property descriptions.
 - When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
 - The audience-appropriate depth level is: explain _what_ the OpenType engine does at each step, not _how_ the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
-- For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `test/` for real rule sequences.
+- For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `site/` for real rule sequences.

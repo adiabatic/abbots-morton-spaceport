@@ -124,8 +124,8 @@ That said, I _am_ legitimately proud of my J’ai work; I expect this font to be
 
 #### Tooling
 
-- `test/the-manual.html` gains `id` attributes for deep-linking to specific passages
-- `test/tables.html` keeps the top row sticky, separates the consonant and vowel blocks with thicker borders, stores selected-letter and strip state in the URL hash (so the page is shareable), and puts the focused letter pair into the document `<title>`
+- `site/the-manual.html` gains `id` attributes for deep-linking to specific passages
+- `site/tables.html` keeps the top row sticky, separates the consonant and vowel blocks with thicker borders, stores selected-letter and strip state in the URL hash (so the page is shareable), and puts the focused letter pair into the document `<title>`
 
 ### 14.001
 

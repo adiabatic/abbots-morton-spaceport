@@ -2,10 +2,10 @@
 
 `doc/definitions/shaping-leakage.md` defines a *leak* as a cross-break shape difference and overlays a *bad* vs *benign* severity (see `tools/leak_classify.py`). This module runs the depth-4 sweep once, classifies every visible leak, and writes two files:
 
-  * `test/bad-leak-backlog.txt` — the currently-known **bad** leaks (visible additive dangles). This is the autonomous fix loop's shrinking to-do list. The gate is asymmetric: a NEW bad signature is a regression and fails CI; a resolved one prints a re-bless notice. As the loop empties the backlog the gate converges to the spec's "zero bad."
-  * `test/benign-leak-census.txt` — the **benign** leaks (subtractive trims, standalone-variant swaps, author cosmetic tucks). These are welcome — the faux-organic variation the script wants — so the gate is a symmetric census: any change is surfaced for review (re-bless), never a hard failure on its own.
+  * `site/bad-leak-backlog.txt` — the currently-known **bad** leaks (visible additive dangles). This is the autonomous fix loop's shrinking to-do list. The gate is asymmetric: a NEW bad signature is a regression and fails CI; a resolved one prints a re-bless notice. As the loop empties the backlog the gate converges to the spec's "zero bad."
+  * `site/benign-leak-census.txt` — the **benign** leaks (subtractive trims, standalone-variant swaps, author cosmetic tucks). These are welcome — the faux-organic variation the script wants — so the gate is a symmetric census: any change is surfaced for review (re-bless), never a hard failure on its own.
 
-Together the two files reconstruct the complete set of visible depth-4 leaks, partitioned by verdict. They replace the single undifferentiated `test/isolation-leak-snapshot.txt`.
+Together the two files reconstruct the complete set of visible depth-4 leaks, partitioned by verdict. They replace the single undifferentiated `site/isolation-leak-snapshot.txt`.
 
 Regenerate (bless the current state) with `make leak-snapshot`; check with `make test-leaks`.
 """
@@ -17,8 +17,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TEST_DIR = ROOT / "test"
-BAD_BACKLOG_PATH = TEST_DIR / "bad-leak-backlog.txt"
-BENIGN_CENSUS_PATH = TEST_DIR / "benign-leak-census.txt"
+SITE_DIR = ROOT / "site"
+BAD_BACKLOG_PATH = SITE_DIR / "bad-leak-backlog.txt"
+BENIGN_CENSUS_PATH = SITE_DIR / "benign-leak-census.txt"
 
 if str(TEST_DIR) not in sys.path:
     sys.path.insert(0, str(TEST_DIR))

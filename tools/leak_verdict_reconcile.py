@@ -1,6 +1,6 @@
 """Reconcile the human triage verdicts in doc/history/2026-06-03--leak-cleanup/leak-emergent-verdicts.txt against the join-contract classification.
 
-Read-only. Reuses leak_contract_report's parse_snapshot + classify so the signature mapping is identical to the report and to test/check.html. Confirms every verdict lands on an "emergent" snapshot row (the contract cannot reach it), buckets the verdicts into the actionable "broken" backlog vs the accepted residue, and flags any verdict that does not map cleanly. See doc/history/2026-06-03--leak-cleanup/leak-triage.md.
+Read-only. Reuses leak_contract_report's parse_snapshot + classify so the signature mapping is identical to the report and to site/check.html. Confirms every verdict lands on an "emergent" snapshot row (the contract cannot reach it), buckets the verdicts into the actionable "broken" backlog vs the accepted residue, and flags any verdict that does not map cleanly. See doc/history/2026-06-03--leak-cleanup/leak-triage.md.
 """
 
 from __future__ import annotations
