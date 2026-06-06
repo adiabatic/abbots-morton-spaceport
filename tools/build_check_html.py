@@ -69,9 +69,7 @@ from leak_contract_report import FEA_PATH as CONTRACT_FEA_PATH  # noqa: E402
 from leak_contract_report import classify as classify_leak_contract  # noqa: E402
 from leak_static_analysis import parse_calt  # noqa: E402
 
-# ---------------------------------------------------------------------------
 # Isolation-leak detection (was tools/find_isolation_leaks.py).
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -182,7 +180,6 @@ def _is_degenerate_sequence(families: tuple[str, ...]) -> bool:
 
 
 def find_leaks(max_len: int) -> dict[Leak, IsolationLeakExample]:
-    """Enumerate sequences up to *max_len* (letters plus the boundary tokens) and collect unique (identity) leaks, mapped to the first example that surfaced each."""
     alphabet = _sweep_alphabet()
     leaks: dict[Leak, IsolationLeakExample] = {}
     for length in range(2, max_len + 1):
@@ -272,9 +269,7 @@ def _visual_status(example: IsolationLeakExample) -> str:
     return "same" if full_sigs == halves_sigs else "diff"
 
 
-# ---------------------------------------------------------------------------
 # Render-diff detection (was tools/find_render_diffs.py).
-# ---------------------------------------------------------------------------
 
 
 CORPUS_FILES: tuple[Path, ...] = (
@@ -413,14 +408,8 @@ def find_diffs() -> list[SequenceDiff]:
     return diffs
 
 
-# ---------------------------------------------------------------------------
-# Failing-tests collection.
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class TestFailure:
-    """One pytest test that failed, plus the individual `E   ` assertion lines parsed out of its long traceback."""
 
     nodeid: str
     sub_messages: list[str] = field(default_factory=list)
@@ -428,7 +417,6 @@ class TestFailure:
 
 @dataclass(frozen=True)
 class FailureRow:
-    """One row in the failing-tests section: a single sub-failure line, optionally paired with the input families it shapes."""
 
     nodeid: str
     message: str
@@ -513,7 +501,6 @@ def _parse_families_from_message(message: str) -> tuple[str, ...]:
 
 
 def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
-    """Map a family/ZWNJ sequence to the literal characters that shape it. Returns "" if any token isn't recognized."""
     parts: list[str] = []
     for fam in families:
         if fam == "ZWNJ":
@@ -527,7 +514,6 @@ def _families_to_text(families: tuple[str, ...], cp_map: dict[str, int]) -> str:
 
 
 def collect_test_failures() -> list[TestFailure]:
-    """Run the full pytest suite in-process and return the captured failures. Output is silenced so it doesn't drown the check-html log."""
     print("Running pytest to harvest failing assertions…", file=sys.stderr, flush=True)
     collector = _FailureCollector()
     args = [
@@ -566,11 +552,6 @@ def build_failure_rows(failures: list[TestFailure]) -> list[FailureRow]:
             text = _families_to_text(families, cp_map) if families else ""
             rows.append(FailureRow(nodeid=failure.nodeid, message=message, families=families, text=text))
     return rows
-
-
-# ---------------------------------------------------------------------------
-# Shared formatting helpers.
-# ---------------------------------------------------------------------------
 
 
 _FAMILY_TO_LABEL = {"qsIng": "·-ing"}
@@ -652,7 +633,6 @@ def _tables_anchor(params: list[tuple[str, str]], label: str, icon: str) -> str:
 
 
 def _open_in_tables_link(families: tuple[str, ...]) -> str:
-    """Anchor(s) that open tables.html targeting the cells matching *families*."""
     if len(families) == 2:
         first, second = (_tables_letter_name(f) for f in families)
         return _tables_anchor(
@@ -682,11 +662,6 @@ _COPY_BUTTON_HTML = (
     '<span class="copied-toast">Copied!</span>'
     "</button>"
 )
-
-
-# ---------------------------------------------------------------------------
-# Row + section renderers.
-# ---------------------------------------------------------------------------
 
 
 def _format_leak_label(leak: Leak, example: IsolationLeakExample) -> tuple[str, str]:
@@ -831,10 +806,6 @@ def _isolation_leaks_section(
     )
 
 
-# ---------------------------------------------------------------------------
-# Depth-4 leak-snapshot triage section.
-# ---------------------------------------------------------------------------
-#
 # The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (≈50 s), so its result is frozen in ``site/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
 
 _SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
@@ -919,7 +890,6 @@ def _leak_snapshot_rows(
 
 
 def _moot_fold(klass: str, rows: list[tuple[Leak, IsolationLeakExample, str, str]]) -> str:
-    """A collapsed sub-fold holding the rows the contract takes off the triage list. Rendered without verdict controls — they are not part of the punch list."""
     if not rows:
         return ""
     title, blurb = _MOOT_FOLD_COPY[klass]
@@ -1039,7 +1009,6 @@ def _format_diff_label(diff: SequenceDiff, cp_to_family: dict[int, str]) -> str:
 
 
 def _format_diff_summary(diff: SequenceDiff) -> str:
-    """Compact one-line summary of *what* changed in this sequence's render."""
     before_names = tuple(g.name for g in diff.before)
     after_names = tuple(g.name for g in diff.after)
     parts: list[str] = []
@@ -1210,11 +1179,6 @@ def _render_failing_tests_section(rows: list[FailureRow], cp_to_family: dict[int
         f"{body}\n"
         "    </details>"
     )
-
-
-# ---------------------------------------------------------------------------
-# Page chrome (CSS, JS, top-level template).
-# ---------------------------------------------------------------------------
 
 
 _PAGE_CSS = """      /*
@@ -1943,11 +1907,6 @@ def _render_page(
   </body>
 </html>
 """
-
-
-# ---------------------------------------------------------------------------
-# Entry point.
-# ---------------------------------------------------------------------------
 
 
 def build(max_len: int) -> str:

@@ -85,7 +85,6 @@ def apply_suggestions_to_glyph_data(
     glyph_data: GlyphData,
     suggestions: list[ScopedAnchorSuggestion],
 ) -> GlyphData:
-    """Return a deep-copied glyph data dict with *suggestions* applied."""
     patched = deepcopy(glyph_data)
     glyph_families = patched["glyph_families"]
     for suggestion in suggestions:
@@ -1538,7 +1537,6 @@ def build_review_index(
     *,
     index_path: Path,
 ) -> None:
-    """Write ``index_path`` as a list of links to per-family review pages."""
     index_path.parent.mkdir(parents=True, exist_ok=True)
     ps_names = _load_ps_names()
     counts: dict[str, int] = {}

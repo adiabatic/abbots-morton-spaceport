@@ -48,7 +48,6 @@ from quikscript_ir import (
 
 
 def load_postscript_glyph_names() -> dict[str, int]:
-    """Load PostScript glyph name to Unicode codepoint mapping from YAML."""
     path = Path(__file__).parent.parent / "postscript_glyph_names.yaml"
     with open(path) as f:
         return yaml.safe_load(f)
@@ -243,7 +242,6 @@ def build_cmap14(
     glyphs_def: dict[str, GlyphDef],
     name_to_codepoint: dict[str, int],
 ) -> cmap_format_14 | None:
-    """Build a cmap format 14 subtable for Unicode Variation Sequences."""
     if not variation_sequences:
         return None
 
@@ -282,7 +280,6 @@ def build_cmap14(
 
 
 def collect_kerning_groups(glyphs_def: dict[str, GlyphDef]) -> dict[str, list[str]]:
-    """Build a mapping of {tag_name: [glyph_name, ...]} from kerning tags on glyphs."""
     groups = {}
     for glyph_name, glyph_def in glyphs_def.items():
         if glyph_def is None:
@@ -298,7 +295,6 @@ def generate_kern_fea(
     all_glyph_names: list[str],
     pixel_width: int,
 ) -> str:
-    """Generate OpenType feature code for kern feature from kerning definitions."""
 
     def matches_prefix(glyph: str, prefix: str) -> bool:
         return glyph == prefix or glyph.startswith(prefix + ".")
@@ -397,7 +393,6 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
 
     Returns the FEA string, or None if there are no marks.
     """
-    # Collect mark glyphs, split into top vs bottom. Marks with base_x_adjust or base_y_adjust get their own mark class and lookup.
     top_marks = {}  # glyph_name -> (anchor_x, anchor_y)
     bottom_marks = {}
     adjusted_marks = {}  # glyph_name -> (anchor_x, anchor_y, is_top, base_x_adjust, base_y_adjust)
@@ -408,14 +403,12 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
         y_offset = glyph_def.get("y_offset", 0)
         # Mark anchor x = 0 (bitmap is centered on origin by zero-width drawing)
         anchor_x = 0
-        # Resolve base_x_adjust with mark-only overrides
         base_x_adjust = glyph_def.get("base_x_adjust")
         mark_x_override = glyph_def.get("mark_base_x_adjust")
         if mark_x_override and base_x_adjust:
             base_x_adjust = {**base_x_adjust, **mark_x_override}
         elif mark_x_override:
             base_x_adjust = mark_x_override
-        # Resolve base_y_adjust with mark-only overrides
         base_y_adjust = glyph_def.get("base_y_adjust")
         mark_y_override = glyph_def.get("mark_base_y_adjust")
         if mark_y_override and base_y_adjust:
@@ -454,7 +447,6 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
     if not top_marks and not bottom_marks and not adjusted_marks:
         return None
 
-    # Collect base glyphs with anchors
     top_bases = {}  # glyph_name -> (anchor_x, anchor_y)
     bottom_bases = {}
     for glyph_name, glyph_def in glyphs_def.items():
@@ -485,19 +477,16 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
 
     lines = ["feature mark {"]
 
-    # Emit markClass definitions for standard marks
     for glyph_name in sorted(top_marks):
         ax, ay = top_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_top;")
     for glyph_name in sorted(bottom_marks):
         ax, ay = bottom_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_bottom;")
-    # Emit markClass definitions for adjusted marks (each gets its own class)
     for glyph_name in sorted(adjusted_marks):
         ax, ay, _, _, _ = adjusted_marks[glyph_name]
         lines.append(f"    markClass {glyph_name} <anchor {ax} {ay}> @mark_{glyph_name};")
 
-    # Emit lookup for standard top marks
     if top_marks and top_bases:
         lines.append("")
         lines.append("    lookup mark_top {")
@@ -506,7 +495,6 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
             lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_top;")
         lines.append("    } mark_top;")
 
-    # Emit lookup for standard bottom marks
     if bottom_marks and bottom_bases:
         lines.append("")
         lines.append("    lookup mark_bottom {")
@@ -515,7 +503,6 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
             lines.append(f"        pos base {glyph_name} <anchor {bx} {by}> mark @mark_bottom;")
         lines.append("    } mark_bottom;")
 
-    # Emit lookups for adjusted marks (per-base anchor overrides)
     for mark_name in sorted(adjusted_marks):
         _, _, is_top, base_x_adjust, base_y_adjust = adjusted_marks[mark_name]
         bases = top_bases if is_top else bottom_bases
@@ -537,9 +524,6 @@ def generate_mark_fea(glyphs_def: dict[str, GlyphDef], pixel_width: int, pixel_h
 
 
 def parse_bitmap(bitmap: list[str] | list[list[int]]) -> list[list[int]]:
-    """
-    Convert bitmap to a 2D array of 0s and 1s. Accepts either string rows ("#" = on) or int arrays.
-    """
     if not bitmap:
         return []
 
@@ -575,7 +559,7 @@ def bitmap_to_rectangles(
         y = (y_offset + height - 1 - row_idx) * pixel_height
 
         for col_idx, pixel in enumerate(row):
-            if pixel:  # Pixel is "on"
+            if pixel:
                 x = col_idx * pixel_width
                 rectangles.append((x, y, pixel_width, pixel_height))
 
@@ -623,22 +607,18 @@ def compose_bitmaps(
         accent_top = mark_y
         accent_bottom = mark_y - accent_h
 
-    # Combined extent in font-pixel coordinates
     combined_bottom = min(base_bottom, accent_bottom)
     combined_top = max(base_top, accent_top)
     combined_h = combined_top - combined_bottom
 
-    # Build canvas (row 0 = top of combined glyph)
     canvas = [[0] * canvas_w for _ in range(combined_h)]
 
     def blit(bitmap, bm_w, bm_bottom, x_adjust=0):
-        """Blit a bitmap onto the canvas, centered horizontally."""
         x_off = (canvas_w - bm_w) // 2 + x_adjust
         bm_h = len(bitmap)
         for row_idx, row in enumerate(bitmap):
             # bitmap row 0 is top; font-pixel y for this row:
             pixel_y = bm_bottom + bm_h - 1 - row_idx
-            # canvas row for this pixel_y:
             canvas_row = combined_top - 1 - pixel_y
             for col_idx, val in enumerate(row):
                 if val:
@@ -656,21 +636,8 @@ def resolve_composite(
     glyphs_def: dict[str, GlyphDef],
     is_proportional: bool,
 ) -> tuple[list[list[int]], int]:
-    """
-    Resolve a composite glyph definition into a bitmap and y_offset.
-
-    Args:
-        glyph_name: Name of the composite glyph (for error messages)
-        glyph_def: The composite glyph definition (has 'base', 'top'/'bottom')
-        glyphs_def: All glyph definitions (to look up base and accent)
-        is_proportional: Whether building the proportional variant
-
-    Returns:
-        (bitmap, y_offset) for the resolved composite
-    """
     base_name = glyph_def["base"]
 
-    # Try .prop variant first if building proportional font
     if is_proportional and base_name + ".prop" in glyphs_def:
         base_ref = base_name + ".prop"
     else:
@@ -819,7 +786,6 @@ def build_font(
     glyphs_def = compiled.glyph_definitions
     join_glyphs = compiled.join_glyphs
 
-    # Font name differs per variant
     base_font_name = metadata["font_name"]
     suffixes = {"mono": " Mono", "junior": " Sans Junior", "senior": " Sans Senior"}
     font_name = base_font_name + suffixes[variant]
@@ -862,7 +828,7 @@ def build_font(
     glyph_order = [".notdef", "space"] + sorted(glyph_names, key=_sort_key)
 
     # Build character map (Unicode codepoint -> glyph name). Exclude .prop glyphs - they have no direct Unicode mapping
-    cmap = {32: "space"}  # Always include space
+    cmap = {32: "space"}
     for glyph_name in glyphs_def:
         if is_proportional_glyph(glyph_name):
             continue
@@ -870,12 +836,10 @@ def build_font(
         if cp is not None:
             cmap[cp] = glyph_name
 
-    # Initialize FontBuilder for CFF-based OTF
     fb = FontBuilder(units_per_em, isTTF=False)
     fb.setupGlyphOrder(glyph_order)
     fb.setupCharacterMap(cmap)
 
-    # Build charstrings and metrics
     charstrings = {}
     metrics = {}
 
@@ -887,7 +851,6 @@ def build_font(
     # Half-pixel rightward overstrike for Bold. The logical pixel grid is unchanged; only the painted rectangle is widened by this many units.
     overstrike = pixel_width // 2 if bold else 0
 
-    # Create .notdef glyph (simple rectangle, sized to fit mono_width)
     pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
     pen.moveTo((pixel_width, 0))
     pen.lineTo((pixel_width, 5 * pixel_height))
@@ -897,26 +860,22 @@ def build_font(
     charstrings[".notdef"] = pen.getCharString()
     metrics[".notdef"] = (mono_width, pixel_width)
 
-    # Create space glyph (empty)
     space_def = glyphs_def.get("space", {})
     space_width = space_def["advance_width"] * pixel_width
     pen = T2CharStringPen(width=space_width, glyphSet=glyph_set)
     charstrings["space"] = pen.getCharString()
     metrics["space"] = (space_width, 0)
 
-    # Create all other glyphs
     for glyph_name in glyph_order:
         if glyph_name in (".notdef", "space"):
             continue
 
         glyph_def = glyphs_def.get(glyph_name, {})
 
-        # Handle composite glyphs (have 'base' key, no 'bitmap')
         if "base" in glyph_def and not glyph_def.get("bitmap"):
             composed_bitmap, composed_y_offset = resolve_composite(
                 glyph_name, glyph_def, glyphs_def, is_proportional
             )
-            # Inject the resolved bitmap so the rest of the loop handles it normally
             glyph_def = dict(glyph_def)
             glyph_def["bitmap"] = composed_bitmap
             glyph_def["y_offset"] = composed_y_offset
@@ -927,18 +886,15 @@ def build_font(
 
         bitmap = glyph_def.get("bitmap", [])
 
-        # Validate bitmap width
         # In proportional font, all glyphs use proportional validation
         # In monospace font, only .prop suffixed glyphs use proportional validation
         is_prop_glyph = is_proportional or is_proportional_glyph(glyph_name)
         if bitmap:
             if is_prop_glyph:
-                # Proportional glyphs: all rows must have consistent width
                 row_widths = [len(row) for row in bitmap]
                 if len(set(row_widths)) > 1:
                     raise ValueError(f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}")
             else:
-                # Monospace glyphs: check width requirements
                 base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
                 is_quikscript_glyph = base_name.startswith("uniE6") or base_name.startswith("qs")
                 if is_quikscript_glyph:
@@ -950,13 +906,11 @@ def build_font(
                                 f"Glyph '{glyph_name}' row {row_idx} has width {row_len}, expected 5"
                             )
                 else:
-                    # Non-Quikscript glyphs: all rows must have consistent width
                     row_widths = [len(row) for row in bitmap]
                     if len(set(row_widths)) > 1:
                         raise ValueError(f"Glyph '{glyph_name}' has inconsistent row widths: {row_widths}")
 
         if not bitmap:
-            # Empty glyph — use explicit advance_width if set, else mono_width
             width = glyph_def.get("advance_width")
             if width is not None:
                 width = int(width * pixel_width)
@@ -967,19 +921,15 @@ def build_font(
             metrics[glyph_name] = (width, 0)
             continue
 
-        # Parse and convert bitmap
         bitmap = parse_bitmap(bitmap)
         y_offset = glyph_def.get("y_offset", 0)  # negative for descenders
 
-        # Validate bitmap height
         row_count = len(bitmap)
 
-        # Check if this is a Quikscript glyph (uniE6xx or uniE6xx.prop)
         base_name = glyph_name.split(".")[0] if "." in glyph_name else glyph_name
         is_quikscript = base_name.startswith("uniE6") or base_name.startswith("qs")
 
         if is_quikscript:
-            # Strict height validation for Quikscript glyphs
             if glyph_name in ("uniE66E", "uniE66F", "qsAngleParenLeft", "qsAngleParenRight"):
                 if row_count != 12:
                     raise ValueError(
@@ -992,27 +942,22 @@ def build_font(
                     )
             elif row_count not in (6, 9):
                 raise ValueError(f"Glyph '{glyph_name}' has {row_count} rows, expected 6 or 9")
-        # Non-Quikscript glyphs: no height restrictions
 
         rectangles = bitmap_to_rectangles(bitmap, pixel_width, pixel_height, y_offset)
 
-        # Calculate advance width
         advance_width = glyph_def.get("advance_width")
         senior_tighten = False
         if advance_width is None:
             if is_prop_glyph:
-                # Proportional glyphs: bitmap width + 2 pixel spacing
                 max_col = max((len(row) for row in bitmap), default=0)
                 advance_width = (max_col + 2) * pixel_width
                 # Senior sits one pixel tighter than Junior by default: shave a pixel off the right sidebearing of every Quikscript letter. Cursive joins are positioned by exit/entry anchors, so this only closes up non-joining boundaries.
                 senior_tighten = is_senior and is_quikscript
             else:
-                # Monospace glyphs: use fixed mono_width
                 advance_width = mono_width
         else:
             advance_width *= pixel_width
 
-        # Calculate x_offset: center glyph within advance width
         bitmap_width = max((len(row) for row in bitmap), default=0) * pixel_width
         if advance_width == 0:
             # Zero-width (combining mark): center bitmap on the origin
@@ -1024,7 +969,6 @@ def build_font(
         if senior_tighten:
             advance_width -= pixel_width
 
-        # Calculate left side bearing (LSB) with offset applied
         if advance_width == 0:
             lsb = 0
         elif rectangles:
@@ -1044,7 +988,6 @@ def build_font(
         charstrings[glyph_name] = pen.getCharString()
         metrics[glyph_name] = (advance_width, lsb)
 
-    # Setup CFF table
     ps_name = f"{font_name.replace(' ', '')}-{style_name}"
     fb.setupCFF(
         psName=ps_name,
@@ -1053,13 +996,10 @@ def build_font(
         privateDict={},
     )
 
-    # Setup horizontal metrics
     fb.setupHorizontalMetrics(metrics)
 
-    # Setup horizontal header
     fb.setupHorizontalHeader(ascent=ascender, descent=descender)
 
-    # Setup name table
     name_strings = {
         "familyName": {"en": font_name},
         "styleName": {"en": style_name},
@@ -1092,7 +1032,6 @@ def build_font(
 
     fb.setupNameTable(name_strings)
 
-    # Setup OS/2 table
     fb.setupOS2(
         sTypoAscender=ascender,
         sTypoDescender=descender,
@@ -1109,13 +1048,11 @@ def build_font(
     # Setup post table. Monospace font: isFixedPitch=1, Proportional font: isFixedPitch=0
     fb.setupPost(isFixedPitch=0 if is_proportional else 1)
 
-    # Setup gasp table for pixel-crisp rendering
     gasp = newTable("gasp")
     # Grid-fit only, no antialiasing
     gasp.gaspRange = {0xFFFF: 0x0001}  # pyright: ignore[reportAttributeAccessIssue]
     fb.font["gasp"] = gasp
 
-    # Add head table (required)
     fb.setupHead(unitsPerEm=units_per_em, fontRevision=version)
     if bold:
         fb.font["head"].macStyle |= 0x01  # pyright: ignore[reportAttributeAccessIssue]  # Bold bit
@@ -1125,7 +1062,6 @@ def build_font(
     if cmap14:
         fb.font["cmap"].tables.append(cmap14)
 
-    # Compile OpenType features into the proportional font only
     fea_code_parts = []
 
     kerning_defs = glyph_data.get("kerning", {})
@@ -1257,7 +1193,6 @@ def main() -> None:
         print(f"Error: Input path not found: {input_path}")
         sys.exit(1)
 
-    # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # The senior Regular and Bold members share byte-identical senior FEA, so emit it once here and hand it to both jobs instead of paying the ~3.2s emit twice across the pool.
@@ -1266,7 +1201,6 @@ def main() -> None:
     senior_join_glyphs = compile_glyph_set(parent_data, "senior").join_glyphs
     shared_senior_fea = build_senior_fea(parent_data, senior_join_glyphs, pixel_size, pixel_size)
 
-    # Build six static OTFs: Regular and Bold for each family, in parallel.
     families = (
         ("AbbotsMortonSpaceportMono", "mono"),
         ("AbbotsMortonSpaceportSansJunior", "junior"),

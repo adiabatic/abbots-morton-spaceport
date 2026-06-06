@@ -32,7 +32,6 @@ from build_check_html import IsolationLeakExample, Leak, find_visible_leaks  # n
 # Depth 4 is the sweet spot: it surfaces the four-letter-context leaks the depth-3 gate misses, at ≈1 min (vs. ≈44x that for depth 5). It is a strong regression gate, not a completeness proof — see doc/history/2026-06-03--leak-cleanup/leak-investigation-findings.md on why no fixed depth is provably complete.
 MAX_LEN = 4
 
-# A leak's structural identity, independent of which swept sequence happened to surface it first.
 Signature = tuple[str, str, str, str]  # (isolated_left, left_chosen, isolated_right, right_chosen)
 
 

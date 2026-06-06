@@ -23,10 +23,6 @@ if str(TEST_DIR) not in sys.path:
 
 from quikscript_shaping_helpers import _entry_ys, _exit_ys  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Parsing the calt feature into structured rules.
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True)
 class Rule:
@@ -89,9 +85,8 @@ def _parse_inline_classes(segment: str, classes: dict[str, frozenset[str]]) -> l
             positions.append(frozenset(resolved))
             i = j + 1
             continue
-        # bare token (glyph name or @classref) up to next whitespace
         m = re.match(r"\S+", segment[i:])
-        assert m is not None  # guaranteed: current char is non-space
+        assert m is not None
         tok = m.group(0)
         positions.append(_resolve_token(tok, classes))
         i += len(tok)
@@ -121,7 +116,7 @@ def _parse_rule(line: str, lookup: str, line_no: int, classes: dict[str, frozens
         replacement = rep if not rep.startswith("[") else None
 
     if "'" not in body:
-        return None  # no marked position; not a contextual rule
+        return None
 
     positions = _parse_context_with_mark(body, classes)
     if positions is None:
@@ -156,7 +151,7 @@ def _parse_context_with_mark(
             i = j + 1
         else:
             m = re.match(r"\S+", body[i:])
-            assert m is not None  # guaranteed: current char is non-space
+            assert m is not None
             tok = m.group(0)
             i += len(tok)
         marked = tok.endswith("'")
@@ -239,11 +234,6 @@ def parse_calt(fea_path: str) -> CaltProgram:
             rules_by_lookup[target_lookup()].append(rule)
 
     return CaltProgram(classes=classes, lookups=lookups, rules_by_lookup=rules_by_lookup)
-
-
-# ---------------------------------------------------------------------------
-# Join model.
-# ---------------------------------------------------------------------------
 
 
 def joins(left: str, right: str) -> bool:

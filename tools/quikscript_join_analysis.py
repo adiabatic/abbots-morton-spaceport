@@ -132,7 +132,6 @@ _PENDING_BK_ENTRY_GUARDS: dict[tuple[str, str, int], tuple[DerivedBkGuard, ...]]
     ),
 }
 
-# Bitmap-gap pairs the structural collector flags but we knowingly accept.
 _RESIDUAL_BITMAP_GAPS: frozenset[tuple[str, str, int]] = frozenset()
 
 
@@ -267,7 +266,6 @@ def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
 
 
 def collect_join_warnings(join_glyphs: Mapping[str, JoinGlyph]) -> tuple[str, ...]:
-    """Return non-fatal diagnostics for joins that are still source-fragile."""
     reachability = JoinReachability.from_join_glyphs(join_glyphs)
     forward_intents, backward_intents = _collect_pair_intents(
         reachability,
@@ -730,7 +728,6 @@ def _ligature_base_mutates_at_entry(
     meta: JoinGlyph,
     opposite_family: str,
 ) -> bool:
-    """Mirror of `_ligature_base_mutates_at_exit` for the lead-component side."""
     if not meta.sequence:
         return False
     if meta.extended_entry_suffix:
@@ -902,7 +899,6 @@ def _ligature_component_propagates_context(
     side: str,
 ) -> bool:
     # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and the symmetric exit-side helpers) in `quikscript_ir` propagate a component's contract / extend rule onto the matching ligature variant but leave the variant's own `after` / `before` empty (the propagated context is intersected with the base ligature's, which is `()`). At runtime `calt_liga` still routes through that variant whenever the component form's contraction / extension fires, so accept it as a swap candidate when the relevant component family carries a matching rule whose targets include `opposite_family`. The lead component drives entry-side propagation; the trailing component drives exit-side.
-    #
     # Ligature inheritance (mirroring `expand_selectors_for_ligatures`) applies to the rule's `targets` list too: a target family `qsZ` matches `opposite_family` directly *or* matches when `opposite_family` is a ligature whose lead (entry side) or trailing (exit side) component is `qsZ`, because runtime context lookups see that boundary component pre-liga.
     if source_meta is None or not source_meta.sequence:
         return False
@@ -1674,7 +1670,7 @@ def _candidate_names_for_family(
                 second = reachability.glyph_meta.get(components[1])
                 if second and second.family == t_family:
                     candidates.add(lig_name)
-        else:  # left
+        else:
             last = reachability.glyph_meta.get(components[-1])
             if last and last.family == t_family:
                 candidates.add(lig_name)

@@ -71,7 +71,6 @@ def max_ink_x(row):
 
 
 def _normalize_anchors(raw):
-    """Return a list of [x, y] pairs. Accepts a single pair or a list of pairs."""
     if not raw:
         return []
     if isinstance(raw[0], list):
