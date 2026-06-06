@@ -6,28 +6,28 @@ The `data-expect-noncanonically` attribute uses the exact same syntax and test s
 
 ## Glyph tokens
 
-| Syntax | Meaning | Example |
-| ------ | ------- | ------- |
-| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`) | `·Bay` |
-| `·-ing` | Special case for `qsIng` | `·-ing` |
-| `\X` | Literal character (via glyph names or `uniXXXX`) | `\.` |
-| `◊name` | Special glyph by name (`◊space`, `◊ZWNJ`) | `◊space` |
+| Syntax        | Meaning                                          | Example  |
+| ------------- | ------------------------------------------------ | -------- |
+| `·LetterName` | Base Quikscript letter (maps to `qsLetterName`)  | `·Bay`   |
+| `·-ing`       | Special case for `qsIng`                         | `·-ing`  |
+| `\X`          | Literal character (via glyph names or `uniXXXX`) | `\.`     |
+| `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)        | `◊space` |
 
 ## Variant assertions
 
 Append dot-separated modifiers to assert properties of the selected glyph variant. Only `.alt` and `.half` are stable semantic assertions; they map to real Quikscript concepts and are checked via compiled glyph traits.
 
-| Modifier | Meaning | Example |
-| -------- | ------- | ------- |
-| `.∅` | exact glyph, with no contextual variant | `·May.∅` |
-| `.alt` | stable alternate form | `·No.alt` |
-| `.half` | stable half form | `·Pea.half` |
+| Modifier | Meaning                                 | Example     |
+| -------- | --------------------------------------- | ----------- |
+| `.∅`     | exact glyph, with no contextual variant | `·May.∅`    |
+| `.alt`   | stable alternate form                   | `·No.alt`   |
+| `.half`  | stable half form                        | `·Pea.half` |
 
 Prefix a modifier with `!` to assert the selected glyph does **not** carry that trait or compatibility tag.
 
-| Modifier | Example |
-| -------- | ------- |
-| `.!alt` | `·No.!alt` |
+| Modifier | Example      |
+| -------- | ------------ |
+| `.!alt`  | `·No.!alt`   |
 | `.!half` | `·Pea.!half` |
 
 The `.∅` assertion uses U+2205 EMPTY SET and is exact: `·May.∅` passes only when the shaped glyph is literally `qsMay`, not `qsMay.noentry`, `qsMay.ex-y0`, or another sibling. It cannot be combined with other variant assertions.
@@ -52,11 +52,11 @@ Variant assertions go at the end of the ligature token, after the last letter na
 
 Use `+?` or `+|` when the font may or may not ligate two letters:
 
-| Syntax          | Meaning                                                      |
-| --------------- | ------------------------------------------------------------ |
-| `·Day+Utter`    | Must ligate into one glyph                                   |
-| `·Day+?Utter`   | May ligate; if separate, connection between them unasserted  |
-| `·Day+\|Utter`  | May ligate; if separate, assert a break between them         |
+| Syntax         | Meaning                                                     |
+| -------------- | ----------------------------------------------------------- |
+| `·Day+Utter`   | Must ligate into one glyph                                  |
+| `·Day+?Utter`  | May ligate; if separate, connection between them unasserted |
+| `·Day+\|Utter` | May ligate; if separate, assert a break between them        |
 
 The test runner tries both interpretations (ligated and separated) and passes if either matches. When the token carries variant assertions, those assertions apply to the ligature glyph in the ligated interpretation and are dropped in the separated interpretation.
 
@@ -64,16 +64,16 @@ The test runner tries both interpretations (ligated and separated) and passes if
 
 Tokens are separated by connection operators that describe how adjacent glyphs attach or don’t:
 
-| Operator | Meaning |
-| -------- | ------- |
-| (adjacency) | Joined, height unasserted |
-| `~x~` | Joined at x-height (y = 5) |
-| `~b~` | Joined at baseline (y = 0) |
-| `~t~` | Joined at top (y = 8) |
-| `~6~` | Joined at y = 6 |
-| `\|` | Break (no cursive connection) |
-| `\|?\|` | Break, with shape isolation NOT asserted |
-| `?` | Maybe connects, or doesn’t |
+| Operator    | Meaning                                  |
+| ----------- | ---------------------------------------- |
+| (adjacency) | Joined, height unasserted                |
+| `~x~`       | Joined at x-height (y = 5)               |
+| `~b~`       | Joined at baseline (y = 0)               |
+| `~t~`       | Joined at top (y = 8)                    |
+| `~6~`       | Joined at y = 6                          |
+| `\|`        | Break (no cursive connection)            |
+| `\|?\|`     | Break, with shape isolation NOT asserted |
+| `?`         | Maybe connects, or doesn’t               |
 
 A “join” means the preceding glyph’s exit anchor and the following glyph’s entry anchor share the specified Y coordinate. A “break” means no matching anchor pair exists. A “maybe” skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
 
@@ -93,11 +93,11 @@ Use `|?|` instead of `|` for these specific cases. It still asserts that the two
 
 Three levels of duplicate exist between two elements that both carry a `data-expect` attribute:
 
-| Level | Same text content | Same assertions | Same whitespace |
-| ----- | ----------------- | --------------- | --------------- |
-| Content duplicate | yes | no | — |
-| Total duplicate | yes | yes | no |
-| Exact duplicate | yes | yes | yes |
+| Level             | Same text content | Same assertions | Same whitespace |
+| ----------------- | ----------------- | --------------- | --------------- |
+| Content duplicate | yes               | no              | —               |
+| Total duplicate   | yes               | yes             | no              |
+| Exact duplicate   | yes               | yes             | yes             |
 
 “Same assertions” means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
 

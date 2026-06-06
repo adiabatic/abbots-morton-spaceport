@@ -52,11 +52,11 @@ The verdict is mechanical, with an author escape hatch:
 
 The additive/subtractive axis is **mechanically readable from a form’s modifier tokens**, no pixel rendering required:
 
-| Class | Tokens / derive directives |
-| --- | --- |
-| additive (reach) | a break-facing connector the chosen form **gained** vs the isolated form: `ex-yN`/`ex-ext-N` on a left exit, `en-yN`/`en-ext-N` on a right entry, `extended` either side |
-| subtractive (trim) | `ex-con-N`, `en-con-N`, `ex-trim-N`, `en-trim-N`, `ex-dips`, `contract_exit_before`, `contract_entry_after`, `noentry`, `noexit`, `ex-noentry` |
-| standalone variant | `reaches-way-back`, `nonjoining-left`, `gapped`, `smaller-loop`, `widebase` |
+| Class                          | Tokens / derive directives                                                                                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| additive (reach)               | a break-facing connector the chosen form **gained** vs the isolated form: `ex-yN`/`ex-ext-N` on a left exit, `en-yN`/`en-ext-N` on a right entry, `extended` either side       |
+| subtractive (trim)             | `ex-con-N`, `en-con-N`, `ex-trim-N`, `en-trim-N`, `ex-dips`, `contract_exit_before`, `contract_entry_after`, `noentry`, `noexit`, `ex-noentry`                                 |
+| standalone variant             | `reaches-way-back`, `nonjoining-left`, `gapped`, `smaller-loop`, `widebase`                                                                                                    |
 | author cosmetic (force-benign) | `before-<family>`, `after-<family>` (validated against the neighbor’s family via the form’s resolved trigger list, so class tokens like `after-baseline-letter` don’t misfire) |
 
 **Correction folded in during implementation (`tools/leak_classify.py`):** the additive signal is the _gained break-facing anchor_, not a static `ex-ext`/`en-ext` token. Measured against the 99 human-verified “broken” leaks, keying on `ex-ext`/`en-ext` alone fires on **zero** of them, whereas 97 of 100 broken rows involve the in-context form gaining a break-facing `ex-yN`/`en-yN` connector its isolated form lacked. So the proxy compares the chosen form’s modifiers to the isolated form’s and asks what was _gained_ on the break-facing edge (the left glyph’s exit, the right glyph’s entry), with a break-facing subtractive token (`noexit`/`ex-noentry` left, `noentry` right) winning — the edge is gone, nothing to dangle. This is consistent with the prose above (“reaches connector ink toward the across-break neighbor”); only the original token bucketing was wrong (it filed `en-yN`/`ex-yN` under “standalone position”).
