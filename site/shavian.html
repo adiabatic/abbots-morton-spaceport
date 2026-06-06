@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Abbots Morton Spaceport Shavian</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    :root {
+      --font-stack: "Abbots Morton Spaceport Sans Senior", monospace;
+      --font-size: 22px; /* pixel-perfect at multiples of 11px */
+    }
+
+    body {
+      max-width: 67ch;
+      font-size: var(--font-size);
+    }
+
+    small {
+      font-size: 11px;
+    }
+
+    h1 {
+      margin-top: 1.5em;
+    }
+
+    .size-test {
+      margin: 0.5rem 0;
+    }
+
+    .size-label {
+      color: light-dark(#666, #888);
+      margin-bottom: 0.25rem;
+    }
+
+    #shavian-alphabet {
+      border-spacing: 1ch 0;
+
+      td {
+        padding: 0;
+      }
+    }
+  </style>
+  <script type="module">
+    import { initToggles } from './shared.js';
+
+    // Shavian glyphs live only in the proportional Sans family, and they carry no cursive joining, so there is nothing to gain from the Mono/Sans or Junior/Senior switches — only size and weight vary.
+    initToggles({
+      sizeToggle: 'size-toggle',
+      weightToggle: 'weight-toggle',
+    });
+  </script>
+</head>
+<body>
+  <h1>Abbots Morton Spaceport Shavian</h1>
+  <p>Want it? <a href="https://github.com/adiabatic/abbots-morton-spaceport">Get it on GitHub</a>.</p>
+
+  <div class="toggle-buttons">
+    <div id="size-toggle" class="size-control">
+      <button class="size-down">&minus;</button>
+      <span class="size-display">22px</span>
+      <button class="size-up">+</button>
+    </div>
+    <button id="weight-toggle">Regular</button>
+  </div>
+
+  <h2>The Shavian alphabet</h2>
+  <section class="panel">
+    <table class="sample" id="shavian-alphabet">
+      <tr><td>&#x10450;</td><td>Peep</td><td>U+10450</td></tr>
+      <tr><td>&#x10451;</td><td>Tot</td><td>U+10451</td></tr>
+      <tr><td>&#x10452;</td><td>Kick</td><td>U+10452</td></tr>
+      <tr><td>&#x10453;</td><td>Fee</td><td>U+10453</td></tr>
+      <tr><td>&#x10454;</td><td>Thigh</td><td>U+10454</td></tr>
+      <tr><td>&#x10455;</td><td>So</td><td>U+10455</td></tr>
+      <tr><td>&#x10456;</td><td>Sure</td><td>U+10456</td></tr>
+      <tr><td>&#x10457;</td><td>Church</td><td>U+10457</td></tr>
+      <tr><td>&#x10458;</td><td>Yea</td><td>U+10458</td></tr>
+      <tr><td>&#x10459;</td><td>Hung</td><td>U+10459</td></tr>
+      <tr><td>&#x1045A;</td><td>Bib</td><td>U+1045A</td></tr>
+      <tr><td>&#x1045B;</td><td>Dead</td><td>U+1045B</td></tr>
+      <tr><td>&#x1045C;</td><td>Gag</td><td>U+1045C</td></tr>
+      <tr><td>&#x1045D;</td><td>Vow</td><td>U+1045D</td></tr>
+      <tr><td>&#x1045E;</td><td>They</td><td>U+1045E</td></tr>
+      <tr><td>&#x1045F;</td><td>Zoo</td><td>U+1045F</td></tr>
+      <tr><td>&#x10460;</td><td>Measure</td><td>U+10460</td></tr>
+      <tr><td>&#x10461;</td><td>Judge</td><td>U+10461</td></tr>
+      <tr><td>&#x10462;</td><td>Woe</td><td>U+10462</td></tr>
+      <tr><td>&#x10463;</td><td>Ha-Ha</td><td>U+10463</td></tr>
+      <tr><td>&#x10464;</td><td>Loll</td><td>U+10464</td></tr>
+      <tr><td>&#x10465;</td><td>Mime</td><td>U+10465</td></tr>
+      <tr><td>&#x10466;</td><td>If</td><td>U+10466</td></tr>
+      <tr><td>&#x10467;</td><td>Egg</td><td>U+10467</td></tr>
+      <tr><td>&#x10468;</td><td>Ash</td><td>U+10468</td></tr>
+      <tr><td>&#x10469;</td><td>Ado</td><td>U+10469</td></tr>
+      <tr><td>&#x1046A;</td><td>On</td><td>U+1046A</td></tr>
+      <tr><td>&#x1046B;</td><td>Wool</td><td>U+1046B</td></tr>
+      <tr><td>&#x1046C;</td><td>Out</td><td>U+1046C</td></tr>
+      <tr><td>&#x1046D;</td><td>Ah</td><td>U+1046D</td></tr>
+      <tr><td>&#x1046E;</td><td>Roar</td><td>U+1046E</td></tr>
+      <tr><td>&#x1046F;</td><td>Nun</td><td>U+1046F</td></tr>
+      <tr><td>&#x10470;</td><td>Eat</td><td>U+10470</td></tr>
+      <tr><td>&#x10471;</td><td>Age</td><td>U+10471</td></tr>
+      <tr><td>&#x10472;</td><td>Ice</td><td>U+10472</td></tr>
+      <tr><td>&#x10473;</td><td>Up</td><td>U+10473</td></tr>
+      <tr><td>&#x10474;</td><td>Oak</td><td>U+10474</td></tr>
+      <tr><td>&#x10475;</td><td>Ooze</td><td>U+10475</td></tr>
+      <tr><td>&#x10476;</td><td>Oil</td><td>U+10476</td></tr>
+      <tr><td>&#x10477;</td><td>Awe</td><td>U+10477</td></tr>
+      <tr><td>&#x10478;</td><td>Are</td><td>U+10478</td></tr>
+      <tr><td>&#x10479;</td><td>Or</td><td>U+10479</td></tr>
+      <tr><td>&#x1047A;</td><td>Air</td><td>U+1047A</td></tr>
+      <tr><td>&#x1047B;</td><td>Err</td><td>U+1047B</td></tr>
+      <tr><td>&#x1047C;</td><td>Array</td><td>U+1047C</td></tr>
+      <tr><td>&#x1047D;</td><td>Ear</td><td>U+1047D</td></tr>
+      <tr><td>&#x1047E;</td><td>Ian</td><td>U+1047E</td></tr>
+      <tr><td>&#x1047F;</td><td>Yew</td><td>U+1047F</td></tr>
+    </table>
+  </section>
+
+  <h2>Pangrams</h2>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑩 𐑢𐑽𐑮𐑦 𐑡𐑳𐑡, 𐑒𐑭𐑥 𐑨𐑯𐑛 𐑒𐑿𐑮𐑾𐑕, 𐑐𐑻𐑗𐑑 𐑚𐑲 𐑞 𐑲𐑕𐑦 𐑯𐑹𐑔 𐑢𐑦𐑯𐑛𐑴, 𐑕𐑱𐑝𐑼𐑛 𐑣𐑦𐑟 𐑮𐑺 𐑵𐑤𐑪𐑙 𐑑𐑰, 𐑣𐑳𐑥𐑛 𐑩 𐑡𐑶𐑓𐑫𐑤 𐑕𐑷𐑙 𐑩𐑚𐑬𐑑 𐑚𐑱𐑠 𐑑𐑮𐑧𐑠𐑼𐑟 𐑓𐑮𐑳𐑥 𐑘𐑧𐑕𐑑𐑼𐑘𐑽, 𐑨𐑯𐑛 𐑻𐑯𐑦𐑕𐑑𐑤𐑦 𐑢𐑦𐑖𐑑 𐑰𐑗 𐑖𐑲 𐑜𐑸𐑛 𐑥𐑳𐑗 𐑐𐑰𐑕.</p>
+        <p>A weary judge, calm and curious, perched by the icy north window, savored his rare oolong tea, hummed a joyful song about beige treasures from yesteryear, and earnestly wished each shy guard much peace.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑚𐑦𐑪𐑯𐑛 𐑞 𐑒𐑭𐑥 𐑓𐑘𐑹𐑛 𐑢𐑺 𐑱𐑤𐑾𐑯 𐑛𐑷𐑯 𐑜𐑤𐑴𐑟, 𐑩 𐑘𐑵𐑔𐑓𐑩𐑤 𐑐𐑲𐑤𐑩𐑑 𐑝𐑿𐑟 𐑢𐑽𐑛 𐑨𐑠𐑼 𐑒𐑤𐑬𐑛𐑟, 𐑡𐑶𐑩𐑕𐑤𐑦 𐑗𐑸𐑑𐑕 𐑰𐑗 𐑕𐑑𐑮𐑱𐑯𐑡 𐑹𐑚𐑦𐑑, 𐑖𐑫𐑛 𐑣𐑳𐑥 𐑩 𐑓𐑴𐑒 𐑕𐑪𐑙, 𐑣𐑻𐑛 𐑮𐑳𐑓 𐑔𐑳𐑯𐑛𐑼, 𐑞𐑧𐑯 𐑯𐑳𐑡𐑩𐑟 𐑣𐑦𐑟 𐑐𐑮𐑬𐑛 𐑮𐑴𐑝𐑼 𐑑𐑩𐑢𐑹𐑛 𐑞 𐑲𐑕𐑦 𐑐𐑰𐑒𐑕.</p>
+        <p>Beyond the calm fjord where alien dawn glows, a youthful pilot views weird azure clouds, joyously charts each strange orbit, should hum a folk song, heard rough thunder, then nudges his proud rover toward the icy peaks.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑩 𐑡𐑴𐑝𐑾𐑤 𐑖𐑧𐑓 𐑒𐑭𐑥𐑤𐑦 𐑕𐑑𐑻𐑛 𐑔𐑦𐑒 𐑚𐑮𐑬𐑯 𐑜𐑸𐑤𐑦𐑒 𐑕𐑷𐑕 𐑢𐑦𐑞 𐑓𐑮𐑧𐑖 𐑑𐑲𐑥, 𐑕𐑴𐑑𐑱𐑛 𐑘𐑳𐑙 𐑕𐑶 𐑖𐑵𐑑𐑕 𐑦𐑯 𐑜𐑫𐑛 𐑣𐑪𐑑 𐑶𐑤, 𐑐𐑹𐑛 𐑕𐑥𐑵𐑞 𐑚𐑱𐑠 𐑚𐑮𐑪𐑔 𐑴𐑝𐑼 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑓𐑿 𐑕𐑐𐑲𐑕 𐑮𐑲𐑕, 𐑨𐑯𐑛 𐑣𐑽 𐑖𐑴𐑛 𐑣𐑦𐑟 𐑻𐑯𐑦𐑕𐑑 𐑐𐑿𐑐𐑩𐑤 𐑢𐑺 𐑑 𐑥𐑧𐑠𐑼 𐑰𐑗 𐑮𐑺 𐑣𐑻𐑚.</p>
+        <p>A jovial chef calmly stirred thick brown garlic sauce with fresh thyme, sautéed young soy shoots in good hot oil, poured smooth beige broth over peculiar few-spice rice, and here showed his earnest pupil where to measure each rare herb.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑞𐑩 𐑖𐑮𐑵𐑛 𐑕𐑥𐑦𐑔, 𐑒𐑭𐑥 𐑨𐑯𐑛 𐑐𐑮𐑬𐑛, 𐑓𐑹𐑡𐑛 𐑰𐑗 𐑨𐑠𐑼 𐑨𐑤𐑶 𐑢𐑦𐑔 𐑡𐑶, 𐑛𐑮𐑷𐑯 𐑑𐑵 𐑮𐑷 𐑕𐑐𐑸𐑒𐑕 𐑩𐑚𐑳𐑝 𐑜𐑫𐑛 𐑕𐑫𐑑, 𐑣𐑻𐑛 𐑩 𐑘𐑳𐑙 𐑩𐑐𐑮𐑧𐑯𐑑𐑦𐑕 𐑣𐑳𐑥 𐑣𐑽, 𐑝𐑿𐑛 𐑢𐑽𐑛 𐑧𐑥𐑚𐑼𐑟 𐑜𐑤𐑴, 𐑨𐑯𐑛 𐑘𐑧𐑑 𐑐𐑱𐑖𐑩𐑯𐑑𐑤𐑦 𐑖𐑱𐑐𐑑 𐑓𐑿 𐑓𐑺, 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑲𐑼𐑯 𐑯𐑪𐑚𐑟.</p>
+        <p>The shrewd smith, calm and proud, forged each azure alloy with joy, drawn to raw sparks above good soot, heard a young apprentice hum here, viewed weird embers glow, and yet patiently shaped few fair, peculiar iron knobs.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑩 𐑒𐑭𐑥 𐑜𐑸𐑛𐑯𐑼 𐑖𐑫𐑛 𐑡𐑶𐑓𐑩𐑤𐑦 𐑝𐑿 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑨𐑠𐑼 𐑹𐑒𐑦𐑛𐑟 𐑣𐑽, 𐑢𐑪𐑗 𐑞 𐑥𐑶𐑕𐑑 𐑻𐑔 𐑢𐑺 𐑘𐑳𐑙 𐑮𐑵𐑑𐑕 𐑚𐑻𐑡𐑩𐑯, 𐑞𐑧𐑯 𐑢𐑱 𐑰𐑗 𐑮𐑺 𐑕𐑶𐑤 𐑕𐑨𐑥𐑐𐑩𐑤, 𐑛𐑮𐑷 𐑧𐑯𐑦 𐑚𐑮𐑬𐑯 𐑮𐑴𐑟 𐑚𐑦𐑤𐑴 𐑣𐑦𐑟 𐑝𐑲𐑯 𐑸𐑚𐑼.</p>
+        <p>A calm gardener should joyfully view few peculiar azure orchids here, watch the moist earth where young roots burgeon, then weigh each rare soil sample, draw any brown rose below his vine arbor.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑞𐑩 𐑝𐑧𐑑𐑼𐑩𐑯 𐑕𐑑𐑱𐑡𐑣𐑨𐑯𐑛 𐑖𐑫𐑛 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑣𐑶𐑕𐑑 𐑰𐑗 𐑝𐑧𐑤𐑝𐑦𐑑 𐑒𐑻𐑑𐑩𐑯, 𐑕𐑦𐑜𐑯𐑩𐑤 𐑩 𐑘𐑳𐑙 𐑚𐑶 𐑯𐑽 𐑞𐑩 𐑹𐑒𐑩𐑕𐑑𐑮𐑩 𐑐𐑦𐑑, 𐑣𐑳𐑥 𐑢𐑳𐑯 𐑕𐑑𐑮𐑪𐑙 𐑕𐑪𐑙 𐑢𐑺 𐑣𐑦𐑟 𐑒𐑭𐑥 𐑱𐑤𐑾𐑯 𐑸𐑾 𐑥𐑲𐑑 𐑥𐑧𐑠𐑼 𐑣𐑻 𐑢𐑹𐑥 𐑝𐑶𐑕, 𐑞𐑧𐑯 𐑐𐑫𐑑 𐑩 𐑓𐑿 𐑐𐑮𐑬𐑛 𐑨𐑒𐑑𐑼𐑟 𐑔𐑮𐑵 𐑕𐑩𐑤𐑦𐑤𐑩𐑒𐑢𐑦𐑟 𐑚𐑦𐑯𐑰𐑔 𐑑𐑮𐑵 𐑥𐑵𐑯𐑤𐑲𐑑 𐑨𐑟 𐑷 𐑜𐑮𐑴𐑟.</p>
+        <p>The veteran stagehand should quietly hoist each velvet curtain, signal a young boy near the orchestra pit, hum one strong song where his calm alien aria might measure her warm voice, then put a few proud actors through soliloquies beneath true moonlight as awe grows.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑨𐑯 𐑩𐑕𐑑𐑮𐑪𐑯𐑩𐑥𐑼𐑟 𐑘𐑳𐑙 𐑩𐑐𐑮𐑧𐑯𐑑𐑦𐑕, 𐑒𐑭𐑥 𐑢𐑦𐑞 𐑡𐑶, 𐑩𐑚𐑟𐑻𐑝𐑛 𐑣𐑻 𐑚𐑮𐑨𐑕 𐑑𐑧𐑤𐑦𐑕𐑒𐑴𐑐 𐑖𐑦𐑓𐑑 𐑑𐑹𐑛 𐑞 𐑢𐑽𐑛 𐑜𐑤𐑰𐑥𐑦𐑙 𐑨𐑠𐑼 𐑯𐑧𐑚𐑿𐑤𐑩, 𐑕𐑒𐑧𐑗𐑑 𐑩 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑥𐑵𐑯𐑤𐑦𐑑 𐑒𐑮𐑱𐑑𐑼𐑟, 𐑥𐑧𐑠𐑼𐑛 𐑰𐑗 𐑮𐑺 𐑕𐑑𐑸𐑟 𐑹𐑚𐑦𐑑, 𐑯 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑔𐑷𐑑 𐑣𐑬 𐑞 𐑚𐑻𐑡𐑩𐑯𐑦𐑙 𐑯𐑲𐑑 𐑕𐑒𐑲 𐑣𐑽 𐑢𐑫𐑛 𐑕𐑵𐑞 𐑧𐑯𐑦 𐑻𐑔𐑚𐑬𐑯𐑛 𐑛𐑬𐑑.</p>
+        <p>An astronomer&#x27;s young apprentice, calm with joy, observed her brass telescope shift toward the weird gleaming azure nebula, sketched a few peculiar moonlit craters, measured each rare star&#x27;s orbit, and quietly thought how the burgeoning night sky here would soothe any earthbound doubt.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑞 𐑒𐑭𐑥 𐑕𐑒𐑦𐑐𐑼 𐑜𐑱𐑟𐑛 𐑨𐑑 𐑣𐑻 𐑨𐑠𐑼 𐑥𐑱𐑯𐑕𐑱𐑤 𐑨𐑑 𐑛𐑷𐑯, 𐑝𐑿𐑛 𐑩 𐑐𐑦𐑒𐑿𐑤𐑾 𐑘𐑧𐑤𐑴 𐑚𐑶 𐑯𐑽 𐑞 𐑕𐑬𐑔 𐑡𐑧𐑑𐑦 𐑢𐑺 𐑩 𐑘𐑳𐑙 𐑕𐑱𐑤𐑼 𐑡𐑶𐑓𐑫𐑤𐑦 𐑥𐑧𐑠𐑼𐑛 𐑰𐑗 𐑮𐑳𐑓 𐑢𐑱𐑝, 𐑗𐑸𐑑𐑦𐑛 𐑕𐑑𐑸𐑚𐑼𐑛 𐑤𐑪𐑜𐑟 𐑚𐑦𐑯𐑰𐑔 𐑢𐑲𐑛 𐑯𐑹𐑞𐑼𐑯 𐑕𐑒𐑲𐑟, 𐑯 𐑔𐑷𐑑 𐑣𐑬 𐑞 𐑢𐑽𐑛 𐑓𐑴𐑥 𐑩𐑮𐑬𐑯𐑛 𐑬𐑼 𐑖𐑦𐑐 𐑢𐑫𐑛 𐑕𐑵𐑞 𐑻𐑯𐑦𐑕𐑑 𐑛𐑬𐑑𐑕.</p>
+        <p>The calm skipper gazed at her azure mainsail at dawn, viewed a peculiar yellow buoy near the south jetty where a young sailor joyfully measured each rough wave, charted starboard logs beneath wide northern skies, and thought how the weird foam around our ship would soothe earnest doubts.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑞 𐑜𐑮𐑱𐑝 𐑡𐑳𐑡 𐑒𐑭𐑥𐑤𐑦 𐑣𐑻𐑛 𐑬𐑼 𐑘𐑳𐑙 𐑤𐑷𐑘𐑼 𐑗𐑸𐑡 𐑣𐑦𐑟 𐑪𐑯𐑦𐑕𐑑 𐑴𐑔 𐑦𐑯 𐑒𐑹𐑑, 𐑝𐑿𐑛 𐑰𐑗 𐑢𐑽𐑛 𐑨𐑠𐑼 𐑦𐑜𐑟𐑦𐑚𐑦𐑑 𐑢𐑺 𐑮𐑳𐑓 𐑐𐑻𐑡𐑼𐑦 𐑥𐑲𐑑 𐑖𐑴, 𐑨𐑕𐑒𐑑 𐑓𐑿 𐑒𐑿𐑑 𐑡𐑫𐑮𐑼𐑟 𐑣𐑬 𐑞𐑱 𐑢𐑫𐑛 𐑥𐑧𐑠𐑼 𐑕𐑳𐑗 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑡𐑶, 𐑯 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑔𐑷𐑑 𐑞 𐑑𐑮𐑵𐑔 𐑜𐑫𐑛.</p>
+        <p>The grave judge calmly heard our young lawyer charge his honest oath in court, viewed each weird azure exhibit where rough perjury might show, asked few cute jurors how they would measure such peculiar joy, and quietly thought the truth good.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑞𐑩 𐑒𐑭𐑥 𐑚𐑰𐑒𐑰𐑐𐑼, 𐑢𐑦𐑞 𐑡𐑶 𐑯 𐑐𐑮𐑲𐑛, 𐑲𐑛 𐑣𐑻 𐑖𐑲 𐑒𐑢𐑰𐑯 𐑕𐑢𐑹𐑥𐑦𐑙 𐑩𐑚𐑳𐑝 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑨𐑠𐑼 𐑣𐑲𐑝𐑟, 𐑣𐑳𐑥𐑛 𐑩 𐑕𐑪𐑓𐑑 𐑛𐑱𐑚𐑮𐑱𐑒 𐑑𐑵𐑯 𐑯𐑽 𐑞 𐑕𐑬𐑔 𐑓𐑸𐑥 𐑢𐑺 𐑮𐑳𐑓 𐑑𐑲𐑥 𐑜𐑮𐑴𐑟, 𐑢𐑪𐑗𐑑 𐑘𐑳𐑙 𐑛𐑮𐑴𐑯𐑟 𐑚𐑳𐑟 𐑔𐑮𐑵 𐑜𐑫𐑛 𐑺, 𐑯 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑔𐑷𐑑 𐑕𐑳𐑗 𐑑𐑮𐑧𐑠𐑼 𐑢𐑫𐑛 𐑕𐑵𐑞 𐑰𐑗 𐑢𐑽𐑮𐑦 𐑛𐑬𐑑.</p>
+        <p>The calm beekeeper, with joy and pride, eyed her shy queen swarming above few peculiar azure hives, hummed a soft daybreak tune near the south farm where rough thyme grows, watched young drones buzz through good air, and quietly thought such treasure would soothe each weary doubt.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑬𐑼 𐑒𐑭𐑥 𐑘𐑳𐑙 𐑜𐑲𐑛 𐑖𐑫𐑛 𐑡𐑶𐑓𐑩𐑤𐑦 𐑝𐑿 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑨𐑠𐑼 𐑒𐑢𐑹𐑑𐑕 𐑝𐑱𐑯𐑟 𐑢𐑺 𐑢𐑽𐑛 𐑴𐑒𐑼 𐑜𐑲𐑟𐑼𐑟 𐑮𐑹, 𐑥𐑧𐑠𐑼 𐑰𐑗 𐑮𐑳𐑓 𐑛𐑸𐑒 𐑓𐑦𐑖𐑼 𐑚𐑦𐑯𐑰𐑔 𐑞 𐑲𐑕𐑦 𐑝𐑷𐑤𐑑, 𐑞𐑧𐑯 𐑣𐑳𐑥 𐑩 𐑑𐑮𐑵 𐑕𐑪𐑙 𐑩𐑚𐑬𐑑 𐑻𐑯𐑦𐑕𐑑 𐑕𐑐𐑦𐑤𐑳𐑙𐑒𐑦𐑙 𐑡𐑶 𐑨𐑯𐑛 𐑮𐑺 𐑚𐑱𐑡 𐑑𐑮𐑧𐑠𐑼.</p>
+        <p>Our calm young guide should joyfully view few peculiar azure quartz veins where weird ochre geysers roar, measure each rough dark fissure beneath the icy vault, then hum a true song about earnest spelunking joy and rare beige treasure.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑣𐑱, 𐑢𐑲 𐑖𐑫𐑛 𐑿 𐑡𐑶𐑓𐑩𐑤𐑦 𐑡𐑳𐑡 𐑩 𐑒𐑭𐑥 𐑮𐑦𐑙𐑥𐑭𐑕𐑑𐑼𐑟 𐑚𐑱𐑠 𐑮𐑵𐑠, 𐑝𐑿 𐑣𐑻 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑑𐑮𐑩𐑐𐑰𐑟 𐑝𐑶𐑦𐑡 𐑩𐑚𐑳𐑝 𐑩 𐑓𐑿 𐑕𐑒𐑢𐑺 𐑣𐑵𐑐𐑕, 𐑣𐑽 𐑞 𐑤𐑬𐑛 𐑒𐑮𐑬𐑛 𐑘𐑧𐑑 𐑻𐑯𐑦𐑕𐑑 𐑴𐑚𐑴 𐑕𐑪𐑙𐑟 𐑥𐑹 𐑯𐑽 𐑞 𐑕𐑑𐑸𐑮𐑦 𐑚𐑩𐑟𐑭 𐑚𐑵𐑔, 𐑨𐑯𐑛 𐑜𐑱𐑡 𐑰𐑗 𐑢𐑽𐑛 𐑔𐑲 𐑑𐑨𐑑𐑵 𐑢𐑦𐑞 𐑷?</p>
+        <p>Hey, why should you joyfully judge a calm ringmaster&#x27;s beige rouge, view her peculiar trapeze voyage above a few square hoops, hear the loud crowd yet earnest oboe songs more near the starry bazaar booth, and gauge each weird thigh tattoo with awe?</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑚𐑮𐑦𐑙 𐑿𐑼 𐑩𐑐𐑮𐑧𐑯𐑑𐑦𐑕 𐑣𐑽, 𐑯𐑰𐑛 𐑞 𐑮𐑲 𐑛𐑴 𐑢𐑦𐑞 𐑒𐑭𐑥 𐑡𐑶, 𐑢𐑪𐑗 𐑰𐑗 𐑗𐑵𐑦 𐑚𐑮𐑦𐑪𐑖 𐑐𐑳𐑓 𐑳𐑐 𐑚𐑦𐑕𐑲𐑛 𐑩 𐑕𐑥𐑷𐑤 𐑢𐑹𐑥 𐑚𐑱𐑠 𐑤𐑴𐑓 𐑔𐑮𐑵𐑬𐑑 𐑬𐑼 𐑻𐑔𐑩𐑯 𐑳𐑝𐑩𐑯, 𐑥𐑧𐑠𐑼 𐑜𐑫𐑛 𐑘𐑰𐑕𐑑, 𐑕𐑱𐑝𐑼 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑓𐑤𐑱𐑝𐑼𐑟 𐑓𐑮𐑪𐑥 𐑓𐑸𐑮 𐑩𐑓𐑰𐑤𐑛, 𐑨𐑯𐑛 𐑖𐑱𐑐 𐑕𐑒𐑢𐑺 𐑚𐑳𐑯𐑟.</p>
+        <p>Bring your apprentice here, knead the rye dough with calm joy, watch each chewy brioche puff up beside a small warm beige loaf throughout our earthen oven, measure good yeast, savour few peculiar flavours from far afield, and shape square buns.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑓𐑴𐑒𐑕, 𐑢𐑪𐑗 𐑬𐑼 𐑘𐑳𐑙 𐑚𐑪𐑒𐑕𐑼 𐑣𐑽 𐑡𐑨𐑚 𐑩 𐑒𐑭𐑥 𐑕𐑬𐑔𐑐𐑷, 𐑔𐑮𐑴 𐑣𐑦𐑟 𐑓𐑻𐑕𐑑 𐑡𐑵𐑛𐑴 𐑓𐑱𐑯𐑑, 𐑛𐑪𐑡 𐑞 𐑮𐑳𐑓 𐑗𐑽 𐑩𐑚𐑳𐑝 𐑞 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑮𐑦𐑙𐑕𐑲𐑛 𐑢𐑺 𐑩 𐑜𐑧𐑕𐑑 𐑳𐑥𐑐𐑲𐑼 𐑖𐑫𐑛 𐑜𐑸𐑛 𐑜𐑫𐑛 𐑨𐑠𐑼 𐑓𐑤𐑳𐑛𐑤𐑲𐑑𐑕, 𐑲 𐑣𐑦𐑟 𐑰𐑜𐑼 𐑔𐑲, 𐑝𐑿 𐑓𐑿 𐑮𐑺 𐑥𐑵𐑝𐑟, 𐑯 𐑜𐑱𐑡 𐑰𐑗 𐑡𐑶𐑩𐑕, 𐑓𐑺 𐑯𐑹𐑔 𐑝𐑦𐑒𐑑𐑹𐑦.</p>
+        <p>Folks, watch our young boxer here jab a calm southpaw, throw his first judo feint, dodge the rough cheer above the peculiar ringside where a guest umpire should guard good azure floodlights, eye his eager thigh, view few rare moves, and gauge each joyous, fair north victory.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑦𐑥𐑨𐑡𐑦𐑯 𐑬𐑼 𐑘𐑳𐑙 𐑦𐑯𐑝𐑧𐑯𐑑𐑼, 𐑒𐑭𐑥 𐑢𐑦𐑞 𐑡𐑶, 𐑣𐑵 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑑𐑢𐑰𐑒𐑕 𐑣𐑻 𐑨𐑠𐑼 𐑚𐑮𐑨𐑕 𐑒𐑶𐑤 𐑚𐑦𐑓𐑹 𐑞𐑩 𐑐𐑦𐑒𐑿𐑤𐑾 𐑕𐑑𐑰𐑥 𐑜𐑱𐑡, 𐑤𐑦𐑓𐑑𐑕 𐑩 𐑤𐑴 𐑴𐑒 𐑣𐑨𐑯𐑛𐑩𐑤 𐑣𐑽, 𐑥𐑧𐑠𐑼𐑟 𐑰𐑗 𐑮𐑳𐑓 𐑕𐑑𐑸𐑮𐑦 𐑸𐑒 𐑪𐑝 𐑯𐑿 𐑲𐑼𐑯 𐑔𐑮𐑵 𐑓𐑺 𐑛𐑱𐑤𐑲𐑑, 𐑝𐑿𐑟 𐑓𐑿 𐑻𐑯𐑦𐑕𐑑 𐑕𐑒𐑧𐑗𐑦𐑟, 𐑨𐑯𐑛 𐑔𐑷𐑑𐑓𐑩𐑤𐑦 𐑖𐑱𐑐𐑕 𐑜𐑫𐑛 𐑢𐑻𐑒.</p>
+        <p>Imagine our young inventor, calm with joy, who quietly tweaks her azure brass coil before the peculiar steam gauge, lifts a low oak handle here, measures each rough starry arc of new iron through fair daylight, views few earnest sketches, and thoughtfully shapes good work.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑯𐑴𐑑𐑦𐑕 𐑣𐑬 𐑬𐑼 𐑘𐑳𐑙 𐑚𐑫𐑒𐑖𐑪𐑐 𐑒𐑤𐑻𐑒, 𐑒𐑭𐑥 𐑢𐑦𐑔 𐑡𐑶, 𐑒𐑢𐑲𐑩𐑑𐑤𐑦 𐑥𐑧𐑠𐑼𐑟 𐑰𐑗 𐑤𐑸𐑡 𐑚𐑱𐑠 𐑓𐑴𐑤𐑦𐑴 𐑯𐑽 𐑞 𐑕𐑒𐑢𐑺 𐑤𐑨𐑛𐑼, 𐑝𐑿𐑟 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑨𐑠𐑼 𐑥𐑨𐑐𐑕 𐑚𐑦𐑕𐑲𐑛 𐑞 𐑴𐑒 𐑛𐑧𐑕𐑒, 𐑡𐑳𐑡𐑩𐑟 𐑔𐑮𐑵𐑬𐑑 𐑞 𐑥𐑹𐑯𐑦𐑙 𐑢𐑺 𐑢𐑽𐑛 𐑴𐑤𐑛 𐑔𐑲𐑣𐑲 𐑕𐑑𐑨𐑒𐑕 𐑷𐑑 𐑑𐑵 𐑐𐑻𐑗, 𐑯 𐑖𐑺𐑟 𐑜𐑫𐑛 𐑗𐑽.</p>
+        <p>Notice how our young bookshop clerk, calm with joy, quietly measures each large beige folio near the square ladder, views few peculiar azure maps beside the oak desk, judges throughout the morning where weird old thigh-high stacks ought to perch, and shares good cheer.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑢𐑧𐑯 𐑞 𐑻𐑤𐑦 𐑑𐑮𐑱𐑯 𐑜𐑤𐑲𐑛𐑟 𐑐𐑨𐑕𐑑 𐑬𐑼 𐑨𐑠𐑼 𐑚𐑮𐑦𐑡, 𐑩 𐑘𐑳𐑙 𐑐𐑦𐑨𐑯𐑦𐑕𐑑 𐑡𐑶𐑓𐑩𐑤𐑦 𐑝𐑿𐑟 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑕𐑑𐑹𐑥 𐑒𐑤𐑬𐑛𐑟, 𐑣𐑳𐑥𐑟 𐑜𐑫𐑛 𐑑𐑮𐑵 𐑚𐑸𐑟 𐑓𐑮𐑪𐑥 𐑣𐑻 𐑮𐑦𐑕𐑲𐑑𐑩𐑤 𐑣𐑽, 𐑥𐑧𐑠𐑼𐑟 𐑰𐑗 𐑮𐑳𐑓 𐑔𐑳𐑯𐑛𐑼𐑒𐑤𐑨𐑐 𐑯𐑽 𐑞 𐑒𐑭𐑥 𐑓𐑘𐑹𐑛 𐑢𐑺 𐑴𐑒 𐑮𐑦𐑡𐑦𐑟 𐑤𐑵𐑥, 𐑨𐑯𐑛 𐑖𐑬𐑑𐑕 𐑢𐑦𐑞 𐑷.</p>
+        <p>When the early train glides past our azure bridge, a young pianist joyfully views few peculiar storm clouds, hums good true bars from her recital here, measures each rough thunderclap near the calm fjord where oak ridges loom, and shouts with awe.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑶! 𐑬𐑼 𐑘𐑳𐑙 𐑒𐑭𐑤 𐑗𐑧𐑓 𐑔𐑳𐑥𐑟 𐑔𐑮𐑵 𐑣𐑻 𐑪𐑛 𐑮𐑧𐑕𐑩𐑐𐑦 𐑓𐑹 𐑓𐑴𐑥𐑦 𐑮𐑵𐑠 𐑕𐑷𐑕, 𐑡𐑦𐑜𐑩𐑤𐑟 𐑩 𐑓𐑿 𐑐𐑦𐑒𐑿𐑤𐑾𐑼 𐑻𐑔𐑩𐑯𐑢𐑺 𐑡𐑸𐑟, 𐑝𐑿𐑟 𐑞 𐑚𐑶𐑤𐑦𐑙 𐑶𐑤 𐑦𐑜𐑯𐑲𐑑, 𐑣𐑽𐑟 𐑰𐑗 𐑖𐑮𐑰𐑒𐑦𐑙 𐑕𐑥𐑴𐑒 𐑩𐑤𐑸𐑥, 𐑯 𐑖𐑬𐑑𐑕 𐑢𐑦𐑔 𐑷 𐑨𐑑 𐑞 𐑢𐑽𐑛 𐑚𐑱𐑠 𐑜𐑵 𐑜𐑫𐑛 𐑒𐑫𐑒𐑕 𐑖𐑫𐑛 𐑩𐑝𐑶𐑛.</p>
+        <p>Oy! Our young calm chef thumbs through her odd recipe for foamy rouge sauce, jiggles a few peculiar earthenware jars, views the boiling oil ignite, hears each shrieking smoke alarm, and shouts with awe at the weird beige goo good cooks should avoid.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑩 𐑕𐑐𐑮𐑲 𐑛𐑦𐑑𐑧𐑒𐑑𐑦𐑝 𐑜𐑱𐑟𐑛 𐑔𐑮𐑵 𐑣𐑻 𐑚𐑮𐑭𐑕 𐑔𐑰𐑪𐑛𐑩𐑤𐑲𐑑 𐑨𐑑 𐑞 𐑛𐑸𐑒 𐑒𐑴𐑚𐑷𐑤𐑑 𐑥𐑦𐑛𐑯𐑲𐑑 𐑕𐑒𐑲, 𐑡𐑪𐑑𐑦𐑛 𐑕𐑑𐑮𐑱𐑯𐑡 𐑒𐑶𐑤-𐑖𐑱𐑐𐑑 𐑒𐑤𐑵𐑟, 𐑣𐑻𐑛 𐑬𐑤𐑟 𐑣𐑵𐑑𐑦𐑙 𐑩𐑚𐑳𐑝 𐑒𐑢𐑲𐑩𐑑 𐑴𐑒 𐑚𐑬𐑟, 𐑯 𐑝𐑿𐑛 𐑤𐑭𐑕𐑑 𐑘𐑽𐑟 𐑮𐑦𐑐𐑹𐑑𐑕 𐑢𐑺 𐑩 𐑓𐑺 𐑷𐑛𐑾𐑩𐑯𐑕 𐑢𐑫𐑛 𐑢𐑱 𐑰𐑗 𐑪𐑛 𐑑𐑮𐑧𐑠𐑼.</p>
+        <p>A spry detective gazed through her brass theodolite at the dark cobalt midnight sky, jotted strange coil-shaped clues, heard owls hooting above quiet oak boughs, and viewed last year&#x27;s reports where a fair audience would weigh each odd treasure.</p>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="sample" contenteditable>
+        <p lang="en-Shaw">𐑑𐑩𐑯𐑲𐑑 𐑪𐑯 𐑣𐑻 𐑥𐑦𐑛𐑯𐑲𐑑 𐑖𐑴, 𐑞𐑩 𐑕𐑰𐑟𐑩𐑯𐑛 𐑛𐑰𐑡𐑱 𐑒𐑿𐑛 𐑳𐑐 𐑩 𐑝𐑦𐑯𐑑𐑦𐑡 𐑡𐑭𐑝𐑩 𐑑𐑨𐑙𐑜𐑴, 𐑔𐑨𐑙𐑒𐑑 𐑰𐑗 𐑤𐑶𐑩𐑤 𐑤𐑦𐑕𐑩𐑯𐑼 𐑓𐑮𐑳𐑥 𐑧𐑝𐑮𐑦 𐑒𐑬𐑯𐑑𐑦, 𐑗𐑸𐑑𐑦𐑛 𐑩𐑯 𐑩𐑚𐑕𐑒𐑘𐑫𐑼 𐑡𐑨𐑟 𐑢𐑷𐑤𐑑𐑕 𐑢𐑺 𐑓𐑺 𐑓𐑨𐑯𐑟 𐑖𐑺 𐑥𐑹 𐑗𐑨𐑑𐑼, 𐑞𐑧𐑯 𐑢𐑦𐑕𐑐𐑼𐑛 𐑻𐑯𐑦𐑕𐑑 𐑔𐑷𐑑𐑕 𐑩𐑚𐑬𐑑 𐑻𐑤𐑾𐑕𐑑 𐑣𐑨𐑥 𐑮𐑱𐑛𐑦𐑴 𐑐𐑲𐑩𐑯𐑽𐑟 𐑣𐑵 𐑑𐑮𐑧𐑠𐑼𐑛 𐑞𐑦𐑕 𐑒𐑮𐑨𐑓𐑑.</p>
+        <p>Tonight on her midnight show, the seasoned DJ cued up a vintage Java tango, thanked each loyal listener from every county, charted an obscure jazz waltz where fair fans share more chatter, then whispered earnest thoughts about earliest ham radio pioneers who treasured this craft.</p>
+      </div>
+    </section>
+
+  <h2>Size comparison<br>(multiples of 11px)</h2>
+  <section class="panel">
+    <div class="size-label">11px (1x)</div>
+    <div class="sample size-test" style="font-size: 11px;" lang="en-Shaw">𐑩 𐑢𐑽𐑮𐑦 𐑡𐑳𐑡</div>
+
+    <div class="size-label">22px (2x)</div>
+    <div class="sample size-test" style="font-size: 22px;" lang="en-Shaw">𐑩 𐑢𐑽𐑮𐑦 𐑡𐑳𐑡</div>
+
+    <div class="size-label">33px (3x)</div>
+    <div class="sample size-test" style="font-size: 33px;" lang="en-Shaw">𐑩 𐑢𐑽𐑮𐑦 𐑡𐑳𐑡</div>
+
+    <div class="size-label">44px (4x)</div>
+    <div class="sample size-test" style="font-size: 44px;" lang="en-Shaw">𐑩 𐑢𐑽𐑮𐑦 𐑡𐑳𐑡</div>
+  </section>
+
+  <footer>
+    <a href="index.html">Font Test</a> |
+    <a href="the-manual.html">The Manual</a> |
+    <a href="extra-senior-words.html">Extra Senior Words</a> |
+    <a href="tables.html">Tables</a> |
+    <a href="kerning.html">Kerning</a> |
+    <a href="specimen.html">Specimen</a> |
+    <a href="exotics.html">Exotics</a> |
+    <a href="glyph-editor.html">Glyph Editor</a> |
+    Shavian |
+    <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
+  </footer>
+</body>
+</html>
