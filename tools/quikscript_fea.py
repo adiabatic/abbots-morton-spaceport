@@ -6802,4 +6802,28 @@ def emit_quikscript_senior_features(
     return "\n\n".join(parts)
 
 
-__all__ = ["emit_quikscript_senior_features", "emit_quikscript_ss"]
+def emit_namer_dot_calt(
+    dot_glyph: str,
+    lowered_glyph: str,
+    follower_glyphs: list[str] | tuple[str, ...],
+    midword_glyphs: list[str] | tuple[str, ...],
+) -> str | None:
+    """Emit a `calt` lookup that lowers the namer dot (`·`) when it begins a word that starts with a short Quikscript letter. The dot drops to `lowered_glyph` when it is immediately followed by one of `follower_glyphs` (every compiled form of every short family) and is not preceded by an orthodox letter or digit (`midword_glyphs`). That `ignore` keeps a mid-word middot — Catalan `l·l`, a multiplication dot — at its normal height while still firing at the start of a run or after a space, ZWNJ, or punctuation, since OpenType cannot match start-of-run directly. The caller appends this after the join lookups so the dot is lowered only once the following short letter has settled into its final form."""
+    followers = sorted(set(follower_glyphs))
+    if not followers:
+        return None
+    lines = [f"@namer_short_followers = [{' '.join(followers)}];"]
+    midword = sorted(set(midword_glyphs))
+    if midword:
+        lines.append(f"@namer_midword = [{' '.join(midword)}];")
+    lines.append("feature calt {")
+    lines.append("    lookup namer_dot_word_start {")
+    if midword:
+        lines.append(f"        ignore sub @namer_midword {dot_glyph}' @namer_short_followers;")
+    lines.append(f"        sub {dot_glyph}' @namer_short_followers by {lowered_glyph};")
+    lines.append("    } namer_dot_word_start;")
+    lines.append("} calt;")
+    return "\n".join(lines)
+
+
+__all__ = ["emit_namer_dot_calt", "emit_quikscript_senior_features", "emit_quikscript_ss"]

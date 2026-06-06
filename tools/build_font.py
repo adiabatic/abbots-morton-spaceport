@@ -35,7 +35,7 @@ from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from departure_mono_import import import_departure_mono
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
-from quikscript_fea import emit_quikscript_senior_features, emit_quikscript_ss
+from quikscript_fea import emit_namer_dot_calt, emit_quikscript_senior_features, emit_quikscript_ss
 from typing import Any, cast
 
 from quikscript_ir import (
@@ -707,6 +707,70 @@ def resolve_composite(
     return result_bitmap, result_y_offset
 
 
+_NAMER_DOT = "periodcentered"
+_NAMER_DOT_LOWERED = "periodcentered.lowered"
+
+
+def _resolve_short_families(context_sets: dict[str, Any]) -> set[str]:
+    """Collect the family names in the `shorts` context set, following any nested context-set references."""
+    families: set[str] = set()
+
+    def walk(items: Any) -> None:
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            if "family" in item:
+                families.add(item["family"])
+            elif "context_set" in item:
+                walk(context_sets.get(item["context_set"], []))
+
+    walk(context_sets.get("shorts", []))
+    return families
+
+
+def _is_orthodox_letter_or_digit(codepoint: int | None) -> bool:
+    """True for ASCII/Latin letters and digits — the glyphs after which a `·` is a mid-word middot rather than a namer dot. Deliberately excludes the Quikscript PUA letters so back-to-back names like ·Bay·No still lower the second dot."""
+    if codepoint is None:
+        return False
+    in_latin_range = (
+        0x30 <= codepoint <= 0x39
+        or 0x41 <= codepoint <= 0x5A
+        or 0x61 <= codepoint <= 0x7A
+        or 0xC0 <= codepoint <= 0x24F
+    )
+    return in_latin_range and chr(codepoint).isalnum()
+
+
+def _namer_dot_calt_fea(
+    glyph_data: GlyphData,
+    join_glyphs: dict[str, JoinGlyph],
+    glyph_order: list[str],
+    name_to_codepoint: dict[str, int],
+) -> str | None:
+    """Build the namer-dot `calt` for a proportional variant. The follower class is every compiled short-family form present in this variant (base forms only in Junior, base plus contextual variants in Senior), plus ligatures whose lead component is a short."""
+    order = set(glyph_order)
+    if _NAMER_DOT_LOWERED not in order or _NAMER_DOT not in order:
+        return None
+    short_families = _resolve_short_families(glyph_data.get("context_sets", {}))
+    if not short_families:
+        return None
+
+    followers = []
+    for name in glyph_order:
+        meta = join_glyphs.get(name)
+        if meta is None:
+            continue
+        family = meta.family
+        if family is None and meta.sequence:
+            lead = join_glyphs.get(meta.sequence[0])
+            family = lead.family if lead else None
+        if family in short_families:
+            followers.append(name)
+
+    midword = [name for name in glyph_order if _is_orthodox_letter_or_digit(name_to_codepoint.get(name))]
+    return emit_namer_dot_calt(_NAMER_DOT, _NAMER_DOT_LOWERED, followers, midword)
+
+
 def build_senior_fea(
     glyph_data: GlyphData,
     join_glyphs: dict[str, JoinGlyph],
@@ -1109,6 +1173,12 @@ def build_font(
         ss_fea = emit_quikscript_ss(join_glyphs)
         if ss_fea:
             fea_code_parts.append(ss_fea)
+
+    if is_proportional:
+        # Append the namer-dot calt last so its lookup runs after the join lookups: the join rules see the original `periodcentered` (some reference it in `not_after`), and only then does the dot drop before a settled short letter. Senior gains a second `feature calt {}` block (feaLib merges them); Junior gets its only calt.
+        namer_dot_fea = _namer_dot_calt_fea(glyph_data, join_glyphs, glyph_order, name_to_codepoint)
+        if namer_dot_fea:
+            fea_code_parts.append(namer_dot_fea)
 
     fea_code = None
     if fea_code_parts:

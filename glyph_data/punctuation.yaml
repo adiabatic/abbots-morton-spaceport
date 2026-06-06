@@ -1106,6 +1106,13 @@ glyphs:
       - "#"
       - "#"
 
+  # The namer dot, dropped one pixel so it centers on the x-height of a following short letter. Substituted in by `calt` (see emit_namer_dot_calt); no codepoint of its own.
+  periodcentered.lowered.prop:  # · U+00B7, lowered before short letters
+    y_offset: 2
+    bitmap:
+      - "#"
+      - "#"
+
   uni2010.prop:  # ‐ U+2010 (HYPHEN)
     y_offset: 3
     bitmap:
