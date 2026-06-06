@@ -332,12 +332,12 @@ glyphs:
 
   u1046D.prop.unused:  # 𐑭 Ah
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - " ####" #
+      - "#    "
+      - "#    "
+      - " ### "
+      - "   # "
+      - "###  " #
 
   u1046E.prop.unused:  # 𐑮 Roar
     bitmap:
@@ -359,12 +359,12 @@ glyphs:
 
   u10470.prop.unused:  # 𐑰 Eat
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "# " #
+      - "# "
+      - "##"
+      - " #"
+      - " #"
+      - " #" #
 
   u10471.prop.unused:  # 𐑱 Age
     bitmap:
@@ -422,12 +422,12 @@ glyphs:
 
   u10477.prop.unused:  # 𐑷 Awe
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "#### " #
+      - "    #"
+      - "    #"
+      - " ### "
+      - " #   "
+      - "  ###" #
 
   u10478.prop.unused:  # 𐑸 Are
     bitmap:
