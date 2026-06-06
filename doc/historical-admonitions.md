@@ -1,10 +1,10 @@
 # Historical admonitions
 
-These are conventions kept for humans who want to recreate this font's making technique. They are not auto-loaded by the agent tooling (CLAUDE.md / AGENTS.md) because they're rarely relevant during normal authoring work — but if you're rebuilding the test scaffolding or the Senior-shaping corpus from scratch, the rules below are how this repo handles them.
+These are conventions kept for humans who want to recreate this font’s making technique. They are not auto-loaded by the agent tooling (CLAUDE.md / AGENTS.md) because they’re rarely relevant during normal authoring work — but if you’re rebuilding the test scaffolding or the Senior-shaping corpus from scratch, the rules below are how this repo handles them.
 
 ## Transcribing passages from the manual
 
-- The two word-list sections in `site/the-manual.html` — "Common words to be fully spelt" and "Contractions" — are the source of truth for how to spell things in Senior QS. Parse the `<dt>` for the English word and the `<dd>` (or its child `<span>` elements) for the QS text. Multi-form entries (e.g., `time/s`) use `data-orthodox` attributes on each `<span>` to label which English word each QS form represents.
+- The two word-list sections in `site/the-manual.html` — “Common words to be fully spelt” and “Contractions” — are the source of truth for how to spell things in Senior QS. Parse the `<dt>` for the English word and the `<dd>` (or its child `<span>` elements) for the QS text. Multi-form entries (e.g., `time/s`) use `data-orthodox` attributes on each `<span>` to label which English word each QS form represents.
 - The `data-orthodox` attribute provides the English text for each passage.
 
 ## Tests

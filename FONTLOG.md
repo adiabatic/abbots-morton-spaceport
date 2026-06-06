@@ -191,7 +191,7 @@ That said, I _am_ legitimately proud of my J’ai work; I expect this font to be
 
 - Remove `ss01`; ·Utter·Pea joins are now the default
 - Remove `ss05`; ·Ox·May now joins at the baseline by default
-- Repurpose `ss06` (now: use gapped ·Owe, which doesn't connect at the top)
+- Repurpose `ss06` (now: use gapped ·Owe, which doesn’t connect at the top)
 - Stylistic sets now work in Junior, not just Senior…although that really only applies to `ss06`, knock on wood
 
 ### 13.000
