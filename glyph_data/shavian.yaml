@@ -201,15 +201,15 @@ glyphs:
   u10460.prop.unused:  # 𐑠 Measure
     y_offset: -3
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
+      - "#### " #
+      - "    #"
+      - "    #"
+      - "   # "
+      - "  #  "
+      - " #   " #
+      - " #   "
+      - "#    "
+      - "#    "
 
   u10461.prop.unused:  # 𐑡 Judge
     y_offset: -3
