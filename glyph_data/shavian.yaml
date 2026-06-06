@@ -1,17 +1,16 @@
 glyphs:
   # Shavian letters (U+10450–U+1047F)
   u10450.prop.unused:  # 𐑐 Peep
-    cursive_exit: [5, 0]
     bitmap:
-      - " ## "
-      - "#  #"
-      - "#  #"
-      - "   #" #
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #"
-      - "   #" #
+      - "## "
+      - "  #"
+      - "  #"
+      - "  #" #
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #"
+      - "  #" #
 
   u10451.prop.unused:  # 𐑑 Tot
     bitmap:
@@ -51,9 +50,9 @@ glyphs:
 
   u10454.prop.unused:  # 𐑔 Thigh
     bitmap:
+      - " #   "
       - "  #  "
       - "   # "
-      - "    #"
       - "  ###" #
       - " #  #"
       - "#   #"
@@ -63,15 +62,15 @@ glyphs:
 
   u10455.prop.unused:  # 𐑕 So
     bitmap:
-      - "   ##"
-      - "  #  "
-      - " #   "
-      - " #   " #
-      - "  #  "
-      - "  #  "
-      - "   # "
-      - "   # "
-      - "###  " #
+      - "  ##"
+      - " #  "
+      - "#   "
+      - "#   " #
+      - " #  "
+      - " #  "
+      - "  # "
+      - "  # "
+      - "##  " #
 
   u10456.prop.unused:  # 𐑖 Sure
     bitmap:
@@ -87,15 +86,15 @@ glyphs:
 
   u10457.prop.unused:  # 𐑗 Church
     bitmap:
-      - "     "
-      - "  #  "
-      - "  #  "
-      - "##   " #
-      - " #   "
-      - " #   "
-      - "#    "
-      - "#    "
-      - " ### " #
+      - "    "
+      - "  # "
+      - "  # "
+      - "##  " #
+      - " #  "
+      - " #  "
+      - "#   "
+      - "#   "
+      - " ###" #
 
   u10458.prop.unused:  # 𐑘 Yea
     bitmap:
@@ -136,8 +135,6 @@ glyphs:
 
   u1045B.prop.unused:  # 𐑛 Dead
     y_offset: -3
-    cursive_entry: [1, 5]
-    cursive_exit: [5, 0]
     bitmap:
       - "#   " #
       - "#   "
@@ -185,21 +182,21 @@ glyphs:
       - "#  # "
       - "###  " #
       - "#    "
-      - "#   #"
-      - " ### "
+      - "#    "
+      - " #   "
 
   u1045F.prop.unused:  # 𐑟 Zoo
     y_offset: -3
     bitmap:
-      - "###  " #
-      - "   # "
-      - "   # "
-      - "  #  "
-      - " #   "
-      - " #   " #
-      - "#    "
-      - "#    "
-      - " ##  "
+      - "### " #
+      - "   #"
+      - "   #"
+      - "  # "
+      - " #  "
+      - " #  " #
+      - "#   "
+      - "#   "
+      - " ## "
 
   u10460.prop.unused:  # 𐑠 Measure
     y_offset: -3
@@ -229,7 +226,6 @@ glyphs:
 
   u10462.prop.unused:  # 𐑢 Woe
     y_offset: -3
-    cursive_exit: [4, 5]
     bitmap:
       - "   #" #
       - "   #"
