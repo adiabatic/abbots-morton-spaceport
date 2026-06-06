@@ -33,6 +33,7 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
+from departure_mono_import import import_departure_mono
 from glyph_compiler import compile_glyph_set, is_proportional_glyph
 from quikscript_fea import emit_quikscript_senior_features, emit_quikscript_ss
 from typing import Any, cast
@@ -45,6 +46,8 @@ from quikscript_ir import (
     get_base_glyph_name,
     heal_glyph_name,
 )
+
+_DEPARTURE_MONO_OTF = Path(__file__).resolve().parent.parent / "site" / "DepartureMono-Regular.otf"
 
 
 def load_postscript_glyph_names() -> dict[str, int]:
@@ -794,6 +797,13 @@ def build_font(
     pixel_height: int = metadata["pixel_size"]
     if pixel_width is None:
         pixel_width = pixel_height
+
+    # The mono build is Departure Mono with the Quikscript letters layered on top. Merge DM's glyphs (DM wins on collisions like `zero`/`space`) and remember its encoded codepoints so the cmap and glyph order pick them up below.
+    if variant == "mono":
+        dm_glyphs, dm_codepoints = import_departure_mono(str(_DEPARTURE_MONO_OTF), pixel_height)
+        glyphs_def = {**glyphs_def, **dm_glyphs}
+    else:
+        dm_codepoints = {}
     ascender = metadata["ascender"]
     descender = metadata["descender"]
     cap_height = metadata["cap_height"]
@@ -812,6 +822,7 @@ def build_font(
         cp = _resolve_codepoint(name, postscript_glyph_names)
         if cp is not None:
             name_to_codepoint[name] = cp
+    name_to_codepoint.update(dm_codepoints)
 
     def _sort_key(name):
         cp = name_to_codepoint.get(name)
@@ -832,7 +843,7 @@ def build_font(
     for glyph_name in glyphs_def:
         if is_proportional_glyph(glyph_name):
             continue
-        cp = _resolve_codepoint(glyph_name, postscript_glyph_names)
+        cp = name_to_codepoint.get(glyph_name)
         if cp is not None:
             cmap[cp] = glyph_name
 
@@ -1108,6 +1119,15 @@ def build_font(
             fea_path = output_path.with_suffix(".fea")
             fea_path.write_text(fea_code + "\n")
             print(f"  Feature code saved to: {fea_path}")
+
+    # The mono build emits no authored FEA; instead it inherits Departure Mono's own OTL tables wholesale so DM's shaping (ccmp, marks, kerning) carries over intact for the DM glyph set. The Quikscript letters don't participate in any of these lookups.
+    if variant == "mono":
+        assert not fea_code_parts, "mono build should emit no authored FEA; DM owns its OTL"
+        dm_font = TTFont(str(_DEPARTURE_MONO_OTF))
+        missing = set(dm_font.getGlyphOrder()) - {".notdef"} - set(glyph_order)
+        assert not missing, f"DM glyphs missing from mono glyph order: {sorted(missing)[:10]}"
+        for tag in ("GDEF", "GSUB", "GPOS"):
+            fb.font[tag] = dm_font[tag]  # pyright: ignore[reportArgumentType]
 
     if output_path is not None:
         fb.save(str(output_path))

@@ -4,6 +4,14 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 17.000
+
+Great artists edition
+
+This version is the first version to copy everything in Departure Mono into Abbots Morton Spaceport **Mono**. Latin letters, accented letters, Cyrillic letters, punctuation, symbols, and typographic features.
+
+Sans Junior and Senior are untouched by this work, so if you want to write in both Sans for Latin script and Mono for Cyrillic script, things might look weird and mismatched.
+
 ### 16.000
 
 While this release starts kerning letter pairs in the Senior variant and fixes a bunch of bugs with letter-pair joins, the headline _feature_ is the addition of all the Shavian letters to the non-Mono versions of the font. Tell all your Shavian-using friends to try the font out and complain about the ugly letters that I don’t have a good feel for.
