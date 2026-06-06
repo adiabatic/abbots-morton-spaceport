@@ -98,7 +98,6 @@ def classify(
     force_bad: set[Signature] | None = None,
     force_benign: set[Signature] | None = None,
 ) -> str:
-    """Return ``"bad"`` or ``"benign"`` for a leak ``signature`` whose rendered run is ``visible`` (a ``diff``) or not. Pass the override sets in to avoid re-reading the YAML per call."""
     force_bad = force_bad_signatures() if force_bad is None else force_bad
     force_benign = force_benign_signatures() if force_benign is None else force_benign
     isolated_left, left_chosen, isolated_right, right_chosen = signature

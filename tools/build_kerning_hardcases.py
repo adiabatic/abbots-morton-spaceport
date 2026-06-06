@@ -61,7 +61,6 @@ ALT_AXIS_KINDS = ("alt",)
 
 
 def _plain_families_by_codepoint() -> list[str]:
-    """Plain Quikscript family names (no ligatures, no variant forms, no angle parens), in code-point order."""
     chars = _char_map()
     plain = [
         name
@@ -75,7 +74,6 @@ def _plain_families_by_codepoint() -> list[str]:
 
 
 def _family_char(family: str) -> str | None:
-    """The single code point a plain Quikscript family maps to, or ``None`` for anything not in the char map."""
     return _char_map().get(family)
 
 
@@ -107,7 +105,6 @@ def _harvest_sequences(paths: tuple[Path, ...]) -> list[str]:
 
 
 def _shape_clusters(text: str) -> tuple[list[str], list[int]]:
-    """Shape ``text`` and return parallel lists of full glyph names and per-glyph ``cluster`` values."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(text)
@@ -126,7 +123,6 @@ def _base_name(glyph_name: str) -> str:
 
 
 def _form_prefix(glyph_name: str, base: str) -> str | None:
-    """The override prefix the web page needs: ``None`` when the shaped glyph is the bare base family, otherwise the full shaped glyph name."""
     return None if glyph_name == base else glyph_name
 
 
@@ -534,7 +530,6 @@ def build(out_path: Path) -> None:
     for record in alt_records:
         emit(record)
 
-    # Demote tables: one target junction per entry.
     demote_tables = {
         "predecessor_demote": data.get("predecessor_demote_overrides", []),
         "trailing_demote": data.get("trailing_demote_overrides", []),

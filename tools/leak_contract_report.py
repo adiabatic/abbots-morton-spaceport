@@ -65,7 +65,6 @@ def _is_cosmetic(variant: str, neighbor: str, *, direction: str) -> bool:
 
 @dataclass
 class SideVerdict:
-    """How one changed side of a leak fares against the contract."""
 
     side: str  # "left" or "right"
     variant: str  # the in-context form V the rule selected (left_chosen / right_chosen)

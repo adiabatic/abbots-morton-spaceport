@@ -105,7 +105,6 @@ def confusion_matrix(rows: list[tuple[str, rep.Signature, str, str]]) -> None:
     """Score the bad/benign proxy in leak_classify against the human verdicts: every "broken" verdict should classify bad, every accepted one benign. Print precision/recall and the two override-seed lists (the disagreements) so the proxy is trusted *with* its overrides before the loop acts on it. Every verdict comes from the depth-4 snapshot, which only records visible (diff) leaks, so visible=True throughout."""
     force_bad = leak_classify.force_bad_signatures()
     force_benign = leak_classify.force_benign_signatures()
-    # Confusion against the human "truth": positive = bad.
     tp = fp = tn = fn = 0
     broken_misses: list[tuple[str, rep.Signature]] = []  # human bad, proxy benign -> force-bad seed
     accepted_misses: list[tuple[str, rep.Signature]] = []  # human benign, proxy bad -> force-benign seed

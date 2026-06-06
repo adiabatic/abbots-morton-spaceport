@@ -705,7 +705,6 @@ def _synthesize_anchor_modifiers(
     synth_set = set(synthesized)
     authored_set = set(authored)
     if synth_set <= authored_set:
-        # Nothing genuinely new — author already wrote both anchor-Y modifiers. Don't churn the existing order.
         return tuple(authored)
     return (*synthesized, *(m for m in authored if m not in synth_set))
 
@@ -908,7 +907,6 @@ def _heal_renamed_selector(
         fam, name_traits, name_modifiers = parsed
         if fam != target_family:
             continue
-        # A name with its own runtime-extension modifier represents a different variant and shouldn't be picked when the selector asked for the unextended base.
         name_base_modifiers, name_extensions = _split_selector_extensions(name_modifiers)
         if name_extensions:
             continue
@@ -944,10 +942,6 @@ def _heal_renamed_selector(
 
 
 def family_names_from_compiled(compiled_names: set[str] | frozenset[str]) -> set[str]:
-    """Recover the family-name set used by `heal_glyph_name` from a collection of compiled glyph names.
-
-    Useful for callers that have `join_glyphs` / similar mappings in hand but never received the original `glyph_families` keys.
-    """
     return {name.split(".", 1)[0] for name in compiled_names}
 
 
@@ -3107,7 +3101,6 @@ def expand_selectors_for_ligatures(
         return frozenset(ys)
 
     # Forward expansion entries: keyed by component name (base or variant), value is a list of (first_component_family, candidate_entry_ys, canonical_entry_ys) triples.
-    #
     # candidate_entry_ys are the Ys reachable through the *ligature's* own variants — those are the Ys the source actually meets after `calt_liga` collapses the components. canonical_entry_ys are the Ys the first component's own variants already provide pre-liga (across the canonical record and any forms). The expansion only earns its keep when the ligature opens up a Y the first component's variants do not already cover; otherwise the lookup would just over-fire on adjacent first-components without unlocking any new join, crowding out broader fallback forms in the process.
     forward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
     backward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
@@ -3134,7 +3127,6 @@ def expand_selectors_for_ligatures(
                 )
 
         # Post-liga matching: register every variant of the ligature itself under the component-variant key it represents, so a successor's selector that names that component variant matches the ligature glyph after `calt_liga` collapses it. Without this, the post-liga cleanup at `quikscript_fea.py::_collect_post_liga_right_cleanup_rules` finds no ligature glyph in the source's `after_glyphs` and downgrades the variant back to base. Adding the ligature glyphs also unlocks the calt-post-liga forward-rule emission, which only fires when a ligature glyph already appears in `after_glyphs`.
-        #
         # Each ligature variant is keyed under the trailing component's base name (covers `after: [qsY]` which means "any qsY variant") and, if the variant carries an exit-side suffix (`extended_exit_suffix` or `contracted_exit_suffix`), also under the trailing component variant carrying that same suffix (covers `after: [qsY.ex-ext-1]` etc., which discriminate by component state). Symmetric for entry-side suffix and the lead component on the forward side. This mirrors the `calt_liga` glyph-selection rule that maps `(qsX, qsY.<suffix>)` to `qsX_qsY.<suffix>`: the same suffix carries from component-variant to ligature-variant, so the inverse mapping is unambiguous.
         for lig_variant_name in sorted(base_to_variants.get(record.base_name, {record.name})):
             lig_variant = join_glyphs[lig_variant_name]
@@ -3224,7 +3216,7 @@ def expand_selectors_for_ligatures(
             if endpoint_meta.after:
                 if source_family not in _selector_families(endpoint_meta.after):
                     return False
-        else:  # side == "exit"
+        else:
             if endpoint_meta.before:
                 if source_family not in _selector_families(endpoint_meta.before):
                     return False
@@ -3495,7 +3487,6 @@ def _format_anchors(anchors: tuple[Anchor, ...]) -> str:
 
 
 def _leftmost_ink_column(row: BitmapRow) -> int | None:
-    """Return the column index of the leftmost ink pixel in a bitmap row, or ``None`` if the row is entirely blank."""
     if isinstance(row, str):
         for i, ch in enumerate(row):
             if ch == "#":

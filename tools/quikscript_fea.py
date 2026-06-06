@@ -1237,7 +1237,6 @@ class _JoinContractRecorder:
     base_to_variants: dict[str, set[str]] = field(default_factory=dict)
     verdicts: dict[tuple[str, str, str], str] = field(default_factory=dict)
     pivots: dict[tuple[str, str, str], set[str]] = field(default_factory=dict)
-    # Reachability caches, keyed by (neighbor, source_family), plus the led/trailed-ligature index built in __post_init__.
     _entry_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
     _exit_cache: dict[tuple[str, str], frozenset[int]] = field(default_factory=dict)
     _leads: dict[str, set[str]] = field(default_factory=dict)
@@ -1389,7 +1388,6 @@ class _JoinContractRecorder:
         return sorted(key for key, verdict in self.verdicts.items() if verdict == "leak")
 
     def flush(self) -> None:
-        """Dump the full partition to `tmp/` and raise one summary warning for the leak class."""
         counts: dict[str, int] = {"joining": 0, "cosmetic": 0, "leak": 0, "unknown": 0}
         for verdict in self.verdicts.values():
             counts[verdict] = counts.get(verdict, 0) + 1
@@ -2111,7 +2109,6 @@ def _ensure_zwnj_coverage_for_calt_lookups(lines: list[str]) -> list[str]:
         indent = match.group(1)
         name = match.group(2)
         expected_close = lookup_close_template.format(indent=indent, name=name).strip()
-        # Find the matching close line.
         close_index = None
         for j in range(i + 1, len(lines)):
             if lines[j].strip() == expected_close:
@@ -2195,7 +2192,6 @@ def _add_zwnj_guards_for_two_position_forward_rules(lines: list[str]) -> list[st
             continue
         body = lines[i + 1 : close_index]
         if not any("uni200C" in body_line for body_line in body):
-            # Lookup doesn't reference uni200C at all, so it has no ZWNJ guarding to extend.
             result.extend(lines[i : close_index + 1])
             i = close_index + 1
             continue
@@ -2376,7 +2372,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     lines = ["feature calt {"]
 
     # Accumulator for paired re-flips emitted alongside bk-pair / bk-general guards. When a guard `ignore sub [prior_slot] candidate base';` blocks the bk upgrade from firing on `base`, the candidate sitting at [pos-1] gets its fwd_replacement picked against base's now-plain entry_y instead of the bk-pair variant's entry_y. The accumulated re-flip rule restores the isolated form (the variant the candidate would carry if bk had fired) by substituting the post-suppressed form back to the isolated form, keyed on the same (prior_slot, candidate, base) triple that motivated the guard.
-    #
     # Keyed by candidate_base (e.g. ``qsIt``); each entry is a list of ``(prior_slot_frozenset, candidate_pre_form, base_name, isolated_form)``.
     pair_guard_reflip: dict[str, list[tuple[frozenset[str], str, str, str]]] = {}
 
@@ -2424,7 +2419,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             if not isolated_forms:
                 return
         # Pre forms: what the candidate is at this point. The candidate is already mutated by fwd_replacements based on base's plain entry_y, or it could still be bare (if no fwd_replacement applies for base's plain entry_y, e.g. when there's an existing not_before guard on the candidate's fwd lookup blocking it). Try both:
-        # - bare candidate_name itself
         # - candidate_fwd[base_entry_y] for each base entry_y not in variant_entry_ys (the "plain" entry_ys that survive when bk-pair is suppressed).
         pre_forms: set[str] = {candidate_name}
         for base_entry_y in base_meta.entry_ys:
@@ -4103,7 +4097,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             return
         # Materialize the member iterable so we can both iterate it and use it as a membership filter for the fwd_replacements guard loop.
         members = frozenset(member_iter)
-        # Group candidates that share a prior slot so we emit one ignore rule per prior (with the candidate set as a class) instead of N near-duplicate lines.
         by_prior: dict[frozenset[str], set[str]] = {}
         for cand in members:
             for prior_slot, cand_name in _collect_two_glyph_lookbehind_guards(
@@ -5944,7 +5937,6 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     # Emit paired re-flip lookups for bk-pair / bk-general guards. Each rule substitutes the candidate's post-suppressed form back to its isolated form when the same (prior_slot, candidate, base) triple that motivated the guard fires. Place this AFTER `calt_fwd_*` (which mutates the candidate in the first place) so we see the post-fwd form, and AFTER the bk lookups that emitted the guards.
     for candidate_base in sorted(pair_guard_reflip):
         rules = pair_guard_reflip[candidate_base]
-        # Deduplicate while preserving stable order.
         reflip_seen: set[tuple[frozenset[str], str, str, str]] = set()
         reflip_unique: list[tuple[frozenset[str], str, str, str]] = []
         for entry in rules:

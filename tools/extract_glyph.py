@@ -25,7 +25,6 @@ PIXEL_SIZE = 50
 
 
 def extract_contours(recording: list[tuple[str, tuple[Any, ...]]]) -> list[list[tuple[float, float]]]:
-    """Convert pen recording to list of polygon point lists."""
     contours = []
     current = []
     for op, args in recording:
@@ -76,7 +75,7 @@ def glyph_to_bitmap(font_path: str, glyph_name: str) -> tuple[list[str], int]:
     contours = extract_contours(pen.value)
 
     if not contours:
-        return [], 0  # Empty glyph (like space)
+        return [], 0
 
     all_x = [pt[0] for c in contours for pt in c]
     all_y = [pt[1] for c in contours for pt in c]
@@ -103,12 +102,6 @@ def glyph_to_bitmap(font_path: str, glyph_name: str) -> tuple[list[str], int]:
 
 
 def get_glyph_metrics(font_path: str, glyph_name: str) -> dict[str, int]:
-    """
-    Get detailed metrics for a glyph.
-
-    Returns:
-        dict with keys: advance_width, xMin, yMin, xMax, yMax, left_side_bearing
-    """
     font = TTFont(font_path)
     glyphset = font.getGlyphSet()
 
@@ -117,11 +110,9 @@ def get_glyph_metrics(font_path: str, glyph_name: str) -> dict[str, int]:
 
     glyph = glyphset[glyph_name]
 
-    # Get advance width from hmtx table
     hmtx = font["hmtx"]
     advance_width, lsb = hmtx[glyph_name]
 
-    # Get bounds by drawing
     pen = RecordingPen()
     glyph.draw(pen)
     contours = extract_contours(pen.value)
@@ -160,23 +151,15 @@ def print_bitmap_yaml(glyph_name: str, bitmap: list[str], y_offset: int) -> None
 
 
 def compare_glyphs(glyph_name: str, font1_path: str, font2_path: str) -> bool:
-    """
-    Compare a glyph between two fonts.
-
-    Returns:
-        bool: True if all metrics match, False otherwise
-    """
     metrics1 = get_glyph_metrics(font1_path, glyph_name)
     metrics2 = get_glyph_metrics(font2_path, glyph_name)
 
     bitmap1, y_offset1 = glyph_to_bitmap(font1_path, glyph_name)
     bitmap2, y_offset2 = glyph_to_bitmap(font2_path, glyph_name)
 
-    # Get font names for display
     font1_name = TTFont(font1_path)["name"].getDebugName(1) or "Font1"
     font2_name = TTFont(font2_path)["name"].getDebugName(1) or "Font2"
 
-    # Truncate names for display
     font1_short = font1_name[:20]
     font2_short = font2_name[:20]
 
@@ -195,7 +178,6 @@ def compare_glyphs(glyph_name: str, font1_path: str, font2_path: str) -> bool:
         status = "\u2713" if match else "\u2717"
         print(f"{metric:25} {v1:<20} {v2:<20} {status}")
 
-    # Compare bitmaps
     print("\nBitmap (visual check):")
     for row in bitmap1:
         print(f'  "{row}"')
@@ -243,7 +225,6 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.compare:
-        # Compare mode
         glyph_name = args.compare
         font1_path = args.font_path
         font2_path = args.glyph_or_font2
@@ -259,7 +240,6 @@ def main() -> None:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
-        # Extract mode
         glyph_name = args.glyph_or_font2
         font_path = args.font_path
 
