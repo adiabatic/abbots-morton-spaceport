@@ -4,6 +4,28 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 16.000
+
+While this release starts kerning letter pairs in the Senior variant and fixes a bunch of bugs with letter-pair joins, the headline _feature_ is the addition of all the Shavian letters to the non-Mono versions of the font. Tell all your Shavian-using friends to try the font out and complain about the ugly letters that I don’t have a good feel for.
+
+#### Shavian
+
+- All 48 Shavian letters now appear in Abbots Morton Spaceport Sans Junior and Sans Senior (both Regular and Bold). They don’t appear in Mono.
+
+#### Quikscript Senior — kerning
+
+- Senior now sits about a pixel tighter than Junior across the board, and on top of that gets 268 hand-tuned kerning pairs (mostly consonant-first) that pull specific letter combinations 1–4 pixels closer. This is Senior-only — Junior and Mono are unchanged.
+- The tightening reaches the “hidden” letter-pair junctions that only ever turn up inside longer words (e.g. ·No staying as its alt form while ·No·Utter is kerned), not just the pairs you can see in isolation. There is much work to be done here in the future, plus kerning “hidden” pairs seem to be another source of “I wanted X to happen, but not in situation Y, too” bugs.
+
+#### Quikscript Senior — stop the dangling
+
+- A big cleanup pass so that a letter in the middle of a sequence it doesn’t join no longer keeps a stray connecting stub poking out toward its neighbor — typically at a word break or just before a ligature that has nowhere to receive the stroke. The letter now falls back to its plain, standalone shape (or keeps just its entry and drops the dangling exit). ·Gay, ·Excite, ·J’ai, ·They, ·May, and ·Utter were the worst offenders, but the fix touches many letters.
+- Genuinely new join behavior that came out of the same work:
+  - ·Tea·It keeps its x-height join instead of dropping ·Tea to the baseline (two baseline-joined verticals would read as one over-thick stroke), which also fixes ·See·Tea·It·It.
+  - ·May no longer drops to its baseline-exit shape before ·He.
+  - ·They·Utter joins now.
+  - New ·Gay shape for ·Utter·Gay·Tea·Oy and ·Utter·Gay·Thaw·-ing that keeps the ·Utter–·Gay join but drops ·Gay’s now-pointless forward stub.
+
 ### 15.000
 
 Insectoid aliens and gut punches edition
