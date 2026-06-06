@@ -323,12 +323,12 @@ glyphs:
 
   u1046C.prop.unused:  # 𐑬 Out
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "  #  " #
+      - " #   "
+      - "#    "
+      - "##   "
+      - "  #  "
+      - "   ##" #
 
   u1046D.prop.unused:  # 𐑭 Ah
     bitmap:
@@ -413,12 +413,12 @@ glyphs:
 
   u10476.prop.unused:  # 𐑶 Oil
     bitmap:
-      - "     " #
-      - "     "
-      - "     "
-      - "     "
-      - "     "
-      - "     " #
+      - "##   " #
+      - "  #  "
+      - "   ##"
+      - "    #"
+      - "   # "
+      - "  #  " #
 
   u10477.prop.unused:  # 𐑷 Awe
     bitmap:
