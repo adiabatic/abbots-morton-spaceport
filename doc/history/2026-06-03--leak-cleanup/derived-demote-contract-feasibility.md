@@ -12,14 +12,14 @@ The default oracle run builds a temporary Senior font under `tmp/derived-demote-
 
 ## Counts
 
-| Measurement                                              | Predecessor | Trailing | Total |
-| -------------------------------------------------------- | ----------: | -------: | ----: |
-| Authored rows                                            |         121 |       30 |   151 |
-| Derived rows from the no-authored depth-4 pair source    |       2,224 |    1,724 | 3,948 |
-| Reproduced authored rows in the full derived-set diff    |          63 |       21 |    84 |
-| Missing authored rows in the full derived-set diff       |          58 |        9 |    67 |
-| Extra derived rows not in the authored tables            |       2,161 |    1,703 | 3,864 |
-| Authored-pair isolated-target probe reproduced           |          67 |       23 |    90 |
+| Measurement                                           | Predecessor | Trailing | Total |
+| ----------------------------------------------------- | ----------: | -------: | ----: |
+| Authored rows                                         |         121 |       30 |   151 |
+| Derived rows from the no-authored depth-4 pair source |       2,224 |    1,724 | 3,948 |
+| Reproduced authored rows in the full derived-set diff |          63 |       21 |    84 |
+| Missing authored rows in the full derived-set diff    |          58 |        9 |    67 |
+| Extra derived rows not in the authored tables         |       2,161 |    1,703 | 3,864 |
+| Authored-pair isolated-target probe reproduced        |          67 |       23 |    90 |
 
 Six of the 67 full-diff missing rows are pair-source misses, not isolated-target misses: the authored-pair probe derives the correct isolated target, but the bounded no-authored depth-4 shaping sweep did not surface that exact pair. Those six are `qsExcite.en-y0.ex-y0.before-vertical + qsIt -> qsExcite`, `qsMay.ex-ext-1 + qsFee.ex-y5 -> qsMay`, `qsMay.ex-y0 + qsGay.ex-y0 -> qsMay`, `qsNo.ex-ext-1 + qsFee.ex-y5 -> qsNo`, and the two `qsIt.en-y0.ex-noentry.before-day-exam{,.en-ext-1} + qsDay.half.en-y0.ex-y0 -> qsDay` trailing rows.
 
