@@ -1,6 +1,6 @@
 # Abbots Morton Spaceport
 
-A pixel-font pair (mostly) for [Quikscript][]. Available as a sans-serif version, or you can pair its monospace version with [Departure Mono][] to get a full-featured monospace font.
+A pixel-font pair (mostly) for [Quikscript][]. Available as a sans-serif version or a monospace version.
 
 Want to see what it looks like? Look at [its demo website][demo].
 
@@ -19,7 +19,7 @@ If you’d like this in a non-pixel version, keep your eye on [Abbots Morton][am
 
 This font comes in two-and-a-half variants:
 
-- monospace (Abbots Morton Spaceport **Mono**)
+- monospace (Abbots Morton Spaceport **Mono**) — bundles [Departure Mono][]
 - proportional (Abbots Morton Spaceport **Sans**)
   - unligated (Abbots Morton Spaceport Sans **Junior**)
   - ligated (Abbots Morton Spaceport Sans **Senior**) — but it has bugs in addition to its [Known issues](#known-issues) below
@@ -28,31 +28,22 @@ You’ll definitely need to:
 
 - set your fonts to multiples of 11 pixels (unless you’re targeting print exclusively)
 
-And, if you want a monospace font, you’ll need to:
-
-- get [Departure Mono][] working, too
-
 ### Font sizing
 
 For pixel-perfect rendering on a screen, you’ll want to limit yourself to font sizes that are multiples of 11 **pixels**.
 
 On the other hand, if you’re aiming for print (in, say, Word or Typst), you don’t really need to care about pixel alignment if your target is a 600 DPI laser printer.
 
-### Using with Departure Mono
+### Loading the fonts
 
-While Abbots Morton Spaceport **Sans** is a full-featured font, Abbots Morton Spaceport **Mono** pretty much only supplies Quikscript-only characters. If you want to use Abbots Morton Spaceport in, say, a text editor, you’ll likely want to use it with [Departure Mono][].
+Abbots Morton Spaceport **Mono** bundles the whole of [Departure Mono][] — Latin, Greek, Cyrillic, eastern-European diacritics, punctuation, symbols, and all of Departure Mono’s OpenType features (small caps, fractions, super- and subscripts, combining-mark positioning, and the rest) — right alongside the Quikscript letters. You don’t need any companion font with it.
 
-Even if you _are_ using Abbots Morton Spaceport Sans, you may also want to use Departure Mono anyway — it has Greek and Cyrillic letters and doesn’t skimp on eastern-European diacritical marks.
-
-#### Font-stack ordering
-
-If you’re using Abbots Morton Spaceport **Sans**, you’ll want to put it first in your font stack. That way, its glyphs will get used instead of Departure Mono’s.
-
-If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can tell, the order in which you specify fonts doesn’t matter.
+Abbots Morton Spaceport **Sans** is proportional and sticks to Latin, Quikscript, and Shavian. If you want Greek, Cyrillic, or a wider range of diacritics while using Sans, you’ll need to pair it with a fallback font like Abbots Morton Spaceport _Mono_.
 
 #### CSS
 
 ```css
+/* Optional — only worth loading as a fallback if you’re using Abbots Morton Spaceport Sans */
 @font-face {
   font-family: 'Departure Mono';
   src: url('…/DepartureMono-Regular.woff2') format('woff2');
@@ -85,11 +76,11 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
 
 /* you probably know what selector you want already, but we’ll go with :root */
 :root {
-  /* For Abbots Morton Spaceport Sans, you want it in front */
-  font-family: 'Abbots Morton Spaceport Sans Junior', 'Departure Mono', monospace;
+  /* For Abbots Morton Spaceport Sans, you want it in front, with a fallback behind it */
+  font-family: 'Abbots Morton Spaceport Sans Junior', 'Abbots Morton Spaceport Mono', monospace;
 
-  /* For Abbots Morton Spaceport Mono, the same order should be fine */
-  font-family: 'Abbots Morton Spaceport Mono', 'Departure Mono', monospace;
+  /* Abbots Morton Spaceport Mono stands alone — no fallback needed */
+  font-family: 'Abbots Morton Spaceport Mono', monospace;
 
   /* <https://caniuse.com/?search=font-smooth> isn’t universally supported as of early 2026, but it might be as you read this, so go check */
   -webkit-font-smoothing: none;
@@ -103,7 +94,7 @@ If you’re only using Abbots Morton Spaceport **Mono**, then, as far as I can t
 ```typst
 #set text(
     // For Abbots Morton Spaceport Sans Junior, you want it in front
-    font: ("Abbots Morton Spaceport Sans Junior", "Departure Mono"),
+    font: ("Abbots Morton Spaceport Sans Junior", "Abbots Morton Spaceport Mono"),
 )
 ```
 
@@ -111,8 +102,7 @@ or:
 
 ```typst
 #set text(
-    // For Abbots Morton Spaceport Mono, the same order should be fine
-    font: ("Abbots Morton Spaceport Mono", "Departure Mono"),
+    font: "Abbots Morton Spaceport Mono",
 )
 ```
 
@@ -120,15 +110,7 @@ or:
 
 ### Microsoft Word
 
-If you want to set a fallback font in Microsoft Word you’ll likely need to do something involved and nerdy, like opening up a saved Theme (it’s a .zip file with XML files in it) and editing its long list of language-dependent fallback fonts. Ask an LLM to help you out here. Also ask it to help you convert sizes in pixels to sizes in points.
-
-Or…
-
-### Others
-
-You know how people use [Nerd Fonts][] to get their usual fonts with extra glyphs shoved into them? Maybe you could do that kind of thing and smash either Abbots Morton Spaceport font into Departure Mono.
-
-[nerd fonts]: https://www.nerdfonts.com/
+If you’re using Sans and want to set a fallback font in Microsoft Word, you’ll likely need to do something involved and nerdy, like opening up a saved Theme (it’s a .zip file with XML files in it) and editing its long list of language-dependent fallback fonts. Ask an LLM to help you out here. Also ask it to help you convert sizes in pixels to sizes in points.
 
 ## Weights
 
