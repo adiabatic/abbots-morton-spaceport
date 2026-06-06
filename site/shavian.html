@@ -33,11 +33,30 @@
       margin-bottom: 0.25rem;
     }
 
-    #shavian-alphabet {
+    /* Narrow: one continuous 48-row table so the columns line up top to bottom. Wide: hide it and show the consonant/vowel halves side by side instead. The two layouts hold the same data. */
+    #shavian-alphabet-full,
+    #shavian-alphabet-split table {
       border-spacing: 1ch 0;
 
       td {
         padding: 0;
+      }
+    }
+
+    #shavian-alphabet-split {
+      display: none;
+    }
+
+    @container (width > 44ch) {
+      #shavian-alphabet-full {
+        display: none;
+      }
+
+      #shavian-alphabet-split {
+        display: flex;
+        align-items: start;
+        justify-content: center;
+        gap: 0 3ch;
       }
     }
   </style>
@@ -66,7 +85,7 @@
 
   <h2>The Shavian alphabet</h2>
   <section class="panel">
-    <table class="sample" id="shavian-alphabet">
+    <table class="sample" id="shavian-alphabet-full">
       <tr><td>&#x10450;</td><td>Peep</td><td>U+10450</td></tr>
       <tr><td>&#x10451;</td><td>Tot</td><td>U+10451</td></tr>
       <tr><td>&#x10452;</td><td>Kick</td><td>U+10452</td></tr>
@@ -116,6 +135,60 @@
       <tr><td>&#x1047E;</td><td>Ian</td><td>U+1047E</td></tr>
       <tr><td>&#x1047F;</td><td>Yew</td><td>U+1047F</td></tr>
     </table>
+    <div id="shavian-alphabet-split">
+      <table class="sample">
+        <tr><td>&#x10450;</td><td>Peep</td><td>U+10450</td></tr>
+        <tr><td>&#x10451;</td><td>Tot</td><td>U+10451</td></tr>
+        <tr><td>&#x10452;</td><td>Kick</td><td>U+10452</td></tr>
+        <tr><td>&#x10453;</td><td>Fee</td><td>U+10453</td></tr>
+        <tr><td>&#x10454;</td><td>Thigh</td><td>U+10454</td></tr>
+        <tr><td>&#x10455;</td><td>So</td><td>U+10455</td></tr>
+        <tr><td>&#x10456;</td><td>Sure</td><td>U+10456</td></tr>
+        <tr><td>&#x10457;</td><td>Church</td><td>U+10457</td></tr>
+        <tr><td>&#x10458;</td><td>Yea</td><td>U+10458</td></tr>
+        <tr><td>&#x10459;</td><td>Hung</td><td>U+10459</td></tr>
+        <tr><td>&#x1045A;</td><td>Bib</td><td>U+1045A</td></tr>
+        <tr><td>&#x1045B;</td><td>Dead</td><td>U+1045B</td></tr>
+        <tr><td>&#x1045C;</td><td>Gag</td><td>U+1045C</td></tr>
+        <tr><td>&#x1045D;</td><td>Vow</td><td>U+1045D</td></tr>
+        <tr><td>&#x1045E;</td><td>They</td><td>U+1045E</td></tr>
+        <tr><td>&#x1045F;</td><td>Zoo</td><td>U+1045F</td></tr>
+        <tr><td>&#x10460;</td><td>Measure</td><td>U+10460</td></tr>
+        <tr><td>&#x10461;</td><td>Judge</td><td>U+10461</td></tr>
+        <tr><td>&#x10462;</td><td>Woe</td><td>U+10462</td></tr>
+        <tr><td>&#x10463;</td><td>Ha-Ha</td><td>U+10463</td></tr>
+        <tr><td>&#x10464;</td><td>Loll</td><td>U+10464</td></tr>
+        <tr><td>&#x10465;</td><td>Mime</td><td>U+10465</td></tr>
+      </table>
+      <table class="sample">
+        <tr><td>&#x10466;</td><td>If</td><td>U+10466</td></tr>
+        <tr><td>&#x10467;</td><td>Egg</td><td>U+10467</td></tr>
+        <tr><td>&#x10468;</td><td>Ash</td><td>U+10468</td></tr>
+        <tr><td>&#x10469;</td><td>Ado</td><td>U+10469</td></tr>
+        <tr><td>&#x1046A;</td><td>On</td><td>U+1046A</td></tr>
+        <tr><td>&#x1046B;</td><td>Wool</td><td>U+1046B</td></tr>
+        <tr><td>&#x1046C;</td><td>Out</td><td>U+1046C</td></tr>
+        <tr><td>&#x1046D;</td><td>Ah</td><td>U+1046D</td></tr>
+        <tr><td>&#x1046E;</td><td>Roar</td><td>U+1046E</td></tr>
+        <tr><td>&#x1046F;</td><td>Nun</td><td>U+1046F</td></tr>
+        <tr><td>&#x10470;</td><td>Eat</td><td>U+10470</td></tr>
+        <tr><td>&#x10471;</td><td>Age</td><td>U+10471</td></tr>
+        <tr><td>&#x10472;</td><td>Ice</td><td>U+10472</td></tr>
+        <tr><td>&#x10473;</td><td>Up</td><td>U+10473</td></tr>
+        <tr><td>&#x10474;</td><td>Oak</td><td>U+10474</td></tr>
+        <tr><td>&#x10475;</td><td>Ooze</td><td>U+10475</td></tr>
+        <tr><td>&#x10476;</td><td>Oil</td><td>U+10476</td></tr>
+        <tr><td>&#x10477;</td><td>Awe</td><td>U+10477</td></tr>
+        <tr><td>&#x10478;</td><td>Are</td><td>U+10478</td></tr>
+        <tr><td>&#x10479;</td><td>Or</td><td>U+10479</td></tr>
+        <tr><td>&#x1047A;</td><td>Air</td><td>U+1047A</td></tr>
+        <tr><td>&#x1047B;</td><td>Err</td><td>U+1047B</td></tr>
+        <tr><td>&#x1047C;</td><td>Array</td><td>U+1047C</td></tr>
+        <tr><td>&#x1047D;</td><td>Ear</td><td>U+1047D</td></tr>
+        <tr><td>&#x1047E;</td><td>Ian</td><td>U+1047E</td></tr>
+        <tr><td>&#x1047F;</td><td>Yew</td><td>U+1047F</td></tr>
+      </table>
+    </div>
   </section>
 
   <h2>Pangrams (editable)</h2>
