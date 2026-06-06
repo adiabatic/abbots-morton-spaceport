@@ -709,6 +709,8 @@ def resolve_composite(
 
 _NAMER_DOT = "periodcentered"
 _NAMER_DOT_LOWERED = "periodcentered.lowered"
+# PUA alias for the namer dot (see cmap construction in build_font). U+F00B7 is in Supplementary PUA-A (mnemonic for the 00B7 middle dot); it carries Unicode script Unknown, like the Quikscript letters, so Chrome keeps the dot in the same shaping run and the lowering fires.
+_NAMER_DOT_PUA = 0xF00B7
 
 
 def _resolve_short_families(context_sets: dict[str, Any]) -> set[str]:
@@ -910,6 +912,10 @@ def build_font(
         cp = name_to_codepoint.get(glyph_name)
         if cp is not None:
             cmap[cp] = glyph_name
+
+    # Alias a PUA code point to the namer dot so it shapes in the same run as the Quikscript letters. Chrome isolates U+00B7 (Unicode script Common) into its own run, which keeps the namer-dot calt from ever seeing the following short letter; a PUA-encoded dot (script Unknown, like the letters) stays in the run, so the lowering fires in Chrome too. Proportional only — Mono has no calt.
+    if is_proportional and _NAMER_DOT in cmap.values():
+        cmap[_NAMER_DOT_PUA] = _NAMER_DOT
 
     fb = FontBuilder(units_per_em, isTTF=False)
     fb.setupGlyphOrder(glyph_order)
