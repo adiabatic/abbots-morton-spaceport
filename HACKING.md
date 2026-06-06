@@ -41,7 +41,7 @@ Within that pipeline, `tools/glyph_compiler.py` owns the canonical variant-level
 
 ## Shaping leaks: what you have to drive
 
-A "shaping leak" is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot actually connect to — the canonical case is a stroke reaching out to join a letter that isn't there, dangling into space. The full definition and the design decisions behind it are in [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md). The detection-and-classification machinery is built and runs on its own; this section is the part that needs _you_, because the calls it makes are judgment calls a human owns.
+A “shaping leak” is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot actually connect to — the canonical case is a stroke reaching out to join a letter that isn’t there, dangling into space. The full definition and the design decisions behind it are in [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md). The detection-and-classification machinery is built and runs on its own; this section is the part that needs _you_, because the calls it makes are judgment calls a human owns.
 
 The machinery sorts every visible leak into **bad** (a real defect — a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intentional cosmetic tuck — the slightly-hand-drawn variation we actually want). That sort is mechanical, validated to agree with your past triage exactly, but it is a proxy: when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
 
@@ -50,7 +50,7 @@ The machinery sorts every visible leak into **bad** (a real defect — a dangle)
 
 ### When a gate complains
 
-- **`make test` (every run) fails with "NEW bad isolation leak(s)".** A change you made grew a dangle. Either fix it — make the break-facing edge subtractive (or revert it) for that one context, using the levers in the "How to do simple changes" section of `CLAUDE.md` — or, if you decide the new bad leak is actually acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it just prints a "nice — re-bless" notice.
+- **`make test` (every run) fails with “NEW bad isolation leak(s)”.** A change you made grew a dangle. Either fix it — make the break-facing edge subtractive (or revert it) for that one context, using the levers in the “How to do simple changes” section of `CLAUDE.md` — or, if you decide the new bad leak is actually acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it just prints a “nice — re-bless” notice.
 - **`make test-leaks` (the deep, ~1-minute gate) fails on the benign census.** The set of benign variation shifted. This is informational, never a defect on its own — but look at the diff so you _notice_ the organic-variation set moving, then re-bless.
 - **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing — that diff is the whole point of the gate, and reviewing it is your job.
 
@@ -59,13 +59,13 @@ The machinery sorts every visible leak into **bad** (a real defect — a dangle)
 The proxy occasionally mislabels a leak. You correct it per-signature, never by weakening the proxy:
 
 - `site/leak-force-bad.yaml` — a leak the proxy calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
-- `site/leak-force-benign.yaml` — a leak the proxy calls bad but you've decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
+- `site/leak-force-benign.yaml` — a leak the proxy calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
 
 A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or census. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the proxy against your historical triage and prints precision/recall).
 
 ### Eyeballing leaks
 
-`make check-html` regenerates `site/check.html`; open it and scroll to "Auto-generated: isolation leaks". Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
+`make check-html` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
 
 ### Fixing the backlog in bulk (the loop)
 
@@ -79,20 +79,20 @@ A tester page is any side-by-side render harness you generate to eyeball glyph c
 
 - **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how long a glyph is — how far it reaches past its own ink — is often exactly what you are checking.
 - **Make it unmistakable which two letters are under review.** A test sequence is usually four or five letters, but only one join — two adjacent letters — is the point; the rest is context. Highlight that pair so there is no doubt and mute the surrounding letters. Feedback about the wrong two letters misroutes the fix, so the page must leave zero ambiguity about where to look.
-- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `site/before/`; the before/after workflow is the one the auto-generated `site/check.html` documents). The "before" shows the dangle; the "after" shows the fix.
+- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `site/before/`; the before/after workflow is the one the auto-generated `site/check.html` documents). The “before” shows the dangle; the “after” shows the fix.
 
 ### Recording verdicts fast (the keyboard review loop)
 
-- A **highlighted "current" row** that auto-scrolls to center as you move, so you always know where you are.
+- A **highlighted “current” row** that auto-scrolls to center as you move, so you always know where you are.
 - **One-key verdicts that auto-advance**, kept on the home row for one-handed triage — the fix gallery uses `f` = fine/accept, `a` = bad, `x` = complicated (which also jumps you into a note). Tapping a verdict moves to the next row automatically.
 - **Up/down navigation on both the arrow keys and letter keys** (`i` / `k`), with Enter inside a note field blurring it and advancing.
 - A **per-row note field**, and rows **colored by their verdict** so progress is visible at a glance.
-- A **"copy my verdicts" button** that emits _only_ the rows needing attention (a non-default verdict, or a note) as plain text you can paste straight back, with a `<textarea>` fallback for when clipboard access is blocked.
+- A **“copy my verdicts” button** that emits _only_ the rows needing attention (a non-default verdict, or a note) as plain text you can paste straight back, with a `<textarea>` fallback for when clipboard access is blocked.
 
 ### General
 
 - **Self-contained** — inline all CSS and JS, reference only the font files (relatively), no CDNs — so it works offline and over `make serve`.
-- **Don't hand-edit auto-generated pages.** `site/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
+- **Don’t hand-edit auto-generated pages.** `site/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
 
 ## Understanding
 

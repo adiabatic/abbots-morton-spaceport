@@ -1,6 +1,6 @@
 # How to generate the explainer document
 
-This file contains instructions for an LLM to generate a Typst document explaining how Abbots Morton Spaceport's cursive-attachment and OpenType machinery works to produce a font that ligates and joins Quikscript letters.
+This file contains instructions for an LLM to generate a Typst document explaining how Abbots Morton Spaceport’s cursive-attachment and OpenType machinery works to produce a font that ligates and joins Quikscript letters.
 
 ## Output files
 
@@ -18,14 +18,14 @@ Generate two files in this directory:
 // ⋮
 ```
 
-Each chapter is a separate `.typ` file under `chapters/`. The `00-introduction.typ` file is a brief intro that doesn't count as a numbered chapter. Use real Typst heading levels (`=`, `==`, etc.) so section/subsection numbering is automatic. Do not hard-code section numbers in prose.
+Each chapter is a separate `.typ` file under `chapters/`. The `00-introduction.typ` file is a brief intro that doesn’t count as a numbered chapter. Use real Typst heading levels (`=`, `==`, etc.) so section/subsection numbering is automatic. Do not hard-code section numbers in prose.
 
 ## Audience and tone
 
 The reader is someone who:
 
 - Knows what a font is and has used fonts before
-- Has heard of OpenType but doesn't know how it works internally
+- Has heard of OpenType but doesn’t know how it works internally
 - May or may not know what Quikscript is (explain it briefly)
 - Has no prior knowledge of GPOS, GSUB, `curs`, `calt`, feature files, or font engineering
 - Is comfortable with light technical content (pixel grids, coordinate systems) but needs concepts introduced one at a time
@@ -50,10 +50,10 @@ Start with an aside (callout box) briefly explaining what Quikscript is: a phone
 
 Then cover:
 
-a. **What's in a font file** — glyphs (shapes), a character map (Unicode → glyph), metrics (widths, baseline), and OpenType tables (instructions for substitution and positioning). Introduce GSUB and GPOS as the two families of smart-font tables, and tease that both are needed for Quikscript joining.
+a. **What’s in a font file** — glyphs (shapes), a character map (Unicode → glyph), metrics (widths, baseline), and OpenType tables (instructions for substitution and positioning). Introduce GSUB and GPOS as the two families of smart-font tables, and tease that both are needed for Quikscript joining.
 b. **Units per em and pixel size** — 550 UPM, each pixel is 50 font units, the em square is 11 pixels tall
 c. **The three glyph heights** — Short (6px, baseline to x-height), Tall (9px, baseline to ascender), Deep (9px, 3px below baseline to x-height)
-d. **Bitmap representation in YAML** — show a simple glyph's bitmap and explain the `#` markers that indicate the x-height zone
+d. **Bitmap representation in YAML** — show a simple glyph’s bitmap and explain the `#` markers that indicate the x-height zone
 e. **y_offset** — how Deep letters use `y_offset: -3` to shift downward
 
 Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (Deep, 9px with y_offset: -3).
@@ -63,10 +63,10 @@ Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (
 Before getting into OpenType mechanics, explain _what_ joining means visually:
 
 a. **Entry and exit points** — every letter has a place where the pen arrives (entry) and a place where the pen leaves (exit). These happen at specific heights.
-b. **Height matching** — a letter's exit height must match the next letter's entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected form).
+b. **Height matching** — a letter’s exit height must match the next letter’s entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected form).
 c. **The basic idea of cursive attachment** — the text engine slides glyphs together so their exit and entry points overlap.
 
-Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea's exit point at the baseline meets ·Bay's entry point at the baseline and the engine nudges them together.
+Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea’s exit point at the baseline meets ·Bay’s entry point at the baseline and the engine nudges them together.
 
 ### 3. Glyph variants: why one letter needs many shapes
 
@@ -80,7 +80,7 @@ e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Q
 
 ### 4. Feature files and the OpenType pipeline
 
-Introduce the `.fea` (feature file) syntax as the "programming language" for OpenType:
+Introduce the `.fea` (feature file) syntax as the “programming language” for OpenType:
 
 a. **What a feature is** — a named bundle of rules that a text engine can activate. Features have four-letter tags like `calt`, `curs`, `liga`.
 b. **Lookups** — the individual rule sets within a feature. Introduce the concept without going deep yet.
@@ -92,10 +92,10 @@ Explain glyph substitution (GSUB) features used in this font:
 
 a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs and swaps in the right variant. This is the heart of making joins work.
 
-- **Backward-looking rules** — "if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y." Walk through a concrete example.
-- **Forward-looking rules** — "if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y." Walk through a concrete example.
+- **Backward-looking rules** — “if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y.” Walk through a concrete example.
+- **Forward-looking rules** — “if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y.” Walk through a concrete example.
 - **Explicit overrides** — the Quikscript family data stores context overrides under `select.before`, `select.after`, `select.not_before`, and `select.not_after`; explain how the build expands those into the specific substitution rules that override the height-based defaults.
-- **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out's final form).
+- **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out’s final form).
 - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
 
 b. **Ligature substitutions inside `calt`** — when two specific letters appear in sequence, the join machinery can replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). In the current build these substitutions are emitted from the Quikscript `calt` path (`calt_liga`), not from a separate standalone `liga` feature. Mention that ligatures can themselves have cursive anchors.
@@ -115,16 +115,16 @@ b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pa
 
 ### 7. Padding and spacing refinements
 
-a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a form's `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
-b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the "escape hatch" for when automatic joining is wrong.
+a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a form’s `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
+b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the “escape hatch” for when automatic joining is wrong.
 
 ### 8. The three font variants
 
 Tie it all together by explaining the three output fonts:
 
 a. **Mono** — fixed-width, no joining, no contextual features. Uses base glyphs only. Good for code editors and tabular display.
-b. **Junior (Sans)** — proportional, no joining. Compiles each Quikscript family's `prop` form plus any non-contextual alternates. Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
-c. **Senior (Sans)** — proportional with full joining. Compiles each Quikscript family's `prop` form plus contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
+b. **Junior (Sans)** — proportional, no joining. Compiles each Quikscript family’s `prop` form plus any non-contextual alternates. Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
+c. **Senior (Sans)** — proportional with full joining. Compiles each Quikscript family’s `prop` form plus contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
 
 ### 9. Putting it all together: a worked example
 
@@ -132,8 +132,8 @@ Walk through a complete word being shaped, step by step:
 
 1. The user types a sequence of Unicode code points
 2. The character map resolves them to base glyphs
-3. `calt` backward rules fire, substituting entry variants based on the preceding glyph's exit height
-4. `calt` forward rules fire, substituting exit variants based on the following glyph's entry height
+3. `calt` backward rules fire, substituting entry variants based on the preceding glyph’s exit height
+4. `calt` forward rules fire, substituting exit variants based on the following glyph’s entry height
 5. A later `calt` ligature lookup fires, combining adjacent glyphs into ligatures where applicable
 6. `curs` fires, positioning the cursive chain by aligning anchors
 7. The final positioned glyph stream is rendered
@@ -160,14 +160,14 @@ A reference section listing every key that can appear in a glyph definition in t
 
 - Use a clean, textbook-like layout. Generous margins, readable body font, monospace for code.
 - Chapter headings should display `Chapter N` on one line and the chapter title on the next line.
-- Add running page headers that automatically show the current section and subsection ("what section/subsection am I in?"), generated from the heading structure rather than hand-written text.
+- Add running page headers that automatically show the current section and subsection (“what section/subsection am I in?”), generated from the heading structure rather than hand-written text.
 - Start each major chapter/section on a new page, preferably by an automatic heading-level rule in `style.typ` (not by manual `#pagebreak()` lines between sections).
 - Use callout/aside boxes for:
-  - **"Try it"** — hands-on exercises or things to look for in the font
-  - **"Technical detail"** — deeper info that can be skipped on first read
-  - **"Key idea"** — the one-sentence takeaway from a section
+  - **“Try it”** — hands-on exercises or things to look for in the font
+  - **“Technical detail”** — deeper info that can be skipped on first read
+  - **“Key idea”** — the one-sentence takeaway from a section
 - Code blocks should be syntax-highlighted where possible (FEA code, YAML).
-- Figures showing glyph bitmaps should ideally use a grid where filled pixels are colored squares and empty pixels are blank/lightly outlined. If Typst's drawing capabilities allow this, define a reusable function in `style.typ` for rendering a bitmap from a list of strings.
+- Figures showing glyph bitmaps should ideally use a grid where filled pixels are colored squares and empty pixels are blank/lightly outlined. If Typst’s drawing capabilities allow this, define a reusable function in `style.typ` for rendering a bitmap from a list of strings.
 - Use consistent colors: one accent color for headings and callout borders, a second for code/technical elements.
 
 ## Notes for the generator
@@ -176,6 +176,6 @@ A reference section listing every key that can appear in a glyph definition in t
 - Read `glyph_data/quikscript.yaml` for real glyph examples to use in the text.
 - Read `glyph_data/metadata.yaml` for pixel-size and UPM values.
 - Read `reference/csur/index.html` for the code-point chart and character property descriptions.
-- When showing FEA code, use real examples from the font's generated `.fea` output where possible, not made-up examples.
-- The audience-appropriate depth level is: explain _what_ the OpenType engine does at each step, not _how_ the engine's internal state machine works. Think "user manual for how the font was built," not "OpenType spec tutorial."
+- When showing FEA code, use real examples from the font’s generated `.fea` output where possible, not made-up examples.
+- The audience-appropriate depth level is: explain _what_ the OpenType engine does at each step, not _how_ the engine’s internal state machine works. Think “user manual for how the font was built,” not “OpenType spec tutorial.”
 - For the worked example in chapter 9, consider building the font first (`make`) and looking at the generated `.fea` files in `site/` for real rule sequences.

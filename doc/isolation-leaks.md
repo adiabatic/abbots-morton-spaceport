@@ -29,7 +29,7 @@ uv run python tools/build_check_html.py --max-len 3
 
 `--max-len 3` is the sweet spot (about half a second; ≈200 leaks at the time of writing). Pairs alone miss context-revealed leaks like `·Zoo ·It ·Utter`, where a third letter is needed to expose a leak at an earlier break: the trailing ·Utter changes which variant the middle ·It takes when the right half is shaped on its own, so the `·Zoo | ·It` break only diverges once ·Utter is in the sweep.
 
-Bump `--max-len` if a leak you're hunting only manifests with more context. Cost grows roughly 44× per step — `--max-len 4` is around a minute (the gate depth), `--max-len 5` is impractical.
+Bump `--max-len` if a leak you’re hunting only manifests with more context. Cost grows roughly 44× per step — `--max-len 4` is around a minute (the gate depth), `--max-len 5` is impractical.
 
 `--out` writes to a different path if you want to inspect a draft without clobbering `site/check.html`.
 
@@ -45,7 +45,7 @@ Open `site/check.html` and scroll to the **Auto-generated: isolation leaks** sec
 
 Only visible leaks are shown (a signature counts as visible if _any_ swept example renders the two columns differently — see `find_visible_leaks`); purely glyph-name-signature leaks with no visible effect (typical for `qsThaw.after-tall`-style trim rules) never appear. For each shown row, the badge is the mechanical verdict: reach for the **bad** rows first — those are the defects.
 
-Every shown row carries a `bad` or `benign` badge in the Sequence column (and a matching `data-visual` attribute). Visibility is decided by shaping the example in context, then shaping the two boundary-faithful halves independently and concatenating them at the left half's cumulative advance (dropping the right half's leading shared boundary glyph so the token renders once) — exactly what the inline-block layout does. The two views differ iff some glyph has different pixels (`bitmap`, `y_offset`, `advance_width`) **or** a different absolute origin (`pen_x + pos.x_offset`). Comparing origins catches cursive-positioning leaks where the chosen variant has the same bitmap but a different exit/entry anchor — e.g. `qsIt` vs `qsIt.ex-y5` are pixel-identical but the latter's exit anchor pulls the next glyph leftward via GPOS `curs`.
+Every shown row carries a `bad` or `benign` badge in the Sequence column (and a matching `data-visual` attribute). Visibility is decided by shaping the example in context, then shaping the two boundary-faithful halves independently and concatenating them at the left half’s cumulative advance (dropping the right half’s leading shared boundary glyph so the token renders once) — exactly what the inline-block layout does. The two views differ iff some glyph has different pixels (`bitmap`, `y_offset`, `advance_width`) **or** a different absolute origin (`pen_x + pos.x_offset`). Comparing origins catches cursive-positioning leaks where the chosen variant has the same bitmap but a different exit/entry anchor — e.g. `qsIt` vs `qsIt.ex-y5` are pixel-identical but the latter’s exit anchor pulls the next glyph leftward via GPOS `curs`.
 
 ## Re-running
 
@@ -57,6 +57,6 @@ make check-html
 
 The fixed leak should drop out of the section. Other leaks in the same row neighborhood usually shift around when the dedup key changes, so expect surrounding rows to renumber — diff against the previous run if you want a precise before/after.
 
-## Don't hand-edit `site/check.html`
+## Don’t hand-edit `site/check.html`
 
 The whole file is regenerated each run. Anything you add by hand will be overwritten the next time `tools/build_check_html.py` runs.

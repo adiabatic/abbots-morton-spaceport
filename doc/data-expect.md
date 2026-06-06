@@ -2,7 +2,7 @@
 
 The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output for the Senior Sans font. The test runner (`test_shaping.py`) parses these attributes and verifies glyph selection and cursive attachment against compiled glyph metadata.
 
-The `data-expect-noncanonically` attribute uses the exact same syntax and test semantics as `data-expect`. It marks noncanonical Senior Quikscript joins that are valuable to test but are not found in Read's manual.
+The `data-expect-noncanonically` attribute uses the exact same syntax and test semantics as `data-expect`. It marks noncanonical Senior Quikscript joins that are valuable to test but are not found in Read’s manual.
 
 ## Glyph tokens
 
@@ -62,7 +62,7 @@ The test runner tries both interpretations (ligated and separated) and passes if
 
 ## Connection assertions
 
-Tokens are separated by connection operators that describe how adjacent glyphs attach or don't:
+Tokens are separated by connection operators that describe how adjacent glyphs attach or don’t:
 
 | Operator | Meaning |
 | -------- | ------- |
@@ -73,19 +73,19 @@ Tokens are separated by connection operators that describe how adjacent glyphs a
 | `~6~` | Joined at y = 6 |
 | `\|` | Break (no cursive connection) |
 | `\|?\|` | Break, with shape isolation NOT asserted |
-| `?` | Maybe connects, or doesn't |
+| `?` | Maybe connects, or doesn’t |
 
-A "join" means the preceding glyph's exit anchor and the following glyph's entry anchor share the specified Y coordinate. A "break" means no matching anchor pair exists. A "maybe" skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
+A “join” means the preceding glyph’s exit anchor and the following glyph’s entry anchor share the specified Y coordinate. A “break” means no matching anchor pair exists. A “maybe” skips the connection assertion entirely — the test passes whether or not the glyphs join. Use this for cases where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
 
 ### Break-isolation invariant
 
-When `|` separates two Quikscript letter tokens — and likewise when `?` separates a pair that turns out not to join — the test runner additionally asserts that **neither letter influences the other's shape choice**. It re-shapes the two sides as separate HarfBuzz buffers and verifies that the glyph chosen for each token matches the in-context glyph. A disagreement means a `calt` lookup is reaching across the non-join, and the test fails with a diagnostic naming both glyph choices.
+When `|` separates two Quikscript letter tokens — and likewise when `?` separates a pair that turns out not to join — the test runner additionally asserts that **neither letter influences the other’s shape choice**. It re-shapes the two sides as separate HarfBuzz buffers and verifies that the glyph chosen for each token matches the in-context glyph. A disagreement means a `calt` lookup is reaching across the non-join, and the test fails with a diagnostic naming both glyph choices.
 
-Concretely: there's no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on either side of a `|` to pin down "this glyph wasn't chosen because of the other one". The runner enforces that automatically, scoped to letter-vs-letter pairs (boundary tokens like `◊space`, `◊ZWNJ`, and escaped punctuation are excluded — those exist precisely to influence neighboring shape).
+Concretely: there’s no need to spell out `.!half`, `.!alt`, `.!wide`, etc. on either side of a `|` to pin down “this glyph wasn’t chosen because of the other one”. The runner enforces that automatically, scoped to letter-vs-letter pairs (boundary tokens like `◊space`, `◊ZWNJ`, and escaped punctuation are excluded — those exist precisely to influence neighboring shape).
 
 ### When the font legitimately leaks across a non-join: `|?|`
 
-A few font shapes are intentional "looks-better-when-adjacent" rules that fire on glyph-name signature alone — for instance, `qsThaw.after-tall` removes Thaw's entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn't fire. But in test, `|` doesn't insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
+A few font shapes are intentional “looks-better-when-adjacent” rules that fire on glyph-name signature alone — for instance, `qsThaw.after-tall` removes Thaw’s entry stub when a tall is to the left, even though no cursive join could form. In production this is naturally gated to literal adjacency: the `after:` (or `before:`) selector compiles to an OpenType backward (or forward) context lookup whose match list contains only the named families. A real space or ZWNJ between the two words sits in the immediate slot the lookup is checking, so the rule doesn’t fire. But in test, `|` doesn’t insert any character — the runner just concatenates the codepoints — so the lookup still fires and the isolation check correctly flags the cross-break shape choice.
 
 Use `|?|` instead of `|` for these specific cases. It still asserts that the two glyphs do not cursive-attach (no shared entry/exit Y), but skips the isolation invariant. Reach for `|?|` only when the cross-break shape difference is purely cosmetic / glyph-name-only (same bitmap, same effective cursive position), and adjacent letters in real text would naturally suppress the rule because of the intervening space or ZWNJ glyph.
 
@@ -99,7 +99,7 @@ Three levels of duplicate exist between two elements that both carry a `data-exp
 | Total duplicate | yes | yes | no |
 | Exact duplicate | yes | yes | yes |
 
-"Same assertions" means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
+“Same assertions” means the `data-expect` values are identical after collapsing runs of whitespace to a single space and trimming leading/trailing whitespace.
 
 When the same word (text content) appears more than once in the test corpus, only one occurrence should carry the `data-expect` attribute, preferably the earliest. Later occurrences keep their text content but lose the attribute, and bare `<span>` wrappers are unwrapped.
 

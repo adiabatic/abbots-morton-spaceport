@@ -24,7 +24,7 @@ Steps:
    uv run python tools/extract_glyph.py --compare $ARGUMENTS site/DepartureMono-Regular.otf site/AbbotsMortonSpaceportMono-Regular.otf
    ```
 
-   All metrics must match (advance_width, xMin, yMin, xMax, yMax, left_side_bearing). If they don't match, investigate and fix.
+   All metrics must match (advance_width, xMin, yMin, xMax, yMax, left_side_bearing). If they don’t match, investigate and fix.
 
 6. If the glyph uses a standard PostScript name (not a `uniXXXX` name), ensure it has an entry in @postscript_glyph_names.yaml.
 
