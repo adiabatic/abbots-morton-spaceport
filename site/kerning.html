@@ -9,6 +9,8 @@
       :root {
         --font-stack: "Abbots Morton Spaceport Sans Senior", "Departure Mono", monospace;
         --font-size: 22px;
+        /* The calt toggle flips this between `normal` and `"calt" 0`. Turning calt off drops every contextual alternate — cursive joins, ligatures, and the lowered namer dot — back to the isolated forms. */
+        --font-features: normal;
       }
 
       body.kern-page {
@@ -56,7 +58,8 @@
 
       .kern-side {
         flex: 0 0 auto;
-        width: clamp(24ch, 28vw, 46ch);
+        /* Width ≈ 40 characters of the textarea. `ch` here resolves against this column's own font (--font-size, 22px by default), not the textarea's 13px, so the 22/13 denominator scales the textarea font size up to the surrounding font size — converting those 40 textarea-characters into the column's larger ch. Calibrated to the default size; CSS calc() can't divide a length by a length, so the ratio can't track --font-size live. */
+        width: calc(40ch / (22 / 13));
         min-height: 0;
         display: flex;
         flex-direction: column;
@@ -131,6 +134,7 @@
           border: 2px solid light-dark(#ddd, #444);
           font-size: var(--font-size);
           font-family: var(--font-stack);
+          font-feature-settings: var(--font-features);
           font-weight: var(--font-weight, 400);
           -webkit-font-smoothing: none;
           -moz-osx-font-smoothing: grayscale;
@@ -233,6 +237,7 @@
         visibility: hidden;
         white-space: pre;
         font-family: var(--font-stack);
+        font-feature-settings: var(--font-features);
         font-size: 220px;
         font-weight: var(--font-weight, 400);
 
@@ -309,6 +314,7 @@
         .junction-render {
           flex: 0 0 auto;
           font-family: var(--font-stack);
+          font-feature-settings: var(--font-features);
           font-size: var(--font-size);
           font-weight: var(--font-weight, 400);
           -webkit-font-smoothing: none;
@@ -352,8 +358,61 @@
     <script type="module">
       import { LETTERS, initToggles } from "./shared.js";
 
-      const FAMILY_TO_LETTER = new Map(LETTERS.map((l) => [l.family, l]));
+      // Typographic punctuation, kerned against the letters and each other — including the namer dot (periodcentered) that prefixes proper nouns. Local to this page: these stay out of shared.js's LETTERS, which feeds every other page. Each entry's `family` holds the literal compiled glyph name — punctuation has no contextual variants — so cells touching punctuation serialize as the YAML's explicit `left:`/`right:` selectors rather than `*_family`. The `glyph: true` flag marks them. The angle brackets are the PUA Quikscript qsAngleParenLeft/Right; they have only a mono record, but the proportional build falls back to it, so they render in Sans too.
+      const PUNCT = [
+        { code: 0x0021, name: "exclam", family: "exclam", glyph: true },
+        { code: 0x0022, name: "quotedbl", family: "quotedbl", glyph: true },
+        { code: 0x0023, name: "numbersign", family: "numbersign", glyph: true },
+        { code: 0x0026, name: "ampersand", family: "ampersand", glyph: true },
+        { code: 0x0027, name: "quotesingle", family: "quotesingle", glyph: true },
+        { code: 0x0028, name: "parenleft", family: "parenleft", glyph: true },
+        { code: 0x0029, name: "parenright", family: "parenright", glyph: true },
+        { code: 0x002a, name: "asterisk", family: "asterisk", glyph: true },
+        { code: 0x002c, name: "comma", family: "comma", glyph: true },
+        { code: 0x002d, name: "hyphen", family: "hyphen", glyph: true },
+        { code: 0x002e, name: "period", family: "period", glyph: true },
+        { code: 0x002f, name: "slash", family: "slash", glyph: true },
+        { code: 0x003a, name: "colon", family: "colon", glyph: true },
+        { code: 0x003b, name: "semicolon", family: "semicolon", glyph: true },
+        { code: 0x003f, name: "question", family: "question", glyph: true },
+        { code: 0x0040, name: "at", family: "at", glyph: true },
+        { code: 0x005b, name: "bracketleft", family: "bracketleft", glyph: true },
+        { code: 0x005d, name: "bracketright", family: "bracketright", glyph: true },
+        { code: 0x005f, name: "underscore", family: "underscore", glyph: true },
+        { code: 0x007b, name: "braceleft", family: "braceleft", glyph: true },
+        { code: 0x007d, name: "braceright", family: "braceright", glyph: true },
+        { code: 0x00ab, name: "guillemotleft", family: "guillemotleft", glyph: true },
+        { code: 0x00b7, name: "periodcentered", family: "periodcentered", glyph: true },
+        { code: 0x00bb, name: "guillemotright", family: "guillemotright", glyph: true },
+        { code: 0x2013, name: "endash", family: "endash", glyph: true },
+        { code: 0x2014, name: "emdash", family: "emdash", glyph: true },
+        { code: 0x2015, name: "uni2015", family: "uni2015", glyph: true },
+        { code: 0x2018, name: "quoteleft", family: "quoteleft", glyph: true },
+        { code: 0x2019, name: "quoteright", family: "quoteright", glyph: true },
+        { code: 0x201c, name: "quotedblleft", family: "quotedblleft", glyph: true },
+        { code: 0x201d, name: "quotedblright", family: "quotedblright", glyph: true },
+        { code: 0x2020, name: "dagger", family: "dagger", glyph: true },
+        { code: 0x2021, name: "daggerdbl", family: "daggerdbl", glyph: true },
+        { code: 0x2022, name: "bullet", family: "bullet", glyph: true },
+        { code: 0x2026, name: "ellipsis", family: "ellipsis", glyph: true },
+        { code: 0x2032, name: "uni2032", family: "uni2032", glyph: true },
+        { code: 0x2033, name: "uni2033", family: "uni2033", glyph: true },
+        { code: 0x2034, name: "uni2034", family: "uni2034", glyph: true },
+        { code: 0x2039, name: "guilsinglleft", family: "guilsinglleft", glyph: true },
+        { code: 0x203a, name: "guilsinglright", family: "guilsinglright", glyph: true },
+        { code: 0xe66e, name: "qsAngleParenLeft", family: "qsAngleParenLeft", glyph: true },
+        { code: 0xe66f, name: "qsAngleParenRight", family: "qsAngleParenRight", glyph: true },
+      ];
+
+      const CELLS = [...LETTERS, ...PUNCT];
+      const PUNCT_FIRST_CODE = PUNCT[0].code;
+
+      const FAMILY_TO_LETTER = new Map(CELLS.map((c) => [c.family, c]));
       const KNOWN_FAMILIES = new Set(LETTERS.map((l) => l.family));
+      const KNOWN_GLYPHS = new Set(PUNCT.map((p) => p.family));
+
+      // A letter reads as ·Pea; a punctuation glyph reads as its bare compiled name (period, qsAngleParenLeft).
+      const cellLabel = (c) => (c.glyph ? c.name : `·${c.name}`);
 
       const table = document.getElementById("matrix-table");
       const textarea = document.getElementById("kern-yaml");
@@ -412,6 +471,7 @@
 
       // The YAML body for one disjoint kern lookup: a form-prefix emits `*_form`, a plain side emits `*_family` plus an `except_*` carve-out when it must exclude its own alternate sub-families.
       function selectorLines(side, which) {
+        if (side.glyph) return [`${which}: [${side.family}]`];
         if (side.form) return [`${which}_form: [${side.form}]`];
         const lines = [`${which}_family: [${side.family}]`];
         if (side.except && side.except.length) lines.push(`except_${which}: [${side.except.join(", ")}]`);
@@ -420,6 +480,11 @@
 
       function ruleBody(left, right, value) {
         return [...selectorLines(left, "left"), ...selectorLines(right, "right"), `value: ${value}`].join("\n");
+      }
+
+      // A bare grid token is either a letter family (qsPea) or a punctuation glyph name (period); the latter serializes as an explicit `left:`/`right:` selector.
+      function sideForToken(token) {
+        return { family: token, form: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
       }
 
       // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction (hidden rows and the isolated/residual quadrant alike), so the YAML round-trip can tell a hidden-junction override from the family-cell value an alt pair stores in its isolated quadrant.
@@ -501,12 +566,18 @@
             const except = exceptKey in fields ? parseInlineList(fields[exceptKey]) : [];
             return families.map((family) => ({ family, form: null, except: except.length ? except : null }));
           }
+          if (which in fields) {
+            // Explicit `left:`/`right:` glyph names, no variant expansion — how punctuation cells are stored.
+            const glyphs = parseInlineList(fields[which]);
+            if (!glyphs.length || !glyphs.every((g) => KNOWN_GLYPHS.has(g))) return null;
+            return glyphs.map((family) => ({ family, form: null, except: null, glyph: true }));
+          }
           return null;
         }
 
         const allowedKeys = new Set([
-          "left_family", "left_form", "except_left",
-          "right_family", "right_form", "except_right", "value",
+          "left", "left_family", "left_form", "except_left",
+          "right", "right_family", "right_form", "except_right", "value",
         ]);
 
         for (const { fields, body } of parsed) {
@@ -615,7 +686,7 @@
               bodies.push(ruleBody(override.left, override.right, override.value));
             }
           } else if (cellValue !== 0) {
-            bodies.push(`left_family: [${lf}]\nright_family: [${rf}]\nvalue: ${cellValue}`);
+            bodies.push(ruleBody(sideForToken(lf), sideForToken(rf), cellValue));
           }
         }
 
@@ -741,39 +812,45 @@
         corner.textContent = "·X·Y";
         corner.title = "column = first letter, row = second letter";
         headerRow.appendChild(corner);
-        for (const col of LETTERS) {
+        for (const col of CELLS) {
           const th = document.createElement("th");
           th.textContent = String.fromCodePoint(col.code);
-          th.title = `·${col.name}`;
+          th.title = cellLabel(col);
           if (col.code === VOWEL_FIRST_CODE) th.classList.add("boundary-left");
           if (col.code === CONSONANT_LAST_CODE) th.classList.add("boundary-right");
+          if (col.code === PUNCT_FIRST_CODE) th.classList.add("boundary-left");
           headerRow.appendChild(th);
         }
         thead.appendChild(headerRow);
         table.appendChild(thead);
 
         const tbody = document.createElement("tbody");
-        for (const row of LETTERS) {
+        for (const row of CELLS) {
           const tr = document.createElement("tr");
           const rowAtVowelStart = row.code === VOWEL_FIRST_CODE;
           const rowAtConsonantEnd = row.code === CONSONANT_LAST_CODE;
+          const rowAtPunctStart = row.code === PUNCT_FIRST_CODE;
           const th = document.createElement("th");
           th.textContent = String.fromCodePoint(row.code);
-          th.title = `·${row.name}`;
+          th.title = cellLabel(row);
           if (rowAtVowelStart) th.classList.add("boundary-top");
           if (rowAtConsonantEnd) th.classList.add("boundary-bottom");
+          if (rowAtPunctStart) th.classList.add("boundary-top");
           tr.appendChild(th);
-          for (const col of LETTERS) {
+          for (const col of CELLS) {
             const td = document.createElement("td");
             td.textContent = String.fromCodePoint(col.code, row.code);
             const key = cellKey(col.family, row.family);
             td.dataset.key = key;
-            td.dataset.pair = `·${col.name}·${row.name}`;
+            const sep = col.glyph || row.glyph ? " " : "";
+            td.dataset.pair = `${cellLabel(col)}${sep}${cellLabel(row)}`;
             td.title = td.dataset.pair;
             if (col.code === VOWEL_FIRST_CODE) td.classList.add("boundary-left");
             if (col.code === CONSONANT_LAST_CODE) td.classList.add("boundary-right");
+            if (col.code === PUNCT_FIRST_CODE) td.classList.add("boundary-left");
             if (rowAtVowelStart) td.classList.add("boundary-top");
             if (rowAtConsonantEnd) td.classList.add("boundary-bottom");
+            if (rowAtPunctStart) td.classList.add("boundary-top");
             if (hardCasesByPair.has(key)) {
               td.classList.add("has-hard-cases");
               const badge = document.createElement("span");
@@ -960,21 +1037,42 @@
       loadFromText(textarea.value);
       refreshAllCells();
 
-      initToggles({
+      let caltOn = true;
+      const caltToggle = document.getElementById("calt-toggle");
+
+      function applyCalt() {
+        document.documentElement.style.setProperty("--font-features", caltOn ? "normal" : '"calt" 0');
+        caltToggle.textContent = caltOn ? "calt on" : "calt off";
+        // aria-pressed reflects "is calt suppressed?" — the button's pressed state is the non-default (off) one.
+        caltToggle.setAttribute("aria-pressed", String(!caltOn));
+      }
+
+      const toggles = initToggles({
         sizeToggle: "size-toggle",
         fontOrderToggle: "font-order-toggle",
         fontToggle: "font-toggle",
         levelToggle: "level-toggle",
         weightToggle: "weight-toggle",
         onApply: (state) => {
-          // Baked kerning depends only on which family/level is shown (the kern feature is Sans-Senior-only and weight-independent), so re-measure only when that changes — not on size or weight.
-          const sig = `${state.isSans}|${state.isSenior}`;
+          // Baked kerning depends on which family/level is shown (the kern feature is Sans-Senior-only and weight-independent) and on whether calt is active (turning joins off changes which glyphs render, and so their advances), so re-measure when any of those change — but not on size or weight.
+          const sig = `${state.isSans}|${state.isSenior}|${caltOn}`;
           if (sig !== bakedFontSig) {
             bakedFontSig = sig;
             recomputeBakedDeltas();
           }
         },
       });
+
+      caltToggle.addEventListener("click", () => {
+        caltOn = !caltOn;
+        applyCalt();
+        // Re-run the toggle state so onApply re-measures baked kerning against the new calt setting, then repaint everything that draws from it.
+        toggles.applyState();
+        refreshAllCells();
+        refreshOpenPanel();
+      });
+
+      applyCalt();
     </script>
   </head>
   <body class="kern-page">
@@ -990,10 +1088,11 @@
       <button id="font-toggle">Sans</button>
       <button id="level-toggle">Senior</button>
       <button id="weight-toggle">Regular</button>
+      <button id="calt-toggle" aria-pressed="false">calt on</button>
     </div>
 
     <p class="help">
-      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. Punctuation runs after the letters on both axes; pairs touching it emit explicit <code>left:</code>&thinsp;/&thinsp;<code>right:</code> rules. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
     </p>
 
     <div class="kern-layout">
