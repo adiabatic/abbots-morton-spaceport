@@ -72,4 +72,32 @@ Defective pairs are the **lion's share** of the author's debugging time. Automat
 
 Both are derivable from honest letter-capability and geometry data; neither should require the author to spot it by eye.
 
+## The unit of authoring is the written variant (repertoire-first)
+
+The spec is **variants-first** (model B), not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written forms** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. The author wants to state plainly that ·May has *only these N ways* of being written and joined — no more.
+
+Two qualities are essential and in tension:
+
+- The repertoire is **finite and named** — you can read off a letter's complete set of forms and know that's all of them.
+- The repertoire **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, forms are added, refined, or retired. "Closed" means *fully enumerated right now*, not *frozen forever*.
+
+The legal join surface (which entry/exit heights and combinations a letter supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view (model A) as a *derived, displayed* artifact while keeping authoring grounded in real written forms.
+
+**Open tension to resolve next:** variants-first *is* essentially today's model, and today's pain is exactly the accretion of forms. So the rebuild's success hinges on a principled answer to: *what makes a form a legitimate member of the repertoire (a real way to write the letter) versus an accretion (a form that exists only to patch one join bug)?* Without that line, "mostly B" risks walking straight back into the local maximum.
+
+## Attachment heights
+
+The join vocabulary is small. The attachment heights that matter:
+
+- **baseline**
+- **x-height**
+- **y=6** — just above, used (as far as the author knows) only to connect *to* ·Ye from a handful of letters that connect to the *next* letter at the x-height
+- **top** — e.g. ·See·Tea joins
+
+## Reaching often requires deformation — and deformation must be controlled
+
+Matching attachment *heights* is necessary but not sufficient. To connect to an otherwise-awkward attachment point, a form sometimes has to be **deformed**: a stroke extended here, contracted there, so it reaches. This is its own axis of capability, distinct from "which heights does the form offer."
+
+This is also a current bug source: getting an LLM to extend *exactly* the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether a deformation is a distinct repertoire member or a separate adjustment layer is a question for the next round.
+
 <!-- Interview in progress: more sections to come. -->
