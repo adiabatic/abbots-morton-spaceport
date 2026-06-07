@@ -208,6 +208,21 @@ The single truest description of the work: **the author is mostly forbidding ugl
 This reframes the entire spec. Its quality is measured chiefly by **how cleanly it lets the author forbid** — at the pair, context, and group levels — without minting forms. Two kinds of forbiddance, with very different economics:
 
 - **Broken** — collisions, reaching joins with no acceptor, height-mismatches. Objective. The machine *should find these for you*, so this labor shrinks toward zero as detection improves.
-- **Ugly** — ·He·Owe and its kin. Pure taste. Irreducibly hand-authored by eye through the review workflow; no oracle but the author.
+- **Ugly** — ·He·Owe and its kin. Taste — but, importantly, *not entirely* oracle-less (see below). The residue with no machine signature is irreducibly hand-authored by eye through the review workflow; no oracle but the author.
+
+### Broken is an agent loop you are not in
+
+For at least one workable definition of "broken," **all** broken joins are automatically detectable, at least in theory. The intended consequence is strong: broken joins should be **fixed by an agent running `make test` in a loop — possibly over and over — not by the human at all.** The human exits the broken-fixing loop entirely; the machine detects, fixes, re-tests, repeats until clean. (**Open task:** pin down the definition(s) of "broken" precisely enough that detection is provably complete — that definition is what the whole loop rests on.)
+
+The balance of labor has also shifted: there *has been* a giant amount of ugly, but largely because the font wasn't fully specced. Now that a complete font exists, ugly is **bounded** — there "might only be a large amount" rather than an unbounded amount — while broken remains a major, ongoing share. So a strong defect detector plus the autonomous fix loop is genuinely high-leverage.
+
+### Some "ugly" has machine signatures
+
+Certain classes of ugliness carry detectable signatures and should be machine-flagged (and sometimes machine-fixed), not left to the eye:
+
+- **Off-anchor contact** — two letters touching at a point that is *not* their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-*proposable*, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
+- **Orientation mismatch** — some letters join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-letter property.
+
+The second case exposes a capability wrinkle: a form's join surface isn't only *where* it attaches (height) but *how* — the **stroke orientation/quality** it wants at an attachment. The capability model needs that dimension, because it's what lets the machine flag orientation-mismatch ugliness instead of leaving it to taste.
 
 <!-- Interview in progress: more sections to come. -->
