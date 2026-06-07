@@ -1219,7 +1219,7 @@ def _can_eventually_exit_at(
 _CONTRACT_EMIT_DUMP_PATH = Path(__file__).resolve().parent.parent / "tmp" / "leak-contract-emit.txt"
 
 # Steady-state count of single-rule cross-break selections the derived join contract drops (Phase 2, doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md). Dropping these is correct, intended behavior, so a build that matches this baseline is silent; the warning fires only when the count drifts, surfacing a real change to the contract's reach. Update this when an intended change moves it (the full breakdown is always in tmp/leak-contract-emit.txt).
-_EXPECTED_CONTRACT_DROP_COUNT = 711
+_EXPECTED_CONTRACT_DROP_COUNT = 719
 
 
 @dataclass
@@ -5981,6 +5981,29 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             lines.append(f"        sub [{prior_list}] {pre_form}' {base_name} by {isolated_form};")
         lines.append(f"    }} calt_pair_guard_reflip_{safe};")
 
+    # Emit a final exit-extension re-application pass. A forward reselection (`calt_fwd_*`) or a pair-guard reflip can land a glyph on its bare baseline-exit fwd_replacement — e.g. `qsIt.en-y0.ex-y5 -> qsIt.ex-y0` before a following qsI, once ·It's predecessor backward-joins it and the follower then pulls it forward — AFTER the earlier `extend_exit_before` lookups already ran against the pre-reselection form, so the connecting pixel is lost (the word-initial path, which reaches the same form via the strip route, keeps it). Re-apply each fwd_replacement's own `extend_exit_before` refinement here, gated only on the triggering follower. Runs before `calt_pred_demote_*` so a predecessor that backward-joined the now-extended glyph still demotes (its trigger list carries the `.ex-ext-N` variants). A glyph already on its extended form never matches the bare `variant'` input, so this can't double-apply; a glyph that never reselected to `variant` isn't `variant` and so is untouched.
+    for base in sorted(fwd_replacements):
+        ext_rules: list[tuple[str, str, str]] = []
+        ext_seen: set[tuple[str, str, str]] = set()
+        for variant in sorted(set(fwd_replacements[base].values())):
+            if variant not in glyph_meta:
+                continue
+            for extended_var, trigger_glyphs in _exit_extension_refinements(variant, set(glyph_names)):
+                trigger_list = " ".join(sorted(trigger_glyphs))
+                entry = (variant, trigger_list, extended_var)
+                if entry in ext_seen:
+                    continue
+                ext_seen.add(entry)
+                ext_rules.append(entry)
+        if not ext_rules:
+            continue
+        safe = base.replace(".", "_").replace("-", "_")
+        lines.append("")
+        lines.append(f"    lookup calt_post_reflip_ext_{safe} {{")
+        for variant, trigger_list, extended_var in ext_rules:
+            lines.append(f"        sub {variant}' [{trigger_list}] by {extended_var};")
+        lines.append(f"    }} calt_post_reflip_ext_{safe};")
+
     # Emit post-reflip follower bk passes. When `calt_pair_guard_reflip_*` swaps a predecessor into a glyph that DOES carry an `@exit_y<n>` anchor (the isolated form), the follower's `calt_*_bk_*` passes have already run against the buffer's pre-reflip state and so missed the chance to fire `bk_replacements[follower][n]`. Re-fire that single substitution here, gated on the isolated form as the prior, with the same cycle-prevention lookahead guards the earlier bk passes use. Followers without a matching `bk_replacements[follower][exit_y]` upgrade emit no rules — silent no-op.
     post_reflip_emissions: dict[str, dict[tuple[int, str], set[str]]] = {}
     for _prior, _target_base, follower_base, isolated_form in plan.restore_isolated_form_overrides:
@@ -6185,16 +6208,39 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         (predecessor_form, trigger_form, derived_iso_form)
                     )
 
+    # Map each form to the exit-extension variants derived from it (e.g. qsIt.ex-y0 -> [qsIt.ex-y0.ex-ext-1]). A predecessor-demote trigger is an entryless mid form that can't receive the predecessor's join; its `.ex-ext-N` sibling is equally entryless (the extension widens the exit, never adds an entry), so it must trigger the same demote — otherwise the connecting-pixel form leaves the predecessor's reaching exit dangling. ·Excite·It·I is the worked case: without this, ·It on qsIt.ex-y0.ex-ext-1 leaves qsExcite stuck on before-vertical.
+    exit_ext_variants_by_form: dict[str, list[str]] = {}
+    for _candidate in glyph_names:
+        _base_form = _drop_exit_extension_suffix(_candidate)
+        if _base_form is not None:
+            exit_ext_variants_by_form.setdefault(_base_form, []).append(_candidate)
+
+    def _trigger_with_exit_extensions(trigger_form: str) -> list[str]:
+        out = [trigger_form]
+        queue = deque([trigger_form])
+        seen = {trigger_form}
+        while queue:
+            current = queue.popleft()
+            for variant in exit_ext_variants_by_form.get(current, ()):
+                if variant in seen:
+                    continue
+                seen.add(variant)
+                out.append(variant)
+                queue.append(variant)
+        return out
+
     def _emit_pred_demote_lookups(prefix: str) -> None:
         for predecessor_base in sorted(pred_demote_by_base):
             pred_rules = pred_demote_by_base[predecessor_base]
             pred_seen: set[tuple[str, str, str]] = set()
             pred_unique: list[tuple[str, str, str]] = []
-            for entry in pred_rules:
-                if entry in pred_seen:
-                    continue
-                pred_seen.add(entry)
-                pred_unique.append(entry)
+            for predecessor_form, trigger_form, isolated_form in pred_rules:
+                for expanded_trigger in _trigger_with_exit_extensions(trigger_form):
+                    entry = (predecessor_form, expanded_trigger, isolated_form)
+                    if entry in pred_seen:
+                        continue
+                    pred_seen.add(entry)
+                    pred_unique.append(entry)
             if not pred_unique:
                 continue
             safe = predecessor_base.replace(".", "_").replace("-", "_")
