@@ -145,4 +145,14 @@ The recent "let a form declare it wins word-final" mechanism is **totally a symp
 
 **Proposed precedence concept (to confirm next):** resolve conflicts by **rule specificity** — the more narrowly-conditioned rule wins, regardless of which side it sits on. This is side-agnostic, so it naturally produces follower-wins outcomes whenever the follower's rule is the more specific one, and it absorbs "wins word-final" automatically (a rule conditioned on word-final position is simply more specific than an unconditioned one). The weak **lead preference** survives only as a tie-breaker when two rules are equally specific. Open question: are there real conflicts where both rules are equally specific and the author must still name a winner by hand?
 
+### When rules are incomparable (specific along different axes)
+
+Specificity only gives a *total* order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following letter — neither nesting inside the other. The decided handling:
+
+- **Default: refuse to guess (option 1b).** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering (option 1c) is **rejected as the foundation** — the author is confident they'd never get such an ordering correct and complete.
+- **Acknowledged risk:** 1b can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just *so much there*." 1b without a release valve could re-accrete.
+- **The release valve: named case-groups via set algebra.** The author already thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author *name* such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined form of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit 1b tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis default (1c) may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
+
+<!-- Interview in progress: more sections to come. -->
+
 <!-- Interview in progress: more sections to come. -->
