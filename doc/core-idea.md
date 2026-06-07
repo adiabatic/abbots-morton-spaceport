@@ -28,7 +28,7 @@ So the single success metric the whole design must serve: **the machine does the
 
 ## The OpenType ceiling is a hard wall
 
-The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, deformation, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what they want has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
+The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, deformation, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what he wants has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
 
 ## Greenfield encoding, sacred cargo
 
@@ -54,7 +54,7 @@ The ductus is currently **woefully incomplete**, and the author wants to **finis
 
 ## The deepest principle: discovery, not declaration
 
-Before the specifics, the principle that underlies all of them. **A great deal of this project is *discovering* what looks good, what looks bad, and what ruleset produces good-looking results** — it is not transcribing a design that already exists complete in the author's head. So the spec must never demand that a boundary be drawn correctly *up front*. Every important classification here is **discovered over time and promoted in place**, and the tooling should make that promotion a first-class, easy motion:
+Before the specifics, the principle that underlies all of them. **A great deal of this project is *discovering* what looks good, what looks bad, and what ruleset produces good-looking results** — it is not transcribing a design that already exists complete in his head. So the spec must never demand that a boundary be drawn correctly *up front*. Every important classification here is **discovered over time and promoted in place**, and the tooling should make that promotion a first-class, easy motion:
 
 - **don't-care → do-care:** a pair you never thought about reveals, on the day you look, that you care.
 - **one-off tiebreak → named case-group:** a conflict you resolved by hand recurs, and you promote the pattern into one named rule.
@@ -84,7 +84,7 @@ The "fine either way" verdict is significant: for some pairs, *more than one* ou
 
 For ordinary running text, most joins are don't-care. A sequence of four or five letters might carry one or two strong requirements (Manual-mandated), and the author has no wish to micromanage the rest. A standing global preference colors the don't-care space: **all else equal, more joins are better than fewer.**
 
-Crucially, the author **cannot reliably pre-classify** a pair as don't-care vs. do-care from the outset. The classification *migrates*: a pair sits in don't-care until, one day, the author looks at a result and decides they do in fact care. So the spec must not demand an up-front verdict for every pair. Instead it must support **incremental pinning** — start permissive, and let the author promote a pair to "cared about" the moment they notice something, recording the verdict then.
+Crucially, the author **cannot reliably pre-classify** a pair as don't-care vs. do-care from the outset. The classification *migrates*: a pair sits in don't-care until, one day, the author looks at a result and decides he does in fact care. So the spec must not demand an up-front verdict for every pair. Instead it must support **incremental pinning** — start permissive, and let the author promote a pair to "cared about" the moment he notices something, recording the verdict then.
 
 This reshapes the punch list. The residue that should ever demand human attention is small:
 
@@ -92,7 +92,7 @@ This reshapes the punch list. The residue that should ever demand human attentio
 - **Objective defects** → never a punch-list item *for the human*. Detected automatically so an agent can fix them. (See below — this is the author's single biggest time sink.)
 - **A previously-blessed discretionary pair that changed** → this, and essentially only this, is the legitimate punch list.
 
-Don't-care pairs change silently. The author pays attention only to pairs they have already chosen to care about, plus machine-found defects.
+Don't-care pairs change silently. The author pays attention only to pairs he has already chosen to care about, plus machine-found defects.
 
 ## The real job: cleanly express what each letter may and may not do
 
@@ -119,7 +119,7 @@ Both are derivable from honest letter-capability and geometry data; neither shou
 
 ## The unit of authoring is the written variant (repertoire-first)
 
-The spec is **variants-first** (model B), not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written forms** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. The author wants to state plainly that ·May has *only these N ways* of being written and joined — no more.
+The spec is **variants-first** (model B), not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written forms** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has *only these N ways* of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
@@ -179,6 +179,7 @@ Resolving the question parked earlier: for joins, a deformation is a **parametri
 
 - **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **magnitude** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
 - **Home: on a form, lead-preferred, but flexible.** Deformations live on one or more forms (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
+
 
 ### Magnitude has a tolerance band, and "don't join" is a real outcome
 
@@ -265,7 +266,8 @@ Both letters can hold opinions about the same join, so the model needs a negotia
 
 - **Veto is unilateral.** Either letter can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
 - **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, within the deformation budget. Neither side can force a join the other can't physically accept.
-- **Precedence among permitted options is genuinely case-by-case.** It is *not* a fixed "lead always wins." Sometimes the follower's preference should dominate; the author is confident research would surface clear follower-wins cases. So the model must not bake in lead-supremacy beyond a weak default.
+- **Precedence among permitted options is genuinely case-by-case.** It is *not* a fixed "lead always wins." Sometimes the follower's preference should dominate; the author is confident research would surface clear follower-wins cases.
+ So the model must not bake in lead-supremacy beyond a weak default.
 
 The recent "let a form declare it wins word-final" mechanism is **totally a symptom** of a missing systematic precedence concept — an ad-hoc "I win" flag standing in for a principle the model should supply.
 
@@ -275,7 +277,7 @@ The recent "let a form declare it wins word-final" mechanism is **totally a symp
 
 Specificity only gives a *total* order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following letter — neither nesting inside the other. The decided handling:
 
-- **Default: refuse to guess (option 1b).** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering (option 1c) is **rejected as the foundation** — the author is confident they'd never get such an ordering correct and complete.
+- **Default: refuse to guess (option 1b).** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering (option 1c) is **rejected as the foundation** — the author is confident he'd never get such an ordering correct and complete.
 - **Acknowledged risk:** 1b can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just *so much there*." 1b without a release valve could re-accrete.
 - **The release valve: named case-groups via set algebra.** The author already thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author *name* such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined form of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit 1b tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis default (1c) may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
@@ -308,7 +310,7 @@ The review/editing surface is a missing limb the rest of the design assumes but 
 
 ### Pins assert minimal properties, never snapshots
 
-A strong, decided preference: a pin should assert the **weakest property that captures the intent** — exactly the spirit of the existing `data-expect` assertions. **Brittle tests are the enemy.** The author does not think in terms of "blessing" an exact rendered result; they think in terms of *pinning behavior with the most minimal test that still catches the thing they care about*. This is why "fine either way" is common and must stay cheap: an over-pinned snapshot would cry wolf on every acceptable variation.
+A strong, decided preference: a pin should assert the **weakest property that captures the intent** — exactly the spirit of the existing `data-expect` assertions. **Brittle tests are the enemy.** The author does not think in terms of "blessing" an exact rendered result; he thinks in terms of *pinning behavior with the most minimal test that still catches the thing he cares about*. This is why "fine either way" is common and must stay cheap: an over-pinned snapshot would cry wolf on every acceptable variation.
 
 ### The combinatoric wall — and the separability that could break it
 
@@ -320,7 +322,7 @@ The transformative win the author wants is to **provably shrink the test basis**
 
 The clean theory (design-imposed separability, the cheap `46³×2` basis) is an **aspiration, not a guarantee.** The honest position:
 
-- **Regime: aspire to A, fall back to B.** The author would *like* design-imposed locality (restrict the language so the cheap basis is sufficient by construction), but reaching it is "an involved factfinding mission" and what they want **may simply not be possible.** The accepted fallback is to deal with it emotionally and **burn CPU on exhaustive testing.**
+- **Regime: aspire to A, fall back to B.** The author would *like* design-imposed locality (restrict the language so the cheap basis is sufficient by construction), but reaching it is "an involved factfinding mission" and what he wants **may simply not be possible.** The accepted fallback is to deal with it emotionally and **burn CPU on exhaustive testing.**
 - **Genuine joint dependence exists — and it's the thing that breaks separability.** Worked case: in ·Utter·Gay·Low·It ("ugly"), the correct ·Gay form is the one that *both* gets joined-to by ·Utter at the x-height *and* joins to ·Low at the baseline. Each constraint is one-sided (entry from the left, exit to the right), but the **form is selected by priority over the *intersection*** of left-compatible and right-compatible forms — and the priority-winner of an intersection is **not** recoverable from each side's one-sided priority-winner. With a minimal right neighbor, the left sweep would pick a *different, higher-priority* ·Gay than the two-sided case demands. That is exactly why a context-specialized form like this ·Gay "might be pretty low down on a priority list": it only surfaces when both constraints bind at once. So naive left/right separability fails wherever contextual priority meets a two-sided constraint.
 - **Cascade depth is affordability-bounded, not proven.** Two-on-each-side has empirically caught bugs that one-on-each-side missed; three-on-each-side is computationally intractable for even a *single* test (hours to days). So depth-2 is the **practical ceiling we can pay for**, and its sufficiency is *hoped*, not proven.
 
