@@ -20,6 +20,12 @@ The author's own diagnosis, in priority order:
 
 So the rebuild is not primarily about fear or friction in *making* a change. It's about the cost of *trusting* a change. A good design makes the blast radius of an edit cheap to see and cheap to verify.
 
+## The load-bearing column: kill the whack-a-mole
+
+Failure here is not binary, but there is one outcome that would make the whole rewrite a waste: **if, after all the work, the font is still about as flaky and still demands lots of manual whack-a-mole to *notice* and forbid ugly, the effort failed.** Note where the cost actually is — it's the **noticing**, even more than the forbidding. Forbidding a surfaced ugly join is cheap; *hunting* for it across the corpus is the slog.
+
+So the single success metric the whole design must serve: **the machine does the noticing, and the human only judges what's put in front of them.** The defect detector finds all the broken; the review surface puts every relevant change in your face; you never have to go spelunking to discover that something quietly got worse. Every other decision in this document is in service of that column — if a choice doesn't reduce manual noticing, it isn't paying rent.
+
 ## The OpenType ceiling is a hard wall
 
 The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, deformation, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what they want has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
@@ -284,6 +290,15 @@ Stratum 4 is surfaced by default, not silenced — because silence forfeits the 
 
 So the loop is: change → render everything → stamp opinions fast → opinions flow out as both a punch list (for fixing) and new pins (for locking).
 
+#### This is a real application, not a textarea
+
+The review/editing surface is a missing limb the rest of the design assumes but hasn't sized. It must let the author evaluate **moderately-large batches — up to hundreds of decisions (not thousands)** — on whether a change, a form, or a join is good. Two tiers of tooling, by data shape:
+
+- **Flat data** (kerning) can be copied and pasted into a `<textarea>` and edited by a trivial, dependency-free web app. Boringly reliable.
+- **Complicated nested structures** (the main spec) cannot be safely edited that way. For those, the author expects to write a **real program with its own web host that edits files on disk directly** — not copy-paste. This is the tool that makes hundreds-at-a-time review and editing tractable, and building it is part of the work, not an afterthought.
+
+(This also softens the kerning "must be flat" claim: kerning is flat *given the textarea-grade tool*; a real on-disk editor could in principle handle richer structure. The flat sidecar is the pragmatic choice today, not an eternal law.)
+
 ### Pins assert minimal properties, never snapshots
 
 A strong, decided preference: a pin should assert the **weakest property that captures the intent** — exactly the spirit of the existing `data-expect` assertions. **Brittle tests are the enemy.** The author does not think in terms of "blessing" an exact rendered result; they think in terms of *pinning behavior with the most minimal test that still catches the thing they care about*. This is why "fine either way" is common and must stay cheap: an over-pinned snapshot would cry wolf on every acceptable variation.
@@ -314,9 +329,14 @@ Many of the Manual's `data-expect` assertions are word-initial, word-final, or w
 
 **"More joins are better" is only a soft tiebreaker.** Among otherwise-equal options, prefer the one that joins — but the preference yields freely to taste. ·He·Owe is forbidden purely because, joined, it "is ugly and kind of awkward to write" and the author would never write it by hand, soft join-preference notwithstanding.
 
-### The project *is* forbidding
+### Two levels: opt-in capability, then forbidding within it
 
-The single truest description of the work: **the author is mostly forbidding ugly or broken joins, not optimizing.** The substrate is permissive — letters join when capable, with the soft more-joins pull — and the overwhelming bulk of authoring labor is *negative space*: saying "not this one." Global optimization is out of scope; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
+An important correction to a tempting oversimplification. It is *not* "all forbidding," and the substrate is *not* blanket-permissive. There are **two distinct levels**, with opposite default polarities:
+
+- **Capability is opt-in (allowlist).** By default, *no letter can join its neighbors anywhere* — a join is possible only where a form **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
+- **Within declared capability, forbidding is the labor.** *Among the pairs that genuinely can join,* the soft "more joins are better" pull applies, and the overwhelming bulk of day-to-day authoring is *negative space* — saying "not this one" to the declared-capable joins that turn out ugly or broken.
+
+So "the project is forbidding" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
 
 This reframes the entire spec. Its quality is measured chiefly by **how cleanly it lets the author forbid** — at the pair, context, and group levels — without minting forms. Two kinds of forbiddance, with very different economics:
 
