@@ -153,6 +153,36 @@ Specificity only gives a *total* order when conditions nest. Two rules can be **
 - **Acknowledged risk:** 1b can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just *so much there*." 1b without a release valve could re-accrete.
 - **The release valve: named case-groups via set algebra.** The author already thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author *name* such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined form of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit 1b tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis default (1c) may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
-<!-- Interview in progress: more sections to come. -->
+## Trusting a change
+
+This is the half that hurts most. After a change rebuilds the font, attention sorts into four strata:
+
+1. **A pin broke** — build goes red, like a failing test. Not a punch-list item.
+2. **A defect appeared** (collision, capability-mismatch) — auto-reported, must fix. Not a judgment call.
+3. **A previously-pinned pair changed** — reviewed.
+4. **A don't-care pair changed** — **surfaced by default**, and reviewed fast.
+
+### The review workflow: fast, keyboard-driven, opinion-stamping
+
+Stratum 4 is surfaced by default, not silenced — because silence forfeits the *discovery moment* where a don't-care pair reveals it should have been a do-care pair. The author has had real success with **keyboard-driven web apps that render lots of opinions quickly**, so the verification surface is one of these: every change is shown, and the author stamps each with an **opinion drawn from a small, moderately standardized vocabulary** of verdicts. Two requirements on that vocabulary:
+
+- Opinions **copy-and-paste into punch lists** that drive the next round of agent edits.
+- Opinions ultimately **become pinned assertions** — concretely, `data-expect` assertions that lock the behavior in. Generating the right assertion is easy in easy cases and genuinely painful in hairy ones; the tooling should carry as much of that as possible.
+
+So the loop is: change → render everything → stamp opinions fast → opinions flow out as both a punch list (for fixing) and new pins (for locking).
+
+### Pins assert minimal properties, never snapshots
+
+A strong, decided preference: a pin should assert the **weakest property that captures the intent** — exactly the spirit of the existing `data-expect` assertions. **Brittle tests are the enemy.** The author does not think in terms of "blessing" an exact rendered result; they think in terms of *pinning behavior with the most minimal test that still catches the thing they care about*. This is why "fine either way" is common and must stay cheap: an over-pinned snapshot would cry wolf on every acceptable variation.
+
+### The combinatoric wall — and the separability that could break it
+
+The unit being pinned is, in the hard cases, a **pair in context**, and that is where the cost explodes. To lock a pair ·X·Y *regardless of surroundings*, the current setup appears to require sweeping **two of every letter before and two of every letter after** (including `space` and the zero-width non-joiner) — on the order of **46⁴ combinations**, because a neighbor's own form can depend on *its* neighbor, so the influence cascades. The suite already runs 2–3 minutes pinning every core at 100%, and the lock-in is not yet complete.
+
+The transformative win the author wants is to **provably shrink the test basis** — ideally to `46³ × 2` or fewer. The precise property that would buy this is **separability of left and right influence**: if a join's dependence on its left context is provably independent of its dependence on its right context, then sweeping the left fully (with a minimal right) and the right fully (with a minimal left) — "two-on-one-side-and-one-on-the-other, twice" — is *sufficient*, and the full left×right cross-product never needs to run. Establishing that bound (and the cascade depth behind the doubled neighbor) is a **core requirement**, not an optimization: it governs both testing cost *and* how far a rule's conditions are allowed to reach.
+
+### Whole-word assertions are the cheap, preferred lock where they fit
+
+Many of the Manual's `data-expect` assertions are word-initial, word-final, or whole-word, and that is exactly what whole-word assertions are for. Their decisive advantage: **each costs one render — negligible CPU** — versus the combinatoric sweep a context-free pair lock needs. So whole-word assertions are the natural, cheap home for the mandatory tier and for any behavior expressible at word scope; the expensive pair-in-context sweep is the fallback only when word-scale can't capture the intent.
 
 <!-- Interview in progress: more sections to come. -->
