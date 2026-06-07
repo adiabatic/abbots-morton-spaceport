@@ -128,6 +128,17 @@ Consequences:
 - A relational rule is therefore a rule the *letter* owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an *existing* form (or the family) carry these rules cleanly, so contextual overrides stop minting forms.
 - **One sanctioned exception:** kerning may live separately if doing so unlocks better tooling — e.g. pasting kerning data into a `<textarea>` and editing it in a small web app. Convenience of bulk editing can override strict locality for kerning specifically; the default for everything else stays two-place.
 
+## Deformation is a parametric adjustment, authored, owned by a form
+
+Resolving the question parked earlier: for joins, a deformation is a **parametric adjustment, not a repertoire member.** ·Jay has *one* exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` form. (The "for joins" qualifier is deliberate; non-join deformations may behave differently and are parked.)
+
+- **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **magnitude** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
+- **Home: on a form, lead-preferred, but flexible.** Deformations live on one or more forms (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
+
+### Consistency point: how this squares with "broken is an agent loop you're not in"
+
+If the exact extension magnitude is always an aesthetic call reserved to the author, the autonomous broken-fixing loop can't be the *final* word on off-anchor-contact fixes. The reconciliation (to confirm): the loop's job is to reach **correct** (pick *some* valid extension that clears the break and makes `make test` pass), while the **aesthetic magnitude** is tuned later in a human pass — a refinement, not a broken-fix. So "broken is a loop you're not in" governs reaching correctness; the pixel-precise beauty of a deformation stays the author's.
+
 ## Two missing pieces the layering must account for
 
 - **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
