@@ -214,6 +214,20 @@ predecessor_demote_overrides:
   - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5.en-ext-1}
   # `·Gay·No·It·Ah`: initial ·Gay commits a baseline exit toward a ·No that resolves entryless across the break; no predecessor to orphan, so revert to bare.
   - {predecessor_form: qsGay.ex-y0, trigger_form: qsNo, isolated_form: qsGay}
+  # `·They·May·Gay·X` (and `·Day·Eat·Gay·Owe`): an x-height-exiting ·May backward-pulls ·Gay onto `qsGay.en-y0.ex-y5`, whose `en-y0` receives ·May's x-height exit but whose `ex-y5` then dangles toward the non-joining follower across the break — its isolated form is bare `qsGay`. The decisive discriminator is the predecessor-of-predecessor: when ·May exits the x-height (`qsMay.en-y0.ex-y5`) ·May and ·Gay do NOT actually join (May's y5 exit ≠ Gay's y0 entry), so the whole `qsGay.en-y0.ex-y5` is spurious; but when ·May exits the baseline (`qsMay.ex-y0`, e.g. after ·Roe/·Why/·Vie or word-initial ·May) ·May→·Gay IS a real baseline join into the same `en-y0` and the form is load-bearing (and not even a leak — isolated ·Gay there is also `qsGay.en-y0.ex-y5`). Keying the demote on the backtrack `qsMay.en-y0.ex-y5` fires it only in the dangle case and no-ops on the genuine join. `·Day·Eat·Gay·Owe` and `·See·Eat·Gay·Owe` carry the same dangling `qsGay.en-y0.ex-y5` but their predecessor-of-predecessor is the `qsDay_qsEat` / `qsSee_qsEat` ligature, so those rows key on the ligature instead.
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsGay, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsThaw, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsVie, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsSee, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsIng, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsMay, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsLow, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsEat, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsAt, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsAh, isolated_form: qsGay}
+  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsUtter, isolated_form: qsGay}
+  - {backtrack_form: qsDay_qsEat, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsOwe, isolated_form: qsGay}
+  - {backtrack_form: qsSee_qsEat, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsOwe, isolated_form: qsGay}
   # `·X·Gay·Tea·Oy` / `·X·Gay·Day·Eat`: ·X (·May/·No/·Way/·Why) commits a baseline exit toward ·Gay, but a downstream ·Tea·Oy ligature / ·Day·Eat strips ·Gay to its bare (or x-height-exit) form with no baseline entry, so ·X's exit dangles. Form-specific trigger (bare `qsGay` / `qsGay.ex-y5`), so a real ·X→·Gay baseline join — where ·Gay keeps an `en-y0` form — is untouched. Extends the existing `…/qsGay.ex-y0` demotes.
   - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay, isolated_form: qsMay}
   - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay.ex-y5, isolated_form: qsMay}
