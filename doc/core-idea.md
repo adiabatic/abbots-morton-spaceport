@@ -146,6 +146,19 @@ This resolves the consistency point. The autonomous loop can rest at **OK** (or,
 
 This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no magnitude satisfies.
 
+## The readability bar: local completeness, length be damned
+
+The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness (A) over minimal surface (B).** Reading one letter's entry top to bottom tells you everything that letter does and every join it permits or forbids. The single proviso: understanding a *pair* may legitimately require **both** letters open at once — one letter per editor pane, two panes. That is the operational form of two-place locality.
+
+Two hard admissions:
+
+- There is a **large amount of irreducible complexity** in what this font is trying to be — true even before OpenType, whose limitations must be papered over at every step, adds its own fighting on top. The rebuild does **not** promise short or simple YAML.
+- **Long single-letter entries are accepted** — nose held — as the least-bad option. Entry length is therefore **not** evidence of a design failure.
+
+### So have we just re-accreted in a new costume? No — and here's the test
+
+Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named form siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the letter does is right there) *and* **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
+
 ## Two missing pieces the layering must account for
 
 - **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
