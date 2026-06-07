@@ -43,9 +43,14 @@ The artifact is **a real font people can use on computers today**, through the f
 
 So the sacred things are assets and ideas; only their current *encoding* is up for reinvention.
 
-### Ductus is the repertoire's source of truth — and finishing it gates the rewrite
+### The repertoire's truth is held jointly by ductus *and* bitmaps — and finishing the ductus gates the rewrite
 
-The repertoire-first model rests on each letter's full set of ways-of-being-drawn, and **that set *is* the ductus.** The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild, not a documentation chore to defer.
+The repertoire-first model rests on each letter's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
+
+- the **ductus** — the enumeration of *how* the letter is drawn (the abstract strokes and orders, the count of distinct ways), and
+- the **bitmaps** — the concrete pixels that realize those ways, canonical in their own right (and, recall, never derived one from another).
+
+The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the *sole* source of truth (the bitmaps are equally canonical), but because it is the *enumeration* that tells you the bitmap set is complete rather than secretly missing a fifth form.
 
 ## The deepest principle: discovery, not declaration
 
