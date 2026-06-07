@@ -1,16 +1,16 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer snapshot-before check-html build-kerning-hardcases review test-and-review prettier
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
 	cd site && typst compile --font-path . print.typ
 
-check-html: all
+check-html-after: all
 	uv run python tools/build_check_html.py
 
 build-kerning-hardcases: all
 	uv run python tools/build_kerning_hardcases.py
 
-snapshot-before: all
+check-html-before: all
 	mkdir -p site/before
 	cp site/AbbotsMortonSpaceportMono-Regular.otf site/before/
 	cp site/AbbotsMortonSpaceportMono-Bold.otf site/before/

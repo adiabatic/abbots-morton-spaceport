@@ -10,7 +10,7 @@ The page contains:
 * A "failing tests" section: one row per assertion line from a currently-failing pytest test under ``test/``. The row renders the input families parsed out of the failure message so you can eyeball false positives.
 * A copy-codepoints click handler so each row's ``U+E6XX`` strip can be copied as a prompt preamble.
 
-Run (after ``make all`` and, optionally, ``make snapshot-before`` on the baseline branch)::
+Run (after ``make all`` and, optionally, ``make check-html-before`` on the baseline branch)::
 
     uv run python tools/build_check_html.py
 
@@ -806,7 +806,7 @@ def _isolation_leaks_section(
     )
 
 
-# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html`` (≈50 s), so its result is frozen in ``site/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
+# The everyday section above re-sweeps live at ``--max-len`` (3 by default). The depth-4 sweep that surfaces context-revealed leaks is too slow to re-run on every ``make check-html-after`` (≈50 s), so its result is frozen in ``site/isolation-leak-snapshot.txt`` and gated by ``make test-leaks``. This section reads that committed file back and renders each approved leak in the same side-by-side layout, so the snapshot doubles as a visual triage list: every row is a known depth-4 leak, and a row whose two columns now match is one you've fixed and can re-bless out with ``make leak-snapshot``.
 
 _SNAPSHOT_LABEL_RE = re.compile(r"^(.*?)\s*\[break\s+(\d+)\]$")
 
@@ -970,7 +970,7 @@ def _leak_snapshot_section(items: list[tuple[Leak, IsolationLeakExample, str]]) 
         "        The file is regenerated with <code>make leak-snapshot</code>\n"
         "        and gated by <code>make test-leaks</code>; this section just\n"
         "        reads it back, so it costs nothing on the everyday\n"
-        "        <code>make check-html</code> run and never re-runs the slow\n"
+        "        <code>make check-html-after</code> run and never re-runs the slow\n"
         "        sweep. Columns match the section above: middle shapes the\n"
         "        whole sequence as one buffer; right splits it at the leaky\n"
         "        break into two independently-shaped halves.\n"
@@ -1068,8 +1068,8 @@ def _render_diffs_section(
             '      <p class="snapshot-missing">No <code>site/before/</code>\n'
             "        snapshot present, so there's nothing to diff against.\n"
             "        Switch to your baseline branch, run\n"
-            "        <code>make snapshot-before</code>, switch back, and rerun\n"
-            "        <code>make check-html</code>.</p>"
+            "        <code>make check-html-before</code>, switch back, and rerun\n"
+            "        <code>make check-html-after</code>.</p>"
         )
     elif not diffs:
         body = (
@@ -1182,7 +1182,7 @@ def _render_failing_tests_section(rows: list[FailureRow], cp_to_family: dict[int
 
 
 _PAGE_CSS = """      /*
-        Pre-change snapshot. Run `make snapshot-before` on the master
+        Pre-change snapshot. Run `make check-html-before` on the master
         branch (or any baseline you want to compare against) to refresh
         these — the target builds the fonts and copies all six OTFs into
         site/before/, which is gitignored.
@@ -1870,7 +1870,7 @@ def _render_page(
     <ol>
       <li>
         On the baseline you want to compare against (typically
-        <code>master</code>), run <code>make snapshot-before</code>. It
+        <code>master</code>), run <code>make check-html-before</code>. It
         builds the fonts and copies all six OTFs into <code>site/before/</code>
         (gitignored).
       </li>
@@ -1878,7 +1878,7 @@ def _render_page(
         Make your code or YAML changes on a branch.
       </li>
       <li>
-        <code>make check-html</code> rebuilds the live OTFs, runs the
+        <code>make check-html-after</code> rebuilds the live OTFs, runs the
         pytest suite to gather failing assertions, and regenerates this
         file end-to-end via <code>tools/build_check_html.py</code>.
       </li>
@@ -1899,8 +1899,8 @@ def _render_page(
 
     <p class="footer">
       Snapshot stale? Switch to the baseline branch, run
-      <code>make snapshot-before</code>, switch back, then run
-      <code>make check-html</code>.
+      <code>make check-html-before</code>, switch back, then run
+      <code>make check-html-after</code>.
     </p>
 {_COPY_CODEPOINTS_SCRIPT}
 {_VERDICT_SCRIPT}
