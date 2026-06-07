@@ -195,4 +195,19 @@ The implication for the rebuild: enforce a **depth bound by construction** — r
 
 Many of the Manual's `data-expect` assertions are word-initial, word-final, or whole-word, and that is exactly what whole-word assertions are for. Their decisive advantage: **each costs one render — negligible CPU** — versus the combinatoric sweep a context-free pair lock needs. So whole-word assertions are the natural, cheap home for the mandatory tier and for any behavior expressible at word scope; the expensive pair-in-context sweep is the fallback only when word-scale can't capture the intent.
 
+## Selection is local and explainable — and the real activity is forbidding
+
+**Selection regime: local and explainable, decisively.** At each position the system picks the highest-priority form whose two-sided constraints are satisfiable given its neighbors, and every choice is explainable in those terms. Global join-maximization is *theoretically* possible but **rejected**, for a grounding reason: a real Quikscript writer doesn't plan far ahead either, and won't restructure a whole word just to make it marginally faster to write. The font should mirror how a human actually writes — locally. So a locally-best choice that leaves a neighbor slightly worse is *accepted*; the system never reshuffles a word for global optimality.
+
+**"More joins are better" is only a soft tiebreaker.** Among otherwise-equal options, prefer the one that joins — but the preference yields freely to taste. ·He·Owe is forbidden purely because, joined, it "is ugly and kind of awkward to write" and the author would never write it by hand, soft join-preference notwithstanding.
+
+### The project *is* forbidding
+
+The single truest description of the work: **the author is mostly forbidding ugly or broken joins, not optimizing.** The substrate is permissive — letters join when capable, with the soft more-joins pull — and the overwhelming bulk of authoring labor is *negative space*: saying "not this one." Global optimization is out of scope; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
+
+This reframes the entire spec. Its quality is measured chiefly by **how cleanly it lets the author forbid** — at the pair, context, and group levels — without minting forms. Two kinds of forbiddance, with very different economics:
+
+- **Broken** — collisions, reaching joins with no acceptor, height-mismatches. Objective. The machine *should find these for you*, so this labor shrinks toward zero as detection improves.
+- **Ugly** — ·He·Owe and its kin. Pure taste. Irreducibly hand-authored by eye through the review workflow; no oracle but the author.
+
 <!-- Interview in progress: more sections to come. -->
