@@ -135,9 +135,16 @@ Resolving the question parked earlier: for joins, a deformation is a **parametri
 - **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **magnitude** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
 - **Home: on a form, lead-preferred, but flexible.** Deformations live on one or more forms (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
 
-### Consistency point: how this squares with "broken is an agent loop you're not in"
+### Magnitude has a tolerance band, and "don't join" is a real outcome
 
-If the exact extension magnitude is always an aesthetic call reserved to the author, the autonomous broken-fixing loop can't be the *final* word on off-anchor-contact fixes. The reconciliation (to confirm): the loop's job is to reach **correct** (pick *some* valid extension that clears the break and makes `make test` pass), while the **aesthetic magnitude** is tuned later in a human pass — a refinement, not a broken-fix. So "broken is a loop you're not in" governs reaching correctness; the pixel-precise beauty of a deformation stays the author's.
+A magnitude is one of three things: **too short** (a *hard* error — typically still an off-anchor touch, i.e. still broken), **OK** (a *band*, not a single value), or **needlessly long** (a *weaker* error — tolerable but flagged). And sometimes **none** of the magnitudes look right, and the correct fix is to **not join at all** — a suppression. So the off-anchor-contact fix is a small decision: *land the extension in the OK band, or abandon the join.*
+
+This resolves the consistency point. The autonomous loop can rest at **OK** (or, tolerably, at *needlessly long*), never at *too short* — the band gives it room to reach a stable, shippable state without the author's pixel-precise call. The workflow the author actually wants is:
+
+- **Magnitudes: a fully autonomous loop** that picks values aiming for the OK band — *act-then-review*, not pause-and-ask mid-loop.
+- **Plus an in-your-face review surface** that pops the resulting changes up for fast **thumbs-up / thumbs-down**. So the loop runs unattended, but *every* change it makes is surfaced for a quick binary verdict — supervised after the fact, not during.
+
+This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no magnitude satisfies.
 
 ## Two missing pieces the layering must account for
 
