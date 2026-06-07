@@ -20,4 +20,19 @@ The author's own diagnosis, in priority order:
 
 So the rebuild is not primarily about fear or friction in *making* a change. It's about the cost of *trusting* a change. A good design makes the blast radius of an edit cheap to see and cheap to verify.
 
+## Where the authority for "correct" lives
+
+There is no single oracle. Correctness has **tiers**, and they have different sources of truth — this is central, because the verification slog comes from treating all joins as one undifferentiated mass.
+
+1. **Mandatory joins — the canonical document.** The Quikscript Manual encodes nigh-mandatory joins via `data-expect` attributes. A core *demonstration goal* of this font is to prove that OpenType tooling can produce a font that joins **exactly like the canonical example document does**. For these pairs, correctness is objective and external: the font is right iff it matches the Manual. This tier should be machine-checkable against the Manual corpus, not eyeballed.
+
+2. **Objective defects — joins that are simply broken.** Even within the permitted rule set, the shaping system can currently produce results that are *obviously* wrong, e.g.:
+   - Two near-vertical letters set immediately adjacent, so the join reads as one extra-thick stroke rather than two letters.
+   - A letter drawn in a variant *specially shaped to join* at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
+   These are not matters of taste. A good design should make them either structurally impossible or automatically detected — never something the author has to catch by eye.
+
+3. **Discretionary joins — taste.** A large space remains where a join is fully *permissible* under the rules but the author has chosen to **disallow** it anyway, because it would be awkward to write by hand or simply looks ugly. Here the authority is the author's judgment. The punch-list verdicts map onto these tiers: "wrong" = a violated mandatory join or an objective defect; "right" / "fine either way" = a discretionary call that matches taste or is simply acceptable.
+
+The "fine either way" verdict is significant: for some pairs, *more than one* outcome is acceptable. A spec that pins every pair to one exact result would cry wolf on changes that are actually fine; a spec that pins nothing misses real regressions. The rebuild must let the author say how much each pair is *pinned* vs. *free*.
+
 <!-- Interview in progress: more sections to come. -->
