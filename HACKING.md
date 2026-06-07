@@ -65,7 +65,7 @@ A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 
 
 ### Eyeballing leaks
 
-`make check-html` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
+`make check-html-after` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Reach for the `bad` rows first — those are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
 
 ### Fixing the backlog in bulk (the loop)
 

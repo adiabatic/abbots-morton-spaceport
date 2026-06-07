@@ -16,7 +16,7 @@ The bad gate (`site/bad-leak-backlog.txt`) is **asymmetric**: a NEW bad signatur
 ## Refresh the list
 
 ```sh
-make check-html
+make check-html-after
 ```
 
 That target runs `make all` and then `tools/build_check_html.py`, which rebuilds `site/check.html` from scratch.
@@ -52,7 +52,7 @@ Every shown row carries a `bad` or `benign` badge in the Sequence column (and a 
 The tool is idempotent: re-running with the same `--max-len` reproduces `site/check.html` byte-for-byte. After fixing an offending YAML / FEA / IR rule:
 
 ```sh
-make check-html
+make check-html-after
 ```
 
 The fixed leak should drop out of the section. Other leaks in the same row neighborhood usually shift around when the dedup key changes, so expect surrounding rows to renumber — diff against the previous run if you want a precise before/after.
