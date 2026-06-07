@@ -114,13 +114,23 @@ Decompose what an accretion-form is currently doing into its real parts, each wi
 
 - **A genuinely different written shape** → stays a form (it has its own bitmap; by the definition above it *must* be a form). But its *triggering context* must not be baked into its identity or name.
 - **The same shape, deformed to reach** an awkward attachment → the **deformation** axis (extend/contract), not a new form.
-- **The binding of form-to-context** ("when does this form apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → a **relational join-policy layer**, expressed as rules over the clean repertoire — not as minted forms.
+- **The binding of form-to-context** ("when does this form apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the letters themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new forms.
 
-**Gut check — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It's currently necessary, but it's the classic case: adding a form was the least-bad place to put the complexity *given the current YAML structure*. Under the decomposition above, its distinct shape (if any) is a form, but the `after_it_and_vie` trigger belongs in the policy layer — the form should be named for what it *is*, not for the neighbors that summon it.
+**Gut check — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It is *not* about a "tighter" shape, as first guessed. It exists because **·It and ·Vie only connect at the baseline *sometimes*** — the predecessor's baseline exit is *conditional*, and ·No must select a form that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor's state**, not a new way of writing ·No. It's currently a separate form only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild's job is to let this condition ride on an *existing* form rather than spawn a sibling named after the neighbors that summon it.
+
+## Locality of reference: at most two places
+
+This is a hard constraint, decided. To understand whether and how a pair of letters joins, a reader should look in **at most two places: the left letter (its bitmaps and forms) and the right letter (its bitmaps and forms).** Nothing else. There is **no separate relational file** — co-located policy wins decisively over a standalone relational layer, because a third lookup site breaks locality.
+
+Consequences:
+
+- **Suppression rides on one of the two letters.** "·Way·Thaw must never join" lives on either ·Way or ·Thaw, with a **weak preference for the lead (·Way)** — both because that matches how the author thinks and because it mirrors how OpenType operates left-to-right by default.
+- A relational rule is therefore a rule the *letter* owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an *existing* form (or the family) carry these rules cleanly, so contextual overrides stop minting forms.
+- **One sanctioned exception:** kerning may live separately if doing so unlocks better tooling — e.g. pasting kerning data into a `<textarea>` and editing it in a small web app. Convenience of bulk editing can override strict locality for kerning specifically; the default for everything else stays two-place.
 
 ## Two missing pieces the layering must account for
 
-- **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Where it lives in the rebuilt layering is **open**.
+- **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
 - **Set algebra is underused.** The YAML has set *union* (a context set can include other context sets) but no set *subtraction*. Much override complexity is really "this set, minus those" expressed the long way (or by minting a form). A policy language with first-class **union and subtraction** over named sets would absorb a lot of what currently forces new forms.
 
 <!-- Interview in progress: more sections to come. -->
