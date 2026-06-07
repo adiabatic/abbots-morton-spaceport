@@ -20,6 +20,27 @@ The author's own diagnosis, in priority order:
 
 So the rebuild is not primarily about fear or friction in *making* a change. It's about the cost of *trusting* a change. A good design makes the blast radius of an edit cheap to see and cheap to verify.
 
+## The OpenType ceiling is a hard wall
+
+The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, deformation, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what they want has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
+
+## Greenfield encoding, sacred cargo
+
+"Recreate it totally differently" means the **encoding** is thrown out — the YAML structure, the accreted forms and override lists, the Python/FEA pipeline machinery. What crosses the chasm essentially unchanged is the *content and the concepts*:
+
+- **Anchor points** — what OpenType uses for `liga`/attachment.
+- **The Manual corpus and its `data-expect` minilanguage** for expressing which joins must happen at which heights.
+- **Attachment-height and anchor concepts.**
+- **Nearly all the drawn bitmaps** — a few more may be drawn; notably, **no bitmap is generated algorithmically from another bitmap anymore** (the base bitmaps are all hand-drawn primitives; deformation parameterizes geometry on top, but doesn't derive one base shape from another).
+- **All the ductus information** (see below).
+- **The set of letters**, which is complete for Quikscript.
+
+So the sacred things are assets and ideas; only their current *encoding* is up for reinvention.
+
+### Ductus is the repertoire's source of truth — and finishing it gates the rewrite
+
+The repertoire-first model rests on each letter's full set of ways-of-being-drawn, and **that set *is* the ductus.** The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild, not a documentation chore to defer.
+
 ## The deepest principle: discovery, not declaration
 
 Before the specifics, the principle that underlies all of them. **A great deal of this project is *discovering* what looks good, what looks bad, and what ruleset produces good-looking results** — it is not transcribing a design that already exists complete in the author's head. So the spec must never demand that a boundary be drawn correctly *up front*. Every important classification here is **discovered over time and promoted in place**, and the tooling should make that promotion a first-class, easy motion:
