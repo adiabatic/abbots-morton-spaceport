@@ -1218,6 +1218,9 @@ def _can_eventually_exit_at(
 
 _CONTRACT_EMIT_DUMP_PATH = Path(__file__).resolve().parent.parent / "tmp" / "leak-contract-emit.txt"
 
+# Steady-state count of single-rule cross-break selections the derived join contract drops (Phase 2, doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md). Dropping these is correct, intended behavior, so a build that matches this baseline is silent; the warning fires only when the count drifts, surfacing a real change to the contract's reach. Update this when an intended change moves it (the full breakdown is always in tmp/leak-contract-emit.txt).
+_EXPECTED_CONTRACT_DROP_COUNT = 711
+
 
 @dataclass
 class _JoinContractRecorder:
@@ -1420,13 +1423,15 @@ class _JoinContractRecorder:
         _CONTRACT_EMIT_DUMP_PATH.parent.mkdir(exist_ok=True)
         _CONTRACT_EMIT_DUMP_PATH.write_text("\n".join(lines) + "\n")
 
-        if counts["leak"]:
+        if counts["leak"] != _EXPECTED_CONTRACT_DROP_COUNT:
             # Function-local import: quikscript_join_analysis imports from quikscript_fea, so a top-of-module import here would cycle.
             from quikscript_join_analysis import NonJoiningNeighborSelectionWarning
 
             warnings.warn(
-                f"Derived join contract: dropped {counts['leak']} single-rule cross-break selections that "
-                f"named a non-joining, non-cosmetic neighbor. Full breakdown: {_CONTRACT_EMIT_DUMP_PATH}.",
+                f"Derived join contract dropped {counts['leak']} single-rule cross-break selections that "
+                f"named a non-joining, non-cosmetic neighbor; expected {_EXPECTED_CONTRACT_DROP_COUNT} (baseline drift). "
+                f"If this change is intended, update _EXPECTED_CONTRACT_DROP_COUNT in tools/quikscript_fea.py. "
+                f"Full breakdown: {_CONTRACT_EMIT_DUMP_PATH}.",
                 NonJoiningNeighborSelectionWarning,
                 stacklevel=2,
             )
