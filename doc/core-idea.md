@@ -133,4 +133,16 @@ Consequences:
 - **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
 - **Set algebra is underused.** The YAML has set *union* (a context set can include other context sets) but no set *subtraction*. Much override complexity is really "this set, minus those" expressed the long way (or by minting a form). A policy language with first-class **union and subtraction** over named sets would absorb a lot of what currently forces new forms.
 
+## How the two letters negotiate a join
+
+Both letters can hold opinions about the same join, so the model needs a negotiation rule. Confirmed:
+
+- **Veto is unilateral.** Either letter can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
+- **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, within the deformation budget. Neither side can force a join the other can't physically accept.
+- **Precedence among permitted options is genuinely case-by-case.** It is *not* a fixed "lead always wins." Sometimes the follower's preference should dominate; the author is confident research would surface clear follower-wins cases. So the model must not bake in lead-supremacy beyond a weak default.
+
+The recent "let a form declare it wins word-final" mechanism is **totally a symptom** of a missing systematic precedence concept — an ad-hoc "I win" flag standing in for a principle the model should supply.
+
+**Proposed precedence concept (to confirm next):** resolve conflicts by **rule specificity** — the more narrowly-conditioned rule wins, regardless of which side it sits on. This is side-agnostic, so it naturally produces follower-wins outcomes whenever the follower's rule is the more specific one, and it absorbs "wins word-final" automatically (a rule conditioned on word-final position is simply more specific than an unconditioned one). The weak **lead preference** survives only as a tie-breaker when two rules are equally specific. Open question: are there real conflicts where both rules are equally specific and the author must still name a winner by hand?
+
 <!-- Interview in progress: more sections to come. -->
