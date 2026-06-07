@@ -100,4 +100,27 @@ Matching attachment *heights* is necessary but not sufficient. To connect to an 
 
 This is also a current bug source: getting an LLM to extend *exactly* the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether a deformation is a distinct repertoire member or a separate adjustment layer is a question for the next round.
 
+## What a form is — and the category error behind the accretion
+
+The author's definition: **a form belongs in a letter's form list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A form is a self-contained statement of one genuine way to write the letter, plus its full join capability.
+
+The accretion is a **category error against that definition.** Form lists bloat because minting a form is, today, the most convenient way to express something that isn't a *way of writing the letter* at all — it's a **contextual join override**, most often a *suppression*: "in this particular case, don't join in *this* manner, even though it would otherwise be permissible." The form exists only to carry that override. Such forms are named after the *context that birthed them* (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the letter — a reliable tell.
+
+So the override complexity is real and (the author believes) **irreducible** — the domain plus OpenType's limits are genuinely that complex. The goal is not to delete it but to **house it correctly.** The author already tries to push intelligence down into the Python; what can't go there has accreted into long override lists in `quikscript.yaml` that "smell like warts."
+
+### Where the pressure goes when forms stop carrying it
+
+Decompose what an accretion-form is currently doing into its real parts, each with a proper home:
+
+- **A genuinely different written shape** → stays a form (it has its own bitmap; by the definition above it *must* be a form). But its *triggering context* must not be baked into its identity or name.
+- **The same shape, deformed to reach** an awkward attachment → the **deformation** axis (extend/contract), not a new form.
+- **The binding of form-to-context** ("when does this form apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → a **relational join-policy layer**, expressed as rules over the clean repertoire — not as minted forms.
+
+**Gut check — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It's currently necessary, but it's the classic case: adding a form was the least-bad place to put the complexity *given the current YAML structure*. Under the decomposition above, its distinct shape (if any) is a form, but the `after_it_and_vie` trigger belongs in the policy layer — the form should be named for what it *is*, not for the neighbors that summon it.
+
+## Two missing pieces the layering must account for
+
+- **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Where it lives in the rebuilt layering is **open**.
+- **Set algebra is underused.** The YAML has set *union* (a context set can include other context sets) but no set *subtraction*. Much override complexity is really "this set, minus those" expressed the long way (or by minting a form). A policy language with first-class **union and subtraction** over named sets would absorb a lot of what currently forces new forms.
+
 <!-- Interview in progress: more sections to come. -->
