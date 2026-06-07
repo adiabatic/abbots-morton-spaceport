@@ -20,6 +20,17 @@ The author's own diagnosis, in priority order:
 
 So the rebuild is not primarily about fear or friction in *making* a change. It's about the cost of *trusting* a change. A good design makes the blast radius of an edit cheap to see and cheap to verify.
 
+## The deepest principle: discovery, not declaration
+
+Before the specifics, the principle that underlies all of them. **A great deal of this project is *discovering* what looks good, what looks bad, and what ruleset produces good-looking results** — it is not transcribing a design that already exists complete in the author's head. So the spec must never demand that a boundary be drawn correctly *up front*. Every important classification here is **discovered over time and promoted in place**, and the tooling should make that promotion a first-class, easy motion:
+
+- **don't-care → do-care:** a pair you never thought about reveals, on the day you look, that you care.
+- **one-off tiebreak → named case-group:** a conflict you resolved by hand recurs, and you promote the pattern into one named rule.
+- **ugly-with-a-signature → broken invariant:** a recurring ugliness turns out to have a structural tell, and you promote it into the machine-checked set.
+- **broken → declared-OK:** a join the detector rejects actually looks fine, and you record the exception.
+
+This is a confirmed, deliberate design stance, not an accident of an unfinished font. The system is an instrument for *finding* the right rules, so its defaults are permissive, its boundaries are movable, and "I couldn't have known that in advance" is a supported workflow rather than a failure. Read every "default," "veto," "pin," and "forbid" below through this lens.
+
 ## Where the authority for "correct" lives
 
 There is no single oracle. Correctness has **tiers**, and they have different sources of truth — this is central, because the verification slog comes from treating all joins as one undifferentiated mass.
@@ -296,6 +307,19 @@ This reframes the entire spec. Its quality is measured chiefly by **how cleanly 
 For at least one workable definition of "broken," **all** broken joins are automatically detectable, at least in theory. The intended consequence is strong: broken joins should be **fixed by an agent running `make test` in a loop — possibly over and over — not by the human at all.** The human exits the broken-fixing loop entirely; the machine detects, fixes, re-tests, repeats until clean. (**Open task:** pin down the definition(s) of "broken" precisely enough that detection is provably complete — that definition is what the whole loop rests on.)
 
 The balance of labor has also shifted: there *has been* a giant amount of ugly, but largely because the font wasn't fully specced. Now that a complete font exists, ugly is **bounded** — there "might only be a large amount" rather than an unbounded amount — while broken remains a major, ongoing share. So a strong defect detector plus the autonomous fix loop is genuinely high-leverage.
+
+### What "broken" means — and the line against "ugly"
+
+"Broken" is defined structurally, with no appeal to taste: **a join whose rendered geometry violates a structural invariant checkable from the bitmap plus anchor metadata.** The working (closed, "for future work") set of invariants:
+
+- **Off-anchor contact** — ink touches or overlaps at a point that isn't the anchors.
+- **A selected join that doesn't physically realize** — the sharpest case. If a form is chosen *because it claims to join* (e.g. ·Out's common x-height-connecting variant is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next letter's ink **doesn't physically touch** where ·Out ends, or (b) the next letter was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
+- **Height mismatch** — the two attachment heights don't meet.
+
+Two refinements that define the system's posture:
+
+- **Broken is default-rejected but appealable.** If a join the detector calls "broken" actually looks fine, it can be **declared OK** — an explicit, recorded exception. The detector is a default-reject with an override, not an absolute law.
+- **The broken/ugly line is: structure vs. taste.** *Broken* asks "does it physically connect correctly?" *Ugly* asks "does it look and feel right?" — even when it connects. So **orientation-mismatch (the ·No horizontal-vs-vertical case) is *ugly*, not broken**: the machine only *flags* it; the author decides. Broken stays purely structural, which is exactly what lets its detection be complete and its fixing autonomous.
 
 ### Some "ugly" has machine signatures
 
