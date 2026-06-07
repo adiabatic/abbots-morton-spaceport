@@ -800,6 +800,7 @@ def build_senior_fea(
     raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
     predecessor_demote_tuples = tuple(
         (
+            _heal(entry["backtrack_form"]) if "backtrack_form" in entry else None,
             _heal(entry["predecessor_form"]),
             _heal(entry["trigger_form"]),
             _heal(entry["isolated_form"]),

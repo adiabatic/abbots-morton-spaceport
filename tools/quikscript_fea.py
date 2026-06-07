@@ -97,8 +97,8 @@ class _JoinAnalysis:
     gated_exit_reachability_before: dict[tuple[str, str, str], set[int]] = field(default_factory=dict)
     # Each entry is (prior_family, target_family, follower_family, isolated_form). When a fwd-pair YAML `not_after` blocks a target's pre-follower upgrade against a member of `prior_family`, but isolated shaping of `target follower` would still render `isolated_form`, a post-pass rule restores the isolated form. See `_record_fwd_pair_not_after_reflip` for the wiring.
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = ()
-    # Each entry is (predecessor_form, trigger_form, isolated_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by isolated_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. No third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken.
-    predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = ()
+    # Each entry is (backtrack_form, predecessor_form, trigger_form, isolated_form). When the rendered chain after every earlier lookup is `predecessor_form trigger_form ...` and `trigger_form` is an entryless variant, the predecessor's extension is reaching into empty air. Emit a final-pass rule `sub predecessor_form' trigger_form by isolated_form;` to demote the predecessor back to its isolated shape so the render matches what `trigger ...` would render on its own to the right of the predecessor's isolated form. When `backtrack_form` is None (the default for the ~150 width-1 rows) no third-glyph guard is needed because the trigger's entryless state at this post-pass already implies the join is broken. When `backtrack_form` is present the rule keys additionally on the glyph one position back from the predecessor (`sub backtrack_form predecessor_form' trigger_form by isolated_form;`), so the demote fires only when the predecessor-of-predecessor settled to that exact form — the discriminator the journal calls "predecessor-of-predecessor awareness" (e.g. ·May exiting x-height vs. baseline before ·Gay).
+    predecessor_demote_overrides: tuple[tuple[str | None, str, str, str], ...] = ()
     # Each entry is (leader_form, trailing_form, isolated_form). When a forward-pair override changes the leader into an entry-preserving form with no exit, any earlier backward upgrade on the trailing glyph can be left with a now-false joining shape. Emit a post-pass rule `sub leader_form trailing_form' by isolated_form;` to restore the trailing glyph to the split-shaping form.
     trailing_demote_overrides: tuple[tuple[str, str, str], ...] = ()
 
@@ -6087,19 +6087,21 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     _emit_trailing_demote_lookups("calt_trailing_demote")
 
     # Emit predecessor-demote lookups for `predecessor_demote_overrides`. Each rule fires after all earlier lookups have settled. Demote the now-stale extended predecessor back to its isolated form whenever the trigger sits in its entryless variant — at this post-pass the trigger's form already implies whether the join is broken, so no third-glyph guard is needed. Group rules by predecessor base for stable lookup names and counts.
-    pred_demote_by_base: dict[str, list[tuple[str, str, str]]] = {}
-    for predecessor_form, trigger_form, isolated_form in plan.predecessor_demote_overrides:
+    pred_demote_by_base: dict[str, list[tuple[str | None, str, str, str]]] = {}
+    for backtrack_form, predecessor_form, trigger_form, isolated_form in plan.predecessor_demote_overrides:
         if predecessor_form not in glyph_names:
             continue
         if trigger_form not in glyph_names:
             continue
         if isolated_form not in glyph_names:
             continue
+        if backtrack_form is not None and backtrack_form not in glyph_names:
+            continue
         pred_meta = glyph_meta.get(predecessor_form)
         if pred_meta is None:
             continue
         pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-            (predecessor_form, trigger_form, isolated_form)
+            (backtrack_form, predecessor_form, trigger_form, isolated_form)
         )
 
     def _drop_exit_extension_suffix(name: str) -> str | None:
@@ -6181,7 +6183,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                 if any(exit_y in set(trigger_meta.all_entry_ys) for exit_y in pred_meta.exit_ys):
                     continue
                 pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-                    (predecessor_form, trigger_form, isolated_form)
+                    (None, predecessor_form, trigger_form, isolated_form)
                 )
         if pred_meta.base_name not in derived_pred_demote_bases:
             continue
@@ -6205,7 +6207,7 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                     if exit_y in set(trigger_meta.all_entry_ys):
                         continue
                     pred_demote_by_base.setdefault(pred_meta.base_name, []).append(
-                        (predecessor_form, trigger_form, derived_iso_form)
+                        (None, predecessor_form, trigger_form, derived_iso_form)
                     )
 
     # Map each form to the exit-extension variants derived from it (e.g. qsIt.ex-y0 -> [qsIt.ex-y0.ex-ext-1]). A predecessor-demote trigger is an entryless mid form that can't receive the predecessor's join; its `.ex-ext-N` sibling is equally entryless (the extension widens the exit, never adds an entry), so it must trigger the same demote — otherwise the connecting-pixel form leaves the predecessor's reaching exit dangling. ·Excite·It·I is the worked case: without this, ·It on qsIt.ex-y0.ex-ext-1 leaves qsExcite stuck on before-vertical.
@@ -6232,11 +6234,11 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
     def _emit_pred_demote_lookups(prefix: str) -> None:
         for predecessor_base in sorted(pred_demote_by_base):
             pred_rules = pred_demote_by_base[predecessor_base]
-            pred_seen: set[tuple[str, str, str]] = set()
-            pred_unique: list[tuple[str, str, str]] = []
-            for predecessor_form, trigger_form, isolated_form in pred_rules:
+            pred_seen: set[tuple[str | None, str, str, str]] = set()
+            pred_unique: list[tuple[str | None, str, str, str]] = []
+            for backtrack_form, predecessor_form, trigger_form, isolated_form in pred_rules:
                 for expanded_trigger in _trigger_with_exit_extensions(trigger_form):
-                    entry = (predecessor_form, expanded_trigger, isolated_form)
+                    entry = (backtrack_form, predecessor_form, expanded_trigger, isolated_form)
                     if entry in pred_seen:
                         continue
                     pred_seen.add(entry)
@@ -6246,8 +6248,15 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
             safe = predecessor_base.replace(".", "_").replace("-", "_")
             lines.append("")
             lines.append(f"    lookup {prefix}_{safe} {{")
-            for predecessor_form, trigger_form, isolated_form in sorted(pred_unique):
-                lines.append(f"        sub {predecessor_form}' {trigger_form} by {isolated_form};")
+            for backtrack_form, predecessor_form, trigger_form, isolated_form in sorted(
+                pred_unique, key=lambda e: (e[1], e[2], e[3], e[0] or "")
+            ):
+                if backtrack_form is None:
+                    lines.append(f"        sub {predecessor_form}' {trigger_form} by {isolated_form};")
+                else:
+                    lines.append(
+                        f"        sub {backtrack_form} {predecessor_form}' {trigger_form} by {isolated_form};"
+                    )
             lines.append(f"    }} {prefix}_{safe};")
 
     _emit_pred_demote_lookups("calt_pred_demote")
@@ -6841,7 +6850,7 @@ def emit_quikscript_senior_features(
     pixel_width: int,
     pixel_height: int,
     restore_isolated_form_overrides: tuple[tuple[str, str, str, str], ...] = (),
-    predecessor_demote_overrides: tuple[tuple[str, str, str], ...] = (),
+    predecessor_demote_overrides: tuple[tuple[str | None, str, str, str], ...] = (),
     trailing_demote_overrides: tuple[tuple[str, str, str], ...] = (),
 ) -> str | None:
     parts = []

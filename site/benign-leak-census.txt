@@ -92,7 +92,7 @@ They May See Eat [break 1] :: *L qsMay.en-y0.ex-y5->qsMay |  R qsSee_qsEat->qsSe
 They May See Utter [break 1] :: *L qsMay.en-y0.ex-y5->qsMay |  R qsSee_qsUtter->qsSee_qsUtter
 At May They Utter [break 1] :: *L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-noentry | *R qsThey_qsUtter->qsThey_qsUtter.noentry
 Utter May Gay Owe [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsGay->qsGay.en-y0.ex-y5.ex-ext-2
-They May Gay Ah [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsGay.ex-y0->qsGay.en-y0.ex-y5
+They May Gay Ah [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsGay.ex-y0->qsGay
 They May Gay Awe [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsGay.ex-y5->qsGay.en-y0.ex-y5
 Utter May May Awe [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsMay->qsMay.en-y0.ex-y5.ex-ext-1
 Utter May May Fee [break 1] ::  L qsMay.en-y0.ex-y5->qsMay.en-y0.ex-y5 | *R qsMay.ex-ext-1->qsMay.en-y0.ex-y5
