@@ -328,6 +328,15 @@ The implication for the rebuild: enforce a **depth bound by construction** — r
 
 Many of the Manual's `data-expect` assertions are word-initial, word-final, or whole-word, and that is exactly what whole-word assertions are for. Their decisive advantage: **each costs one render — negligible CPU** — versus the combinatoric sweep a context-free pair lock needs. So whole-word assertions are the natural, cheap home for the mandatory tier and for any behavior expressible at word scope; the expensive pair-in-context sweep is the fallback only when word-scale can't capture the intent.
 
+### The corpus is mostly generated nonsense
+
+What gets rendered and diffed is, in the main, **generated nonsense** — synthetic letter sequences that exercise every pair (and deeper combinations). This *is* the separability sweep from above, wearing its other hat. The reason it must be synthetic rather than real text is decisive: **most of the constraints the author wants to correct don't show up in real words at all.** The Manual's text plus its `data-expect` attributes supply many must-have constraints, but they are a **minority** — there are far more constraints *outside* the Manual than in it. Real prose simply never visits most of the problem pairs.
+
+Consequences that ripple through the verification story:
+
+- The Manual corpus is the cheap, authoritative **must-have** subset; the generated-nonsense corpus is the **exhaustive** bulk that actually surfaces the bugs.
+- "Surfaced by default" therefore shows mostly *synthetic* combinations — which is precisely why the review application must scale to **hundreds** of decisions at a sitting, and why the success metric (machine notices, human only judges) lives or dies on that tool.
+
 ## Selection is local and explainable — and the real activity is forbidding
 
 **Selection regime: local and explainable, decisively.** At each position the system picks the highest-priority form whose two-sided constraints are satisfiable given its neighbors, and every choice is explainable in those terms. Global join-maximization is *theoretically* possible but **rejected**, for a grounding reason: a real Quikscript writer doesn't plan far ahead either, and won't restructure a whole word just to make it marginally faster to write. The font should mirror how a human actually writes — locally. So a locally-best choice that leaves a neighbor slightly worse is *accepted*; the system never reshuffles a word for global optimality.
