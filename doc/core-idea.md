@@ -69,6 +69,8 @@ There is no single oracle. Correctness has **tiers**, and they have different so
 
 1. **Mandatory joins — the canonical document.** The Quikscript Manual encodes nigh-mandatory joins via `data-expect` attributes. A core *demonstration goal* of this font is to prove that OpenType tooling can produce a font that joins **exactly like the canonical example document does**. For these pairs, correctness is objective and external: the font is right iff it matches the Manual. This tier should be machine-checkable against the Manual corpus, not eyeballed.
 
+   **Caveat — the Manual is not self-consistent.** Reproducing it faithfully is *not* a matter of finding one consistent ruleset. The Manual writes some words one way and other words a different way, and the only way a single font can match **both** is to use **stylistic sets** — writing some words with a set enabled and others without. So the mandatory tier is inherently **configuration-dependent**: "matches the Manual" means "matches it under the stylistic-set configuration the Manual itself uses at that spot," not under one global default. This is why stylistic sets are load-bearing even for the must-have tier, not just for discretionary taste.
+
 2. **Objective defects — joins that are simply broken.** Even within the permitted rule set, the shaping system can currently produce results that are *obviously* wrong, e.g.:
    - Two near-vertical letters set immediately adjacent, so the join reads as one extra-thick stroke rather than two letters.
    - A letter drawn in a variant *specially shaped to join* at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
