@@ -196,8 +196,23 @@ Axis 2 — the neighbor's *form/state* — means its **resolved** form: the one 
 
 ## Two missing pieces the layering must account for
 
-- **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
+- **Kerning** is a real dimension, treated in its own section below.
 - **Set algebra is underused.** The YAML has set *union* (a context set can include other context sets) but no set *subtraction*. Much override complexity is really "this set, minus those" expressed the long way (or by minting a form). A policy language with first-class **union and subtraction** over named sets would absorb a lot of what currently forces new forms.
+
+## Kerning: form-aware, yet a flat sidecar — reconciled by what it's keyed on
+
+Kerning is **both** a global and a per-pair fact:
+
+- **Global:** the entire Senior font looks better with *every* letter kerned one pixel tighter — a single baseline adjustment.
+- **Per-pair:** as in most fonts, specific pairs need their own kerning on top.
+
+It applies to joined and non-joined pairs alike. And it is **not a dumb static table** — it must be aware of *resolved forms*: ·No·Pea needs no special kerning, but ·No.alt·Pea only looks right two pixels tighter; ·No·Tea needs none, yet in ·No.alt·Tea.half·It the ·No.alt and ·Tea.half want to sit closer because the ·Tea "isn't anywhere near the baseline anymore."
+
+These two facts seem to pull apart — form-aware reasoning wants the full machinery, but kerning currently lives in a **separate flat file**. The separation is **purely a tooling accommodation, not a model statement**: the author doesn't trust a dependency-free, vibe-coded JavaScript editor to safely modify a deeply-nested, well-commented YAML file, whereas a flat YAML file with `---`-separated entries is "boringly reliable" for such a tool. (This is the one sanctioned exception to two-place locality, from earlier.)
+
+**The reconciliation — key kerning by *resolved-form pairs*.** A kerning table keyed by post-shaping glyph identities (e.g. `qsNo.alt qsTea.half`) is simultaneously **flat** (a plain two-glyph table a dumb web app can edit) *and* **context-aware** (because a resolved form already encodes the context that produced it). The ·No.alt·Tea.half·It case needs no mention of ·It: ·Tea has *already* resolved to `.half` because ·It follows, so the flat key `(qsNo.alt, qsTea.half)` captures it. The depth cascade is **paid upstream** in form selection; kerning merely reads the resolved pair and needs none of the rule machinery itself — only resolved-glyph keys. So kerning stays a flat, reliably-editable sidecar without becoming a dumb context-blind table.
+
+**Working hypothesis:** global tightening plus a resolved-form-pair table suffices. If a real case ever needs context *beyond* the resolved pair (something that changes kerning without changing either resolved form), it would demand the richer machinery — flagged, but not expected.
 
 ## How the two letters negotiate a join
 
