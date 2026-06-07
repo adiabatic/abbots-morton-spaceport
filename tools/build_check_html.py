@@ -138,6 +138,9 @@ def _scan_sequence(families: tuple[str, ...]) -> list[tuple[int, Leak]]:
     results: list[tuple[int, Leak]] = []
     for j_left, j_right in zip(letter_positions, letter_positions[1:]):
         between = families[j_left + 1 : j_right]
+        if owner[j_left] == owner[j_right]:
+            # An internal ligature-fusion seam: both flanking families resolve to the same fused glyph, drawn in one continuous motion with no pen-lift, so by decision 3 of doc/definitions/shaping-leakage.md it is not a break.
+            continue
         left_chosen = names[owner[j_left]]
         right_chosen = names[owner[j_right]]
         if not (_is_letter_glyph(left_chosen) and _is_letter_glyph(right_chosen)):
