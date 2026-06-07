@@ -107,9 +107,11 @@ def _backward_pair_sort_key(
     glyph_meta: dict[str, JoinGlyph],
     variant_name: str,
     selector_glyphs: list[str],
-) -> tuple[int, int, int, int, str]:
+) -> tuple[int, int, int, int, int, str]:
+    # A form flagged `terminal_default` sorts first among its competing siblings so it claims the no-follower (word-final) remainder, regardless of how its compiled glyph name happens to sort. Without it, the trailing `variant_name` tiebreaker silently lets the alphabetically-earliest sibling win word-final (see `qsOut`'s after-·See bodies).
     meta = glyph_meta[variant_name]
     return (
+        0 if meta.terminal_default else 1,
         -len(meta.modifiers),
         -len(meta.before),
         -len(meta.not_before),
@@ -4766,7 +4768,24 @@ def _emit_quikscript_calt(analysis: _JoinAnalysis) -> str | None:
                         lines.append(f"        sub {left_context_token} {plain}' by {target};")
                 lines.append(f"    }} calt_reverse_upgrade_{safe};")
 
-        for variant_name, source_variants, entry_ys, after_glyphs, not_before in plan.reverse_only_upgrades:
+        # Competing reverse-upgrade forms — same base, same source forms, same after-context — each emit a lookahead-free `sub … by …`, so the lookup emitted first claims the no-follower (word-final) input the others don't `ignore`-guard away (e.g. qsOut's after-·See touch body vs. its +1px before-·Fee body). Promote a `terminal_default` form ahead of its competitors so it claims that remainder by declared precedence, rather than relying on whatever order `plan.reverse_only_upgrades` was built in (which a follower-honest rename of the touch body could otherwise perturb). Only mutual competitors are reordered, and they reuse the exact emission slots they already occupied, so every unrelated lookup — and every base without a declared default — keeps its original position.
+        competitor_slots: dict[tuple[str, tuple, tuple], list[int]] = {}
+        competitor_members: dict[tuple[str, tuple, tuple], list[tuple[int, tuple]]] = {}
+        for original_index, entry in enumerate(plan.reverse_only_upgrades):
+            meta = _meta(entry[0])
+            group = (meta.base_name, tuple(entry[1]), tuple(entry[3]))
+            competitor_slots.setdefault(group, []).append(original_index)
+            competitor_members.setdefault(group, []).append((original_index, entry))
+        placement: dict[int, tuple] = {}
+        for group, members in competitor_members.items():
+            ordered_members = sorted(
+                members,
+                key=lambda im: (0 if _meta(im[1][0]).terminal_default else 1, im[0]),
+            )
+            for slot, (_, entry) in zip(competitor_slots[group], ordered_members):
+                placement[slot] = entry
+        ordered_reverse_only = [placement[i] for i in range(len(plan.reverse_only_upgrades))]
+        for variant_name, source_variants, entry_ys, after_glyphs, not_before in ordered_reverse_only:
             valid_entry_ys = [y for y in sorted(set(entry_ys)) if y in exit_classes]
             if not valid_entry_ys:
                 continue

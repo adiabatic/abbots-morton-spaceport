@@ -106,6 +106,8 @@ class JoinGlyph:
     entry_explicitly_none: bool = False
     not_before_from_noentry_after: tuple[str, ...] = ()
     strip_entry_before: bool = False
+    # Marks the touch/default body among a base's competing reverse-upgrade or pair-override forms as the one that claims the no-follower (word-final) remainder. The FEA emitter sorts competing lookups by declared precedence (this flag first) instead of compiled-glyph-name order, so a follower-honest rename can't silently hand word-final to a sibling whose name happens to sort earlier. See `qsOut.exit_xheight_after_see_before_other`.
+    terminal_default: bool = False
     # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
     before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
     # Set (to N) on a backward-entry-upgrade target form to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this form (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the `ex-ext-N` variant when a glyph that literally enters at the form's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup form, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
@@ -1305,6 +1307,9 @@ def _family_form_to_glyph_def(
     if form_def.get("strip_entry_before"):
         glyph_def["strip_entry_before"] = True
 
+    if form_def.get("terminal_default"):
+        glyph_def["terminal_default"] = True
+
     return glyph_def
 
 
@@ -1621,6 +1626,7 @@ def _glyph_def_to_join_glyph(
         contract_exit_before=glyph_def.get("contract_exit_before"),
         entry_explicitly_none=("cursive_entry" in glyph_def and glyph_def["cursive_entry"] is None),
         strip_entry_before=bool(glyph_def.get("strip_entry_before")),
+        terminal_default=bool(glyph_def.get("terminal_default")),
     )
 
 
@@ -2073,6 +2079,8 @@ def _materialize_join_glyph(join_glyph: JoinGlyph) -> GlyphDef:
         glyph_def["extend_exit_no_entry"] = True
     if join_glyph.strip_entry_before:
         glyph_def["strip_entry_before"] = True
+    if join_glyph.terminal_default:
+        glyph_def["terminal_default"] = True
     return glyph_def
 
 

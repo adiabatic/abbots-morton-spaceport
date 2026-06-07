@@ -42,14 +42,6 @@ Don’t design this until the Phase A complaints (and Phase B derivation gaps) t
 
 Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is clean for the real senior glyph set, and `test_real_join_warning_collector_is_clean` locks that in. Only revisit a top-level `joins:` section if future real-data warnings show repeated bilateral source-maintenance pain.
 
-## Don’t make terminal/competing-variant selection depend on compiled-glyph-name alphabetization
-
-When two reverse-upgrade target forms share a base and one is the touch/default body while the other is a longer/special body, the word-final (no-follower) case is currently decided by which form’s compiled glyph name sorts first. The `calt_pair_*_en-trim-1` lookups (and the analogous competing pair-overrides) are emitted in compiled-glyph-name order in `tools/quikscript_fea.py`, so the alphabetically-first variant wins any input the others don’t explicitly claim — including word-final, which has no follower to disambiguate.
-
-Worked example (the reason this entry exists): qsOut’s after-·See exit forms in `glyph_data/quikscript.yaml`. `exit_xheight_after_see_before_fee` is the +1px-longer body for ·See·Out·Fee; the touch body that serves ·See·Out·Oy and word-final ·See·Out had to be named `before-default` purely so it sorts before `before-fee` and wins the word-final entry-trim lookup. The natural name `before-oy` sorts after `before-fee` (o > f) and silently gives word-final ·See·Out the longer tail. There’s a comment on the `before-default` form documenting the coupling, but the coupling itself is the footgun: a future rename, or a new sibling whose name happens to sort earlier, silently changes which body word-final ·See·Out picks.
-
-The fix: give the competing pair-override / en-trim lookups an explicit, declared precedence instead of relying on name order. Options to weigh — (a) order the emitted lookups so the most-guarded selector (the one with the narrowest positive follower constraint, e.g. `before: qsFee`) runs first and the unscoped/`not_before`-guarded default runs last so it naturally catches the no-follower remainder; (b) let a form declare it is the terminal/default fallback for its base so the emitter routes word-final to it regardless of name; (c) emit the no-follower (`sub … by …` with no lookahead) rule only from the default form. Once any of these lands, rename `before-default` back to a follower-honest name (`before-oy`) and confirm word-final ·See·Out still uses the touch body, plus that `make test` stays green.
-
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF’s pages) (and also to leave space for the buttons)

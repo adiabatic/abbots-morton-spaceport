@@ -1748,6 +1748,22 @@ def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first
     )
 
 
+def test_see_out_touch_body_wins_word_final_by_declared_precedence():
+    """·See·Out has two competing after-·See connecting bodies: the touch body (`before-other`, +0px, for ·See·Out·Oy) and the +1px body (`before-fee`, for ·See·Out·Fee). Both are reverse-upgrade targets emitting lookahead-free rules, so the one whose lookup is emitted first claims the no-follower remainder. That precedence now comes from the touch body's `terminal_default` flag, not from its compiled glyph name sorting first — so the body can carry the follower-honest name `before-other` (which sorts *after* `before-fee`) and still win. This pins the outcome that a name-order regression (dropping `terminal_default`, or adding a sibling that sorts earlier) would silently break.
+
+    Word-final ·See·Out rests on the non-connecting touch body (the entry-trimmed form with no x-height exit), since there is no follower to receive a connecting stub; ·See·Out·Oy takes the +0px connecting touch body, and only ·See·Out·Fee takes the +1px body.
+    """
+    word_final = _shape(_qs_text("qsSee", "qsOut"))
+    assert word_final[-1] == "qsOut.en-y0.after-see.en-trim-1", word_final
+    assert "before-fee" not in word_final[-1]
+
+    see_out_oy = _shape(_qs_text("qsSee", "qsOut", "qsOy"))
+    assert "qsOut.en-y0.ex-y5.after-see.before-other" in see_out_oy, see_out_oy
+
+    see_out_fee = _shape(_qs_text("qsSee", "qsOut", "qsFee"))
+    assert "qsOut.en-y0.ex-y5.after-see.before-fee" in see_out_fee, see_out_fee
+
+
 @pytest.mark.parametrize("before_first", _PAIR_SWEEP_BEFORE_FIRSTS)
 def test_it_day_joins_half_day_at_baseline_when_it_has_no_baseline_predecessor(before_first: str):
     _assert_no_failures(
