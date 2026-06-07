@@ -174,6 +174,26 @@ A stylistic set is **two genuinely different things** that happen to share the O
 - **Pins must carry the stylistic-set dimension.** A `data-expect` assertion can pin behavior *under ssNN*, and the earlier idea of a "negotiable pin satisfiable only by enabling a stylistic set" is grounded here.
 - **Matching the Manual exactly requires reproducing its one stylistic-set use** — so the mandatory tier itself isn't purely default-configuration; the test harness must activate the right set at that spot.
 
+## The condition vocabulary is closed
+
+A join rule may predicate only on this fixed set of context-axes — believed complete after much fiddling, and **now deliberately closed**:
+
+1. the neighbor's **family** (·It, ·Vie…)
+2. the neighbor's **form/state** (see the dynamic note below)
+3. the **attachment height** (baseline, x-height, y=6, top)
+4. the **stroke orientation/quality** at the attachment (horizontal vs. vertical — the ·No case)
+5. **word position** (initial, final, isolated)
+6. **boundary tokens** (`space`, ZWNJ)
+7. the **active stylistic set(s)**
+
+Closing the vocabulary is a load-bearing decision, serving two goals at once: a small fixed set is **learnable** (readability), and it's what makes the **depth bound enforceable** — the language literally has no words to reach past the window. Adding an eighth axis is therefore a real, considered **language change**, never a casual escape hatch. This is the explicit guarantee against the predicate language re-accreting.
+
+### Dynamic dependence is real, and it's exactly what the depth bound contains
+
+Axis 2 — the neighbor's *form/state* — means its **resolved** form: the one it actually took in context, not merely the forms it *could* take. That is a **dynamic outcome**, the result of the neighbor's own resolution, and it is precisely the cascade that forces the "two of every letter" depth-2 doubling. So the spec *does* permit rules that depend on a resolved decision — necessarily, given cases like ·It·Vie "exiting at baseline only sometimes" — and the **depth bound is the thing that keeps that dynamic dependence from cascading without limit.**
+
+**Ligatures fit here without adding an axis.** A precomposed ligature like ·Out+Tea (which doesn't work as separate glyphs) is a **value**, not a new axis: the resolved glyph identity changes from two glyphs to one compound glyph, and that compound is a first-class repertoire member with its own entry/exit and capabilities. Predicating on "my neighbor is ·Out+Tea" is just axis 1/2 over the resolved glyph. (**Parked sub-question:** whether ligature *formation itself* is modeled as an ordinary join outcome or as a distinct substitution mechanism.)
+
 ## Two missing pieces the layering must account for
 
 - **Kerning** is a real dimension not yet discussed. It's currently stored separately, for reasons "some very good, though maybe not dispositive." Per the locality exception above, keeping it separate is the one sanctioned break from two-place locality — justified by bulk-editing tooling rather than by the join model. Its exact home is still **open**.
