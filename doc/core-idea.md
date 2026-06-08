@@ -180,6 +180,14 @@ Resolving the question parked earlier: for joins, a deformation is a **parametri
 - **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **magnitude** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
 - **Home: on a form, lead-preferred, but flexible.** Deformations live on one or more forms (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
 
+### A mis-scoped deformation can be a symptom of an under-fleshed repertoire
+
+A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a letter** — it extends the thing you meant *and also* extends something you didn't. This has two distinct root causes, and telling them apart matters:
+
+- **Plain mis-scoping** — author or LLM error in the current YAML: the directive's target set is simply wrong, and the fix is to narrow it.
+- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the letter are still conflated into one form, so there's no precise target to attach to. The real fix is to **split the form** into the distinct ways it actually needs, then aim the directive at the right one.
+
+This is a direct echo of the ductus gate: when the repertoire under-distinguishes, deformation directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about *coverage* — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
 ### Magnitude has a tolerance band, and "don't join" is a real outcome
 
