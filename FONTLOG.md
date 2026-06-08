@@ -4,21 +4,23 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
-### 17.000
+### 16.000
 
 Great artists edition
 
-This version is the first version to copy everything in Departure Mono into Abbots Morton Spaceport **Mono**. Latin letters, accented letters, Cyrillic letters, punctuation, symbols, and typographic features.
+- Automatically copy everything in Departure Mono (currently 1.500) into Abbots Morton Spaceport **Mono**. This includes Latin letters, accented letters, Cyrillic letters, punctuation, symbols, and typographic features.
+  - Sans Junior and Senior are untouched by this work, so if you want to write in both Sans for Latin script and Mono for Cyrillic script, things might look weird and mismatched.
+- Kern letter pairs in Quikscript Senior — more below.
+- Add Shavian letters to Junior and Senior (_not_ Mono) — tell all your Shavian-using friends to try the font out and complain about the ugly letters that I don’t have a good feel for.
 
-Sans Junior and Senior are untouched by this work, so if you want to write in both Sans for Latin script and Mono for Cyrillic script, things might look weird and mismatched.
+Oh, and there’s the usual pile of fixes to letter-pair joins.
 
-### 16.000
+Also…
 
-While this release starts kerning letter pairs in the Senior variant and fixes a bunch of bugs with letter-pair joins, the headline _feature_ is the addition of all the Shavian letters to the non-Mono versions of the font. Tell all your Shavian-using friends to try the font out and complain about the ugly letters that I don’t have a good feel for.
+#### Quikscript Senior
 
-#### Shavian
-
-- All 48 Shavian letters now appear in Abbots Morton Spaceport Sans Junior and Sans Senior (both Regular and Bold). They don’t appear in Mono.
+- ·It·I now always touches with exactly one connecting pixel instead of butting straight together — word-initially, after a letter that doesn’t join, and after both x-height- and baseline-exiting letters. Mirrors the earlier ·Ye·I fix.
+- Stop ·Gay dangling toward a preceding ·May that exits at the x-height and then never joins it. In sequences like ·They·May·Gay·X, ·Gay now falls back to its plain standalone shape instead of leaving a stub poking toward the ·May. A genuine baseline ·May–·Gay join is untouched.
 
 #### Quikscript Senior — kerning
 
@@ -33,6 +35,10 @@ While this release starts kerning letter pairs in the Senior variant and fixes a
   - ·May no longer drops to its baseline-exit shape before ·He.
   - ·They·Utter joins now.
   - New ·Gay shape for ·Utter·Gay·Tea·Oy and ·Utter·Gay·Thaw·-ing that keeps the ·Utter–·Gay join but drops ·Gay’s now-pointless forward stub.
+
+#### Namer dot (Sans Junior and Sans Senior)
+
+- The naming dot (·) now drops to sit on the x-height in front of a short letter at the start of a name (e.g. ·No, ·It), instead of always riding high. Before tall and deep letters it stays where it was. Mono is unchanged. This doesn’t work in Chromium-based browsers as of this writing.
 
 ### 15.000
 
