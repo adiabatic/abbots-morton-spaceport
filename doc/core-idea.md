@@ -14,7 +14,8 @@ A few words recur with precise meanings:
 - **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
 - **Glyph** — the drawable output shape the shaper actually selects, in the OpenType sense: what a stance compiles to. Usually has no code point of its own. Kept with its standard meaning, never repurposed.
 - **Repertoire** — a rune's complete set of stances. It is **closed** (you can read off every stance a rune has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
-- **Deformation** — an extension or contraction, in pixels, that a stance undergoes so a join physically connects. The two runes already meet at the same height, but one or both need their connecting ink lengthened (or shortened) to actually touch. It is a parametric adjustment to a stance's geometry, _not_ a stance of its own; its per-instance value is the _deformation amount_.
+- **Extension** — pixels added to a stance's connecting stroke so a join physically connects: the two runes already meet at the same height, but one or both need their connecting ink lengthened to actually touch. It is a parametric adjustment to a stance's geometry, _not_ a stance of its own; its per-instance value is the _extension amount_. This is the default name for the whole motion, since lengthening is overwhelmingly the common case.
+- **Contraction** — the same adjustment in the opposite direction: connecting ink _shortened_ rather than lengthened. Used only rarely. When a statement must cover both directions the doc writes _extension/contraction_; otherwise plain _extension_ is meant to include it.
 
 A note on the word **stance**: today's YAML calls these `forms`, and this document deliberately renames the concept. "Form" is already spent several times over in type design — _letterforms_, _contextual forms_, _positional forms_ — so a reader imports the wrong frame. "Stance" is unspent there, and it carries the two things that matter: a drawn posture (it _is_ a bitmap) and a committed policy about joining (what it offers, accepts, and refuses). Backticked references to the current code (`qsNo.forms.alt`) keep the old key, because they cite the system as it exists today.
 
@@ -46,7 +47,7 @@ So the single success metric the whole design must serve: **the machine does the
 
 ## The OpenType ceiling is a hard wall
 
-The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, deformation, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what he wants has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
+The artifact is **a real font people can use on computers today**, through the font-to-monitor pipeline people actually have — not an idealized one. So **OpenType is a permanent constraint, not an implementation detail.** If OpenType can't shape it, the author can't have it, and it **must not exist in the spec at all.** Every capability, join, veto, extension, stylistic set, and pin in this document is implicitly bounded by what OpenType (GSUB/GPOS — `calt`, `liga`, `ssXX`, anchors) can actually produce. The author has been lucky: most of what he wants has turned out to be reachable within those limits. But the limits are law, not friction — a desired join that OpenType can't shape is simply off the table.
 
 ## Greenfield encoding, sacred cargo
 
@@ -55,7 +56,7 @@ The artifact is **a real font people can use on computers today**, through the f
 - **Anchor points** — what OpenType uses for `liga`/attachment.
 - **The Manual corpus and its `data-expect` minilanguage** for expressing which joins must happen at which heights.
 - **Attachment-height and anchor concepts.**
-- **Nearly all the drawn bitmaps** — a few more may be drawn; notably, **no bitmap is generated algorithmically from another bitmap anymore** (the base bitmaps are all hand-drawn primitives; deformation parameterizes geometry on top, but doesn't derive one base shape from another).
+- **Nearly all the drawn bitmaps** — a few more may be drawn; notably, **no bitmap is generated algorithmically from another bitmap anymore** (the base bitmaps are all hand-drawn primitives; extension parameterizes geometry on top, but doesn't derive one base shape from another).
 - **All the ductus information** (see below).
 - **The set of characters**, which is complete for Quikscript.
 
@@ -157,11 +158,11 @@ The join vocabulary is small. The attachment heights that matter:
 - **y=6** — used (currently, and likely forever) only for the ·See·Pea and ·Pea·Pea joins
 - **top** — e.g. ·See·Tea joins
 
-## Reaching often requires deformation — and deformation must be controlled
+## Reaching often requires extension — and extension must be controlled
 
-Matching attachment _heights_ is necessary but not sufficient. To connect to an otherwise-awkward attachment point, a stance sometimes has to be **deformed**: a stroke extended here, contracted there, so it reaches. This is its own axis of capability, distinct from "which heights does the stance offer."
+Matching attachment _heights_ is necessary but not sufficient. To connect to an otherwise-awkward attachment point, a stance's connecting stroke sometimes has to be **extended** (or, more rarely, **contracted**) so it reaches. This is its own axis of capability, distinct from "which heights does the stance offer."
 
-This is also a current bug source: getting an LLM to extend _exactly_ the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether a deformation is a distinct repertoire member or a separate adjustment layer is resolved below.
+This is also a current bug source: getting an LLM to extend _exactly_ the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether an extension is a distinct repertoire member or a separate adjustment layer is resolved below.
 
 ## What a stance is — and the category error behind the accretion
 
@@ -176,7 +177,7 @@ So the override complexity is real and (the author believes) **irreducible** —
 Decompose what an accretion-stance is currently doing into its real parts, each with a proper home:
 
 - **A genuinely different written shape** → stays a stance (it has its own bitmap; by the definition above it _must_ be a stance). But its _triggering context_ must not be baked into its identity or name.
-- **The same shape, deformed to reach** an awkward attachment → the **deformation** axis (extend/contract), not a new stance.
+- **The same shape, extended to reach** an awkward attachment → the **extension/contraction** axis, not a new stance.
 - **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the runes themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
 
 **Case in point — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a "tighter" shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor's baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor's state**, not a new way of writing ·No. It's currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild's job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
@@ -191,34 +192,34 @@ Consequences:
 - A relational rule is therefore a rule the _rune_ owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an _existing_ stance (or the family) carry these rules cleanly, so contextual overrides stop minting stances.
 - **One sanctioned exception:** kerning may live separately if doing so unlocks better tooling — e.g. pasting kerning data into a `<textarea>` and editing it in a small web app. Convenience of bulk editing can override strict locality for kerning specifically; the default for everything else stays two-place.
 
-## Deformation is a parametric adjustment, authored, owned by a stance
+## Extension is a parametric adjustment, authored, owned by a stance
 
-(Terminology, provisional: "deformation" is being _tolerated_ here to mean specifically **extension/contraction** — it's overly broad for the job, and a better word may replace it. The per-instance value is the **deformation amount**, never the "magnitude.")
+(Terminology: the default name for this motion is **extension** — pixels added to a connecting stroke so a join meets. The rare opposite, removing pixels, is **contraction**; **extension/contraction** is the inclusive form when both directions are meant. The per-instance value is the **extension amount**, never the "magnitude.")
 
-For joins, a deformation is a **parametric adjustment, not a repertoire member.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join deformations may behave differently, and that case is left open.)
+For joins, an extension is a **parametric adjustment, not a repertoire member.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join extensions may behave differently, and that case is left open.)
 
-- **Trigger: authorial intent by default.** Extensions and contractions are _declared_. Some could be driven by detected need, but even then the **deformation amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may _propose_; the author decides the amount.
-- **Home: on a stance, lead-preferred, but flexible.** Deformations live on one or more stances (locality holds — it's still one of the two runes). The author prefers to keep them on the **left** rune, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
+- **Trigger: authorial intent by default.** Extensions and contractions are _declared_. Some could be driven by detected need, but even then the **extension amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may _propose_; the author decides the amount.
+- **Home: on a stance, lead-preferred, but flexible.** Extensions live on one or more stances (locality holds — it's still one of the two runes). The author prefers to keep them on the **left** rune, but it's sometimes nicer to declare them on the **right**, and a single extension may even be **split** across both sides, in part or in full.
 
-### A mis-scoped deformation can be a symptom of an under-fleshed repertoire
+### A mis-scoped extension can be a symptom of an under-fleshed repertoire
 
-A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a rune** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
+A recurring bug class: an extension directive lands on **not exactly the right set of ways to write a rune** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
 
 - **Plain mis-scoping** — author or LLM error in the current YAML: the directive's target set is simply wrong, and the fix is to narrow it.
 - **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the rune are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
 
-This is a direct echo of the ductus gate: when the repertoire under-distinguishes, deformation directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
+This is a direct echo of the ductus gate: when the repertoire under-distinguishes, extension directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
-### The deformation amount has a tolerance band, and "don't join" is a real outcome
+### The extension amount has a tolerance band, and "don't join" is a real outcome
 
-A deformation amount is one of three things: **too short** (a _hard_ error — typically still an off-anchor touch, i.e. still broken), **OK** (a _band_, not a single value), or **needlessly long** (a _weaker_ error — tolerable but flagged). And sometimes **none** of the deformation amounts look right, and the correct fix is to **not join at all** — a suppression. So the off-anchor-contact fix is a small decision: _land the extension in the OK band, or abandon the join._
+An extension amount is one of three things: **too short** (a _hard_ error — typically still an off-anchor touch, i.e. still broken), **OK** (a _band_, not a single value), or **needlessly long** (a _weaker_ error — tolerable but flagged). And sometimes **none** of the extension amounts look right, and the correct fix is to **not join at all** — a suppression. So the off-anchor-contact fix is a small decision: _land the extension in the OK band, or abandon the join._
 
 This resolves the consistency point. The autonomous loop can rest at **OK** (or, tolerably, at _needlessly long_), never at _too short_ — the band gives it room to reach a stable, shippable state without the author's pixel-precise call. The workflow the author actually wants is:
 
-- **Deformation amounts: a fully autonomous loop** that picks values aiming for the OK band — _act-then-review_, not pause-and-ask mid-loop.
+- **Extension amounts: a fully autonomous loop** that picks values aiming for the OK band — _act-then-review_, not pause-and-ask mid-loop.
 - **Plus an in-your-face review surface** that pops the resulting changes up for fast **thumbs-up / thumbs-down**. So the loop runs unattended, but _every_ change it makes is surfaced for a quick binary verdict — supervised after the fact, not during.
 
-This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no deformation amount satisfies.
+This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no extension amount satisfies.
 
 ## The readability bar: local completeness, even if the length is crazy-long
 
@@ -286,12 +287,12 @@ These two facts seem to pull apart — stance-aware reasoning wants the full mac
 
 **This is the same tooling fork as the review surface (see "This is a real application").** There are two tiers of editor: the trivial `<textarea>`/copy-paste tool that only flat data is safe for, and the **full-blown web app with its own web host that edits the complicated nested YAML source on disk directly.** If that real application exists, the _tooling_ reason for keeping kerning in a separate flat file weakens — the real editor could safely touch nested source, so kerning wouldn't _need_ to live apart. The flat sidecar is the pragmatic choice given today's trivial tool, not a fact about the kerning model.
 
-**The reconciliation — key kerning by _resolved-stance pairs_.** This falls out of how OpenType is staged: _all_ substitution (GSUB — `calt`, `liga`, `ssXX`, and the deformation substitutions) finishes before _any_ positioning (GPOS — cursive attachment and `kern`) begins. So by the time kerning runs, every rune has already resolved to its final glyph, and the kern lookup can see nothing _but_ that final run. A table keyed by post-shaping glyph identities (e.g. `qsNo.alt qsTea.half`) is therefore at once **flat** (a plain two-glyph table a dumb web app can edit) _and_ **context-aware** (because a resolved stance already encodes the context that produced it). Two ways to see it:
+**The reconciliation — key kerning by _resolved-stance pairs_.** This falls out of how OpenType is staged: _all_ substitution (GSUB — `calt`, `liga`, `ssXX`, and the extension substitutions) finishes before _any_ positioning (GPOS — cursive attachment and `kern`) begins. So by the time kerning runs, every rune has already resolved to its final glyph, and the kern lookup can see nothing _but_ that final run. A table keyed by post-shaping glyph identities (e.g. `qsNo.alt qsTea.half`) is therefore at once **flat** (a plain two-glyph table a dumb web app can edit) _and_ **context-aware** (because a resolved stance already encodes the context that produced it). Two ways to see it:
 
 - **Generic:** in **·A·B·C where ·C changes the shape of ·B**, ·B resolves to ·B′ during GSUB, so the pair the kern stage reads is `(qsA, qsB′)`. You hang the special kern on that key; kerning never has to know ·C exists.
 - **Concrete:** in **·No.alt·Tea.half·It**, ·Tea has _already_ resolved to `.half` because ·It follows, so the flat key `(qsNo.alt, qsTea.half)` captures the tighter spacing with no mention of ·It. (·It is the ·C, ·Tea the ·B, `.half` the changed shape.)
 
-Deformation rides in the same way: OpenType can't stretch a bitmap, so an extended stroke _is_ a distinct GSUB-selected glyph, already baked into the key. The depth cascade is **paid upstream** in stance selection; kerning merely reads the resolved pair and needs none of the rule machinery itself — only resolved-glyph keys. So kerning stays a flat, reliably-editable sidecar without becoming a dumb context-blind table.
+Extension rides in the same way: OpenType can't stretch a bitmap, so an extended stroke _is_ a distinct GSUB-selected glyph, already baked into the key. The depth cascade is **paid upstream** in stance selection; kerning merely reads the resolved pair and needs none of the rule machinery itself — only resolved-glyph keys. So kerning stays a flat, reliably-editable sidecar without becoming a dumb context-blind table.
 
 **How complete is this?** A flat resolved-stance-pair table _is_ ordinary GPOS pair kerning, and it captures everything that shows up as a resolved-glyph difference — which, because GSUB runs first, is every contextual effect that changes a rune's shape. The one thing it cannot express is a kern that must differ while _both_ resolved glyphs stay byte-identical: a third rune that shifts the wanted ·A·B spacing without changing ·A's or ·B's glyph. That case is not exotic either — it is exactly what OpenType's **contextual** kerning (a kern lookup that also inspects the resolved neighbor) exists for, so the fallback is a standard named capability, not new machinery. Whether any such case actually arises is open; global tightening plus the flat pair table is expected to suffice. A corpus check that flags any resolved-stance pair wanting two _different_ kerns would catch a counterexample automatically — converting "expected to suffice" into "the machine will tell us if it doesn't."
 
@@ -419,7 +420,7 @@ Two refinements that define the system's posture:
 
 Certain classes of ugliness carry detectable signatures and should be machine-flagged (and sometimes machine-fixed), not left to the eye:
 
-- **Off-anchor contact** — two runes touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
+- **Off-anchor contact** — two runes touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the extension discussion).
 - **Orientation mismatch** — some runes join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-rune property.
 
 The second case exposes a capability wrinkle: a stance's join surface isn't only _where_ it attaches (height) but _how_ — the **stroke orientation/quality** it wants at an attachment. The capability model needs that dimension, because it's what lets the machine flag orientation-mismatch ugliness instead of leaving it to taste.
