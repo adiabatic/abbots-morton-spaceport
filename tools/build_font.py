@@ -49,7 +49,7 @@ from quikscript_ir import (
     heal_glyph_name,
 )
 
-_DEPARTURE_MONO_OTF = Path(__file__).resolve().parent.parent / "site" / "DepartureMono-Regular.otf"
+_DEPARTURE_MONO_OTF = Path(__file__).resolve().parent.parent / "reference" / "DepartureMono-Regular.otf"
 
 
 def load_postscript_glyph_names() -> dict[str, int]:

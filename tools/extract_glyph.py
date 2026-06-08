@@ -6,11 +6,11 @@ This tool extracts glyphs from CFF-based OpenType fonts where each "pixel" is a 
 
 Usage:
     # Extract a glyph bitmap
-    uv run python tools/extract_glyph.py site/DepartureMono-Regular.otf zero
+    uv run python tools/extract_glyph.py reference/DepartureMono-Regular.otf zero
 
     # Compare a glyph between two fonts
     uv run python tools/extract_glyph.py --compare zero \\
-        site/DepartureMono-Regular.otf \\
+        reference/DepartureMono-Regular.otf \\
         site/AbbotsMortonSpaceportMono-Regular.otf
 """
 

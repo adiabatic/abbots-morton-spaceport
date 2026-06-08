@@ -6,7 +6,7 @@ Departure Mono is a clean monospace pixel font: UPM 550, 50 font units per pixel
 The self-checks here prove the sampling is faithful so that later-transplanted GPOS anchors line up with the rendered pixels.
 
 Usage:
-    uv run python tools/departure_mono_import.py site/DepartureMono-Regular.otf
+    uv run python tools/departure_mono_import.py reference/DepartureMono-Regular.otf
 """
 
 import sys

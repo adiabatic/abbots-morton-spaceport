@@ -1,7 +1,8 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier woff2
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
+	cp reference/DepartureMono-Regular.otf site/
 	cd site && typst compile --font-path . print.typ
 
 check-html-after: all
@@ -55,3 +56,7 @@ explainer:
 
 serve:
 	uv run python tools/serve.py
+
+# Compress the built OTFs in site/ into WOFF2 alongside them.
+woff2: all
+	find site -maxdepth 1 -name '*.otf' -print0 | xargs -0 -n1 woff2_compress
