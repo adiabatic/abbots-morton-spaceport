@@ -216,7 +216,7 @@ Two hard admissions:
 
 Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named form siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the letter does is right there) *and* **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
 
-## Stylistic sets are dual-purpose, user-facing, and they parameterize forbidding
+## Stylistic sets are dual-purpose, user-facing, and they widen the allowlist
 
 A stylistic set is **two genuinely different things** that happen to share the OpenType `ssXX` mechanism (answer: both):
 
@@ -225,9 +225,9 @@ A stylistic set is **two genuinely different things** that happen to share the O
 
 **Audience:** primarily **document authors** composing text in the font, though readers are welcome to use whatever sets exist. So stylistic sets are a shipped, user-facing feature — not merely the font author's private authoring tool (even though the author uses them that way too, e.g. to satisfy an otherwise-impossible pin).
 
-**They can un-forbid — so "forbidden" is a matrix, not a boolean.** A stylistic set can lift a default veto. ·Tea does **not** join both *to* and *from* at the baseline by default — that would double the stroke back over the letter — but with a stylistic set enabled, it can (and the Manual does exactly this, once). Consequences that ripple backward through this whole document:
+**They widen the allowlist — so what's *allowed* is a matrix, not a fixed set.** This is *not* about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not on the default allowlist** (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both *to* and *from* at the baseline by default — that would double the stroke back over the letter — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple backward through this whole document:
 
-- A join's legality is a function of *(left capability, right capability, **active stylistic sets**, vetoes)* — every "forbidden" and every "capability" earlier in this doc is implicitly *"under the default configuration,"* and a stylistic set can change it.
+- What a join is *allowed* to do is a function of *(left capability, right capability, **active stylistic sets**)* — every "capability" earlier in this doc is implicitly *"under the default configuration,"* and a stylistic set can add to the allowlist. (Taste **vetoes** are a separate layer that sits on top of whatever is allowed; whether a stylistic set can also lift an actual veto is left open — the ·Tea case is capability, not a veto.)
 - **Pins must carry the stylistic-set dimension.** A `data-expect` assertion can pin behavior *under ssNN*, and the earlier idea of a "negotiable pin satisfiable only by enabling a stylistic set" is grounded here.
 - **Matching the Manual exactly requires reproducing its one stylistic-set use** — so the mandatory tier itself isn't purely default-configuration; the test harness must activate the right set at that spot.
 
