@@ -175,9 +175,12 @@ Consequences:
 
 ## Deformation is a parametric adjustment, authored, owned by a form
 
+(Terminology, provisional: "deformation" is being *tolerated* here to mean specifically **extension/contraction** — it's overly broad for the job, and a better word may replace it. The per-instance value is the **deformation amount**, never the "magnitude.")
+
+
 Resolving the question parked earlier: for joins, a deformation is a **parametric adjustment, not a repertoire member.** ·Jay has *one* exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` form. (The "for joins" qualifier is deliberate; non-join deformations may behave differently and are parked.)
 
-- **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **magnitude** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
+- **Trigger: authorial intent by default.** Extensions and contractions are *declared*. Some could be driven by detected need, but even then the **deformation amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may *propose*; the author decides the amount.
 - **Home: on a form, lead-preferred, but flexible.** Deformations live on one or more forms (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
 
 ### A mis-scoped deformation can be a symptom of an under-fleshed repertoire
@@ -189,16 +192,16 @@ A recurring bug class: a deformation directive lands on **not exactly the right 
 
 This is a direct echo of the ductus gate: when the repertoire under-distinguishes, deformation directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about *coverage* — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
-### Magnitude has a tolerance band, and "don't join" is a real outcome
+### The deformation amount has a tolerance band, and "don't join" is a real outcome
 
-A magnitude is one of three things: **too short** (a *hard* error — typically still an off-anchor touch, i.e. still broken), **OK** (a *band*, not a single value), or **needlessly long** (a *weaker* error — tolerable but flagged). And sometimes **none** of the magnitudes look right, and the correct fix is to **not join at all** — a suppression. So the off-anchor-contact fix is a small decision: *land the extension in the OK band, or abandon the join.*
+A deformation amount is one of three things: **too short** (a *hard* error — typically still an off-anchor touch, i.e. still broken), **OK** (a *band*, not a single value), or **needlessly long** (a *weaker* error — tolerable but flagged). And sometimes **none** of the deformation amounts look right, and the correct fix is to **not join at all** — a suppression. So the off-anchor-contact fix is a small decision: *land the extension in the OK band, or abandon the join.*
 
 This resolves the consistency point. The autonomous loop can rest at **OK** (or, tolerably, at *needlessly long*), never at *too short* — the band gives it room to reach a stable, shippable state without the author's pixel-precise call. The workflow the author actually wants is:
 
-- **Magnitudes: a fully autonomous loop** that picks values aiming for the OK band — *act-then-review*, not pause-and-ask mid-loop.
+- **Deformation amounts: a fully autonomous loop** that picks values aiming for the OK band — *act-then-review*, not pause-and-ask mid-loop.
 - **Plus an in-your-face review surface** that pops the resulting changes up for fast **thumbs-up / thumbs-down**. So the loop runs unattended, but *every* change it makes is surfaced for a quick binary verdict — supervised after the fact, not during.
 
-This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no magnitude satisfies.
+This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no deformation amount satisfies.
 
 ## The readability bar: local completeness, length be damned
 
