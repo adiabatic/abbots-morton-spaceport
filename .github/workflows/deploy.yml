@@ -59,6 +59,12 @@ jobs:
         run: |
           cp build/*.otf build/*.woff2 site/
           cp reference/DepartureMono-Regular.otf site/
+          uv run python -c "
+          from fontTools.ttLib import TTFont
+          font = TTFont('reference/DepartureMono-Regular.otf')
+          font.flavor = 'woff2'
+          font.save('site/DepartureMono-Regular.woff2')
+          "
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
