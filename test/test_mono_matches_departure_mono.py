@@ -12,7 +12,7 @@ from fontTools.ttLib import TTFont
 ROOT = Path(__file__).resolve().parent.parent
 SITE_DIR = ROOT / "site"
 
-DEPARTURE = SITE_DIR / "DepartureMono-Regular.otf"
+DEPARTURE = ROOT / "reference" / "DepartureMono-Regular.otf"
 MONO = SITE_DIR / "AbbotsMortonSpaceportMono-Regular.otf"
 
 ShapedGlyph = tuple[str, int, int, int]

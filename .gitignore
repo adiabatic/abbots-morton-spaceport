@@ -13,6 +13,8 @@ wheels/
 # Build stuff
 /site/AbbotsMortonSpaceport*.otf
 /site/AbbotsMortonSpaceport*.fea
+/site/DepartureMono-Regular.otf
+/site/*.woff2
 /site/print.pdf
 /site/check.html
 /site/before/
