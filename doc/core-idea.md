@@ -102,7 +102,7 @@ A letter's join behavior is governed in large part by **how the letter is physic
 
 - A given letter can be *joined to* at the x-height and *exit* at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… *unless a particular stylistic set is enabled*, which unlocks the otherwise-illegal combination.
 
-So each letter (and each variant) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which *combinations* of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a variant that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't on the allowlist.
+So each letter (and each variant) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which *combinations* of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a variant that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
 
 ## Contextual preference is a first-class, common pattern
 
