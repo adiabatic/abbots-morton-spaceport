@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier woff2
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -60,3 +60,11 @@ serve:
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
 	find site -maxdepth 1 -name '*.otf' -print0 | xargs -0 -n1 woff2_compress
+
+# Delete generated artifacts (the gitignored build output and Python caches). Leaves .uv-cache/ and .venv/ alone — those are deliberately-kept caches, not junk.
+clean:
+	find . -type d -name __pycache__ -not -path './.uv-cache/*' -not -path './.venv/*' -exec rm -rf {} +
+	find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.uv-cache/*' -not -path './.venv/*' -delete
+	rm -rf .pytest_cache .ruff_cache .mypy_cache build dist wheels *.egg-info
+	rm -rf site/before site/scoped-anchor-review
+	rm -f site/AbbotsMortonSpaceport*.otf site/AbbotsMortonSpaceport*.fea site/DepartureMono-Regular.otf site/*.woff2 site/print.pdf site/check.html
