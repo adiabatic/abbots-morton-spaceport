@@ -275,7 +275,7 @@ These two facts seem to pull apart — form-aware reasoning wants the full machi
 
 ## How the two letters negotiate a join
 
-Both letters carry rules that bear on the same join — what each one offers, accepts, requires, or refuses there — so the model needs a way to reconcile them. Confirmed:
+Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a letter (the forms)**, not on the letter in the abstract. In particular, **no letter ever *requires* a join** — only a specific form may carry a requirement (a way of writing the letter that only makes sense when it joins). So "the two letters negotiate" is shorthand for "their selected forms do." Confirmed:
 
 - **Veto is unilateral.** Either letter can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
 - **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, within the deformation budget. Neither side can force a join the other can't physically accept.
