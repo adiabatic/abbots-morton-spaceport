@@ -7,7 +7,7 @@ This document is the north star for a from-scratch rebuild of Abbots Morton Spac
 A few words recur with precise meanings:
 
 - **Letter** — one of the 46 Quikscript letters (·Pea, ·May, …) as an abstract unit, independent of how it happens to be drawn.
-- **Bitmap** — the concrete grid of on/off pixels that draws a letter one particular way. (A filled pixel is "ink"; the strokes are made of ink.)
+- **Bitmap** — the concrete grid of on/off pixels that draws a letter one particular way. A letter has one or more bitmaps — ·May, drawn counterclockwise or clockwise, needs two. (A filled pixel is "ink"; the font's strokes are made of ink.)
 - **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the letter_, bundled with its full join policy — not merely a silhouette. A letter has one or more stances.
 - **Repertoire** — a letter's complete set of stances. It is **closed** (you can read off every stance a letter has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
 
