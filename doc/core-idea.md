@@ -61,7 +61,7 @@ Before the specifics, the principle that underlies all of them. **A great deal o
 - **ugly-with-a-signature → broken invariant:** a recurring ugliness turns out to have a structural tell, and you promote it into the machine-checked set.
 - **broken → declared-OK:** a join the detector rejects actually looks fine, and you record the exception.
 
-This is a confirmed, deliberate design stance, not an accident of an unfinished font. The system is an instrument for *finding* the right rules, so its defaults are permissive, its boundaries are movable, and "I couldn't have known that in advance" is a supported workflow rather than a failure. Read every "default," "veto," "pin," and "forbid" below through this lens.
+This is a confirmed, deliberate design stance, not an accident of an unfinished font. The system is an instrument for *finding* the right rules, so its defaults are permissive *where it can afford to be* (the selection/curation level — don't-care, more-joins-better) while staying opt-in where it must (the capability level — nothing joins until a form declares it can), its boundaries are movable, and "I couldn't have known that in advance" is a supported workflow rather than a failure. Read every "default," "veto," "pin," and "forbid" below through this lens.
 
 ## Where the authority for "correct" lives
 
