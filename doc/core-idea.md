@@ -14,6 +14,7 @@ A few words recur with precise meanings:
 - **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
 - **Glyph** — the drawable output shape the shaper actually selects, in the OpenType sense: what a stance compiles to. Usually has no code point of its own. Kept with its standard meaning, never repurposed.
 - **Repertoire** — a rune's complete set of stances. It is **closed** (you can read off every stance a rune has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
+- **Anchor** — a named attachment point on a stance, in the standard OpenType sense. The ones that matter here are the **entry** and **exit** anchors that drive _cursive attachment_ (`curs`): the shaper makes a join by snapping one rune's exit anchor onto the next rune's entry anchor. A stance's join surface is, concretely, which entry/exit anchors it carries and at what heights.
 - **Extension** — pixels added to a stance's connecting stroke so a join physically connects: the two runes already meet at the same height, but one or both need their connecting ink lengthened to actually touch. It is a parametric adjustment to a stance's geometry, _not_ a stance of its own; its per-instance value is the _extension amount_. This is the default name for the whole motion, since lengthening is overwhelmingly the common case.
 - **Contraction** — the same adjustment in the opposite direction: connecting ink _shortened_ rather than lengthened. Used only rarely. When a statement must cover both directions the doc writes _extension/contraction_; otherwise plain _extension_ is meant to include it.
 
@@ -53,7 +54,7 @@ The artifact is **a real font people can use on computers today**, through the f
 
 "Recreate it totally differently" means the **encoding** is thrown out — the YAML structure, the accreted stances and override lists, the Python/FEA pipeline machinery. What crosses the chasm essentially unchanged is the _content and the concepts_:
 
-- **Anchor points** — what OpenType uses for `liga`/attachment.
+- **Anchor points** — what OpenType's cursive attachment (`curs`) uses to join glyphs.
 - **The Manual corpus and its `data-expect` minilanguage** for expressing which joins must happen at which heights.
 - **Attachment-height and anchor concepts.**
 - **Nearly all the drawn bitmaps** — a few more may be drawn; notably, **no bitmap is generated algorithmically from another bitmap anymore** (the base bitmaps are all hand-drawn primitives; extension parameterizes geometry on top, but doesn't derive one base shape from another).
