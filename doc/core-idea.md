@@ -9,7 +9,7 @@ A few words recur with precise meanings:
 - **Rune** — the addressable unit of the script that owns a repertoire of stances. Every rune is either a **character** or a **ligature**, and either kind may be drawn more than one way. (Coined here; the everyday words are all spoken for — see the note below.)
 - **Character** — a rune _with_ a code point: one of the 46 Quikscript characters (·Pea, ·May, …), the abstract input unit, independent of how it happens to be drawn.
 - **Ligature** — a rune that fuses a _sequence_ of characters into one drawn unit and has _no_ code point of its own (·Out+Tea, which doesn't work as separate glyphs). Like a character, a ligature may have more than one stance.
-- **Bitmap** — a concrete grid of on/off pixels that a rune can be drawn as. A rune has one or more bitmaps — ·May needs at least two: one that can be attached to at the baseline, and another that can attach to the next character at the baseline.
+- **Bitmap** — a concrete grid of on/off pixels that a rune can be drawn as. A rune has one or more bitmaps — ·May needs at least two: one that can be attached to at the baseline, and another that can attach to the next rune at the baseline.
 - **Ink** — a filled bitmap pixel (a `#` cell, as opposed to blank space); the font's strokes are made of ink. Much of the join machinery reasons about _where_ a stance's ink falls — off-anchor contact, for instance, is ink touching where it shouldn't.
 - **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
 - **Glyph** — the drawable output shape the shaper actually selects, in the OpenType sense: what a stance compiles to. Usually has no code point of its own. Kept with its standard meaning, never repurposed.
@@ -21,7 +21,7 @@ A note on the word **rune**: the things that own repertoires are characters _and
 
 ## What we're rebuilding, and why
 
-The end goal is unchanged from the current repo: a Quikscript Senior font whose character shapes and — most importantly — whose **joins** (which pairs join, which don't, and what each join looks like) are driven by a human-authored YAML spec. A program reads the spec and emits a font that matches it.
+The end goal is unchanged from the current repo: a Quikscript Senior font whose rune shapes and — most importantly — whose **joins** (which pairs join, which don't, and what each join looks like) are driven by a human-authored YAML spec. A program reads the spec and emits a font that matches it.
 
 What's changing is the _nature_ of the spec. The current system was built before its author understood the problem space, so it grew organically and accreted. That accretion is the primary wound the rebuild must heal.
 
@@ -62,9 +62,9 @@ So the sacred things are assets and ideas; only their current _encoding_ is up f
 
 ### The repertoire's truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
 
-The repertoire-first model rests on each character's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
+The repertoire-first model rests on each rune's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
 
-- the **ductus** — the enumeration of _how_ the character is drawn (the abstract strokes and orders, the count of distinct ways), and
+- the **ductus** — the enumeration of _how_ the rune is drawn (the abstract strokes and orders, the count of distinct ways), and
 - the **bitmaps** — the concrete pixels that realize those ways, canonical in their own right (and, recall, never derived one from another).
 
 The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
@@ -89,8 +89,8 @@ There is no single oracle. Correctness has **tiers**, and they have different so
    **Caveat — the Manual is not self-consistent.** Reproducing it faithfully is _not_ a matter of finding one consistent ruleset. The Manual writes some words one way and other words a different way, and the only way a single font can match **both** is to use **stylistic sets** — writing some words with a set enabled and others without. So the mandatory tier is inherently **configuration-dependent**: "matches the Manual" means "matches it under the stylistic-set configuration the Manual itself uses at that spot," not under one global default. This is why stylistic sets are load-bearing even for the must-have tier, not just for discretionary taste.
 
 2. **Objective defects — joins that are simply broken.** Even within the permitted rule set, the shaping system can currently produce results that are _obviously_ wrong, e.g.:
-   - Two near-vertical characters set immediately adjacent, so the join reads as one extra-thick stroke rather than two characters.
-   - A character drawn in a stance _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
+   - Two near-vertical runes set immediately adjacent, so the join reads as one extra-thick stroke rather than two runes.
+   - A rune drawn in a stance _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
    These are not matters of taste. A good design should make them either structurally impossible or automatically detected — never something the author has to catch by eye.
 
 3. **Discretionary joins — taste.** A large space remains where a join is fully _permissible_ under the rules but the author has chosen to **disallow** it anyway, because it would be awkward to write by hand or simply looks ugly. Here the authority is the author's judgment. The punch-list verdicts map onto these tiers: "wrong" = a violated mandatory join or an objective defect; "right" / "fine either way" = a discretionary call that matches taste or is simply acceptable.
@@ -111,15 +111,15 @@ This reshapes the punch list. The residue that should ever demand human attentio
 
 Don't-care pairs change silently. The author pays attention only to pairs he has already chosen to care about, plus machine-found defects.
 
-## The real job: cleanly express what each character may and may not do
+## The real job: cleanly express what each rune may and may not do
 
-The author's sharpest complaint about the current design: it **does not cleanly express what a given character may do and may not do.** This is where most "Constrained but free" debugging goes, and the rebuild's central task is to fix it.
+The author's sharpest complaint about the current design: it **does not cleanly express what a given rune may do and may not do.** This is where most "Constrained but free" debugging goes, and the rebuild's central task is to fix it.
 
-A character's join behavior is governed in large part by **how the character is physically written**, not by taste. These are structural capabilities, e.g.:
+A rune's join behavior is governed in large part by **how the rune is physically written**, not by taste. These are structural capabilities, e.g.:
 
-- A given character can be _joined to_ at the x-height and _exit_ at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… _unless a particular stylistic set is enabled_, which unlocks the otherwise-illegal combination.
+- A given rune can be _joined to_ at the x-height and _exit_ at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… _unless a particular stylistic set is enabled_, which unlocks the otherwise-illegal combination.
 
-So each character (and each stance) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a stance that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
+So each rune (and each stance) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a stance that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
 
 ## Contextual preference is a first-class, common pattern
 
@@ -129,23 +129,23 @@ A very common shape of "constrained but free": a stance has a **preferred-in-iso
 
 Defective pairs are the **lion's share** of the author's debugging time. Automatically _detecting_ them — so an agent (or the author) can fix them — is a top-priority requirement, arguably co-equal with readability. The two named defect archetypes so far:
 
-- **Collision / false stroke:** near-vertical characters set adjacent so the pair reads as one thick stroke.
+- **Collision / false stroke:** near-vertical runes set adjacent so the pair reads as one thick stroke.
 - **Reaching join with no acceptor:** a stance shaped to join at a height the neighbor can't accept.
 
-Both are derivable from honest character-capability and geometry data; neither should require the author to spot it by eye.
+Both are derivable from honest rune-capability and geometry data; neither should require the author to spot it by eye.
 
 ## The unit of authoring is the written stance (repertoire-first)
 
-The spec is **stances-first**, not capability-matrix-first. A character is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
+The spec is **stances-first**, not capability-matrix-first. A rune is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
-- The repertoire is **finite and named** — you can read off a character's complete set of stances and know that's all of them.
+- The repertoire is **finite and named** — you can read off a rune's complete set of stances and know that's all of them.
 - The repertoire **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, stances are added, refined, or retired. "Closed" means _fully enumerated right now_, not _frozen forever_.
 
-The legal join surface (which entry/exit heights and combinations a character supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
+The legal join surface (which entry/exit heights and combinations a rune supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
 
-**Open tension:** stances-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the character) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
+**Open tension:** stances-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the rune) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
 
 ## Attachment heights
 
@@ -164,9 +164,9 @@ This is also a current bug source: getting an LLM to extend _exactly_ the things
 
 ## What a stance is — and the category error behind the accretion
 
-The author's definition: **a stance belongs in a character's stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine way to write the character, plus its full join capability.
+The author's definition: **a stance belongs in a rune's stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine way to write the rune, plus its full join capability.
 
-The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn't a _way of writing the character_ at all — it's a **contextual join override**, most often a _suppression_: "in this particular case, don't join in _this_ manner, even though it would otherwise be permissible." The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the character — a reliable tell.
+The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn't a _way of writing the rune_ at all — it's a **contextual join override**, most often a _suppression_: "in this particular case, don't join in _this_ manner, even though it would otherwise be permissible." The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the rune — a reliable tell.
 
 So the override complexity is real and (the author believes) **irreducible** — the domain plus OpenType's limits are genuinely that complex. The goal is not to delete it but to **house it correctly.** The author pushes as much intelligence as possible down into the Python; what can't go there has accreted into long override lists in `quikscript.yaml` that "smell like warts."
 
@@ -176,18 +176,18 @@ Decompose what an accretion-stance is currently doing into its real parts, each 
 
 - **A genuinely different written shape** → stays a stance (it has its own bitmap; by the definition above it _must_ be a stance). But its _triggering context_ must not be baked into its identity or name.
 - **The same shape, deformed to reach** an awkward attachment → the **deformation** axis (extend/contract), not a new stance.
-- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the characters themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
+- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the runes themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
 
 **Case in point — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a "tighter" shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor's baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor's state**, not a new way of writing ·No. It's currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild's job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
 
 ## Locality of reference: at most two places
 
-This is a hard constraint, decided. To understand whether and how a pair of characters joins, a reader should look in **at most two places: the left character (its bitmaps and stances) and the right character (its bitmaps and stances).** Nothing else. There is **no separate relational file** — co-located policy wins decisively over a standalone relational layer, because a third lookup site breaks locality.
+This is a hard constraint, decided. To understand whether and how a pair of runes joins, a reader should look in **at most two places: the left rune (its bitmaps and stances) and the right rune (its bitmaps and stances).** Nothing else. There is **no separate relational file** — co-located policy wins decisively over a standalone relational layer, because a third lookup site breaks locality.
 
 Consequences:
 
-- **Suppression rides on one of the two characters.** "·Way·Thaw must never join" lives on either ·Way or ·Thaw, with a **weak preference for the lead (·Way)** — both because that matches how the author thinks and because it mirrors how OpenType operates left-to-right by default.
-- A relational rule is therefore a rule the _character_ owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an _existing_ stance (or the family) carry these rules cleanly, so contextual overrides stop minting stances.
+- **Suppression rides on one of the two runes.** "·Way·Thaw must never join" lives on either ·Way or ·Thaw, with a **weak preference for the lead (·Way)** — both because that matches how the author thinks and because it mirrors how OpenType operates left-to-right by default.
+- A relational rule is therefore a rule the _rune_ owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an _existing_ stance (or the family) carry these rules cleanly, so contextual overrides stop minting stances.
 - **One sanctioned exception:** kerning may live separately if doing so unlocks better tooling — e.g. pasting kerning data into a `<textarea>` and editing it in a small web app. Convenience of bulk editing can override strict locality for kerning specifically; the default for everything else stays two-place.
 
 ## Deformation is a parametric adjustment, authored, owned by a stance
@@ -197,14 +197,14 @@ Consequences:
 For joins, a deformation is a **parametric adjustment, not a repertoire member.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join deformations may behave differently, and that case is left open.)
 
 - **Trigger: authorial intent by default.** Extensions and contractions are _declared_. Some could be driven by detected need, but even then the **deformation amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may _propose_; the author decides the amount.
-- **Home: on a stance, lead-preferred, but flexible.** Deformations live on one or more stances (locality holds — it's still one of the two characters). The author prefers to keep them on the **left** character, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
+- **Home: on a stance, lead-preferred, but flexible.** Deformations live on one or more stances (locality holds — it's still one of the two runes). The author prefers to keep them on the **left** rune, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
 
 ### A mis-scoped deformation can be a symptom of an under-fleshed repertoire
 
-A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a character** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
+A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a rune** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
 
 - **Plain mis-scoping** — author or LLM error in the current YAML: the directive's target set is simply wrong, and the fix is to narrow it.
-- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the character are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
+- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the rune are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
 
 This is a direct echo of the ductus gate: when the repertoire under-distinguishes, deformation directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
@@ -221,16 +221,16 @@ This makes the review workflow's "opinion vocabulary" concrete at its floor: at 
 
 ## The readability bar: local completeness, even if the length is crazy-long
 
-The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness over minimal surface.** Reading one character's entry top to bottom tells you everything that character does and every join it permits or forbids. The single proviso: understanding a _pair_ may legitimately require **both** characters open at once — one character per editor pane, two panes. That is the operational form of two-place locality.
+The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness over minimal surface.** Reading one rune's entry top to bottom tells you everything that rune does and every join it permits or forbids. The single proviso: understanding a _pair_ may legitimately require **both** runes open at once — one rune per editor pane, two panes. That is the operational form of two-place locality.
 
 Two hard admissions:
 
 - There is a **large amount of irreducible complexity** in what this font is trying to be — true even before OpenType, whose limitations must be papered over at every step, adds its own fighting on top. The rebuild does **not** promise short or simple YAML.
-- **Long single-character entries are accepted** — nose held — as the least-bad option. Entry length is therefore **not** evidence of a design failure.
+- **Long single-rune entries are accepted** — nose held — as the least-bad option. Entry length is therefore **not** evidence of a design failure.
 
 ### So have we just re-accreted in a new costume? No — and here's the test
 
-Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named stance siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the character does is right there) _and_ **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
+Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named stance siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the rune does is right there) _and_ **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
 
 ## Stylistic sets are dual-purpose, user-facing, and they enable joins that are off by default
 
@@ -241,7 +241,7 @@ A stylistic set is **two genuinely different things** that happen to share the O
 
 **Audience:** primarily **document authors** composing text in the font, though readers are welcome to use whatever sets exist. So stylistic sets are a shipped, user-facing feature — not merely the font author's private authoring tool (even though the author uses them that way too, e.g. to satisfy an otherwise-impossible pin).
 
-**They widen what's declared-capable — so what's _allowed_ is a matrix, not a fixed set.** This is _not_ about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not allowed by default** — one no stance explicitly declared (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both _to_ and _from_ at the baseline by default — that would double the stroke back over the character — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple through the rest of this document:
+**They widen what's declared-capable — so what's _allowed_ is a matrix, not a fixed set.** This is _not_ about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not allowed by default** — one no stance explicitly declared (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both _to_ and _from_ at the baseline by default — that would double the stroke back over the rune — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple through the rest of this document:
 
 - What a join is _allowed_ to do is a function of _(left capability, right capability, **active stylistic sets**)_ — every "capability" earlier in this doc is implicitly _"under the default configuration,"_ and a stylistic set can add to the set of declared-capable joins. (Taste **vetoes** are a separate layer that sits on top of whatever is allowed; whether a stylistic set can also lift an actual veto is left open — the ·Tea case is capability, not a veto.)
 - **Pins must carry the stylistic-set dimension.** A `data-expect` assertion can pin behavior _under ssNN_, and the earlier idea of a "negotiable pin satisfiable only by enabling a stylistic set" is grounded here.
@@ -276,7 +276,7 @@ Axis 2 — the neighbor's _stance/state_ — means its **resolved** stance: the 
 
 Kerning is **both** a global and a per-pair fact:
 
-- **Global:** the entire Senior font looks better with _every_ character kerned one pixel tighter — a single baseline adjustment.
+- **Global:** the entire Senior font looks better with _every_ rune kerned one pixel tighter — a single baseline adjustment.
 - **Per-pair:** as in most fonts, specific pairs need their own kerning on top.
 
 It applies to joined and non-joined pairs alike. And it is **not a dumb static table** — it must be aware of _resolved stances_: ·No·Pea needs no special kerning, but ·No.alt·Pea only looks right two pixels tighter; ·No·Tea needs none, yet in ·No.alt·Tea.half·It the ·No.alt and ·Tea.half want to sit closer because the ·Tea "isn't anywhere near the baseline anymore."
@@ -289,11 +289,11 @@ These two facts seem to pull apart — stance-aware reasoning wants the full mac
 
 **Working hypothesis:** global tightening plus a resolved-stance-pair table suffices. If a real case ever needs context _beyond_ the resolved pair (something that changes kerning without changing either resolved stance), it would demand the richer machinery — flagged, but not expected.
 
-## How the two characters negotiate a join
+## How the two runes negotiate a join
 
-Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a character (the stances)**, not on the character in the abstract. In particular, **no character ever _requires_ a join** — only a specific stance may carry a requirement (a way of writing the character that only makes sense when it joins). So "the two characters negotiate" is shorthand for "their selected stances do." Confirmed:
+Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a rune (the stances)**, not on the rune in the abstract. In particular, **no rune ever _requires_ a join** — only a specific stance may carry a requirement (a way of writing the rune that only makes sense when it joins). So "the two runes negotiate" is shorthand for "their selected stances do." Confirmed:
 
-- **Veto is unilateral.** Either character can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
+- **Veto is unilateral.** Either rune can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
 - **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, and close enough that any needed extension or contraction can actually bridge them. Neither side can force a join the other can't physically accept.
 - **Precedence among permitted options is genuinely case-by-case.** It is _not_ a fixed "lead always wins." Sometimes the follower's preference should dominate; the author is confident research would surface clear follower-wins cases.
  So the model must not bake in lead-supremacy beyond a weak default.
@@ -304,9 +304,9 @@ A concrete recent example, spelled out so it stands on its own: when two stances
 
 ### When rules are incomparable (specific along different axes)
 
-Specificity only gives a _total_ order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following character — neither nesting inside the other. The decided handling:
+Specificity only gives a _total_ order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following rune — neither nesting inside the other. The decided handling:
 
-- **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two characters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
+- **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two runes can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
 - **Acknowledged risk:** refusing to guess can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just _so much there_." Refuse-to-guess without a release valve could re-accrete.
 - **The release valve: named case-groups via set algebra.** The author thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author _name_ such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined stance of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit hand-recorded tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis-priority default may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
@@ -380,7 +380,7 @@ Consequences that ripple through the verification story:
 
 An important correction to a tempting oversimplification. It is _not_ "all forbidding," and the substrate is _not_ blanket-permissive. There are **two distinct levels**, with opposite default polarities:
 
-- **Capability is opt-in (explicit declaration).** By default, _no character can join its neighbors anywhere_ — a join is possible only where a stance **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
+- **Capability is opt-in (explicit declaration).** By default, _no rune can join its neighbors anywhere_ — a join is possible only where a stance **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
 - **Within declared capability, forbidding is the labor.** _Among the pairs that genuinely can join,_ the soft "more joins are better" pull applies, and the overwhelming bulk of day-to-day authoring is _negative space_ — saying "not this one" to the declared-capable joins that turn out ugly or broken.
 
 So "the project has a lot of 'saying no'" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
@@ -401,7 +401,7 @@ The balance of labor has also shifted: there _has been_ a giant amount of ugly, 
 "Broken" is defined structurally, with no appeal to taste: **a join whose rendered geometry violates a structural invariant checkable from the bitmap plus anchor metadata.** The working (closed, "for future work") set of invariants:
 
 - **Off-anchor contact** — ink touches or overlaps at a point that isn't the anchors.
-- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting stance is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next character's ink **doesn't physically touch** where ·Out ends, or (b) the next character was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
+- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting stance is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next rune's ink **doesn't physically touch** where ·Out ends, or (b) the next rune was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
 - **Height mismatch** — the two attachment heights don't meet.
 
 Two refinements that define the system's posture:
@@ -413,8 +413,8 @@ Two refinements that define the system's posture:
 
 Certain classes of ugliness carry detectable signatures and should be machine-flagged (and sometimes machine-fixed), not left to the eye:
 
-- **Off-anchor contact** — two characters touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
-- **Orientation mismatch** — some characters join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-character property.
+- **Off-anchor contact** — two runes touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
+- **Orientation mismatch** — some runes join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-rune property.
 
 The second case exposes a capability wrinkle: a stance's join surface isn't only _where_ it attaches (height) but _how_ — the **stroke orientation/quality** it wants at an attachment. The capability model needs that dimension, because it's what lets the machine flag orientation-mismatch ugliness instead of leaving it to taste.
 
