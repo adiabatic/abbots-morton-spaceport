@@ -6,18 +6,20 @@ This document is the north star for a from-scratch rebuild of Abbots Morton Spac
 
 A few words recur with precise meanings:
 
-- **Letter** — one of the 46 Quikscript letters (·Pea, ·May, …) as an abstract unit, independent of how it happens to be drawn.
-- **Bitmap** — the concrete grid of on/off pixels that draws a letter one particular way. A letter has one or more bitmaps — ·May, drawn counterclockwise or clockwise, needs two. (A filled pixel is "ink"; the font's strokes are made of ink.)
-- **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the letter_, bundled with its full join policy — not merely a silhouette. A letter has one or more stances.
-- **Repertoire** — a letter's complete set of stances. It is **closed** (you can read off every stance a letter has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
+- **Character** — one of the 46 Quikscript characters (·Pea, ·May, …): the abstract, code-point-bearing unit, independent of how it happens to be drawn. It is _not_ a _glyph_ (a particular drawn shape — that's a stance); a character owns a whole repertoire of stances.
+- **Bitmap** — the concrete grid of on/off pixels that draws a character one particular way. A character has one or more bitmaps — ·May, drawn counterclockwise or clockwise, needs two. (A filled pixel is "ink"; the font's strokes are made of ink.)
+- **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the character_, bundled with its full join policy — not merely a silhouette. A character has one or more stances.
+- **Repertoire** — a character's complete set of stances. It is **closed** (you can read off every stance a character has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
 
 A note on the word **stance**: today's YAML calls these `forms`, and this document deliberately renames the concept. "Form" is already spent several times over in type design — _letterforms_, _contextual forms_, _positional forms_ — so a reader imports the wrong frame. "Stance" is unspent there, and it carries the two things that matter: a drawn posture (it _is_ a bitmap) and a committed policy about joining (what it offers, accepts, and refuses). Backticked references to the current code (`qsNo.forms.alt`) keep the old key, because they cite the system as it exists today.
 
+A note on the word **character**: every character this font cares about happens to be a Quikscript letter, so the doc could say "letter" — but it says **character** to keep the code-point-bearing unit cleanly distinct from the _glyphs_ that draw it (a stance is a glyph). The distinction has teeth: a ligature like ·Out+Tea is a glyph with no code point of its own, so it can be a repertoire member but never a character.
+
 ## What we're rebuilding, and why
 
-The end goal is unchanged from the current repo: a Quikscript Senior font whose letter shapes and — most importantly — whose **joins** (which pairs join, which don't, and what each join looks like) are driven by a human-authored YAML spec. A program reads the spec and emits a font that matches it.
+The end goal is unchanged from the current repo: a Quikscript Senior font whose character shapes and — most importantly — whose **joins** (which pairs join, which don't, and what each join looks like) are driven by a human-authored YAML spec. A program reads the spec and emits a font that matches it.
 
-What's changing is the _character_ of the spec. The current system was built before its author understood the problem space, so it grew organically and accreted. That accretion is the primary wound the rebuild must heal.
+What's changing is the _nature_ of the spec. The current system was built before its author understood the problem space, so it grew organically and accreted. That accretion is the primary wound the rebuild must heal.
 
 ### The wound: accretion, and the verification slog it causes
 
@@ -50,15 +52,15 @@ The artifact is **a real font people can use on computers today**, through the f
 - **Attachment-height and anchor concepts.**
 - **Nearly all the drawn bitmaps** — a few more may be drawn; notably, **no bitmap is generated algorithmically from another bitmap anymore** (the base bitmaps are all hand-drawn primitives; deformation parameterizes geometry on top, but doesn't derive one base shape from another).
 - **All the ductus information** (see below).
-- **The set of letters**, which is complete for Quikscript.
+- **The set of characters**, which is complete for Quikscript.
 
 So the sacred things are assets and ideas; only their current _encoding_ is up for reinvention.
 
 ### The repertoire's truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
 
-The repertoire-first model rests on each letter's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
+The repertoire-first model rests on each character's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
 
-- the **ductus** — the enumeration of _how_ the letter is drawn (the abstract strokes and orders, the count of distinct ways), and
+- the **ductus** — the enumeration of _how_ the character is drawn (the abstract strokes and orders, the count of distinct ways), and
 - the **bitmaps** — the concrete pixels that realize those ways, canonical in their own right (and, recall, never derived one from another).
 
 The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
@@ -83,8 +85,8 @@ There is no single oracle. Correctness has **tiers**, and they have different so
    **Caveat — the Manual is not self-consistent.** Reproducing it faithfully is _not_ a matter of finding one consistent ruleset. The Manual writes some words one way and other words a different way, and the only way a single font can match **both** is to use **stylistic sets** — writing some words with a set enabled and others without. So the mandatory tier is inherently **configuration-dependent**: "matches the Manual" means "matches it under the stylistic-set configuration the Manual itself uses at that spot," not under one global default. This is why stylistic sets are load-bearing even for the must-have tier, not just for discretionary taste.
 
 2. **Objective defects — joins that are simply broken.** Even within the permitted rule set, the shaping system can currently produce results that are _obviously_ wrong, e.g.:
-   - Two near-vertical letters set immediately adjacent, so the join reads as one extra-thick stroke rather than two letters.
-   - A letter drawn in a variant _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
+   - Two near-vertical characters set immediately adjacent, so the join reads as one extra-thick stroke rather than two characters.
+   - A character drawn in a variant _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
    These are not matters of taste. A good design should make them either structurally impossible or automatically detected — never something the author has to catch by eye.
 
 3. **Discretionary joins — taste.** A large space remains where a join is fully _permissible_ under the rules but the author has chosen to **disallow** it anyway, because it would be awkward to write by hand or simply looks ugly. Here the authority is the author's judgment. The punch-list verdicts map onto these tiers: "wrong" = a violated mandatory join or an objective defect; "right" / "fine either way" = a discretionary call that matches taste or is simply acceptable.
@@ -93,7 +95,7 @@ The "fine either way" verdict is significant: for some pairs, _more than one_ ou
 
 ## Don't-care is the default — and it's discovered, not declared
 
-For ordinary running text, most joins are don't-care. A sequence of four or five letters might carry one or two strong requirements (Manual-mandated), and the author has no wish to micromanage the rest. A standing global preference colors the don't-care space: **all else equal, more joins are better than fewer.**
+For ordinary running text, most joins are don't-care. A sequence of four or five characters might carry one or two strong requirements (Manual-mandated), and the author has no wish to micromanage the rest. A standing global preference colors the don't-care space: **all else equal, more joins are better than fewer.**
 
 Crucially, the author **cannot reliably pre-classify** a pair as don't-care vs. do-care from the outset. The classification _migrates_: a pair sits in don't-care until, one day, the author looks at a result and decides he does in fact care. So the spec must not demand an up-front verdict for every pair. Instead it must support **incremental pinning** — start permissive, and let the author promote a pair to "cared about" the moment he notices something, recording the verdict then.
 
@@ -105,15 +107,15 @@ This reshapes the punch list. The residue that should ever demand human attentio
 
 Don't-care pairs change silently. The author pays attention only to pairs he has already chosen to care about, plus machine-found defects.
 
-## The real job: cleanly express what each letter may and may not do
+## The real job: cleanly express what each character may and may not do
 
-The author's sharpest complaint about the current design: it **does not cleanly express what a given letter may do and may not do.** This is where most "Constrained but free" debugging goes, and the rebuild's central task is to fix it.
+The author's sharpest complaint about the current design: it **does not cleanly express what a given character may do and may not do.** This is where most "Constrained but free" debugging goes, and the rebuild's central task is to fix it.
 
-A letter's join behavior is governed in large part by **how the letter is physically written**, not by taste. These are structural capabilities, e.g.:
+A character's join behavior is governed in large part by **how the character is physically written**, not by taste. These are structural capabilities, e.g.:
 
-- A given letter can be _joined to_ at the x-height and _exit_ at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… _unless a particular stylistic set is enabled_, which unlocks the otherwise-illegal combination.
+- A given character can be _joined to_ at the x-height and _exit_ at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… _unless a particular stylistic set is enabled_, which unlocks the otherwise-illegal combination.
 
-So each letter (and each variant) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a variant that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
+So each character (and each variant) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a variant that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
 
 ## Contextual preference is a first-class, common pattern
 
@@ -123,23 +125,23 @@ A very common shape of "constrained but free": a stance has a **preferred-in-iso
 
 Defective pairs are the **lion's share** of the author's debugging time. Automatically _detecting_ them — so an agent (or the author) can fix them — is a top-priority requirement, arguably co-equal with readability. The two named defect archetypes so far:
 
-- **Collision / false stroke:** near-vertical letters set adjacent so the pair reads as one thick stroke.
+- **Collision / false stroke:** near-vertical characters set adjacent so the pair reads as one thick stroke.
 - **Reaching join with no acceptor:** a variant shaped to join at a height the neighbor can't accept.
 
-Both are derivable from honest letter-capability and geometry data; neither should require the author to spot it by eye.
+Both are derivable from honest character-capability and geometry data; neither should require the author to spot it by eye.
 
 ## The unit of authoring is the written variant (repertoire-first)
 
-The spec is **variants-first**, not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
+The spec is **variants-first**, not capability-matrix-first. A character is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
-- The repertoire is **finite and named** — you can read off a letter's complete set of stances and know that's all of them.
+- The repertoire is **finite and named** — you can read off a character's complete set of stances and know that's all of them.
 - The repertoire **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, stances are added, refined, or retired. "Closed" means _fully enumerated right now_, not _frozen forever_.
 
-The legal join surface (which entry/exit heights and combinations a letter supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
+The legal join surface (which entry/exit heights and combinations a character supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
 
-**Open tension:** variants-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the letter) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
+**Open tension:** variants-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the character) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
 
 ## Attachment heights
 
@@ -158,9 +160,9 @@ This is also a current bug source: getting an LLM to extend _exactly_ the things
 
 ## What a stance is — and the category error behind the accretion
 
-The author's definition: **a stance belongs in a letter's stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine way to write the letter, plus its full join capability.
+The author's definition: **a stance belongs in a character's stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine way to write the character, plus its full join capability.
 
-The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn't a _way of writing the letter_ at all — it's a **contextual join override**, most often a _suppression_: "in this particular case, don't join in _this_ manner, even though it would otherwise be permissible." The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the letter — a reliable tell.
+The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn't a _way of writing the character_ at all — it's a **contextual join override**, most often a _suppression_: "in this particular case, don't join in _this_ manner, even though it would otherwise be permissible." The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the character — a reliable tell.
 
 So the override complexity is real and (the author believes) **irreducible** — the domain plus OpenType's limits are genuinely that complex. The goal is not to delete it but to **house it correctly.** The author pushes as much intelligence as possible down into the Python; what can't go there has accreted into long override lists in `quikscript.yaml` that "smell like warts."
 
@@ -170,18 +172,18 @@ Decompose what an accretion-stance is currently doing into its real parts, each 
 
 - **A genuinely different written shape** → stays a stance (it has its own bitmap; by the definition above it _must_ be a stance). But its _triggering context_ must not be baked into its identity or name.
 - **The same shape, deformed to reach** an awkward attachment → the **deformation** axis (extend/contract), not a new stance.
-- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the letters themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
+- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the characters themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
 
 **Case in point — `qsNo.forms.alt_after_it_and_vie`:** a specialization of `qsNo.forms.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a "tighter" shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor's baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor's state**, not a new way of writing ·No. It's currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild's job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
 
 ## Locality of reference: at most two places
 
-This is a hard constraint, decided. To understand whether and how a pair of letters joins, a reader should look in **at most two places: the left letter (its bitmaps and stances) and the right letter (its bitmaps and stances).** Nothing else. There is **no separate relational file** — co-located policy wins decisively over a standalone relational layer, because a third lookup site breaks locality.
+This is a hard constraint, decided. To understand whether and how a pair of characters joins, a reader should look in **at most two places: the left character (its bitmaps and stances) and the right character (its bitmaps and stances).** Nothing else. There is **no separate relational file** — co-located policy wins decisively over a standalone relational layer, because a third lookup site breaks locality.
 
 Consequences:
 
-- **Suppression rides on one of the two letters.** "·Way·Thaw must never join" lives on either ·Way or ·Thaw, with a **weak preference for the lead (·Way)** — both because that matches how the author thinks and because it mirrors how OpenType operates left-to-right by default.
-- A relational rule is therefore a rule the _letter_ owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an _existing_ stance (or the family) carry these rules cleanly, so contextual overrides stop minting stances.
+- **Suppression rides on one of the two characters.** "·Way·Thaw must never join" lives on either ·Way or ·Thaw, with a **weak preference for the lead (·Way)** — both because that matches how the author thinks and because it mirrors how OpenType operates left-to-right by default.
+- A relational rule is therefore a rule the _character_ owns about its neighbors, not a free-floating pair object. The set algebra and conditional-selection language exist to let an _existing_ stance (or the family) carry these rules cleanly, so contextual overrides stop minting stances.
 - **One sanctioned exception:** kerning may live separately if doing so unlocks better tooling — e.g. pasting kerning data into a `<textarea>` and editing it in a small web app. Convenience of bulk editing can override strict locality for kerning specifically; the default for everything else stays two-place.
 
 ## Deformation is a parametric adjustment, authored, owned by a stance
@@ -191,14 +193,14 @@ Consequences:
 For joins, a deformation is a **parametric adjustment, not a repertoire member.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join deformations may behave differently, and that case is left open.)
 
 - **Trigger: authorial intent by default.** Extensions and contractions are _declared_. Some could be driven by detected need, but even then the **deformation amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may _propose_; the author decides the amount.
-- **Home: on a stance, lead-preferred, but flexible.** Deformations live on one or more stances (locality holds — it's still one of the two letters). The author prefers to keep them on the **left** letter, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
+- **Home: on a stance, lead-preferred, but flexible.** Deformations live on one or more stances (locality holds — it's still one of the two characters). The author prefers to keep them on the **left** character, but it's sometimes nicer to declare them on the **right**, and a single deformation may even be **split** across both sides, in part or in full.
 
 ### A mis-scoped deformation can be a symptom of an under-fleshed repertoire
 
-A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a letter** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
+A recurring bug class: a deformation directive lands on **not exactly the right set of ways to write a character** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
 
 - **Plain mis-scoping** — author or LLM error in the current YAML: the directive's target set is simply wrong, and the fix is to narrow it.
-- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the letter are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
+- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the character are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
 
 This is a direct echo of the ductus gate: when the repertoire under-distinguishes, deformation directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
@@ -215,16 +217,16 @@ This makes the review workflow's "opinion vocabulary" concrete at its floor: at 
 
 ## The readability bar: local completeness, even if the length is crazy-long
 
-The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness over minimal surface.** Reading one letter's entry top to bottom tells you everything that letter does and every join it permits or forbids. The single proviso: understanding a _pair_ may legitimately require **both** letters open at once — one letter per editor pane, two panes. That is the operational form of two-place locality.
+The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness over minimal surface.** Reading one character's entry top to bottom tells you everything that character does and every join it permits or forbids. The single proviso: understanding a _pair_ may legitimately require **both** characters open at once — one character per editor pane, two panes. That is the operational form of two-place locality.
 
 Two hard admissions:
 
 - There is a **large amount of irreducible complexity** in what this font is trying to be — true even before OpenType, whose limitations must be papered over at every step, adds its own fighting on top. The rebuild does **not** promise short or simple YAML.
-- **Long single-letter entries are accepted** — nose held — as the least-bad option. Entry length is therefore **not** evidence of a design failure.
+- **Long single-character entries are accepted** — nose held — as the least-bad option. Entry length is therefore **not** evidence of a design failure.
 
 ### So have we just re-accreted in a new costume? No — and here's the test
 
-Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named stance siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the letter does is right there) _and_ **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
+Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named stance siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the character does is right there) _and_ **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
 
 ## Stylistic sets are dual-purpose, user-facing, and they enable joins that are off by default
 
@@ -235,7 +237,7 @@ A stylistic set is **two genuinely different things** that happen to share the O
 
 **Audience:** primarily **document authors** composing text in the font, though readers are welcome to use whatever sets exist. So stylistic sets are a shipped, user-facing feature — not merely the font author's private authoring tool (even though the author uses them that way too, e.g. to satisfy an otherwise-impossible pin).
 
-**They widen what's declared-capable — so what's _allowed_ is a matrix, not a fixed set.** This is _not_ about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not allowed by default** — one no stance explicitly declared (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both _to_ and _from_ at the baseline by default — that would double the stroke back over the letter — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple through the rest of this document:
+**They widen what's declared-capable — so what's _allowed_ is a matrix, not a fixed set.** This is _not_ about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not allowed by default** — one no stance explicitly declared (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both _to_ and _from_ at the baseline by default — that would double the stroke back over the character — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple through the rest of this document:
 
 - What a join is _allowed_ to do is a function of _(left capability, right capability, **active stylistic sets**)_ — every "capability" earlier in this doc is implicitly _"under the default configuration,"_ and a stylistic set can add to the set of declared-capable joins. (Taste **vetoes** are a separate layer that sits on top of whatever is allowed; whether a stylistic set can also lift an actual veto is left open — the ·Tea case is capability, not a veto.)
 - **Pins must carry the stylistic-set dimension.** A `data-expect` assertion can pin behavior _under ssNN_, and the earlier idea of a "negotiable pin satisfiable only by enabling a stylistic set" is grounded here.
@@ -257,7 +259,7 @@ Closing the vocabulary is a load-bearing decision, serving two goals at once: a 
 
 ### Dynamic dependence is real, and it's exactly what the depth bound contains
 
-Axis 2 — the neighbor's _form/state_ — means its **resolved** stance: the one it actually took in context, not merely the stances it _could_ take. That is a **dynamic outcome**, the result of the neighbor's own resolution, and it is precisely the cascade that forces the "two of every letter" depth-2 doubling. So the spec _does_ permit rules that depend on a resolved decision — necessarily, given cases like ·It·Vie "exiting at baseline only sometimes" — and the **depth bound is the thing that keeps that dynamic dependence from cascading without limit.**
+Axis 2 — the neighbor's _stance/state_ — means its **resolved** stance: the one it actually took in context, not merely the stances it _could_ take. That is a **dynamic outcome**, the result of the neighbor's own resolution, and it is precisely the cascade that forces the "two of every character" depth-2 doubling. So the spec _does_ permit rules that depend on a resolved decision — necessarily, given cases like ·It·Vie "exiting at baseline only sometimes" — and the **depth bound is the thing that keeps that dynamic dependence from cascading without limit.**
 
 **Ligatures fit here without adding an axis.** A precomposed ligature like ·Out+Tea (which doesn't work as separate glyphs) is a **value**, not a new axis: the resolved glyph identity changes from two glyphs to one compound glyph, and that compound is a first-class repertoire member with its own entry/exit and capabilities. Predicating on "my neighbor is ·Out+Tea" is just axis 1/2 over the resolved glyph. (**Open sub-question:** whether ligature _formation itself_ is modeled as an ordinary join outcome or as a distinct substitution mechanism.)
 
@@ -270,10 +272,10 @@ Axis 2 — the neighbor's _form/state_ — means its **resolved** stance: the on
 
 Kerning is **both** a global and a per-pair fact:
 
-- **Global:** the entire Senior font looks better with _every_ letter kerned one pixel tighter — a single baseline adjustment.
+- **Global:** the entire Senior font looks better with _every_ character kerned one pixel tighter — a single baseline adjustment.
 - **Per-pair:** as in most fonts, specific pairs need their own kerning on top.
 
-It applies to joined and non-joined pairs alike. And it is **not a dumb static table** — it must be aware of _resolved forms_: ·No·Pea needs no special kerning, but ·No.alt·Pea only looks right two pixels tighter; ·No·Tea needs none, yet in ·No.alt·Tea.half·It the ·No.alt and ·Tea.half want to sit closer because the ·Tea "isn't anywhere near the baseline anymore."
+It applies to joined and non-joined pairs alike. And it is **not a dumb static table** — it must be aware of _resolved stances_: ·No·Pea needs no special kerning, but ·No.alt·Pea only looks right two pixels tighter; ·No·Tea needs none, yet in ·No.alt·Tea.half·It the ·No.alt and ·Tea.half want to sit closer because the ·Tea "isn't anywhere near the baseline anymore."
 
 These two facts seem to pull apart — stance-aware reasoning wants the full machinery, but kerning currently lives in a **separate flat file**. The separation is **purely a tooling accommodation, not a model statement**: the author doesn't trust a dependency-free, vibe-coded JavaScript editor to safely modify a deeply-nested, well-commented YAML file, whereas a flat YAML file with `---`-separated entries is "boringly reliable" for such a tool. (This is the one sanctioned exception to two-place locality, from earlier.)
 
@@ -283,11 +285,11 @@ These two facts seem to pull apart — stance-aware reasoning wants the full mac
 
 **Working hypothesis:** global tightening plus a resolved-stance-pair table suffices. If a real case ever needs context _beyond_ the resolved pair (something that changes kerning without changing either resolved stance), it would demand the richer machinery — flagged, but not expected.
 
-## How the two letters negotiate a join
+## How the two characters negotiate a join
 
-Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a letter (the stances)**, not on the letter in the abstract. In particular, **no letter ever _requires_ a join** — only a specific stance may carry a requirement (a way of writing the letter that only makes sense when it joins). So "the two letters negotiate" is shorthand for "their selected stances do." Confirmed:
+Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a character (the stances)**, not on the character in the abstract. In particular, **no character ever _requires_ a join** — only a specific stance may carry a requirement (a way of writing the character that only makes sense when it joins). So "the two characters negotiate" is shorthand for "their selected stances do." Confirmed:
 
-- **Veto is unilateral.** Either letter can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
+- **Veto is unilateral.** Either character can forbid a join, and the other gets no say. If ·Way says "never join ·Thaw," the join is dead. Suppression does not negotiate.
 - **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, and close enough that any needed extension or contraction can actually bridge them. Neither side can force a join the other can't physically accept.
 - **Precedence among permitted options is genuinely case-by-case.** It is _not_ a fixed "lead always wins." Sometimes the follower's preference should dominate; the author is confident research would surface clear follower-wins cases.
  So the model must not bake in lead-supremacy beyond a weak default.
@@ -298,9 +300,9 @@ A concrete recent example, spelled out so it stands on its own: when two stances
 
 ### When rules are incomparable (specific along different axes)
 
-Specificity only gives a _total_ order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following letter — neither nesting inside the other. The decided handling:
+Specificity only gives a _total_ order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following character — neither nesting inside the other. The decided handling:
 
-- **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
+- **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two characters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
 - **Acknowledged risk:** refusing to guess can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just _so much there_." Refuse-to-guess without a release valve could re-accrete.
 - **The release valve: named case-groups via set algebra.** The author thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author _name_ such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined stance of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit hand-recorded tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis-priority default may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
@@ -337,7 +339,7 @@ A strong, decided preference: a pin should assert the **weakest property that ca
 
 ### The combinatoric wall — and the separability that could break it
 
-The unit being pinned is, in the hard cases, a **pair in context**, and that is where the cost explodes. To lock a pair ·X·Y _regardless of surroundings_, the current setup appears to require sweeping **two of every letter before and two of every letter after** (including `space` and the zero-width non-joiner) — on the order of **46⁴ combinations**, because a neighbor's own stance can depend on _its_ neighbor, so the influence cascades. The suite already runs 2–3 minutes pinning every core at 100%, and the lock-in is not yet complete.
+The unit being pinned is, in the hard cases, a **pair in context**, and that is where the cost explodes. To lock a pair ·X·Y _regardless of surroundings_, the current setup appears to require sweeping **two of every character before and two of every character after** (including `space` and the zero-width non-joiner) — on the order of **46⁴ combinations**, because a neighbor's own stance can depend on _its_ neighbor, so the influence cascades. The suite already runs 2–3 minutes pinning every core at 100%, and the lock-in is not yet complete.
 
 The transformative win the author wants is to **provably shrink the test basis** — ideally to `46³ × 2` or fewer. The precise property that would buy this is **separability of left and right influence**: if a join's dependence on its left context is provably independent of its dependence on its right context, then sweeping the left fully (with a minimal right) and the right fully (with a minimal left) — "two-on-one-side-and-one-on-the-other, twice" — is _sufficient_, and the full left×right cross-product never needs to run. Establishing that bound (and the cascade depth behind the doubled neighbor) is a **core requirement**, not an optimization: it governs both testing cost _and_ how far a rule's conditions are allowed to reach.
 
@@ -357,7 +359,7 @@ Many of the Manual's `data-expect` assertions are word-initial, word-final, or w
 
 ### The corpus is mostly generated nonsense
 
-What gets rendered and diffed is, in the main, **generated nonsense** — synthetic letter sequences that exercise every pair (and deeper combinations). This _is_ the separability sweep from above, wearing its other hat. The reason it must be synthetic rather than real text is decisive: **most of the constraints the author wants to correct don't show up in real words at all.** The Manual's text plus its `data-expect` attributes supply many must-have constraints, but they are a **minority** — there are far more constraints _outside_ the Manual than in it. Real prose simply never visits most of the problem pairs.
+What gets rendered and diffed is, in the main, **generated nonsense** — synthetic character sequences that exercise every pair (and deeper combinations). This _is_ the separability sweep from above, wearing its other hat. The reason it must be synthetic rather than real text is decisive: **most of the constraints the author wants to correct don't show up in real words at all.** The Manual's text plus its `data-expect` attributes supply many must-have constraints, but they are a **minority** — there are far more constraints _outside_ the Manual than in it. Real prose simply never visits most of the problem pairs.
 
 Consequences that ripple through the verification story:
 
@@ -374,7 +376,7 @@ Consequences that ripple through the verification story:
 
 An important correction to a tempting oversimplification. It is _not_ "all forbidding," and the substrate is _not_ blanket-permissive. There are **two distinct levels**, with opposite default polarities:
 
-- **Capability is opt-in (explicit declaration).** By default, _no letter can join its neighbors anywhere_ — a join is possible only where a stance **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
+- **Capability is opt-in (explicit declaration).** By default, _no character can join its neighbors anywhere_ — a join is possible only where a stance **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
 - **Within declared capability, forbidding is the labor.** _Among the pairs that genuinely can join,_ the soft "more joins are better" pull applies, and the overwhelming bulk of day-to-day authoring is _negative space_ — saying "not this one" to the declared-capable joins that turn out ugly or broken.
 
 So "the project has a lot of 'saying no'" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
@@ -395,7 +397,7 @@ The balance of labor has also shifted: there _has been_ a giant amount of ugly, 
 "Broken" is defined structurally, with no appeal to taste: **a join whose rendered geometry violates a structural invariant checkable from the bitmap plus anchor metadata.** The working (closed, "for future work") set of invariants:
 
 - **Off-anchor contact** — ink touches or overlaps at a point that isn't the anchors.
-- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting variant is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next letter's ink **doesn't physically touch** where ·Out ends, or (b) the next letter was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
+- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting variant is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next character's ink **doesn't physically touch** where ·Out ends, or (b) the next character was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
 - **Height mismatch** — the two attachment heights don't meet.
 
 Two refinements that define the system's posture:
@@ -407,8 +409,8 @@ Two refinements that define the system's posture:
 
 Certain classes of ugliness carry detectable signatures and should be machine-flagged (and sometimes machine-fixed), not left to the eye:
 
-- **Off-anchor contact** — two letters touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
-- **Orientation mismatch** — some letters join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-letter property.
+- **Off-anchor contact** — two characters touching at a point that is _not_ their anchor points. This is reliably a call to add an **extension of one or more pixels** to separate them or route the contact through a real anchor — "unless something unforeseen comes up." So it's auto-_proposable_, but the "unless unforeseen" is exactly where the tooling should **ask** rather than silently apply (see the deformation discussion).
+- **Orientation mismatch** — some characters join best with **horizontal** strokes and are awkward with **vertical** ones; ·No is the classic. This generalizes the "two near-verticals read as one thick stroke" defect into a per-character property.
 
 The second case exposes a capability wrinkle: a stance's join surface isn't only _where_ it attaches (height) but _how_ — the **stroke orientation/quality** it wants at an attachment. The capability model needs that dimension, because it's what lets the machine flag orientation-mismatch ugliness instead of leaving it to taste.
 
