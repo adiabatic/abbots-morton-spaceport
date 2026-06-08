@@ -216,7 +216,7 @@ Two hard admissions:
 
 Because length is explicitly fine, the accretion smell can't be "entries are long." It is **scatter and mystery**: behavior spread across a sprawl of context-named form siblings (`*_after_it_and_vie`) or into a third relational file, and lines whose reason the author has forgotten. The recast test for a healthy entry, however long: it is **locally complete** (everything the letter does is right there) *and* **every line is explainable** — the author can say in a sentence why each one exists, with no mystery entries and no warts. A long entry that passes both is honest irreducible complexity; a long entry that fails either is accretion. The whole rebuild is the bet that the same complexity, rehoused this way, reads as the former rather than the latter.
 
-## Stylistic sets are dual-purpose, user-facing, and they widen the allowlist
+## Stylistic sets are dual-purpose, user-facing, and they enable joins that are off by default
 
 A stylistic set is **two genuinely different things** that happen to share the OpenType `ssXX` mechanism (answer: both):
 
@@ -225,9 +225,9 @@ A stylistic set is **two genuinely different things** that happen to share the O
 
 **Audience:** primarily **document authors** composing text in the font, though readers are welcome to use whatever sets exist. So stylistic sets are a shipped, user-facing feature — not merely the font author's private authoring tool (even though the author uses them that way too, e.g. to satisfy an otherwise-impossible pin).
 
-**They widen the allowlist — so what's *allowed* is a matrix, not a fixed set.** This is *not* about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not on the default allowlist** (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both *to* and *from* at the baseline by default — that would double the stroke back over the letter — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple backward through this whole document:
+**They widen what's declared-capable — so what's *allowed* is a matrix, not a fixed set.** This is *not* about un-forbidding: there's no default veto being lifted. A stylistic set simply **enables a join that is merely not allowed by default** — one no form explicitly declared (consistent with opt-in capability — nothing joins until something says it can). ·Tea does **not** join both *to* and *from* at the baseline by default — that would double the stroke back over the letter — but with a stylistic set enabled, it's allowed (and the Manual does exactly this, once). Consequences that ripple backward through this whole document:
 
-- What a join is *allowed* to do is a function of *(left capability, right capability, **active stylistic sets**)* — every "capability" earlier in this doc is implicitly *"under the default configuration,"* and a stylistic set can add to the allowlist. (Taste **vetoes** are a separate layer that sits on top of whatever is allowed; whether a stylistic set can also lift an actual veto is left open — the ·Tea case is capability, not a veto.)
+- What a join is *allowed* to do is a function of *(left capability, right capability, **active stylistic sets**)* — every "capability" earlier in this doc is implicitly *"under the default configuration,"* and a stylistic set can add to the set of declared-capable joins. (Taste **vetoes** are a separate layer that sits on top of whatever is allowed; whether a stylistic set can also lift an actual veto is left open — the ·Tea case is capability, not a veto.)
 - **Pins must carry the stylistic-set dimension.** A `data-expect` assertion can pin behavior *under ssNN*, and the earlier idea of a "negotiable pin satisfiable only by enabling a stylistic set" is grounded here.
 - **Matching the Manual exactly requires reproducing its one stylistic-set use** — so the mandatory tier itself isn't purely default-configuration; the test harness must activate the right set at that spot.
 
@@ -362,7 +362,7 @@ Consequences that ripple through the verification story:
 
 An important correction to a tempting oversimplification. It is *not* "all forbidding," and the substrate is *not* blanket-permissive. There are **two distinct levels**, with opposite default polarities:
 
-- **Capability is opt-in (allowlist).** By default, *no letter can join its neighbors anywhere* — a join is possible only where a form **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
+- **Capability is opt-in (explicit declaration).** By default, *no letter can join its neighbors anywhere* — a join is possible only where a form **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
 - **Within declared capability, forbidding is the labor.** *Among the pairs that genuinely can join,* the soft "more joins are better" pull applies, and the overwhelming bulk of day-to-day authoring is *negative space* — saying "not this one" to the declared-capable joins that turn out ugly or broken.
 
 So "the project is forbidding" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
