@@ -203,7 +203,7 @@ This resolves the consistency point. The autonomous loop can rest at **OK** (or,
 
 This makes the review workflow's "opinion vocabulary" concrete at its floor: at minimum a thumbs-up/down per surfaced change, with "don't join" available as a first-class verdict when no deformation amount satisfies.
 
-## The readability bar: local completeness, length notwithstanding
+## The readability bar: local completeness, even if the length is crazy-long
 
 The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness (A) over minimal surface (B).** Reading one letter's entry top to bottom tells you everything that letter does and every join it permits or forbids. The single proviso: understanding a *pair* may legitimately require **both** letters open at once — one letter per editor pane, two panes. That is the operational form of two-place locality.
 
