@@ -354,7 +354,7 @@ Consequences that ripple through the verification story:
 - The Manual corpus is the cheap, authoritative **must-have** subset; the generated-nonsense corpus is the **exhaustive** bulk that actually surfaces the bugs.
 - "Surfaced by default" therefore shows mostly *synthetic* combinations — which is precisely why the review application must scale to **hundreds** of decisions at a sitting, and why the success metric (machine notices, human only judges) lives or dies on that tool.
 
-## Selection is local and explainable — and the real activity is forbidding
+## Selection is local and explainable — and the real activity is saying no
 
 **Selection regime: local and explainable, decisively.** At each position the system picks the highest-priority form whose two-sided constraints are satisfiable given its neighbors, and every choice is explainable in those terms. Global join-maximization is *theoretically* possible but **rejected**, for a grounding reason: a real Quikscript writer doesn't plan far ahead either, and won't restructure a whole word just to make it marginally faster to write. The font should mirror how a human actually writes — locally. So a locally-best choice that leaves a neighbor slightly worse is *accepted*; the system never reshuffles a word for global optimality.
 
@@ -367,7 +367,7 @@ An important correction to a tempting oversimplification. It is *not* "all forbi
 - **Capability is opt-in (explicit declaration).** By default, *no letter can join its neighbors anywhere* — a join is possible only where a form **explicitly declares** the capability. This is positive declaration, the opposite of forbidding: nothing joins until you say it can.
 - **Within declared capability, forbidding is the labor.** *Among the pairs that genuinely can join,* the soft "more joins are better" pull applies, and the overwhelming bulk of day-to-day authoring is *negative space* — saying "not this one" to the declared-capable joins that turn out ugly or broken.
 
-So "the project is forbidding" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
+So "the project has a lot of 'saying no'" is true of the **selection/curation layer**, not the **capability layer**. Global optimization is out of scope at both levels; being told a better global assignment existed "might be nice" but the author doesn't expect to act on it.
 
 This reframes the entire spec. Its quality is measured chiefly by **how cleanly it lets the author forbid** — at the pair, context, and group levels — without minting forms. Two kinds of forbiddance, with very different economics:
 
