@@ -90,7 +90,7 @@ There is no single oracle. Correctness has **tiers**, and they have different so
 
 2. **Objective defects — joins that are simply broken.** Even within the permitted rule set, the shaping system can currently produce results that are _obviously_ wrong, e.g.:
    - Two near-vertical characters set immediately adjacent, so the join reads as one extra-thick stroke rather than two characters.
-   - A character drawn in a variant _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
+   - A character drawn in a stance _specially shaped to join_ at a particular height to its neighbor, when that neighbor isn't set up to accept a join at that height — a join that "reaches" for an attachment that isn't there.
    These are not matters of taste. A good design should make them either structurally impossible or automatically detected — never something the author has to catch by eye.
 
 3. **Discretionary joins — taste.** A large space remains where a join is fully _permissible_ under the rules but the author has chosen to **disallow** it anyway, because it would be awkward to write by hand or simply looks ugly. Here the authority is the author's judgment. The punch-list verdicts map onto these tiers: "wrong" = a violated mandatory join or an objective defect; "right" / "fine either way" = a discretionary call that matches taste or is simply acceptable.
@@ -119,7 +119,7 @@ A character's join behavior is governed in large part by **how the character is 
 
 - A given character can be _joined to_ at the x-height and _exit_ at the baseline, **or** the reverse (entry baseline, exit x-height) — but it **cannot** join-and-exit both at the x-height, **nor** both at the baseline… _unless a particular stylistic set is enabled_, which unlocks the otherwise-illegal combination.
 
-So each character (and each variant) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a variant that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
+So each character (and each stance) has a **join surface**: which entry heights it can accept, which exit heights it can offer, and which _combinations_ of the two are simultaneously legal — with stylistic sets able to unlock combinations that are otherwise not explicitly allowed. If this surface is modeled cleanly and honestly, two big wins follow: the shaper can never select a stance that reaches for an attachment its neighbor can't provide (that whole class of defect becomes impossible by construction), and the genuinely free choices are clearly separated from the ones that simply aren't explicitly allowed.
 
 ## Contextual preference is a first-class, common pattern
 
@@ -130,13 +130,13 @@ A very common shape of "constrained but free": a stance has a **preferred-in-iso
 Defective pairs are the **lion's share** of the author's debugging time. Automatically _detecting_ them — so an agent (or the author) can fix them — is a top-priority requirement, arguably co-equal with readability. The two named defect archetypes so far:
 
 - **Collision / false stroke:** near-vertical characters set adjacent so the pair reads as one thick stroke.
-- **Reaching join with no acceptor:** a variant shaped to join at a height the neighbor can't accept.
+- **Reaching join with no acceptor:** a stance shaped to join at a height the neighbor can't accept.
 
 Both are derivable from honest character-capability and geometry data; neither should require the author to spot it by eye.
 
-## The unit of authoring is the written variant (repertoire-first)
+## The unit of authoring is the written stance (repertoire-first)
 
-The spec is **variants-first**, not capability-matrix-first. A character is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
+The spec is **stances-first**, not capability-matrix-first. A character is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
@@ -145,7 +145,7 @@ Two qualities are essential and in tension:
 
 The legal join surface (which entry/exit heights and combinations a character supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
 
-**Open tension:** variants-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the character) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
+**Open tension:** stances-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the character) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
 
 ## Attachment heights
 
@@ -401,7 +401,7 @@ The balance of labor has also shifted: there _has been_ a giant amount of ugly, 
 "Broken" is defined structurally, with no appeal to taste: **a join whose rendered geometry violates a structural invariant checkable from the bitmap plus anchor metadata.** The working (closed, "for future work") set of invariants:
 
 - **Off-anchor contact** — ink touches or overlaps at a point that isn't the anchors.
-- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting variant is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next character's ink **doesn't physically touch** where ·Out ends, or (b) the next character was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
+- **A selected join that doesn't physically realize** — the sharpest case. If a stance is chosen _because it claims to join_ (e.g. ·Out's common x-height-connecting stance is selected), it is broken when, after all extensions and contractions are factored in, either (a) the next character's ink **doesn't physically touch** where ·Out ends, or (b) the next character was supposed to **switch to a touching bitmap and failed to.** A declared join must actually connect.
 - **Height mismatch** — the two attachment heights don't meet.
 
 Two refinements that define the system's posture:
