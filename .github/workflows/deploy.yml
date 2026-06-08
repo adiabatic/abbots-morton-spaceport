@@ -56,9 +56,9 @@ jobs:
           "
 
       - name: Prepare site
-        # The web sources (HTML, CSS, JS, SVG, icons/, DepartureMono) live in site/ already; only the freshly-built fonts need copying in.
         run: |
           cp build/*.otf build/*.woff2 site/
+          cp reference/DepartureMono-Regular.otf site/
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
