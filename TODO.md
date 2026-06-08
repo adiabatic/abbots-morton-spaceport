@@ -1,5 +1,9 @@
 # TODO
 
+## Ductus work
+
+- Literally all of them.
+
 ## Kerning
 
 - ensure kerning pairs work just as well in Quikscript Junior
