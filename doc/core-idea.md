@@ -119,14 +119,14 @@ Both are derivable from honest letter-capability and geometry data; neither shou
 
 ## The unit of authoring is the written variant (repertoire-first)
 
-The spec is **variants-first** (model B), not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written forms** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has *only these N ways* of being written and joined — no more.
+The spec is **variants-first**, not capability-matrix-first. A letter is authored as a small, **closed, explicitly-declared repertoire of written forms** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has *only these N ways* of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
 - The repertoire is **finite and named** — you can read off a letter's complete set of forms and know that's all of them.
 - The repertoire **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, forms are added, refined, or retired. "Closed" means *fully enumerated right now*, not *frozen forever*.
 
-The legal join surface (which entry/exit heights and combinations a letter supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view (model A) as a *derived, displayed* artifact while keeping authoring grounded in real written forms.
+The legal join surface (which entry/exit heights and combinations a letter supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a *derived, displayed* artifact while keeping authoring grounded in real written forms.
 
 **Open tension to resolve next:** variants-first *is* essentially today's model, and today's pain is exactly the accretion of forms. So the rebuild's success hinges on a principled answer to: *what makes a form a legitimate member of the repertoire (a real way to write the letter) versus an accretion (a form that exists only to patch one join bug)?* Without that line, "mostly B" risks walking straight back into the local maximum.
 
@@ -205,7 +205,7 @@ This makes the review workflow's "opinion vocabulary" concrete at its floor: at 
 
 ## The readability bar: local completeness, even if the length is crazy-long
 
-The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness (A) over minimal surface (B).** Reading one letter's entry top to bottom tells you everything that letter does and every join it permits or forbids. The single proviso: understanding a *pair* may legitimately require **both** letters open at once — one letter per editor pane, two panes. That is the operational form of two-place locality.
+The decided definition of "clearly-documented, easy-to-understand YAML": **local completeness over minimal surface.** Reading one letter's entry top to bottom tells you everything that letter does and every join it permits or forbids. The single proviso: understanding a *pair* may legitimately require **both** letters open at once — one letter per editor pane, two panes. That is the operational form of two-place locality.
 
 Two hard admissions:
 
@@ -218,7 +218,7 @@ Because length is explicitly fine, the accretion smell can't be "entries are lon
 
 ## Stylistic sets are dual-purpose, user-facing, and they enable joins that are off by default
 
-A stylistic set is **two genuinely different things** that happen to share the OpenType `ssXX` mechanism (answer: both):
+A stylistic set is **two genuinely different things** that happen to share the OpenType `ssXX` mechanism:
 
 - a **taste knob** — a cosmetic alternate (the loopier ·May) with no bearing on joining; and
 - a **capability unlock** — it enables joins or entry/exit combinations that are deliberately *off by default* because they're awkward-but-sometimes-wanted.
@@ -290,9 +290,9 @@ A concrete recent example, spelled out so it stands on its own: when two forms c
 
 Specificity only gives a *total* order when conditions nest. Two rules can be **incomparable** — ·Way's conditioned on word position, ·Thaw's on the following letter — neither nesting inside the other. The decided handling:
 
-- **Default: refuse to guess (option 1b).** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering (option 1c) is **rejected as the foundation** — the author is confident he'd never get such an ordering correct and complete.
-- **Acknowledged risk:** 1b can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just *so much there*." 1b without a release valve could re-accrete.
-- **The release valve: named case-groups via set algebra.** The author already thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author *name* such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined form of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit 1b tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis default (1c) may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
+- **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two letters can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
+- **Acknowledged risk:** refusing to guess can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just *so much there*." Refuse-to-guess without a release valve could re-accrete.
+- **The release valve: named case-groups via set algebra.** The author already thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author *name* such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined form of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit hand-recorded tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis-priority default may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
 ## Trusting a change
 
@@ -335,7 +335,7 @@ The transformative win the author wants is to **provably shrink the test basis**
 
 The clean theory (design-imposed separability, the cheap `46³×2` basis) is an **aspiration, not a guarantee.** The honest position:
 
-- **Regime: aspire to A, fall back to B.** The author would *like* design-imposed locality (restrict the language so the cheap basis is sufficient by construction), but reaching it is "an involved factfinding mission" and what he wants **may simply not be possible.** The accepted fallback is to deal with it emotionally and **burn CPU on exhaustive testing.**
+- **Regime: aspire to design-imposed locality, fall back to exhaustive testing.** The author would *like* design-imposed locality (restrict the language so the cheap basis is sufficient by construction), but reaching it is "an involved factfinding mission" and what he wants **may simply not be possible.** The accepted fallback is to deal with it emotionally and **burn CPU on exhaustive testing.**
 - **Genuine joint dependence exists — and it's the thing that breaks separability.** Worked case: in ·Utter·Gay·Low·It ("ugly"), the correct ·Gay form is the one that *both* gets joined-to by ·Utter at the x-height *and* joins to ·Low at the baseline. Each constraint is one-sided (entry from the left, exit to the right), but the **form is selected by priority over the *intersection*** of left-compatible and right-compatible forms — and the priority-winner of an intersection is **not** recoverable from each side's one-sided priority-winner. With a minimal right neighbor, the left sweep would pick a *different, higher-priority* ·Gay than the two-sided case demands. That is exactly why a context-specialized form like this ·Gay "might be pretty low down on a priority list": it only surfaces when both constraints bind at once. So naive left/right separability fails wherever contextual priority meets a two-sided constraint.
 - **Cascade depth is affordability-bounded, not proven.** Two-on-each-side has empirically caught bugs that one-on-each-side missed; three-on-each-side is computationally intractable for even a *single* test (hours to days). So depth-2 is the **practical ceiling we can pay for**, and its sufficiency is *hoped*, not proven.
 
