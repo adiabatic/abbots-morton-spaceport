@@ -136,7 +136,7 @@ The join vocabulary is small. The attachment heights that matter:
 
 - **baseline**
 - **x-height**
-- **y=6** — just above, used (as far as the author knows) only to connect *to* ·Ye from a handful of letters that connect to the *next* letter at the x-height
+- **y=6** — used (currently, and likely forever) only for the ·See·Pea and ·Pea·Pea joins
 - **top** — e.g. ·See·Tea joins
 
 ## Reaching often requires deformation — and deformation must be controlled
