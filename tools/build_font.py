@@ -250,7 +250,7 @@ def build_cmap14(
     if not variation_sequences:
         return None
 
-    # Author-written variation-sequence targets like `qsWay.half` predate `_synthesize_anchor_modifiers`, so the literal name no longer exists once synthesis renames the form to `qsWay.half.ex-y0`. Heal each target against the live glyph set before checking membership. Targets that map to multiple post-synthesis forms (e.g. `qsTea.half`, where neither the literal name nor a unique heal exists) are silently skipped, matching the pre-synthesis behavior.
+    # Author-written variation-sequence targets like `qsWay.half` predate `_synthesize_anchor_modifiers`, so the literal name no longer exists once synthesis renames the stance to `qsWay.half.ex-y0`. Heal each target against the live glyph set before checking membership. Targets that map to multiple post-synthesis stances (e.g. `qsTea.half`, where neither the literal name nor a unique heal exists) are silently skipped, matching the pre-synthesis behavior.
     available_names = frozenset(glyphs_def)
     family_names = family_names_from_compiled(available_names)
     uvsDict = {}
@@ -315,8 +315,8 @@ def generate_kern_fea(
     for tag_name, definition in kerning_defs.items():
         if "left_family" in definition:
             left_glyphs = expand_prefixes(definition["left_family"])
-        elif "left_form" in definition:
-            left_glyphs = expand_prefixes(definition["left_form"])
+        elif "left_stance" in definition:
+            left_glyphs = expand_prefixes(definition["left_stance"])
         elif "left" in definition:
             left_glyphs = definition["left"]
         else:
@@ -331,8 +331,8 @@ def generate_kern_fea(
             right_glyphs = [g for g in all_glyph_names if g.endswith(suffix)]
         elif "right_family" in definition:
             right_glyphs = expand_prefixes(definition["right_family"])
-        elif "right_form" in definition:
-            right_glyphs = expand_prefixes(definition["right_form"])
+        elif "right_stance" in definition:
+            right_glyphs = expand_prefixes(definition["right_stance"])
         else:
             right_glyphs = definition["right"]
         if "except_right" in definition and "right_group" not in definition:
@@ -749,7 +749,7 @@ def _namer_dot_calt_fea(
     glyph_order: list[str],
     name_to_codepoint: dict[str, int],
 ) -> str | None:
-    """Build the namer-dot `calt` for a proportional variant. The follower class is every compiled short-family form present in this variant (base forms only in Junior, base plus contextual variants in Senior), plus ligatures whose lead component is a short."""
+    """Build the namer-dot `calt` for a proportional variant. The follower class is every compiled short-family stance present in this variant (base stances only in Junior, base plus contextual variants in Senior), plus ligatures whose lead component is a short."""
     order = set(glyph_order)
     if _NAMER_DOT_LOWERED not in order or _NAMER_DOT not in order:
         return None
@@ -780,7 +780,7 @@ def build_senior_fea(
     pixel_height: int,
 ) -> str | None:
     """Emit the senior proportional feature code (curs/calt/ss…) for the given compiled join glyphs. Identical for the Regular and Bold senior members, so it is emitted once in `main()` and shared between both builds."""
-    # Author-written compiled glyph names in these override tables predate `_synthesize_anchor_modifiers` and may name forms that have since gained synthesized anchor-Y modifiers; route them through `heal_glyph_name` so the override fires against the post-synth form.
+    # Author-written compiled glyph names in these override tables predate `_synthesize_anchor_modifiers` and may name stances that have since gained synthesized anchor-Y modifiers; route them through `heal_glyph_name` so the override fires against the post-synth stance.
     senior_family_names = set(glyph_data.get("glyph_families", {}))
     senior_available_names = frozenset(join_glyphs)
 
@@ -800,9 +800,9 @@ def build_senior_fea(
     raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
     predecessor_demote_tuples = tuple(
         (
-            _heal(entry["backtrack_form"]) if "backtrack_form" in entry else None,
-            _heal(entry["predecessor_form"]),
-            _heal(entry["trigger_form"]),
+            _heal(entry["backtrack_stance"]) if "backtrack_stance" in entry else None,
+            _heal(entry["predecessor_stance"]),
+            _heal(entry["trigger_stance"]),
             _heal(entry["isolated_form"]),
         )
         for entry in raw_pred_demote
@@ -810,8 +810,8 @@ def build_senior_fea(
     raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
     trailing_demote_tuples = tuple(
         (
-            _heal(entry["leader_form"]),
-            _heal(entry["trailing_form"]),
+            _heal(entry["leader_stance"]),
+            _heal(entry["trailing_stance"]),
             _heal(entry["isolated_form"]),
         )
         for entry in raw_trailing_demote
@@ -876,7 +876,7 @@ def build_font(
     cap_height = metadata["cap_height"]
     x_height = metadata["x_height"]
 
-    # Build glyph order (must include .notdef first). For the mono build, exclude .prop glyphs entirely; the IR's per-variant filtering already keeps contextual/shaping-only forms out of mono/junior, so no name-based exclusion is needed here.
+    # Build glyph order (must include .notdef first). For the mono build, exclude .prop glyphs entirely; the IR's per-variant filtering already keeps contextual/shaping-only stances out of mono/junior, so no name-based exclusion is needed here.
     glyph_names = [
         name
         for name in glyphs_def.keys()

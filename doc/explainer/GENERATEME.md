@@ -63,7 +63,7 @@ Use a concrete example: show ·It (Short, 6px) vs. ·Tea (Tall, 9px) vs. ·Bay (
 Before getting into OpenType mechanics, explain _what_ joining means visually:
 
 a. **Entry and exit points** — every letter has a place where the pen arrives (entry) and a place where the pen leaves (exit). These happen at specific heights.
-b. **Height matching** — a letter’s exit height must match the next letter’s entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected form).
+b. **Height matching** — a letter’s exit height must match the next letter’s entry height for a smooth join. Show examples of matching (exit at baseline → entry at baseline) and mismatching (exit at x-height → no entry at x-height = no join, use the base unconnected stance).
 c. **The basic idea of cursive attachment** — the text engine slides glyphs together so their exit and entry points overlap.
 
 Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea’s exit point at the baseline meets ·Bay’s entry point at the baseline and the engine nudges them together.
@@ -73,10 +73,10 @@ Use a simple two-letter example: ·Pea followed by ·Bay. Walk through how ·Pea
 Explain that a single Quikscript letter may need different shapes depending on context:
 
 a. **Monospace vs. proportional** — the Quikscript source data defines separate `mono` and `prop` records inside each glyph family, and the Sans builds compile from the proportional side of that family
-b. **Entry/exit variants** — a letter like ·Tea might need forms that enter at the top, at the x-height, at the baseline, or not at all. Each is a separate glyph in the font.
-c. **Half-letter variants** — some Tall/Deep letters have a half-height form used when connecting to certain neighbors (e.g., ·Pea half). Explain with an example.
-d. **Alternate forms** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
-e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Quikscript concepts preserved in the source model, while other compiled names like `qsTea.en-y5.ex-y0` are generated implementation detail from family `forms` and build-time variant expansion
+b. **Entry/exit variants** — a letter like ·Tea might need stances that enter at the top, at the x-height, at the baseline, or not at all. Each is a separate glyph in the font.
+c. **Half-letter variants** — some Tall/Deep letters have a half-height stance used when connecting to certain neighbors (e.g., ·Pea half). Explain with an example.
+d. **Alternate stances** — ·Utter and ·No have alternate shapes designed to reduce pen lifts in specific contexts
+e. **Stable vs. generated names** — explain that `.alt` and `.half` are real Quikscript concepts preserved in the source model, while other compiled names like `qsTea.en-y5.ex-y0` are generated implementation detail from family `stances` and build-time variant expansion
 
 ### 4. Feature files and the OpenType pipeline
 
@@ -95,7 +95,7 @@ a. **`calt` (contextual alternates)** — the engine looks at neighboring glyphs
 - **Backward-looking rules** — “if the previous glyph exits at height Y, substitute the current glyph with a variant that enters at height Y.” Walk through a concrete example.
 - **Forward-looking rules** — “if the next glyph enters at height Y, substitute the current glyph with a variant that exits at height Y.” Walk through a concrete example.
 - **Explicit overrides** — the Quikscript family data stores context overrides under `select.before`, `select.after`, `select.not_before`, and `select.not_after`; explain how the build expands those into the specific substitution rules that override the height-based defaults.
-- **Word-final forms** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out’s final form).
+- **Word-final stances** — `calt_word_final: true` and how it triggers substitution at word boundaries (e.g., ·Out’s final stance).
 - **Rule ordering and topological sort** — briefly explain why the order of backward-looking rules matters (one substitution can create a new exit height that feeds the next rule) and how the build script uses a topological sort to get the order right.
 
 b. **Ligature substitutions inside `calt`** — when two specific letters appear in sequence, the join machinery can replace them with a single pre-drawn combined glyph. In the source model those families declare an explicit `sequence`, while the compiled glyph names still use the underscore convention (`qsDay_qsUtter`). In the current build these substitutions are emitted from the Quikscript `calt` path (`calt_liga`), not from a separate standalone `liga` feature. Mention that ligatures can themselves have cursive anchors.
@@ -115,7 +115,7 @@ b. **`kern` (kerning)** — brief mention that the font also kerns some Latin pa
 
 ### 7. Padding and spacing refinements
 
-a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a form’s `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
+a. **`extend_entry_after`** — explain how certain glyph pairs need a little extra space when joined. In the source model this lives under a stance’s `derive` block, and the build script generates the shifted entry variants at compile time. Walk through an example (e.g., ·Ye followed by ·Roe).
 b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-generates variants without entry anchors so that inserting a Zero Width Non-Joiner (U+200C) between two letters breaks the cursive chain. This is the “escape hatch” for when automatic joining is wrong.
 
 ### 8. The three font variants
@@ -123,8 +123,8 @@ b. **`.noentry` variants and ZWNJ** — explain that the Senior font auto-genera
 Tie it all together by explaining the three output fonts:
 
 a. **Mono** — fixed-width, no joining, no contextual features. Uses base glyphs only. Good for code editors and tabular display.
-b. **Junior (Sans)** — proportional, no joining. Compiles each Quikscript family’s `prop` form plus any non-contextual alternates. Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
-c. **Senior (Sans)** — proportional with full joining. Compiles each Quikscript family’s `prop` form plus contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
+b. **Junior (Sans)** — proportional, no joining. Compiles each Quikscript family’s `prop` stance plus any non-contextual alternates. Has kerning and mark positioning but no `calt` or `curs`. Good for learning Quikscript (Junior Quikscript style).
+c. **Senior (Sans)** — proportional with full joining. Compiles each Quikscript family’s `prop` stance plus contextual variants, half-letters, alternates, ligatures, padding, ZWNJ support, and cursive attachment. This is the font that produces Senior Quikscript.
 
 ### 9. Putting it all together: a worked example
 

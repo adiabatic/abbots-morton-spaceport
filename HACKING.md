@@ -33,7 +33,7 @@ When there is no active WIP list, `site/wip.json` is intentionally checked in as
 
 ## Quikscript data
 
-Quikscript uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `forms`; forms declare explicit `traits` / `modifiers`, can reuse scaffolding with `inherits`, and `select` / `derive` rules use structured family selectors plus top-level `context_sets` instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests. In VS Code, `.vscode/quikscript.schema.json` is associated with that file for hover docs and structural validation when the Red Hat YAML extension is installed.
+Quikscript uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `stances`; stances declare explicit `traits` / `modifiers`, can reuse scaffolding with `inherits`, and `select` / `derive` rules use structured family selectors plus top-level `context_sets` instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests. In VS Code, `.vscode/quikscript.schema.json` is associated with that file for hover docs and structural validation when the Red Hat YAML extension is installed.
 
 The join compiler is split across `tools/quikscript_ir.py` and `tools/quikscript_fea.py`. `tools/build_font.py` owns generic font loading/building; Quikscript family compilation and generated join transforms live in the IR module; Senior feature analysis and `curs`/gated-feature/`calt`/stylistic-set emission live together in `tools/quikscript_fea.py`.
 

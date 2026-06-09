@@ -38,7 +38,7 @@ _LIG_ENDPOINT_BYPASS: frozenset[int] = frozenset()
 
 @dataclass(frozen=True)
 class ExtensionSpec:
-    """One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single form can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each."""
+    """One rule of an `extend_*` / `contract_*` directive. `extend_exit_before` and `extend_entry_after` carry `tuple[ExtensionSpec, ...]` so a single stance can target different reaches at different followers; the `contract_*` siblings still hold at most one rule each."""
 
     by: int
     targets: tuple[str, ...]
@@ -106,11 +106,11 @@ class JoinGlyph:
     entry_explicitly_none: bool = False
     not_before_from_noentry_after: tuple[str, ...] = ()
     strip_entry_before: bool = False
-    # Marks the touch/default body among a base's competing reverse-upgrade or pair-override forms as the one that claims the no-follower (word-final) remainder. The FEA emitter sorts competing lookups by declared precedence (this flag first) instead of compiled-glyph-name order, so a follower-honest rename can't silently hand word-final to a sibling whose name happens to sort earlier. See `qsOut.exit_xheight_after_see_before_other`.
+    # Marks the touch/default body among a base's competing reverse-upgrade or pair-override stances as the one that claims the no-follower (word-final) remainder. The FEA emitter sorts competing lookups by declared precedence (this flag first) instead of compiled-glyph-name order, so a follower-honest rename can't silently hand word-final to a sibling whose name happens to sort earlier. See `qsOut.exit_xheight_after_see_before_other`.
     terminal_default: bool = False
     # Lead-component glyphs that `expand_selectors_for_ligatures` added to `before` as pre-liga proxies for a ligature whose trailing component matched the source's original selector. Each lead glyph must be followed by a specific trailing-component variant for the calt rule to fire meaningfully; without that constraint the rule over-fires whenever the lead appears alone (e.g., qsIt' qsDay alone, when qsDay isn't about to become qsDay_qsUtter). `_emit_fwd_pairs` splits these glyphs out of the bulk lookahead into per-lead two-position rules. Keyed by lead glyph name, each value is the trailing-component family base name(s) one of whose variants must follow.
     before_lig_lead_followups: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    # Set (to N) on a backward-entry-upgrade target form to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this form (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the `ex-ext-N` variant when a glyph that literally enters at the form's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup form, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
+    # Set (to N) on a backward-entry-upgrade target stance to extend its exit by N pixels, gated on the predecessor that supplied the entry join. The FEA emitter's final `calt_when_entered_*` lookup matches this stance (and its entry-extension siblings) directly — they only ever appear after the entry join — and swaps in the `ex-ext-N` variant when a glyph that literally enters at the stance's own exit Y follows. Unlike `extend_exit_before`, it never routes through the bare pre-lookup stance, so the extension can't leak onto the word-initial bare glyph (see `qsMay.entry_baseline`).
     extend_exit_when_entered: int | None = None
 
     @property
@@ -259,7 +259,7 @@ def _merge_family_records(base: dict[str, Any], override: dict[str, Any]) -> dic
             for nested_key, nested_value in value.items():
                 if nested_value is None:
                     if key == "anchors":
-                        # Preserve None as an explicit opt-out sentinel so downstream code can distinguish "this form declares no entry/exit" from "this form said nothing about entry/exit". Drives entry_explicitly_none.
+                        # Preserve None as an explicit opt-out sentinel so downstream code can distinguish "this stance declares no entry/exit" from "this stance said nothing about entry/exit". Drives entry_explicitly_none.
                         merged[key][nested_key] = None
                     else:
                         merged[key].pop(nested_key, None)
@@ -289,18 +289,18 @@ def _resolve_family_record(
         return cache[record_name]
     if record_name in stack:
         cycle = " -> ".join([*stack, record_name])
-        raise ValueError(f"Cyclic form inheritance in {family_name}: {cycle}")
+        raise ValueError(f"Cyclic stance inheritance in {family_name}: {cycle}")
 
     records = {}
     if family_def.get("mono"):
         records["mono"] = family_def["mono"]
     if family_def.get("prop"):
         records["prop"] = family_def["prop"]
-    records.update(family_def.get("forms", {}))
+    records.update(family_def.get("stances", {}))
 
     raw = records.get(record_name)
     if raw is None:
-        raise ValueError(f"Unknown form '{record_name}' in glyph family '{family_name}'")
+        raise ValueError(f"Unknown stance '{record_name}' in glyph family '{family_name}'")
 
     raw_derive = raw.get("derive") if isinstance(raw, dict) else None
     explicit_null_derive_keys: set[str] = (
@@ -356,7 +356,7 @@ def _resolve_family_record(
     if family_derive:
         applicable = _select_applicable_family_derive(
             family_derive,
-            form_anchors=resolved.get("anchors", {}) or {},
+            stance_anchors=resolved.get("anchors", {}) or {},
             explicit_null_keys=explicit_null_derive_keys,
             glyph_families=glyph_families,
         )
@@ -378,10 +378,10 @@ def _anchor_ys(anchor: Any) -> tuple[int, ...]:
     return ()
 
 
-def _form_anchor_ys(form_anchors: dict[str, Any]) -> tuple[set[int], set[int]]:
-    entry_ys = set(_anchor_ys(form_anchors.get("entry")))
-    entry_ys.update(_anchor_ys(form_anchors.get("entry_curs_only")))
-    exit_ys = set(_anchor_ys(form_anchors.get("exit")))
+def _stance_anchor_ys(stance_anchors: dict[str, Any]) -> tuple[set[int], set[int]]:
+    entry_ys = set(_anchor_ys(stance_anchors.get("entry")))
+    entry_ys.update(_anchor_ys(stance_anchors.get("entry_curs_only")))
+    exit_ys = set(_anchor_ys(stance_anchors.get("exit")))
     return entry_ys, exit_ys
 
 
@@ -393,7 +393,7 @@ def _collect_family_anchor_ys(
         records["mono"] = family_def["mono"]
     if family_def.get("prop"):
         records["prop"] = family_def["prop"]
-    records.update(family_def.get("forms", {}) or {})
+    records.update(family_def.get("stances", {}) or {})
 
     entry_ys: set[int] = set()
     exit_ys: set[int] = set()
@@ -431,7 +431,7 @@ def _collect_family_anchor_ys(
 def _filter_targets_by_reachability(
     targets: list[Any] | tuple[Any, ...],
     *,
-    form_ys: set[int],
+    stance_ys: set[int],
     glyph_families: dict[str, Any],
     target_anchor: str,
 ) -> list[Any]:
@@ -447,7 +447,7 @@ def _filter_targets_by_reachability(
             continue
         entry_ys, exit_ys = _collect_family_anchor_ys(target_def)
         target_ys = entry_ys if target_anchor == "entry" else exit_ys
-        if form_ys & target_ys:
+        if stance_ys & target_ys:
             kept.append(target)
     return kept
 
@@ -455,7 +455,7 @@ def _filter_targets_by_reachability(
 def _filter_extension_rules_by_reachability(
     value: Any,
     *,
-    form_ys: set[int],
+    stance_ys: set[int],
     glyph_families: dict[str, Any],
     target_anchor: str,
 ) -> list[dict[str, Any]] | dict[str, Any] | None:
@@ -464,7 +464,7 @@ def _filter_extension_rules_by_reachability(
     for rule in raw_rules:
         kept_targets = _filter_targets_by_reachability(
             rule.get("targets", ()),
-            form_ys=form_ys,
+            stance_ys=stance_ys,
             glyph_families=glyph_families,
             target_anchor=target_anchor,
         )
@@ -480,11 +480,11 @@ def _filter_extension_rules_by_reachability(
 def _select_applicable_family_derive(
     family_derive: dict[str, Any],
     *,
-    form_anchors: dict[str, Any],
+    stance_anchors: dict[str, Any],
     explicit_null_keys: set[str],
     glyph_families: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    form_entry_ys, form_exit_ys = _form_anchor_ys(form_anchors)
+    stance_entry_ys, stance_exit_ys = _stance_anchor_ys(stance_anchors)
 
     applicable: dict[str, Any] = {}
     for key, value in family_derive.items():
@@ -496,33 +496,33 @@ def _select_applicable_family_derive(
             continue
 
         if key == "extend_exit_before":
-            if not form_exit_ys:
+            if not stance_exit_ys:
                 continue
             kept_rules = _filter_extension_rules_by_reachability(
                 value,
-                form_ys=form_exit_ys,
+                stance_ys=stance_exit_ys,
                 glyph_families=glyph_families,
                 target_anchor="entry",
             )
             if kept_rules is not None:
                 applicable[key] = kept_rules
         elif key == "extend_entry_after":
-            if not form_entry_ys:
+            if not stance_entry_ys:
                 continue
             kept_rules = _filter_extension_rules_by_reachability(
                 value,
-                form_ys=form_entry_ys,
+                stance_ys=stance_entry_ys,
                 glyph_families=glyph_families,
                 target_anchor="exit",
             )
             if kept_rules is not None:
                 applicable[key] = kept_rules
         elif key == "contract_exit_before":
-            if not form_exit_ys:
+            if not stance_exit_ys:
                 continue
             kept_targets = _filter_targets_by_reachability(
                 value.get("targets", ()),
-                form_ys=form_exit_ys,
+                stance_ys=stance_exit_ys,
                 glyph_families=glyph_families,
                 target_anchor="entry",
             )
@@ -530,11 +530,11 @@ def _select_applicable_family_derive(
                 continue
             applicable[key] = {**deepcopy(value), "targets": kept_targets}
         elif key == "contract_entry_after":
-            if not form_entry_ys:
+            if not stance_entry_ys:
                 continue
             kept_targets = _filter_targets_by_reachability(
                 value.get("targets", ()),
-                form_ys=form_entry_ys,
+                stance_ys=stance_entry_ys,
                 glyph_families=glyph_families,
                 target_anchor="exit",
             )
@@ -542,13 +542,13 @@ def _select_applicable_family_derive(
                 continue
             applicable[key] = {**deepcopy(value), "targets": kept_targets}
         elif key == "extend_exit_before_gated":
-            if not form_exit_ys or not isinstance(value, dict):
+            if not stance_exit_ys or not isinstance(value, dict):
                 continue
             kept_gated: dict[str, list[Any]] = {}
             for tag, refs in value.items():
                 kept_refs = _filter_targets_by_reachability(
                     refs or (),
-                    form_ys=form_exit_ys,
+                    stance_ys=stance_exit_ys,
                     glyph_families=glyph_families,
                     target_anchor="entry",
                 )
@@ -562,20 +562,20 @@ def _select_applicable_family_derive(
     return applicable
 
 
-def _is_contextual_family_form(form_def: dict[str, Any], *, is_base_record: bool = False) -> bool:
-    contextual = form_def.get("contextual")
+def _is_contextual_family_stance(stance_def: dict[str, Any], *, is_base_record: bool = False) -> bool:
+    contextual = stance_def.get("contextual")
     if contextual is not None:
         return bool(contextual)
     if is_base_record:
         return False
-    if form_def.get("traits"):
+    if stance_def.get("traits"):
         return True
-    if form_def.get("select") or form_def.get("derive"):
+    if stance_def.get("select") or stance_def.get("derive"):
         return True
-    anchors = form_def.get("anchors", {})
+    anchors = stance_def.get("anchors", {})
     if any(key in anchors for key in ("entry", "entry_curs_only", "exit")):
         return True
-    return any(key in form_def for key in ("shape", "bitmap"))
+    return any(key in stance_def for key in ("shape", "bitmap"))
 
 
 def _validate_source_trait(
@@ -668,7 +668,7 @@ def _normalize_source_modifiers(
     return tuple(modifiers)
 
 
-# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two forms whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-form name; downstream variant generation (`.noentry`, `.en-ext-1`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
+# CFF1 truncates PostScript names to 63 bytes when read by HarfBuzz, so two stances whose names share the same 63-byte prefix collide at shaping time. The cap here is conservative — it only governs the base-stance name; downstream variant generation (`.noentry`, `.en-ext-1`, …) may still push specific variants past the limit, but those variants are typically not the ones HarfBuzz routes a plain-text shape to. If a real shaping collision shows up at a tighter budget, lower this value.
 _SYNTHESIZED_NAME_LENGTH_CAP = 63
 
 
@@ -676,9 +676,9 @@ def _synthesize_anchor_modifiers(
     anchors: dict[str, Any] | None,
     authored: Sequence[str],
 ) -> tuple[str, ...]:
-    """Fill in en-<label> / ex-<label> modifiers derived from the resolved form's anchors.
+    """Fill in en-<label> / ex-<label> modifiers derived from the resolved stance's anchors.
 
-    Fires on every form: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `en-<label>` / `ex-<label>` modifier is added to the compiled name. Trait-only forms (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the form joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
+    Fires on every stance: whenever the resolved entry/exit anchor lands on a Y with a known label in `_EXTENDED_HEIGHT_LABELS`, the matching `en-<label>` / `ex-<label>` modifier is added to the compiled name. Trait-only stances (`qsNo.alt`, `qsTea.half`, etc.) pick up the anchor-Y modifiers too, so the compiled name always reflects where the stance joins. Legacy literal references to the pre-synthesis name (in YAML overrides or curated tables) are routed through `_heal_renamed_selector` / `heal_glyph_name`.
 
     The Y→label map is `_EXTENDED_HEIGHT_LABELS`. An author-written `en-<something>-at-<Y>` (or `ex-` equivalent) suppresses the bare label on that side, since the qualifier already encodes the Y. Any author copy of a synthesized token is deduped so the final tuple matches the canonical order `[en-<label>, ex-<label>, *remaining_author]`.
     """
@@ -842,15 +842,15 @@ def _heal_renamed_selector(
     family_names: set[str],
     available_names: frozenset[str] | None,
 ) -> str:
-    """When a selector references a form by its pre-synthesis compiled name, find the post-synthesis form whose (traits, modifiers) supersets the selector's and return its name instead.
+    """When a selector references a stance by its pre-synthesis compiled name, find the post-synthesis stance whose (traits, modifiers) supersets the selector's and return its name instead.
 
-    Without this, a YAML selector like `{family: qsOut, modifiers: [ex-y5, ex-ext-1]}` keeps constructing `qsOut.ex-y5.ex-ext-1` even after `_synthesize_anchor_modifiers` has renamed the underlying form to `qsOut.en-y0.ex-y5`. The selector is a CONSTRAINT — its modifier list is the minimum the matching form must carry.
+    Without this, a YAML selector like `{family: qsOut, modifiers: [ex-y5, ex-ext-1]}` keeps constructing `qsOut.ex-y5.ex-ext-1` even after `_synthesize_anchor_modifiers` has renamed the underlying stance to `qsOut.en-y0.ex-y5`. The selector is a CONSTRAINT — its modifier list is the minimum the matching stance must carry.
 
     Two passes:
 
-    1. Treat the selector's full modifier set as a constraint and look for a post-synth form whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored forms that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [ex-ext-1]` on a form with `exit: […, 0]` becomes `qsX.ex-y0.ex-ext-1`).
+    1. Treat the selector's full modifier set as a constraint and look for a post-synth stance whose own full modifier set supersets it, with the extras only being synthesized anchor-Y tokens. This catches authored stances that carry runtime-extension modifiers in their YAML and got an anchor-Y added by synthesis (`modifiers: [ex-ext-1]` on a stance with `exit: […, 0]` becomes `qsX.ex-y0.ex-ext-1`).
 
-    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `ex-ext-1`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base forms we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
+    2. If pass 1 finds nothing, split off any runtime-extension modifier (e.g. `ex-ext-1`) from the selector and search again over base modifiers only — since the extended variants haven't been generated at selector-resolution time. Re-attach the extensions to the healed base name in the original order. Among compatible base stances we pick the one with the fewest extra modifiers (the "closest" match) so a bare-modifier selector doesn't accidentally grab an extension/contraction variant.
     """
     if available_names is None or candidate in available_names:
         return candidate
@@ -887,7 +887,7 @@ def _heal_renamed_selector(
         if len(tied) > 1:
             raise ValueError(
                 f"Selector for {target_family} with traits {list(traits)!r} modifiers {list(modifiers)!r} "
-                f"matches multiple post-synthesis forms equally ({sorted(tied)}); add a disambiguator."
+                f"matches multiple post-synthesis stances equally ({sorted(tied)}); add a disambiguator."
             )
         return tied[0]
 
@@ -919,7 +919,7 @@ def _heal_renamed_selector(
             continue
         if not (selector_base <= name_base_set):
             continue
-        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate form differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `ex-noentry` variant.
+        # The healer's job is specifically to absorb the rename caused by `_synthesize_anchor_modifiers`: the candidate stance differs from the selector only by tokens that synthesis would have inserted. Refuse matches where the extra modifiers go beyond that vocabulary so a bare-anchor-Y selector doesn't accidentally pick up a semantically-distinct sibling like an `ex-noentry` variant.
         extra_modifiers = name_base_set - selector_base
         if not extra_modifiers <= _SYNTHESIZED_MODIFIER_TOKENS:
             continue
@@ -936,7 +936,7 @@ def _heal_renamed_selector(
         tied_names = [entry[1] for entry in tied]
         raise ValueError(
             f"Selector for {target_family} with traits {list(traits)!r} modifiers {list(modifiers)!r} "
-            f"matches multiple post-synthesis forms equally ({tied_names}); add a disambiguator."
+            f"matches multiple post-synthesis stances equally ({tied_names}); add a disambiguator."
         )
 
     _, _, healed_traits, healed_base = tied[0]
@@ -952,9 +952,9 @@ def heal_glyph_name(
     family_names: set[str],
     available_names: frozenset[str] | set[str],
 ) -> str:
-    """Heal a bare compiled glyph name string written before `_synthesize_anchor_modifiers` renamed its underlying form.
+    """Heal a bare compiled glyph name string written before `_synthesize_anchor_modifiers` renamed its underlying stance.
 
-    Used by `build_font.py` for author-written name references in `predecessor_demote_overrides` / `trailing_demote_overrides` / `restore_isolated_form_overrides` and by curated tables like `_PENDING_BK_ENTRY_GUARDS` that name compiled forms by literal string instead of going through selector resolution. The logic mirrors `_heal_renamed_selector`: parse the name, look it up, and if missing find the post-synth form whose modifiers superset it (modulo `_SYNTHESIZED_MODIFIER_TOKENS`).
+    Used by `build_font.py` for author-written name references in `predecessor_demote_overrides` / `trailing_demote_overrides` / `restore_isolated_form_overrides` and by curated tables like `_PENDING_BK_ENTRY_GUARDS` that name compiled stances by literal string instead of going through selector resolution. The logic mirrors `_heal_renamed_selector`: parse the name, look it up, and if missing find the post-synth stance whose modifiers superset it (modulo `_SYNTHESIZED_MODIFIER_TOKENS`).
     """
     if not isinstance(available_names, frozenset):
         available_names = frozenset(available_names)
@@ -1106,7 +1106,7 @@ def _check_select_family_overlap(
     select: dict[str, Any],
     *,
     family_name: str,
-    form_name: str | None,
+    stance_name: str | None,
 ) -> None:
     def _literal_families(values) -> set[str]:
         if not isinstance(values, list):
@@ -1123,7 +1123,7 @@ def _check_select_family_overlap(
                     families.add(fam)
         return families
 
-    context = f"form {form_name!r}" if form_name else "base record"
+    context = f"stance {stance_name!r}" if stance_name else "base record"
     for positive_key, negative_key in (("before", "not_before"), ("after", "not_after")):
         positive = _literal_families(select.get(positive_key))
         negative = _literal_families(select.get(negative_key))
@@ -1133,17 +1133,17 @@ def _check_select_family_overlap(
             raise ValueError(
                 f"{family_name} {context}: select.{positive_key} and "
                 f"select.{negative_key} both list family {family_list}; "
-                f"a single form cannot list the same family in both a "
+                f"a single stance cannot list the same family in both a "
                 f"positive and a negative selector"
             )
 
 
-def _family_form_to_glyph_def(
+def _family_stance_to_glyph_def(
     family_name: str,
     family_def: dict[str, Any],
-    form_def: dict[str, Any],
+    stance_def: dict[str, Any],
     *,
-    form_name: str | None = None,
+    stance_name: str | None = None,
     contextual: bool,
     family_names: set[str],
     context_sets: dict[str, list[Any]],
@@ -1151,8 +1151,8 @@ def _family_form_to_glyph_def(
 ) -> GlyphDef:
     glyph_def: GlyphDef = {}
 
-    if "bitmap" in form_def:
-        glyph_def["bitmap"] = deepcopy(form_def["bitmap"])
+    if "bitmap" in stance_def:
+        glyph_def["bitmap"] = deepcopy(stance_def["bitmap"])
 
     for key in (
         "y_offset",
@@ -1167,10 +1167,10 @@ def _family_form_to_glyph_def(
         "top",
         "bottom",
     ):
-        if key in form_def:
-            glyph_def[key] = deepcopy(form_def[key])
+        if key in stance_def:
+            glyph_def[key] = deepcopy(stance_def[key])
 
-    anchors = form_def.get("anchors", {})
+    anchors = stance_def.get("anchors", {})
     if "entry" in anchors:
         glyph_def["cursive_entry"] = deepcopy(anchors["entry"])
     if "entry_curs_only" in anchors:
@@ -1180,8 +1180,8 @@ def _family_form_to_glyph_def(
     if "exit_ink_y" in anchors:
         glyph_def["cursive_exit_ink_y"] = deepcopy(anchors["exit_ink_y"])
 
-    select = form_def.get("select", {})
-    _check_select_family_overlap(select, family_name=family_name, form_name=form_name)
+    select = stance_def.get("select", {})
+    _check_select_family_overlap(select, family_name=family_name, stance_name=stance_name)
     select_map = {
         "after": "calt_after",
         "before": "calt_before",
@@ -1195,12 +1195,12 @@ def _family_form_to_glyph_def(
                 family_names,
                 context_sets=context_sets,
                 context_family=family_name,
-                context_label=f"form {form_name!r}" if form_name else "base record",
+                context_label=f"stance {stance_name!r}" if stance_name else "base record",
                 field_name=source_key,
                 available_names=available_names,
             )
 
-    # When a form mixes `after: [{context_set: …}]` with `not_after: [{family: X}]` (and likewise for `before` / `not_before`), the context_set's expansion can include the negatively-listed family; subtract it now so downstream emitters can treat `after` as a clean trigger list. The build's literal-overlap check rejects the case where both lists name the same family directly, so we only have to handle the context_set-vs-literal mismatch here.
+    # When a stance mixes `after: [{context_set: …}]` with `not_after: [{family: X}]` (and likewise for `before` / `not_before`), the context_set's expansion can include the negatively-listed family; subtract it now so downstream emitters can treat `after` as a clean trigger list. The build's literal-overlap check rejects the case where both lists name the same family directly, so we only have to handle the context_set-vs-literal mismatch here.
     for positive_key, negative_key in (
         ("calt_after", "calt_not_after"),
         ("calt_before", "calt_not_before"),
@@ -1213,7 +1213,7 @@ def _family_form_to_glyph_def(
             if filtered != tuple(positive):
                 glyph_def[positive_key] = filtered
 
-    derive = form_def.get("derive", {})
+    derive = stance_def.get("derive", {})
     derive_map = {
         "noentry_after": "noentry_after",
         "reverse_upgrade_from": "reverse_upgrade_from",
@@ -1226,7 +1226,7 @@ def _family_form_to_glyph_def(
                 family_names,
                 context_sets=context_sets,
                 context_family=family_name,
-                context_label=f"form {form_name!r}" if form_name else "base record",
+                context_label=f"stance {stance_name!r}" if stance_name else "base record",
                 field_name=source_key,
                 available_names=available_names,
             )
@@ -1246,7 +1246,7 @@ def _family_form_to_glyph_def(
                 family_names,
                 context_sets=context_sets,
                 context_family=family_name,
-                context_label=f"form {form_name!r}" if form_name else "base record",
+                context_label=f"stance {stance_name!r}" if stance_name else "base record",
                 field_name=key,
                 available_names=available_names,
             )
@@ -1265,7 +1265,7 @@ def _family_form_to_glyph_def(
                 family_names,
                 context_sets=context_sets,
                 context_family=family_name,
-                context_label=f"form {form_name!r}" if form_name else "base record",
+                context_label=f"stance {stance_name!r}" if stance_name else "base record",
                 field_name=key,
                 available_names=available_names,
             )
@@ -1281,7 +1281,7 @@ def _family_form_to_glyph_def(
                     family_names,
                     context_sets=context_sets,
                     context_family=family_name,
-                    context_label=f"form {form_name!r}" if form_name else "base record",
+                    context_label=f"stance {stance_name!r}" if stance_name else "base record",
                     field_name="extend_exit_before_gated",
                     available_names=available_names,
                 )
@@ -1292,28 +1292,28 @@ def _family_form_to_glyph_def(
     if when_entered is not None:
         glyph_def["extend_exit_when_entered"] = int(when_entered["by"])
 
-    revert_feature = form_def.get("revert_feature")
+    revert_feature = stance_def.get("revert_feature")
     if revert_feature is not None:
         glyph_def["revert_feature"] = revert_feature
 
-    gate_feature = form_def.get("gate_feature_behind")
+    gate_feature = stance_def.get("gate_feature_behind")
     if gate_feature is not None:
         glyph_def["gate_feature"] = gate_feature
 
-    replaces_family_feature = form_def.get("replaces_family_feature")
+    replaces_family_feature = stance_def.get("replaces_family_feature")
     if replaces_family_feature is not None:
         glyph_def["replaces_family_feature"] = replaces_family_feature
 
-    if form_def.get("strip_entry_before"):
+    if stance_def.get("strip_entry_before"):
         glyph_def["strip_entry_before"] = True
 
-    if form_def.get("terminal_default"):
+    if stance_def.get("terminal_default"):
         glyph_def["terminal_default"] = True
 
     return glyph_def
 
 
-def _iter_compiled_family_forms(
+def _iter_compiled_family_stances(
     glyph_families: dict[str, Any],
     variant: str,
     context_sets: dict[str, list[Any]] | None = None,
@@ -1340,7 +1340,7 @@ def _iter_compiled_family_forms(
             yield {
                 "family_name": family_name,
                 "family_def": family_def,
-                "form_def": _resolve_family_record(
+                "stance_def": _resolve_family_record(
                     family_name,
                     family_def,
                     base_record_name,
@@ -1348,7 +1348,7 @@ def _iter_compiled_family_forms(
                     [],
                     glyph_families=glyph_families,
                 ),
-                "form_name": None,
+                "stance_name": None,
                 "output_name": family_name,
                 "contextual": False,
                 "traits": (),
@@ -1356,11 +1356,11 @@ def _iter_compiled_family_forms(
                 "authored_modifiers": (),
             }
 
-        for form_name in family_def.get("forms", {}):
+        for stance_name in family_def.get("stances", {}):
             resolved = _resolve_family_record(
                 family_name,
                 family_def,
-                form_name,
+                stance_name,
                 cache,
                 [],
                 glyph_families=glyph_families,
@@ -1368,22 +1368,22 @@ def _iter_compiled_family_forms(
             traits = _normalize_source_traits(
                 resolved.get("traits", ()),
                 family_name=family_name,
-                context=f"form {form_name!r}",
+                context=f"stance {stance_name!r}",
             )
             authored_modifiers = _normalize_source_modifiers(
                 resolved.get("modifiers", ()),
                 family_name=family_name,
-                context=f"form {form_name!r}",
+                context=f"stance {stance_name!r}",
             )
             modifiers = _synthesize_anchor_modifiers(resolved.get("anchors", {}), authored_modifiers)
             output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if len(output_name) > _SYNTHESIZED_NAME_LENGTH_CAP and modifiers != authored_modifiers:
-                # Synthesis would push the compiled base name past HarfBuzz's 63-byte name budget; two such names would become indistinguishable to anything that inspects glyph names. Keep the author's name so shaping can still route through this form distinctly.
+                # Synthesis would push the compiled base name past HarfBuzz's 63-byte name budget; two such names would become indistinguishable to anything that inspects glyph names. Keep the author's name so shaping can still route through this stance distinctly.
                 modifiers = authored_modifiers
                 output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
             if output_name == family_name:
                 raise ValueError(
-                    f"Glyph family '{family_name}' form '{form_name}' must declare traits or modifiers"
+                    f"Glyph family '{family_name}' stance '{stance_name}' must declare traits or modifiers"
                 )
             variants = set(resolved.get("variants", ()))
             if variant == "mono":
@@ -1393,16 +1393,16 @@ def _iter_compiled_family_forms(
                 if variant not in variants:
                     continue
             else:
-                contextual = _is_contextual_family_form(resolved)
+                contextual = _is_contextual_family_stance(resolved)
                 if not is_senior and contextual:
                     continue
             yield {
                 "family_name": family_name,
                 "family_def": family_def,
-                "form_def": resolved,
-                "form_name": form_name,
+                "stance_def": resolved,
+                "stance_name": stance_name,
                 "output_name": output_name,
-                "contextual": _is_contextual_family_form(resolved),
+                "contextual": _is_contextual_family_stance(resolved),
                 "traits": traits,
                 "modifiers": modifiers,
                 "authored_modifiers": authored_modifiers,
@@ -1421,19 +1421,19 @@ def compile_glyph_families(
     family_names = set(glyph_families)
     context_sets = context_sets or {}
 
-    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis form (e.g. `qsOut.ex-y5`) to the post-synthesis form that supersets it (`qsOut.en-y0.ex-y5`).
-    records = list(_iter_compiled_family_forms(glyph_families, variant, context_sets=context_sets))
+    # Materialize records before resolving selectors so superset-matching in `_resolve_family_selector_name` can adapt selectors that name a pre-synthesis stance (e.g. `qsOut.ex-y5`) to the post-synthesis stance that supersets it (`qsOut.en-y0.ex-y5`).
+    records = list(_iter_compiled_family_stances(glyph_families, variant, context_sets=context_sets))
     available_names = frozenset(record["output_name"] for record in records)
 
     for record in records:
         output_name = record["output_name"]
         if output_name in compiled:
             raise ValueError(f"Duplicate compiled glyph name {output_name!r}")
-        compiled[output_name] = _family_form_to_glyph_def(
+        compiled[output_name] = _family_stance_to_glyph_def(
             record["family_name"],
             record["family_def"],
-            record["form_def"],
-            form_name=record["form_name"],
+            record["stance_def"],
+            stance_name=record["stance_name"],
             contextual=record["contextual"],
             family_names=family_names,
             context_sets=context_sets,
@@ -1568,7 +1568,7 @@ def _glyph_def_to_join_glyph(
     resolved_modifiers = (
         tuple(modifiers) if modifiers is not None else tuple(_glyph_name_modifiers(glyph_name))
     )
-    # `is_entry_variant` semantically means "the author chose to author this form as an entry-side restriction"; an `_synthesize_anchor_modifiers` insertion shouldn't flip it. When the caller can supply the pre-synthesis modifier list, use that — otherwise fall back to the resolved modifiers, which preserves the legacy behavior for callers that never touched synthesis.
+    # `is_entry_variant` semantically means "the author chose to author this stance as an entry-side restriction"; an `_synthesize_anchor_modifiers` insertion shouldn't flip it. When the caller can supply the pre-synthesis modifier list, use that — otherwise fall back to the resolved modifiers, which preserves the legacy behavior for callers that never touched synthesis.
     classifier_source = tuple(authored_modifiers) if authored_modifiers is not None else resolved_modifiers
     resolved_contextual = _is_contextual_variant(glyph_name) if contextual is None else bool(contextual)
     resolved_is_noentry = ("noentry" in resolved_modifiers) if is_noentry is None else bool(is_noentry)
@@ -2144,7 +2144,7 @@ def derive_join_glyph(
     resolved_extend_exit_before_gated = (
         source.extend_exit_before_gated if extend_exit_before_gated is _UNSET else extend_exit_before_gated
     )
-    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.ex-ext-1` / `.en-ext-1` / `.noentry` siblings would risk re-processing the already-extended form.
+    # Clear on derived variants by default: the directive is meant only for the authored backward-upgrade target. Letting it ride along onto `.ex-ext-1` / `.en-ext-1` / `.noentry` siblings would risk re-processing the already-extended stance.
     resolved_extend_exit_when_entered = (
         None if extend_exit_when_entered is _UNSET else extend_exit_when_entered
     )
@@ -2161,7 +2161,7 @@ def derive_join_glyph(
     )
     resolved_noentry_for = source.noentry_for if noentry_for is _UNSET else noentry_for
 
-    # When the caller explicitly sets `after` (or `before`) but lets the negative selector inherit from `source`, drop any inherited `not_after` / `not_before` family that overlaps the explicit positive list. The explicit selector is the form's reason to exist; an inherited negative for the same family would silently suppress it. Extension generators (e.g. `_add_entry_extension_variants`) hit this: `qsDay.half.en-ext-1` gets `after = (qsTea, qsYe, …)` from the `extend_entry_after` directive while inheriting `qsDay.half`'s `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
+    # When the caller explicitly sets `after` (or `before`) but lets the negative selector inherit from `source`, drop any inherited `not_after` / `not_before` family that overlaps the explicit positive list. The explicit selector is the stance's reason to exist; an inherited negative for the same family would silently suppress it. Extension generators (e.g. `_add_entry_extension_variants`) hit this: `qsDay.half.en-ext-1` gets `after = (qsTea, qsYe, …)` from the `extend_entry_after` directive while inheriting `qsDay.half`'s `not_after = (qsTea, qsYe, qsWay)`, leaving `not_after = (qsWay,)`.
     if (
         after is not _UNSET
         and not_after is _UNSET
@@ -2919,7 +2919,7 @@ def _contraction_source_matches_after(
 ) -> bool:
     """True if the contraction source belongs in an extended receiver's after-list.
 
-    A receiver variant whose `extended_entry_suffix` is set has a bitmap authored for a specific set of left-context families/forms (the receiver's `extend_entry_after.targets`). The trim sibling is only meaningful when the contracting source is one of those — otherwise the trimmed bitmap geometry doesn't correspond to the actual left context the trim will fire in.
+    A receiver variant whose `extended_entry_suffix` is set has a bitmap authored for a specific set of left-context families/stances (the receiver's `extend_entry_after.targets`). The trim sibling is only meaningful when the contracting source is one of those — otherwise the trimmed bitmap geometry doesn't correspond to the actual left context the trim will fire in.
     """
     if source_name in after_tuple:
         return True
@@ -3036,7 +3036,7 @@ def expand_selectors_for_ligatures(
 
     `before:` / `gated_before:` are forward-context lookups in `calt`, which runs before `calt_liga` collapses sequences into ligature glyphs. So a selector that names a ligature's second (or later) component misses, because the immediate next glyph in the pre-liga stream is the ligature's *first* component. Likewise backward-context `after:` lookups only see the ligature's *last* component pre-liga.
 
-    This pass adds the missing endpoints so the YAML can stay declarative ("fire before qsUtter") and stay correct as new ligatures land. Each candidate addition is gated by Y compatibility: an endpoint family is only added when at least one of its reachable variants (or the ligature's canonical record) carries a matching cursive anchor on the side the source needs. This keeps spurious entries out of the join-consistency check while still covering the cases where the ligature's half/baseline form actually accepts the source.
+    This pass adds the missing endpoints so the YAML can stay declarative ("fire before qsUtter") and stay correct as new ligatures land. Each candidate addition is gated by Y compatibility: an endpoint family is only added when at least one of its reachable variants (or the ligature's canonical record) carries a matching cursive anchor on the side the source needs. This keeps spurious entries out of the join-consistency check while still covering the cases where the ligature's half/baseline stance actually accepts the source.
 
     Negative selectors (`not_before:` / `not_after:`) are left untouched: the intent of those lists is almost always literal ("don't fire before this specific glyph"), and expanding them tends to suppress shaping in cases where the original author wanted the lookup to keep firing. If a negative-side ligature exception is genuinely needed it can be authored by hand.
     """
@@ -3086,7 +3086,7 @@ def expand_selectors_for_ligatures(
         canonical_ys = frozenset(anchor[1] for anchor in (*canonical.entry, *canonical.entry_curs_only))
         if canonical_ys:
             return canonical_ys
-        # Some families (e.g., qsJai) carry no anchors on the canonical record itself and split entry coverage across forms. Fall back to the union of form-level anchors so the novelty filter still recognizes Ys that the family already reaches as a non-ligature.
+        # Some families (e.g., qsJai) carry no anchors on the canonical record itself and split entry coverage across stances. Fall back to the union of stance-level anchors so the novelty filter still recognizes Ys that the family already reaches as a non-ligature.
         ys: set[int] = set()
         for variant_name in base_to_variants.get(family, ()):
             variant = join_glyphs[variant_name]
@@ -3109,7 +3109,7 @@ def expand_selectors_for_ligatures(
         return frozenset(ys)
 
     # Forward expansion entries: keyed by component name (base or variant), value is a list of (first_component_family, candidate_entry_ys, canonical_entry_ys) triples.
-    # candidate_entry_ys are the Ys reachable through the *ligature's* own variants — those are the Ys the source actually meets after `calt_liga` collapses the components. canonical_entry_ys are the Ys the first component's own variants already provide pre-liga (across the canonical record and any forms). The expansion only earns its keep when the ligature opens up a Y the first component's variants do not already cover; otherwise the lookup would just over-fire on adjacent first-components without unlocking any new join, crowding out broader fallback forms in the process.
+    # candidate_entry_ys are the Ys reachable through the *ligature's* own variants — those are the Ys the source actually meets after `calt_liga` collapses the components. canonical_entry_ys are the Ys the first component's own variants already provide pre-liga (across the canonical record and any stances). The expansion only earns its keep when the ligature opens up a Y the first component's variants do not already cover; otherwise the lookup would just over-fire on adjacent first-components without unlocking any new join, crowding out broader fallback stances in the process.
     forward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
     backward_entries_by_component: dict[str, list[tuple[str, frozenset[int], frozenset[int]]]] = {}
 
@@ -3172,7 +3172,7 @@ def expand_selectors_for_ligatures(
                     )
 
     def _expected_runtime_exit_suffix(source_family: str, last_family: str) -> str:
-        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base form mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.ex-con-2` always wins before `qsJai`."""
+        """When source family `source_family` follows a glyph in family `last_family`, what exit suffix does `last_family`'s base stance mutate into at runtime? Return "" if no rule applies. Used to filter ligature endpoints so a source whose family triggers contraction/extension on the trailing component only matches ligature variants representing the same runtime state. Without this filter, a base ligature like `qsX_qsUtter` would be added to `qsJai`'s after list even though the runtime `qsUtter.ex-con-2` always wins before `qsJai`."""
         last_meta = join_glyphs.get(last_family)
         if last_meta is None:
             return ""
@@ -3188,7 +3188,7 @@ def expand_selectors_for_ligatures(
         return ""
 
     def _expected_runtime_entry_suffix(source_family: str, first_family: str) -> str:
-        """Mirror of `_expected_runtime_exit_suffix` for the lead-component side. When source family `source_family` precedes a ligature whose first component is in family `first_family`, this is the entry suffix that `first_family`'s base form mutates into."""
+        """Mirror of `_expected_runtime_exit_suffix` for the lead-component side. When source family `source_family` precedes a ligature whose first component is in family `first_family`, this is the entry suffix that `first_family`'s base stance mutates into."""
         first_meta = join_glyphs.get(first_family)
         if first_meta is None:
             return ""
@@ -3290,7 +3290,7 @@ def expand_selectors_for_ligatures(
                         if endpoint_meta.sequence and not _ligature_variant_matches_runtime(
                             endpoint_meta, source_family, side
                         ):
-                            # The trailing (or lead) component's base form mutates into a specific suffix variant when this source family follows (or precedes), so only the matching ligature variant can actually appear in the buffer at runtime. Skip ligature variants whose state can't be reached.
+                            # The trailing (or lead) component's base stance mutates into a specific suffix variant when this source family follows (or precedes), so only the matching ligature variant can actually appear in the buffer at runtime. Skip ligature variants whose state can't be reached.
                             continue
                         if not _endpoint_accepts_source_family(endpoint_meta, source_family, side):
                             # Some ligatures carry their own `select.after` / `select.before` constraint that gates whether the ligature ever fires (e.g., `qsThey_qsUtter` only collapses when its `after` lists a context-set match). If the source's family isn't in that list, the ligature never appears in the buffer next to this source — adding it to the selector list would generate a one-sided join warning.
@@ -3439,7 +3439,7 @@ def compile_quikscript_ir(
 
     join_glyphs = {}
     records = list(
-        _iter_compiled_family_forms(
+        _iter_compiled_family_stances(
             glyph_families,
             variant,
             context_sets=context_sets,
@@ -3447,11 +3447,11 @@ def compile_quikscript_ir(
     )
     available_names = frozenset(record["output_name"] for record in records)
     for record in records:
-        glyph_def = _family_form_to_glyph_def(
+        glyph_def = _family_stance_to_glyph_def(
             record["family_name"],
             record["family_def"],
-            record["form_def"],
-            form_name=record["form_name"],
+            record["stance_def"],
+            stance_name=record["stance_name"],
             contextual=record["contextual"],
             family_names=family_names,
             context_sets=context_sets,
@@ -3542,13 +3542,13 @@ def _find_lead_entry_source(
     """Pick the entry anchor a ligature should inherit from its lead.
 
     Preference order:
-      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its entry is non-empty. The prop is the unrestricted default form, so its entry coordinates are always safe to copy.
+      1. The compiled lead-prop glyph (named exactly ``lead_family``) if its entry is non-empty. The prop is the unrestricted default stance, so its entry coordinates are always safe to copy.
       2. The compiled glyph named ``f"{lead_family}.en-y5"`` if it exists and has an entry, when one of:
-           a. It has no ``after`` constraint (the form is unrestricted).
+           a. It has no ``after`` constraint (the stance is unrestricted).
            b. The ligature carries a ``select.after`` whose compiled set equals the lead's ``en-y5.after`` set. Mirroring the restriction means the ligature only fires for the same predecessors the lead's en-y5 fires for, so the inherited entry is context-equivalent.
          An ``after``-restricted ``en-y5`` whose restriction the ligature does NOT mirror is rejected: copying its anchor would silently grant the ligature an entry for predecessors the lead wouldn't accept.
 
-    More-specific entry forms (e.g. ``qsTea.en-y5.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical form. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
+    More-specific entry stances (e.g. ``qsTea.en-y5.after-fee``) are intentionally **not** candidates: they layer extra context on top of the canonical stance. We only need *one* unconditional anchor to seed the ligature; ``_iter_related_extension_targets`` will still propagate `extend_entry_after` rules from any compatible source by matching on ``base_name``.
 
     Returns ``(entries, source_glyph)`` or ``None`` if no inheritable entry exists.
     """
@@ -3556,7 +3556,7 @@ def _find_lead_entry_source(
     if lead_prop is not None and lead_prop.entry:
         return lead_prop.entry, lead_prop
 
-    # `_synthesize_anchor_modifiers` may have renamed the canonical en-y5 form to e.g. `qsJai.en-y5.ex-y0`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
+    # `_synthesize_anchor_modifiers` may have renamed the canonical en-y5 stance to e.g. `qsJai.en-y5.ex-y0`. Route the literal lookup through `heal_glyph_name` so the inheritance survives the rename.
     canonical_name = heal_glyph_name(
         f"{lead_family}.en-y5",
         family_names_from_compiled(set(join_glyphs)),
@@ -3613,9 +3613,9 @@ def _inherit_ligature_entries_from_lead(
         if inheritable is None:
             warnings.warn(
                 f"{name}: declares entry {_format_anchors(glyph.entry)}; "
-                f"lead {lead} has no auto-inheritable entry-bearing form. "
+                f"lead {lead} has no auto-inheritable entry-bearing stance. "
                 f"The explicit declaration is therefore load-bearing; "
-                f"consider adding an en-y5 form on {lead} or "
+                f"consider adding an en-y5 stance on {lead} or "
                 f"documenting why this ligature is special.",
                 LigatureEntryInheritanceWarning,
                 stacklevel=2,
@@ -3664,7 +3664,7 @@ def has_entry_preserving_exit_noentry_sibling(
     base_to_variants: dict[str, set[str]],
     join_glyphs: dict[str, JoinGlyph],
 ) -> bool:
-    """True if ``l_meta`` has a sibling form that preserves its entry side and drops the exit (the ``.ex-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
+    """True if ``l_meta`` has a sibling stance that preserves its entry side and drops the exit (the ``.ex-noentry`` companion). The post-liga cleanup routes here cleanly when a downstream ``noentry_after`` ligature voids the right-hand join, so the calt_cycle guard that would otherwise block the upgrade is unnecessary."""
     expected_modifiers = frozenset(m for m in l_meta.modifiers if not m.startswith("ex-")) | {"ex-noentry"}
     for sibling_name in base_to_variants.get(l_meta.base_name, frozenset()):
         sibling = join_glyphs.get(sibling_name)

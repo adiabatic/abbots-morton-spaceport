@@ -52,8 +52,8 @@ def _base_name(glyph_name: str) -> str:
     return meta.base_name if meta is not None else glyph_name
 
 
-def _matches_form(glyph_name: str, form: str) -> bool:
-    return glyph_name == form or glyph_name.startswith(form + ".")
+def _matches_stance(glyph_name: str, stance: str) -> bool:
+    return glyph_name == stance or glyph_name.startswith(stance + ".")
 
 
 def test_context_reshapes_to_junction() -> None:
@@ -112,33 +112,33 @@ def test_context_reshapes_to_junction() -> None:
 
 
 def _check_side(failures: list[str], label: str, side: str, selector: dict, family: str, glyph: str) -> None:
-    """Assert the rendered ``glyph`` matches the junction's per-side selector: the right base family, and a kind that agrees with the glyph's discrete-alternate trait (``alt``/``half``/``plain``) or with the explicit form-prefix for table-derived ``form`` selectors."""
+    """Assert the rendered ``glyph`` matches the junction's per-side selector: the right base family, and a kind that agrees with the glyph's discrete-alternate trait (``alt``/``half``/``plain``) or with the explicit stance-prefix for table-derived ``stance`` selectors."""
     if selector["family"] != family:
         failures.append(f"{label} {side}: selector family {selector['family']!r} != key family {family!r}")
     if _base_name(glyph) != family:
         failures.append(f"{label} {side}: rendered base {_base_name(glyph)!r} ({glyph!r}) != {family!r}")
 
     kind = selector["kind"]
-    form = selector["form"]
-    if kind == "form":
-        if not form or not _matches_form(glyph, form):
-            failures.append(f"{label} {side}: glyph {glyph!r} does not match form selector {form!r}")
+    stance = selector["stance"]
+    if kind == "stance":
+        if not stance or not _matches_stance(glyph, stance):
+            failures.append(f"{label} {side}: glyph {glyph!r} does not match stance selector {stance!r}")
     elif kind == "plain":
-        if form is not None:
-            failures.append(f"{label} {side}: plain selector unexpectedly carries form {form!r}")
+        if stance is not None:
+            failures.append(f"{label} {side}: plain selector unexpectedly carries stance {stance!r}")
         if _glyph_kind(glyph) != "plain":
             failures.append(f"{label} {side}: glyph {glyph!r} is {_glyph_kind(glyph)!r}, not plain")
     else:  # an alternate axis, e.g. "alt"
-        if form != f"{family}.{kind}":
-            failures.append(f"{label} {side}: {kind} selector form {form!r} != {family}.{kind!r}")
-        if _glyph_kind(glyph) != kind or not _matches_form(glyph, f"{family}.{kind}"):
+        if stance != f"{family}.{kind}":
+            failures.append(f"{label} {side}: {kind} selector stance {stance!r} != {family}.{kind!r}")
+        if _glyph_kind(glyph) != kind or not _matches_stance(glyph, f"{family}.{kind}"):
             failures.append(
                 f"{label} {side}: glyph {glyph!r} ({_glyph_kind(glyph)!r}) is not {kind} of {family!r}"
             )
 
 
 def test_no_utter_alt_combos() -> None:
-    """·No·Utter must surface all three hidden alternate-form combinations and reserve (alt, plain) as the isolated grid cell."""
+    """·No·Utter must surface all three hidden alternate-stance combinations and reserve (alt, plain) as the isolated grid cell."""
     data = _load_data()
     junctions = data["qsNo|qsUtter"]
     hidden = {(j["left"]["kind"], j["right"]["kind"]) for j in junctions if not j["isolated"]}
@@ -158,7 +158,9 @@ def test_skipped_reasons_are_intentional() -> None:
     _assert_no_failures(failures, limit=20)
 
     they_utter = [
-        entry for entry in data["_skipped"] if entry["entry"].get("trigger_form") == "qsThey_qsUtter.noentry"
+        entry
+        for entry in data["_skipped"]
+        if entry["entry"].get("trigger_stance") == "qsThey_qsUtter.noentry"
     ]
     assert they_utter, "expected qsThey_qsUtter.noentry ligature trigger in _skipped"
     assert all(
@@ -211,7 +213,7 @@ def test_generate_kern_fea_carve_out_and_override_are_disjoint() -> None:
     }
     override = {
         "left_family": ["qsNo"],
-        "right_form": ["qsUtter.alt.ex-y0"],
+        "right_stance": ["qsUtter.alt.ex-y0"],
         "value": -2,
     }
     fea = generate_kern_fea({"carve": carve, "override": override}, {}, all_glyph_names, 50)
@@ -229,7 +231,7 @@ def test_generate_kern_fea_carve_out_and_override_are_disjoint() -> None:
     assert _value(fea, "override") == -100
 
 
-def test_generate_kern_fea_left_form_and_except_left() -> None:
+def test_generate_kern_fea_left_stance_and_except_left() -> None:
     all_glyph_names = [
         "qsNo",
         "qsNo.alt",
@@ -239,8 +241,8 @@ def test_generate_kern_fea_left_form_and_except_left() -> None:
         "qsUtter.alt",
         "qsUtter.alt.ex-y0",
     ]
-    left_form_def = {
-        "left_form": ["qsNo.alt"],
+    left_stance_def = {
+        "left_stance": ["qsNo.alt"],
         "right_family": ["qsUtter"],
         "value": -1,
     }
@@ -250,7 +252,7 @@ def test_generate_kern_fea_left_form_and_except_left() -> None:
         "right_family": ["qsUtter"],
         "value": -1,
     }
-    fea = generate_kern_fea({"lf": left_form_def, "el": except_left_def}, {}, all_glyph_names, 50)
+    fea = generate_kern_fea({"lf": left_stance_def, "el": except_left_def}, {}, all_glyph_names, 50)
 
     assert _left_set(fea, "lf") == {"qsNo.alt", "qsNo.alt.en-y0"}
     assert _left_set(fea, "el") == {"qsNo", "qsNo.en-ext-1"}
@@ -296,12 +298,12 @@ def test_generate_kern_fea_both_sides_partition_is_disjoint() -> None:
         "pa": {
             "left_family": ["qsNo"],
             "except_left": ["qsNo.alt"],
-            "right_form": ["qsUtter.alt"],
+            "right_stance": ["qsUtter.alt"],
             "value": -3,
         },
-        "aa": {"left_form": ["qsNo.alt"], "right_form": ["qsUtter.alt"], "value": -1},
+        "aa": {"left_stance": ["qsNo.alt"], "right_stance": ["qsUtter.alt"], "value": -1},
         "ap": {
-            "left_form": ["qsNo.alt"],
+            "left_stance": ["qsNo.alt"],
             "right_family": ["qsUtter"],
             "except_right": ["qsUtter.alt"],
             "value": -1,

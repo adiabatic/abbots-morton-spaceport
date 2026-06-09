@@ -97,7 +97,7 @@ context_sets:
   - {family: qsWhy}
   - {family: qsMay}
   - {family: qsExam}
-  # Letters that drop their baseline cursive entry after a tall (qsThaw does this via its `noentry_after_tall` form, which sets `entry: null` for `after: talls`, even though its default `prop` form keeps an entry at y=0). A preceding tall must not commit to its baseline-exit "wide" form when one of these follows, since the follower won't keep an entry to join to.
+  # Letters that drop their baseline cursive entry after a tall (qsThaw does this via its `noentry_after_tall` stance, which sets `entry: null` for `after: talls`, even though its default `prop` stance keeps an entry at y=0). A preceding tall must not commit to its baseline-exit "wide" stance when one of these follows, since the follower won't keep an entry to join to.
   no_baseline_join_after_tall:
   - {family: qsThaw}
   # Letters whose right side runs straight down to the baseline (or tails off down-and-to-the-right) when they exit there — so any follower with an entry that swings in from the left at the baseline can't curl behind them.
@@ -118,7 +118,7 @@ context_sets:
   halves_and_i_exit_xheight:
   - {family: qsI}
   - {context_set: halves_exit_xheight}
-  # The followers ·Gay reaches toward at the baseline: when one comes next, ·Gay widens its baseline exit by a pixel, and the same set is the one excluded from ·Gay's entry_baseline form.
+  # The followers ·Gay reaches toward at the baseline: when one comes next, ·Gay widens its baseline exit by a pixel, and the same set is the one excluded from ·Gay's entry_baseline stance.
   gay_reaches_baseline_exit_forward:
   - {family: qsTea}
   - {family: qsDay}
@@ -127,7 +127,7 @@ context_sets:
   - {family: qsExam}
   - {family: qsIt}
   - {family: qsI}
-  # Followers that don't accept ·Tea's half-form x-height exit, so ·Tea's x-height-exit half forms must not be picked before them.
+  # Followers that don't accept ·Tea's half-stance x-height exit, so ·Tea's x-height-exit half stances must not be picked before them.
   followers_that_reject_tea_half_xheight_exit:
   - {family: qsTea}
   - {family: qsFee}
@@ -135,7 +135,7 @@ context_sets:
   - {family: qsYe}
   - {family: qsOwe}
   - {family: qsFoot}
-  # Predecessors after which ·Excite abandons its left-side join — its entryless forms fire after exactly these.
+  # Predecessors after which ·Excite abandons its left-side join — its entryless stances fire after exactly these.
   excite_drops_entry_after:
   - {family: qsPea}
   - {family: qsTea}
@@ -155,186 +155,186 @@ restore_isolated_form_overrides:
   - {prior: qsEat, target: qsIt, follower: qsZoo, isolated_form: qsIt.ex-y0}
   - {prior: qsEat, target: qsIt, follower: qsNo, isolated_form: qsIt.ex-y0}
 predecessor_demote_overrides:
-  # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_form trigger_form`, which already implies the trigger is in its entryless form — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_form' trigger_form by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical, trigger_form: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.noentry, trigger_form: qsGay, isolated_form: qsExcite.nonjoining-left}
-  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt.before-utter, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsIt.ex-y0, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.ex-y0.before-vertical, trigger_form: qsUtter.alt, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay, isolated_form: qsExcite.en-y0.noexit}
-  # ·Excite's after-baseline-letter vertical-exit form (entered from a baseline letter like ·Awe) commits a baseline exit toward a "vertical" follower, but across the break the follower settles to a bare/exit-only form with no entry to receive it, so the exit dangles. Drop the exit, keeping the en-y0 entry (`qsExcite.en-y0.noexit`). Mirrors the existing qsExcite demotes; force-bad rows (Tea Jay/Tea I/It Day/It Utter) are left for the hard track.
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsDay_qsEat, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay.ex-y0, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay.ex-y5, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay.ex-y5.ex-ext-1, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsGay.ex-y5.ex-ext-2, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsSee_qsEat, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsSee_qsUtter, isolated_form: qsExcite.en-y0.noexit}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_form: qsTea_qsOy, isolated_form: qsExcite.en-y0.noexit}
-  # ·They's `before-may` baseline-exit form (entered at the x-height from ·Ah / ·I) is an author-declared cosmetic tuck for ·May, but the per-rule contract's cosmetic opt-out keeps it before EVERY follower, so before non-·May followers across a break the baseline exit dangles. Revert to the entry-preserving `qsThey.en-y5` (resp `…en-ext-1`), keeping the load-bearing x-height entry and dropping only the dangling exit. The demote is keyed on the non-·May follower forms, so the genuine ·They·May tuck is untouched.
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsDay_qsEat, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsGay.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsIt.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsIt.ex-y0.before-utter, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee.ex-y0.ex-con-1, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee.ex-y0.ex-ext-2, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee.ex-y0.ex-y0-right, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee_qsEat, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsSee_qsUtter, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsTea.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsTea.half.ex-y5, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsTea.half.ex-y5.ex-con-1, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsTea_qsOy, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsThaw.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsUtter.alt.ex-y0, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5, trigger_form: qsTea.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsDay_qsEat, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsGay.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsIt.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsIt.ex-y0.before-utter, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee.ex-y0.ex-con-1, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee.ex-y0.ex-ext-2, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee.ex-y0.ex-y0-right, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee_qsEat, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsSee_qsUtter, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea.half.ex-y5, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea.half.ex-y5.ex-con-1, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea_qsOy, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsThaw.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsUtter.alt.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
-  - {predecessor_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_form: qsTea.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5.en-ext-1}
+  # When a forward-pair lookup extends a predecessor toward a trigger that has itself become entryless (because a deeper third glyph stripped its entry), the predecessor's extension reaches into empty air. Demote the predecessor back to its isolated form so the rendered chain matches what isolated shaping of `trigger ...` would render on its own. The rule fires whenever the buffer state at this post-pass is `predecessor_stance trigger_stance`, which already implies the trigger is in its entryless stance — no third-glyph constraint needed. Each entry compiles to a rule `sub predecessor_stance' trigger_stance by isolated_form;` under `calt_pred_demote_<predecessor_base>`.
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical, trigger_stance: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.noentry, trigger_stance: qsGay, isolated_form: qsExcite.nonjoining-left}
+  - {predecessor_stance: qsExcite.ex-y0.before-vertical, trigger_stance: qsIt, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.ex-y0.before-vertical, trigger_stance: qsIt.before-utter, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.ex-y0.before-vertical, trigger_stance: qsIt.ex-y0, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.ex-y0.before-vertical, trigger_stance: qsUtter.alt, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay, isolated_form: qsExcite.en-y0.noexit}
+  # ·Excite's after-baseline-letter vertical-exit stance (entered from a baseline letter like ·Awe) commits a baseline exit toward a "vertical" follower, but across the break the follower settles to a bare/exit-only stance with no entry to receive it, so the exit dangles. Drop the exit, keeping the en-y0 entry (`qsExcite.en-y0.noexit`). Mirrors the existing qsExcite demotes; force-bad rows (Tea Jay/Tea I/It Day/It Utter) are left for the hard track.
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsDay_qsEat, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay.ex-y0, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay.ex-y0.ex-ext-1, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay.ex-y5, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay.ex-y5.ex-ext-1, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsGay.ex-y5.ex-ext-2, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsSee_qsEat, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsSee_qsUtter, isolated_form: qsExcite.en-y0.noexit}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter, trigger_stance: qsTea_qsOy, isolated_form: qsExcite.en-y0.noexit}
+  # ·They's `before-may` baseline-exit stance (entered at the x-height from ·Ah / ·I) is an author-declared cosmetic tuck for ·May, but the per-rule contract's cosmetic opt-out keeps it before EVERY follower, so before non-·May followers across a break the baseline exit dangles. Revert to the entry-preserving `qsThey.en-y5` (resp `…en-ext-1`), keeping the load-bearing x-height entry and dropping only the dangling exit. The demote is keyed on the non-·May follower stances, so the genuine ·They·May tuck is untouched.
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsDay_qsEat, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsGay.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsGay.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsIt.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsIt.ex-y0.before-utter, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee.ex-y0.ex-con-1, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee.ex-y0.ex-ext-2, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee.ex-y0.ex-y0-right, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee_qsEat, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsSee_qsUtter, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsTea.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsTea.half.ex-y5, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsTea.half.ex-y5.ex-con-1, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsTea_qsOy, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsThaw.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsUtter.alt.ex-y0, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5, trigger_stance: qsTea.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsDay_qsEat, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsGay.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsGay.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsIt.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsIt.ex-y0.before-day.after-no-baseline-join, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsIt.ex-y0.before-utter, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee.ex-y0.ex-con-1, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee.ex-y0.ex-ext-2, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee.ex-y0.ex-y0-right, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee_qsEat, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsSee_qsUtter, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsTea.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsTea.half.ex-y5, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsTea.half.ex-y5.ex-con-1, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsTea_qsOy, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsThaw.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsUtter.alt.ex-y0, isolated_form: qsThey.en-y5.en-ext-1}
+  - {predecessor_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trigger_stance: qsTea.ex-y0.ex-ext-1, isolated_form: qsThey.en-y5.en-ext-1}
   # `·Gay·No·It·Ah`: initial ·Gay commits a baseline exit toward a ·No that resolves entryless across the break; no predecessor to orphan, so revert to bare.
-  - {predecessor_form: qsGay.ex-y0, trigger_form: qsNo, isolated_form: qsGay}
-  # `·They·May·Gay·X` (and `·Day·Eat·Gay·Owe`): an x-height-exiting ·May backward-pulls ·Gay onto `qsGay.en-y0.ex-y5`, whose `en-y0` receives ·May's x-height exit but whose `ex-y5` then dangles toward the non-joining follower across the break — its isolated form is bare `qsGay`. The decisive discriminator is the predecessor-of-predecessor: when ·May exits the x-height (`qsMay.en-y0.ex-y5`) ·May and ·Gay do NOT actually join (May's y5 exit ≠ Gay's y0 entry), so the whole `qsGay.en-y0.ex-y5` is spurious; but when ·May exits the baseline (`qsMay.ex-y0`, e.g. after ·Roe/·Why/·Vie or word-initial ·May) ·May→·Gay IS a real baseline join into the same `en-y0` and the form is load-bearing (and not even a leak — isolated ·Gay there is also `qsGay.en-y0.ex-y5`). Keying the demote on the backtrack `qsMay.en-y0.ex-y5` fires it only in the dangle case and no-ops on the genuine join. `·Day·Eat·Gay·Owe` and `·See·Eat·Gay·Owe` carry the same dangling `qsGay.en-y0.ex-y5` but their predecessor-of-predecessor is the `qsDay_qsEat` / `qsSee_qsEat` ligature, so those rows key on the ligature instead.
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsGay, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsThaw, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsVie, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsSee, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsIng, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsMay, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsLow, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsEat, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsAt, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsAh, isolated_form: qsGay}
-  - {backtrack_form: qsMay.en-y0.ex-y5, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsUtter, isolated_form: qsGay}
-  - {backtrack_form: qsDay_qsEat, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsOwe, isolated_form: qsGay}
-  - {backtrack_form: qsSee_qsEat, predecessor_form: qsGay.en-y0.ex-y5, trigger_form: qsOwe, isolated_form: qsGay}
-  # `·X·Gay·Tea·Oy` / `·X·Gay·Day·Eat`: ·X (·May/·No/·Way/·Why) commits a baseline exit toward ·Gay, but a downstream ·Tea·Oy ligature / ·Day·Eat strips ·Gay to its bare (or x-height-exit) form with no baseline entry, so ·X's exit dangles. Form-specific trigger (bare `qsGay` / `qsGay.ex-y5`), so a real ·X→·Gay baseline join — where ·Gay keeps an `en-y0` form — is untouched. Extends the existing `…/qsGay.ex-y0` demotes.
-  - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay, isolated_form: qsMay}
-  - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay.ex-y5, isolated_form: qsMay}
-  - {predecessor_form: qsWay.half.ex-y0, trigger_form: qsGay, isolated_form: qsWay}
-  - {predecessor_form: qsWay.half.ex-y0, trigger_form: qsGay.ex-y5, isolated_form: qsWay}
-  - {predecessor_form: qsWhy.half.ex-y0, trigger_form: qsGay, isolated_form: qsWhy}
-  - {predecessor_form: qsWhy.half.ex-y0, trigger_form: qsGay.ex-y5, isolated_form: qsWhy}
-  # Exit-only predecessor reaches that dangle once a downstream ·Tea·Oy ligature (or ·Ing·Thaw / ·Gay·No) strips the follower to its bare / exit-only entryless form. Reverting the exit-only predecessor form to bare drops only the dangling reach — no entry to orphan — and the form-specific trigger leaves the genuine x-height/baseline join (where the follower keeps an `en` form) untouched.
-  - {predecessor_form: qsHe.half.ex-y5, trigger_form: qsIt, isolated_form: qsHe}
-  - {predecessor_form: qsHe.half.ex-y5, trigger_form: qsJai, isolated_form: qsHe}
-  - {predecessor_form: qsPea.half.ex-y5.ex-dips, trigger_form: qsIt, isolated_form: qsPea}
-  - {predecessor_form: qsPea.half.ex-y5.ex-dips, trigger_form: qsJai, isolated_form: qsPea}
-  - {predecessor_form: qsOwe.ex-y5, trigger_form: qsIt, isolated_form: qsOwe}
-  - {predecessor_form: qsOwe.ex-y5, trigger_form: qsJai, isolated_form: qsOwe}
-  - {predecessor_form: qsOwe.ex-y5, trigger_form: qsYe, isolated_form: qsOwe}
-  - {predecessor_form: qsRoe.ex-y0, trigger_form: qsNo, isolated_form: qsRoe}
-  - {predecessor_form: qsShe.ex-y0, trigger_form: qsNo, isolated_form: qsShe}
-  - {predecessor_form: qsShe.ex-y0, trigger_form: qsZoo, isolated_form: qsShe}
-  - {predecessor_form: qsJai.ex-y0, trigger_form: qsIt.ex-y0, isolated_form: qsJai}
-  - {predecessor_form: qsJai.ex-y0, trigger_form: qsYe.ex-y0, isolated_form: qsJai}
-  - {predecessor_form: qsTea.half.ex-y5, trigger_form: qsIt, isolated_form: qsTea}
-  - {predecessor_form: qsTea.half.ex-y5, trigger_form: qsJai, isolated_form: qsTea}
-  - {predecessor_form: qsWhy.ex-y5, trigger_form: qsIt, isolated_form: qsWhy}
-  - {predecessor_form: qsWhy.ex-y5, trigger_form: qsJai, isolated_form: qsWhy}
-  - {predecessor_form: qsYe.ex-y0, trigger_form: qsNo, isolated_form: qsYe}
-  # Entry-bearing predecessor reaches reverting to bare; the bundled entry is cascade-induced (the example predecessor is run-initial, so it has no real left join). Form-specific trigger keeps genuine left joins (where the predecessor keeps its `en` form from a real exiter) untouched. Riskier (lesson 3) — gated by make test.
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical, trigger_form: qsNo, isolated_form: qsExcite}
-  - {predecessor_form: qsExcite.en-y0.ex-y0.before-vertical, trigger_form: qsZoo, isolated_form: qsExcite}
-  - {predecessor_form: qsJai.en-y5.ex-y0, trigger_form: qsNo, isolated_form: qsJai}
-  - {predecessor_form: qsOut.en-y0.ex-y5, trigger_form: qsJai, isolated_form: qsOut}
-  - {predecessor_form: qsOut.en-y0.ex-y5, trigger_form: qsOy, isolated_form: qsOut}
-  - {predecessor_form: qsOut.en-y0.ex-y5, trigger_form: qsYe, isolated_form: qsOut}
-  - {predecessor_form: qsRoe.en-y0.ex-y5, trigger_form: qsJai, isolated_form: qsRoe}
-  - {predecessor_form: qsRoe.en-y0.ex-y5, trigger_form: qsOy, isolated_form: qsRoe}
-  - {predecessor_form: qsVie.en-y0.ex-y0, trigger_form: qsNo, isolated_form: qsVie}
-  - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsIt.ex-y0, isolated_form: qsJai}
-  # ·Utter's `reaches-way-back` form bundles an emergent x-height entry with the baseline exit that reaches toward a following ·See; across the break the ·See·Eat / ·See·Utter ligature has no entry, so the reach dangles. The bundled entry is itself emergent (the ·Fee·Utter x-height join only appears in this cascade), so revert the whole form to bare ·Utter (the F8 bundled entry+exit nuance).
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee.ex-y0, isolated_form: qsUtter}
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee.ex-y0.ex-con-1, isolated_form: qsUtter}
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee.ex-y0.ex-ext-2, isolated_form: qsUtter}
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee.ex-y0.ex-y0-right, isolated_form: qsUtter}
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee_qsEat, isolated_form: qsUtter}
-  - {predecessor_form: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_form: qsSee_qsUtter, isolated_form: qsUtter}
-  - {predecessor_form: qsJai.en-y5.ex-ext-1, trigger_form: qsTea.ex-y0, isolated_form: qsJai}
-  - {predecessor_form: qsJai.ex-y0, trigger_form: qsTea.ex-y0, isolated_form: qsJai}
-  - {predecessor_form: qsMay.ex-y0, trigger_form: qsGay.ex-y0, isolated_form: qsMay}
-  - {predecessor_form: qsMay.ex-ext-1, trigger_form: qsFee.ex-y5, isolated_form: qsMay}
-  - {predecessor_form: qsMay.ex-noentry, trigger_form: qsThey_qsUtter.noentry, isolated_form: qsMay}
-  # ·May's x-height-entered form (after ·Ah / after ·I) commits a baseline exit while the cycle settles, but the actual baseline follower then resolves to an exit-only ·See or an entryless ·See/·Tea ligature that never receives the join, so the exit dangles across the break. Drop just the dangling exit, keeping the load-bearing en-y5 entry from the predecessor.
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee.ex-y0, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee.ex-y0.ex-con-1, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee.ex-y0.ex-ext-2, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee.ex-y0.ex-y0-right, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee_qsEat, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsSee_qsUtter, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0, trigger_form: qsTea_qsOy, isolated_form: qsMay.en-y5}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee.ex-y0, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee.ex-y0.ex-con-1, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee.ex-y0.ex-ext-2, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee.ex-y0.ex-y0-right, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee_qsEat, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsSee_qsUtter, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsMay.en-y5.ex-y0.after-i, trigger_form: qsTea_qsOy, isolated_form: qsMay.en-y5.after-i}
-  - {predecessor_form: qsNo.alt, trigger_form: qsGay.ex-y0, isolated_form: qsNo}
-  - {predecessor_form: qsNo.alt, trigger_form: qsIt.ex-y0, isolated_form: qsNo}
-  - {predecessor_form: qsNo.alt, trigger_form: qsUtter.alt, isolated_form: qsNo}
-  - {predecessor_form: qsNo.ex-ext-1, trigger_form: qsFee.ex-y5, isolated_form: qsNo}
-  - {predecessor_form: qsWay.half, trigger_form: qsGay.ex-y0, isolated_form: qsWay}
-  - {predecessor_form: qsWay.half, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsWay}
-  - {predecessor_form: qsWhy.half, trigger_form: qsGay.ex-y0, isolated_form: qsWhy}
-  - {predecessor_form: qsWhy.half, trigger_form: qsGay.ex-y0.ex-ext-1, isolated_form: qsWhy}
+  - {predecessor_stance: qsGay.ex-y0, trigger_stance: qsNo, isolated_form: qsGay}
+  # `·They·May·Gay·X` (and `·Day·Eat·Gay·Owe`): an x-height-exiting ·May backward-pulls ·Gay onto `qsGay.en-y0.ex-y5`, whose `en-y0` receives ·May's x-height exit but whose `ex-y5` then dangles toward the non-joining follower across the break — its isolated form is bare `qsGay`. The decisive discriminator is the predecessor-of-predecessor: when ·May exits the x-height (`qsMay.en-y0.ex-y5`) ·May and ·Gay do NOT actually join (May's y5 exit ≠ Gay's y0 entry), so the whole `qsGay.en-y0.ex-y5` is spurious; but when ·May exits the baseline (`qsMay.ex-y0`, e.g. after ·Roe/·Why/·Vie or word-initial ·May) ·May→·Gay IS a real baseline join into the same `en-y0` and the stance is load-bearing (and not even a leak — isolated ·Gay there is also `qsGay.en-y0.ex-y5`). Keying the demote on the backtrack `qsMay.en-y0.ex-y5` fires it only in the dangle case and no-ops on the genuine join. `·Day·Eat·Gay·Owe` and `·See·Eat·Gay·Owe` carry the same dangling `qsGay.en-y0.ex-y5` but their predecessor-of-predecessor is the `qsDay_qsEat` / `qsSee_qsEat` ligature, so those rows key on the ligature instead.
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsGay, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsThaw, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsVie, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsSee, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsIng, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsMay, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsLow, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsEat, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsAt, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsAh, isolated_form: qsGay}
+  - {backtrack_stance: qsMay.en-y0.ex-y5, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsUtter, isolated_form: qsGay}
+  - {backtrack_stance: qsDay_qsEat, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsOwe, isolated_form: qsGay}
+  - {backtrack_stance: qsSee_qsEat, predecessor_stance: qsGay.en-y0.ex-y5, trigger_stance: qsOwe, isolated_form: qsGay}
+  # `·X·Gay·Tea·Oy` / `·X·Gay·Day·Eat`: ·X (·May/·No/·Way/·Why) commits a baseline exit toward ·Gay, but a downstream ·Tea·Oy ligature / ·Day·Eat strips ·Gay to its bare (or x-height-exit) stance with no baseline entry, so ·X's exit dangles. Stance-specific trigger (bare `qsGay` / `qsGay.ex-y5`), so a real ·X→·Gay baseline join — where ·Gay keeps an `en-y0` stance — is untouched. Extends the existing `…/qsGay.ex-y0` demotes.
+  - {predecessor_stance: qsMay.ex-y0, trigger_stance: qsGay, isolated_form: qsMay}
+  - {predecessor_stance: qsMay.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsMay}
+  - {predecessor_stance: qsWay.half.ex-y0, trigger_stance: qsGay, isolated_form: qsWay}
+  - {predecessor_stance: qsWay.half.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsWay}
+  - {predecessor_stance: qsWhy.half.ex-y0, trigger_stance: qsGay, isolated_form: qsWhy}
+  - {predecessor_stance: qsWhy.half.ex-y0, trigger_stance: qsGay.ex-y5, isolated_form: qsWhy}
+  # Exit-only predecessor reaches that dangle once a downstream ·Tea·Oy ligature (or ·Ing·Thaw / ·Gay·No) strips the follower to its bare / exit-only entryless stance. Reverting the exit-only predecessor stance to bare drops only the dangling reach — no entry to orphan — and the stance-specific trigger leaves the genuine x-height/baseline join (where the follower keeps an `en` stance) untouched.
+  - {predecessor_stance: qsHe.half.ex-y5, trigger_stance: qsIt, isolated_form: qsHe}
+  - {predecessor_stance: qsHe.half.ex-y5, trigger_stance: qsJai, isolated_form: qsHe}
+  - {predecessor_stance: qsPea.half.ex-y5.ex-dips, trigger_stance: qsIt, isolated_form: qsPea}
+  - {predecessor_stance: qsPea.half.ex-y5.ex-dips, trigger_stance: qsJai, isolated_form: qsPea}
+  - {predecessor_stance: qsOwe.ex-y5, trigger_stance: qsIt, isolated_form: qsOwe}
+  - {predecessor_stance: qsOwe.ex-y5, trigger_stance: qsJai, isolated_form: qsOwe}
+  - {predecessor_stance: qsOwe.ex-y5, trigger_stance: qsYe, isolated_form: qsOwe}
+  - {predecessor_stance: qsRoe.ex-y0, trigger_stance: qsNo, isolated_form: qsRoe}
+  - {predecessor_stance: qsShe.ex-y0, trigger_stance: qsNo, isolated_form: qsShe}
+  - {predecessor_stance: qsShe.ex-y0, trigger_stance: qsZoo, isolated_form: qsShe}
+  - {predecessor_stance: qsJai.ex-y0, trigger_stance: qsIt.ex-y0, isolated_form: qsJai}
+  - {predecessor_stance: qsJai.ex-y0, trigger_stance: qsYe.ex-y0, isolated_form: qsJai}
+  - {predecessor_stance: qsTea.half.ex-y5, trigger_stance: qsIt, isolated_form: qsTea}
+  - {predecessor_stance: qsTea.half.ex-y5, trigger_stance: qsJai, isolated_form: qsTea}
+  - {predecessor_stance: qsWhy.ex-y5, trigger_stance: qsIt, isolated_form: qsWhy}
+  - {predecessor_stance: qsWhy.ex-y5, trigger_stance: qsJai, isolated_form: qsWhy}
+  - {predecessor_stance: qsYe.ex-y0, trigger_stance: qsNo, isolated_form: qsYe}
+  # Entry-bearing predecessor reaches reverting to bare; the bundled entry is cascade-induced (the example predecessor is run-initial, so it has no real left join). Stance-specific trigger keeps genuine left joins (where the predecessor keeps its `en` stance from a real exiter) untouched. Riskier (lesson 3) — gated by make test.
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical, trigger_stance: qsNo, isolated_form: qsExcite}
+  - {predecessor_stance: qsExcite.en-y0.ex-y0.before-vertical, trigger_stance: qsZoo, isolated_form: qsExcite}
+  - {predecessor_stance: qsJai.en-y5.ex-y0, trigger_stance: qsNo, isolated_form: qsJai}
+  - {predecessor_stance: qsOut.en-y0.ex-y5, trigger_stance: qsJai, isolated_form: qsOut}
+  - {predecessor_stance: qsOut.en-y0.ex-y5, trigger_stance: qsOy, isolated_form: qsOut}
+  - {predecessor_stance: qsOut.en-y0.ex-y5, trigger_stance: qsYe, isolated_form: qsOut}
+  - {predecessor_stance: qsRoe.en-y0.ex-y5, trigger_stance: qsJai, isolated_form: qsRoe}
+  - {predecessor_stance: qsRoe.en-y0.ex-y5, trigger_stance: qsOy, isolated_form: qsRoe}
+  - {predecessor_stance: qsVie.en-y0.ex-y0, trigger_stance: qsNo, isolated_form: qsVie}
+  - {predecessor_stance: qsJai.en-y5.ex-ext-1, trigger_stance: qsIt.ex-y0, isolated_form: qsJai}
+  # ·Utter's `reaches-way-back` stance bundles an emergent x-height entry with the baseline exit that reaches toward a following ·See; across the break the ·See·Eat / ·See·Utter ligature has no entry, so the reach dangles. The bundled entry is itself emergent (the ·Fee·Utter x-height join only appears in this cascade), so revert the whole stance to bare ·Utter (the F8 bundled entry+exit nuance).
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee.ex-y0, isolated_form: qsUtter}
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee.ex-y0.ex-con-1, isolated_form: qsUtter}
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee.ex-y0.ex-ext-2, isolated_form: qsUtter}
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee.ex-y0.ex-y0-right, isolated_form: qsUtter}
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee_qsEat, isolated_form: qsUtter}
+  - {predecessor_stance: qsUtter.alt.en-y5.ex-y0.reaches-way-back, trigger_stance: qsSee_qsUtter, isolated_form: qsUtter}
+  - {predecessor_stance: qsJai.en-y5.ex-ext-1, trigger_stance: qsTea.ex-y0, isolated_form: qsJai}
+  - {predecessor_stance: qsJai.ex-y0, trigger_stance: qsTea.ex-y0, isolated_form: qsJai}
+  - {predecessor_stance: qsMay.ex-y0, trigger_stance: qsGay.ex-y0, isolated_form: qsMay}
+  - {predecessor_stance: qsMay.ex-ext-1, trigger_stance: qsFee.ex-y5, isolated_form: qsMay}
+  - {predecessor_stance: qsMay.ex-noentry, trigger_stance: qsThey_qsUtter.noentry, isolated_form: qsMay}
+  # ·May's x-height-entered stance (after ·Ah / after ·I) commits a baseline exit while the cycle settles, but the actual baseline follower then resolves to an exit-only ·See or an entryless ·See/·Tea ligature that never receives the join, so the exit dangles across the break. Drop just the dangling exit, keeping the load-bearing en-y5 entry from the predecessor.
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee.ex-y0, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee.ex-y0.ex-con-1, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee.ex-y0.ex-ext-2, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee.ex-y0.ex-y0-right, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee_qsEat, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsSee_qsUtter, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0, trigger_stance: qsTea_qsOy, isolated_form: qsMay.en-y5}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee.ex-y0, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee.ex-y0.ex-con-1, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee.ex-y0.ex-ext-2, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee.ex-y0.ex-y0-right, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee_qsEat, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsSee_qsUtter, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsMay.en-y5.ex-y0.after-i, trigger_stance: qsTea_qsOy, isolated_form: qsMay.en-y5.after-i}
+  - {predecessor_stance: qsNo.alt, trigger_stance: qsGay.ex-y0, isolated_form: qsNo}
+  - {predecessor_stance: qsNo.alt, trigger_stance: qsIt.ex-y0, isolated_form: qsNo}
+  - {predecessor_stance: qsNo.alt, trigger_stance: qsUtter.alt, isolated_form: qsNo}
+  - {predecessor_stance: qsNo.ex-ext-1, trigger_stance: qsFee.ex-y5, isolated_form: qsNo}
+  - {predecessor_stance: qsWay.half, trigger_stance: qsGay.ex-y0, isolated_form: qsWay}
+  - {predecessor_stance: qsWay.half, trigger_stance: qsGay.ex-y0.ex-ext-1, isolated_form: qsWay}
+  - {predecessor_stance: qsWhy.half, trigger_stance: qsGay.ex-y0, isolated_form: qsWhy}
+  - {predecessor_stance: qsWhy.half, trigger_stance: qsGay.ex-y0.ex-ext-1, isolated_form: qsWhy}
 trailing_demote_overrides:
-  # When a forward-pair override changes a leader into an entry-preserving form with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half form once the leader's no-exit form is in the buffer. Each entry compiles to `sub leader_form trailing_form' by isolated_form;` under `calt_trailing_demote_<trailing_base>`.
-  - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam, trailing_form: qsDay.half, isolated_form: qsDay}
-  - {leader_form: qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1, trailing_form: qsDay.half, isolated_form: qsDay}
+  # When a forward-pair override changes a leader into an entry-preserving stance with no exit, a trailing glyph may have already picked a backward upgrade based on the leader's older exit. Demote the trailing glyph back to the isolated right-half stance once the leader's no-exit stance is in the buffer. Each entry compiles to `sub leader_stance trailing_stance' by isolated_form;` under `calt_trailing_demote_<trailing_base>`.
+  - {leader_stance: qsIt.en-y0.ex-noentry.before-day-exam, trailing_stance: qsDay.half, isolated_form: qsDay}
+  - {leader_stance: qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1, trailing_stance: qsDay.half, isolated_form: qsDay}
   # ·No.alt is reached through a calt_cycle backward upgrade that exits at the baseline (y0), but a trailing ·Jai may already have taken its x-height en-y5 entry from the bare ·No that still advertised an x-height exit. ·No.alt and ·Jai never join (No.alt exits y0; Jai enters y5 only), so revert the now-dangling ·Jai to its isolated form once ·No.alt is in the buffer.
-  - {leader_form: qsNo.alt.en-y0.ex-y0, trailing_form: qsJai.en-y5.ex-y0, isolated_form: qsJai}
-  # Backward-entry dangles where the trailing glyph grew an entry toward a leader that never exit-joins it, and the trailing form has NO forward exit to lose, so reverting to bare is consequence-free. ·Excite's entryless-but-also-exitless `en-y0.noexit` after ·Excite/·It/·Jai/·No (none of which exit-join its baseline entry); ·Owe's entry-only `en-y5` after ·May's exitless `en-y5` and ·No.alt.
-  - {leader_form: qsExcite, trailing_form: qsExcite.en-y0.noexit, isolated_form: qsExcite}
-  - {leader_form: qsIt, trailing_form: qsExcite.en-y0.noexit, isolated_form: qsExcite}
-  - {leader_form: qsJai, trailing_form: qsExcite.en-y0.noexit, isolated_form: qsExcite}
-  - {leader_form: qsNo, trailing_form: qsExcite.en-y0.noexit, isolated_form: qsExcite}
-  - {leader_form: qsMay.en-y5, trailing_form: qsOwe.en-y5, isolated_form: qsOwe}
-  - {leader_form: qsNo.alt.en-y0.ex-y0, trailing_form: qsOwe.en-y5, isolated_form: qsOwe}
-  # Backward-entry dangles (triage families F5a / F6 / F7 / F9) where the trailing glyph grew an entry toward a leader that never exit-joins it. The trailing form carries a forward exit, but the dangle's (leader, trailing) buffer state only arises after these specific non-exiting leaders — a real forward join would give the trailing glyph a different, exiting predecessor (a different leader_form), so the keyed post-pass never fires on a genuine join. Revert to the isolated form.
-  - {leader_form: qsGay, trailing_form: qsYe.en-y5.ex-y0, isolated_form: qsYe}
-  - {leader_form: qsIt, trailing_form: qsYe.en-y5.ex-y0, isolated_form: qsYe}
-  - {leader_form: qsFee, trailing_form: qsYe.en-y5.ex-y0, isolated_form: qsYe}
-  - {leader_form: qsNo, trailing_form: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
-  - {leader_form: qsNo, trailing_form: qsGay.en-y0.ex-y5, isolated_form: qsGay}
-  - {leader_form: qsNo, trailing_form: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
-  - {leader_form: qsExcite, trailing_form: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
-  - {leader_form: qsExcite, trailing_form: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
-  - {leader_form: qsExcite, trailing_form: qsNo.alt.en-y0.ex-y0, isolated_form: qsNo}
-  - {leader_form: qsJai, trailing_form: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
-  - {leader_form: qsJai, trailing_form: qsGay.en-y0.ex-y5, isolated_form: qsGay}
-  - {leader_form: qsJai, trailing_form: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
-  - {leader_form: qsIt, trailing_form: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
-  - {leader_form: qsMay.en-y5, trailing_form: qsPea.en-y5.ex-y0, isolated_form: qsPea}
-  - {leader_form: qsMay.en-y5, trailing_form: qsYe.en-y5.ex-y0, isolated_form: qsYe}
-  - {leader_form: qsMay.en-y5, trailing_form: qsOy.en-y5.ex-y0, isolated_form: qsOy}
-  - {leader_form: qsNo.alt.en-y0.ex-y0, trailing_form: qsOy.en-y5.ex-y0, isolated_form: qsOy}
-  - {leader_form: qsNo.alt.en-y0.ex-y0, trailing_form: qsYe.en-y5.ex-y0, isolated_form: qsYe}
-  - {leader_form: qsOut_qsTea, trailing_form: qsDay_qsUtter.half.en-y0.ex-y5, isolated_form: qsDay_qsUtter}
+  - {leader_stance: qsNo.alt.en-y0.ex-y0, trailing_stance: qsJai.en-y5.ex-y0, isolated_form: qsJai}
+  # Backward-entry dangles where the trailing glyph grew an entry toward a leader that never exit-joins it, and the trailing stance has NO forward exit to lose, so reverting to bare is consequence-free. ·Excite's entryless-but-also-exitless `en-y0.noexit` after ·Excite/·It/·Jai/·No (none of which exit-join its baseline entry); ·Owe's entry-only `en-y5` after ·May's exitless `en-y5` and ·No.alt.
+  - {leader_stance: qsExcite, trailing_stance: qsExcite.en-y0.noexit, isolated_form: qsExcite}
+  - {leader_stance: qsIt, trailing_stance: qsExcite.en-y0.noexit, isolated_form: qsExcite}
+  - {leader_stance: qsJai, trailing_stance: qsExcite.en-y0.noexit, isolated_form: qsExcite}
+  - {leader_stance: qsNo, trailing_stance: qsExcite.en-y0.noexit, isolated_form: qsExcite}
+  - {leader_stance: qsMay.en-y5, trailing_stance: qsOwe.en-y5, isolated_form: qsOwe}
+  - {leader_stance: qsNo.alt.en-y0.ex-y0, trailing_stance: qsOwe.en-y5, isolated_form: qsOwe}
+  # Backward-entry dangles (triage families F5a / F6 / F7 / F9) where the trailing glyph grew an entry toward a leader that never exit-joins it. The trailing stance carries a forward exit, but the dangle's (leader, trailing) buffer state only arises after these specific non-exiting leaders — a real forward join would give the trailing glyph a different, exiting predecessor (a different leader_stance), so the keyed post-pass never fires on a genuine join. Revert to the isolated form.
+  - {leader_stance: qsGay, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
+  - {leader_stance: qsIt, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
+  - {leader_stance: qsFee, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
+  - {leader_stance: qsNo, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+  - {leader_stance: qsNo, trailing_stance: qsGay.en-y0.ex-y5, isolated_form: qsGay}
+  - {leader_stance: qsNo, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
+  - {leader_stance: qsExcite, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+  - {leader_stance: qsExcite, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
+  - {leader_stance: qsExcite, trailing_stance: qsNo.alt.en-y0.ex-y0, isolated_form: qsNo}
+  - {leader_stance: qsJai, trailing_stance: qsDay.half.en-y0.ex-y0, isolated_form: qsDay}
+  - {leader_stance: qsJai, trailing_stance: qsGay.en-y0.ex-y5, isolated_form: qsGay}
+  - {leader_stance: qsJai, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
+  - {leader_stance: qsIt, trailing_stance: qsZoo.half.en-y0.ex-y0, isolated_form: qsZoo}
+  - {leader_stance: qsMay.en-y5, trailing_stance: qsPea.en-y5.ex-y0, isolated_form: qsPea}
+  - {leader_stance: qsMay.en-y5, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
+  - {leader_stance: qsMay.en-y5, trailing_stance: qsOy.en-y5.ex-y0, isolated_form: qsOy}
+  - {leader_stance: qsNo.alt.en-y0.ex-y0, trailing_stance: qsOy.en-y5.ex-y0, isolated_form: qsOy}
+  - {leader_stance: qsNo.alt.en-y0.ex-y0, trailing_stance: qsYe.en-y5.ex-y0, isolated_form: qsYe}
+  - {leader_stance: qsOut_qsTea, trailing_stance: qsDay_qsUtter.half.en-y0.ex-y5, isolated_form: qsDay_qsUtter}
   # `·Ah/·I·They·Tea·I`: ·Tea takes a backward `en-y8` toward ·They's (about-to-be-demoted) baseline exit. Revert ·Tea's entry first; the matching `qsThey.ex-y0.before-may.en-y5{,.en-ext-1}` → `qsThey.en-y5{,.en-ext-1}` predecessor-demote (keyed on the reverted `qsTea.ex-y0.ex-ext-1`) then drops ·They's exit.
-  - {leader_form: qsThey.ex-y0.before-may.en-y5, trailing_form: qsTea.en-y8.ex-y0.ex-ext-1, isolated_form: qsTea.ex-y0.ex-ext-1}
-  - {leader_form: qsThey.ex-y0.before-may.en-y5.en-ext-1, trailing_form: qsTea.en-y8.ex-y0.ex-ext-1, isolated_form: qsTea.ex-y0.ex-ext-1}
+  - {leader_stance: qsThey.ex-y0.before-may.en-y5, trailing_stance: qsTea.en-y8.ex-y0.ex-ext-1, isolated_form: qsTea.ex-y0.ex-ext-1}
+  - {leader_stance: qsThey.ex-y0.before-may.en-y5.en-ext-1, trailing_stance: qsTea.en-y8.ex-y0.ex-ext-1, isolated_form: qsTea.ex-y0.ex-ext-1}
 glyph_families:
   space:
     mono:
@@ -419,7 +419,7 @@ glyph_families:
         - "   #"
         - "   #"
         - "   #"  #
-    forms:
+    stances:
       entry_y6:
         shape: prop
         anchors:
@@ -541,7 +541,7 @@ glyph_families:
       shape: mono
       anchors:
         exit: [5, 0]
-    forms:
+    stances:
       entry_xheight:
         shape: mono
         anchors:
@@ -589,7 +589,7 @@ glyph_families:
         - " "  #
     derive:
       extend_exit_before: {by: 1, targets: [{family: qsI}]}
-    forms:
+    stances:
       exit_baseline:
         shape: prop
         anchors:
@@ -756,7 +756,7 @@ glyph_families:
         - "##  "
         - "#   "
         y_offset: -3
-    forms:
+    stances:
       half:
         shape: half
         anchors:
@@ -802,7 +802,7 @@ glyph_families:
         - "##      "
         - "#       "
         y_offset: -3
-    forms:
+    stances:
       half:
         shape: half
         anchors:
@@ -905,7 +905,7 @@ glyph_families:
     derive:
       extend_exit_before:
         - {by: 2, targets: [{family: qsJai}, {family: qsOwe}]}
-    forms:
+    stances:
       exit_xheight:
         shape: mono
         anchors:
@@ -957,7 +957,7 @@ glyph_families:
           not_before: [{context_set: gay_reaches_baseline_exit_forward}]
         modifiers: [en-y0]
       entry_xheight_exit_noentry:
-        # ·Utter (x-height exit) hands ·Gay its x-height entry, but the next thing — ·Thaw (which has dropped its own baseline entry before ·-ing) or the entryless ·Tea+Oy ligature — can't receive ·Gay's forward exit. Keep the ·Utter–·Gay x-height join and surrender the forward stub instead of reverting ·Gay to its anchorless bare form.
+        # ·Utter (x-height exit) hands ·Gay its x-height entry, but the next thing — ·Thaw (which has dropped its own baseline entry before ·-ing) or the entryless ·Tea+Oy ligature — can't receive ·Gay's forward exit. Keep the ·Utter–·Gay x-height join and surrender the forward stub instead of reverting ·Gay to its anchorless bare stance.
         inherits: entry_xheight
         anchors:
           exit: null
@@ -981,7 +981,7 @@ glyph_families:
       shape: mono
       anchors:
         entry: [2, 0]
-    forms:
+    stances:
       exit_baseline:
         shape: mono
         anchors:
@@ -1024,7 +1024,7 @@ glyph_families:
         - "#   # "
         - " ###  "
         y_offset: -3
-    forms:
+    stances:
       entry_xheight:
         shape: mono
         anchors:
@@ -1175,7 +1175,7 @@ glyph_families:
         - family: qsFoot
       extend_exit_before_gated:
         ss03: [{family: qsTea}]
-    forms:
+    stances:
       entry_xheight:
         shape: connect_from_short_height
         anchors:
@@ -1287,7 +1287,7 @@ glyph_families:
         - " #   #  "
         - "  ###   "
         y_offset: -3
-    forms:
+    stances:
       exit_baseline:
         shape: exits_at_baseline
         anchors:
@@ -1375,7 +1375,7 @@ glyph_families:
         - "   #"
         - "   #"
         - "   #"  #
-    forms:
+    stances:
       exit_y6:
         shape: exits_at_y6
         anchors:
@@ -1482,7 +1482,7 @@ glyph_families:
         - "#  # "
         - " ##  "
         y_offset: -3
-    forms:
+    stances:
       half:
         shape: half
         anchors:
@@ -1516,7 +1516,7 @@ glyph_families:
         - "#    "
         - "#    "
         - " ####"  #
-    forms:
+    stances:
       exit_baseline:
         shape: flattened_bottom
         anchors:
@@ -1565,7 +1565,7 @@ glyph_families:
         - family: qsExam
         - family: qsIt
         - family: qsI
-    forms:
+    stances:
       entry_xheight:
         shape: prop
         anchors:
@@ -1652,7 +1652,7 @@ glyph_families:
         exit: [5, 0]
     derive:
       extend_exit_before: {by: 1, targets: [{family: qsYe}, {family: qsExam}, {family: qsI}]}
-    forms:
+    stances:
       entry_xheight:
         shape: mono
         anchors:
@@ -1722,7 +1722,7 @@ glyph_families:
         - " #   "
         - " #   "
         - " #   "  #
-    forms:
+    stances:
       entry_xheight_exit_baseline:
         shape: from_short_height
         anchors:
@@ -1750,7 +1750,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [ex-y0]
       entry_baseline:
-        # ·Ye receiving a baseline entry from a preceding baseline-exit letter, mirroring ·He and ·Tea: an entry-only form gated by `not_after` (no positive `after`) so it rides `calt_cycle` and yields to a forward baseline join. ·Ye's single-direction stroke can't both take a baseline entry on the left and give a baseline exit on the right, so this form surrenders the exit and prefers the follower; the bare ·Ye keeps its baseline exit, so the forward join still happens when a baseline-entry follower is available. The excepted predecessors (folded into `not_after` here) mirror ·Excite's entry_baseline_noexit geometry: the letters that run flat down to the baseline on their right and so can't feed a left-swinging baseline entry; ·See belongs there because it only exits at the baseline when its arm is twisted aside. The set matches ·He's except that ·J'ai and ·Jay are absent here — their rightward baseline exits reach ·Ye's entry, so ·J'ai·Ye and ·Jay·Ye both join even though ·J'ai·He and ·Jay·He don't.
+        # ·Ye receiving a baseline entry from a preceding baseline-exit letter, mirroring ·He and ·Tea: an entry-only stance gated by `not_after` (no positive `after`) so it rides `calt_cycle` and yields to a forward baseline join. ·Ye's single-direction stroke can't both take a baseline entry on the left and give a baseline exit on the right, so this stance surrenders the exit and prefers the follower; the bare ·Ye keeps its baseline exit, so the forward join still happens when a baseline-entry follower is available. The excepted predecessors (folded into `not_after` here) mirror ·Excite's entry_baseline_noexit geometry: the letters that run flat down to the baseline on their right and so can't feed a left-swinging baseline entry; ·See belongs there because it only exits at the baseline when its arm is twisted aside. The set matches ·He's except that ·J'ai and ·Jay are absent here — their rightward baseline exits reach ·Ye's entry, so ·J'ai·Ye and ·Jay·Ye both join even though ·J'ai·He and ·Jay·He don't.
         shape: prop
         anchors:
           entry: [1, 0]
@@ -1787,7 +1787,7 @@ glyph_families:
             - {family: qsFoot}
         modifiers: [en-y0]
       entry_baseline_exit_noentry:
-        # When ·Ye took its baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, the post-liga cleanup routes the predecessor here. ·Ye's entry_baseline already carries no exit, so this form is geometrically identical to it; it exists only so the `.ex-noentry` post-liga fallback has a sibling matching the en-y0 input. It carries no selectors of its own (the inherited `not_after` is cleared) so it is reachable only through that cleanup.
+        # When ·Ye took its baseline entry from a predecessor and then a `noentry_after: [qsYe]` follower (·Ing) drops its entry, the post-liga cleanup routes the predecessor here. ·Ye's entry_baseline already carries no exit, so this stance is geometrically identical to it; it exists only so the `.ex-noentry` post-liga fallback has a sibling matching the en-y0 input. It carries no selectors of its own (the inherited `not_after` is cleared) so it is reachable only through that cleanup.
         inherits: entry_baseline
         anchors:
           exit: null
@@ -1834,7 +1834,7 @@ glyph_families:
         - " # "
         - "#  "
         y_offset: -3
-    forms:
+    stances:
       half:
         shape: half
         anchors:
@@ -1914,7 +1914,7 @@ glyph_families:
         - "   "  #
     derive:
       extend_exit_before: {by: 1, targets: [{family: qsExam}, {family: qsI}]}
-    forms:
+    stances:
       half:
         shape: half
         anchors:
@@ -1941,7 +1941,7 @@ glyph_families:
             - {family: qsExcite}
         modifiers: [ex-y0]
       entry_baseline:
-        # Full ·He receiving a baseline entry from a preceding baseline-exit letter, mirroring ·Tea's entry_baseline (and ·Ye's): an entry-only form gated by `not_after` rather than a positive `after`, so it rides `calt_cycle` and yields to a forward baseline join instead of out-prioritizing it. ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He joins on the left here or on the right elsewhere, never both, and prefers the follower when a baseline join is possible in either direction. So this form carries no exit: once ·He takes a baseline entry it joins nothing after it. The `not_after` set is the complement of the predecessors that feed it cleanly — the letters whose own baseline exit lands at ·He's left edge without a reaching stroke. It excludes the flat-bottomed exiters that can't reach a left-swinging entry, every letter that doesn't exit at the baseline at all, and the wide-reaching exiters (·Vie/·May/·No/·Excite/·Utter/…) whose extended baseline-exit form would dangle when ·He instead goes forward — those reach toward ·He from their own forms (suppressed there) rather than feeding it here.
+        # Full ·He receiving a baseline entry from a preceding baseline-exit letter, mirroring ·Tea's entry_baseline (and ·Ye's): an entry-only stance gated by `not_after` rather than a positive `after`, so it rides `calt_cycle` and yields to a forward baseline join instead of out-prioritizing it. ·He's stroke runs straight down the far-left column, so an incoming baseline stroke fills the only space a rightward exit could use — ·He joins on the left here or on the right elsewhere, never both, and prefers the follower when a baseline join is possible in either direction. So this stance carries no exit: once ·He takes a baseline entry it joins nothing after it. The `not_after` set is the complement of the predecessors that feed it cleanly — the letters whose own baseline exit lands at ·He's left edge without a reaching stroke. It excludes the flat-bottomed exiters that can't reach a left-swinging entry, every letter that doesn't exit at the baseline at all, and the wide-reaching exiters (·Vie/·May/·No/·Excite/·Utter/…) whose extended baseline-exit stance would dangle when ·He instead goes forward — those reach toward ·He from their own stances (suppressed there) rather than feeding it here.
         shape: prop
         anchors:
           entry: [0, 0]
@@ -2019,7 +2019,7 @@ glyph_families:
         - " # # "
         - "  #  "
         y_offset: -3
-    forms:
+    stances:
       exit_xheight:
         shape: curved_at_top
         anchors:
@@ -2191,7 +2191,7 @@ glyph_families:
         - "#  #"
         - " ## "
         y_offset: -3
-    forms:
+    stances:
       entry_xheight:
         shape: pulled_back_a_bit_for_entry_at_short_height
         anchors:
@@ -2310,7 +2310,7 @@ glyph_families:
         - "  #  "
         - " # # "
         - "#   #"  #
-    forms:
+    stances:
       alt:
         shape: alt
         anchors:
@@ -2412,7 +2412,7 @@ glyph_families:
         - "     #"
         - "    # "
         - "####  "  #
-    forms:
+    stances:
       entry_extended_at_baseline:
         shape: shortened_top
         anchors:
@@ -2564,7 +2564,7 @@ glyph_families:
         - " # #  "
         - "#   # "
         - "#   # "  #
-    forms:
+    stances:
       exit_baseline_before_vertical_after_baseline_letter:
         shape: wide_at_baseline
         anchors:
@@ -2669,7 +2669,7 @@ glyph_families:
       shape: mono
       anchors:
         entry: [0, 0]
-    forms:
+    stances:
       noentry_after_nonjoining_left:
         shape: mono
         anchors:
@@ -2738,7 +2738,7 @@ glyph_families:
       - "#"  #
     derive:
       extend_exit_before: {by: 1, targets: [{family: qsJai}, {family: qsCheer}, {family: qsOwe}]}
-    forms:
+    stances:
       entry_xheight_exit_baseline:
         shape: prop
         anchors:
@@ -2843,7 +2843,7 @@ glyph_families:
           extend_exit_before: {by: 1, targets: [{family: qsI}]}
         modifiers: [ex-y0]
       entry_nowhere_exit_baseline_before_day:
-        # When ·It doesn't join its predecessor at the baseline (word-initial, after a word break, or after a non-joining letter) and ·Day follows, ·It exits at the baseline into a half-·Day — the only legal ·It·Day join, since the full ·Day's x-height entry would force the forbidden x-height join. This is a separate form (not `entry_nowhere_exit_baseline`, which carries `strip_entry_before` and handles every other follower) so adding a ·Day trigger here can't disturb the baseline join into ·No/·Zoo/·May. The three modifiers are deliberate: a fwd-pair lookup with more modifiers sorts (and so runs) before one with fewer, and this needs to beat `entry_baseline_exit_noentry_before_day_exam` (three modifiers) so the post-ZWNJ `qsIt.noentry` upgrades to this ex-y0 form instead of being reverted to the bare base by before-day-exam's entry-preserving noentry rule.
+        # When ·It doesn't join its predecessor at the baseline (word-initial, after a word break, or after a non-joining letter) and ·Day follows, ·It exits at the baseline into a half-·Day — the only legal ·It·Day join, since the full ·Day's x-height entry would force the forbidden x-height join. This is a separate stance (not `entry_nowhere_exit_baseline`, which carries `strip_entry_before` and handles every other follower) so adding a ·Day trigger here can't disturb the baseline join into ·No/·Zoo/·May. The three modifiers are deliberate: a fwd-pair lookup with more modifiers sorts (and so runs) before one with fewer, and this needs to beat `entry_baseline_exit_noentry_before_day_exam` (three modifiers) so the post-ZWNJ `qsIt.noentry` upgrades to this ex-y0 stance instead of being reverted to the bare base by before-day-exam's entry-preserving noentry rule.
         shape: prop
         anchors:
           exit: [1, 0]
@@ -2953,7 +2953,7 @@ glyph_families:
       derive:
         extend_entry_after: {by: 1, targets: [{family: qsSee}]}
         contract_exit_before: {by: 1, targets: [{family: qsJai}]}
-    forms:
+    stances:
       exit_baseline_before_may:
         shape: mono
         anchors:
@@ -3003,7 +3003,7 @@ glyph_families:
         - "  #  "
         - " #   "
         - "#    "  #
-    forms:
+    stances:
       entry_baseline_smaller_loop:
         shape: smaller_loop
         anchors:
@@ -3105,7 +3105,7 @@ glyph_families:
         - "  # #"
         - "    #"
         - "    #"  #
-    forms:
+    stances:
       entry_xheight:
         shape: connects_on_both_sides
         anchors:
@@ -3152,7 +3152,7 @@ glyph_families:
         - " #    "
         - "  #   "
         - "   ###"  #
-    forms:
+    stances:
       alt:
         shape: alt
         anchors:
@@ -3236,7 +3236,7 @@ glyph_families:
         - "# #  "
         - "#    "
         - "#    "  #
-    forms:
+    stances:
       after_see:
         shape: after_see_extended
         anchors:
@@ -3254,7 +3254,7 @@ glyph_families:
         derive:
           contract_exit_before: null
         modifiers: [after-see]
-      # The default after-·See exit that just touches its follower: `not_before: qsFee` lets the longer `before-fee` form below claim ·See·Out·Fee, and this body takes every other follower (·See·Out·Oy) plus word-final ·See·Out. `terminal_default: true` makes this form win the no-follower (word-final) case by declared precedence, so the modifier name is now follower-honest (`before-other`) and no longer has to sort before `before-fee` for correctness.
+      # The default after-·See exit that just touches its follower: `not_before: qsFee` lets the longer `before-fee` stance below claim ·See·Out·Fee, and this body takes every other follower (·See·Out·Oy) plus word-final ·See·Out. `terminal_default: true` makes this stance win the no-follower (word-final) case by declared precedence, so the modifier name is now follower-honest (`before-other`) and no longer has to sort before `before-fee` for correctness.
       exit_xheight_after_see_before_other:
         inherits: exit_xheight_after_see
         anchors:
@@ -3318,7 +3318,7 @@ glyph_families:
         - "  #   ## "
         - " #       "
         - "#        "  #
-    forms:
+    stances:
       after_see:
         shape: after_see
         select:
@@ -3364,7 +3364,7 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
-    forms:
+    stances:
       entry_xheight:
         shape: entry_xheight
         anchors:

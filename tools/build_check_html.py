@@ -233,7 +233,7 @@ def _visual_signature(name: str) -> tuple:
 
 
 def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int]:
-    """Shape *parts* and return per-glyph (name, visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual form selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two forms are visually identical."""
+    """Shape *parts* and return per-glyph (name, visual, abs_x, abs_y) plus the sequence's total advance — the single-buffer equivalent of how the inline-block halves butt up in the rendered HTML. The `kern` feature is turned off because an isolation leak is about joining and contextual stance selection, not spacing: a kern pair that legitimately tightens a non-joining break (e.g. ·Ye·It) would otherwise shift the in-context run but not the independently-shaped halves, flagging intended kerning as a leak even when the two stances are visually identical."""
     font = _font()
     buf = hb.Buffer()
     buf.add_str(_qs_text(*parts))
@@ -253,7 +253,7 @@ def _abs_render_signature(parts: tuple[str, ...]) -> tuple[list[tuple], int, int
 def _visual_status(example: IsolationLeakExample) -> str:
     """Classify a leak as ``same`` or ``diff`` by comparing the in-context render of the example sequence against the concatenation of its two boundary-faithful halves.
 
-    The left half ends with the shared boundary token (if any); the right half begins with it. Since both halves are shaped *with* the token (so each flanking letter's space-keyed form is faithful), the token glyph would otherwise render twice. So when concatenating we drop the right half's leading boundary glyphs and re-base the remaining glyphs onto the left half's advance — the token is rendered exactly once, at its real position.
+    The left half ends with the shared boundary token (if any); the right half begins with it. Since both halves are shaped *with* the token (so each flanking letter's space-keyed stance is faithful), the token glyph would otherwise render twice. So when concatenating we drop the right half's leading boundary glyphs and re-base the remaining glyphs onto the left half's advance — the token is rendered exactly once, at its real position.
     """
     full_entries, _, _ = _abs_render_signature(example.families)
     (l0, l1), (r0, r1) = _shaped_input_spans(example)
@@ -856,7 +856,7 @@ def parse_leak_snapshot(path: Path = LEAK_SNAPSHOT_PATH) -> list[tuple[Leak, Iso
 _MOOT_FOLD_COPY: dict[str, tuple[str, str]] = {
     "droppable": (
         "Contract will erase — no verdict needed",
-        "A single <code>calt</code> rule selects the changed form right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
+        "A single <code>calt</code> rule selects the changed stance right next to a neighbor it does not cursive-join, so the derived join contract (see <code>doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md</code>) drops that neighbor from the rule and the leak can never be emitted. Listed for reference only — you don't need to triage these.",
     ),
     "cosmetic": (
         "Author-declared cosmetic tucks — already labeled",

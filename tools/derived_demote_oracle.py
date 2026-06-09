@@ -87,13 +87,13 @@ def _derive_isolated_form(
     glyph_meta: dict[str, JoinGlyph],
     *,
     side: Side,
-    left_form: str,
-    right_form: str,
+    left_stance: str,
+    right_stance: str,
 ) -> IsolatedCandidate | None:
-    source_name = left_form if side == "predecessor" else right_form
+    source_name = left_stance if side == "predecessor" else right_stance
     source = glyph_meta.get(source_name)
-    left = glyph_meta.get(left_form)
-    right = glyph_meta.get(right_form)
+    left = glyph_meta.get(left_stance)
+    right = glyph_meta.get(right_stance)
     if source is None or left is None or right is None:
         return None
     if side == "predecessor" and not source.exit_ys:
@@ -108,7 +108,7 @@ def _derive_isolated_form(
         source_dropped_ys = set(source.exit_ys)
 
         def remains_non_joining(candidate: JoinGlyph) -> bool:
-            return not joins(candidate.name, right_form)
+            return not joins(candidate.name, right_stance)
 
         def dropped_edge_changed(candidate: JoinGlyph) -> bool:
             return (
@@ -126,7 +126,7 @@ def _derive_isolated_form(
         source_dropped_ys = set(source.all_entry_ys)
 
         def remains_non_joining(candidate: JoinGlyph) -> bool:
-            return not joins(left_form, candidate.name)
+            return not joins(left_stance, candidate.name)
 
         def dropped_edge_changed(candidate: JoinGlyph) -> bool:
             return (
@@ -280,11 +280,11 @@ def _derive_shaped_no_authored_pairs(
     for length in range(2, max_len + 1):
         for families in itertools.product(alphabet, repeat=length):
             glyphs = [name for name in _shape(font, families) if _is_letter_glyph(name)]
-            for left_form, right_form in zip(glyphs, glyphs[1:]):
-                if left_form in glyph_meta and right_form in glyph_meta:
+            for left_stance, right_stance in zip(glyphs, glyphs[1:]):
+                if left_stance in glyph_meta and right_stance in glyph_meta:
                     _add_pair(
                         pair_sources,
-                        (left_form, right_form),
+                        (left_stance, right_stance),
                         " ".join(families),
                         source_limit=source_limit,
                     )
@@ -331,16 +331,16 @@ def _load_authored_triples(glyph_meta: dict[str, JoinGlyph]) -> tuple[set[Triple
 
     predecessor = {
         (
-            heal(entry["predecessor_form"]),
-            heal(entry["trigger_form"]),
+            heal(entry["predecessor_stance"]),
+            heal(entry["trigger_stance"]),
             heal(entry["isolated_form"]),
         )
         for entry in data.get("predecessor_demote_overrides", []) or []
     }
     trailing = {
         (
-            heal(entry["leader_form"]),
-            heal(entry["trailing_form"]),
+            heal(entry["leader_stance"]),
+            heal(entry["trailing_stance"]),
             heal(entry["isolated_form"]),
         )
         for entry in data.get("trailing_demote_overrides", []) or []
@@ -354,28 +354,28 @@ def _derive_rows(
 ) -> tuple[dict[Triple, DerivedRow], dict[Triple, DerivedRow]]:
     predecessor: dict[Triple, DerivedRow] = {}
     trailing: dict[Triple, DerivedRow] = {}
-    for left_form, right_form in sorted(pair_sources):
-        if left_form not in glyph_meta or right_form not in glyph_meta:
+    for left_stance, right_stance in sorted(pair_sources):
+        if left_stance not in glyph_meta or right_stance not in glyph_meta:
             continue
-        if joins(left_form, right_form):
+        if joins(left_stance, right_stance):
             continue
-        left_meta = glyph_meta[left_form]
-        right_meta = glyph_meta[right_form]
+        left_meta = glyph_meta[left_stance]
+        right_meta = glyph_meta[right_stance]
         if left_meta.is_contextual or left_meta.generated_from is not None:
             candidate = _derive_isolated_form(
                 glyph_meta,
                 side="predecessor",
-                left_form=left_form,
-                right_form=right_form,
+                left_stance=left_stance,
+                right_stance=right_stance,
             )
             if candidate is not None and candidate.name:
-                triple = (left_form, right_form, candidate.name)
+                triple = (left_stance, right_stance, candidate.name)
                 predecessor.setdefault(
                     triple,
                     DerivedRow(
                         side="predecessor",
                         triple=triple,
-                        pair_source_count=len(pair_sources[(left_form, right_form)]),
+                        pair_source_count=len(pair_sources[(left_stance, right_stance)]),
                         isolated_reason=candidate.reason,
                     ),
                 )
@@ -383,17 +383,17 @@ def _derive_rows(
             candidate = _derive_isolated_form(
                 glyph_meta,
                 side="trailing",
-                left_form=left_form,
-                right_form=right_form,
+                left_stance=left_stance,
+                right_stance=right_stance,
             )
             if candidate is not None and candidate.name:
-                triple = (left_form, right_form, candidate.name)
+                triple = (left_stance, right_stance, candidate.name)
                 trailing.setdefault(
                     triple,
                     DerivedRow(
                         side="trailing",
                         triple=triple,
-                        pair_source_count=len(pair_sources[(left_form, right_form)]),
+                        pair_source_count=len(pair_sources[(left_stance, right_stance)]),
                         isolated_reason=candidate.reason,
                     ),
                 )
@@ -407,18 +407,18 @@ def _probe_authored(
     authored: set[Triple],
 ) -> list[AuthoredProbe]:
     probes: list[AuthoredProbe] = []
-    for left_form, right_form, isolated_form in sorted(authored):
+    for left_stance, right_stance, isolated_form in sorted(authored):
         candidate = _derive_isolated_form(
             glyph_meta,
             side=side,
-            left_form=left_form,
-            right_form=right_form,
+            left_stance=left_stance,
+            right_stance=right_stance,
         )
         if candidate is None:
             probes.append(
                 AuthoredProbe(
                     side=side,
-                    triple=(left_form, right_form, isolated_form),
+                    triple=(left_stance, right_stance, isolated_form),
                     derived_isolated_form=None,
                     reason="no same-base non-joining sibling candidate",
                 )
@@ -427,7 +427,7 @@ def _probe_authored(
             probes.append(
                 AuthoredProbe(
                     side=side,
-                    triple=(left_form, right_form, isolated_form),
+                    triple=(left_stance, right_stance, isolated_form),
                     derived_isolated_form=None,
                     reason=candidate.reason,
                 )
@@ -436,7 +436,7 @@ def _probe_authored(
             probes.append(
                 AuthoredProbe(
                     side=side,
-                    triple=(left_form, right_form, isolated_form),
+                    triple=(left_stance, right_stance, isolated_form),
                     derived_isolated_form=candidate.name,
                     reason=candidate.reason,
                 )
@@ -463,10 +463,10 @@ def _bucket_authored_miss(
     triple: Triple,
     derived_isolated_form: str | None,
 ) -> str:
-    left_form, right_form, _isolated_form = triple
-    left = glyph_meta[left_form]
-    right = glyph_meta[right_form]
-    if joins(left_form, right_form):
+    left_stance, right_stance, _isolated_form = triple
+    left = glyph_meta[left_stance]
+    right = glyph_meta[right_stance]
+    if joins(left_stance, right_stance):
         return "real-join"
     if side == "predecessor" and not left.exit_ys:
         return "inverted/predecessor-aware"
@@ -569,10 +569,10 @@ def _format_report(
     for probe in sorted(predecessor_probes + trailing_probes, key=lambda probe: (probe.side, probe.triple)):
         if probe.reproduces:
             continue
-        left_form, right_form, isolated_form = probe.triple
+        left_stance, right_stance, isolated_form = probe.triple
         derived = probe.derived_isolated_form or "<none>"
         lines.append(
-            f"- {probe.side}: {left_form} + {right_form} -> authored {isolated_form}, derived {derived} ({probe.reason})"
+            f"- {probe.side}: {left_stance} + {right_stance} -> authored {isolated_form}, derived {derived} ({probe.reason})"
         )
     lines.append("")
 
@@ -613,9 +613,9 @@ def _format_report(
     ):
         lines.append(f"### {side}")
         for triple in sorted(extras):
-            left_form, right_form, _isolated_form = triple
-            sources = ", ".join(sorted(pair_sources[(left_form, right_form)]))
-            lines.append(f"- {left_form} + {right_form}: {sources}")
+            left_stance, right_stance, _isolated_form = triple
+            sources = ", ".join(sorted(pair_sources[(left_stance, right_stance)]))
+            lines.append(f"- {left_stance} + {right_stance}: {sources}")
         lines.append("")
     return "\n".join(lines) + "\n"
 

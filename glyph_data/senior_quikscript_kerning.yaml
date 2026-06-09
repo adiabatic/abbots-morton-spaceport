@@ -8,26 +8,26 @@
 #
 # Left side, pick one:
 #   left_family: [qsPea, ...]   # expands to the bare family glyph plus every contextual variant (qsPea, qsPea.en-y0, ...)
-#   left_form: [qsNo.alt, ...]  # like left_family but matches a form sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (override rule)
+#   left_stance: [qsNo.alt, ...]  # like left_family but matches a stance sub-family: qsNo.alt and qsNo.alt.*, not qsNo or qsNo.en-ext-1 (override rule)
 #   left: [qsPea, ...]          # explicit glyph names, no variant expansion
 #   (omit all)                  # every glyph except those carrying this rule's per-glyph kerning tag
 #
 # Right side, pick one:
 #   right_family: [qsTea, ...]  # expands to the bare family glyph plus every contextual variant
-#   right_form: [qsNo.alt, ...] # like right_family but matches a form sub-family (override rule)
+#   right_stance: [qsNo.alt, ...] # like right_family but matches a stance sub-family (override rule)
 #   right: [qsTea, ...]         # explicit glyph names, no variant expansion
-#   right_group: noentry        # every glyph whose name ends in `.noentry`; emits the contextual before-ZWNJ form
+#   right_group: noentry        # every glyph whose name ends in `.noentry`; emits the contextual before-ZWNJ stance
 #
 # After computing either side's glyph set, optionally carve out a sub-family:
-#   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_form override of the same prefix)
+#   except_left: [qsNo.alt, ...]   # drop every glyph matching qsNo.alt or qsNo.alt.* from the left set (pairs with a left_stance override of the same prefix)
 #   except_right: [qsNo.alt, ...]  # same on the right side
 #
-# Both sides may carry a form-prefix and/or a carve-out at once. The kerning drill-down in site/kerning.html emits exactly this when it splits an alternate-form pair (e.g. ·No·Utter) into disjoint quadrants: a "plain" side is the family minus its alternates (left_family + except_left: [qsNo.alt]), and an alternate side is its form-prefix (right_form: [qsUtter.alt]). The four quadrants partition the family×family space, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alt ·Utter) quadrant:
+# Both sides may carry a stance-prefix and/or a carve-out at once. The kerning drill-down in site/kerning.html emits exactly this when it splits an alternate-stance pair (e.g. ·No·Utter) into disjoint quadrants: a "plain" side is the family minus its alternates (left_family + except_left: [qsNo.alt]), and an alternate side is its stance-prefix (right_stance: [qsUtter.alt]). The four quadrants partition the family×family space, so no glyph pair is kerned by two lookups. For example, the (plain ·No, alt ·Utter) quadrant:
 #
 # ---
 # left_family: [qsNo]
 # except_left: [qsNo.alt]
-# right_form: [qsUtter.alt]
+# right_stance: [qsUtter.alt]
 # value: -3
 #
 # Add a rule by appending a document below, for example:
@@ -474,11 +474,11 @@ right_family: [qsBay]
 value: -2
 ---
 left_family: [qsWay]
-right_form: [qsGay.ex-y0]
+right_stance: [qsGay.ex-y0]
 value: -1
 ---
 left_family: [qsWay]
-right_form: [qsGay.ex-y0.ex-ext-1]
+right_stance: [qsGay.ex-y0.ex-ext-1]
 value: -1
 ---
 left_family: [qsWay]
@@ -550,11 +550,11 @@ right_family: [qsBay]
 value: -1
 ---
 left_family: [qsWhy]
-right_form: [qsGay.ex-y0]
+right_stance: [qsGay.ex-y0]
 value: -1
 ---
 left_family: [qsWhy]
-right_form: [qsGay.ex-y0.ex-ext-1]
+right_stance: [qsGay.ex-y0.ex-ext-1]
 value: -1
 ---
 left_family: [qsWhy]
@@ -598,10 +598,10 @@ right_family: [qsFoot]
 value: -1
 ---
 left_family: [qsMay]
-right_form: [qsGay.ex-y0]
+right_stance: [qsGay.ex-y0]
 value: -1
 ---
-left_form: [qsNo.alt]
+left_stance: [qsNo.alt]
 right_family: [qsPea]
 value: -2
 ---
@@ -609,7 +609,7 @@ left_family: [qsNo]
 right_family: [qsBay]
 value: -2
 ---
-left_form: [qsNo.alt]
+left_stance: [qsNo.alt]
 right_family: [qsTea]
 value: -1
 ---
@@ -734,7 +734,7 @@ left_family: [qsLlan]
 right_family: [qsFoot]
 value: -1
 ---
-left_form: [qsExcite.en-y0.noexit]
+left_stance: [qsExcite.en-y0.noexit]
 right_family: [qsGay]
 value: -1
 ---

@@ -80,7 +80,7 @@ def _make_glyph(**overrides: Any) -> JoinGlyph:
     return JoinGlyph(**(_DEFAULTS | overrides))
 
 
-def test_single_family_one_form_populates_base_and_fwd_replacement():
+def test_single_family_one_stance_populates_base_and_fwd_replacement():
     qs_bay = _make_glyph(
         name="qsBay",
         base_name="qsBay",
@@ -446,7 +446,7 @@ def test_noentry_after_leak_warns_default_left_variant():
 
 
 def test_default_join_coverage_respects_noentry_after():
-    """Forward-intent suppression must not treat a covering default form as valid coverage when that form's `noentry_after` displaces it for the specific opposite family driving the intent."""
+    """Forward-intent suppression must not treat a covering default stance as valid coverage when that stance's `noentry_after` displaces it for the specific opposite family driving the intent."""
     qs_pea = _make_glyph(
         name="qsPea",
         base_name="qsPea",
@@ -1546,7 +1546,7 @@ def test_derive_fwd_strip_guards_emits_qsgay_qstea_at_baseline():
 
 
 def test_derive_fwd_strip_guards_emits_qsout_qsfee_at_xheight():
-    """·Out·Fee·Jai is the same orphaned-exit pattern through a pair-specific forward strip: qsOut's x-height reach is valid for bare ·Out·Fee, but not when qsFee immediately switches to an exit-only form for the next letter."""
+    """·Out·Fee·Jai is the same orphaned-exit pattern through a pair-specific forward strip: qsOut's x-height reach is valid for bare ·Out·Fee, but not when qsFee immediately switches to an exit-only stance for the next letter."""
     glyph_meta = _real_join_glyphs()
     reach = JoinReachability.from_join_glyphs(glyph_meta)
 

@@ -301,7 +301,7 @@ def test_contract_exit_before_preserves_compatible_context_on_generated_sibling(
                             },
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "entry_top": {
                             "shape": "prop",
                             "anchors": {
@@ -551,7 +551,7 @@ def test_extend_entry_after_targets_accept_family_scoped_anchor_selector():
                         "bitmap": ["#"],
                         "anchors": {"exit": [1, 5]},
                     },
-                    "forms": {
+                    "stances": {
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
@@ -607,7 +607,7 @@ def test_extend_exit_before_targets_accept_family_scoped_anchor_selector():
                         "bitmap": ["#"],
                         "anchors": {"entry": [0, 5]},
                     },
-                    "forms": {
+                    "stances": {
                         "entry_baseline": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 0]},
@@ -639,7 +639,7 @@ def test_contract_entry_after_targets_accept_family_scoped_anchor_selector():
                         "bitmap": ["#"],
                         "anchors": {"exit": [1, 5]},
                     },
-                    "forms": {
+                    "stances": {
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
@@ -698,7 +698,7 @@ def test_contract_exit_before_targets_accept_family_scoped_anchor_selector():
                         "bitmap": ["##"],
                         "anchors": {"entry": [0, 5]},
                     },
-                    "forms": {
+                    "stances": {
                         "entry_high": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 2]},
@@ -983,7 +983,7 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
                             "exit": [1, 5],
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {
@@ -1000,7 +1000,7 @@ def test_senior_feature_emitter_derives_mid_entry_strip_guards():
                             "entry": [0, 0],
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "exit_baseline": {
                             "shape": "prop",
                             "anchors": {
@@ -1459,13 +1459,13 @@ def _family_level_derive_fixture():
                 "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
             },
         },
-        "forms": {
+        "stances": {
             "plain": {
                 "shape": "prop",
                 "anchors": {"exit": [5, 0]},
                 "modifiers": ["plain"],
             },
-            "with_form_derive": {
+            "with_stance_derive": {
                 "shape": "prop",
                 "anchors": {"exit": [5, 0]},
                 "derive": {
@@ -1474,7 +1474,7 @@ def _family_level_derive_fixture():
                         "targets": [{"family": "qsMay"}],
                     },
                 },
-                "modifiers": ["with-form-derive"],
+                "modifiers": ["with-stance-derive"],
             },
             "overrides_family_derive": {
                 "shape": "prop",
@@ -1497,27 +1497,27 @@ def _family_level_derive_fixture():
     }
 
 
-def test_family_level_derive_merges_into_each_form():
+def test_family_level_derive_merges_into_each_stance():
     family_def = _family_level_derive_fixture()
 
     plain = _resolve_family_record("qsTest", family_def, "plain", {}, [])
-    with_form = _resolve_family_record("qsTest", family_def, "with_form_derive", {}, [])
+    with_stance = _resolve_family_record("qsTest", family_def, "with_stance_derive", {}, [])
 
     assert plain["derive"]["extend_exit_before"] == {
         "by": 1,
         "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
     }
-    assert with_form["derive"]["extend_exit_before"] == {
+    assert with_stance["derive"]["extend_exit_before"] == {
         "by": 1,
         "targets": [{"family": "qsTea"}, {"family": "qsThaw"}],
     }
-    assert with_form["derive"]["extend_entry_after"] == {
+    assert with_stance["derive"]["extend_entry_after"] == {
         "by": 1,
         "targets": [{"family": "qsMay"}],
     }
 
 
-def test_form_level_derive_overrides_family_level():
+def test_stance_level_derive_overrides_family_level():
     family_def = _family_level_derive_fixture()
 
     overridden = _resolve_family_record("qsTest", family_def, "overrides_family_derive", {}, [])
@@ -1528,7 +1528,7 @@ def test_form_level_derive_overrides_family_level():
     }
 
 
-def test_form_level_null_clears_family_level_derive():
+def test_stance_level_null_clears_family_level_derive():
     family_def = _family_level_derive_fixture()
 
     cleared = _resolve_family_record("qsTest", family_def, "opts_out_of_family_derive", {}, [])
@@ -1550,7 +1550,7 @@ def test_family_level_derive_applies_to_bare_record():
 def test_inherits_does_not_leak_parent_derive_to_child():
     family_def = {
         "prop": {"bitmap": [" ### "], "y_offset": 0},
-        "forms": {
+        "stances": {
             "parent": {
                 "shape": "prop",
                 "anchors": {"exit": [5, 0]},
@@ -1574,7 +1574,7 @@ def test_inherits_does_not_leak_parent_derive_to_child():
     assert "derive" not in child or child["derive"] == {}
 
 
-def test_family_level_derive_filters_unreachable_targets_per_form():
+def test_family_level_derive_filters_unreachable_targets_per_stance():
     glyph_families = {
         "qsSource": {
             "prop": {
@@ -1587,7 +1587,7 @@ def test_family_level_derive_filters_unreachable_targets_per_form():
                     "targets": [{"family": "qsBaseline"}, {"family": "qsXheight"}],
                 },
             },
-            "forms": {
+            "stances": {
                 "exits_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [3, 0]},
@@ -1652,7 +1652,7 @@ def test_family_level_derive_drops_directive_when_no_targets_reachable():
                     "targets": [{"family": "qsXheightOnly"}],
                 },
             },
-            "forms": {
+            "stances": {
                 "exits_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [3, 0]},
@@ -1686,7 +1686,7 @@ def test_unknown_family_level_derive_directive_errors_at_compile_time():
     family_def = {
         "prop": {"bitmap": [" ### "], "y_offset": 0},
         "derive": {"not_a_real_directive": {"foo": "bar"}},
-        "forms": {
+        "stances": {
             "plain": {
                 "shape": "prop",
                 "anchors": {"exit": [5, 0]},
@@ -1705,7 +1705,7 @@ def test_select_before_and_not_before_cannot_share_family():
     families = {
         "qsLeft": {
             "prop": {"bitmap": [" ### "], "y_offset": 0},
-            "forms": {
+            "stances": {
                 "exit_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [5, 0]},
@@ -1726,7 +1726,7 @@ def test_select_before_and_not_before_cannot_share_family():
 
     with pytest.raises(
         ValueError,
-        match=r"qsLeft form 'exit_baseline'.*select\.before.*select\.not_before.*qsRight",
+        match=r"qsLeft stance 'exit_baseline'.*select\.before.*select\.not_before.*qsRight",
     ):
         compile_glyph_families(families, "senior")
 
@@ -1738,7 +1738,7 @@ def test_select_after_and_not_after_cannot_share_family():
         },
         "qsRight": {
             "prop": {"bitmap": [" ### "], "y_offset": 0},
-            "forms": {
+            "stances": {
                 "entry_baseline": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 0]},
@@ -1756,7 +1756,7 @@ def test_select_after_and_not_after_cannot_share_family():
 
     with pytest.raises(
         ValueError,
-        match=r"qsRight form 'entry_baseline'.*select\.after.*select\.not_after.*qsLeft",
+        match=r"qsRight stance 'entry_baseline'.*select\.after.*select\.not_after.*qsLeft",
     ):
         compile_glyph_families(families, "senior")
 
@@ -1765,7 +1765,7 @@ def test_select_before_and_not_before_anchor_sentinel_does_not_collide_with_fami
     families = {
         "qsLeft": {
             "prop": {"bitmap": [" ### "], "y_offset": 0},
-            "forms": {
+            "stances": {
                 "exit_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [5, 0]},
@@ -1802,7 +1802,7 @@ def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
                     "bitmap": ["#"],
                     "anchors": {"exit": [1, 5]},
                 },
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
@@ -1817,7 +1817,7 @@ def test_family_scoped_anchor_selector_expands_only_matching_family_variants():
             },
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
@@ -1846,7 +1846,7 @@ def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
                     "bitmap": ["#"],
                     "anchors": {"exit": [1, 5]},
                 },
-                "forms": {
+                "stances": {
                     "alt": {
                         "shape": "prop",
                         "anchors": {"exit": [1, 5]},
@@ -1865,7 +1865,7 @@ def test_family_scoped_anchor_selector_respects_traits_and_modifiers():
             },
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
@@ -1902,7 +1902,7 @@ def test_family_scoped_anchor_selector_mirrors_ligature_family_expansion():
         "glyph_families": {
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_baseline": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
@@ -1944,7 +1944,7 @@ def test_family_scoped_anchor_selector_filters_ligature_expansion_by_y():
         "glyph_families": {
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
@@ -1986,7 +1986,7 @@ def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
         "glyph_families": {
             "qsLeft": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "exit_baseline": {
                         "shape": "prop",
                         "anchors": {"exit": [1, 0]},
@@ -1997,7 +1997,7 @@ def test_family_scoped_entry_selector_includes_bare_upgradeable_follower():
             },
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_baseline": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
@@ -2025,7 +2025,7 @@ def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
         "glyph_families": {
             "qsLeft": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "exit_baseline": {
                         "shape": "prop",
                         "anchors": {"exit": [1, 0]},
@@ -2035,7 +2035,7 @@ def test_family_scoped_exit_selector_includes_bare_upgradeable_predecessor():
             },
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_baseline": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 0]},
@@ -2062,7 +2062,7 @@ def test_family_scoped_anchor_selector_rejects_invalid_y():
         "qsLeft": {"prop": {"bitmap": ["#"]}},
         "qsRight": {
             "prop": {"bitmap": ["#"]},
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2083,7 +2083,7 @@ def test_family_scoped_anchor_selector_rejects_unknown_family():
     families = {
         "qsRight": {
             "prop": {"bitmap": ["#"]},
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2105,7 +2105,7 @@ def test_family_scoped_anchor_selector_rejects_invalid_trait():
         "qsLeft": {"prop": {"bitmap": ["#"]}},
         "qsRight": {
             "prop": {"bitmap": ["#"]},
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2135,7 +2135,7 @@ def test_family_scoped_anchor_selector_rejects_both_anchor_sides():
         "qsLeft": {"prop": {"bitmap": ["#"]}},
         "qsRight": {
             "prop": {"bitmap": ["#"]},
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2154,7 +2154,7 @@ def test_family_scoped_anchor_selector_collides_with_negative_family_selector():
     families = {
         "qsLeft": {
             "prop": {"bitmap": ["#"]},
-            "forms": {
+            "stances": {
                 "exit_baseline": {
                     "shape": "prop",
                     "anchors": {"exit": [1, 0]},
@@ -2198,7 +2198,7 @@ def _scoped_selector_suggester_fixture(
                 "bitmap": bitmap,
                 "anchors": {"exit": [1, 5]},
             },
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2213,7 +2213,7 @@ def _scoped_selector_suggester_fixture(
         },
         source_family: {
             "prop": {"bitmap": bitmap},
-            "forms": {
+            "stances": {
                 "entry_xheight": {
                     "shape": "prop",
                     "anchors": {"entry": [0, 5]},
@@ -2246,14 +2246,14 @@ def test_scoped_anchor_suggester_reports_overbroad_family_selector():
 
     assert len(suggestions) == 1
     suggestion = suggestions[0]
-    assert suggestion.path == "glyph_families.qsRight.forms.entry_xheight.select.after[0]"
+    assert suggestion.path == "glyph_families.qsRight.stances.entry_xheight.select.after[0]"
     assert suggestion.current == "{family: qsLeft}"
     assert suggestion.suggested == "{family: qsLeft, exit_y: 5}"
     assert suggestion.compatible == ("qsLeft",)
     assert "qsLeft.en-y5" in suggestion.incompatible
     assert suggestion.family_name == "qsRight"
     assert suggestion.record_name == "entry_xheight"
-    assert suggestion.record_kind == "forms"
+    assert suggestion.record_kind == "stances"
     assert suggestion.field_name == "after"
     assert suggestion.selector_index == 0
     assert suggestion.selected_name == "qsRight.en-y5"
@@ -2268,8 +2268,8 @@ def test_scoped_anchor_reviewer_applies_suggestion_to_copy_only():
 
     patched = apply_suggestions_to_glyph_data(data, [suggestion])
 
-    original_selector = data["glyph_families"]["qsRight"]["forms"]["entry_xheight"]["select"]["after"][0]
-    patched_selector = patched["glyph_families"]["qsRight"]["forms"]["entry_xheight"]["select"]["after"][0]
+    original_selector = data["glyph_families"]["qsRight"]["stances"]["entry_xheight"]["select"]["after"][0]
+    patched_selector = patched["glyph_families"]["qsRight"]["stances"]["entry_xheight"]["select"]["after"][0]
     assert original_selector == {"family": "qsLeft"}
     assert patched_selector == {"family": "qsLeft", "exit_y": 5}
 
@@ -2363,7 +2363,7 @@ def test_variant_example_finder_explains_elsewhere_example_without_source_family
     assert "does not include ·Pea" in annotated.title
 
 
-def test_variant_example_finder_explains_elsewhere_example_with_other_source_form():
+def test_variant_example_finder_explains_elsewhere_example_with_other_source_stance():
     data = _scoped_selector_review_fixture({"family": "qsMay"})
     suggestion = suggest_scoped_anchor_selectors(data)[0]
     finder = object.__new__(VariantExampleFinder)
@@ -2386,7 +2386,7 @@ def test_variant_example_finder_explains_elsewhere_example_with_other_source_for
         example,
     )
 
-    assert annotated.label == "Glyph-only example\n(different ·Pea form)"
+    assert annotated.label == "Glyph-only example\n(different ·Pea stance)"
     assert "not qsPea.en-y5" in annotated.title
 
 
@@ -2400,7 +2400,7 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
         for name in names
     }
     suggestion = ScopedAnchorSuggestion(
-        path="glyph_families.qsPea.forms.entry_xheight.select.after[0]",
+        path="glyph_families.qsPea.stances.entry_xheight.select.after[0]",
         current="{family: qsMay}",
         suggested="{family: qsMay, exit_y: 5}",
         incompatible=(),
@@ -2418,7 +2418,7 @@ def test_variant_rows_are_not_truncated_and_mark_internal_only_examples():
 
 def test_variant_rows_render_label_line_breaks():
     suggestion = ScopedAnchorSuggestion(
-        path="glyph_families.qsPea.forms.entry_xheight.select.after[0]",
+        path="glyph_families.qsPea.stances.entry_xheight.select.after[0]",
         current="{family: qsMay}",
         suggested="{family: qsMay, exit_y: 5}",
         incompatible=(),
@@ -2470,7 +2470,7 @@ def test_scoped_anchor_suggester_skips_all_compatible_family_selector():
             },
             "qsRight": {
                 "prop": {"bitmap": ["#"]},
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [0, 5]},
@@ -2530,7 +2530,7 @@ def test_inherit_ligature_entry_from_lead_prop():
     assert glyphs["qsLead_qsFollow"].entry == ((1, 0),)
 
 
-def test_inherit_ligature_entry_from_entry_xheight_form():
+def test_inherit_ligature_entry_from_entry_xheight_stance():
     glyphs, _ = compile_quikscript_ir(
         _ligature_inheritance_glyph_data(
             lead_family={
@@ -2538,7 +2538,7 @@ def test_inherit_ligature_entry_from_entry_xheight_form():
                     "bitmap": ["##    ", "##    ", "##    ", "##    ", "##    ", "##    "],
                     "anchors": {"exit": [3, 0]},
                 },
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [1, 5], "exit": [3, 0]},
@@ -2564,7 +2564,7 @@ def test_no_inheritance_when_entry_xheight_is_after_restricted():
                     "bitmap": ["##    ", "##    ", "##    ", "##    ", "##    ", "##    "],
                     "anchors": {"exit": [3, 0]},
                 },
-                "forms": {
+                "stances": {
                     "entry_xheight": {
                         "shape": "prop",
                         "anchors": {"entry": [1, 5], "exit": [3, 0]},
@@ -2583,7 +2583,7 @@ def test_no_inheritance_when_entry_xheight_is_after_restricted():
     assert glyphs["qsLead_qsFollow"].entry == ()
 
 
-def test_no_inheritance_when_lead_has_no_entry_form():
+def test_no_inheritance_when_lead_has_no_entry_stance():
     glyphs, _ = compile_quikscript_ir(
         _ligature_inheritance_glyph_data(
             lead_family={
@@ -2666,7 +2666,7 @@ def test_bitmap_misalignment_blocks_inheritance():
 
 
 def test_inheritance_skipped_in_junior_variant():
-    # Junior has no contextual en-y5 forms compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
+    # Junior has no contextual en-y5 stances compiled, and ligatures are not formed there anyway, so the pass shouldn't run and shouldn't warn about ligatures whose explicit YAML entry can't be reconciled.
     import warnings as _warnings
 
     with _warnings.catch_warnings():

@@ -5,7 +5,7 @@ The font's tight convention is:
     entry.x = min_ink_x_at_entry_y
     exit.x  = max_ink_x_at_exit_y + 1
 
-This script walks every compiled form (post-inheritance, post-derive expansion) and reports the gap between each anchor's x and what the convention would put it at.
+This script walks every compiled stance (post-inheritance, post-derive expansion) and reports the gap between each anchor's x and what the convention would put it at.
 
 Reading the report, two derive-generated buckets look anomalous but are intentional and follow from a tight source:
 
@@ -81,7 +81,7 @@ def _normalize_anchors(raw):
 def collect(side, defs, meta, family_filter=None):
     """Side is 'entry' or 'exit'. Returns list of (gap, name, (x, y), family, ink_x, row, ink_y).
 
-    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals the anchor's y. For exits it equals the form's ``exit_ink_y`` override when the JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0" without the audit flagging it as loose.
+    ``ink_y`` is the bitmap row that was scanned for ink. For entries it always equals the anchor's y. For exits it equals the stance's ``exit_ink_y`` override when the JoinGlyph carries one (compiled from YAML ``exit_ink_y`` / dict key ``cursive_exit_ink_y``), otherwise the exit anchor's y; this lets a glyph like qsZoo say "judge my exit's tightness against the row at y=-1 rather than y=0" without the audit flagging it as loose.
     """
     if side == "entry":
         fields = ("cursive_entry", "cursive_entry_curs_only")
@@ -182,8 +182,8 @@ def report(side, rows, skipped_no_bitmap, skipped_no_ink, *, verbose=False):
         else "exit_gap = exit.x - (max_ink_x_at_exit_y + 1)"
     )
     print(f"Histogram of {convention_label}:")
-    print("  (source = forms whose anchor comes from a YAML declaration;")
-    print("   derived = forms whose anchor was shifted by extend/contract/trim)")
+    print("  (source = stances whose anchor comes from a YAML declaration;")
+    print("   derived = stances whose anchor was shifted by extend/contract/trim)")
     all_gaps = sorted(set(histo_source) | set(histo_derived))
     for g in all_gaps:
         s = histo_source[g]
@@ -213,12 +213,12 @@ def report(side, rows, skipped_no_bitmap, skipped_no_ink, *, verbose=False):
                 print(f"  {fam}: {cnt}")
             if verbose:
                 print()
-                print("  source forms:")
+                print("  source stances:")
                 for gap, name, (ax, ay), family, ink_x, row, ink_y in source_bucket:
                     override = f"  [exit_ink_y={ink_y}]" if ink_y != ay else ""
                     print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{override}")
                 if derived_bucket:
-                    print("  derived forms (extension / contraction / trim, intentional at +1):")
+                    print("  derived stances (extension / contraction / trim, intentional at +1):")
                     for gap, name, (ax, ay), family, ink_x, row, ink_y in derived_bucket:
                         override = f"  [exit_ink_y={ink_y}]" if ink_y != ay else ""
                         print(f"    {name}  ({side}={ax},{ay})  ink_x={ink_x}  row={row!r}{override}")
@@ -253,7 +253,7 @@ def main():
     parser.add_argument(
         "--verbose",
         action="store_true",
-        help="List individual loose-bucket forms, not just per-family counts.",
+        help="List individual loose-bucket stances, not just per-family counts.",
     )
     args = parser.parse_args()
 

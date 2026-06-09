@@ -62,7 +62,7 @@ class DerivedBkGuard:
 
 @dataclass(frozen=True)
 class FwdStripGuard:
-    """A predecessor glyph (whose substitution would land an exit anchor at ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself forward-substitutes to a stripped form (no entry anchors). The reach lands on nothing, so the predecessor's substitution should be suppressed.
+    """A predecessor glyph (whose substitution would land an exit anchor at ``predecessor_exit_y``) is followed by bare ``mid_base``, which itself forward-substitutes to a stripped stance (no entry anchors). The reach lands on nothing, so the predecessor's substitution should be suppressed.
 
     Used by ``_emit_narrow_mid_entry_strip_guards`` to relax the bare-base skip on a per-(source, variant, exit_y) basis without the over-suppression that an unconditional relaxation would cause.
     """
@@ -235,7 +235,7 @@ class JoinReachability:
 def validate_join_consistency(join_glyphs: Mapping[str, JoinGlyph]) -> None:
     """Steady-state cursive-join consistency check.
 
-    For every form F that declares a contextual selector (``select.before`` or ``select.after``) and carries the matching cursive anchor, assert that some reachable variant of each named target family carries a compatible anchor on the other side at the same Y. Validates the default state plus each distinct stylistic-set gate observed in the corpus.
+    For every stance F that declares a contextual selector (``select.before`` or ``select.after``) and carries the matching cursive anchor, assert that some reachable variant of each named target family carries a compatible anchor on the other side at the same Y. Validates the default state plus each distinct stylistic-set gate observed in the corpus.
 
     Raises ``ValueError`` listing every mismatch. Orphan anchors (an exit Y with no matching entry Y anywhere, or vice versa) are warned to stderr only.
     """
@@ -349,9 +349,9 @@ def _has_default_join_coverage(
     *,
     direction: str,
 ) -> bool:
-    """Whether ``family`` has a default form that joins with ``opposite_family`` at y.
+    """Whether ``family`` has a default stance that joins with ``opposite_family`` at y.
 
-    A default form is one that carries the right anchor (``exit`` for ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``) but no matching ``before:`` / ``after:`` selector — meaning the form fires whenever its base does, with no per-pair gating. Such a form silently covers every right-hand (or left-hand) family that isn't excluded by ``not_before:`` / ``not_after:``.
+    A default stance is one that carries the right anchor (``exit`` for ``direction="exit"``, ``entry`` / ``entry_curs_only`` for ``"entry"``) but no matching ``before:`` / ``after:`` selector — meaning the stance fires whenever its base does, with no per-pair gating. Such a stance silently covers every right-hand (or left-hand) family that isn't excluded by ``not_before:`` / ``not_after:``.
 
     On the entry-direction (forward-intent) branch, candidates whose ``noentry_after`` lists ``opposite_family`` are also rejected: at runtime they're displaced to their ``.noentry`` counterpart whenever the opposite family precedes, so they don't actually cover the join.
     """
@@ -467,7 +467,7 @@ def _collect_noentry_shape_leak_warnings(
     For every variant ``V_R`` carrying ``noentry_after: [F_1, …]`` and at least one entry-side anchor at Y, find every variant ``V_L`` of every named family ``F_i`` that
 
     - exits at Y, and
-    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e. ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before`` is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a generated/``.noentry`` form.
+    - is plausibly selected when ``F_i`` precedes ``V_R``'s family — i.e. ``V_R.base_name`` is not in ``V_L.not_before``, and either ``V_L.before`` is empty or contains ``V_R.base_name``, and ``V_L`` is not itself a generated/``.noentry`` stance.
 
     These ``V_L`` variants choose a joining shape whose join is voided at runtime by the ``noentry_after`` substitution — the joining stub is visually rendered with nothing to attach to. Pairs are deduped on ``(V_L, R_base, y)`` so multiple ``V_R`` siblings of one right family surface a single warning.
     """
@@ -898,7 +898,7 @@ def _ligature_component_propagates_context(
     opposite_family: str,
     side: str,
 ) -> bool:
-    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and the symmetric exit-side helpers) in `quikscript_ir` propagate a component's contract / extend rule onto the matching ligature variant but leave the variant's own `after` / `before` empty (the propagated context is intersected with the base ligature's, which is `()`). At runtime `calt_liga` still routes through that variant whenever the component form's contraction / extension fires, so accept it as a swap candidate when the relevant component family carries a matching rule whose targets include `opposite_family`. The lead component drives entry-side propagation; the trailing component drives exit-side.
+    # `_add_entry_contraction_variants` / `_add_entry_extension_variants` (and the symmetric exit-side helpers) in `quikscript_ir` propagate a component's contract / extend rule onto the matching ligature variant but leave the variant's own `after` / `before` empty (the propagated context is intersected with the base ligature's, which is `()`). At runtime `calt_liga` still routes through that variant whenever the component stance's contraction / extension fires, so accept it as a swap candidate when the relevant component family carries a matching rule whose targets include `opposite_family`. The lead component drives entry-side propagation; the trailing component drives exit-side.
     # Ligature inheritance (mirroring `expand_selectors_for_ligatures`) applies to the rule's `targets` list too: a target family `qsZ` matches `opposite_family` directly *or* matches when `opposite_family` is a ligature whose lead (entry side) or trailing (exit side) component is `qsZ`, because runtime context lookups see that boundary component pre-liga.
     if source_meta is None or not source_meta.sequence:
         return False
@@ -1812,7 +1812,7 @@ def derive_pending_fwd_strip_guards(
 ) -> dict[tuple[str, str, int], tuple[FwdStripGuard, ...]]:
     """Forward-strip guards for predecessor substitutions.
 
-    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at ``exit_y`` would land on a follower's stripped form, return the bare bases ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA emitter uses these guards to suppress the predecessor's substitution when bare ``B`` follows and its forward upgrade would strip its only matching entry, leaving the predecessor's reach pointing at nothing.
+    For each predecessor ``(source, variant, exit_y)`` whose exit anchor at ``exit_y`` would land on a follower's stripped stance, return the bare bases ``B`` whose ``fwd_replacements[exit_y]`` is itself entry-stripped. The FEA emitter uses these guards to suppress the predecessor's substitution when bare ``B`` follows and its forward upgrade would strip its only matching entry, leaving the predecessor's reach pointing at nothing.
 
     Predecessors come from both ``fwd_replacements`` and ``fwd_pair_overrides``; the runtime emission decides whether to actually emit per call site.
     """
@@ -1873,7 +1873,7 @@ def _revert_keeps_reaching_exit(
 ) -> bool:
     """Whether reverting ``predecessor_variant`` to its bare ``source_base`` would leave the very same reaching exit stroke in place.
 
-    A forward-strip guard exists to erase a predecessor's dangling exit connector by demoting it back to the bare base when the follower strips its entry. That only helps when the bare base's exit at ``exit_y`` is shorter (or absent). For a deep half form that shares its full base's lower body — ``qsDay.half`` / ``qsZoo.half``, whose riser is trimmed but whose baseline exit connector is byte-identical to the full form — demoting half→full removes nothing on the right yet costs the left-side join (the full form enters at the x-height, so it can no longer attach to a baseline-exiting predecessor). When that is the case the guard is futile and harmful, so callers skip it and let the half form stand.
+    A forward-strip guard exists to erase a predecessor's dangling exit connector by demoting it back to the bare base when the follower strips its entry. That only helps when the bare base's exit at ``exit_y`` is shorter (or absent). For a deep half stance that shares its full base's lower body — ``qsDay.half`` / ``qsZoo.half``, whose riser is trimmed but whose baseline exit connector is byte-identical to the full stance — demoting half→full removes nothing on the right yet costs the left-side join (the full stance enters at the x-height, so it can no longer attach to a baseline-exiting predecessor). When that is the case the guard is futile and harmful, so callers skip it and let the half stance stand.
     """
     bare_meta = glyph_meta.get(source_base)
     variant_meta = glyph_meta.get(predecessor_variant)
@@ -1883,7 +1883,7 @@ def _revert_keeps_reaching_exit(
         return False
     if not _predecessor_visually_reaches(glyph_meta, source_base):
         return False
-    # The revert must also cost a left-side join: the variant carries an entry at a Y the bare base can't offer (the half form's baseline entry vs. the full form's x-height entry). Without this the variant is just an exit-only or noentry sibling, and dropping its guard would change shaping for forms that don't need rescuing.
+    # The revert must also cost a left-side join: the variant carries an entry at a Y the bare base can't offer (the half stance's baseline entry vs. the full stance's x-height entry). Without this the variant is just an exit-only or noentry sibling, and dropping its guard would change shaping for stances that don't need rescuing.
     if not set(variant_meta.all_entry_ys) - set(bare_meta.all_entry_ys):
         return False
     y = exit_y
@@ -1909,9 +1909,9 @@ def _predecessor_visually_reaches(
 
     * Explicit exit extensions: ``.ex-ext-1`` (and friends) widen the glyph's bitmap toward the follower, materializing real ink that strands when the follower can't receive it. Short letters that gain an extension (e.g. ``qsEight.ex-ext-1``) qualify here even though no ink sits below the exit row in the source bitmap.
 
-    * Tall baseline-exit forms: these flatten or carry a tall body's lower stroke into a baseline connector. If the follower later strips its baseline entry, that connector becomes a visible isolation leak even without an explicit extension suffix.
+    * Tall baseline-exit stances: these flatten or carry a tall body's lower stroke into a baseline connector. If the follower later strips its baseline entry, that connector becomes a visible isolation leak even without an explicit extension suffix.
 
-    Only the connector variants leave a visibly dangling stroke when the follower's runtime form strips its entry anchor.
+    Only the connector variants leave a visibly dangling stroke when the follower's runtime stance strips its entry anchor.
     """
     meta = glyph_meta.get(variant_name)
     if meta is None or not meta.exit or not meta.bitmap:
