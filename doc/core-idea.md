@@ -6,21 +6,20 @@ This document is the north star for a from-scratch rebuild of Abbots Morton Spac
 
 A few words recur with precise meanings:
 
-- **Rune** — the addressable unit of the script that owns a repertoire of stances. Every rune is either a **character** or a **ligature**, and either kind may be drawn more than one way. (Coined here; the everyday words are all spoken for — see the note below.)
+- **Rune** — the addressable unit of the script that owns a set of stances. Every rune is either a **character** or a **ligature**, and either kind may be drawn more than one way. (Coined here; the everyday words are all spoken for — see the note below.)
 - **Character** — a rune _with_ a code point: one of the 46 Quikscript characters (·Pea, ·May, …), the abstract input unit, independent of how it happens to be drawn.
 - **Ligature** — a rune that fuses a _sequence_ of characters into one drawn unit and has _no_ code point of its own (·Out+Tea, which doesn't work as separate glyphs). Like a character, a ligature may have more than one stance.
 - **Bitmap** — a concrete grid of on/off pixels that a rune can be drawn as. A rune has one or more bitmaps — ·May needs at least two: one that can be attached to at the baseline, and another that can attach to the next rune at the baseline.
 - **Ink** — a filled bitmap pixel (a `#` cell, as opposed to blank space); the font's strokes are made of ink. Much of the join machinery reasons about _where_ a stance's ink falls — off-anchor contact, for instance, is ink touching where it shouldn't.
 - **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
 - **Glyph** — the drawable output shape the shaper actually selects, in the OpenType sense: what a stance compiles to. Usually has no code point of its own. Kept with its standard meaning, never repurposed.
-- **Repertoire** — a rune's complete set of stances. It is **closed** (you can read off every stance a rune has and know that's all of them) but **evolving** (stances are added, refined, or retired as the font is polished). "Closed" means fully enumerated _right now_, not frozen forever.
 - **Anchor** — a named attachment point on a stance, in the standard OpenType sense. The ones that matter here are the **entry** and **exit** anchors that drive _cursive attachment_ (`curs`): the shaper makes a join by snapping one rune's exit anchor onto the next rune's entry anchor. A stance's join surface is, concretely, which entry/exit anchors it carries and at what heights.
 - **Extension** — pixels added to a stance's connecting stroke so a join physically connects: the two runes already meet at the same height, but one or both need their connecting ink lengthened to actually touch. It is a parametric adjustment to a stance's geometry, _not_ a stance of its own; its per-instance value is the _extension amount_. This is the default name for the whole motion, since lengthening is overwhelmingly the common case.
 - **Contraction** — the same adjustment in the opposite direction: connecting ink _shortened_ rather than lengthened. Used only rarely. When a statement must cover both directions the doc writes _extension/contraction_; otherwise plain _extension_ is meant to include it.
 
 A note on the word **stance**: the YAML originally called these `forms`; the concept has since been renamed to **stance**. "Form" is already spent several times over in type design — _letterforms_, _contextual forms_, _positional forms_ — so a reader imports the wrong frame. "Stance" is unspent there, and it carries the two things that matter: a drawn posture (it _is_ a bitmap) and a committed policy about joining (what it offers, accepts, and refuses).
 
-A note on the word **rune**: the things that own repertoires are characters _and_ ligatures, and writing "character-or-ligature" everywhere is clumsy — hence **rune** as the umbrella. The neighboring words are all taken: a **glyph** is specifically the compiled output shape, a **character** is by definition code-pointed (so a ligature, having none, is not one), and _letter_ and **form** carry their own type-design baggage. (Every character here _is_ a Quikscript letter, so the doc could say "letter"; it says "character" to keep the code-point-bearing unit distinct from the glyphs that draw it.) One caveat: Unicode has a Runic _script_ block (U+16A0–16FF), so "rune" already names actual runic letters — but this Quikscript-only document has no real runes to confuse it with, and the umbrella sense is defined right here.
+A note on the word **rune**: the things that own a set of stances are characters _and_ ligatures, and writing "character-or-ligature" everywhere is clumsy — hence **rune** as the umbrella. The neighboring words are all taken: a **glyph** is specifically the compiled output shape, a **character** is by definition code-pointed (so a ligature, having none, is not one), and _letter_ and **form** carry their own type-design baggage. (Every character here _is_ a Quikscript letter, so the doc could say "letter"; it says "character" to keep the code-point-bearing unit distinct from the glyphs that draw it.) One caveat: Unicode has a Runic _script_ block (U+16A0–16FF), so "rune" already names actual runic letters — but this Quikscript-only document has no real runes to confuse it with, and the umbrella sense is defined right here.
 
 ## What we're rebuilding, and why
 
@@ -63,14 +62,14 @@ The artifact is **a real font people can use on computers today**, through the f
 
 So the sacred things are assets and ideas; only their current _encoding_ is up for reinvention.
 
-### The repertoire's truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
+### The stance set's truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
 
-The repertoire-first model rests on each rune's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
+The stances-first model rests on each rune's full set of ways-of-being-drawn, and that set's truth lives in **two co-equal sources**, neither subsuming the other:
 
 - the **ductus** — the enumeration of _how_ the rune is drawn (the abstract strokes and orders, the count of distinct ways), and
 - the **bitmaps** — the concrete pixels that realize those ways, canonical in their own right (and, recall, never derived one from another).
 
-The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A repertoire can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
+The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A stance set can only be honestly "closed" (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
 
 ## The deepest principle: discovery, not declaration
 
@@ -137,18 +136,18 @@ Defective pairs are the **lion's share** of the author's debugging time. Automat
 
 Both are derivable from honest rune-capability and geometry data; neither should require the author to spot it by eye.
 
-## The unit of authoring is the written stance (repertoire-first)
+## The unit of authoring is the written stance (stances-first)
 
-The spec is **stances-first**, not capability-matrix-first. A rune is authored as a small, **closed, explicitly-declared repertoire of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
+The spec is **stances-first**, not capability-matrix-first. A rune is authored as a small, **closed, explicitly-declared set of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
-- The repertoire is **finite and named** — you can read off a rune's complete set of stances and know that's all of them.
-- The repertoire **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, stances are added, refined, or retired. "Closed" means _fully enumerated right now_, not _frozen forever_.
+- The stance set is **finite and named** — you can read off a rune's complete set of stances and know that's all of them.
+- The stance set **evolves**. As the font is polished to more faithfully approximate what a real Quikscript writer would do, stances are added, refined, or retired. "Closed" means _fully enumerated right now_, not _frozen forever_.
 
-The legal join surface (which entry/exit heights and combinations a rune supports) is then **read off** the repertoire and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
+The legal join surface (which entry/exit heights and combinations a rune supports) is then **read off** the stance set and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
 
-**Open tension:** stances-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the repertoire (a real way to write the rune) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
+**Open tension:** stances-first _is_ essentially today's model, and today's pain is exactly the accretion of stances. So the rebuild's success hinges on a principled answer to: _what makes a stance a legitimate member of the stance set (a real way to write the rune) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, "mostly B" risks walking straight back into the local maximum.
 
 ## Attachment heights
 
@@ -163,7 +162,7 @@ The join vocabulary is small. The attachment heights that matter:
 
 Matching attachment _heights_ is necessary but not sufficient. To connect to an otherwise-awkward attachment point, a stance's connecting stroke sometimes has to be **extended** (or, more rarely, **contracted**) so it reaches. This is its own axis of capability, distinct from "which heights does the stance offer."
 
-This is also a current bug source: getting an LLM to extend _exactly_ the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether an extension is a distinct repertoire member or a separate adjustment layer is resolved below.
+This is also a current bug source: getting an LLM to extend _exactly_ the things that should extend — and to leave alone the things that shouldn't — is unreliable. The author's preferred remedy is workflow, not just data: the tooling should **ask the author** when an extension or contraction is in question, rather than guess. (This generalizes the standing project rule to ask when multiple valid choices exist.) Whether an extension is a distinct stance or a separate adjustment layer is resolved below.
 
 ## What a stance is — and the category error behind the accretion
 
@@ -179,7 +178,7 @@ Decompose what an accretion-stance is currently doing into its real parts, each 
 
 - **A genuinely different written shape** → stays a stance (it has its own bitmap; by the definition above it _must_ be a stance). But its _triggering context_ must not be baked into its identity or name.
 - **The same shape, extended to reach** an awkward attachment → the **extension/contraction** axis, not a new stance.
-- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the runes themselves** (see "Locality of reference" below), expressed over the clean repertoire — not carried by minting new stances.
+- **The binding of stance-to-context** ("when does this stance apply") and **pure suppression** ("don't join ·X·Y this way / at all," with no shape change) → relational join rules **co-located on the runes themselves** (see "Locality of reference" below), expressed over the clean stance set — not carried by minting new stances.
 
 **Case in point — `qsNo.stances.alt_after_it_and_vie`:** a specialization of `qsNo.stances.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a "tighter" shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor's baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor's state**, not a new way of writing ·No. It's currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild's job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
 
@@ -197,19 +196,19 @@ Consequences:
 
 (Terminology: the default name for this motion is **extension** — pixels added to a connecting stroke so a join meets. The rare opposite, removing pixels, is **contraction**; **extension/contraction** is the inclusive form when both directions are meant. The per-instance value is the **extension amount**, never the "magnitude.")
 
-For joins, an extension is a **parametric adjustment, not a repertoire member.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the repertoire small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join extensions may behave differently, and that case is left open.)
+For joins, an extension is a **parametric adjustment, not a stance.** ·Jay has _one_ exit; "extend by 2 toward ·Exam" is a small directive (today's `extend_exit_before` / `contract_entry_after` shape) that the build applies to generate the geometry. This keeps the stance set small — the opposite of minting a `·Jay-exit-extended-2px` stance. (The "for joins" qualifier is deliberate; non-join extensions may behave differently, and that case is left open.)
 
 - **Trigger: authorial intent by default.** Extensions and contractions are _declared_. Some could be driven by detected need, but even then the **extension amount** — 1px versus 2px — is an aesthetic judgment the author insists on having the final say over. The machine may _propose_; the author decides the amount.
 - **Home: on a stance, lead-preferred, but flexible.** Extensions live on one or more stances (locality holds — it's still one of the two runes). The author prefers to keep them on the **left** rune, but it's sometimes nicer to declare them on the **right**, and a single extension may even be **split** across both sides, in part or in full.
 
-### A mis-scoped extension can be a symptom of an under-fleshed repertoire
+### A mis-scoped extension can be a symptom of an under-fleshed stance set
 
 A recurring bug class: an extension directive lands on **not exactly the right set of ways to write a rune** — it extends the thing you meant _and also_ extends something you didn't. This has two distinct root causes, and telling them apart matters:
 
 - **Plain mis-scoping** — author or LLM error in the current YAML: the directive's target set is simply wrong, and the fix is to narrow it.
-- **An under-fleshed repertoire** — the deeper case. The directive over-applies because two genuinely different ways of drawing the rune are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
+- **An under-fleshed stance set** — the deeper case. The directive over-applies because two genuinely different ways of drawing the rune are still conflated into one stance, so there's no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
 
-This is a direct echo of the ductus gate: when the repertoire under-distinguishes, extension directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
+This is a direct echo of the ductus gate: when the stance set under-distinguishes, extension directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn't only about _coverage_ — it's what gives every directive an exact target, so "extends one thing and accidentally another" stops being possible.
 
 ### The extension amount has a tolerance band, and "don't join" is a real outcome
 
@@ -268,7 +267,7 @@ Closing the vocabulary is a load-bearing decision, serving two goals at once: a 
 
 Axis 2 — the neighbor's _stance/state_ — means its **resolved** stance: the one it actually took in context, not merely the stances it _could_ take. That is a **dynamic outcome**, the result of the neighbor's own resolution, and it is precisely the cascade that forces the "two of every character" depth-2 doubling. So the spec _does_ permit rules that depend on a resolved decision — necessarily, given cases like ·It·Vie "exiting at baseline only sometimes" — and the **depth bound is the thing that keeps that dynamic dependence from cascading without limit.**
 
-**Ligatures fit here without adding an axis.** A precomposed ligature like ·Out+Tea (which doesn't work as separate glyphs) is a **value**, not a new axis: the resolved glyph identity changes from two glyphs to one compound glyph drawn from a **ligature** — a rune in its own right, with its own repertoire of stances (its own entry/exit and capabilities). Predicating on "my neighbor is ·Out+Tea" is just axis 1/2 over the resolved glyph. (**Open sub-question:** whether ligature _formation itself_ is modeled as an ordinary join outcome or as a distinct substitution mechanism.)
+**Ligatures fit here without adding an axis.** A precomposed ligature like ·Out+Tea (which doesn't work as separate glyphs) is a **value**, not a new axis: the resolved glyph identity changes from two glyphs to one compound glyph drawn from a **ligature** — a rune in its own right, with its own set of stances (its own entry/exit and capabilities). Predicating on "my neighbor is ·Out+Tea" is just axis 1/2 over the resolved glyph. (**Open sub-question:** whether ligature _formation itself_ is modeled as an ordinary join outcome or as a distinct substitution mechanism.)
 
 ## Two missing pieces the layering must account for
 
@@ -318,7 +317,7 @@ Specificity only gives a _total_ order when conditions nest. Two rules can be **
 
 - **Default: refuse to guess.** An incomparable conflict is a **hard build error**. The author must record an explicit tie-break, which itself becomes a legible, more-specific rule the two runes can see. The build never resolves such a conflict silently. This squarely preserves the prime directive: a wrong outcome is caught by the machine, never left for the eye. A fixed axis-priority ordering — a standing global ranking of which condition-axes outrank which — is **rejected as the foundation**: the author is confident he'd never get such an ordering correct and complete.
 - **Acknowledged risk:** refusing to guess can breed a combinatoric pile of hand-recorded tie-breaks, and a long rule list is itself a readability tax — "there's just _so much there_." Refuse-to-guess without a release valve could re-accrete.
-- **The release valve: named case-groups via set algebra.** The author thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author _name_ such a group (defining its membership with set **union and subtraction** over repertoire/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined stance of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit hand-recorded tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis-priority default may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
+- **The release valve: named case-groups via set algebra.** The author thinks in terms of **"ill-defined case groups"** — clusters of conflicts that should resolve the same way, but whose membership isn't yet crisply stated. The fix is to let the author _name_ such a group (defining its membership with set **union and subtraction** over stance/context sets) and attach **one** resolution to the whole group — collapsing many individual tie-breaks into a single legible rule. This is the disciplined stance of "sensible defaults," and it is **group-based, not axis-based**, precisely because a global axis ordering will never be complete. Like don't-care, these groups are **discovered incrementally**: start with explicit hand-recorded tie-breaks, and promote a recurring pattern into a named group once it reveals itself. A small, fixed axis-priority default may still be introduced later for a handful of truly universal cases, layered on top — never underneath.
 
 ## Trusting a change
 
