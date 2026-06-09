@@ -833,6 +833,50 @@
       "isolated": true
     }
   ],
+  "qsExcite|qsDay": [
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsDay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsExcite|qsExcite": [
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
   "qsExcite|qsGay": [
     {
       "left": {
@@ -848,6 +892,106 @@
         "except": null
       },
       "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5.ex-ext-2",
+        "except": null
+      },
+      "context": "",
       "beforeEnd": 1,
       "junctionEnd": 3,
       "source": "synthetic",
@@ -1005,6 +1149,28 @@
       "isolated": true
     }
   ],
+  "qsExcite|qsZoo": [
+    {
+      "left": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsFee|qsNo": [
     {
       "left": {
@@ -1093,6 +1259,28 @@
       "isolated": true
     }
   ],
+  "qsFee|qsYe": [
+    {
+      "left": {
+        "family": "qsFee",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
   "qsFoot|qsUtter": [
     {
       "left": {
@@ -1135,6 +1323,160 @@
       "source": "synthetic",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsGay|qsAh": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsAh",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsAt": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsAt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsEat": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsEat",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsGay": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsIng": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIng",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsLow": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsLow",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsMay": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsMay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsGay|qsNo": [
@@ -1181,6 +1523,50 @@
       "isolated": true
     }
   ],
+  "qsGay|qsSee": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsThaw": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsGay|qsUtter": [
     {
       "left": {
@@ -1223,6 +1609,94 @@
       "source": "corpus",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsGay|qsVie": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsVie",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsGay|qsYe": [
+    {
+      "left": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsHe|qsIt": [
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsHe|qsJai": [
+    {
+      "left": {
+        "family": "qsHe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsHe|qsNo": [
@@ -1406,7 +1880,7 @@
       "left": {
         "family": "qsIt",
         "kind": "stance",
-        "stance": "qsIt.en-y5.ex-y0",
+        "stance": "qsIt.en-y5.ex-y0.ex-ext-1",
         "except": null
       },
       "right": {
@@ -1420,6 +1894,28 @@
       "junctionEnd": 3,
       "source": "literal",
       "origin": "restore_isolated_form",
+      "isolated": false
+    }
+  ],
+  "qsIt|qsExcite": [
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
       "isolated": false
     }
   ],
@@ -1533,6 +2029,28 @@
       "isolated": true
     }
   ],
+  "qsIt|qsZoo": [
+    {
+      "left": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
   "qsI|qsUtter": [
     {
       "left": {
@@ -1577,6 +2095,72 @@
       "isolated": true
     }
   ],
+  "qsJai|qsDay": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsDay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsExcite": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsExcite",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsGay": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
   "qsJai|qsIt": [
     {
       "left": {
@@ -1591,7 +2175,7 @@
         "stance": "qsIt.ex-y0",
         "except": null
       },
-      "context": "",
+      "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
@@ -1684,6 +2268,50 @@
       "junctionEnd": 2,
       "source": "synthetic",
       "origin": "alt-axis",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsYe": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "stance",
+        "stance": "qsYe.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsJai|qsZoo": [
+    {
+      "left": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 2,
+      "junctionEnd": 4,
+      "source": "synthetic",
+      "origin": "trailing_demote",
       "isolated": false
     }
   ],
@@ -2157,6 +2785,46 @@
       },
       "right": {
         "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
         "kind": "stance",
         "stance": "qsGay.ex-y0",
         "except": null
@@ -2213,6 +2881,234 @@
       "isolated": true
     }
   ],
+  "qsMay|qsOwe": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsMay|qsOy": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsOy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsMay|qsPea": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsPea",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
+    }
+  ],
+  "qsMay|qsSee": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-ext-2",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-y0-right",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5.after-i",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5.after-i",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5.after-i",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-ext-2",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5.after-i",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-y0-right",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsMay|qsUtter": [
     {
       "left": {
@@ -2255,6 +3151,28 @@
       "source": "corpus",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsMay|qsYe": [
+    {
+      "left": {
+        "family": "qsMay",
+        "kind": "stance",
+        "stance": "qsMay.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "trailing_demote",
+      "isolated": false
     }
   ],
   "qsNo|qsAh": [
@@ -4373,6 +5291,28 @@
       "isolated": true
     }
   ],
+  "qsOut|qsJai": [
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsOut|qsNo": [
     {
       "left": {
@@ -4417,6 +5357,28 @@
       "isolated": true
     }
   ],
+  "qsOut|qsOy": [
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsOy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsOut|qsUtter": [
     {
       "left": {
@@ -4459,6 +5421,72 @@
       "source": "synthetic",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsOut|qsYe": [
+    {
+      "left": {
+        "family": "qsOut",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsOwe|qsIt": [
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsOwe|qsJai": [
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsOwe|qsNo": [
@@ -4547,6 +5575,28 @@
       "source": "synthetic",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsOwe|qsYe": [
+    {
+      "left": {
+        "family": "qsOwe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsYe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsOx|qsNo": [
@@ -4725,6 +5775,50 @@
       "isolated": true
     }
   ],
+  "qsPea|qsIt": [
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsPea|qsJai": [
+    {
+      "left": {
+        "family": "qsPea",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsPea|qsNo": [
     {
       "left": {
@@ -4813,6 +5907,28 @@
       "isolated": true
     }
   ],
+  "qsRoe|qsJai": [
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsRoe|qsNo": [
     {
       "left": {
@@ -4855,6 +5971,28 @@
       "source": "corpus",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsRoe|qsOy": [
+    {
+      "left": {
+        "family": "qsRoe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsOy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsRoe|qsUtter": [
@@ -5077,6 +6215,72 @@
       "isolated": true
     }
   ],
+  "qsShe|qsZoo": [
+    {
+      "left": {
+        "family": "qsShe",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsZoo",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsTea|qsIt": [
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsTea|qsJai": [
+    {
+      "left": {
+        "family": "qsTea",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsTea|qsNo": [
     {
       "left": {
@@ -5253,6 +6457,210 @@
       "isolated": true
     }
   ],
+  "qsThey|qsGay": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsThey|qsIt": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-day.after-no-baseline-join",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-utter",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-day.after-no-baseline-join",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-utter",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
   "qsThey|qsNo": [
     {
       "left": {
@@ -5295,6 +6703,372 @@
       "source": "corpus",
       "origin": "alt-axis",
       "isolated": true
+    }
+  ],
+  "qsThey|qsSee": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-ext-2",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-y0-right",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-ext-2",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsSee",
+        "kind": "stance",
+        "stance": "qsSee.ex-y0.ex-y0-right",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsThey|qsTea": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.half.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.half.ex-y5.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.ex-y0.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.half.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.half.ex-y5.ex-con-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsTea",
+        "kind": "stance",
+        "stance": "qsTea.ex-y0.ex-ext-1",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsThey|qsThaw": [
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5",
+        "except": null
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "stance",
+        "stance": "qsThaw.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsThey",
+        "kind": "stance",
+        "stance": "qsThey.en-y5.en-ext-1",
+        "except": null
+      },
+      "right": {
+        "family": "qsThaw",
+        "kind": "stance",
+        "stance": "qsThaw.ex-y0",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 1,
+      "junctionEnd": 3,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
     }
   ],
   "qsThey|qsUtter": [
@@ -5709,6 +7483,46 @@
       },
       "right": {
         "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsWay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsWay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
         "kind": "stance",
         "stance": "qsGay.ex-y0",
         "except": null
@@ -5773,6 +7587,46 @@
       },
       "right": {
         "family": "qsGay",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
+        "kind": "stance",
+        "stance": "qsGay.ex-y5",
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    },
+    {
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsGay",
         "kind": "stance",
         "stance": "qsGay.ex-y0",
         "except": null
@@ -5798,6 +7652,50 @@
         "except": null
       },
       "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsWhy|qsIt": [
+    {
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsIt",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
+      "beforeEnd": 0,
+      "junctionEnd": 2,
+      "source": "synthetic",
+      "origin": "predecessor_demote",
+      "isolated": false
+    }
+  ],
+  "qsWhy|qsJai": [
+    {
+      "left": {
+        "family": "qsWhy",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "right": {
+        "family": "qsJai",
+        "kind": "plain",
+        "stance": null,
+        "except": null
+      },
+      "context": "",
       "beforeEnd": 0,
       "junctionEnd": 2,
       "source": "synthetic",
@@ -6076,9 +7974,336 @@
     {
       "table": "predecessor_demote",
       "entry": {
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter",
+        "trigger_stance": "qsDay_qsEat",
+        "isolated_form": "qsExcite.en-y0.noexit"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsExcite.en-y0.noexit"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsExcite.en-y0.noexit"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical.after-baseline-letter",
+        "trigger_stance": "qsTea_qsOy",
+        "isolated_form": "qsExcite.en-y0.noexit"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trigger_stance": "qsDay_qsEat",
+        "isolated_form": "qsThey.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsThey.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsThey.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trigger_stance": "qsTea_qsOy",
+        "isolated_form": "qsThey.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trigger_stance": "qsUtter.alt.ex-y0",
+        "isolated_form": "qsThey.en-y5"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trigger_stance": "qsDay_qsEat",
+        "isolated_form": "qsThey.en-y5.en-ext-1"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsThey.en-y5.en-ext-1"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsThey.en-y5.en-ext-1"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trigger_stance": "qsTea_qsOy",
+        "isolated_form": "qsThey.en-y5.en-ext-1"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trigger_stance": "qsUtter.alt.ex-y0",
+        "isolated_form": "qsThey.en-y5.en-ext-1"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsGay.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsGay"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsMay.en-y0.ex-y5",
+        "predecessor_stance": "qsGay.en-y0.ex-y5",
+        "trigger_stance": "qsUtter",
+        "isolated_form": "qsGay"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsDay_qsEat",
+        "predecessor_stance": "qsGay.en-y0.ex-y5",
+        "trigger_stance": "qsOwe",
+        "isolated_form": "qsGay"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "backtrack_stance": "qsSee_qsEat",
+        "predecessor_stance": "qsGay.en-y0.ex-y5",
+        "trigger_stance": "qsOwe",
+        "isolated_form": "qsGay"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsRoe.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsRoe"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsShe.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsShe"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsYe.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsYe"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsExcite"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsJai.en-y5.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsJai"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsVie.en-y0.ex-y0",
+        "trigger_stance": "qsNo",
+        "isolated_form": "qsVie"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee.ex-y0",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee.ex-y0.ex-con-1",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee.ex-y0.ex-ext-2",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee.ex-y0.ex-y0-right",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsUtter.alt.en-y5.ex-y0.reaches-way-back",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsUtter"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
         "predecessor_stance": "qsMay.ex-noentry",
         "trigger_stance": "qsThey_qsUtter.noentry",
         "isolated_form": "qsMay"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsMay.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsMay.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0",
+        "trigger_stance": "qsTea_qsOy",
+        "isolated_form": "qsMay.en-y5"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0.after-i",
+        "trigger_stance": "qsSee_qsEat",
+        "isolated_form": "qsMay.en-y5.after-i"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0.after-i",
+        "trigger_stance": "qsSee_qsUtter",
+        "isolated_form": "qsMay.en-y5.after-i"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "predecessor_demote",
+      "entry": {
+        "predecessor_stance": "qsMay.en-y5.ex-y0.after-i",
+        "trigger_stance": "qsTea_qsOy",
+        "isolated_form": "qsMay.en-y5.after-i"
       },
       "reason": "ligature"
     },
@@ -6137,6 +8362,123 @@
       "reason": "entryless"
     },
     {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo.alt.en-y0.ex-y0",
+        "trailing_stance": "qsJai.en-y5.ex-y0",
+        "isolated_form": "qsJai"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo",
+        "trailing_stance": "qsExcite.en-y0.noexit",
+        "isolated_form": "qsExcite"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo.alt.en-y0.ex-y0",
+        "trailing_stance": "qsOwe.en-y5",
+        "isolated_form": "qsOwe"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsIt",
+        "trailing_stance": "qsYe.en-y5.ex-y0",
+        "isolated_form": "qsYe"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo",
+        "trailing_stance": "qsDay.half.en-y0.ex-y0",
+        "isolated_form": "qsDay"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo",
+        "trailing_stance": "qsGay.en-y0.ex-y5",
+        "isolated_form": "qsGay"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo",
+        "trailing_stance": "qsZoo.half.en-y0.ex-y0",
+        "isolated_form": "qsZoo"
+      },
+      "reason": "not_hidden"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsExcite",
+        "trailing_stance": "qsNo.alt.en-y0.ex-y0",
+        "isolated_form": "qsNo"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo.alt.en-y0.ex-y0",
+        "trailing_stance": "qsOy.en-y5.ex-y0",
+        "isolated_form": "qsOy"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsNo.alt.en-y0.ex-y0",
+        "trailing_stance": "qsYe.en-y5.ex-y0",
+        "isolated_form": "qsYe"
+      },
+      "reason": "superseded_by_alt_axis"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsOut_qsTea",
+        "trailing_stance": "qsDay_qsUtter.half.en-y0.ex-y5",
+        "isolated_form": "qsDay_qsUtter"
+      },
+      "reason": "ligature"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsThey.ex-y0.before-may.en-y5",
+        "trailing_stance": "qsTea.en-y8.ex-y0.ex-ext-1",
+        "isolated_form": "qsTea.ex-y0.ex-ext-1"
+      },
+      "reason": "no_context"
+    },
+    {
+      "table": "trailing_demote",
+      "entry": {
+        "leader_stance": "qsThey.ex-y0.before-may.en-y5.en-ext-1",
+        "trailing_stance": "qsTea.en-y8.ex-y0.ex-ext-1",
+        "isolated_form": "qsTea.ex-y0.ex-ext-1"
+      },
+      "reason": "no_context"
+    },
+    {
       "table": "restore_isolated_form",
       "entry": {
         "prior": "qsNo",
@@ -6144,7 +8486,7 @@
         "follower": "qsDay",
         "isolated_form": "qsIt.en-y5.ex-y0"
       },
-      "reason": "not_hidden"
+      "reason": "superseded_by_alt_axis"
     },
     {
       "table": "restore_isolated_form",
