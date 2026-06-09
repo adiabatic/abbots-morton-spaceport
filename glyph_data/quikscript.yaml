@@ -341,6 +341,15 @@ glyph_families:
       bitmap: []
       advance_width: 7
   qsPea:
+    ductus: |
+      Standard (full):
+
+      - Begin at the left, slightly above the x-height (occasionally, another letter will join at the entry). Rise to the top and rightwards in a clockwise curve. Then pull straight down on the right toward the baseline. It may connect to the next letter at the baseline.
+
+      Half:
+
+      - As above, but the downstroke stops at the x-height, or just above it, where it connects to the next letter.
+
     mono:
       bitmap:
       - " ### "
