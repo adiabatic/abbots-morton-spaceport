@@ -1221,6 +1221,9 @@ _CONTRACT_EMIT_DUMP_PATH = Path(__file__).resolve().parent.parent / "tmp" / "lea
 # Steady-state count of single-rule cross-break selections the derived join contract drops (Phase 2, doc/history/2026-06-03--leak-cleanup/leak-prevention-plan.md). Dropping these is correct, intended behavior, so a build that matches this baseline is silent; the warning fires only when the count drifts, surfacing a real change to the contract's reach. Update this when an intended change moves it (the full breakdown is always in tmp/leak-contract-emit.txt).
 _EXPECTED_CONTRACT_DROP_COUNT = 719
 
+# The baseline above describes the production Quikscript font. The unit tests run this same emitter over tiny synthetic fonts (a handful of stand-in families) that legitimately drop their own, much smaller leak counts, so the baseline can't apply to them. Only enforce drift when the recorder actually ran on the production repertoire, detected by this quorum of real letters no focused unit test stands up.
+_BASELINE_REPERTOIRE_SENTINELS = frozenset({"qsPea", "qsHe", "qsOoze"})
+
 
 @dataclass
 class _JoinContractRecorder:
@@ -1423,7 +1426,8 @@ class _JoinContractRecorder:
         _CONTRACT_EMIT_DUMP_PATH.parent.mkdir(exist_ok=True)
         _CONTRACT_EMIT_DUMP_PATH.write_text("\n".join(lines) + "\n")
 
-        if counts["leak"] != _EXPECTED_CONTRACT_DROP_COUNT:
+        is_production_repertoire = _BASELINE_REPERTOIRE_SENTINELS <= self.glyph_meta.keys()
+        if is_production_repertoire and counts["leak"] != _EXPECTED_CONTRACT_DROP_COUNT:
             # Function-local import: quikscript_join_analysis imports from quikscript_fea, so a top-of-module import here would cycle.
             from quikscript_join_analysis import NonJoiningNeighborSelectionWarning
 
