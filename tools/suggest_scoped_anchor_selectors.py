@@ -1,6 +1,6 @@
 """Suggest family-scoped anchor selectors for overbroad Quikscript selectors.
 
-The tool is read-only: it reports selectors such as ``{family: qsMay}`` where the selected form requires a specific opposite anchor Y and some concrete variants in that family do not provide it.
+The tool is read-only: it reports selectors such as ``{family: qsMay}`` where the selected stance requires a specific opposite anchor Y and some concrete variants in that family do not provide it.
 
 Usage::
 
@@ -130,13 +130,13 @@ def _iter_source_records(
             family_name,
             "prop",
         )
-    for form_name, raw in (family_def.get("forms") or {}).items():
+    for stance_name, raw in (family_def.get("stances") or {}).items():
         yield (
-            form_name,
+            stance_name,
             raw,
-            f"glyph_families.{family_name}.forms.{form_name}",
+            f"glyph_families.{family_name}.stances.{stance_name}",
             None,
-            "forms",
+            "stances",
         )
 
 
@@ -176,15 +176,15 @@ def suggest_scoped_anchor_selectors(
                 traits = _normalize_source_traits(
                     resolved.get("traits", ()),
                     family_name=family_name,
-                    context=f"form {record_name!r}",
+                    context=f"stance {record_name!r}",
                 )
                 modifiers = _normalize_source_modifiers(
                     resolved.get("modifiers", ()),
                     family_name=family_name,
-                    context=f"form {record_name!r}",
+                    context=f"stance {record_name!r}",
                 )
                 output_name = _compiled_family_glyph_name(family_name, traits, modifiers)
-                context_label = f"form {record_name!r}"
+                context_label = f"stance {record_name!r}"
             else:
                 output_name = base_output_name
                 context_label = "base record"

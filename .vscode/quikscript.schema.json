@@ -147,7 +147,7 @@
     },
     "variantList": {
       "type": "array",
-      "description": "Build variants that should compile this form.",
+      "description": "Build variants that should compile this stance.",
       "items": {
         "type": "string",
         "enum": ["mono", "junior", "senior"]
@@ -205,7 +205,7 @@
       }
     },
     "selectorListOrNull": {
-      "description": "Selector list, or null to clear an inherited nested key from a parent form.",
+      "description": "Selector list, or null to clear an inherited nested key from a parent stance.",
       "oneOf": [
         {
           "$ref": "#/definitions/selectorList"
@@ -267,7 +267,7 @@
       ]
     },
     "anchorValueOrNull": {
-      "description": "Anchor value, or null for an explicit opt-out at this position. On a child form, null clears an anchor inherited from a parent. On a ligature's prop.anchors.entry, null sets entry_explicitly_none on the JoinGlyph: it skips entry inheritance from the lead component and triggers calt_post_liga_left_cleanup, which reverts predecessors out of any lead-component-targeted form.",
+      "description": "Anchor value, or null for an explicit opt-out at this position. On a child stance, null clears an anchor inherited from a parent. On a ligature's prop.anchors.entry, null sets entry_explicitly_none on the JoinGlyph: it skips entry inheritance from the lead component and triggers calt_post_liga_left_cleanup, which reverts predecessors out of any lead-component-targeted stance.",
       "oneOf": [
         {
           "$ref": "#/definitions/anchorValue"
@@ -292,7 +292,7 @@
           "$ref": "#/definitions/anchorValueOrNull"
         },
         "exit_ink_y": {
-          "description": "Fallback Y row used by the join-gap analysis when the exit anchor's own Y has no ink in the bitmap. Set this when the stroke's exit ink ends one or more rows above or below the exit anchor (e.g. a half form whose exit anchor sits at y=5 while the stroke's last inked row is y=6, or a form whose exit anchor sits at the baseline while the stroke dips to y=-1). The analyzer falls back to this Y to locate the rightmost inked column for computing inter-glyph gaps. Use null in a child form (with `inherits:`) to clear an inherited fallback when the child shape repaints the exit row.",
+          "description": "Fallback Y row used by the join-gap analysis when the exit anchor's own Y has no ink in the bitmap. Set this when the stroke's exit ink ends one or more rows above or below the exit anchor (e.g. a half stance whose exit anchor sits at y=5 while the stroke's last inked row is y=6, or a stance whose exit anchor sits at the baseline while the stroke dips to y=-1). The analyzer falls back to this Y to locate the rightmost inked column for computing inter-glyph gaps. Use null in a child stance (with `inherits:`) to clear an inherited fallback when the child shape repaints the exit row.",
           "oneOf": [
             { "type": "integer" },
             { "type": "null" }
@@ -347,7 +347,7 @@
           ]
         },
         "extend_exit_before_gated": {
-          "description": "Map of OpenType feature tag → selector list whose targets gain the family-level extension only when the feature is on. Use null in a child form (with `inherits:`) to clear an inherited gated map.",
+          "description": "Map of OpenType feature tag → selector list whose targets gain the family-level extension only when the feature is on. Use null in a child stance (with `inherits:`) to clear an inherited gated map.",
           "oneOf": [
             {
               "type": "object",
@@ -390,7 +390,7 @@
     },
     "familyRecord": {
       "type": "object",
-      "description": "A mono/prop/form record. Forms may use inherits to reuse scaffolding from mono, prop, or sibling forms. Set nested select/derive/anchors entries to null when a child form needs to clear an inherited value.",
+      "description": "A mono/prop/stance record. Stances may use inherits to reuse scaffolding from mono, prop, or sibling stances. Set nested select/derive/anchors entries to null when a child stance needs to clear an inherited value.",
       "additionalProperties": false,
       "properties": {
         "inherits": {
@@ -450,7 +450,7 @@
         },
         "strip_entry_before": {
           "type": "boolean",
-          "description": "On an entryless forward-exit form, when true, this form also replaces entry-bearing siblings before followers whose entry Y matches this form's exit Y, letting the right-side join win without authoring a near-duplicate before: form. Pair with select.not_after to preserve incoming joins that must beat the right-side join, and select.not_before to exclude followers that should keep a different exit Y."
+          "description": "On an entryless forward-exit stance, when true, this stance also replaces entry-bearing siblings before followers whose entry Y matches this stance's exit Y, letting the right-side join win without authoring a near-duplicate before: stance. Pair with select.not_after to preserve incoming joins that must beat the right-side join, and select.not_before to exclude followers that should keep a different exit Y."
         },
         "kerning": {
           "type": "array",
@@ -492,24 +492,24 @@
         },
         "gate_feature_behind": {
           "type": "string",
-          "description": "OpenType feature tag (e.g. ss02) that must be enabled for this form to activate.",
+          "description": "OpenType feature tag (e.g. ss02) that must be enabled for this stance to activate.",
           "pattern": "^ss(?!00)\\d{2}$"
         },
         "revert_feature": {
           "type": "string",
-          "description": "OpenType feature tag (e.g. ss01) that reverts this form to its base glyph when enabled.",
+          "description": "OpenType feature tag (e.g. ss01) that reverts this stance to its base glyph when enabled.",
           "pattern": "^ss(?!00)\\d{2}$"
         },
         "replaces_family_feature": {
           "type": "string",
-          "description": "OpenType feature tag (e.g. ss06) that replaces all family variants with this form when enabled.",
+          "description": "OpenType feature tag (e.g. ss06) that replaces all family variants with this stance when enabled.",
           "pattern": "^ss(?!00)\\d{2}$"
         }
       }
     },
     "shapeRecord": {
       "type": "object",
-      "description": "Reusable bitmap-only shape data shared by one or more forms.",
+      "description": "Reusable bitmap-only shape data shared by one or more stances.",
       "additionalProperties": false,
       "properties": {
         "bitmap": {
@@ -530,7 +530,7 @@
     },
     "glyphFamily": {
       "type": "object",
-      "description": "A Quikscript glyph family with mono and/or proportional base records, reusable shapes, and local form labels.",
+      "description": "A Quikscript glyph family with mono and/or proportional base records, reusable shapes, and local stance labels.",
       "additionalProperties": false,
       "properties": {
         "sequence": {
@@ -565,7 +565,7 @@
         },
         "shapes": {
           "type": "object",
-          "description": "Reusable shape snippets shared by forms in this family.",
+          "description": "Reusable shape snippets shared by stances in this family.",
           "patternProperties": {
             "^[A-Za-z0-9_]+$": {
               "$ref": "#/definitions/shapeRecord"
@@ -575,11 +575,11 @@
         },
         "derive": {
           "$ref": "#/definitions/deriveRules",
-          "description": "Family-level derive block shared by every form in this family. Per-form derive blocks still merge on top."
+          "description": "Family-level derive block shared by every stance in this family. Per-stance derive blocks still merge on top."
         },
-        "forms": {
+        "stances": {
           "type": "object",
-          "description": "Additional forms keyed by local labels. These keys are local authoring labels, not the compiled glyph naming API.",
+          "description": "Additional stances keyed by local labels. These keys are local authoring labels, not the compiled glyph naming API.",
           "patternProperties": {
             "^[A-Za-z0-9_]+$": {
               "$ref": "#/definitions/familyRecord"

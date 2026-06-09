@@ -76,7 +76,7 @@ def test_quikscript_family_and_generated_variants_keep_logical_metadata():
     assert noentry.is_contextual
 
 
-def test_family_form_modifiers_are_preserved_from_authored_form_data():
+def test_family_stance_modifiers_are_preserved_from_authored_stance_data():
     meta = _compiled_set(
         {
             "glyph_families": {
@@ -84,8 +84,8 @@ def test_family_form_modifiers_are_preserved_from_authored_form_data():
                     "prop": {
                         "bitmap": ["#"],
                     },
-                    "forms": {
-                        "local_form_label": {
+                    "stances": {
+                        "local_stance_label": {
                             "shape": "prop",
                             "anchors": {
                                 "exit": [2, 0],
@@ -99,12 +99,12 @@ def test_family_form_modifiers_are_preserved_from_authored_form_data():
         }
     ).glyph_meta
 
-    form = meta["qsTest.alt.ex-y0.reaches-way-back"]
-    assert form.modifiers == ("alt", "ex-y0", "reaches-way-back")
-    assert {"alt", "reaches-way-back"} <= form.compat_assertions
+    stance = meta["qsTest.alt.ex-y0.reaches-way-back"]
+    assert stance.modifiers == ("alt", "ex-y0", "reaches-way-back")
+    assert {"alt", "reaches-way-back"} <= stance.compat_assertions
 
 
-def test_form_keys_are_local_labels():
+def test_stance_keys_are_local_labels():
     left = _compiled_set(
         {
             "glyph_families": {
@@ -112,7 +112,7 @@ def test_form_keys_are_local_labels():
                     "prop": {
                         "bitmap": ["#"],
                     },
-                    "forms": {
+                    "stances": {
                         "first_label": {
                             "shape": "prop",
                             "anchors": {
@@ -133,7 +133,7 @@ def test_form_keys_are_local_labels():
                     "prop": {
                         "bitmap": ["#"],
                     },
-                    "forms": {
+                    "stances": {
                         "renamed_local_label": {
                             "shape": "prop",
                             "anchors": {
@@ -172,8 +172,8 @@ def test_noentry_generation_uses_authored_modifiers_not_compiled_name():
                             "entry": [0, 0],
                         },
                     },
-                    "forms": {
-                        "local_alt_form": {
+                    "stances": {
+                        "local_alt_stance": {
                             "shape": "prop",
                             "anchors": {
                                 "entry": [0, 0],
@@ -209,8 +209,8 @@ def test_noentry_generation_keeps_exit_bearing_variants_usable_after_zwnj():
                             "entry": [0, 0],
                         },
                     },
-                    "forms": {
-                        "exit_form": {
+                    "stances": {
+                        "exit_stance": {
                             "shape": "prop",
                             "anchors": {
                                 "entry": [0, 0],
@@ -263,7 +263,7 @@ def test_structured_family_selectors_resolve_to_compiled_names():
                             "entry": [0, 0],
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "baseline_entry_after_extended_left": {
                             "shape": "prop",
                             "anchors": {
@@ -367,7 +367,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                 },
                 "qsLead": {
                     "prop": {"bitmap": ["#"]},
-                    "forms": {
+                    "stances": {
                         "extended_exit": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
@@ -391,7 +391,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
                             },
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "baseline_entry": {
                             "shape": "prop",
                             "anchors": {"entry": [0, 0]},
@@ -416,7 +416,7 @@ def test_context_sets_expand_and_compose_inside_select_and_derive():
     ]
 
 
-def test_inherits_reuses_and_clears_nested_form_context():
+def test_inherits_reuses_and_clears_nested_stance_context():
     glyphs = _compiled_set(
         {
             "glyph_families": {
@@ -433,7 +433,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
                     "prop": {
                         "bitmap": ["#"],
                     },
-                    "forms": {
+                    "stances": {
                         "half": {
                             "shape": "prop",
                             "anchors": {"exit": [1, 0]},
@@ -467,7 +467,7 @@ def test_inherits_reuses_and_clears_nested_form_context():
     assert glyphs["qsBase.half.en-y0.ex-y0"]["calt_before"] == ["qsOther"]
 
 
-def test_inherited_form_shape_override_replaces_visual_fields():
+def test_inherited_stance_shape_override_replaces_visual_fields():
     compiled = _compiled_set(
         {
             "glyph_families": {
@@ -485,7 +485,7 @@ def test_inherited_form_shape_override_replaces_visual_fields():
                             "advance_width": 7,
                         },
                     },
-                    "forms": {
+                    "stances": {
                         "half": {
                             "shape": "first",
                             "anchors": {"exit": [1, 0]},

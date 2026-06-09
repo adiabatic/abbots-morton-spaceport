@@ -20,8 +20,8 @@ Append dot-separated modifiers to assert properties of the selected glyph varian
 | Modifier | Meaning                                 | Example     |
 | -------- | --------------------------------------- | ----------- |
 | `.∅`     | exact glyph, with no contextual variant | `·May.∅`    |
-| `.alt`   | stable alternate form                   | `·No.alt`   |
-| `.half`  | stable half form                        | `·Pea.half` |
+| `.alt`   | stable alternate stance                 | `·No.alt`   |
+| `.half`  | stable half stance                      | `·Pea.half` |
 
 Prefix a modifier with `!` to assert the selected glyph does **not** carry that trait or compatibility tag.
 
@@ -46,7 +46,7 @@ Use `+` to assert that two letters are shaped as a single ligature glyph:
 
 This expects one output glyph whose compiled metadata sequence records both `qsDay` and `qsUtter`.
 
-Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a Day+Utter ligature with the `half` trait, even though the half form is on the first letter in the pair.
+Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a Day+Utter ligature with the `half` trait, even though the half stance is on the first letter in the pair.
 
 ### Maybe-ligature assertions
 

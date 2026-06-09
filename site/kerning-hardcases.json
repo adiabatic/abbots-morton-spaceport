@@ -4,13 +4,13 @@
       "left": {
         "family": "qsAh",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -24,13 +24,13 @@
       "left": {
         "family": "qsAh",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -48,13 +48,13 @@
       "left": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -68,13 +68,13 @@
       "left": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -92,13 +92,13 @@
       "left": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -114,13 +114,13 @@
       "left": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -136,13 +136,13 @@
       "left": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -156,13 +156,13 @@
       "left": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -180,13 +180,13 @@
       "left": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -202,13 +202,13 @@
       "left": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -224,13 +224,13 @@
       "left": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -244,13 +244,13 @@
       "left": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -268,13 +268,13 @@
       "left": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -290,13 +290,13 @@
       "left": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -312,13 +312,13 @@
       "left": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -332,13 +332,13 @@
       "left": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -356,13 +356,13 @@
       "left": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -378,13 +378,13 @@
       "left": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -400,13 +400,13 @@
       "left": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -422,13 +422,13 @@
       "left": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -444,13 +444,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -464,13 +464,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -486,13 +486,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -508,13 +508,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -530,13 +530,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -550,13 +550,13 @@
       "left": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -574,13 +574,13 @@
       "left": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -596,13 +596,13 @@
       "left": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -618,13 +618,13 @@
       "left": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -638,13 +638,13 @@
       "left": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -662,13 +662,13 @@
       "left": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -684,13 +684,13 @@
       "left": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -706,13 +706,13 @@
       "left": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -726,13 +726,13 @@
       "left": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -750,13 +750,13 @@
       "left": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -770,13 +770,13 @@
       "left": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -794,13 +794,13 @@
       "left": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -814,13 +814,13 @@
       "left": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -837,14 +837,14 @@
     {
       "left": {
         "family": "qsExcite",
-        "kind": "form",
-        "form": "qsExcite.en-y0.noexit",
+        "kind": "stance",
+        "stance": "qsExcite.en-y0.noexit",
         "except": null
       },
       "right": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -860,13 +860,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0.before-day.after-no-baseline-join",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-day.after-no-baseline-join",
         "except": null
       },
       "context": "",
@@ -880,13 +880,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0.before-utter",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0.before-utter",
         "except": null
       },
       "context": "",
@@ -900,13 +900,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -922,13 +922,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -944,13 +944,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -966,13 +966,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -986,13 +986,13 @@
       "left": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1010,13 +1010,13 @@
       "left": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1030,13 +1030,13 @@
       "left": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1054,13 +1054,13 @@
       "left": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1074,13 +1074,13 @@
       "left": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1098,13 +1098,13 @@
       "left": {
         "family": "qsFoot",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1118,13 +1118,13 @@
       "left": {
         "family": "qsFoot",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1142,13 +1142,13 @@
       "left": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1164,13 +1164,13 @@
       "left": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1186,13 +1186,13 @@
       "left": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1206,13 +1206,13 @@
       "left": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1230,13 +1230,13 @@
       "left": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1250,13 +1250,13 @@
       "left": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1274,13 +1274,13 @@
       "left": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1294,13 +1294,13 @@
       "left": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1318,13 +1318,13 @@
       "left": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1340,13 +1340,13 @@
       "left": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1362,13 +1362,13 @@
       "left": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1382,13 +1382,13 @@
       "left": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1405,14 +1405,14 @@
     {
       "left": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.en-y5.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.en-y5.ex-y0",
         "except": null
       },
       "right": {
         "family": "qsDay",
-        "kind": "form",
-        "form": "qsDay.half.en-y0.ex-y0",
+        "kind": "stance",
+        "stance": "qsDay.half.en-y0.ex-y0",
         "except": null
       },
       "context": "",
@@ -1427,14 +1427,14 @@
     {
       "left": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y5",
+        "kind": "stance",
+        "stance": "qsIt.ex-y5",
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -1450,13 +1450,13 @@
       "left": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1472,13 +1472,13 @@
       "left": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1494,13 +1494,13 @@
       "left": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1514,13 +1514,13 @@
       "left": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1538,13 +1538,13 @@
       "left": {
         "family": "qsI",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1558,13 +1558,13 @@
       "left": {
         "family": "qsI",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1582,13 +1582,13 @@
       "left": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -1604,13 +1604,13 @@
       "left": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1626,13 +1626,13 @@
       "left": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1648,13 +1648,13 @@
       "left": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsTea",
-        "kind": "form",
-        "form": "qsTea.ex-y0",
+        "kind": "stance",
+        "stance": "qsTea.ex-y0",
         "except": null
       },
       "context": "",
@@ -1670,13 +1670,13 @@
       "left": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1692,13 +1692,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -1712,13 +1712,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -1734,13 +1734,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1756,13 +1756,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1778,13 +1778,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1800,13 +1800,13 @@
       "left": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1822,13 +1822,13 @@
       "left": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1844,13 +1844,13 @@
       "left": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1866,13 +1866,13 @@
       "left": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1886,13 +1886,13 @@
       "left": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1910,13 +1910,13 @@
       "left": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -1932,13 +1932,13 @@
       "left": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -1954,13 +1954,13 @@
       "left": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -1974,13 +1974,13 @@
       "left": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -1998,13 +1998,13 @@
       "left": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -2018,13 +2018,13 @@
       "left": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2042,13 +2042,13 @@
       "left": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -2062,13 +2062,13 @@
       "left": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -2086,13 +2086,13 @@
       "left": {
         "family": "qsLow",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -2106,13 +2106,13 @@
       "left": {
         "family": "qsLow",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -2130,13 +2130,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsFee",
-        "kind": "form",
-        "form": "qsFee.ex-y5",
+        "kind": "stance",
+        "stance": "qsFee.ex-y5",
         "except": null
       },
       "context": "",
@@ -2152,13 +2152,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsGay",
-        "kind": "form",
-        "form": "qsGay.ex-y0",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
         "except": null
       },
       "context": "",
@@ -2174,13 +2174,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -2194,13 +2194,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2218,13 +2218,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -2238,13 +2238,13 @@
       "left": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -2262,7 +2262,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2270,7 +2270,7 @@
       "right": {
         "family": "qsAh",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2284,13 +2284,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsAh",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2306,7 +2306,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2314,7 +2314,7 @@
       "right": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2328,13 +2328,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2350,13 +2350,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2370,7 +2370,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2378,7 +2378,7 @@
       "right": {
         "family": "qsAwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2394,13 +2394,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2414,7 +2414,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2422,7 +2422,7 @@
       "right": {
         "family": "qsBay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2438,13 +2438,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2458,7 +2458,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2466,7 +2466,7 @@
       "right": {
         "family": "qsCheer",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2482,13 +2482,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2502,7 +2502,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2510,7 +2510,7 @@
       "right": {
         "family": "qsDay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2526,7 +2526,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2534,7 +2534,7 @@
       "right": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2548,13 +2548,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsEat",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2570,13 +2570,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2590,7 +2590,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2598,7 +2598,7 @@
       "right": {
         "family": "qsEight",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2614,13 +2614,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2634,7 +2634,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2642,7 +2642,7 @@
       "right": {
         "family": "qsEt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2658,7 +2658,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2666,7 +2666,7 @@
       "right": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2680,13 +2680,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsExam",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2702,7 +2702,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2710,7 +2710,7 @@
       "right": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2724,13 +2724,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsExcite",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2746,13 +2746,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2766,7 +2766,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2774,7 +2774,7 @@
       "right": {
         "family": "qsFee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2790,13 +2790,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsFoot",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2810,7 +2810,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2818,7 +2818,7 @@
       "right": {
         "family": "qsFoot",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2834,7 +2834,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2842,7 +2842,7 @@
       "right": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2856,13 +2856,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsGay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2878,13 +2878,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2898,7 +2898,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2906,7 +2906,7 @@
       "right": {
         "family": "qsHe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2922,7 +2922,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2930,7 +2930,7 @@
       "right": {
         "family": "qsI",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2944,13 +2944,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsI",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2966,7 +2966,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -2974,7 +2974,7 @@
       "right": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -2988,13 +2988,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsIng",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3010,13 +3010,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3030,7 +3030,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3038,7 +3038,7 @@
       "right": {
         "family": "qsIt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3054,13 +3054,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3074,7 +3074,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3082,7 +3082,7 @@
       "right": {
         "family": "qsJai",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3098,13 +3098,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3118,7 +3118,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3126,7 +3126,7 @@
       "right": {
         "family": "qsJay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3142,13 +3142,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3162,7 +3162,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3170,7 +3170,7 @@
       "right": {
         "family": "qsKey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3186,13 +3186,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3206,7 +3206,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3214,7 +3214,7 @@
       "right": {
         "family": "qsLlan",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3230,13 +3230,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3250,7 +3250,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3258,7 +3258,7 @@
       "right": {
         "family": "qsLoch",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3274,7 +3274,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3282,7 +3282,7 @@
       "right": {
         "family": "qsLow",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3296,13 +3296,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsLow",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3318,7 +3318,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3326,7 +3326,7 @@
       "right": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3340,13 +3340,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3362,7 +3362,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3370,7 +3370,7 @@
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -3384,13 +3384,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3406,13 +3406,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -3426,7 +3426,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3434,7 +3434,7 @@
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3452,7 +3452,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3460,7 +3460,7 @@
       "right": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3474,13 +3474,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3496,7 +3496,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3504,7 +3504,7 @@
       "right": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3518,13 +3518,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3540,13 +3540,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3560,7 +3560,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3568,7 +3568,7 @@
       "right": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3584,13 +3584,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3604,7 +3604,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3612,7 +3612,7 @@
       "right": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3628,13 +3628,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3648,7 +3648,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3656,7 +3656,7 @@
       "right": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3672,13 +3672,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3692,7 +3692,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3700,7 +3700,7 @@
       "right": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3716,13 +3716,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3736,7 +3736,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3744,7 +3744,7 @@
       "right": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3760,7 +3760,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3768,7 +3768,7 @@
       "right": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3782,13 +3782,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3804,13 +3804,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3824,7 +3824,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3832,7 +3832,7 @@
       "right": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3848,13 +3848,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3868,7 +3868,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3876,7 +3876,7 @@
       "right": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3892,7 +3892,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3900,7 +3900,7 @@
       "right": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3914,13 +3914,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3936,13 +3936,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3956,7 +3956,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3964,7 +3964,7 @@
       "right": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -3980,7 +3980,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -3988,7 +3988,7 @@
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4004,7 +4004,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4012,7 +4012,7 @@
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4026,13 +4026,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4046,13 +4046,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4070,7 +4070,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4078,7 +4078,7 @@
       "right": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4092,13 +4092,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4114,13 +4114,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsWay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4134,7 +4134,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4142,7 +4142,7 @@
       "right": {
         "family": "qsWay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4158,13 +4158,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsWhy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4178,7 +4178,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4186,7 +4186,7 @@
       "right": {
         "family": "qsWhy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4202,13 +4202,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4222,7 +4222,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4230,7 +4230,7 @@
       "right": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4246,13 +4246,13 @@
       "left": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "right": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4266,7 +4266,7 @@
       "left": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4274,7 +4274,7 @@
       "right": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -4290,13 +4290,13 @@
       "left": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4312,13 +4312,13 @@
       "left": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4334,13 +4334,13 @@
       "left": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4354,13 +4354,13 @@
       "left": {
         "family": "qsOoze",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4378,13 +4378,13 @@
       "left": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "‌",
@@ -4398,13 +4398,13 @@
       "left": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4422,13 +4422,13 @@
       "left": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4442,13 +4442,13 @@
       "left": {
         "family": "qsOut",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4466,13 +4466,13 @@
       "left": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4486,13 +4486,13 @@
       "left": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4510,13 +4510,13 @@
       "left": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4530,13 +4530,13 @@
       "left": {
         "family": "qsOwe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4554,13 +4554,13 @@
       "left": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4576,13 +4576,13 @@
       "left": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4598,13 +4598,13 @@
       "left": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4618,13 +4618,13 @@
       "left": {
         "family": "qsOx",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4642,13 +4642,13 @@
       "left": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4664,13 +4664,13 @@
       "left": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4686,13 +4686,13 @@
       "left": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4706,13 +4706,13 @@
       "left": {
         "family": "qsOy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4730,13 +4730,13 @@
       "left": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "‌",
@@ -4750,13 +4750,13 @@
       "left": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4774,13 +4774,13 @@
       "left": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4794,13 +4794,13 @@
       "left": {
         "family": "qsPea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4818,13 +4818,13 @@
       "left": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4838,13 +4838,13 @@
       "left": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4862,13 +4862,13 @@
       "left": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4882,13 +4882,13 @@
       "left": {
         "family": "qsRoe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4906,13 +4906,13 @@
       "left": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -4926,13 +4926,13 @@
       "left": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -4950,13 +4950,13 @@
       "left": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -4972,13 +4972,13 @@
       "left": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -4994,13 +4994,13 @@
       "left": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5016,13 +5016,13 @@
       "left": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5038,13 +5038,13 @@
       "left": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5058,13 +5058,13 @@
       "left": {
         "family": "qsShe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5082,13 +5082,13 @@
       "left": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5102,13 +5102,13 @@
       "left": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5126,13 +5126,13 @@
       "left": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5146,13 +5146,13 @@
       "left": {
         "family": "qsTea",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5170,13 +5170,13 @@
       "left": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5190,13 +5190,13 @@
       "left": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5214,13 +5214,13 @@
       "left": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5234,13 +5234,13 @@
       "left": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5258,13 +5258,13 @@
       "left": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5278,13 +5278,13 @@
       "left": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5302,13 +5302,13 @@
       "left": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5324,13 +5324,13 @@
       "left": {
         "family": "qsThey",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5346,7 +5346,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5354,7 +5354,7 @@
       "right": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5368,13 +5368,13 @@
       "left": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "right": {
         "family": "qsAt",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5390,7 +5390,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5398,7 +5398,7 @@
       "right": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "‌",
@@ -5412,13 +5412,13 @@
       "left": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "right": {
         "family": "qsMay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5434,13 +5434,13 @@
       "left": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5454,7 +5454,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5462,7 +5462,7 @@
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5480,7 +5480,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5488,7 +5488,7 @@
       "right": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5502,13 +5502,13 @@
       "left": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "right": {
         "family": "qsSee",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5524,7 +5524,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5532,7 +5532,7 @@
       "right": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5546,13 +5546,13 @@
       "left": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "right": {
         "family": "qsThaw",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "context": "",
@@ -5568,7 +5568,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5576,7 +5576,7 @@
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5590,7 +5590,7 @@
       "left": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5598,7 +5598,7 @@
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5616,13 +5616,13 @@
       "left": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5638,13 +5638,13 @@
       "left": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5660,13 +5660,13 @@
       "left": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5682,13 +5682,13 @@
       "left": {
         "family": "qsVie",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5704,13 +5704,13 @@
       "left": {
         "family": "qsWay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsGay",
-        "kind": "form",
-        "form": "qsGay.ex-y0",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
         "except": null
       },
       "context": "",
@@ -5724,13 +5724,13 @@
       "left": {
         "family": "qsWay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsGay",
-        "kind": "form",
-        "form": "qsGay.ex-y0.ex-ext-1",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0.ex-ext-1",
         "except": null
       },
       "context": "",
@@ -5746,13 +5746,13 @@
       "left": {
         "family": "qsWay",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5768,13 +5768,13 @@
       "left": {
         "family": "qsWhy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsGay",
-        "kind": "form",
-        "form": "qsGay.ex-y0",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0",
         "except": null
       },
       "context": "",
@@ -5788,13 +5788,13 @@
       "left": {
         "family": "qsWhy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsGay",
-        "kind": "form",
-        "form": "qsGay.ex-y0.ex-ext-1",
+        "kind": "stance",
+        "stance": "qsGay.ex-y0.ex-ext-1",
         "except": null
       },
       "context": "",
@@ -5810,13 +5810,13 @@
       "left": {
         "family": "qsWhy",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5832,13 +5832,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -5852,13 +5852,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsIt",
-        "kind": "form",
-        "form": "qsIt.ex-y0",
+        "kind": "stance",
+        "stance": "qsIt.ex-y0",
         "except": null
       },
       "context": "",
@@ -5874,13 +5874,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5896,13 +5896,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -5918,13 +5918,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -5938,13 +5938,13 @@
       "left": {
         "family": "qsYe",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -5962,13 +5962,13 @@
       "left": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsNo.alt"
         ]
@@ -5984,13 +5984,13 @@
       "left": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsNo",
         "kind": "alt",
-        "form": "qsNo.alt",
+        "stance": "qsNo.alt",
         "except": null
       },
       "context": "",
@@ -6006,13 +6006,13 @@
       "left": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "alt",
-        "form": "qsUtter.alt",
+        "stance": "qsUtter.alt",
         "except": null
       },
       "context": "",
@@ -6026,13 +6026,13 @@
       "left": {
         "family": "qsZoo",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": null
       },
       "right": {
         "family": "qsUtter",
         "kind": "plain",
-        "form": null,
+        "stance": null,
         "except": [
           "qsUtter.alt"
         ]
@@ -6049,8 +6049,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsExcite.en-y0.ex-y0.before-vertical.noentry",
-        "trigger_form": "qsGay",
+        "predecessor_stance": "qsExcite.en-y0.ex-y0.before-vertical.noentry",
+        "trigger_stance": "qsGay",
         "isolated_form": "qsExcite.nonjoining-left"
       },
       "reason": "entryless"
@@ -6058,8 +6058,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical",
-        "trigger_form": "qsIt",
+        "predecessor_stance": "qsExcite.ex-y0.before-vertical",
+        "trigger_stance": "qsIt",
         "isolated_form": "qsExcite"
       },
       "reason": "no_context"
@@ -6067,8 +6067,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsExcite.ex-y0.before-vertical",
-        "trigger_form": "qsUtter.alt",
+        "predecessor_stance": "qsExcite.ex-y0.before-vertical",
+        "trigger_stance": "qsUtter.alt",
         "isolated_form": "qsExcite"
       },
       "reason": "superseded_by_alt_axis"
@@ -6076,8 +6076,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsMay.ex-noentry",
-        "trigger_form": "qsThey_qsUtter.noentry",
+        "predecessor_stance": "qsMay.ex-noentry",
+        "trigger_stance": "qsThey_qsUtter.noentry",
         "isolated_form": "qsMay"
       },
       "reason": "ligature"
@@ -6085,8 +6085,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsNo.alt",
-        "trigger_form": "qsGay.ex-y0",
+        "predecessor_stance": "qsNo.alt",
+        "trigger_stance": "qsGay.ex-y0",
         "isolated_form": "qsNo"
       },
       "reason": "superseded_by_alt_axis"
@@ -6094,8 +6094,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsNo.alt",
-        "trigger_form": "qsIt.ex-y0",
+        "predecessor_stance": "qsNo.alt",
+        "trigger_stance": "qsIt.ex-y0",
         "isolated_form": "qsNo"
       },
       "reason": "superseded_by_alt_axis"
@@ -6103,8 +6103,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsNo.alt",
-        "trigger_form": "qsUtter.alt",
+        "predecessor_stance": "qsNo.alt",
+        "trigger_stance": "qsUtter.alt",
         "isolated_form": "qsNo"
       },
       "reason": "superseded_by_alt_axis"
@@ -6112,8 +6112,8 @@
     {
       "table": "predecessor_demote",
       "entry": {
-        "predecessor_form": "qsNo.ex-ext-1",
-        "trigger_form": "qsFee.ex-y5",
+        "predecessor_stance": "qsNo.ex-ext-1",
+        "trigger_stance": "qsFee.ex-y5",
         "isolated_form": "qsNo"
       },
       "reason": "superseded_by_alt_axis"
@@ -6121,8 +6121,8 @@
     {
       "table": "trailing_demote",
       "entry": {
-        "leader_form": "qsIt.en-y0.ex-noentry.before-day-exam",
-        "trailing_form": "qsDay.half",
+        "leader_stance": "qsIt.en-y0.ex-noentry.before-day-exam",
+        "trailing_stance": "qsDay.half",
         "isolated_form": "qsDay"
       },
       "reason": "entryless"
@@ -6130,8 +6130,8 @@
     {
       "table": "trailing_demote",
       "entry": {
-        "leader_form": "qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1",
-        "trailing_form": "qsDay.half",
+        "leader_stance": "qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1",
+        "trailing_stance": "qsDay.half",
         "isolated_form": "qsDay"
       },
       "reason": "entryless"

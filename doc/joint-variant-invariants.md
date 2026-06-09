@@ -4,7 +4,7 @@ A common shape for cursive-attachment regression tests in this repo is “the sh
 
 ## Why the pattern matters
 
-A GSUB lookup that picks the left slot’s variant typically sees only the predecessor’s _pre-substitution_ form of the right slot. If the right slot is about to be substituted into something incompatible, the left’s choice gets stranded. The “robust under every surround” sweep is how we catch those stale variant choices in test: if any surround makes the bad combination reachable, the invariant fires.
+A GSUB lookup that picks the left slot’s variant typically sees only the predecessor’s _pre-substitution_ stance of the right slot. If the right slot is about to be substituted into something incompatible, the left’s choice gets stranded. The “robust under every surround” sweep is how we catch those stale variant choices in test: if any surround makes the bad combination reachable, the invariant fires.
 
 ## The set math
 
@@ -74,4 +74,4 @@ Read (★) for this call: it fires when the left slot is some qsWay variant whos
 
 ## Reading a failure message
 
-Each failure line names the surround, the matched pair’s chosen glyph names (so you can grep them in the generated FEA), the actual trait sets on each side, and the forbidden subsets that triggered (★). A short failure list usually points at a single FEA rule that needs to be tightened; a long one usually means the underlying lookup is conditioning on the predecessor’s _pre-substitution_ form rather than the form it will eventually take, and the fix lives one layer up in `tools/quikscript_fea.py` rather than in YAML.
+Each failure line names the surround, the matched pair’s chosen glyph names (so you can grep them in the generated FEA), the actual trait sets on each side, and the forbidden subsets that triggered (★). A short failure list usually points at a single FEA rule that needs to be tightened; a long one usually means the underlying lookup is conditioning on the predecessor’s _pre-substitution_ stance rather than the stance it will eventually take, and the fix lives one layer up in `tools/quikscript_fea.py` rather than in YAML.

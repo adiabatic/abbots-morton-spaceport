@@ -109,7 +109,7 @@ def _parse_rule(line: str, lookup: str, line_no: int, classes: dict[str, frozens
     replacement: str | None = None
     if kind == "sub":
         if " by " not in body:
-            return None  # not a contextual-form rule we model (e.g. ligature `sub a b by c` handled below)
+            return None  # not a contextual-stance rule we model (e.g. ligature `sub a b by c` handled below)
         body, rep = body.rsplit(" by ", 1)
         rep = rep.strip()
         # Replacement may be a single glyph or a [list]; we only model single-glyph contextual swaps.

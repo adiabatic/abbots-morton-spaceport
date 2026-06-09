@@ -528,7 +528,7 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
 ) -> list[str]:
     """Flag every ·See→·Out adjacency where the chosen ·Out glyph presents an x-height connecting body but the glyph that immediately follows ·Out does not receive at the x-height. The invariant is that ·Out may show a connecting (x-height) body ONLY when its follower receives it at the x-height (y=5); a word-final ·Out, or a ·Out followed by a glyph whose entry sits only at some other height (or that does not join at all), must rest on a non-connecting body. Word-final and non-x-height-receiving followers are strict violations, not tolerated edge cases.
 
-    "Connecting" is defined by the ·Out glyph's declared form identity, via ``_declares_xheight_exit(out_glyph_name)``: the glyph carries the ``ex-y5`` modifier that marks its forward stub as an x-height hand-off. This is deliberately NOT the exit-anchor proxy ``5 in _exit_ys(...)`` — that proxy can be satisfied by stripping the exit anchor while the connecting body, and so the dangling stub, stays drawn (the ``ex-y5`` modifier outlives the anchor, so the form still reads as connecting). It is also not a bitmap-shape test: "the ink reaches farthest right at y=5" misfires on every letter that exits from the left or middle, so it does not generalize, whereas the modifier reads the same for every family. ``test_declared_exit_height_matches_exit_anchor`` separately pins the ``ex-y5`` modifier to a real exit anchor, so trusting the modifier here cannot be gamed by relabeling. The follower receives the stub when it carries an entry anchor at y=5 (``5 in _entry_ys(follower)``). A failure is any ·Out drawn with the x-height-exit form while its follower does not receive at y=5.
+    "Connecting" is defined by the ·Out glyph's declared stance identity, via ``_declares_xheight_exit(out_glyph_name)``: the glyph carries the ``ex-y5`` modifier that marks its forward stub as an x-height hand-off. This is deliberately NOT the exit-anchor proxy ``5 in _exit_ys(...)`` — that proxy can be satisfied by stripping the exit anchor while the connecting body, and so the dangling stub, stays drawn (the ``ex-y5`` modifier outlives the anchor, so the stance still reads as connecting). It is also not a bitmap-shape test: "the ink reaches farthest right at y=5" misfires on every letter that exits from the left or middle, so it does not generalize, whereas the modifier reads the same for every family. ``test_declared_exit_height_matches_exit_anchor`` separately pins the ``ex-y5`` modifier to a real exit anchor, so trusting the modifier here cannot be gamed by relabeling. The follower receives the stub when it carries an entry anchor at y=5 (``5 in _entry_ys(follower)``). A failure is any ·Out drawn with the x-height-exit stance while its follower does not receive at y=5.
 
     Ligatures whose sequence ends with ``qsSee`` count as the ·See side, and ligatures whose sequence starts with ``qsOut`` count as the ·Out side, mirroring the other ``_collect_pair_*`` helpers.
 
@@ -589,11 +589,11 @@ def _collect_see_out_connecting_body_without_xheight_receiver_failures(
 
 
 def _collect_declared_exit_height_without_matching_anchor_failures() -> list[str]:
-    """Flag every compiled glyph whose ``ex-yN`` modifier promises a forward exit at height N that the glyph's real exit anchors do not keep. An ``ex-yN`` modifier is the form's declared claim "I connect at glyph-space row N"; that claim must be backed by an actual exit anchor at N, or the glyph presents a connecting form identity (and the connecting body the build drew for it) while shaping has nothing to attach there — exactly the dangling stub the d7a8afd anchor-drop produced when it stripped the exit off an entry-trimmed ·Out but left its ``ex-y5`` modifier and protruding x-height body in place.
+    """Flag every compiled glyph whose ``ex-yN`` modifier promises a forward exit at height N that the glyph's real exit anchors do not keep. An ``ex-yN`` modifier is the stance's declared claim "I connect at glyph-space row N"; that claim must be backed by an actual exit anchor at N, or the glyph presents a connecting stance identity (and the connecting body the build drew for it) while shaping has nothing to attach there — exactly the dangling stub the d7a8afd anchor-drop produced when it stripped the exit off an entry-trimmed ·Out but left its ``ex-y5`` modifier and protruding x-height body in place.
 
     This is the single font-wide pin that lets the rest of the suite trust the ``ex-y5`` modifier as a stand-in for "is this glyph connecting?" (see ``_declares_xheight_exit`` and the ·See·Out collector): because the modifier can no longer drift away from the anchor unnoticed, the join sweeps don't each have to re-derive connectedness from the bitmap — a shape heuristic that misfires on every letter that exits from the left or middle (·He, ·Ye, ·Gay, ·They, …) and so never generalized.
 
-    Only the ``ex-yN`` ⟹ anchor direction is asserted. The converse (every exit anchor implies an ``ex-yN`` modifier) is deliberately not checked: a form's default exit height is implicit and carries no ``ex-yN`` modifier, so hundreds of legitimate exit-bearing glyphs would otherwise be flagged. The biconditional holds only on the subset that explicitly declares ``ex-yN``.
+    Only the ``ex-yN`` ⟹ anchor direction is asserted. The converse (every exit anchor implies an ``ex-yN`` modifier) is deliberately not checked: a stance's default exit height is implicit and carries no ``ex-yN`` modifier, so hundreds of legitimate exit-bearing glyphs would otherwise be flagged. The biconditional holds only on the subset that explicitly declares ``ex-yN``.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -904,7 +904,7 @@ def _collect_it_day_baseline_uses_half_day_failures(
 ) -> list[str]:
     """Flag every surround of ·It·Day where ·It doesn't take a baseline join from its predecessor yet ·It·Day fails to connect as ``·It ~b~ ·Day.half``.
 
-    ·It is written so that joining its predecessor at the baseline forces it to exit at the x-height, while *not* joining at the baseline lets it exit at the baseline. ·Day's full form enters at the x-height and ·It·Day is forbidden from joining there (see ``test_it_day_never_joins_at_xheight``), so the only way ·It·Day can connect once ·It exits at the baseline is for ·Day to take its half form, which enters at the baseline. This collector pins that invariant: whenever ·It has no baseline predecessor join (including the word-initial case where it has no predecessor at all), the ·It·Day pair must satisfy the ``data-expect`` expression ``·It ~b~ ·Day.half`` — ·It exiting at the baseline into a half-·Day. Surrounds where ·It *does* join its predecessor at the baseline are skipped; the rule is conditional and silent there.
+    ·It is written so that joining its predecessor at the baseline forces it to exit at the x-height, while *not* joining at the baseline lets it exit at the baseline. ·Day's full stance enters at the x-height and ·It·Day is forbidden from joining there (see ``test_it_day_never_joins_at_xheight``), so the only way ·It·Day can connect once ·It exits at the baseline is for ·Day to take its half stance, which enters at the baseline. This collector pins that invariant: whenever ·It has no baseline predecessor join (including the word-initial case where it has no predecessor at all), the ·It·Day pair must satisfy the ``data-expect`` expression ``·It ~b~ ·Day.half`` — ·It exiting at the baseline into a half-·Day. Surrounds where ·It *does* join its predecessor at the baseline are skipped; the rule is conditional and silent there.
 
     The expectation is checked through the real ``data-expect`` runner (``parse_expect`` + ``_try_interpretation``) so ``.half`` is verified against compiled traits and ``~b~`` against the senior anchor map, rather than by a bespoke anchor check.
 
@@ -1215,7 +1215,7 @@ def test_owe_at_word_start_before_fee_has_no_left_anchor():
     ],
 )
 def test_fee_entry_xheight_after_extended_predecessor(text: str, expects: list[str]):
-    """When a predecessor extends its exit before qsFee, qsFee must take its en-y5 form so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.ex-ext-1) from late_contexts, so the qsFee.en-y5 substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height."""
+    """When a predecessor extends its exit before qsFee, qsFee must take its en-y5 stance so the left stub bridges the extension. Previously the post-context bk-pair re-emission filtered out fwd_pair_overrides outputs (e.g., qsMay.ex-ext-1) from late_contexts, so the qsFee.en-y5 substitution never matched and qsFee stayed bare, leaving a 1-pixel gap at x-height."""
     _assert_expect_any(text, expects)
 
 
@@ -1244,7 +1244,7 @@ def test_out_does_not_reach_for_fee_when_fee_connects_right(text: str, expects: 
 
 
 def test_out_fee_utter_lets_out_reach_for_fee():
-    """qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces ·Fee into an entry-less form. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead."""
+    """qsFee.exit_xheight_before_utter is gated by not_after on every family that joins into qsFee at x-height, so a bare ·Utter follower no longer forces ·Fee into an entry-less stance. With the alt-reaches-way-back chain on ·Utter requiring a further qualifying letter, ·Out·Fee·Utter is free to keep the ·Out·Fee join at x-height instead."""
     _assert_expect_any(
         _qs_text("qsOut", "qsFee", "qsUtter"),
         [
@@ -1302,7 +1302,7 @@ def test_way_does_not_join_tea_under_ss03():
 
 
 def test_fee_may_uses_extension_pair():
-    """·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may form on ·Fee or the after-fee form on ·May, this test catches it. The exact extension rung (currently `ext-3`) is left out of the assertion since it is a geometric tuning knob — the join Y and the form pair are the invariants worth pinning."""
+    """·Fee→·May used to be a hand-drawn ligature (qsFee_qsMay); the visual is now reconstructed by extending ·Fee's exit at the x-height and pairing it with ·May's narrower "pulled-back-more" entry shape. If a future change forgets to fire the before-may stance on ·Fee or the after-fee stance on ·May, this test catches it. The exact extension rung (currently `ext-3`) is left out of the assertion since it is a geometric tuning knob — the join Y and the stance pair are the invariants worth pinning."""
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
         ["·Fee.before-may ~x~ ·May.after-fee"],
@@ -1423,7 +1423,7 @@ def _word_initial_promoted_entry_failures(
 ) -> list[str]:
     """Return a failure for every word-initial glyph that shaped into a variant carrying an entry anchor when nothing precedes it, sweeping every ordered pair of distinct plain letters under the given feature set.
 
-    A word-initial entry anchor is a phantom promotion only when the family's bare form has no entry of its own and no natural sibling shares the same bitmap without an entry. Bases whose bare form is designed with an entry anchor are exempt, and so is the purely positional case where a same-bitmap, entry-free sibling exists, since picking the entry-bearing variant then adds no visible left tail.
+    A word-initial entry anchor is a phantom promotion only when the family's bare stance has no entry of its own and no natural sibling shares the same bitmap without an entry. Bases whose bare stance is designed with an entry anchor are exempt, and so is the purely positional case where a same-bitmap, entry-free sibling exists, since picking the entry-bearing variant then adds no visible left tail.
     """
     failures: list[str] = []
     meta_map = _compiled_meta()
@@ -1441,7 +1441,7 @@ def _word_initial_promoted_entry_failures(
                 continue
             base_meta = meta_map.get(head_meta.base_name)
             if base_meta is None or base_meta.entry:
-                # Family's bare form already carries an entry anchor as part of its natural design — that's fine at word start.
+                # Family's bare stance already carries an entry anchor as part of its natural design — that's fine at word start.
                 continue
             target_bitmap = head_meta.bitmap
             has_natural_no_entry_match = any(
@@ -1563,7 +1563,7 @@ def test_no_alt_selected_after_ox_before_fee():
 
 
 def _no_alt_after_baseline_exit_failures() -> list[str]:
-    """Return a failure for every position where a middle ·No fails to take its alternate form after a predecessor that exits at the baseline, sweeping every ordered (left, right) pair of plain letters around ·No.
+    """Return a failure for every position where a middle ·No fails to take its alternate stance after a predecessor that exits at the baseline, sweeping every ordered (left, right) pair of plain letters around ·No.
 
     A ·No that is not word-initial must select ``.alt`` whenever its left neighbor has an exit at y=0, with the single exception of a ·Zoo predecessor, which is allowed to leave ·No non-alternate.
     """
@@ -1617,7 +1617,7 @@ def test_no_alt_selected_when_preceded_by_baseline_exit():
         pytest.param(_qs_text("qsYe", "qsSee"), ["·Ye.∅ |?| ·See.after-ye"], id="ye-see"),
     ],
 )
-def test_ye_sequences_keep_the_nonjoining_forms(text: str, expects: list[str]):
+def test_ye_sequences_keep_the_nonjoining_stances(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
@@ -1751,7 +1751,7 @@ def test_see_out_connecting_body_only_when_next_receives_at_xheight(before_first
 def test_see_out_touch_body_wins_word_final_by_declared_precedence():
     """·See·Out has two competing after-·See connecting bodies: the touch body (`before-other`, +0px, for ·See·Out·Oy) and the +1px body (`before-fee`, for ·See·Out·Fee). Both are reverse-upgrade targets emitting lookahead-free rules, so the one whose lookup is emitted first claims the no-follower remainder. That precedence now comes from the touch body's `terminal_default` flag, not from its compiled glyph name sorting first — so the body can carry the follower-honest name `before-other` (which sorts *after* `before-fee`) and still win. This pins the outcome that a name-order regression (dropping `terminal_default`, or adding a sibling that sorts earlier) would silently break.
 
-    Word-final ·See·Out rests on the non-connecting touch body (the entry-trimmed form with no x-height exit), since there is no follower to receive a connecting stub; ·See·Out·Oy takes the +0px connecting touch body, and only ·See·Out·Fee takes the +1px body.
+    Word-final ·See·Out rests on the non-connecting touch body (the entry-trimmed stance with no x-height exit), since there is no follower to receive a connecting stub; ·See·Out·Oy takes the +0px connecting touch body, and only ·See·Out·Fee takes the +1px body.
     """
     word_final = _shape(_qs_text("qsSee", "qsOut"))
     assert word_final[-1] == "qsOut.en-y0.after-see.en-trim-1", word_final
@@ -2215,7 +2215,7 @@ def test_may_thaw_ing_is_sensible():
 def _may_thaw_orphan_failures(glyphs: list[str], label: str) -> list[str]:
     """Return a failure for every adjacent (qsMay, qsThaw) pair where qsMay picked a contextual ``ex-y0`` variant even though the following qsThaw variant no longer accepts a baseline entry.
 
-    Flagging the ``ex-y0`` modifier specifically — rather than any mismatched exit — is intentional: qsMay's default (and ``.noentry``) form has a y-height exit that could never attach to qsThaw anyway. The bug is narrower: qsMay's lookup saw qsThaw's default baseline entry and moved qsMay to ``.ex-y0`` on the assumption that a baseline join was about to form, and then qsThaw's own forward substitution stripped the entry out from under it.
+    Flagging the ``ex-y0`` modifier specifically — rather than any mismatched exit — is intentional: qsMay's default (and ``.noentry``) stance has a y-height exit that could never attach to qsThaw anyway. The bug is narrower: qsMay's lookup saw qsThaw's default baseline entry and moved qsMay to ``.ex-y0`` on the assumption that a baseline join was about to form, and then qsThaw's own forward substitution stripped the entry out from under it.
     """
     failures: list[str] = []
     meta = _compiled_meta()
@@ -2952,7 +2952,7 @@ def test_way_full_before_any_non_bridging_middle():
 # ---------------------------------------------------------------------------
 # ·Way and ·Why must stay full before ·Vie and ·See, the pair must not connect, and the right glyph must not change shape because of a preceding ·Way / ·Why.
 #
-# ·Way's prop exits only at y=5; ·Why's prop has no exit. Both ·Vie's and ·See's prop enter only at y=0. With the half-form fix in place, neither pair forms a join and neither side reaches across the seam — these tests pin that down.
+# ·Way's prop exits only at y=5; ·Why's prop has no exit. Both ·Vie's and ·See's prop enter only at y=0. With the half-stance fix in place, neither pair forms a join and neither side reaches across the seam — these tests pin that down.
 # ---------------------------------------------------------------------------
 
 
@@ -3009,10 +3009,10 @@ def test_right_glyph_unchanged_after_way_or_why(left_base: str, right_base: str)
         pytest.param("qsWhy", id="why"),
     ],
 )
-def test_half_form_not_before_list_keeps_left_full(left_base: str):
+def test_half_stance_not_before_list_keeps_left_full(left_base: str):
     """Auto-derived deny-set guard: every family declared in ``<base>.half``'s ``not_before`` list must keep ``<base>`` in a non-half variant, both as a bare pair and surrounded by every plain Quikscript outer context. Adding a family to ``not_before`` extends coverage automatically.
 
-    Only the "not half" half of the invariant is universal: families end up in ``not_before`` for two distinct reasons — either the full form legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection behavior is asserted in the targeted parametrizations above; this test covers the part they share.
+    Only the "not half" half of the invariant is universal: families end up in ``not_before`` for two distinct reasons — either the full stance legitimately joins at x-height (e.g. qsIt, qsDay), or the pair is meant to stay disconnected (qsSee, qsTea, qsThaw, qsVie). Connection behavior is asserted in the targeted parametrizations above; this test covers the part they share.
     """
     half_meta = _compiled_meta()[f"{left_base}.half.ex-y0"]
     deny_families = sorted(half_meta.not_before)
@@ -4017,7 +4017,7 @@ def test_roe_stays_bare_before_at_may():
 
 
 def test_see_stays_bare_before_at_may():
-    """·See stays bare before ·At·May — same mechanism as ·Roe: the contextual ·At before-may form has no entry, so nothing joins into it."""
+    """·See stays bare before ·At·May — same mechanism as ·Roe: the contextual ·At before-may stance has no entry, so nothing joins into it."""
     _assert_expect_any(
         _qs_text("qsSee", "qsAt", "qsMay"),
         ["·See | ·At ~b~ ·May"],
@@ -4127,7 +4127,7 @@ def test_he_vie_utter_day_joins_baseline_then_xheight():
 
 
 def test_at_pea_half_eight_uses_xheight_half_pea():
-    """·At breaks before ·Pea, which takes its x-height half form to join ·Eight."""
+    """·At breaks before ·Pea, which takes its x-height half stance to join ·Eight."""
     _assert_expect_any(
         _qs_text("qsAt", "qsPea", "qsEight"),
         ["·At | ·Pea.half ~x~ ·Eight"],
@@ -4138,7 +4138,7 @@ def test_at_pea_half_eight_uses_xheight_half_pea():
 # ZWNJ isolation sweeps.
 #
 # A ZWNJ between two runs is supposed to act as a hard shaping boundary:
-# nothing on its left may influence the chosen glyph forms on its right, and
+# nothing on its left may influence the chosen glyph stances on its right, and
 # vice versa. ``test_shaping`` already has an isolation check that splits the
 # HarfBuzz buffer at non-joins, but it explicitly rejects ZWNJ injection as a
 # reference because the font intentionally fires ``.noentry`` rules against

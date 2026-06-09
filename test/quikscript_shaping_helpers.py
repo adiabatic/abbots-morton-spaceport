@@ -179,7 +179,7 @@ def _declared_exit_ys(glyph_name: str) -> set[int]:
 
 
 def _declares_xheight_exit(glyph_name: str) -> bool:
-    """True when the glyph's compiled form identity declares an x-height (glyph-space y=5) forward exit, i.e. it carries the ``ex-y5`` modifier — the connecting body a letter shows when it means to hand its stroke off to a follower's x-height entry. See ``_declared_exit_ys`` for why this declared-identity test is preferred over reading the bitmap, and ``test_declared_exit_height_matches_exit_anchor`` for the invariant that keeps the modifier honest about the real anchor."""
+    """True when the glyph's compiled stance identity declares an x-height (glyph-space y=5) forward exit, i.e. it carries the ``ex-y5`` modifier — the connecting body a letter shows when it means to hand its stroke off to a follower's x-height entry. See ``_declared_exit_ys`` for why this declared-identity test is preferred over reading the bitmap, and ``test_declared_exit_height_matches_exit_anchor`` for the invariant that keeps the modifier honest about the real anchor."""
     return 5 in _declared_exit_ys(glyph_name)
 
 

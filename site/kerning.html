@@ -198,7 +198,7 @@
           pointer-events: none;
         }
 
-        /* Cells with precomputed form-junctions get a corner triangle; clicking it opens the drill-down panel. */
+        /* Cells with precomputed stance-junctions get a corner triangle; clicking it opens the drill-down panel. */
         td.has-hard-cases .hard-case-badge {
           position: absolute;
           top: 0;
@@ -418,7 +418,7 @@
       const textarea = document.getElementById("kern-yaml");
       const junctionPanel = document.getElementById("junction-panel");
 
-      // "qsLeft|qsRight" family-pair key -> array of precomputed form-junctions that bare letters can't reproduce. Missing file means no badges and a disabled panel.
+      // "qsLeft|qsRight" family-pair key -> array of precomputed stance-junctions that bare letters can't reproduce. Missing file means no badges and a disabled panel.
       const hardCases = await fetch("./kerning-hardcases.json")
         .then((r) => r.json())
         .catch(() => ({}));
@@ -440,8 +440,8 @@
       let cellValues = new Map();
       // "qsLeft|qsRight" -> integer pixels the loaded font already bakes into its kern feature. We fake only (desired - baked) so baked kerning is shown once by the font itself, not doubled by letter-spacing.
       let bakedDeltas = new Map();
-      // junctionKey -> {left, right, value}: the per-side selectors and desired absolute integer pixels for a single form-junction. Carries the selectors (not just the value) so serialize can re-emit either/both sides as a form-prefix or a plain-with-carve-out without re-deriving intent.
-      let formOverrides = new Map();
+      // junctionKey -> {left, right, value}: the per-side selectors and desired absolute integer pixels for a single stance-junction. Carries the selectors (not just the value) so serialize can re-emit either/both sides as a stance-prefix or a plain-with-carve-out without re-deriving intent.
+      let stanceOverrides = new Map();
       // Verbatim bodies of documents we can't represent on the grid; re-emitted unchanged.
       let passthrough = [];
       // Everything before the first `---` (the file's comment header); preserved verbatim.
@@ -453,14 +453,14 @@
         return `${leftFamily}|${rightFamily}`;
       }
 
-      // A form-prefix like "qsUtter.alt.ex-y0" belongs to the family named by its leading "qsX" segment.
+      // A stance-prefix like "qsUtter.alt.ex-y0" belongs to the family named by its leading "qsX" segment.
       function familyOfSelector(sel) {
         return sel.split(".")[0];
       }
 
-      // One side of a junction is a selector {family, kind, form, except}. Its canonical key distinguishes a form-prefix (qsNo.alt), a plain-with-carve-out (qsNo minus its qsNo.alt sub-family), and a bare whole family — so a parsed YAML doc and a precomputed junction collapse to the same key.
+      // One side of a junction is a selector {family, kind, stance, except}. Its canonical key distinguishes a stance-prefix (qsNo.alt), a plain-with-carve-out (qsNo minus its qsNo.alt sub-family), and a bare whole family — so a parsed YAML doc and a precomputed junction collapse to the same key.
       function sideKey(side) {
-        if (side.form) return side.form;
+        if (side.stance) return side.stance;
         const except = (side.except || []).slice().sort();
         return except.length ? `${side.family}~${except.join(",")}` : side.family;
       }
@@ -469,10 +469,10 @@
         return `${sideKey(junction.left)}|${sideKey(junction.right)}`;
       }
 
-      // The YAML body for one disjoint kern lookup: a form-prefix emits `*_form`, a plain side emits `*_family` plus an `except_*` carve-out when it must exclude its own alternate sub-families.
+      // The YAML body for one disjoint kern lookup: a stance-prefix emits `*_stance`, a plain side emits `*_family` plus an `except_*` carve-out when it must exclude its own alternate sub-families.
       function selectorLines(side, which) {
         if (side.glyph) return [`${which}: [${side.family}]`];
-        if (side.form) return [`${which}_form: [${side.form}]`];
+        if (side.stance) return [`${which}_stance: [${side.stance}]`];
         const lines = [`${which}_family: [${side.family}]`];
         if (side.except && side.except.length) lines.push(`except_${which}: [${side.except.join(", ")}]`);
         return lines;
@@ -484,7 +484,7 @@
 
       // A bare grid token is either a letter family (qsPea) or a punctuation glyph name (period); the latter serializes as an explicit `left:`/`right:` selector.
       function sideForToken(token) {
-        return { family: token, form: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
+        return { family: token, stance: null, except: null, glyph: KNOWN_GLYPHS.has(token) };
       }
 
       // junctionKey -> {pairKey, isolated, left, right} for every precomputed junction (hidden rows and the isolated/residual quadrant alike), so the YAML round-trip can tell a hidden-junction override from the family-cell value an alt pair stores in its isolated quadrant.
@@ -503,7 +503,7 @@
         return known;
       }
 
-      // The full quadrant partition an alt pair carves into: every precomputed alt-axis junction (hidden rows plus the isolated residual). Empty for table-derived-only pairs, which keep the legacy whole-family-cell-plus-form-override serialization.
+      // The full quadrant partition an alt pair carves into: every precomputed alt-axis junction (hidden rows plus the isolated residual). Empty for table-derived-only pairs, which keep the legacy whole-family-cell-plus-stance-override serialization.
       function altQuadrants(pairKey) {
         const junctions = hardCasesByPair.get(pairKey) || [];
         return junctions.filter((j) => j.origin === "alt-axis");
@@ -528,7 +528,7 @@
 
       function loadFromText(text) {
         cellValues = new Map();
-        formOverrides = new Map();
+        stanceOverrides = new Map();
         passthrough = [];
         const preLines = [];
         const docs = [];
@@ -552,32 +552,32 @@
         const known = knownJunctions();
         const leftover = [];
 
-        // Parse one side of a doc into a list of {family, form, except} selectors, or null if a referenced family is unknown. A `*_form` list yields one form-selector per entry; a `*_family` list yields one plain-selector per family, sharing the side's `except_*` carve-out.
+        // Parse one side of a doc into a list of {family, stance, except} selectors, or null if a referenced family is unknown. A `*_stance` list yields one stance-selector per entry; a `*_family` list yields one plain-selector per family, sharing the side's `except_*` carve-out.
         function parseSide(which, fields) {
-          if (`${which}_form` in fields) {
-            const forms = parseInlineList(fields[`${which}_form`]);
-            if (!forms.length || !forms.every((f) => KNOWN_FAMILIES.has(familyOfSelector(f)))) return null;
-            return forms.map((form) => ({ family: familyOfSelector(form), form, except: null }));
+          if (`${which}_stance` in fields) {
+            const stances = parseInlineList(fields[`${which}_stance`]);
+            if (!stances.length || !stances.every((f) => KNOWN_FAMILIES.has(familyOfSelector(f)))) return null;
+            return stances.map((stance) => ({ family: familyOfSelector(stance), stance, except: null }));
           }
           if (`${which}_family` in fields) {
             const families = parseInlineList(fields[`${which}_family`]);
             if (!families.length || !families.every((f) => KNOWN_FAMILIES.has(f))) return null;
             const exceptKey = `except_${which}`;
             const except = exceptKey in fields ? parseInlineList(fields[exceptKey]) : [];
-            return families.map((family) => ({ family, form: null, except: except.length ? except : null }));
+            return families.map((family) => ({ family, stance: null, except: except.length ? except : null }));
           }
           if (which in fields) {
             // Explicit `left:`/`right:` glyph names, no variant expansion — how punctuation cells are stored.
             const glyphs = parseInlineList(fields[which]);
             if (!glyphs.length || !glyphs.every((g) => KNOWN_GLYPHS.has(g))) return null;
-            return glyphs.map((family) => ({ family, form: null, except: null, glyph: true }));
+            return glyphs.map((family) => ({ family, stance: null, except: null, glyph: true }));
           }
           return null;
         }
 
         const allowedKeys = new Set([
-          "left", "left_family", "left_form", "except_left",
-          "right", "right_family", "right_form", "except_right", "value",
+          "left", "left_family", "left_stance", "except_left",
+          "right", "right_family", "right_stance", "except_right", "value",
         ]);
 
         for (const { fields, body } of parsed) {
@@ -603,10 +603,10 @@
                 // The isolated/residual quadrant of an alt pair carries that pair's family-cell value.
                 if (value === 0) cellValues.delete(match.pairKey);
                 else cellValues.set(match.pairKey, value);
-              } else if (match || left.form || right.form) {
-                // A precomputed hidden junction, or any other form-prefix rule, is a per-junction override.
-                if (value === 0) formOverrides.delete(key);
-                else formOverrides.set(key, { left, right, value });
+              } else if (match || left.stance || right.stance) {
+                // A precomputed hidden junction, or any other stance-prefix rule, is a per-junction override.
+                if (value === 0) stanceOverrides.delete(key);
+                else stanceOverrides.set(key, { left, right, value });
               } else {
                 // A plain family×family rule (optionally with a carve-out the serializer re-derives) is the grid cell.
                 if (value === 0) cellValues.delete(cellKey(left.family, right.family));
@@ -617,10 +617,10 @@
         }
 
         // serialize() spreads an alt pair's family-cell value across its non-overridden quadrants, so on reload those quadrants look like explicit overrides equal to the cell. Strip them back to "default" so the panel only shows genuine overrides.
-        for (const [key, override] of [...formOverrides]) {
+        for (const [key, override] of [...stanceOverrides]) {
           const match = known.get(key);
           if (match && !match.isolated && altQuadrants(match.pairKey).length && override.value === cellValues.get(match.pairKey)) {
-            formOverrides.delete(key);
+            stanceOverrides.delete(key);
           }
         }
 
@@ -636,9 +636,9 @@
       }
 
       function serialize() {
-        // Group every form override under its owning family pair.
+        // Group every stance override under its owning family pair.
         const overridesByPair = new Map();
-        for (const [key, override] of formOverrides) {
+        for (const [key, override] of stanceOverrides) {
           if (override.value === 0) continue;
           const pairKey = cellKey(override.left.family, override.right.family);
           if (!overridesByPair.has(pairKey)) overridesByPair.set(pairKey, new Map());
@@ -668,13 +668,13 @@
               if (!emitted.has(overrideKey)) bodies.push(ruleBody(override.left, override.right, override.value));
             }
           } else if (overrides && overrides.size) {
-            // Legacy table-derived pair: a whole-family cell carved to exclude the overridden form-prefixes, then each form-override doc.
+            // Legacy table-derived pair: a whole-family cell carved to exclude the overridden stance-prefixes, then each stance-override doc.
             if (cellValue !== 0) {
               const exceptLeft = new Set();
               const exceptRight = new Set();
               for (const [, override] of overrides) {
-                if (override.left.form) exceptLeft.add(override.left.form);
-                if (override.right.form) exceptRight.add(override.right.form);
+                if (override.left.stance) exceptLeft.add(override.left.stance);
+                if (override.right.stance) exceptRight.add(override.right.stance);
               }
               const lines = [`left_family: [${lf}]`, `right_family: [${rf}]`];
               if (exceptLeft.size) lines.push(`except_left: [${[...exceptLeft].join(", ")}]`);
@@ -855,7 +855,7 @@
               td.classList.add("has-hard-cases");
               const badge = document.createElement("span");
               badge.className = "hard-case-badge";
-              badge.title = "hidden form-junctions — click to drill down";
+              badge.title = "hidden stance-junctions — click to drill down";
               td.appendChild(badge);
             }
             keyToCell.set(key, td);
@@ -884,7 +884,7 @@
       function renderJunctionRow(rowEl, valueEl, junction) {
         const key = junctionKey(junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
-        const override = formOverrides.get(key);
+        const override = stanceOverrides.get(key);
         const effective = override ? override.value : baked;
         const parts = [`${effective > 0 ? "+" : ""}${effective}`];
         if (override) parts.push("·");
@@ -902,17 +902,17 @@
       function adjustJunction(rowEl, valueEl, junction, delta) {
         const key = junctionKey(junction);
         const baked = measureBakedPixels(junctionGlyphs(junction));
-        const override = formOverrides.get(key);
+        const override = stanceOverrides.get(key);
         const next = (override ? override.value : baked) + delta;
-        if (next === baked) formOverrides.delete(key);
-        else formOverrides.set(key, { left: junction.left, right: junction.right, value: next });
+        if (next === baked) stanceOverrides.delete(key);
+        else stanceOverrides.set(key, { left: junction.left, right: junction.right, value: next });
         renderJunctionRow(rowEl, valueEl, junction);
         textarea.value = serialize();
       }
 
-      // A junction side reads as its form-prefix, or "qsX (plain)" when it is the family minus its alternate sub-families, or the bare family otherwise.
+      // A junction side reads as its stance-prefix, or "qsX (plain)" when it is the family minus its alternate sub-families, or the bare family otherwise.
       function describeSide(side) {
-        if (side.form) return side.form;
+        if (side.stance) return side.stance;
         return side.except && side.except.length ? `${side.family} (plain)` : side.family;
       }
 
@@ -948,7 +948,7 @@
           const prefix = document.createElement("span");
           prefix.className = "dimmed";
           prefix.textContent = context.slice(0, beforeEnd);
-          // The junction is two glyphs. We fake the kerning between them as a left margin on the right glyph (not as trailing space on the left glyph): a margin breaks only the junction boundary itself, leaving the prefix→left-glyph bond intact, so a left form triggered by its preceding context (e.g. qsNo.alt after qsBay) keeps its shape instead of flipping to the bare letter, and the right glyph still shapes with its own following context (e.g. qsUtter.alt before qsThaw).
+          // The junction is two glyphs. We fake the kerning between them as a left margin on the right glyph (not as trailing space on the left glyph): a margin breaks only the junction boundary itself, leaving the prefix→left-glyph bond intact, so a left stance triggered by its preceding context (e.g. qsNo.alt after qsBay) keeps its shape instead of flipping to the bare letter, and the right glyph still shapes with its own following context (e.g. qsUtter.alt before qsThaw).
           const leftGlyph = document.createElement("span");
           leftGlyph.textContent = context.slice(beforeEnd, beforeEnd + 1);
           const rightGlyph = document.createElement("span");
@@ -1092,7 +1092,7 @@
     </div>
 
     <p class="help">
-      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. Punctuation runs after the letters on both axes; pairs touching it emit explicit <code>left:</code>&thinsp;/&thinsp;<code>right:</code> rules. A small purple corner triangle marks pairs with hidden form-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
+      Paste <code>glyph_data/senior_quikscript_kerning.yaml</code> below. <kbd>Click</kbd> a pair to tighten it by one pixel, <kbd>right-click</kbd> to loosen it. Each pixel is faked with <code>letter-spacing</code> of <sup>1</sup>&frasl;<sub>11</sub>&nbsp;em. The textarea rewrites itself live as you edit the grid, so copy it back out when you&rsquo;re done. Punctuation runs after the letters on both axes; pairs touching it emit explicit <code>left:</code>&thinsp;/&thinsp;<code>right:</code> rules. A small purple corner triangle marks pairs with hidden stance-junctions; <kbd>click</kbd> the triangle (or <kbd>shift</kbd>+click the cell) to open a drill-down panel where you <kbd>click</kbd> a junction to tighten it and <kbd>right-click</kbd> to loosen it, just like the grid.
     </p>
 
     <div class="kern-layout">

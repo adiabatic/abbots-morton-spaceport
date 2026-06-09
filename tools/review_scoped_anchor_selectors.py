@@ -9,7 +9,7 @@ Usage::
     uv run python tools/review_scoped_anchor_selectors.py
     uv run python tools/review_scoped_anchor_selectors.py --jobs 4
     uv run python tools/review_scoped_anchor_selectors.py --family qsPea
-    uv run python tools/review_scoped_anchor_selectors.py --path 'glyph_families.qsPea.forms.entry_xheight.select.after[0]'
+    uv run python tools/review_scoped_anchor_selectors.py --path 'glyph_families.qsPea.stances.entry_xheight.select.after[0]'
 """
 
 from __future__ import annotations
@@ -93,8 +93,8 @@ def apply_suggestions_to_glyph_data(
         family = glyph_families[suggestion.family_name]
         if suggestion.record_kind == "prop":
             record = family["prop"]
-        elif suggestion.record_kind == "forms":
-            record = family["forms"][suggestion.record_name]
+        elif suggestion.record_kind == "stances":
+            record = family["stances"][suggestion.record_name]
         else:
             raise ValueError(f"{suggestion.path} has unknown record kind {suggestion.record_kind!r}")
         selector = record["select"][suggestion.field_name][suggestion.selector_index]
@@ -465,10 +465,10 @@ class VariantExampleFinder:
         if not selected_source_present:
             return replace(
                 example,
-                label=f"Glyph-only example\n(different {source_label} form)",
+                label=f"Glyph-only example\n(different {source_label} stance)",
                 title=(
                     f"This example produces {variant_name} and includes {source_label}, "
-                    f"but that input shapes as a different form, not "
+                    f"but that input shapes as a different stance, not "
                     f"{suggestion.selected_name}. It only shows one way this glyph can appear."
                 ),
             )

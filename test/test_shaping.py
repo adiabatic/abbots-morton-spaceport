@@ -560,9 +560,9 @@ def _try_interpretation(
                     if suspect_ys:
                         return (
                             f"Connection {i}: break between {left} and {right}, "
-                            f"but {left} exits at Y={suspect_ys} (not on base form) "
+                            f"but {left} exits at Y={suspect_ys} (not on base stance) "
                             f"matching potential entries for {right_base} — forward "
-                            f"calt may have selected the half form across a break"
+                            f"calt may have selected the half stance across a break"
                         )
         elif conn["kind"] == "join":
             if not common_ys:

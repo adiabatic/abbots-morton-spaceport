@@ -6,7 +6,7 @@ What it answers: of the leaks currently frozen in the bad backlog + benign censu
 
 The contract's per-rule predicate (from the brief): a contextual substitution that selects variant `V` may keep a neighbor `N` only if `V` cursively joins `N` — `exit_ys(V) & entry_ys(N) != set()` for a forward (follower) neighbor, `exit_ys(N) & entry_ys(V) != set()` for a backward (predecessor) neighbor. A non-joining neighbor is dropped unless `V` carries a directional cosmetic modifier (`before-<fam>` for a follower, `after-<fam>` for a predecessor) naming that neighbor's family.
 
-We project each snapshot signature `(isolated_left, left_chosen, isolated_right, right_chosen)` onto that predicate: for the side whose form changed in context, look for a single emitted `calt` rule that selects the changed form `V` with the non-joining neighbor in its nearest context position. If such a rule exists, the leak is single-form (contract-reachable); if it does not, the dependency only emerges from the composition of several lookups (the `·Ah·It | ·Tea·Oy` case in the findings doc) and stays the snapshot gate's job.
+We project each snapshot signature `(isolated_left, left_chosen, isolated_right, right_chosen)` onto that predicate: for the side whose stance changed in context, look for a single emitted `calt` rule that selects the changed stance `V` with the non-joining neighbor in its nearest context position. If such a rule exists, the leak is single-stance (contract-reachable); if it does not, the dependency only emerges from the composition of several lookups (the `·Ah·It | ·Tea·Oy` case in the findings doc) and stays the snapshot gate's job.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ def _base_name(glyph: str) -> str:
 def _is_cosmetic(variant: str, neighbor: str, *, direction: str) -> bool:
     """Whether *variant* is an author-declared cosmetic interaction with *neighbor*'s family.
 
-    The signal (per the brief, to avoid adding YAML) is a directional cosmetic modifier — `before-<fam>` for a follower neighbor, `after-<fam>` for a predecessor — paired with the neighbor's family appearing in the form's resolved trigger list. The modifier says "this cross-break shape change is intentional"; the trigger list says "for these families", so together they pin the opt-out to the right neighbor without re-deriving messy modifier stems (`before-vertical`, `before-day-exam`, ...).
+    The signal (per the brief, to avoid adding YAML) is a directional cosmetic modifier — `before-<fam>` for a follower neighbor, `after-<fam>` for a predecessor — paired with the neighbor's family appearing in the stance's resolved trigger list. The modifier says "this cross-break shape change is intentional"; the trigger list says "for these families", so together they pin the opt-out to the right neighbor without re-deriving messy modifier stems (`before-vertical`, `before-day-exam`, ...).
     """
     meta = _compiled_meta().get(variant)
     if meta is None:
@@ -67,7 +67,7 @@ def _is_cosmetic(variant: str, neighbor: str, *, direction: str) -> bool:
 class SideVerdict:
 
     side: str  # "left" or "right"
-    variant: str  # the in-context form V the rule selected (left_chosen / right_chosen)
+    variant: str  # the in-context stance V the rule selected (left_chosen / right_chosen)
     neighbor: str  # the non-joining neighbor whose presence drove the selection
     direction: str  # "forward" (follower drove a left exit) or "backward" (predecessor drove a right entry)
     rule_lines: tuple[int, ...] = ()  # emitted FEA line numbers of the explaining rule(s)
@@ -128,7 +128,7 @@ def _explaining_rules(
 ) -> tuple[int, ...]:
     """Line numbers of `calt` rules that select *variant* with one of *neighbor_forms* in the nearest context position on the side the contract polices.
 
-    Forward: the follower neighbor sits in the nearest lookahead slot (`lookahead[0]`). Backward: the predecessor sits in the nearest backtrack slot (`backtrack[-1]`). We match on the rule's *output* (`replacement == variant`) rather than its pivot pre-form, because the contract's predicate is about which variant a rule emits next to a non-joining neighbor — independent of whatever the pivot was before this lookup in the chain.
+    Forward: the follower neighbor sits in the nearest lookahead slot (`lookahead[0]`). Backward: the predecessor sits in the nearest backtrack slot (`backtrack[-1]`). We match on the rule's *output* (`replacement == variant`) rather than its pivot pre-stance, because the contract's predicate is about which variant a rule emits next to a non-joining neighbor — independent of whatever the pivot was before this lookup in the chain.
     """
     found: list[int] = []
     for rule in rules:
@@ -151,7 +151,7 @@ def classify(snapshot: list[tuple[Signature, str]], rules: list[Rule]) -> list[L
     for sig, label in snapshot:
         il, lc, ir, rc = sig
         verdict = LeakVerdict(signature=sig, label=label)
-        # Left changed: its exit form was modulated by the follower it does not join -> a forward rule selecting `lc` with the right glyph in lookahead.
+        # Left changed: its exit stance was modulated by the follower it does not join -> a forward rule selecting `lc` with the right glyph in lookahead.
         if il != lc:
             neighbor_forms = {rc, ir}
             lines = ()
@@ -169,7 +169,7 @@ def classify(snapshot: list[tuple[Signature, str]], rules: list[Rule]) -> list[L
                     cosmetic=bool(lines) and _is_cosmetic(lc, rc, direction="forward"),
                 )
             )
-        # Right changed: its entry form was modulated by the predecessor it does not join -> a backward rule selecting `rc` with the left glyph in backtrack.
+        # Right changed: its entry stance was modulated by the predecessor it does not join -> a backward rule selecting `rc` with the left glyph in backtrack.
         if ir != rc:
             neighbor_forms = {lc, il}
             lines = ()
@@ -241,7 +241,7 @@ def main() -> None:
 
     print(f"Parsed {len(program.rules)} calt rules from {fea.name}")
     print(f"Snapshot leaks: {total}")
-    print(f"  contract-reachable (single-form): {reachable}")
+    print(f"  contract-reachable (single-stance): {reachable}")
     print(f"    droppable  (contract erases -> MOOT for triage): {counts['droppable']}")
     print(f"    cosmetic   (author-declared tuck, contract keeps): {counts['cosmetic']}")
     print(f"    mixed      (one side each; review):                {counts['mixed']}")

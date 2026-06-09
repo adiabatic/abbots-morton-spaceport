@@ -1,8 +1,8 @@
-"""Enumerate Quikscript "hard-case" form-junctions and emit JSON for site/kerning.html.
+"""Enumerate Quikscript "hard-case" stance-junctions and emit JSON for site/kerning.html.
 
-The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some form-to-form junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, but the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations only ever show up in longer context. This generator finds those hidden junctions two complementary ways and unions them:
+The kerning matrix in ``site/kerning.html`` shows only the isolated two-letter shaping of each family pair. Some stance-to-stance junctions can never appear that way: e.g. ·No·Utter shapes to ``qsNo.alt`` + ``qsUtter`` in isolation, but the (plain ·No, alt ·Utter) and (alt ·No, alt ·Utter) combinations only ever show up in longer context. This generator finds those hidden junctions two complementary ways and unions them:
 
-1. **Alt-axis cross-product** (the primary source for families with discrete alternates): for every family pair where at least one side has an enabled ``traits: [alt]`` form, enumerate the ``{plain, alt}`` cross-product, drop the combo equal to the isolated two-letter rendering, and keep each remaining combo that some real context realizes. The emitted selector is collapsed to the kerning-relevant axis — ``qsUtter.alt`` (a prefix matching every alt variant), and "plain" as the family minus its ``.alt`` sub-family. ``half`` is wired but disabled (see ``ALT_AXIS_KINDS``).
+1. **Alt-axis cross-product** (the primary source for families with discrete alternates): for every family pair where at least one side has an enabled ``traits: [alt]`` stance, enumerate the ``{plain, alt}`` cross-product, drop the combo equal to the isolated two-letter rendering, and keep each remaining combo that some real context realizes. The emitted selector is collapsed to the kerning-relevant axis — ``qsUtter.alt`` (a prefix matching every alt variant), and "plain" as the family minus its ``.alt`` sub-family. ``half`` is wired but disabled (see ``ALT_AXIS_KINDS``).
 2. **Demote/restore tables**: the ``predecessor_demote_overrides``, ``trailing_demote_overrides``, and ``restore_isolated_form_overrides`` tables in ``glyph_data/quikscript.yaml`` encode specific contextual corrections (``qsIt.ex-y0.before-day`` and the like) that the alt-axis pass doesn't cover. These are kept for every pair, except where a junction collapses onto a combo the alt-axis pass already owns (``superseded_by_alt_axis``).
 
 For each surviving junction it looks for a context that reproduces it, preferring a literal/corpus context and falling back to a bounded, deterministic synthetic search, then records the dimming offsets the web page needs to highlight just the junction.
@@ -80,7 +80,7 @@ def _family_char(family: str) -> str | None:
 def _prefix_match(glyph_name: str, target: str) -> bool:
     """``glyph_name`` reproduces ``target``.
 
-    A bare-family ``target`` (no ``.`` in the name) requires an *exact* match: the demote tables' bare ``isolated_form`` means exactly that bare glyph, so a context that renders a sibling contextual form (``qsJai.en-y5.ex-y0`` for target ``qsJai``) is a *different* junction and must not be accepted. A dotted-form ``target`` (e.g. ``qsGay.ex-y0``) prefix-matches, tolerating deeper exit/entry modifiers (``qsGay.ex-y0.ex-ext-1``).
+    A bare-family ``target`` (no ``.`` in the name) requires an *exact* match: the demote tables' bare ``isolated_form`` means exactly that bare glyph, so a context that renders a sibling contextual stance (``qsJai.en-y5.ex-y0`` for target ``qsJai``) is a *different* junction and must not be accepted. A dotted-stance ``target`` (e.g. ``qsGay.ex-y0``) prefix-matches, tolerating deeper exit/entry modifiers (``qsGay.ex-y0.ex-ext-1``).
     """
     if "." not in target:
         return glyph_name == target
@@ -122,7 +122,7 @@ def _base_name(glyph_name: str) -> str:
     return glyph_name.split(".", 1)[0].split("_", 1)[0]
 
 
-def _form_prefix(glyph_name: str, base: str) -> str | None:
+def _stance_prefix(glyph_name: str, base: str) -> str | None:
     return None if glyph_name == base else glyph_name
 
 
@@ -140,7 +140,7 @@ def _glyph_kind(glyph_name: str) -> str:
 
 
 def _family_alt_kinds() -> dict[str, set[str]]:
-    """Map each plain family to the set of *enabled* discrete-alternate kinds it actually has a form for (e.g. ``qsNo -> {"alt"}``)."""
+    """Map each plain family to the set of *enabled* discrete-alternate kinds it actually has a stance for (e.g. ``qsNo -> {"alt"}``)."""
     result: dict[str, set[str]] = defaultdict(set)
     for name, meta in _compiled_meta().items():
         if "_" in name:
@@ -152,25 +152,25 @@ def _family_alt_kinds() -> dict[str, set[str]]:
 
 
 def _selector_alt_kind(family: str, kind: str) -> dict:
-    """Per-side selector for an alternate kind: a form-prefix (``qsNo.alt``) that the build's prefix-match catches uniformly across that kind's variants."""
-    return {"family": family, "kind": kind, "form": f"{family}.{kind}", "except": None}
+    """Per-side selector for an alternate kind: a stance-prefix (``qsNo.alt``) that the build's prefix-match catches uniformly across that kind's variants."""
+    return {"family": family, "kind": kind, "stance": f"{family}.{kind}", "except": None}
 
 
 def _selector_plain(family: str, alt_kinds_present: set[str]) -> dict:
     """Per-side selector for the *plain* kind on an alt-axis pair: the whole family minus its enabled alternate sub-families (``except``), since a bare-family prefix would wrongly catch ``qsNo.alt``."""
     excepts = [f"{family}.{kind}" for kind in ALT_AXIS_KINDS if kind in alt_kinds_present]
-    return {"family": family, "kind": "plain", "form": None, "except": excepts or None}
+    return {"family": family, "kind": "plain", "stance": None, "except": excepts or None}
 
 
-def _selector_from_form_prefix(form: str | None, base: str) -> dict:
-    """Per-side selector for a table-derived junction. ``form is None`` is the bare whole family (the old ``leftForm: null`` semantics — no carve-out); a form-prefix is a specific contextual form override."""
-    if form is None:
-        return {"family": base, "kind": "plain", "form": None, "except": None}
-    return {"family": base, "kind": "form", "form": form, "except": None}
+def _selector_from_stance_prefix(stance: str | None, base: str) -> dict:
+    """Per-side selector for a table-derived junction. ``stance is None`` is the bare whole family (the old ``leftForm: null`` semantics — no carve-out); a stance-prefix is a specific contextual stance override."""
+    if stance is None:
+        return {"family": base, "kind": "plain", "stance": None, "except": None}
+    return {"family": base, "kind": "stance", "stance": stance, "except": None}
 
 
 def _selector_dedupe_key(selector: dict) -> tuple:
-    return (selector["kind"], selector["form"], tuple(selector["except"] or ()))
+    return (selector["kind"], selector["stance"], tuple(selector["except"] or ()))
 
 
 def _skip_reason(left: str, right: str) -> str | None:
@@ -286,10 +286,10 @@ def _synthetic_contexts(left_base: str, right_base: str) -> list[str]:
 
 
 def _junction_targets(table_name: str, entry: dict) -> tuple[str, str]:
-    """The adjacent rendered glyph pair ``(left, right)`` a demote-table override entry is really about, named by the entry's raw (pre-heal) form strings."""
+    """The adjacent rendered glyph pair ``(left, right)`` a demote-table override entry is really about, named by the entry's raw (pre-heal) stance strings."""
     if table_name == "predecessor_demote":
-        return entry["isolated_form"], entry["trigger_form"]
-    return entry["leader_form"], entry["isolated_form"]
+        return entry["isolated_form"], entry["trigger_stance"]
+    return entry["leader_stance"], entry["isolated_form"]
 
 
 def _resolve_match(
@@ -353,8 +353,8 @@ def _resolve_record(
         return "superseded_by_alt_axis"
 
     return {
-        "left": _selector_from_form_prefix(_form_prefix(target_left, left_base), left_base),
-        "right": _selector_from_form_prefix(_form_prefix(target_right, right_base), right_base),
+        "left": _selector_from_stance_prefix(_stance_prefix(target_left, left_base), left_base),
+        "right": _selector_from_stance_prefix(_stance_prefix(target_right, right_base), right_base),
         "context": context,
         "beforeEnd": before_end,
         "junctionEnd": junction_end,
@@ -570,7 +570,7 @@ def build(out_path: Path) -> None:
             (literal_names[0], literal_names[1]),
             (literal_names[1], literal_names[2]),
         ):
-            # The literal output glyphs are already the healed, fully rendered forms, so they double as the target prefixes; the literal context is tried first, then corpus, then synthetic.
+            # The literal output glyphs are already the healed, fully rendered stances, so they double as the target prefixes; the literal context is tried first, then corpus, then synthetic.
             context_sources = [("literal", [literal])] + context_sources_for(left_glyph, right_glyph)
             outcome = _resolve_record(
                 left_glyph,
