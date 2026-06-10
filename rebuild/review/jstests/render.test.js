@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   featureSettingsValue,
+  renderGroupsOf,
+  configsTitle,
   highlightRect,
   markOffset,
   familiesOfGroup,
@@ -31,6 +33,54 @@ test('every fixture config token produces a parseable settings value', () => {
   for (const config of manifest.configs) {
     const value = featureSettingsValue(config);
     assert.ok(value === 'normal' || /^("ss\d{2}" 1)(, "ss\d{2}" 1)*$/.test(value), config);
+  }
+});
+
+const twoGroupUnit = {
+  id: 'u-9999',
+  configs: ['default', 'ss03', 'ss02+ss03'],
+  render_groups: [{ configs: ['default'] }, { configs: ['ss03', 'ss02+ss03'] }],
+};
+
+test('renderGroupsOf stacks a synthetic two-group unit with per-group feature settings', () => {
+  const groups = renderGroupsOf(twoGroupUnit);
+  assert.equal(groups.length, 2);
+  assert.deepEqual(groups[0], { configs: ['default'], label: 'default', featureSettings: 'normal', primary: true });
+  assert.deepEqual(groups[1], {
+    configs: ['ss03', 'ss02+ss03'],
+    label: 'ss03, ss02+ss03',
+    featureSettings: '"ss03" 1',
+    primary: false,
+  });
+});
+
+test('renderGroupsOf collapses a single-group unit and tolerates missing render_groups', () => {
+  const single = { configs: ['ss03', 'ss02+ss03'], render_groups: [{ configs: ['ss03', 'ss02+ss03'] }] };
+  assert.equal(renderGroupsOf(single).length, 1);
+  assert.equal(renderGroupsOf(single)[0].featureSettings, '"ss03" 1');
+  const legacy = { configs: ['ss05'] };
+  assert.deepEqual(renderGroupsOf(legacy), [
+    { configs: ['ss05'], label: 'ss05', featureSettings: '"ss05" 1', primary: true },
+  ]);
+});
+
+test('configsTitle states identical rendering for one group and stacking for several', () => {
+  const single = { configs: ['ss03', 'ss02+ss03'], render_groups: [{ configs: ['ss03', 'ss02+ss03'] }] };
+  assert.equal(
+    configsTitle(single),
+    'This divergence occurs under: ss03, ss02+ss03; all listed sets render identically',
+  );
+  assert.equal(
+    configsTitle(twoGroupUnit),
+    'This divergence occurs under: default, ss03, ss02+ss03; 2 distinct renderings, all shown below',
+  );
+});
+
+test('every fixture unit carries exactly one render group covering its configs', () => {
+  for (const unit of [...shardA, ...shardB]) {
+    const groups = renderGroupsOf(unit);
+    assert.equal(groups.length, 1, unit.id);
+    assert.deepEqual(groups[0].configs, unit.configs, unit.id);
   }
 });
 
@@ -113,6 +163,8 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     assert.equal(typeof unit.text_entities, 'string');
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);
     assert.ok(Array.isArray(unit.configs) && unit.configs.length >= 1);
+    assert.ok(Array.isArray(unit.render_groups) && unit.render_groups.length >= 1);
+    assert.ok(typeof unit.summary === 'string' && unit.summary.length > 0);
     if (unit.pair !== null) {
       assert.ok(unit.highlight.before.x_max > unit.highlight.before.x_min);
       assert.ok(unit.highlight.after.x_max > unit.highlight.after.x_min);

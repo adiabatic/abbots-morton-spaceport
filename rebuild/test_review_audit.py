@@ -11,6 +11,7 @@ from rebuild.review.audit import (
     load_ledger,
     load_workload,
     parse_codepoints,
+    render_groups_for_rows,
 )
 from rebuild.review.enrich import LETTERS
 
@@ -64,6 +65,21 @@ def test_conflicting_class_assignment_raises():
     ]
     with pytest.raises(ValueError, match="multiple ledger classes"):
         build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+
+
+def test_render_groups_split_by_rendered_outcome_identity():
+    rows = (
+        AuditRow("default", "E650:E665", ("cell",), "x", ("qsPea",), ("qsPea/full/None/None/",)),
+        AuditRow("ss02", "E650:E665", ("cell",), "x", ("qsPea",), ("qsPea/half/None/None/",)),
+        AuditRow("ss03", "E650:E665", ("cell",), "x", ("qsPea",), ("qsPea/full/None/None/",)),
+    )
+    assert render_groups_for_rows(rows) == (("default", "ss03"), ("ss02",))
+
+
+def test_every_real_unit_has_exactly_one_render_group(workload):
+    """The M1 invariant of the dedupe key: a unit's rows share (codepoints, baseline, new), so the per-config rendered outcomes can never differ within a unit. If this ever fails, the data violates the dedupe key's documented guarantee and the extra groups must render stacked, never collapsed."""
+    for unit in workload.units:
+        assert unit.render_groups == (unit.configs,)
 
 
 def test_real_audit_dedupes_to_measured_counts(workload):

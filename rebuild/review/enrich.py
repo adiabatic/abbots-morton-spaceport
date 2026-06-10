@@ -76,9 +76,52 @@ BOUNDARIES = {SPACE: "space", NAMER_DOT: "namer-dot", ZWNJ: "zwnj"}
 _SPECIAL_DISPLAY = {"qsIng": "·-ing", "qsJai": "·J’ai"}
 _BOUNDARY_NOTATION = {SPACE: "␣", NAMER_DOT: "·", ZWNJ: "◊ZWNJ"}
 
+_STAGE_PHRASES = {
+    "only-candidate": "the only surviving candidate",
+    "absolute-prefer": "an absolute prefer",
+    "join-count": "join-count rank",
+    "yielding-prefer": "a yielding prefer",
+    "order": "declaration order",
+    "floor": "the structural floor",
+}
+_HEIGHT_PHRASES = {0: "at the baseline", 5: "at the x-height", 8: "at the top"}
+_BOUNDARY_SUMMARY_NAMES = {"space": "the space", "zwnj": "◊ZWNJ", "namer-dot": "the namer dot"}
+
 
 def letter_display(family: str) -> str:
     return _SPECIAL_DISPLAY.get(family, "·" + family[2:])
+
+
+def rune_display(rune: str) -> str:
+    """A settled cell's rune in prose notation: ·May, ·Tea+Oy for ligature runes, and the boundary tokens by name."""
+    if rune in _BOUNDARY_SUMMARY_NAMES:
+        return _BOUNDARY_SUMMARY_NAMES[rune]
+    if not rune.startswith("qs"):
+        return rune
+    parts = rune.split("_")
+    display = letter_display(parts[0])
+    for part in parts[1:]:
+        display += "+" + letter_display(part).removeprefix("·")
+    return display
+
+
+def _seam_phrase(token: str) -> str:
+    y = int(token[1:])
+    return _HEIGHT_PHRASES.get(y, f"at y={y}")
+
+
+def _short_provenance(pointer: str) -> str:
+    return pointer.rsplit("/", 1)[-1].replace(":", " ", 1)
+
+
+def _decided_by(provenance: tuple[str, ...], stage: str | None) -> str:
+    phrase = _STAGE_PHRASES.get(stage, stage) if stage else None
+    if provenance:
+        suffix = f"decided by {_short_provenance(provenance[0])}"
+        return f"{suffix} ({phrase})" if phrase else suffix
+    if phrase:
+        return f"decided by {phrase} (no policy record involved)"
+    return "no policy record involved"
 
 
 def notation(codepoint_values: tuple[int, ...]) -> str:
@@ -159,6 +202,7 @@ class EnrichedUnit:
     explain_text: str
     provenance: tuple[str, ...]
     report: ExplainReport
+    summary: str = ""
     diff_traces: tuple = ()
     notes: tuple[str, ...] = ()
     after_spans: tuple[tuple[int, int], ...] = ()
@@ -323,6 +367,18 @@ class Enricher:
         )
         provenance = _collect_provenance(diff_traces)
         explain_text = _filter_explain(report.render(), diff_positions)
+        summary = _summarize(
+            settled=settled,
+            after_spans=after_spans,
+            after_seams=after_seams,
+            before_glyphs=tuple(row.glyphs),
+            before_spans=before_spans,
+            before_seams=before_seams,
+            diff_positions=diff_positions,
+            pair=pair,
+            report=report,
+            provenance=provenance,
+        )
 
         return EnrichedUnit(
             unit=unit,
@@ -341,6 +397,7 @@ class Enricher:
             explain_text=explain_text,
             provenance=provenance,
             report=report,
+            summary=summary,
             diff_traces=diff_traces,
             after_spans=tuple(after_spans),
             before_spans=tuple(before_spans),
@@ -407,6 +464,95 @@ class Enricher:
         if joins_right or (position + 1 < cell_count and not joins_left):
             return (position, position + 1)
         return (position - 1, position)
+
+
+def _summarize(
+    *,
+    settled: list[Settled],
+    after_spans: list[tuple[int, int]],
+    after_seams: tuple[str, ...],
+    before_glyphs: tuple[str, ...],
+    before_spans: list[tuple[int, int]],
+    before_seams: tuple[str, ...],
+    diff_positions: tuple[int, ...],
+    pair: tuple[int, int] | None,
+    report: ExplainReport,
+    provenance: tuple[str, ...],
+) -> str:
+    """The always-visible one-line prose summary: what the new pipeline chose at the primary divergence and the single deciding record, e.g. "New: ·May joins ·It at the baseline (the old pipeline broke there) — decided by qsMay.yaml policy.extend[3] (join-count rank)."."""
+    position = None
+    for index in diff_positions:
+        if index < len(report.positions) and not is_boundary_settled(report.positions[index].trace.settled):
+            position = index
+            break
+    stage = report.positions[position].trace.decided_stage if position is not None else None
+    clause = _summary_clause(
+        settled, after_spans, after_seams, before_glyphs, before_spans, before_seams, pair, position
+    )
+    return f"New: {clause} — {_decided_by(provenance, stage)}."
+
+
+def _before_seam_at_codepoint_gap(
+    before_spans: list[tuple[int, int]], before_seams: tuple[str, ...], gap: int
+) -> str | None:
+    for index in range(len(before_spans) - 1):
+        if before_spans[index + 1][0] == gap + 1:
+            return before_seams[index]
+    return None
+
+
+def _cell_description(cell: CellId) -> str:
+    bits = [cell.stance, f"entry {cell.entry or 'none'}", f"exit {cell.exit or 'none'}"]
+    if cell.adjustments:
+        bits.append("adjustments " + "+".join(cell.adjustments))
+    return ", ".join(bits)
+
+
+def _summary_clause(
+    settled: list[Settled],
+    after_spans: list[tuple[int, int]],
+    after_seams: tuple[str, ...],
+    before_glyphs: tuple[str, ...],
+    before_spans: list[tuple[int, int]],
+    before_seams: tuple[str, ...],
+    pair: tuple[int, int] | None,
+    position: int | None,
+) -> str:
+    if position is not None:
+        span = after_spans[position]
+        if span[1] - span[0] > 1 and span not in before_spans:
+            return (
+                f"{rune_display(settled[position].cell.rune)} now forms as one ligature "
+                "(the old pipeline rendered the letters separately)"
+            )
+    for index, span in enumerate(before_spans):
+        if span[1] - span[0] > 1 and span not in after_spans:
+            base = before_glyphs[index].split(".")[0]
+            return f"the {rune_display(base)} ligature no longer forms; the letters render separately"
+    if pair is not None:
+        left = rune_display(settled[pair[0]].cell.rune)
+        right = rune_display(settled[pair[1]].cell.rune)
+        after_seam = after_seams[pair[0]]
+        gap = after_spans[pair[0]][1] - 1
+        before_seam = _before_seam_at_codepoint_gap(before_spans, before_seams, gap)
+        if after_seam.startswith("y") and before_seam in (None, "break"):
+            return f"{left} joins {right} {_seam_phrase(after_seam)} (the old pipeline broke there)"
+        if after_seam == "break" and before_seam is not None and before_seam.startswith("y"):
+            return f"{left} no longer joins {right} (the old pipeline joined {_seam_phrase(before_seam)})"
+        if (
+            after_seam.startswith("y")
+            and before_seam is not None
+            and before_seam.startswith("y")
+            and after_seam != before_seam
+        ):
+            return f"{left} joins {right} {_seam_phrase(after_seam)} instead of {_seam_phrase(before_seam)}"
+    if position is not None:
+        cell = settled[position].cell
+        return (
+            f"{rune_display(cell.rune)} keeps the same seams but settles as a different cell "
+            f"({_cell_description(cell)})"
+        )
+    return "only the boundary marker's glyph changed; every letter cell and seam is unchanged"
 
 
 def _collect_provenance(traces) -> tuple[str, ...]:

@@ -5,6 +5,32 @@ export function featureSettingsValue(configToken) {
   return settings.join(', ');
 }
 
+export function renderGroupsOf(unit) {
+  const raw =
+    Array.isArray(unit.render_groups) && unit.render_groups.length > 0
+      ? unit.render_groups
+      : [{ configs: unit.configs }];
+  const groups = [];
+  for (const group of raw) {
+    groups.push({
+      configs: [...group.configs],
+      label: group.configs.join(', '),
+      featureSettings: featureSettingsValue(group.configs[0]),
+      primary: groups.length === 0,
+    });
+  }
+  return groups;
+}
+
+export function configsTitle(unit) {
+  const list = unit.configs.join(', ');
+  const groups = renderGroupsOf(unit);
+  if (groups.length === 1) {
+    return `This divergence occurs under: ${list}; all listed sets render identically`;
+  }
+  return `This divergence occurs under: ${list}; ${groups.length} distinct renderings, all shown below`;
+}
+
 export function highlightRect(highlight, fontSize, upem) {
   const scale = fontSize / upem;
   return { left: highlight.x_min * scale, width: (highlight.x_max - highlight.x_min) * scale };

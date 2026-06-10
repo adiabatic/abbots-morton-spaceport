@@ -12,7 +12,8 @@ import {
   verdictCounts,
 } from './verdicts.js';
 import {
-  featureSettingsValue,
+  renderGroupsOf,
+  configsTitle,
   highlightRect,
   markOffset,
   familiesOfGroup,
@@ -25,17 +26,16 @@ import {
 
 const FONT_SIZE = 88;
 const VERDICT_LABELS = [
-  ['approve', 'Approve', 'j'],
-  ['reject', 'Reject', 'f'],
-  ['either', 'Either', 'd'],
-  ['skip', 'Skip', 'k'],
+  ['skip', 'Skip', 'a', 'Skip — record no verdict and advance'],
+  ['reject', 'Reject', 's', 'Reject — want the old behavior back'],
+  ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
+  ['approve', 'Approve', 'f', 'Approve — the new behavior is right'],
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
 const shardCache = new Map();
 const unitsById = new Map();
-const activeConfigByUnit = new Map();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 let state = withDefaults(parseHash(location.hash));
@@ -110,8 +110,9 @@ function el(tag, className, text) {
   return node;
 }
 
-function buildSample(unit, side) {
+function buildSample(unit, side, featureSettings) {
   const cell = el('div', `qs ${side}`);
+  cell.style.fontFeatureSettings = featureSettings;
   const run = el('span', 'run');
   run.innerHTML = unit.text_entities;
   cell.append(run);
@@ -130,14 +131,6 @@ function buildSample(unit, side) {
     cell.append(tick);
   }
   return cell;
-}
-
-function applyConfigToRow(row, unit, configToken) {
-  const value = featureSettingsValue(configToken);
-  for (const cell of row.querySelectorAll('.qs')) cell.style.fontFeatureSettings = value;
-  for (const chip of row.querySelectorAll('.config-chips .chip')) {
-    chip.setAttribute('aria-pressed', String(chip.dataset.config === (unit.scopedConfig ?? null)));
-  }
 }
 
 function buildRow(unit) {
@@ -164,21 +157,18 @@ function buildRow(unit) {
   label.append(meta);
 
   const chips = el('div', 'config-chips');
+  chips.title = configsTitle(unit);
   for (const config of unit.configs) {
-    const chip = el('button', 'chip', config);
-    chip.type = 'button';
-    chip.dataset.config = config;
-    chip.setAttribute('aria-pressed', 'false');
-    chip.title = 'View this config and scope the next verdict to it';
-    chips.append(chip);
+    chips.append(el('span', 'chip', config));
   }
   label.append(chips);
 
   const buttons = el('div', 'verdict-buttons');
-  for (const [verdict, text, key] of VERDICT_LABELS) {
+  for (const [verdict, text, key, title] of VERDICT_LABELS) {
     const button = el('button', 'verdict-btn');
     button.type = 'button';
     button.dataset.verdict = verdict;
+    button.title = title;
     button.setAttribute('aria-pressed', 'false');
     button.append(document.createTextNode(`${text} `));
     const kbd = el('kbd', null, key);
@@ -193,15 +183,38 @@ function buildRow(unit) {
   note.setAttribute('aria-label', `Note for ${unit.id}`);
   label.append(note);
 
-  const explainToggle = el('button', 'explain-toggle', 'Explain (x)');
-  explainToggle.type = 'button';
-  explainToggle.setAttribute('aria-expanded', 'false');
-  label.append(explainToggle);
+  const groups = renderGroupsOf(unit);
+  row.append(label, buildSample(unit, 'before', groups[0].featureSettings), buildSample(unit, 'after', groups[0].featureSettings));
+  for (const group of groups) {
+    if (group.primary) continue;
+    const extra = el('div', 'render-group');
+    extra.append(el('div', 'render-group-label', `also under ${group.label}`));
+    extra.append(buildSample(unit, 'before', group.featureSettings), buildSample(unit, 'after', group.featureSettings));
+    row.append(extra);
+  }
 
-  row.append(label, buildSample(unit, 'before'), buildSample(unit, 'after'));
+  const summary = el('div', 'summary');
+  summary.append(el('p', 'summary-text', unit.summary ?? ''));
+  const why = el('button', 'explain-toggle');
+  why.type = 'button';
+  why.title = 'Open the full explain panel for this unit';
+  why.setAttribute('aria-expanded', 'false');
+  why.append(document.createTextNode('Why? '));
+  why.append(el('kbd', null, 'x'));
+  summary.append(why);
+  row.append(summary);
 
   const panel = el('div', 'explain-panel');
   panel.hidden = true;
+  panel.append(
+    el(
+      'p',
+      'explain-intro',
+      'This panel shows the full candidate table the settlement function considered at each divergent position, ' +
+        'with each elimination attributed to the YAML record that caused it. "->" marks the winning candidate; ' +
+        '"decided by" names the stage that separated it from the runner-up.',
+    ),
+  );
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
     panel.append(el('pre', null, unit.explain));
@@ -247,7 +260,6 @@ function buildRow(unit) {
   }
   row.append(panel);
 
-  applyConfigToRow(row, unit, activeConfigByUnit.get(unit.id) ?? unit.configs[0]);
   syncRowVerdict(unit.id, row);
   return row;
 }
@@ -471,18 +483,11 @@ function toast(message) {
 function applyVerdict(unitId, verdict) {
   const row = rowFor(unitId);
   const note = row ? row.querySelector('.note').value : '';
-  const unit = unitsById.get(unitId);
-  const scoped = unit && unit.scopedConfig ? [unit.scopedConfig] : null;
   const existing = store.records.get(unitId);
-  if (existing && existing.verdict === verdict && !scoped) {
+  if (existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
-    recordVerdict(store, unitId, verdict, { configs: scoped, note });
-  }
-  if (unit && unit.scopedConfig) {
-    delete unit.scopedConfig;
-    const row2 = rowFor(unitId);
-    if (row2) applyConfigToRow(row2, unit, activeConfigByUnit.get(unitId) ?? unit.configs[0]);
+    recordVerdict(store, unitId, verdict, { note });
   }
   syncRowVerdict(unitId);
   updateProgress();
@@ -671,17 +676,6 @@ function wireEvents() {
     if (verdictButton && row) {
       applyVerdict(row.dataset.unit, verdictButton.dataset.verdict);
       advanceFrom(row.dataset.unit);
-      return;
-    }
-    const chip = event.target.closest('.config-chips .chip');
-    if (chip && row) {
-      const unit = unitsById.get(row.dataset.unit);
-      const wasActive = chip.getAttribute('aria-pressed') === 'true';
-      const config = wasActive ? unit.configs[0] : chip.dataset.config;
-      activeConfigByUnit.set(unit.id, config);
-      if (wasActive) delete unit.scopedConfig;
-      else unit.scopedConfig = chip.dataset.config;
-      applyConfigToRow(row, unit, config);
       return;
     }
     const copy = event.target.closest('.copy-unit');

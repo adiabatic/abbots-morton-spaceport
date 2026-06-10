@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { actionForKey, KEY_MAP } from '../static/keyboard.js';
 
 const EXPECTED = [
-  ['j', 'approve'],
-  ['f', 'reject'],
+  ['a', 'skip'],
+  ['s', 'reject'],
   ['d', 'either'],
-  ['k', 'skip'],
+  ['f', 'approve'],
   ['u', 'undo'],
   ['n', 'note'],
   ['g', 'group-approve'],
@@ -40,12 +40,12 @@ test('Escape works even inside an input', () => {
 });
 
 test('modified keys never dispatch', () => {
-  assert.equal(actionForKey('j', { modified: true }), null);
+  assert.equal(actionForKey('a', { modified: true }), null);
   assert.equal(actionForKey(']', { modified: true }), null);
 });
 
 test('with an overlay open only help and escape act', () => {
-  assert.equal(actionForKey('j', { overlayOpen: true }), null);
+  assert.equal(actionForKey('a', { overlayOpen: true }), null);
   assert.equal(actionForKey('?', { overlayOpen: true }), 'help');
   assert.equal(actionForKey('Escape', { overlayOpen: true }), 'escape');
 });
@@ -53,4 +53,11 @@ test('with an overlay open only help and escape act', () => {
 test('unbound keys return null', () => {
   assert.equal(actionForKey('z'), null);
   assert.equal(actionForKey('Enter'), null);
+});
+
+test('the retired j/k verdict keys are fully unbound', () => {
+  assert.equal(actionForKey('j'), null);
+  assert.equal(actionForKey('k'), null);
+  assert.equal(KEY_MAP.has('j'), false);
+  assert.equal(KEY_MAP.has('k'), false);
 });

@@ -17,6 +17,7 @@ from rebuild.review.enrich import (
     load_spec,
     notation,
     parse_entry_extension,
+    rune_display,
     text_entities,
 )
 from rebuild.validation.rowmodel import iter_rows
@@ -186,6 +187,38 @@ def test_highlight_covers_the_pair_not_the_run_when_pair_is_interior(enricher, u
     assert enriched.pair == (2, 3)
     assert enriched.highlight_after["x_min"] > 0
     assert enriched.highlight_after["x_max"] == enriched.highlight_after["advance_total"]
+
+
+def test_rune_display_uses_letter_names_not_raw_glyph_names():
+    assert rune_display("qsMay") == "·May"
+    assert rune_display("qsIng") == "·-ing"
+    assert rune_display("qsTea_qsOy") == "·Tea+Oy"
+    assert rune_display("zwnj") == "◊ZWNJ"
+    assert rune_display("space") == "the space"
+
+
+def test_summary_for_the_known_extension_unit(enricher, units_by_key):
+    unit = units_by_key[("E652:E670", "default")]
+    enriched = enricher.enrich(unit)
+    assert enriched.summary.startswith("New: ")
+    assert "·It" in enriched.summary
+    assert "decided by" in enriched.summary
+
+
+def test_summary_names_a_join_gain_in_prose(enricher, workload):
+    unit = next(item for item in workload.units if item.class_id == "pea-chain-regularized")
+    enriched = enricher.enrich(unit)
+    assert "joins" in enriched.summary
+    assert "·Pea" in enriched.summary
+    assert "qs" not in enriched.summary.split("decided by")[0], "letters appear in rune-name notation"
+
+
+def test_every_sampled_summary_is_one_nonempty_line(enricher, workload):
+    for unit in workload.units[::200]:
+        enriched = enricher.enrich(unit)
+        assert enriched.summary.startswith("New: ")
+        assert "\n" not in enriched.summary
+        assert "decided by" in enriched.summary or "no policy record" in enriched.summary
 
 
 def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_key):

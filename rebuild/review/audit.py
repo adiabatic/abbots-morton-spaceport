@@ -46,6 +46,7 @@ class Unit:
     exemplar: bool = False
     unit_id: str = ""
     batch: int = 0
+    render_groups: tuple[tuple[str, ...], ...] = ()
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:
@@ -114,6 +115,14 @@ def _config_index(config: str) -> int:
         return len(ACCEPTANCE_CONFIGS)
 
 
+def render_groups_for_rows(rows: tuple[AuditRow, ...]) -> tuple[tuple[str, ...], ...]:
+    """Partition a unit's configs by rendered-outcome identity — the (baseline, new) cell-name tuples its audit rows carry, which are everything position-bearing the rows record. The M1 dedupe key already includes both tuples, so every real unit yields exactly one group (the documented invariant, locked in by tests); the grouping is computed rather than assumed so data whose configs render differently would surface as extra stacked groups instead of being silently collapsed."""
+    groups: dict[tuple[tuple[str, ...], tuple[str, ...]], list[str]] = {}
+    for row in rows:
+        groups.setdefault((row.baseline, row.new), []).append(row.config)
+    return tuple(tuple(configs) for configs in groups.values())
+
+
 def build_units(
     rows: list[AuditRow],
     ledger: list[LedgerClass],
@@ -142,6 +151,7 @@ def build_units(
                 configs=tuple(member.config for member in ordered),
                 kinds=kinds,
                 group=group_for(parse_codepoints(codepoints), family_of),
+                render_groups=render_groups_for_rows(ordered),
             )
         )
 

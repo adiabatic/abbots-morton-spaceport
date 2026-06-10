@@ -67,6 +67,18 @@ def test_full_build_passes_the_contract_checker(built):
     assert manifest["mode"] == "m1-audit"
 
 
+def test_every_built_unit_has_one_render_group_and_a_summary(built):
+    """The M1 render-group invariant at the output layer: every shipped unit has exactly one group covering all its configs (the dedupe key guarantees it), and every unit carries the always-visible one-line summary."""
+    out_dir, manifest = built
+    for meta in manifest["classes"]:
+        shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        for unit in shard:
+            assert len(unit["render_groups"]) == 1, unit["id"]
+            assert unit["render_groups"][0]["configs"] == unit["configs"], unit["id"]
+            assert unit["summary"].startswith("New: "), unit["id"]
+            assert "decided by" in unit["summary"] or "no policy record" in unit["summary"], unit["id"]
+
+
 def test_built_classes_keep_ledger_order_and_counts(built):
     _out_dir, manifest = built
     ledger = yaml.safe_load((REPO_ROOT / "rebuild" / "m1-divergences.yaml").read_text())
@@ -185,10 +197,11 @@ def test_export_round_trip(built, tmp_path):
         "manifest_generated_at": manifest["generated_at"],
         "exported_at": "2026-06-10T18:40:02Z",
         "verdicts": [
-            {"unit": ids[0], "verdict": "approve", "configs": None, "note": "", "at": "2026-06-10T18:21:09Z"},
+            {"unit": ids[0], "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
             {
                 "unit": drafted_reject,
                 "verdict": "reject",
+                # A leftover configs field from a pre-rework export is ignored: verdicts always cover the whole unit.
                 "configs": [units[drafted_reject]["configs"][0]],
                 "note": "seam looks reached-for",
                 "at": "2026-06-10T18:21:40Z",
@@ -196,12 +209,11 @@ def test_export_round_trip(built, tmp_path):
             {
                 "unit": manual_reject,
                 "verdict": "reject",
-                "configs": None,
                 "note": "",
                 "at": "2026-06-10T18:21:50Z",
             },
-            {"unit": ids[2], "verdict": "either", "configs": None, "note": "", "at": "2026-06-10T18:22:00Z"},
-            {"unit": ids[3], "verdict": "skip", "configs": None, "note": "", "at": "2026-06-10T18:22:10Z"},
+            {"unit": ids[2], "verdict": "either", "note": "", "at": "2026-06-10T18:22:00Z"},
+            {"unit": ids[3], "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
         ],
     }
     verdicts_path.write_text(json.dumps(payload))
@@ -213,9 +225,9 @@ def test_export_round_trip(built, tmp_path):
     assert counts["either"] == 1
     assert counts["skip"] == 1
     assert counts["units_total"] == 2411
-    assert counts["rows_covered"] == len(units[ids[0]]["configs"]) + 1 + len(
-        units[manual_reject]["configs"]
-    ) + len(units[ids[2]]["configs"]) + len(units[ids[3]]["configs"])
+    assert counts["rows_covered"] == sum(
+        len(units[uid]["configs"]) for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3])
+    )
 
     assert len(triage["pins"]) == 1
     pin = triage["pins"][0]

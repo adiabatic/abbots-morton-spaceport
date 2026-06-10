@@ -1,58 +1,214 @@
 [
-  {
-    "id": "u-0005",
-    "batch": 0,
-    "class": "dangling-anchor-dropped",
-    "group": "qsRoe:qsMay",
-    "codepoints": "E668:E665:E657",
-    "text_entities": "&#xE668;&#xE665;&#xE657;",
-    "notation": "·Roe·May·They",
-    "configs": ["default", "ss05"],
-    "kinds": ["exit-drop"],
-    "exemplar": true,
-    "before": { "glyphs": ["qsRoe.ex-y0", "qsMay", "qsThey"], "seams": ["y0", "break"] },
-    "after": { "cells": ["qsRoe", "qsMay/loop/None/None/", "qsThey"], "seams": ["break", "break"], "extensions": [0, 0] },
-    "diff_positions": [0, 1],
-    "pair": { "left": 0, "right": 1 },
-    "highlight": {
-      "before": { "x_min": 0, "x_max": 1100, "advance_total": 1650 },
-      "after": { "x_min": 0, "x_max": 1155, "advance_total": 1705 }
-    },
-    "boundary_marks": [],
-    "explain": "position 0: the baseline kept an exit toward an entryless follower; the rebuild drops the dangling anchor and breaks.",
-    "provenance": ["glyph_data/runes/qsMay.yaml:policy.refuse[1]"],
-    "drafts": {
-      "pin": { "expect": "·Roe | ·May | ·They", "attribute": "data-expect-noncanonically", "stylistic_set": null, "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/extra-senior-words.html" },
-      "policy": { "file": "glyph_data/runes/qsMay.yaml", "keypath": "policy.prefer[+]", "suggested_record": "{left: {rune: qsRoe, ex: baseline}, why: 'TODO'}", "names_provenance": ["glyph_data/runes/qsMay.yaml:policy.refuse[1]"], "decided_stage": "refuse", "schema_valid": true },
-      "any_of": { "text": "qsRoe qsMay qsThey", "features": {}, "candidates": ["·Roe | ·May | ·They", "·Roe ~b~ ·May | ·They"] }
-    }
+ {
+  "id": "u-0005",
+  "batch": 0,
+  "class": "dangling-anchor-dropped",
+  "group": "qsRoe:qsMay",
+  "codepoints": "E668:E665:E657",
+  "text_entities": "&#xE668;&#xE665;&#xE657;",
+  "notation": "·Roe·May·They",
+  "configs": [
+   "default",
+   "ss05"
+  ],
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "exit-drop"
+  ],
+  "exemplar": true,
+  "before": {
+   "glyphs": [
+    "qsRoe.ex-y0",
+    "qsMay",
+    "qsThey"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
   },
-  {
-    "id": "u-0006",
-    "batch": 1,
-    "class": "dangling-anchor-dropped",
-    "group": "qsIt:qsDay",
-    "codepoints": "E670:E653:E66C",
-    "text_entities": "&#xE670;&#xE653;&#xE66C;",
-    "notation": "·It·Day·Exam",
-    "configs": ["ss04"],
-    "kinds": ["exit-drop"],
-    "exemplar": false,
-    "before": { "glyphs": ["qsIt.ex-y0", "qsDay.half", "qsExam"], "seams": ["y0", "break"] },
-    "after": { "cells": ["qsIt", "qsDay", "qsExam"], "seams": ["break", "break"], "extensions": [0, 0] },
-    "diff_positions": [0, 1],
-    "pair": { "left": 0, "right": 1 },
-    "highlight": {
-      "before": { "x_min": 0, "x_max": 825, "advance_total": 1925 },
-      "after": { "x_min": 0, "x_max": 880, "advance_total": 1980 }
-    },
-    "boundary_marks": [],
-    "explain": "position 0: same exit-drop family as u-0005, second batch slice.",
-    "provenance": ["glyph_data/runes/qsDay.yaml:policy.refuse[0]"],
-    "drafts": {
-      "pin": { "expect": "·It | ·Day | ·Exam", "attribute": "data-expect-noncanonically", "stylistic_set": "04", "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/extra-senior-words.html" },
-      "policy": { "file": "glyph_data/runes/qsDay.yaml", "keypath": "policy.prefer[+]", "suggested_record": "{left: {rune: qsIt, ex: baseline}, why: 'TODO'}", "names_provenance": ["glyph_data/runes/qsDay.yaml:policy.refuse[0]"], "decided_stage": "refuse", "schema_valid": true },
-      "any_of": { "text": "qsIt qsDay qsExam", "features": { "ss04": true }, "candidates": ["·It | ·Day | ·Exam", "·It ~b~ ·Day | ·Exam"] }
-    }
+  "after": {
+   "cells": [
+    "qsRoe",
+    "qsMay/loop/None/None/",
+    "qsThey"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 1100,
+    "advance_total": 1650
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 1155,
+    "advance_total": 1705
+   }
+  },
+  "boundary_marks": [],
+  "explain": "position 0: the baseline kept an exit toward an entryless follower; the rebuild drops the dangling anchor and breaks.",
+  "summary": "New: ·Roe·May·They settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [
+   "glyph_data/runes/qsMay.yaml:policy.refuse[1]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "·Roe | ·May | ·They",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/extra-senior-words.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsMay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{left: {rune: qsRoe, ex: baseline}, why: 'TODO'}",
+    "names_provenance": [
+     "glyph_data/runes/qsMay.yaml:policy.refuse[1]"
+    ],
+    "decided_stage": "refuse",
+    "schema_valid": true
+   },
+   "any_of": {
+    "text": "qsRoe qsMay qsThey",
+    "features": {},
+    "candidates": [
+     "·Roe | ·May | ·They",
+     "·Roe ~b~ ·May | ·They"
+    ]
+   }
   }
+ },
+ {
+  "id": "u-0006",
+  "batch": 1,
+  "class": "dangling-anchor-dropped",
+  "group": "qsIt:qsDay",
+  "codepoints": "E670:E653:E66C",
+  "text_entities": "&#xE670;&#xE653;&#xE66C;",
+  "notation": "·It·Day·Exam",
+  "configs": [
+   "ss04"
+  ],
+  "render_groups": [
+   {
+    "configs": [
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "exit-drop"
+  ],
+  "exemplar": false,
+  "before": {
+   "glyphs": [
+    "qsIt.ex-y0",
+    "qsDay.half",
+    "qsExam"
+   ],
+   "seams": [
+    "y0",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsIt",
+    "qsDay",
+    "qsExam"
+   ],
+   "seams": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   0,
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 825,
+    "advance_total": 1925
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 880,
+    "advance_total": 1980
+   }
+  },
+  "boundary_marks": [],
+  "explain": "position 0: same exit-drop family as u-0005, second batch slice.",
+  "summary": "New: ·It·Day·Exam settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "provenance": [
+   "glyph_data/runes/qsDay.yaml:policy.refuse[0]"
+  ],
+  "drafts": {
+   "pin": {
+    "expect": "·It | ·Day | ·Exam",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "04",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/extra-senior-words.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsDay.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{left: {rune: qsIt, ex: baseline}, why: 'TODO'}",
+    "names_provenance": [
+     "glyph_data/runes/qsDay.yaml:policy.refuse[0]"
+    ],
+    "decided_stage": "refuse",
+    "schema_valid": true
+   },
+   "any_of": {
+    "text": "qsIt qsDay qsExam",
+    "features": {
+     "ss04": true
+    },
+    "candidates": [
+     "·It | ·Day | ·Exam",
+     "·It ~b~ ·Day | ·Exam"
+    ]
+   }
+  }
+ }
 ]

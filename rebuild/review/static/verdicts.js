@@ -6,14 +6,14 @@ export function createStore() {
   return { records: new Map(), undoStack: [], unexported: new Set() };
 }
 
-export function recordVerdict(store, unitId, verdict, { configs = null, note = '', at = new Date().toISOString() } = {}) {
+export function recordVerdict(store, unitId, verdict, { note = '', at = new Date().toISOString() } = {}) {
   if (verdict !== null && !VERDICT_KINDS.includes(verdict)) throw new Error(`unknown verdict: ${verdict}`);
   const prev = store.records.get(unitId) ?? null;
   if (verdict === null && !prev) return null;
   if (verdict === null) {
     store.records.delete(unitId);
   } else {
-    store.records.set(unitId, { unit: unitId, verdict, configs, note, at });
+    store.records.set(unitId, { unit: unitId, verdict, note, at });
   }
   store.undoStack.push({ type: 'verdict', unit: unitId, prev });
   store.unexported.add(unitId);
@@ -33,7 +33,7 @@ export function groupApprove(store, unitIds, { at = new Date().toISOString() } =
   for (const unitId of unitIds) {
     if (store.records.has(unitId)) continue;
     entries.push({ unit: unitId, prev: null });
-    store.records.set(unitId, { unit: unitId, verdict: 'approve', configs: null, note: '', at });
+    store.records.set(unitId, { unit: unitId, verdict: 'approve', note: '', at });
     store.unexported.add(unitId);
   }
   if (entries.length > 0) store.undoStack.push({ type: 'group', entries });
@@ -65,7 +65,7 @@ export function undo(store) {
 export function assembleExport(store, manifestGeneratedAt, exportedAt = new Date().toISOString()) {
   const verdicts = [];
   for (const record of store.records.values()) {
-    verdicts.push({ unit: record.unit, verdict: record.verdict, configs: record.configs, note: record.note, at: record.at });
+    verdicts.push({ unit: record.unit, verdict: record.verdict, note: record.note, at: record.at });
   }
   verdicts.sort((a, b) => (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
   return { format: EXPORT_FORMAT, manifest_generated_at: manifestGeneratedAt, exported_at: exportedAt, verdicts };
@@ -99,7 +99,6 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
     store.records.set(entry.unit, {
       unit: entry.unit,
       verdict: entry.verdict,
-      configs: entry.configs ?? null,
       note: entry.note ?? '',
       at: entry.at ?? '',
     });
