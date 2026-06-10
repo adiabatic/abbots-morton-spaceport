@@ -1,0 +1,1 @@
+"""Baseline extraction for the rebuild (doc/rebuild-design.md section 13.1): shape the depth-2 basis through the current built Senior Sans font, black-box, and record every window's resolved outcome as a diff-stable table under rebuild/out/. See rebuild/BASELINE-PLAN.md for the governing plan and the public interfaces."""
