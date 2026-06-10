@@ -1,0 +1,53 @@
+{
+  "format": "ams-review-manifest/1",
+  "mode": "m1-audit",
+  "generated_at": "2026-06-10T00:00:00Z",
+  "repo_head": "fixture",
+  "source": {
+    "audit": "rebuild/out/m1/divergence-audit.tsv",
+    "ledger": "rebuild/m1-divergences.yaml"
+  },
+  "fonts": {
+    "before": {
+      "file": "fonts/before.otf",
+      "family": "AMS Review Before",
+      "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
+      "sha256": "fixture-before",
+      "upem": 550
+    },
+    "after": {
+      "file": "fonts/after.otf",
+      "family": "AMS Review After",
+      "source": "rebuild/out/m1/M1.otf",
+      "sha256": "fixture-after",
+      "upem": 550
+    }
+  },
+  "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+  "batch_size": 4,
+  "totals": { "units": 6, "rows": 14, "batches": 2 },
+  "classes": [
+    {
+      "id": "marker-staging-ligature-formation",
+      "status": "intended",
+      "ink_identical": true,
+      "why": "Marker staging differs but the formed ligature is identical; reviewed as intended.",
+      "unit_count": 4,
+      "row_count": 9,
+      "shard": "units/marker-staging-ligature-formation.json",
+      "batches": [0]
+    },
+    {
+      "id": "dangling-anchor-dropped",
+      "status": "drift-accepted",
+      "ink_identical": false,
+      "why": "The rebuild drops exits that dangle toward entryless followers; accepted drift pending eyeballs.",
+      "unit_count": 2,
+      "row_count": 5,
+      "shard": "units/dangling-anchor-dropped.json",
+      "batches": [0, 1]
+    }
+  ],
+  "build_command": "uv run python -m rebuild.review.build",
+  "serve_command": "uv run python -m rebuild.review.serve"
+}

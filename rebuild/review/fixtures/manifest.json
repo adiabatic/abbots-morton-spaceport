@@ -1,0 +1,53 @@
+{
+ "format": "ams-review-manifest/1",
+ "mode": "m1-audit",
+ "generated_at": "2026-06-10T00:00:00Z",
+ "repo_head": "fixture",
+ "source": {
+  "audit": "rebuild/review/fixtures/fixture-audit.tsv",
+  "ledger": "rebuild/review/fixtures/fixture-ledger.yaml"
+ },
+ "fonts": {
+  "before": {
+   "file": "fonts/before.otf",
+   "family": "AMS Review Before",
+   "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
+   "sha256": "3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35",
+   "upem": 550
+  },
+  "after": {
+   "file": "fonts/after.otf",
+   "family": "AMS Review After",
+   "source": "rebuild/out/m1/M1.otf",
+   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+   "upem": 550
+  }
+ },
+ "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+ "batch_size": 300,
+ "totals": {"units": 6, "rows": 25, "batches": 1},
+ "classes": [
+  {
+   "id": "fixture-intended",
+   "status": "intended",
+   "ink_identical": true,
+   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.",
+   "unit_count": 4,
+   "row_count": 18,
+   "shard": "units/fixture-intended.json",
+   "batches": [0]
+  },
+  {
+   "id": "fixture-drift",
+   "status": "drift-accepted",
+   "ink_identical": false,
+   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches.",
+   "unit_count": 2,
+   "row_count": 7,
+   "shard": "units/fixture-drift.json",
+   "batches": [0]
+  }
+ ],
+ "build_command": "uv run python -m rebuild.review.build",
+ "serve_command": "uv run python -m rebuild.review.serve"
+}
