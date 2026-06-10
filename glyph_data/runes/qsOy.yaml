@@ -1,0 +1,51 @@
+rune: qsOy
+codepoint: 0xE679
+ductus:
+  loop: | # DRAFT — pending author sign-off
+    A small loop sitting at the x-height, written clockwise from its top, closing on itself; the stroke then runs out diagonally down to the right, ending at the baseline, where it may connect to the next letter. When a previous letter joins at the x-height, the loop opens on the left to receive the join.
+mono:
+  bitmap:
+  - " #   "  #
+  - "# #  "
+  - " # # "
+  - "    #"
+  - "    #"
+  - "    #"  #
+stances:
+  loop:
+    way: loop
+    traits: []
+    bitmap:
+    - " ###    "  #
+    - "#  ##   "
+    - "#  # #  "
+    - " ##   # "
+    - "       #"
+    - "       #"  #
+    bitmaps:
+      open-on-the-left:
+        bitmap:
+        - "##   "  #
+        - "  #  "
+        - " # # "
+        - "  # #"
+        - "    #"
+        - "    #"  #
+    surface:
+      entries:
+        x-height: {x: 0, stroke: horizontal, joined: open-on-the-left, from: [{family: [qsGay, qsFee, qsMay, qsNo, qsLow, qsRoe, qsI, qsAh, qsUtter, qsOut], joined_at: x-height}]}
+      exits:
+        baseline: {x: 8, stroke: vertical, withdrawal: safe}
+      cells:
+      - {entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}
+      unlocks: []
+      require: []
+policy:
+  order: [loop]
+  refuse: []
+  prefer: []
+  extend:
+  - {stance: loop, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  contract: []
+  resolve: []
+  groups: {}

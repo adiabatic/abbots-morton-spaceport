@@ -1,0 +1,42 @@
+# Hand-written alias map for the M1 oracle comparison (M1-PLAN section 6, step 3c): every old compiled glyph name that appears in any subset baseline row, mapped to the CellId the name literally denotes.
+# Conventions, reviewed: a bare family name denotes the isolated drawing with no committed anchors (the old font reuses it both at boundaries and as the join carrier when the base drawing already holds the live anchor — rows where it joins land in the bare-name-live-join ledger class, name grain only). Suffixed names denote exactly the anchors they claim, including anchors the old font leaves dangling at word edges (those rows land in the dangling-anchor ledger classes). `.noentry` names are the old ZWNJ shadow universe and denote the locked twin. Boundary glyph names map to the literal string `boundary` and are skipped by the comparison.
+
+space: boundary
+periodcentered: boundary
+periodcentered.lowered: boundary
+
+qsPea: {rune: qsPea, stance: full}
+qsPea.en-y5.ex-y0: {rune: qsPea, stance: full, entry: x-height, exit: baseline}
+qsPea.en-y6: {rune: qsPea, stance: full, entry: y6}
+qsPea.en-y6.ex-y0: {rune: qsPea, stance: full, entry: y6, exit: baseline}
+qsPea.half.en-y5.ex-y5: {rune: qsPea, stance: half, entry: x-height, exit: x-height}
+qsPea.half.en-y6.ex-y6: {rune: qsPea, stance: half, entry: y6, exit: y6}
+qsPea.half.en-y6.ex-y6.noentry: {rune: qsPea, stance: half, exit: y6, adjustments: [locked]}
+qsPea.half.ex-y5.ex-dips: {rune: qsPea, stance: half, exit: x-height}
+qsPea.noentry: {rune: qsPea, stance: full, adjustments: [locked]}
+qsTea: {rune: qsTea, stance: full}
+qsTea.en-y0: {rune: qsTea, stance: full, entry: baseline}
+qsTea.ex-y0: {rune: qsTea, stance: full, exit: baseline}
+qsTea.half.en-y5.after-xheight-exit: {rune: qsTea, stance: half, entry: x-height}
+qsTea.half.en-y8.ex-y5.noentry: {rune: qsTea, stance: half, exit: x-height, adjustments: [locked]}
+qsTea.half.ex-y5: {rune: qsTea, stance: half, exit: x-height}
+qsTea.noentry: {rune: qsTea, stance: full, adjustments: [locked]}
+qsTea_qsOy: {rune: qsTea_qsOy, stance: bar-into-loop}
+qsMay: {rune: qsMay, stance: loop}
+qsMay.en-y0.ex-y5: {rune: qsMay, stance: loop, entry: baseline, exit: x-height}
+qsMay.en-y0.ex-y5.en-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
+qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
+qsMay.en-y0.ex-y5.ex-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
+qsMay.ex-ext-1: {rune: qsMay, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
+qsMay.ex-y0: {rune: qsMay, stance: grounded-loop, exit: baseline}
+qsMay.noentry: {rune: qsMay, stance: loop, adjustments: [locked]}
+qsIt: {rune: qsIt, stance: bar}
+qsIt.en-y0.ex-y5: {rune: qsIt, stance: bar, entry: baseline, exit: x-height}
+qsIt.en-y5.ex-y0: {rune: qsIt, stance: bar, entry: x-height, exit: baseline}
+qsIt.en-y5.ex-y0.ex-ext-1: {rune: qsIt, stance: bar, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
+qsIt.ex-y0: {rune: qsIt, stance: bar, exit: baseline}
+qsIt.ex-y5: {rune: qsIt, stance: bar, exit: x-height}
+qsIt.noentry: {rune: qsIt, stance: bar, adjustments: [locked]}
+qsOy: {rune: qsOy, stance: loop}
+qsOy.en-y5.ex-y0: {rune: qsOy, stance: loop, entry: x-height, exit: baseline}
+qsOy.noentry: {rune: qsOy, stance: loop, adjustments: [locked]}

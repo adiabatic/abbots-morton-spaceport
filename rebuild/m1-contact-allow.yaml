@@ -1,0 +1,43 @@
+# Reviewed declared-OK signatures for the section 9 off-anchor-contact gate ("hard error, appealable", design doc section 9).
+# Every entry below is a corner today's font already draws on a baseline-proven join; the signature shape is defects.py's `contact:<left glyph>:<right glyph>:y<row>`. Human-reviewed like rebuild/m1-divergences.yaml; the conformance run never writes this file.
+
+- signature: contact:qsOy.loop.ex-y0:qsIt.bar.en-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); ·Oy's diagonal tail at y1 sits one column left of ·It's bar — the same corner today's font draws.
+- signature: contact:qsOy.loop.ex-y0:qsTea.full.en-y0:y1
+  why: ·Oy·Tea joins at the baseline today (baseline row E679:E652); the same tail-against-bar corner as ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0.locked:qsIt.bar.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Oy·It corner; the drawing is identical to the bare cell's.
+- signature: contact:qsOy.loop.ex-y0.locked:qsTea.full.en-y0:y1
+  why: The ZWNJ-locked twin of the blessed ·Oy·Tea corner.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsIt.bar.en-y0:y1
+  why: The entered (·May·Oy·It, baseline rows E665:E679:E670) variant of the blessed ·Oy·It corner; the open-on-the-left binding does not move the tail.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsTea.full.en-y0:y1
+  why: The entered variant of the blessed ·Oy·Tea corner.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsIt.bar.en-y0:y1
+  why: ·Tea·Oy ligature into ·It joins at the baseline today (baseline row E652:E679:E670); the ligature's tail is ·Oy's, so the corner is the same blessed one.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsTea.full.en-y0:y1
+  why: ·Tea·Oy ligature into ·Tea (baseline row E652:E679:E652); same tail-against-bar corner.
+- signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6:y7
+  why: The ·Pea·Pea y6 chain joins today (baseline row E650:E650, seam y6); the half's right downstroke at y7 abuts the next ·Pea's left upstroke — today's drawn corner.
+- signature: contact:qsPea.half.ex-y6:qsPea.full.en-y6.ex-y0:y7
+  why: The same ·Pea·Pea y6 corner with the second ·Pea carrying its baseline exit onward (·Pea·Pea·May and friends).
+- signature: contact:qsPea.half.ex-y6:qsPea.half.en-y6.ex-y5:y7
+  why: The same y6 corner with the second ·Pea in the half way exiting at the x-height mid-chain.
+- signature: contact:qsPea.half.ex-y6:qsPea.half.en-y6.ex-y6:y7
+  why: The same y6 corner continuing the ·Pea·Pea·Pea chain.
+- signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6:y7
+  why: Mid-chain variant of the blessed ·Pea·Pea y6 corner (left ·Pea itself entered at y6).
+- signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6.ex-y0:y7
+  why: Mid-chain variant; right ·Pea carries the baseline exit onward.
+- signature: contact:qsPea.half.en-y6.ex-y6:qsPea.half.en-y6.ex-y5:y7
+  why: Mid-chain variant; right half ·Pea exits at the x-height.
+- signature: contact:qsPea.half.en-y6.ex-y6:qsPea.half.en-y6.ex-y6:y7
+  why: Mid-chain variant; the chain continues.
+- signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6:y7
+  why: ZWNJ-locked twin of the blessed ·Pea·Pea y6 corner.
+- signature: contact:qsPea.half.ex-y6.locked:qsPea.full.en-y6.ex-y0:y7
+  why: ZWNJ-locked twin; right ·Pea carries the baseline exit onward.
+- signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y5:y7
+  why: ZWNJ-locked twin; right half ·Pea exits at the x-height.
+- signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
+  why: ZWNJ-locked twin; the chain continues.

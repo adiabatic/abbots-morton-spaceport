@@ -1,0 +1,144 @@
+# The M1 divergence ledger (M1-PLAN section 6): one entry per reviewed divergence class between the settlement function and the section 13.1 baseline oracle over the 8-symbol alphabet.
+# Every divergent row must match exactly one entry; `conform.classify_divergence` assigns each row the single highest-precedence class from its phenomenon set (ligation, then seam topology, then cell-grain deltas in the order extension-restored > non-summing > withdrawal > locked > dropped > added), so the predicates partition by construction. Counts are filled from the conformance run and reviewed as a diff; the run never writes this file. Per-row detail lands in rebuild/out/m1/divergence-audit.tsv.
+
+- id: zwnj-word-initial-unification
+  status: intended
+  match: {predicate: zwnj_word_initial_unification, configs: all}
+  ink_identical: true
+  count: 1421
+  exemplars:
+    - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.bar.locked|qsIt.bar"}
+  why: |
+    Post-ZWNJ is definitionally word-initial in the new model (design section 3.4): the authored .noentry shadow universe is deleted and the chokepoint mints generated locked twins instead, so every post-ZWNJ position diverges at name grain (old `<x>.noentry` or a contextually leaked bare name, new `<cell>.locked`). Seams agree; the locked twin's drawing equals the old shadow glyph's.
+
+- id: marker-staging-ligature-formation
+  status: intended
+  match: {predicate: marker_staging_ligature_formation, configs: all}
+  count: 187
+  exemplars:
+    - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.bar-into-loop.locked"}
+  why: |
+    Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6.
+
+- id: zwnj-follower-exit-restored
+  status: drift-accepted
+  match: {predicate: zwnj_follower_exit_restored, configs: all}
+  count: 30
+  exemplars:
+    - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.bar.en-y5 (y0 join gained)"}
+  why: |
+    Today's qsMay.noentry shadow stance carries no exit anchor, so a post-ZWNJ ·May cannot join rightward at all; the chokepoint twin severs only the entry (the ZWNJ break is the left seam), so the follower's own right-side joins are restored. Design section 3.4: ZWNJ splits the run, it does not mute the word-initial letter's surface.
+
+- id: pre-ligature-cleanup-regularized
+  status: drift-accepted
+  match: {predicate: pre_ligature_cleanup_regularized, configs: all}
+  count: 38
+  exemplars:
+    - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.bar.en-y5.en-ext-1|qsTea_qsOy (y5 join kept)"}
+  why: |
+    Today's calt_post_liga_left_cleanup_pred reverts the pre-predecessor's join whenever the predecessor withdraws before the entryless ligature, over-reaching onto seams the withdrawal never touched (the never-ported demote/cleanup mechanism, recon section 13.4). Settlement withdraws exactly the one declined exit; the unrelated join one position left survives.
+
+- id: regrouping-floor-drift
+  status: drift-accepted
+  match: {predicate: regrouping_floor_drift, configs: all}
+  count: 435
+  exemplars:
+    - {config: default, codepoints: "E665:E665:E665", baseline: "qsMay.ex-y0|qsMay.en-y0.ex-y5|qsMay (y0,break)", new: "qsMay withdrawn|qsMay.grounded-loop.ex-y0|qsMay.loop.en-y0 (break,y0)"}
+    - {config: default, codepoints: "E679:E652:E670", baseline: "qsOy|qsTea.half.ex-y5|qsIt.en-y5.ex-y0 (break,y5)", new: "qsOy.loop.ex-y0|qsTea.full.en-y0|qsIt.bar (y0,break)"}
+    - {config: default, codepoints: "E679:E652:E665:E665", baseline: "qsOy|qsTea.ex-y0|qsMay.en-y0.ex-y5.en-ext-1|qsMay (break,y0,dangling y5)", new: "qsOy.loop.ex-y0|qsTea.full.en-y0|qsMay.grounded-loop.ex-y0|qsMay.loop.en-y0 (y0,break,y0)"}
+  why: |
+    The deterministic ranking (optimistic third term, then order:, then the structural floor) regroups chains today's greedy cascade pairs differently. 428 of the 435 rows carry exactly one seam gain and one seam loss — the same number of joins on a different seam, section 15.4 do-not-care drift. The remaining 7 rows are the single window ·Oy·Tea·May·May across the seven letter-shaping configurations (default, ss02, ss03, ss04, ss05, ss02+ss03, ss02+ss03+ss05), where today's cascade lands one realized join (Tea·May at the baseline; the May·May y5 exit dangles before the bare final May) and settlement regroups to two (Oy·Tea and May·May, both at the baseline) — two gains against one loss, a net join gain from the same regrouping mechanism. Every member row is itemized in the audit TSV.
+
+- id: may-quad-order-deferral
+  status: drift-accepted
+  match: {predicate: may_quad_order_deferral, configs: all}
+  count: 7
+  exemplars:
+    - {config: default, codepoints: "E665:E665:E665:E665", baseline: "qsMay.ex-y0|qsMay.en-y0.ex-y5|qsMay.ex-y0|qsMay.en-y0.ex-y5 (y0,break,y0)", new: "withdrawn|withdrawn|qsMay.grounded-loop.ex-y0|qsMay.loop.en-y0 (break,break,y0)"}
+  why: |
+    In the all-·May quad, the three-token window ties the join-now grounded candidate against the deliberately optimistic decline prospect at every position, and ·May's authored order: (loop before grounded-loop) breaks each tie toward declining — so the chain commits only the final pair where the optimism runs out, one join fewer than today's greedy pairing. Window-local ranking is the design's deliberate commitment (sections 6.1 and 7); this is its one observed cost in the M1 alphabet (a single window per configuration). Flagged for review at qsMay's next policy pass — a yielding prefer on the grounded join would recover the pairing without touching the ss03 order-decided cases.
+
+- id: ss03-chain-join-gains
+  status: drift-accepted
+  match: {predicate: ss03_chain_join_gains, configs: [ss03, ss02+ss03, ss02+ss03+ss05]}
+  count: 120
+  exemplars:
+    - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
+    - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.bar.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
+  why: |
+    Under ss03 the window join-count maximization buys chains today's one-pair-at-a-time cascade cannot see. Two shapes, one mechanism: ·Tea·May·Tea and ·May·May·Tea gain the second join on the ·May·Tea side (prototype deviation 3 / M1-PLAN expected class 7), and ·It·May·Tea gains the first join — today ·May wears the entryless after-xheight-exit stance toward the half-·Tea, so the unentered ·It cannot reach it; settlement's ·May cell carries both anchors (en-y0 and the extended ex-y5), so the ·It·May baseline join lands alongside the kept ·May·Tea join. 36 of the 120 rows are the ·It·May·Tea shape (12 per ss03-bearing configuration).
+
+- id: entered-it-baseline-join-gain
+  status: drift-accepted
+  match: {predicate: entered_it_baseline_join_gain, configs: all}
+  count: 319
+  exemplars:
+    - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.bar.en-y5.ex-y0.en-ext-1.ex-ext-1|qsIt.bar.en-y0 (y5,y0)"}
+  why: |
+    The old YAML places the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal on the unentered stance only (quikscript.yaml entry_nowhere_exit_baseline; the entered en-y5/ex-y0 stance carries no such refusal), so the authored self-scoped refusal is faithful and an entered ·It legally joins a following ·It/·Tea at the baseline. Today's break is a cascade artifact, not authored law; the extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the why of the refusal (one extra-thick stroke) does not apply. Off-anchor contact gate clean over these cells. Every member row's gained seam has an entered ·It on its left (the classifier routes unentered-·It gains — the ss03 ·It·May·Tea chains — to ss03-chain-join-gains instead, and an unentered-·It gain outside ss03 matches nothing and fails).
+
+- id: pea-chain-regularized
+  status: drift-accepted
+  match: {predicate: pea_chain_regularized, configs: all}
+  count: 101
+  exemplars:
+    - {config: default, codepoints: "E650:E650:E670", baseline: "qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0 (break,y5)", new: "qsPea.half.ex-y6|qsPea.half.en-y6.ex-y5|qsIt.bar.en-y5 (y6,y5)"}
+  why: |
+    Today's cascade drops the ·Pea·Pea y6 join whenever the second ·Pea also joins rightward (the recon section 6.3 cascade-residue family, in-alphabet flavor); settlement keeps both joins because capability and refusals permit them and join count is maximized. A strict join gain on baseline-verified capability.
+
+- id: halves-entry-extension-restored
+  status: drift-accepted
+  match: {predicate: halves_entry_extension_restored, configs: all}
+  count: 1218
+  exemplars:
+    - {config: default, codepoints: "E652:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0", new: "qsTea.half.ex-y5|qsIt.bar.en-y5.en-ext-1"}
+  why: |
+    The halves-class x-height entry extensions are authored faithfully from today's YAML (qsIt's halves-minus-qsPea record and friends), but today's pipeline never fires them on these windows (probed cascade accident). Authored per the M1-PLAN section 5 authoring note: the record is the law, the gates arbitrate; E-UNREALIZED gap arithmetic is clean with the one-pixel-longer connector.
+
+- id: same-seam-extension-non-summing
+  status: intended
+  match: {predicate: same_seam_extension_non_summing, configs: all}
+  count: 225
+  exemplars:
+    - {config: default, codepoints: "E650:E670:E665", baseline: "qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0.ex-ext-1|qsMay.en-y0.ex-y5.en-ext-1", new: "...|qsIt...ex-ext-1|qsMay.loop.en-y0 (no en-ext-1)"}
+  why: |
+    Extensions never sum on one seam (design section 6.2): when the predecessor's exit already carries the seam's extra pixel, the follower's entry extension is suppressed. Today's pipeline applies both on these windows. Prototype divergence 3 / M1-PLAN expected class 4.
+
+- id: may-exit-withdrawal-generalized
+  status: drift-accepted
+  match: {predicate: may_exit_withdrawal_generalized, configs: all}
+  count: 1227
+  exemplars:
+    - {config: default, codepoints: "E665:E652", baseline: "qsMay|qsTea (connector kept)", new: "qsMay.loop.ex-bind-pulled-back|qsTea.full"}
+    - {config: ss03, codepoints: "E665:E652:E652", baseline: "qsMay.ex-ext-1|qsTea|qsTea (dangling extended connector)", new: "qsMay.loop.ex-bind-pulled-back|qsTea.full|qsTea.full"}
+  why: |
+    The withdrawal binding is cell semantics on every mid-word declined exit (design sections 3.2 and 5.1), generalizing today's before-entryless-ligature-only pull-back; boundaries keep the base drawing (anchor kept at boundary). Includes the cleanup of today's stranded ss03 ex-ext-1 connector extended toward a half-·Tea that never materializes.
+
+- id: dangling-anchor-dropped
+  status: intended
+  match: {predicate: dangling_anchor_dropped, configs: all}
+  ink_identical: true
+  count: 9283
+  exemplars:
+    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.bar|qsIt.bar"}
+    - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
+  why: |
+    Today's compiled names keep anchors that never realize — a dangling exit before a non-acceptor (It·It's benign ex-y5) or an entry name at word start. Settlement's cells carry only committed anchors (E-STRANDED/lookahead closure; M1-PLAN expected class 3). The withdrawals involved are `safe`, so the ink is identical; name grain only.
+
+- id: bare-name-live-join
+  status: intended
+  match: {predicate: bare_name_live_join, configs: all}
+  ink_identical: true
+  count: 917
+  exemplars:
+    - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.loop.ex-y0|qsTea.full.en-y0"}
+  why: |
+    When the base drawing already carries the live anchor, today's pipeline leaves the bare cmap glyph in place and joins on it; the new table always rewrites to the settled cell glyph (cell labels are never the bare name). Drawing and seam identical; name grain only. Also covers the ss10 overlay, where the new font renders the raw cmap glyph at every position while the alias for the old bare name is the anchor-free boundary cell.
+
+- id: kern-channel-out-of-scope
+  status: triaged
+  match: {predicate: kern_channel_out_of_scope, configs: all}
+  count: 0
+  exemplars: []
+  why: |
+    Position-only residue the comparison marks kern-attributable: the oracle gate shapes every seam- and ligation-identical row against the new font and diffs per-slot positions against the baseline with sidecar kerns normalized out (KernEvaluator over glyph_data/senior_quikscript_kerning.yaml; the in-alphabet kerned pairs are ·Oy·Pea at -3 and ·Oy·Oy at -1), so residue can only be a kern the normalization mis-modeled or a ZWNJ-adjacency artifact — the predicate requires the drifted slots to sit on such a pair, and any other position drift matches nothing and fails. Expected zero; kept as the explicit triage channel per M1-PLAN section 6 class 9; retire at review if still zero at cutover.

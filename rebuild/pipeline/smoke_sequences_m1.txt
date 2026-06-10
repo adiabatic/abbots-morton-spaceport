@@ -1,0 +1,69 @@
+# Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
+# One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
+# Codepoints: qsPea E650, qsTea E652, qsMay E665, qsIt E670, qsOy E679, space 0020, namer dot 00B7, ZWNJ 200C.
+# The driver runs every line under all eight acceptance configurations.
+#
+# The prototype probe rows, carried forward.
+E670                      # It in isolation
+E652                      # Tea in isolation
+E665                      # May in isolation
+E670 E665                 # It May (baseline join)
+E652 E665                 # Tea May (baseline join)
+E652 E670                 # Tea It (x-height join, half-Tea)
+E665 E670                 # May It (x-height join, exit-extended)
+E665 E665                 # May May (baseline join)
+E670 E670                 # It It (no join)
+E665 E652                 # May Tea (unjoined by default; joins under ss03)
+E652 E670 E665            # Tea It May (backtrack: entered It carries the extension)
+E665 E670 E665            # May It May (extension ownership at both seams)
+E670 E665 E670            # It May It (middle May double-extended)
+E665 E652 E670            # May Tea It (ss03 chain)
+E652 E670 E652 E670       # Tea It Tea It (withdrawal mid-chain)
+E670 200C E652            # It ZWNJ Tea
+E652 E670 200C E665       # Tea It ZWNJ May
+E665 200C E670 E652       # May ZWNJ It Tea
+E665 200C E652            # May ZWNJ Tea (the fixed ss03 leak)
+E665 0020 E652            # May space Tea
+200C E652 E670            # ZWNJ Tea It (locked twin settles its exit)
+200C E665 E670            # ZWNJ May It
+#
+# qsPea rows: the y6 chain, the dips, and boundary forms.
+E650                      # Pea in isolation
+E650 E650                 # Pea Pea (the y6 join chain)
+E650 E650 E650            # Pea Pea Pea
+E665 E650                 # May Pea (x-height entry dip)
+E665 E650 E670            # May Pea It (the both-dipped half cell)
+E650 E670                 # Pea It
+E650 E665                 # Pea May
+E650 E652                 # Pea Tea
+E652 E650                 # Tea Pea
+E670 E650                 # It Pea
+200C E650 E650            # ZWNJ Pea Pea (locked Pea before the y6 chain)
+E650 200C E650            # Pea ZWNJ Pea
+#
+# qsOy and the qsTea_qsOy ligature windows.
+E679                      # Oy in isolation
+E652 E679                 # Tea Oy (ligature forms)
+E670 E652 E679            # It Tea Oy
+E665 E652 E679            # May Tea Oy (marker staging: forms under ss03 too)
+E652 E679 E670            # Tea+Oy It (ligature forward seam)
+E652 E679 E652            # Tea+Oy Tea
+E652 E679 E665            # Tea+Oy May
+E652 E679 E652 E679       # Tea+Oy Tea+Oy
+E652 200C E679            # Tea ZWNJ Oy (formation severed)
+E665 E679                 # May Oy (x-height join into the opened loop)
+E650 E679                 # Pea Oy
+E679 E670                 # Oy It
+#
+# Namer-dot rows (the dot-lowering mini-calt; the dot never splits runs).
+00B7 E670                 # namer dot before short It (lowers)
+00B7 E652                 # namer dot before tall Tea (stays)
+E665 00B7 E670            # mid-word namer dot before It
+#
+# Four-family seams and longer mixed windows.
+E650 E665 E652            # Pea May Tea
+E652 E670 E665 E679       # Tea It May Oy
+E670 E665 E652 E679       # It May Tea Oy
+E650 E650 E670 E665       # Pea Pea It May
+E665 E650 E650            # May Pea Pea
+E652 E670 E652 E679 E670  # Tea It Tea+Oy It (five tokens, ligature mid-chain)
