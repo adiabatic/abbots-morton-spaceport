@@ -3373,6 +3373,14 @@ glyph_families:
         - "#   #"
         - "#   #"
         - " ### "  #
+      gapped:
+        bitmap:
+        - " # # "  #
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
     stances:
       entry_xheight:
         shape: entry_xheight
@@ -3419,13 +3427,7 @@ glyph_families:
         gate_feature_behind: ss07
         modifiers: [before-day]
       gapped:
-        bitmap:
-        - " # # "  #
-        - "#   #"
-        - "#   #"
-        - "#   #"
-        - "#   #"
-        - " ### "  #
+        shape: gapped
         replaces_family_feature: ss06
         variants: [junior, senior]
         modifiers: [gapped]
