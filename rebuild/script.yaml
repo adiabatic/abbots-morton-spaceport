@@ -1,0 +1,80 @@
+# Registries only, never policy (design section 2). Parked under rebuild/ until cutover: glyph_data/script.yaml is proven unsafe for the old loader today (M1 plan, section 1 — a recorded deviation).
+heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
+boundary_tokens:
+  space: {codepoint: 0x0020, splits_runs: true}
+  zwnj: {codepoint: 0x200C, splits_runs: true}
+  namer-dot: {codepoint: 0x00B7, splits_runs: false}
+features:
+  ss02: {kind: capability, description: "·Tea x-height entry after ·I"}
+  ss03: {kind: capability, description: "x-height exiters reach half-·Tea"}
+  ss04: {kind: capability, description: "·It same-height baseline pass-through"}
+  ss05: {kind: capability, description: "·Tea both-baseline after ·Et"}
+  ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
+  interactions: [[ss02, ss03], [ss02, ss03, ss05]]
+predicate_classes:
+  halves-that-exit-at-x-height: {all: [{trait: half}, {can_exit_at: x-height}]}
+  can-enter-at-baseline: {can_enter_at: baseline}
+  can-enter-at-x-height: {can_enter_at: x-height}
+  can-exit-at-baseline: {can_exit_at: baseline}
+  can-exit-at-x-height: {can_exit_at: x-height}
+  talls: {height_class: tall}
+  shorts: {height_class: short}
+  deeps: {height_class: deep}
+families:
+  qsPea: {codepoint: 0xE650}
+  qsBay: {codepoint: 0xE651}
+  qsTea: {codepoint: 0xE652}
+  qsTea_qsOy: {sequence: [qsTea, qsOy]}
+  qsDay: {codepoint: 0xE653}
+  qsDay_qsEat: {sequence: [qsDay, qsEat]}
+  qsDay_qsUtter: {sequence: [qsDay, qsUtter]}
+  qsKey: {codepoint: 0xE654}
+  qsGay: {codepoint: 0xE655}
+  qsThaw: {codepoint: 0xE656}
+  qsThey: {codepoint: 0xE657}
+  qsThey_qsZoo: {sequence: [qsThey, qsZoo]}
+  qsThey_qsUtter: {sequence: [qsThey, qsUtter]}
+  qsFee: {codepoint: 0xE658}
+  qsVie: {codepoint: 0xE659}
+  qsVie_qsUtter: {sequence: [qsVie, qsUtter]}
+  qsSee: {codepoint: 0xE65A}
+  qsSee_qsEat: {sequence: [qsSee, qsEat]}
+  qsSee_qsUtter: {sequence: [qsSee, qsUtter]}
+  qsZoo: {codepoint: 0xE65B}
+  qsShe: {codepoint: 0xE65C}
+  qsJai: {codepoint: 0xE65D}
+  qsJai_qsUtter: {sequence: [qsJai, qsUtter]}
+  qsCheer: {codepoint: 0xE65E}
+  qsJay: {codepoint: 0xE65F}
+  qsJay_qsUtter: {sequence: [qsJay, qsUtter]}
+  qsYe: {codepoint: 0xE660}
+  qsWay: {codepoint: 0xE661}
+  qsWay_qsUtter: {sequence: [qsWay, qsUtter]}
+  qsHe: {codepoint: 0xE662}
+  qsWhy: {codepoint: 0xE663}
+  qsWhy_qsUtter: {sequence: [qsWhy, qsUtter]}
+  qsIng: {codepoint: 0xE664}
+  qsMay: {codepoint: 0xE665}
+  qsNo: {codepoint: 0xE666}
+  qsLow: {codepoint: 0xE667}
+  qsRoe: {codepoint: 0xE668}
+  qsLoch: {codepoint: 0xE669}
+  qsLlan: {codepoint: 0xE66A}
+  qsExcite: {codepoint: 0xE66B}
+  qsExam: {codepoint: 0xE66C}
+  qsIt: {codepoint: 0xE670}
+  qsEat: {codepoint: 0xE671}
+  qsEt: {codepoint: 0xE672}
+  qsEight: {codepoint: 0xE673}
+  qsAt: {codepoint: 0xE674}
+  qsI: {codepoint: 0xE675}
+  qsAh: {codepoint: 0xE676}
+  qsAwe: {codepoint: 0xE677}
+  qsOx: {codepoint: 0xE678}
+  qsOy: {codepoint: 0xE679}
+  qsUtter: {codepoint: 0xE67A}
+  qsOut: {codepoint: 0xE67B}
+  qsOut_qsTea: {sequence: [qsOut, qsTea]}
+  qsOwe: {codepoint: 0xE67C}
+  qsFoot: {codepoint: 0xE67D}
+  qsOoze: {codepoint: 0xE67E}

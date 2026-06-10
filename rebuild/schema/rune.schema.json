@@ -1,0 +1,412 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "rune.schema.json",
+  "title": "Quikscript rune file",
+  "description": "One rune per file: ductus (the closed enumeration of ways), stances with complete join surfaces, and policy riders. Stance identity is the structured tuple; generated display names never appear in authored data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rune", "ductus", "stances"],
+  "properties": {
+    "rune": {"$ref": "#/$defs/familyName"},
+    "codepoint": {"type": "integer", "minimum": 0},
+    "sequence": {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 2},
+    "ductus": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/motionName"},
+      "additionalProperties": {
+        "oneOf": [
+          {"type": "string"},
+          {"type": "object", "additionalProperties": false, "required": ["unrealized"], "properties": {"unrealized": {"const": true}}}
+        ]
+      }
+    },
+    "notes": {"type": "string"},
+    "mono": {"$ref": "#/$defs/drawing"},
+    "stances": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/motionName"},
+      "additionalProperties": {"$ref": "#/$defs/stance"}
+    },
+    "policy": {"$ref": "#/$defs/policy"}
+  },
+  "oneOf": [
+    {"required": ["codepoint"], "not": {"required": ["sequence"]}},
+    {"required": ["sequence"], "not": {"required": ["codepoint"]}}
+  ],
+  "$defs": {
+    "familyName": {"type": "string", "pattern": "^qs[A-Z][A-Za-z]*(_qs[A-Z][A-Za-z]*)*$"},
+    "familyOrList": {
+      "oneOf": [
+        {"$ref": "#/$defs/familyName"},
+        {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 1}
+      ]
+    },
+    "motionName": {
+      "type": "string",
+      "allOf": [
+        {"pattern": "^[a-z][a-z0-9-]*$"},
+        {"not": {"pattern": "(before|after|noentry|noexit|nonjoining|ss[0-9])"}}
+      ]
+    },
+    "height": {"enum": ["baseline", "x-height", "y6", "top"]},
+    "heightOrNone": {"enum": ["baseline", "x-height", "y6", "top", "none"]},
+    "cellSide": {"enum": ["baseline", "x-height", "y6", "top", "none", "baseline-withdrawn", "x-height-withdrawn", "y6-withdrawn", "top-withdrawn"]},
+    "strokeOrientation": {"enum": ["horizontal", "vertical", "diagonal"]},
+    "boundaryValue": {"enum": ["boundary", "space", "zwnj", "namer-dot"]},
+    "featureTag": {"type": "string", "pattern": "^ss[0-9]{2}$"},
+    "drawing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bitmap"],
+      "properties": {
+        "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "y_offset": {"type": "integer"}
+      }
+    },
+    "stance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["way", "bitmap"],
+      "properties": {
+        "way": {"$ref": "#/$defs/motionName"},
+        "traits": {"type": "array", "items": {"enum": ["half", "alt"]}},
+        "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "y_offset": {"type": "integer"},
+        "bitmaps": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/motionName"},
+          "additionalProperties": {"$ref": "#/$defs/drawing"}
+        },
+        "surface": {"$ref": "#/$defs/surface"}
+      }
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/height"},
+          "additionalProperties": {"$ref": "#/$defs/entryRow"}
+        },
+        "exits": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/height"},
+          "additionalProperties": {"$ref": "#/$defs/exitRow"}
+        },
+        "pairings": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "never": {"type": "array", "items": {"$ref": "#/$defs/pairing"}, "minItems": 1},
+            "only": {"type": "array", "items": {"$ref": "#/$defs/pairing"}, "minItems": 1}
+          }
+        },
+        "cells": {"type": "array", "items": {"$ref": "#/$defs/cellBinding"}},
+        "unlocks": {"type": "array", "items": {"$ref": "#/$defs/unlock"}},
+        "require": {"type": "array", "items": {"enum": ["entry", "exit"]}}
+      }
+    },
+    "entryRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x"],
+      "properties": {
+        "x": {"type": "integer"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "from": {"type": "array", "items": {"$ref": "#/$defs/leftCondition"}, "minItems": 1},
+        "joined": {"$ref": "#/$defs/motionName"},
+        "joined_x": {"type": "integer"},
+        "stub": {"$ref": "#/$defs/stub"},
+        "selectable": {"type": "boolean"},
+        "x_off_convention": {"const": true}
+      }
+    },
+    "exitRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x"],
+      "properties": {
+        "x": {"type": "integer"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "toward": {"type": "array", "items": {"$ref": "#/$defs/rightConditionNoThen"}, "minItems": 1},
+        "withdrawal": {"$ref": "#/$defs/withdrawalBinding"},
+        "stub": {"$ref": "#/$defs/stub"},
+        "ink_y": {"type": "integer"},
+        "x_off_convention": {"const": true}
+      }
+    },
+    "withdrawalBinding": {
+      "anyOf": [
+        {"const": "safe"},
+        {"$ref": "#/$defs/motionName"}
+      ]
+    },
+    "stub": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cols", "when"],
+      "properties": {
+        "cols": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 1},
+        "when": {"enum": ["joined", "withdrawn"]}
+      }
+    },
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "exit"],
+      "properties": {
+        "entry": {"$ref": "#/$defs/heightOrNone"},
+        "exit": {"$ref": "#/$defs/heightOrNone"}
+      }
+    },
+    "cellBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entry", "exit", "bitmap"],
+      "properties": {
+        "entry": {"$ref": "#/$defs/cellSide"},
+        "exit": {"$ref": "#/$defs/cellSide"},
+        "bitmap": {"$ref": "#/$defs/motionName"},
+        "entry_x": {"type": "integer"},
+        "exit_x": {"type": "integer"}
+      }
+    },
+    "unlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature"],
+      "properties": {
+        "feature": {"$ref": "#/$defs/featureTag"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "pairing": {"$ref": "#/$defs/pairing"},
+        "when": {"$ref": "#/$defs/when"}
+      },
+      "oneOf": [
+        {"required": ["entry"], "allOf": [{"not": {"required": ["exit"]}}, {"not": {"required": ["pairing"]}}]},
+        {"required": ["exit"], "allOf": [{"not": {"required": ["entry"]}}, {"not": {"required": ["pairing"]}}]},
+        {"required": ["pairing"], "allOf": [{"not": {"required": ["entry"]}}, {"not": {"required": ["exit"]}}]}
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {"type": "array", "items": {"$ref": "#/$defs/motionName"}, "minItems": 1},
+        "refuse": {"type": "array", "items": {"$ref": "#/$defs/refuseRecord"}},
+        "prefer": {"type": "array", "items": {"$ref": "#/$defs/preferRecord"}},
+        "extend": {"type": "array", "items": {"$ref": "#/$defs/extendRecord"}},
+        "contract": {"type": "array", "items": {"$ref": "#/$defs/contractRecord"}},
+        "resolve": {"type": "array", "items": {"$ref": "#/$defs/resolveRecord"}},
+        "groups": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/motionName"},
+          "additionalProperties": {"$ref": "#/$defs/groupDefinition"}
+        }
+      }
+    },
+    "refuseRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "when": {"$ref": "#/$defs/whenWindowDecidable"},
+        "why": {"type": "string"}
+      }
+    },
+    "preferRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName"},
+        "cell": {"$ref": "#/$defs/cellPattern"},
+        "over": {"$ref": "#/$defs/cellPattern"},
+        "mode": {"enum": ["yields-to-joins", "absolute"]},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "if": {"properties": {"mode": {"const": "absolute"}}, "required": ["mode"]},
+      "then": {"required": ["why"]}
+    },
+    "cellPattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "entry": {"$ref": "#/$defs/heightOrNone"},
+        "exit": {"$ref": "#/$defs/heightOrNone"}
+      }
+    },
+    "extendRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["by", "when"],
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "by": {"type": "integer", "minimum": 1},
+        "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+        "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+        "bind": {"$ref": "#/$defs/motionName"},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "oneOf": [
+        {"required": ["entry"], "not": {"required": ["exit"]}},
+        {"required": ["exit"], "not": {"required": ["entry"]}}
+      ]
+    },
+    "contractRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when"],
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName"},
+        "entry": {"$ref": "#/$defs/height"},
+        "exit": {"$ref": "#/$defs/height"},
+        "by": {"type": "integer", "minimum": 1},
+        "trim": {"type": "integer", "minimum": 1},
+        "bind": {"$ref": "#/$defs/motionName"},
+        "when": {"$ref": "#/$defs/when"},
+        "why": {"type": "string"}
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {"required": ["entry"], "not": {"required": ["exit"]}},
+            {"required": ["exit"], "not": {"required": ["entry"]}}
+          ]
+        },
+        {
+          "anyOf": [
+            {"required": ["by"]},
+            {"required": ["trim"]},
+            {"required": ["bind"]}
+          ]
+        }
+      ]
+    },
+    "resolveRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pick", "why"],
+      "properties": {
+        "against": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rune"],
+          "properties": {
+            "rune": {"$ref": "#/$defs/familyName"},
+            "id": {"type": "string"}
+          }
+        },
+        "at": {"$ref": "#/$defs/whenWindowDecidable"},
+        "when": {"$ref": "#/$defs/when"},
+        "pick": {"type": "object"},
+        "why": {"type": "string"},
+        "migrated": {"type": "string"}
+      }
+    },
+    "groupDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "union": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
+        "minus": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "staticCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "trait": {"enum": ["half", "alt"]}
+      }
+    },
+    "when": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "left": {"$ref": "#/$defs/leftCondition"},
+        "right": {"$ref": "#/$defs/rightCondition"},
+        "self": {"$ref": "#/$defs/selfCondition"},
+        "word": {"enum": ["initial", "medial", "final", "isolated"]},
+        "feature": {"$ref": "#/$defs/featureTag"}
+      }
+    },
+    "whenWindowDecidable": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "left": {"$ref": "#/$defs/leftCondition"},
+        "right": {"$ref": "#/$defs/rightConditionNoThen"},
+        "self": {"$ref": "#/$defs/selfCondition"},
+        "word": {"enum": ["initial", "medial", "final", "isolated"]},
+        "feature": {"$ref": "#/$defs/featureTag"}
+      }
+    },
+    "leftCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "joined_at": {"$ref": "#/$defs/heightOrNone"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "rightCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
+        "then": {"$ref": "#/$defs/rightConditionNoThen"}
+      }
+    },
+    "rightConditionNoThen": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "is": {"$ref": "#/$defs/boundaryValue"},
+        "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
+      }
+    },
+    "selfCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "entry": {"enum": ["live", "none"]},
+        "exit": {"enum": ["live", "none"]}
+      }
+    }
+  }
+}

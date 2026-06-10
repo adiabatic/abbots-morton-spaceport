@@ -1,0 +1,97 @@
+rune: qsPea
+codepoint: 0xE650
+ductus:
+  full: | # DRAFT — pending author sign-off
+    Begin at the left, slightly above the x-height; occasionally, another letter will join at the entry, and when the previous letter exits at the x-height, the left upward stroke begins at the x-height instead, dipping down to receive the join. Rise to the top and rightwards in a clockwise curve. Then pull straight down on the right toward the baseline. It may connect to the next letter at the baseline.
+  half: | # DRAFT — pending author sign-off
+    As in the full way, but the downstroke stops at the x-height, or just above it, where it connects to the next letter. When the next letter joins at the x-height, the right downstroke dips down to the x-height to meet it; when letters join at the x-height on both sides, both ends of the stroke dip down to the x-height.
+mono:
+  bitmap:
+  - " ### "
+  - "#   #"
+  - "#   #"
+  - "    #"  #
+  - "    #"
+  - "    #"
+  - "    #"
+  - "    #"
+  - "    #"  #
+stances:
+  full:
+    way: full
+    traits: []
+    bitmap:
+    - " ## "
+    - "#  #"
+    - "#  #"
+    - "   #"  #
+    - "   #"
+    - "   #"
+    - "   #"
+    - "   #"
+    - "   #"  #
+    surface:
+      entries:
+        y6: {x: 0, stroke: vertical}
+        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}]}
+        baseline: {x: 3, stroke: vertical, from: [{family: qsEt}, {family: qsAwe}]}
+      exits:
+        baseline: {x: 4, stroke: vertical, withdrawal: safe}
+      pairings:
+        never: [{entry: baseline, exit: baseline}]
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    way: half
+    traits: [half]
+    bitmap:
+    - " ## "
+    - "#  #"
+    - "#  #"
+    - "    "  #
+    - "    "
+    - "    "
+    - "    "
+    - "    "
+    - "    "  #
+    bitmaps:
+      half-dips-both-sides:
+        bitmap:
+        - " ## "
+        - "#  #"
+        - "#  #"
+        - "#  #"  #
+        - "    "
+        - "    "
+        - "    "
+        - "    "
+        - "    "  #
+    surface:
+      entries:
+        y6: {x: 0, stroke: vertical}
+        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}]}
+      exits:
+        y6: {x: 4, stroke: vertical, withdrawal: safe, toward: [{family: qsPea}]}
+        x-height: {x: 4, ink_y: 6, stroke: vertical, withdrawal: safe, stub: {cols: [3], when: withdrawn}, toward: [{class: can-enter-at-x-height, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsOwe}]}]}
+      pairings:
+        never: [{entry: x-height, exit: y6}]
+      cells:
+      - {entry: x-height, exit: x-height, bitmap: half-dips-both-sides}
+      unlocks: []
+      require: []
+policy:
+  order: [full, half]
+  refuse:
+  - {stance: full, exit: baseline, when: {right: {family: [qsZoo, qsCheer, qsJay, qsNo, qsRoe, qsLlan, qsIt, qsEt, qsEight, qsAwe, qsOx, qsFoot]}}, why: These join ·Pea through the half way's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.}
+  - stance: full
+    exit: baseline
+    when: {left: {joined_at: y6}, right: {class: can-enter-at-x-height, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsMay}]}}
+    why: Entered at y6, ·Pea hands x-height-capable followers to the half way; only these five keep the full baseline exit.
+  prefer: []
+  extend:
+  - {stance: full, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - {stance: half, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  contract: []
+  resolve: []
+  groups: {}

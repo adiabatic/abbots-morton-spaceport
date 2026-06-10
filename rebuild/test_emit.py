@@ -1,0 +1,199 @@
+"""emit_gsub / emit_gpos tests over the fixture spec with duck-typed decision tables."""
+
+from dataclasses import dataclass
+
+import pytest
+
+from rebuild.pipeline import emit_gpos, emit_gsub, geometry
+from rebuild.pipeline.fixtures import mini_spec
+from rebuild.pipeline.model import CellId, CellPlan, marker_glyph_name, relevant_marker_features
+
+
+@dataclass(frozen=True)
+class FakeRule:
+    input_glyph: str
+    backtrack: tuple | None
+    look1: tuple | None
+    look2: tuple | None
+    outcome: str
+    joint: bool = False
+    provenance: tuple = ()
+
+
+@dataclass
+class FakeDecision:
+    rules: list
+
+    def reachable_cells(self):
+        return frozenset()
+
+
+@pytest.fixture(scope="module")
+def spec():
+    return mini_spec()
+
+
+@pytest.fixture(scope="module")
+def glyphs(spec):
+    cells = [
+        CellId("qsIt", "bar", None, None, ()),
+        CellId("qsIt", "bar", None, "baseline", ()),
+        CellId("qsIt", "bar", "x-height", "baseline", ()),
+        CellId("qsTea", "full", None, None, ()),
+        CellId("qsTea", "half", None, "x-height", ()),
+        CellId("qsMay", "loop", None, "x-height", ()),
+        CellId("qsMay", "loop", "baseline", "x-height", ()),
+        CellId("qsOy", "loop", None, None, ()),
+        CellId("qsTea_qsOy", "bar-into-loop", None, "baseline", ()),
+        CellId("qsTea", "full", None, None, ("locked",)),
+        CellId("qsPea", "full", "y6", None, ()),
+    ]
+    records = {}
+    for cell in cells:
+        plan = CellPlan(cell=cell)
+        if cell == CellId("qsTea", "half", None, "x-height", ()):
+            plan = CellPlan(cell=cell, entry_curs_only=(0, 8))
+        records[cell] = geometry.realize(spec, plan)
+    return records
+
+
+def _rules(spec, glyphs):
+    names = {cell: record.name for cell, record in glyphs.items()}
+    it_ex = names[CellId("qsIt", "bar", None, "baseline", ())]
+    may_en = names[CellId("qsMay", "loop", "baseline", "x-height", ())]
+    tea_half = names[CellId("qsTea", "half", None, "x-height", ())]
+    return [
+        FakeRule("qsIt", None, ("qsMay",), ("uni200C", "space"), it_ex, provenance=("p1",)),
+        FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=("p1",)),
+        FakeRule("qsMay", (it_ex,), None, None, may_en, joint=True, provenance=("p2",)),
+        FakeRule("qsTea.ss03", (may_en,), None, None, tea_half, provenance=("p3",)),
+    ]
+
+
+class TestMarkers:
+    def test_relevant_features(self, spec):
+        assert relevant_marker_features(spec.runes["qsTea"]) == ("ss02", "ss03", "ss05")
+        assert relevant_marker_features(spec.runes["qsIt"]) == ("ss04",)
+        assert relevant_marker_features(spec.runes["qsMay"]) == ()
+
+    def test_marker_names(self):
+        assert marker_glyph_name("qsTea", frozenset()) == "qsTea"
+        assert marker_glyph_name("qsTea", {"ss03"}) == "qsTea.ss03"
+        assert marker_glyph_name("qsTea", {"ss03", "ss02"}) == "qsTea.ss02_ss03"
+
+
+class TestEmitGsub:
+    def test_stage_order_fixed_by_definition_order(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        fea = plan.fea_text
+        order = [
+            fea.index("lookup m1_formation {"),
+            fea.index("lookup m1_ss02_marker {"),
+            fea.index("lookup m1_zwnj {"),
+            fea.index("lookup m1_settle {"),
+        ]
+        assert order == sorted(order)
+
+    def test_formation_is_type_four_over_the_sequence(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        assert "sub qsTea qsOy by qsTea_qsOy;" in plan.fea_text
+
+    def test_composite_marker_staging(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        fea = plan.fea_text
+        assert "sub qsTea by qsTea.ss03;" in fea
+        assert "sub qsTea.ss02 by qsTea.ss02_ss03;" in fea
+        assert "sub qsTea.ss02_ss03 by qsTea.ss02_ss03_ss05;" in fea
+
+    def test_chokepoint_classes(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        fea = plan.fea_text
+        assert "sub uni200C @m1_entry_live' by @m1_entry_locked;" in fea
+        assert "qsTea_qsOy" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
+
+    def test_subtable_breaks_between_families(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        settle_block = plan.fea_text.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        assert settle_block.count("subtable;") == 2  # qsIt | qsMay | qsTea.ss03
+
+    def test_provenance_comments_ride_along(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        assert "# joint row | p2" in plan.fea_text
+
+    def test_locked_twin_in_lookahead_raises(self, spec, glyphs):
+        bad = [FakeRule("qsIt", None, ("qsTea.noentry",), None, "qsIt", provenance=())]
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
+
+    def test_unknown_glyph_raises(self, spec, glyphs):
+        bad = [FakeRule("qsIt", None, ("qsNotARune",), None, "qsIt", provenance=())]
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
+
+    def test_fold_conflict_raises(self, spec, glyphs):
+        names = {cell: record.name for cell, record in glyphs.items()}
+        it_ex = names[CellId("qsIt", "bar", None, "baseline", ())]
+        a = FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=())
+        b = FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=())
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.emit_gsub(
+                spec,
+                {frozenset(): FakeDecision([a]), frozenset({"ss03"}): FakeDecision([b])},
+                glyphs=glyphs,
+            )
+
+    def test_ss10_overlay_maps_cells_to_isolated(self, spec, glyphs):
+        isolated = {
+            "qsIt": CellId("qsIt", "bar", None, None, ()),
+            "qsMay": CellId("qsMay", "loop", None, "x-height", ()),
+        }
+        plan = emit_gsub.emit_gsub(
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, isolated_cells=isolated
+        )
+        fea = plan.fea_text
+        assert "feature ss10 {" in fea
+        names = {cell: record.name for cell, record in glyphs.items()}
+        entered_may = names[CellId("qsMay", "loop", "baseline", "x-height", ())]
+        bare_may = names[CellId("qsMay", "loop", None, "x-height", ())]
+        assert f"sub {entered_may} by {bare_may};" in fea
+
+    def test_namer_dot_stage_targets_short_cells(self, spec, glyphs):
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
+        fea = plan.fea_text
+        assert "lookup m1_namer_dot_word_start {" in fea
+        followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
+        assert all(name.startswith(("qsIt", "qsOy")) for name in followers)
+        assert "ignore sub" not in fea
+
+
+class TestEmitGpos:
+    def test_four_height_lookups_emitted(self, spec, glyphs):
+        curs = emit_gpos.emit_gpos(glyphs, spec=spec)
+        for y in (0, 5, 6, 8):
+            assert f"lookup m1_cursive_y{y} {{" in curs
+
+    def test_anchor_coordinates_in_the_drawn_frame(self, spec, glyphs):
+        curs = emit_gpos.emit_gpos(glyphs, spec=spec)
+        record = glyphs[CellId("qsMay", "loop", None, "x-height", ())]
+        assert f"pos cursive {record.name} <anchor NULL> <anchor 300 250>;" in curs
+
+    def test_cross_height_cells_get_null_anchors(self, spec, glyphs):
+        curs = emit_gpos.emit_gpos(glyphs, spec=spec)
+        record = glyphs[CellId("qsIt", "bar", "x-height", "baseline", ())]
+        y0 = curs.split("lookup m1_cursive_y0 {")[1].split("}")[0]
+        y5 = curs.split("lookup m1_cursive_y5 {")[1].split("}")[0]
+        assert f"pos cursive {record.name} <anchor NULL> <anchor 100 0>;" in y0
+        assert f"pos cursive {record.name} <anchor 50 250> <anchor NULL>;" in y5
+
+    def test_entry_curs_only_registers_for_parity(self, spec, glyphs):
+        curs = emit_gpos.emit_gpos(glyphs, spec=spec)
+        record = glyphs[CellId("qsTea", "half", None, "x-height", ())]
+        y8 = curs.split("lookup m1_cursive_y8 {")[1].split("}")[0]
+        assert f"pos cursive {record.name} <anchor 50 400> <anchor NULL>;" in y8
+
+    def test_locked_twin_null_null_parity(self, spec, glyphs):
+        curs = emit_gpos.emit_gpos(glyphs, spec=spec)
+        record = glyphs[CellId("qsTea", "full", None, None, ("locked",))]
+        for y in (0, 5, 8):
+            block = curs.split(f"lookup m1_cursive_y{y} {{")[1].split("}")[0]
+            assert f"pos cursive {record.name} <anchor NULL> <anchor NULL>;" in block
