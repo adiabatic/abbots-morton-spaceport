@@ -77,21 +77,21 @@
       <h2>Keys</h2>
       <table>
         <tbody>
-          <tr><td><kbd>j</kbd></td><td>Approve, then advance to the next unverdicted unit</td></tr>
-          <tr><td><kbd>f</kbd></td><td>Reject, then advance</td></tr>
+          <tr><td><kbd>a</kbd></td><td>Skip (explicit no-verdict record), then advance to the next unverdicted unit</td></tr>
+          <tr><td><kbd>s</kbd></td><td>Reject, then advance</td></tr>
           <tr><td><kbd>d</kbd></td><td>Fine either way (any-of), then advance</td></tr>
-          <tr><td><kbd>k</kbd></td><td>Skip (explicit no-verdict record), then advance</td></tr>
+          <tr><td><kbd>f</kbd></td><td>Approve, then advance</td></tr>
           <tr><td><kbd>u</kbd></td><td>Undo the last verdict and return to it</td></tr>
           <tr><td><kbd>n</kbd></td><td>Focus the current unit’s note field</td></tr>
           <tr><td><kbd>g</kbd></td><td>Approve every remaining unverdicted unit in the current group</td></tr>
-          <tr><td><kbd>x</kbd></td><td>Toggle the current unit’s explain/provenance panel</td></tr>
+          <tr><td><kbd>x</kbd></td><td>Toggle the current unit’s explain/provenance panel (same as the row’s “Why?” button)</td></tr>
           <tr><td><kbd>↓</kbd> / <kbd>↑</kbd></td><td>Move the cursor without verdicting</td></tr>
           <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next batch</td></tr>
           <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
         </tbody>
       </table>
-      <p>Click a config chip first to scope the next verdict to that config; the default verdict covers all of the unit’s configs.</p>
+      <p>Config chips are labels, not buttons: every listed set renders the unit identically, so a verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
       <form method="dialog"><button>Close</button></form>
     </dialog>
 

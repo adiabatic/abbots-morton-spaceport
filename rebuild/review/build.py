@@ -102,6 +102,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter) -> dict:
         "text_entities": enriched.text_entities,
         "notation": enriched.notation,
         "configs": list(unit.configs),
+        "render_groups": [{"configs": list(group)} for group in unit.render_groups],
         "kinds": list(unit.kinds),
         "exemplar": unit.exemplar,
         "before": {"glyphs": list(enriched.before_glyphs), "seams": list(enriched.before_seams)},
@@ -114,6 +115,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter) -> dict:
         "pair": {"left": enriched.pair[0], "right": enriched.pair[1]} if enriched.pair else None,
         "highlight": {"before": enriched.highlight_before, "after": enriched.highlight_after},
         "boundary_marks": list(enriched.boundary_marks),
+        "summary": enriched.summary,
         "explain": enriched.explain_text,
         "provenance": list(enriched.provenance),
         "drafts": {
@@ -270,6 +272,10 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) 
         pair = {"left": 0, "right": 1}
         explain = _treaty_explain(entry)
         provenance: list[str] = []
+        summary = (
+            f"The treaty row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
+            "old and new values are in the explain panel."
+        )
     else:
         before = {
             "glyphs": [member.old.outcome for member in members if member.old is not None],
@@ -283,6 +289,10 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) 
         diff_positions = [0] if (before["glyphs"] or after["cells"]) else []
         pair = None
         explain = _settlement_explain(entry)
+        summary = (
+            f"The settlement row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
+            "old and new values are in the explain panel."
+        )
         provenance = sorted(
             {
                 pointer.strip()
@@ -302,6 +312,7 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) 
         "text_entities": text_entities(witness) if witness else None,
         "notation": notation(witness) if witness else entry.key.label(),
         "configs": [entry.config],
+        "render_groups": [{"configs": [entry.config]}],
         "kinds": [entry.table],
         "exemplar": False,
         "before": before,
@@ -310,6 +321,7 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) 
         "pair": pair,
         "highlight": None,
         "boundary_marks": [],
+        "summary": summary,
         "explain": explain,
         "provenance": provenance,
         "drafts": {"pin": None, "policy": None, "any_of": None},
@@ -502,9 +514,25 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
 
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
     need(isinstance(unit.get("batch"), int), "batch must be an integer")
-    for key in ("class", "group", "notation", "explain"):
+    for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
+    groups = unit.get("render_groups")
+    need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
+    grouped_configs: list[str] = []
+    for group in groups if isinstance(groups, list) else ():
+        need(
+            isinstance(group, dict) and isinstance(group.get("configs"), list) and group.get("configs"),
+            "render_groups entries must carry a nonempty configs list",
+        )
+        if isinstance(group, dict) and isinstance(group.get("configs"), list):
+            grouped_configs.extend(group["configs"])
+    if isinstance(unit.get("configs"), list) and grouped_configs:
+        need(
+            len(grouped_configs) == len(set(grouped_configs))
+            and sorted(grouped_configs) == sorted(unit["configs"]),
+            "render_groups must partition configs exactly",
+        )
     need(isinstance(unit.get("kinds"), list) and unit.get("kinds"), "kinds must be a nonempty list")
     need(isinstance(unit.get("exemplar"), bool), "exemplar must be a bool")
     need(isinstance(unit.get("provenance"), list), "provenance must be a list")

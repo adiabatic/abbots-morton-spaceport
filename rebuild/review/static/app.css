@@ -404,18 +404,15 @@ details.group {
       display: flex;
       flex-wrap: wrap;
       gap: 0.3rem;
+      cursor: default;
 
       .chip {
         font-family: var(--code-font);
         font-size: 11px;
         padding: 0.1rem 0.5rem;
+        border: 1px solid var(--hairline);
         border-radius: 9px;
-
-        &[aria-pressed="true"] {
-          border-color: var(--hot);
-          color: var(--hot);
-          font-weight: 700;
-        }
+        color: var(--muted);
       }
     }
 
@@ -467,10 +464,44 @@ details.group {
       background: light-dark(#fafafa, #1f1f1f);
       color: inherit;
     }
+  }
+
+  .render-group {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: subgrid;
+    gap: 1rem;
+    align-items: baseline;
+    border-top: 1px dotted var(--hairline);
+    padding-top: 0.5rem;
+
+    .render-group-label {
+      font-family: var(--code-font);
+      font-size: 12px;
+      color: var(--muted);
+      align-self: center;
+    }
+  }
+
+  .summary {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+
+    .summary-text {
+      margin: 0;
+      font-size: 13px;
+      color: light-dark(#444, #ccc);
+    }
 
     .explain-toggle {
-      align-self: start;
       font-size: 12px;
+      flex-shrink: 0;
+
+      kbd {
+        font-size: 10px;
+      }
     }
   }
 
@@ -479,6 +510,12 @@ details.group {
     font-size: 13px;
     border-top: 1px dashed var(--hairline);
     padding-top: 0.6rem;
+
+    .explain-intro {
+      margin: 0.2rem 0 0.4rem;
+      font-size: 12px;
+      color: var(--muted);
+    }
 
     pre {
       font-family: var(--code-font);

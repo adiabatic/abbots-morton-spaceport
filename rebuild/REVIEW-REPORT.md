@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-The §11 review surface is built, tested, audited, and ready for human triage. `rebuild/review/` (committed-shape source) generates a self-contained static app under the gitignored `rebuild/out/review/`: 2,411 review units covering all 15,528 M1 divergence rows from `rebuild/out/m1/divergence-audit.tsv`, sharded by the 15 ledger classes in `rebuild/m1-divergences.yaml` (14 nonzero; `kern-channel-out-of-scope` is count-0 by design), in 9 batches of up to 300. Every unit renders side-by-side in the old Senior Sans and the M1 mini-font via dual `@font-face`, with the divergent pair highlighted, correct per-row `font-feature-settings`, visible ZWNJ boundary marks, one-key home-row verdicts, and per-unit notes. The export loop closes: a downloaded `verdicts.json` converts to one triage YAML whose pins parse with the repo's real `parse_expect`, whose policy edits name resolvable `glyph_data/runes/*.yaml` keypaths and provenance, and whose any-of drafts feed the §10 channel. All gates are green: `make test` 6,753 passed, `uv run pytest rebuild/` 351 passed, `node --test` 38/38, byte-identical rebuilds, nothing committed or staged, and the existing build is untouched.
+The §11 review surface is built, tested, audited, and ready for human triage. `rebuild/review/` (committed-shape source) generates a self-contained static app under the gitignored `rebuild/out/review/`: 2,411 review units covering all 15,528 M1 divergence rows from `rebuild/out/m1/divergence-audit.tsv`, sharded by the 15 ledger classes in `rebuild/m1-divergences.yaml` (14 nonzero; `kern-channel-out-of-scope` is count-0 by design), in 9 batches of up to 300. Every unit renders side-by-side in the old Senior Sans and the M1 mini-font via dual `@font-face`, with the divergent pair highlighted, correct per-row `font-feature-settings`, visible ZWNJ boundary marks, one-key home-row verdicts, and per-unit notes. The export loop closes: a downloaded `verdicts.json` converts to one triage YAML whose pins parse with the repo's real `parse_expect`, whose policy edits name resolvable `glyph_data/runes/*.yaml` keypaths and provenance, and whose any-of drafts feed the §10 channel. All gates are green: `make test` 6,753 passed, `uv run pytest rebuild/` 358 passed, `node --test` 44/44, byte-identical rebuilds, nothing committed or staged, and the existing build is untouched. A user-feedback rework (2026-06-10) remapped the verdict keys to `a`/`s`/`d`/`f`, made config chips inert labels backed by build-time `render_groups` (whole-unit verdicts only), and added an always-visible one-line explain summary plus a Why? button per row.
 
 ### Commands
 
@@ -18,28 +18,38 @@ Port 7294 deliberately coexists with `make serve` (`tools/serve.py`, port 7293);
 
 ### Keyboard map
 
-| Key      | Action                                              |
-| -------- | --------------------------------------------------- |
-| `j`      | Approve (the new behavior is right) + auto-advance  |
-| `f`      | Reject (want the old behavior back) + auto-advance  |
-| `d`      | Fine either way (any-of channel) + auto-advance     |
-| `k`      | Skip + auto-advance                                 |
-| `u`      | Undo last verdict                                   |
-| `n`      | Focus the note input for the current unit           |
-| `g`      | Approve the whole group under the cursor            |
-| `x`      | Toggle the explain panel                            |
-| `↓` `↑`  | Move cursor without verdicting                      |
-| `[` `]`  | Previous / next batch                               |
-| `?`      | Help overlay                                        |
-| `Escape` | Blur input / close overlay                          |
+| Key      | Action                                                    |
+| -------- | --------------------------------------------------------- |
+| `a`      | Skip + auto-advance                                       |
+| `s`      | Reject (want the old behavior back) + auto-advance        |
+| `d`      | Fine either way (any-of channel) + auto-advance           |
+| `f`      | Approve (the new behavior is right) + auto-advance        |
+| `u`      | Undo last verdict                                         |
+| `n`      | Focus the note input for the current unit                 |
+| `g`      | Approve the whole group under the cursor                  |
+| `x`      | Toggle the explain panel (same as the row's Why? button)  |
+| `↓` `↑`  | Move cursor without verdicting                            |
+| `[` `]`  | Previous / next batch                                     |
+| `?`      | Help overlay                                              |
+| `Escape` | Blur input / close overlay                                |
 
-Shortcuts are suppressed while a note input is focused; `Escape` gets you back out.
+The four verdict keys sit on the left home row: `a` skip, `s` reject, `d` fine-either-way, `f` approve. Shortcuts are suppressed while a note input is focused; `Escape` gets you back out. A verdict always covers the whole unit — every config listed on its chips.
+
+### Reading the explain panel
+
+Every row carries an always-visible one-line summary under the renderings — what the new pipeline chose at the primary divergence and the single deciding record, in rune-name notation, e.g. "New: ·It joins ·It at the baseline (the old pipeline broke there) — decided by qsIt.yaml policy.extend[0] (join-count rank)." When that line is not enough, the Why? button (or `x`) opens the full panel:
+
+- **Explain** is the candidate table the settlement function considered at each divergent position: every surviving candidate with its entry/seam and join-count, `->` marking the winner, the eliminated candidates each attributed to the YAML record that eliminated them, and a `decided by:` line naming the stage that separated the winner from the runner-up (join-count rank, declaration order, a prefer, or the structural floor).
+- **Provenance** lists the `glyph_data/runes/*.yaml` records the outcome was attributed to — these are the levers a reject's policy draft will name.
+- **Drafts** previews the three precomputed verdict artifacts (pin / policy edit / any-of) this unit would export.
 
 ### Triage flow
 
 - The sidebar lists the 14 ledger classes with the ledger's verbatim `why`/`status` text; clicking one filters to that class. Units within a class are grouped by family pair (fold/unfold per group), ordered by codepoints, and paged in batches of 300 (`[` / `]`).
 - All view state (class, batch, cursor unit) lives in the URL hash — reloading or sharing the URL restores exactly where you were. Verdicts are in-memory only and do _not_ survive reload: export before closing the tab. The app warns when unexported verdicts exist.
-- Each row shows the codepoint string in both fonts on a checkered background, the divergent pair highlighted with an amber band (precomputed x-ranges in font units; the frontend never measures text), config chips for ss03/ss10 rows rendered under their own feature settings, a visible tick on ZWNJ boundaries, a per-unit Copy button that yields a prompt preamble, and an explain panel (`x`) with the §6.3 attribution.
+- Each row shows the codepoint string in both fonts on a checkered background, the divergent pair highlighted with an amber band (precomputed x-ranges in font units; the frontend never measures text), a visible tick on ZWNJ boundaries, a per-unit Copy button that yields a prompt preamble, the one-line summary sentence, and a Why? button (or `x`) opening the explain panel with the §6.3 attribution.
+- Config chips are inert labels, not buttons. Units are deduplicated by (codepoints, baseline outcome, new outcome), so every config of a unit renders identically by construction; the build groups configs by rendered-outcome identity into `render_groups` and the tests pin the invariant that every M1 unit has exactly one group. If future data ever violates it, the app renders each extra group's before/after pair stacked below the first with its own config label and feature settings — nothing is collapsed, nothing needs clicking.
+- Verdicts always cover the whole unit (all of its configs); the per-config verdict scoping that chips used to offer is gone, and `verdicts.json` records carry no `configs` field (legacy files importing one have it ignored).
 - _Export_ downloads `verdicts.json` (format `ams-review-verdicts/1`, includes notes); _Import_ merges a previous export back in by unit id (with a manifest-mismatch warning and a force path), so triage can span sessions.
 
 ### What to do with each exported artifact

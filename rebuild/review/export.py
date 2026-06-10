@@ -54,10 +54,9 @@ def _reparse_status(expect: str) -> str:
         return "unavailable"
 
 
-def rows_covered(unit: dict, configs: list[str] | None) -> int:
-    if configs is None:
-        return len(unit.get("configs", ()))
-    return len(set(configs) & set(unit.get("configs", ())))
+def rows_covered(unit: dict) -> int:
+    """A verdict always covers the whole unit — every config its audit rows carry."""
+    return len(unit.get("configs", ()))
 
 
 def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict:
@@ -82,7 +81,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             continue
         verdict = record["verdict"]
         counts[verdict] += 1
-        covered += rows_covered(unit, record.get("configs"))
+        covered += rows_covered(unit)
         note = record.get("note") or ""
         drafts = unit.get("drafts") or {}
 

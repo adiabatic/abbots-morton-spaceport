@@ -55,7 +55,7 @@ Build and serve are separate commands (the server is long-running); `serve.py` p
 
 ### 2.1 Units, dedupe, ordering
 
-The render unit is the recon's deduped triple: (`codepoints`, `baseline`, `new`) → 2,411 units covering all 15,528 audit rows; the ledger class is a function of the triple. Each unit carries its config list (up to 7) as chips; a verdict fans out to all of the unit's (config, codepoints) audit rows unless the reviewer scopes it to one config. Units are ordered for triage: ledger class in the ledger's own file order, then group = lead family pair (code-point order), then codepoints. Batches are fixed slices of 300 units in that order, computed at generation time and recorded in the manifest (M1: 9 batches; the worst class, dangling-anchor-dropped, spans ~5).
+The render unit is the recon's deduped triple: (`codepoints`, `baseline`, `new`) → 2,411 units covering all 15,528 audit rows; the ledger class is a function of the triple. Each unit carries its config list (up to 7) as inert label chips, plus `render_groups` partitioning the configs by rendered-outcome identity (always a single group under the M1 dedupe key; extra groups would render stacked); a verdict fans out to all of the unit's (config, codepoints) audit rows. Units are ordered for triage: ledger class in the ledger's own file order, then group = lead family pair (code-point order), then codepoints. Batches are fixed slices of 300 units in that order, computed at generation time and recorded in the manifest (M1: 9 batches; the worst class, dangling-anchor-dropped, spans ~5).
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
@@ -82,7 +82,7 @@ Design stance per the frontend doc's pre-coding questions — Purpose: a one-per
 
 - **Dual @font-face**: families `AMS Review Before` / `AMS Review After` over `fonts/before.otf` / `fonts/after.otf`; rows are a grid of label, before sample, after sample with `align-items: baseline` and sticky column headers (check.html anatomy). Every sample gets `-webkit-font-smoothing: none; font-smooth: never;`; prose chrome re-asserts `subpixel-antialiased`.
 - **Checkered background**: `--font-size: 88px` is kept exactly (8 px per font pixel at upem 550), so check.html's proven 16 px checker with `background-position: 0 5.6px, 8px 13.6px` carries over verbatim; if the size ever changes, recompute the phase rather than copying the numbers.
-- **Per-row features**: JS sets `style.fontFeatureSettings` on the sample pair from the unit's config token (`ss02+ss03` → `"ss02" 1, "ss03" 1`; `default` → `normal`) — a pure, testable token-to-value function, mode-agnostic for future configs. Config chips on the row switch which config is being viewed when renderings could differ (they can't within a unit by construction, but the chips still scope verdict overrides).
+- **Per-row features**: JS sets `style.fontFeatureSettings` on the sample pair from the unit's primary render group (`ss02+ss03` → `"ss02" 1, "ss03" 1`; `default` → `normal`) — a pure, testable token-to-value function, mode-agnostic for future configs. Config chips are inert labels (a unit's configs render identically by construction); should a future unit ever carry more than one render group, each extra group's before/after pair renders stacked below the first with its own label and feature settings.
 - **The pair under review unmistakably highlighted**: inline span-wrapping breaks shaping, so the highlight is drawn outside the text — an absolutely positioned underline band beneath the divergent pair in each sample, placed from the precomputed font-unit x-ranges (§2.2). The band gets a high-contrast accent color satisfying the 3:1 non-text contrast rule, in both schemes.
 - **ZWNJ**: emitted as a literal `&#x200C;` inside the run (so real `uni200C` rules fire, invisible as browsers render it — desired); visible to the human as `◊ZWNJ` in the notation caption, plus a dotted tick mark drawn at the ZWNJ's precomputed x position under the run. Space shows as `␣` in captions. All Quikscript text is numeric character references in the JSON `text_entities` field, never raw PUA in source.
 
@@ -93,10 +93,10 @@ Design stance per the frontend doc's pre-coding questions — Purpose: a one-per
 
 | Key                   | Action                                                             |
 | --------------------- | ------------------------------------------------------------------ |
-| `j`                   | Approve (thumbs-up), record, auto-advance to next unverdicted unit |
-| `f`                   | Reject (thumbs-down), record, auto-advance                         |
+| `a`                   | Approve (thumbs-up), record, auto-advance to next unverdicted unit |
+| `s`                   | Reject (thumbs-down), record, auto-advance                         |
 | `d`                   | Fine either way (any-of), record, auto-advance                     |
-| `k`                   | Skip (explicit no-verdict record), advance                         |
+| `f`                   | Skip (explicit no-verdict record), advance                         |
 | `u`                   | Undo: pop the last verdict action and return the cursor to it      |
 | `n`                   | Focus the current unit's note field (Escape returns to the list)   |
 | `g`                   | Approve every remaining unverdicted unit in the current group      |
@@ -106,10 +106,10 @@ Design stance per the frontend doc's pre-coding questions — Purpose: a one-per
 | `?`                   | Help overlay                                                       |
 | `Escape`              | Blur input / close overlay                                         |
 
-Approve on the right hand, reject on the left — opposite hands for opposite verdicts, with `d`/`k` adjacent to their neighbors. The keys are accelerators over real `<button>` elements (visible focus indicators, keyboard-accessible per WCAG); one delegated document `keydown` handler drives the same code path as clicks. Auto-advance scrolls with `behavior: smooth`, dropping to `auto` under `prefers-reduced-motion`.
+The four verdict keys run left to right along the left home row — `a` skip, `s` reject, `d` fine-either-way, `f` approve (per direct user feedback, twice reworked: the original opposite-hands `j`/`f`/`d`/`k` map became a/s/d/f, then the order settled as skip/reject/either/approve). The keys are accelerators over real `<button>` elements (visible focus indicators, keyboard-accessible per WCAG); one delegated document `keydown` handler drives the same code path as clicks. Auto-advance scrolls with `behavior: smooth`, dropping to `auto` under `prefers-reduced-motion`.
 
 - **Per-row notes**: a text input per unit, included in the verdict record and threaded into the drafted `why:` stubs.
-- **Per-config override**: clicking a config chip before pressing a verdict key scopes that verdict to that config; the default verdict covers all of the unit's configs.
+- **Whole-unit verdicts**: a verdict always covers all of the unit's configs. (The originally planned per-config chip scoping was removed on user feedback — since every config renders identically, a click that changes nothing visible is misleading.)
 - **Progress**: a sticky header strip — verdicted/total for the batch and overall, plus the class sidebar counts; `document.title` mirrors position (tables.html `updateTitle` pattern).
 - **Copy-prompt preamble**: each unit keeps check.html's copy button, emitting "I'm looking at rebuild/out/review/ unit `<id>` — `<codepoints>` (`<notation>`)…" for pasting into an agent conversation.
 
@@ -134,13 +134,13 @@ All three drafts are precomputed per unit by `drafts.py` at generation time and 
   "manifest_generated_at": "2026-06-10T17:02:11Z",
   "exported_at": "2026-06-10T18:40:02Z",
   "verdicts": [
-    {"unit": "u-0412", "verdict": "approve", "configs": null, "note": "", "at": "2026-06-10T18:21:09Z"},
-    {"unit": "u-0413", "verdict": "reject", "configs": ["ss03"], "note": "seam looks reached-for", "at": "2026-06-10T18:21:40Z"}
+    {"unit": "u-0412", "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
+    {"unit": "u-0413", "verdict": "reject", "note": "seam looks reached-for", "at": "2026-06-10T18:21:40Z"}
   ]
 }
 ```
 
-`verdict` ∈ `approve` | `reject` | `either` | `skip`; `configs: null` means all of the unit's configs.
+`verdict` ∈ `approve` | `reject` | `either` | `skip`; a verdict covers all of the unit's configs (the import path ignores the `configs` field that pre-rework exports carried).
 
 ### 4.2 The triage YAML (three sections)
 
@@ -272,6 +272,7 @@ Types: all counts are integers; `batches` lists the zero-based global batch indi
   "text_entities": "&#x200C;&#xE652;&#xE679;",
   "notation": "◊ZWNJ ·Tea·Oy",
   "configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"],
+  "render_groups": [{"configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"]}],
   "kinds": ["ligation"],
   "exemplar": true,
   "before": {"glyphs": ["space", "qsTea_qsOy"], "seams": ["break", "lig"]},
@@ -283,6 +284,7 @@ Types: all counts are integers; `batches` lists the zero-based global batch indi
     "after": {"x_min": 0, "x_max": 1100, "advance_total": 1650}
   },
   "boundary_marks": [{"index": 0, "kind": "zwnj", "x": 0}],
+  "summary": "New: ·Tea+Oy now forms as one ligature (the old pipeline rendered the letters separately) — decided by the only surviving candidate (no policy record involved).",
   "explain": "…ExplainReport.render() text for the divergent positions…",
   "provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"],
   "drafts": {
@@ -293,7 +295,7 @@ Types: all counts are integers; `batches` lists the zero-based global batch indi
 }
 ```
 
-Field semantics: `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
+Field semantics: `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `render_groups` partitions `configs` by rendered-outcome identity — exactly one group under the M1 dedupe key, with any extra group rendered as a stacked before/after pair under its own feature settings; `summary` is the always-visible one-line prose summary in rune-name notation; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
 
 ### 7.3 `verdicts.json`
 
