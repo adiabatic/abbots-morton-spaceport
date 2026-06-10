@@ -1,9 +1,9 @@
 rune: qsPea
 codepoint: 0xE650
 ductus:
-  full: | # DRAFT — pending author sign-off
+  full: |
     Begin at the left, slightly above the x-height; occasionally, another letter will join at the entry, and when the previous letter exits at the x-height, the left upward stroke begins at the x-height instead, dipping down to receive the join. Rise to the top and rightwards in a clockwise curve. Then pull straight down on the right toward the baseline. It may connect to the next letter at the baseline.
-  half: | # DRAFT — pending author sign-off
+  half: |
     As in the full way, but the downstroke stops at the x-height, or just above it, where it connects to the next letter. When the next letter joins at the x-height, the right downstroke dips down to the x-height to meet it; when letters join at the x-height on both sides, both ends of the stroke dip down to the x-height.
 mono:
   bitmap:

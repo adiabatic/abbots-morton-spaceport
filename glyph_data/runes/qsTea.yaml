@@ -1,10 +1,10 @@
 rune: qsTea
 codepoint: 0xE652
 ductus:
-  full: | # DRAFT — pending author sign-off
+  full: |
     - Written as a single vertical stroke from the top line straight down to the baseline.
     - Or the same stroke, written from the baseline straight up to the top line.
-  half: | # DRAFT — pending author sign-off
+  half: |
     As the full way, but the stroke covers only the span from the top line down to the x-height.
 mono:
   bitmap:
