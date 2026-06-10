@@ -348,7 +348,16 @@ glyph_families:
 
       Half:
 
-      - As above, but the downstroke stops at the x-height, or just above it, where it connects to the next letter.
+      - As in the standard way, but the downstroke stops at the x-height, or just above it, where it connects to the next letter.
+
+      Dipping down to the x-height:
+
+      - As in the standard way, but the left upward stroke begins at the x-height to recieve a join from a previous letter that exits at the x-height.
+
+      Dipping down to the x-height on both sides:
+
+      - As in the half way, but 
+
 
     mono:
       bitmap:
