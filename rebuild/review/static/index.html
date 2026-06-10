@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AMS review — migration baseline diff</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <header class="progress-strip">
+      <h1>AMS review</h1>
+      <p class="position" role="status">
+        <span id="batch-progress">Loading…</span>
+        <span id="overall-progress"></span>
+        <span id="unexported-nudge" hidden></span>
+      </p>
+      <div class="strip-actions">
+        <button type="button" id="download-verdicts">Download verdicts.json</button>
+        <button type="button" id="copy-verdicts">Copy verdicts</button>
+        <button type="button" id="open-import">Import…</button>
+        <button type="button" id="open-help" aria-keyshortcuts="?">Keys <kbd>?</kbd></button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <nav class="class-nav" aria-label="Divergence classes">
+        <h2>Classes</h2>
+        <ul id="class-list"></ul>
+        <details class="about">
+          <summary>About this page</summary>
+          <p>
+            Generated review surface for the rebuild treaty diff. Regenerate with
+            <code id="build-command"></code> and serve with <code id="serve-command"></code> (port 7294,
+            alongside <code>make serve</code> on 7293). Verdicts live only in this tab until you export them.
+          </p>
+          <p id="manifest-meta"></p>
+        </details>
+      </nav>
+
+      <main>
+        <section class="toolbar" aria-label="Batch and filters">
+          <div class="batch-nav">
+            <button type="button" id="prev-batch" aria-keyshortcuts="[">‹ <kbd>[</kbd></button>
+            <span id="batch-label"></span>
+            <button type="button" id="next-batch" aria-keyshortcuts="]"><kbd>]</kbd> ›</button>
+          </div>
+          <div class="filters">
+            <label>Family <select id="filter-family"><option value="">all</option></select></label>
+            <label>Config <select id="filter-config"><option value="">all</option></select></label>
+            <label>
+              Status
+              <select id="filter-status">
+                <option value="">all</option>
+                <option value="unverdicted">unverdicted</option>
+                <option value="verdicted">verdicted</option>
+                <option value="approve">approved</option>
+                <option value="reject">rejected</option>
+                <option value="either">either</option>
+                <option value="skip">skipped</option>
+              </select>
+            </label>
+            <button type="button" id="clear-filters">Clear filters</button>
+          </div>
+        </section>
+
+        <div class="col-headers" aria-hidden="true">
+          <span>Unit</span>
+          <span>Before — old pipeline</span>
+          <span>After — rebuild</span>
+        </div>
+
+        <section id="batch" aria-label="Units in this batch"></section>
+      </main>
+    </div>
+
+    <dialog id="help">
+      <h2>Keys</h2>
+      <table>
+        <tbody>
+          <tr><td><kbd>j</kbd></td><td>Approve, then advance to the next unverdicted unit</td></tr>
+          <tr><td><kbd>f</kbd></td><td>Reject, then advance</td></tr>
+          <tr><td><kbd>d</kbd></td><td>Fine either way (any-of), then advance</td></tr>
+          <tr><td><kbd>k</kbd></td><td>Skip (explicit no-verdict record), then advance</td></tr>
+          <tr><td><kbd>u</kbd></td><td>Undo the last verdict and return to it</td></tr>
+          <tr><td><kbd>n</kbd></td><td>Focus the current unit’s note field</td></tr>
+          <tr><td><kbd>g</kbd></td><td>Approve every remaining unverdicted unit in the current group</td></tr>
+          <tr><td><kbd>x</kbd></td><td>Toggle the current unit’s explain/provenance panel</td></tr>
+          <tr><td><kbd>↓</kbd> / <kbd>↑</kbd></td><td>Move the cursor without verdicting</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next batch</td></tr>
+          <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
+          <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
+        </tbody>
+      </table>
+      <p>Click a config chip first to scope the next verdict to that config; the default verdict covers all of the unit’s configs.</p>
+      <form method="dialog"><button>Close</button></form>
+    </dialog>
+
+    <dialog id="import">
+      <h2>Import verdicts</h2>
+      <p>Merge a previously exported <code>verdicts.json</code> by unit id; the newer record per unit wins.</p>
+      <label class="file-label">File <input type="file" id="import-file" accept="application/json,.json" /></label>
+      <label class="paste-label">Or paste <textarea id="import-paste" rows="6" spellcheck="false"></textarea></label>
+      <div class="dialog-actions">
+        <button type="button" id="do-import">Import</button>
+        <form method="dialog"><button>Cancel</button></form>
+      </div>
+    </dialog>
+
+    <div id="toast" role="status" hidden></div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

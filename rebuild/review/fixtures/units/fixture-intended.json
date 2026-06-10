@@ -1,0 +1,194 @@
+[
+ {
+  "id": "u-0000",
+  "batch": 0,
+  "class": "fixture-intended",
+  "group": "qsTea:qsOy",
+  "codepoints": "200C:E652:E679",
+  "text_entities": "&#x200C;&#xE652;&#xE679;",
+  "notation": "◊ZWNJ ·Tea·Oy",
+  "configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"],
+  "kinds": ["ligation"],
+  "exemplar": true,
+  "before": {"glyphs": ["space", "qsTea_qsOy"], "seams": ["break"]},
+  "after": {"cells": ["zwnj/boundary/None/None/", "qsTea_qsOy/bar-into-loop/None/None/"], "seams": ["break"], "extensions": [0]},
+  "diff_positions": [1],
+  "pair": {"left": 0, "right": 1},
+  "highlight": {
+   "before": {"x_min": 0, "x_max": 500, "advance_total": 500},
+   "after": {"x_min": 0, "x_max": 500, "advance_total": 500}
+  },
+  "boundary_marks": [{"index": 0, "kind": "zwnj", "x": 0}],
+  "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.bar-into-loop\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "◊ZWNJ | ·Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{stance: bar-into-loop, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (◊ZWNJ ·Tea·Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for 200C:E652:E679 (◊ZWNJ ·Tea·Oy)"
+   },
+   "any_of": {
+    "text": "ZWNJ qsTea qsOy",
+    "features": {"ss03": true},
+    "candidates": ["◊ZWNJ | ·Tea+Oy", "◊ZWNJ | ·Tea | ·Oy"]
+   }
+  }
+ },
+ {
+  "id": "u-0001",
+  "batch": 0,
+  "class": "fixture-intended",
+  "group": "qsIt:qsIt",
+  "codepoints": "E670:E670",
+  "text_entities": "&#xE670;&#xE670;",
+  "notation": "·It·It",
+  "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"],
+  "kinds": ["cell"],
+  "exemplar": true,
+  "before": {"glyphs": ["qsIt.ex-y5", "qsIt"], "seams": ["break"]},
+  "after": {"cells": ["qsIt/bar/None/None/", "qsIt/bar/None/None/"], "seams": ["break"], "extensions": [0]},
+  "diff_positions": [0, 1],
+  "pair": {"left": 0, "right": 1},
+  "highlight": {
+   "before": {"x_min": 0, "x_max": 100, "advance_total": 100},
+   "after": {"x_min": 0, "x_max": 100, "advance_total": 100}
+  },
+  "boundary_marks": [],
+  "explain": "sequence E670:E670   config default\nsettled: qsIt.bar qsIt.bar\n\nposition 0: qsIt\n  decided by: floor",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "·It | ·It",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (·It·It)'}",
+    "names_provenance": [],
+    "decided_stage": "floor",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (·It·It)"
+   },
+   "any_of": {
+    "text": "qsIt qsIt",
+    "features": {},
+    "candidates": ["·It | ·It"]
+   }
+  }
+ },
+ {
+  "id": "u-0002",
+  "batch": 0,
+  "class": "fixture-intended",
+  "group": "qsTea:qsIt",
+  "codepoints": "E652:E670",
+  "text_entities": "&#xE652;&#xE670;",
+  "notation": "·Tea·It",
+  "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"],
+  "kinds": ["cell"],
+  "exemplar": false,
+  "before": {"glyphs": ["qsTea.half.ex-y5", "qsIt.en-y5.ex-y0"], "seams": ["y5"]},
+  "after": {"cells": ["qsTea/half/None/x-height/", "qsIt/bar/x-height/None/en-ext-1"], "seams": ["y5"], "extensions": [1]},
+  "diff_positions": [1],
+  "pair": {"left": 0, "right": 1},
+  "highlight": {
+   "before": {"x_min": 0, "x_max": 150, "advance_total": 150},
+   "after": {"x_min": 0, "x_max": 200, "advance_total": 200}
+  },
+  "boundary_marks": [],
+  "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.bar.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
+  "provenance": ["glyph_data/runes/qsIt.yaml:policy.extend[0]"],
+  "drafts": {
+   "pin": {
+    "expect": "·Tea ~x~ ·It",
+    "attribute": "data-expect",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": "site/the-manual.html:9999",
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsIt.yaml",
+    "keypath": "policy.contract[+]",
+    "suggested_record": "{entry: x-height, by: 1, when: {left: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E652:E670 (·Tea·It)'}",
+    "names_provenance": ["glyph_data/runes/qsIt.yaml:policy.extend[0]"],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E670 (·Tea·It)"
+   },
+   "any_of": {
+    "text": "qsTea qsIt",
+    "features": {},
+    "candidates": ["·Tea ~x~ ·It"]
+   }
+  }
+ },
+ {
+  "id": "u-0003",
+  "batch": 0,
+  "class": "fixture-intended",
+  "group": "qsPea:qsMay",
+  "codepoints": "E650:E665",
+  "text_entities": "&#xE650;&#xE665;",
+  "notation": "·Pea·May",
+  "configs": ["ss02", "ss02+ss03", "ss02+ss03+ss05"],
+  "kinds": ["cell", "seam"],
+  "exemplar": false,
+  "before": {"glyphs": ["qsPea", "qsMay.en-y0.ex-y5.en-ext-1"], "seams": ["y0"]},
+  "after": {"cells": ["qsPea/full/None/baseline/", "qsMay/loop/baseline/None/en-ext-1"], "seams": ["y0"], "extensions": [1]},
+  "diff_positions": [0],
+  "pair": {"left": 0, "right": 1},
+  "highlight": {
+   "before": {"x_min": 0, "x_max": 550, "advance_total": 550},
+   "after": {"x_min": 0, "x_max": 550, "advance_total": 550}
+  },
+  "boundary_marks": [],
+  "explain": "sequence E650:E665   config ss02\nsettled: qsPea qsMay.loop.en-y0.en-ext-1\n\nposition 0: qsPea\n  decided by: join-count",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "·Pea ~b~ ·May",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "02",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsPea.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E650:E665 (·Pea·May)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E650:E665 (·Pea·May)"
+   },
+   "any_of": {
+    "text": "qsPea qsMay",
+    "features": {"ss02": true},
+    "candidates": ["·Pea ~b~ ·May"]
+   }
+  }
+ }
+]

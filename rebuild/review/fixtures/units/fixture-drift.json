@@ -1,0 +1,98 @@
+[
+ {
+  "id": "u-0004",
+  "batch": 0,
+  "class": "fixture-drift",
+  "group": "qsOy:qsTea",
+  "codepoints": "00B7:E679:E652",
+  "text_entities": "&#x00B7;&#xE679;&#xE652;",
+  "notation": "· ·Oy·Tea",
+  "configs": ["default", "ss04", "ss05"],
+  "kinds": ["cell"],
+  "exemplar": false,
+  "before": {"glyphs": ["periodcentered.lowered", "qsOy", "qsTea.en-y0"], "seams": ["break", "y0"]},
+  "after": {"cells": ["namer-dot/boundary/None/None/", "qsOy/loop/None/baseline/", "qsTea/full/baseline/None/"], "seams": ["break", "y0"], "extensions": [0, 0]},
+  "diff_positions": [1, 2],
+  "pair": {"left": 1, "right": 2},
+  "highlight": {
+   "before": {"x_min": 150, "x_max": 650, "advance_total": 650},
+   "after": {"x_min": 150, "x_max": 650, "advance_total": 650}
+  },
+  "boundary_marks": [{"index": 0, "kind": "namer-dot", "x": 0}],
+  "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.loop.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "\\· | ·Oy ~b~ ·Tea",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": null,
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsOy.yaml",
+    "keypath": "policy.prefer[+]",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for 00B7:E679:E652 (· ·Oy·Tea)'}",
+    "names_provenance": [],
+    "decided_stage": "join-count",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for 00B7:E679:E652 (· ·Oy·Tea)"
+   },
+   "any_of": {
+    "text": "· qsOy qsTea",
+    "features": {},
+    "candidates": ["\\· | ·Oy ~b~ ·Tea"]
+   }
+  }
+ },
+ {
+  "id": "u-0005",
+  "batch": 0,
+  "class": "fixture-drift",
+  "group": "qsTea:qsOy",
+  "codepoints": "E652:E679",
+  "text_entities": "&#xE652;&#xE679;",
+  "notation": "·Tea·Oy",
+  "configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+  "kinds": ["ligation"],
+  "exemplar": false,
+  "before": {"glyphs": ["qsTea", "qsOy"], "seams": ["break"]},
+  "after": {"cells": ["qsTea_qsOy/bar-into-loop/None/None/"], "seams": [], "extensions": []},
+  "diff_positions": [0],
+  "pair": null,
+  "highlight": {
+   "before": {"x_min": 0, "x_max": 500, "advance_total": 500},
+   "after": {"x_min": 0, "x_max": 500, "advance_total": 500}
+  },
+  "boundary_marks": [],
+  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.bar-into-loop\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
+  "provenance": [],
+  "drafts": {
+   "pin": {
+    "expect": "·Tea+Oy",
+    "attribute": "data-expect-noncanonically",
+    "stylistic_set": "03",
+    "syntax": "pass",
+    "semantics_after_font": "pass",
+    "duplicate_of": null,
+    "suggested_home": "site/the-manual.html"
+   },
+   "policy": {
+    "file": "glyph_data/runes/qsTea_qsOy.yaml",
+    "keypath": "policy.refuse[+]",
+    "suggested_record": "{stance: bar-into-loop, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (·Tea·Oy)'}",
+    "names_provenance": [],
+    "decided_stage": "only-candidate",
+    "schema_valid": true,
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E679 (·Tea·Oy)"
+   },
+   "any_of": {
+    "text": "qsTea qsOy",
+    "features": {"ss03": true},
+    "candidates": ["·Tea+Oy", "·Tea | ·Oy"]
+   }
+  }
+ }
+]

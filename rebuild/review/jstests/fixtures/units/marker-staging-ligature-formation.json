@@ -1,0 +1,114 @@
+[
+  {
+    "id": "u-0001",
+    "batch": 0,
+    "class": "marker-staging-ligature-formation",
+    "group": "qsTea:qsOy",
+    "codepoints": "200C:E652:E679",
+    "text_entities": "&#x200C;&#xE652;&#xE679;",
+    "notation": "◊ZWNJ ·Tea·Oy",
+    "configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"],
+    "kinds": ["ligation"],
+    "exemplar": true,
+    "before": { "glyphs": ["space", "qsTea_qsOy"], "seams": ["break", "lig"] },
+    "after": { "cells": ["uni200C", "qsTea_qsOy/bar-into-loop/None/None/+locked"], "seams": ["break", "lig"], "extensions": [0, 0] },
+    "diff_positions": [0],
+    "pair": { "left": 0, "right": 1 },
+    "highlight": {
+      "before": { "x_min": 0, "x_max": 1100, "advance_total": 1650 },
+      "after": { "x_min": 0, "x_max": 1100, "advance_total": 1650 }
+    },
+    "boundary_marks": [{ "index": 0, "kind": "zwnj", "x": 0 }],
+    "explain": "position 0: marker staged before ligature formation; the formed ligature is byte-identical.",
+    "provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"],
+    "drafts": {
+      "pin": { "expect": "◊ZWNJ ·Tea+Oy", "attribute": "data-expect-noncanonically", "stylistic_set": "03", "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/the-manual.html" },
+      "policy": { "file": "glyph_data/runes/qsTea.yaml", "keypath": "policy.refuse[+]", "suggested_record": "{left: {rune: uni200C}, why: 'TODO'}", "names_provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"], "decided_stage": "prefer", "schema_valid": true },
+      "any_of": { "text": "ZWNJ qsTea qsOy", "features": { "ss03": true }, "candidates": ["◊ZWNJ ·Tea+Oy", "◊ZWNJ ·Tea ~b~ ·Oy"] }
+    }
+  },
+  {
+    "id": "u-0002",
+    "batch": 0,
+    "class": "marker-staging-ligature-formation",
+    "group": "qsTea:qsOy",
+    "codepoints": "0020:E652:E679",
+    "text_entities": "&#x0020;&#xE652;&#xE679;",
+    "notation": "␣ ·Tea·Oy",
+    "configs": ["ss03"],
+    "kinds": ["ligation"],
+    "exemplar": false,
+    "before": { "glyphs": ["space", "qsTea_qsOy"], "seams": ["break", "lig"] },
+    "after": { "cells": ["space", "qsTea_qsOy/bar-into-loop/None/None/+locked"], "seams": ["break", "lig"], "extensions": [0, 0] },
+    "diff_positions": [1],
+    "pair": { "left": 1, "right": 2 },
+    "highlight": {
+      "before": { "x_min": 275, "x_max": 1375, "advance_total": 1925 },
+      "after": { "x_min": 275, "x_max": 1375, "advance_total": 1925 }
+    },
+    "boundary_marks": [{ "index": 0, "kind": "space", "x": 137 }],
+    "explain": "position 1: ligature forms through a different staging order; same ink.",
+    "provenance": [],
+    "drafts": {
+      "pin": { "expect": "◊space ·Tea+Oy", "attribute": "data-expect-noncanonically", "stylistic_set": "03", "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/the-manual.html" },
+      "policy": { "file": "glyph_data/runes/qsTea.yaml", "keypath": "policy.refuse[+]", "suggested_record": "{left: {rune: space}, why: 'TODO'}", "names_provenance": [], "decided_stage": "floor", "schema_valid": true },
+      "any_of": { "text": "space qsTea qsOy", "features": { "ss03": true }, "candidates": ["◊space ·Tea+Oy", "◊space ·Tea ~b~ ·Oy"] }
+    }
+  },
+  {
+    "id": "u-0003",
+    "batch": 0,
+    "class": "marker-staging-ligature-formation",
+    "group": "qsPea:qsMay",
+    "codepoints": "E650:E665",
+    "text_entities": "&#xE650;&#xE665;",
+    "notation": "·Pea·May",
+    "configs": ["default"],
+    "kinds": ["variant"],
+    "exemplar": false,
+    "before": { "glyphs": ["qsPea", "qsMay"], "seams": ["y0"] },
+    "after": { "cells": ["qsPea/tall-stem/None/None/", "qsMay"], "seams": ["y0"], "extensions": [0] },
+    "diff_positions": [0],
+    "pair": null,
+    "highlight": {
+      "before": { "x_min": 0, "x_max": 550, "advance_total": 1100 },
+      "after": { "x_min": 0, "x_max": 550, "advance_total": 1100 }
+    },
+    "boundary_marks": [],
+    "explain": "position 0: cell renames only; no seam change, so there is no pair to underline.",
+    "provenance": ["glyph_data/runes/qsMay.yaml:policy.prefer[2]"],
+    "drafts": {
+      "pin": { "expect": "·Pea ~b~ ·May", "attribute": "data-expect", "stylistic_set": null, "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/the-manual.html" },
+      "policy": { "file": "glyph_data/runes/qsMay.yaml", "keypath": "policy.refuse[+]", "suggested_record": "{left: {rune: qsPea, ex: baseline}, why: 'TODO'}", "names_provenance": ["glyph_data/runes/qsMay.yaml:policy.prefer[2]"], "decided_stage": "prefer", "schema_valid": true },
+      "any_of": { "text": "qsPea qsMay", "features": {}, "candidates": ["·Pea ~b~ ·May", "·Pea ? ·May"] }
+    }
+  },
+  {
+    "id": "u-0004",
+    "batch": 0,
+    "class": "marker-staging-ligature-formation",
+    "group": "qsDay:qsUtter",
+    "codepoints": "E653:E67A:E667",
+    "text_entities": "&#xE653;&#xE67A;&#xE667;",
+    "notation": "·Day·Utter·Low",
+    "configs": ["ss02", "ss10"],
+    "kinds": ["ligation", "extension"],
+    "exemplar": false,
+    "before": { "glyphs": ["qsDay_qsUtter", "qsLow"], "seams": ["lig", "y5"] },
+    "after": { "cells": ["qsDay_qsUtter/loop/None/None/", "qsLow"], "seams": ["lig", "y5"], "extensions": [1] },
+    "diff_positions": [1],
+    "pair": { "left": 0, "right": 1 },
+    "highlight": {
+      "before": { "x_min": 220, "x_max": 1320, "advance_total": 1870 },
+      "after": { "x_min": 220, "x_max": 1375, "advance_total": 1925 }
+    },
+    "boundary_marks": [],
+    "explain": "position 1: the rebuild extends the ligature's exit by one pixel toward ·Low.",
+    "provenance": ["glyph_data/runes/qsDay.yaml:policy.extend[3]"],
+    "drafts": {
+      "pin": { "expect": "·Day+?Utter ~x~ ·Low", "attribute": "data-expect", "stylistic_set": "02 10", "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": "site/the-manual.html#pin-417", "suggested_home": "site/the-manual.html" },
+      "policy": { "file": "glyph_data/runes/qsDay.yaml", "keypath": "policy.refuse[+]", "suggested_record": "{right: {rune: qsLow, en: x-height}, why: 'TODO'}", "names_provenance": ["glyph_data/runes/qsDay.yaml:policy.extend[3]"], "decided_stage": "extend", "schema_valid": true },
+      "any_of": { "text": "qsDay qsUtter qsLow", "features": { "ss02": true, "ss10": true }, "candidates": ["·Day+?Utter ~x~ ·Low", "·Day+?Utter | ·Low"] }
+    }
+  }
+]
