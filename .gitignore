@@ -23,5 +23,8 @@ wheels/
 # Scratch files
 tmp/
 
+# Rebuild baseline extraction output
+rebuild/out/
+
 # Claude Code local state
 .claude/scheduled_tasks.lock
