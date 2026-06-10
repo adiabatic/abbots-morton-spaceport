@@ -1,7 +1,7 @@
 rune: qsTea_qsOy
 sequence: [qsTea, qsOy]
 ductus:
-  bar-into-loop: | # DRAFT — pending author sign-off
+  bar-into-loop: |
     Written as ·Tea flowing into ·Oy: the vertical bar first, from the top down through the x-height. Without lifting the pen, the small ·Oy loop is drawn clockwise around the foot of the bar, closing on it, and the stroke runs out diagonally down to the right, ending at the baseline, where it may connect to the next letter.
 notes: |
   Entryless by declaration: the empty entries map is explicit so the obligation is visible (entry inheritance from the lead ·Tea cannot apply — the ligature's leftmost ink at the lead's entry heights does not match the lead's anchors). Predecessors withdraw their exits before this ligature; that is cell semantics on their side, never policy here.

@@ -1,7 +1,7 @@
 rune: qsOy
 codepoint: 0xE679
 ductus:
-  loop: | # DRAFT — pending author sign-off
+  loop: |
     A small loop sitting at the x-height, written clockwise from its top, closing on itself; the stroke then runs out diagonally down to the right, ending at the baseline, where it may connect to the next letter. When a previous letter joins at the x-height, the loop opens on the left to receive the join.
 mono:
   bitmap:
