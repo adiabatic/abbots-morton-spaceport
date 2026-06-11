@@ -1,4 +1,4 @@
-export const VERDICT_KINDS = ['approve', 'reject', 'either', 'skip'];
+export const VERDICT_KINDS = ['approve', 'reject', 'either', 'neither', 'skip'];
 
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
 
@@ -111,7 +111,7 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
 }
 
 export function verdictCounts(store) {
-  const counts = { approve: 0, reject: 0, either: 0, skip: 0 };
+  const counts = { approve: 0, reject: 0, either: 0, neither: 0, skip: 0 };
   for (const record of store.records.values()) counts[record.verdict] += 1;
   return counts;
 }

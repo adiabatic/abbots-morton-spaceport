@@ -32,6 +32,7 @@ const VERDICT_LABELS = [
   ['reject', 'Reject', 's', 'Reject — want the old behavior back'],
   ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
   ['approve', 'Approve', 'f', 'Approve — the new behavior is right'],
+  ['neither', 'Neither', 'c', 'Neither — both behaviors look wrong; flag for follow-up'],
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
@@ -445,7 +446,7 @@ function updateProgress() {
   const counts = verdictCounts(store);
   document.getElementById('overall-progress').textContent =
     `Overall: ${store.records.size}/${humanTotal(manifest)} ` +
-    `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} →${counts.skip})`;
+    `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} ∅${counts.neither} →${counts.skip})`;
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
   nudge.textContent = `${store.unexported.size} unexported`;
@@ -741,7 +742,7 @@ function wireEvents() {
       return;
     }
     event.preventDefault();
-    if (action === 'approve' || action === 'reject' || action === 'either' || action === 'skip') {
+    if (action === 'approve' || action === 'reject' || action === 'either' || action === 'neither' || action === 'skip') {
       verdictCursor(action);
     } else if (action === 'undo') {
       undoLast();

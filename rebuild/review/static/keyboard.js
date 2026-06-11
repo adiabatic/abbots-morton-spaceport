@@ -3,6 +3,7 @@ export const KEY_MAP = new Map([
   ['s', 'reject'],
   ['d', 'either'],
   ['f', 'approve'],
+  ['c', 'neither'],
   ['u', 'undo'],
   ['n', 'note'],
   ['g', 'group-approve'],
