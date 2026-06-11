@@ -23,6 +23,7 @@ from rebuild.review.enrich import (
     EnrichedUnit,
     letter_display,
 )
+from rebuild.review.ink import kern_neutral
 from rebuild.validation.classify import SeamClassifier
 from rebuild.validation.pins import ReplayReport, _check_interpretation
 from rebuild.validation.rowmodel import config_token_for_features
@@ -264,7 +265,7 @@ class Drafter:
             tokens, connections = ts.parse_expect(expect)
         except ValueError as error:
             return f"fail: unparseable: {error}"
-        row = row_for(self.after_shaper, self.after_classifier, text, features)
+        row = row_for(self.after_shaper, self.after_classifier, text, kern_neutral(features))
         row = replace(row, glyphs=tuple("space" if g == "uni200C" else g for g in row.glyphs))
         report = ReplayReport()
         errors: list[str] = []

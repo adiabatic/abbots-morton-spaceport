@@ -581,6 +581,8 @@ details.group {
   .qs {
     font-size: var(--font-size);
     line-height: 1.4;
+    /* Kern-neutral comparison: the rebuild has no kerning until its own milestone, so the old font's kern feature is pure noise here. Composes with the inline font-feature-settings the app sets per render group. */
+    font-kerning: none;
     -webkit-font-smoothing: none;
     font-smooth: never;
     position: relative;

@@ -181,13 +181,13 @@ test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
 });
 
-test('copyPreamble names the unit, codepoints, notation, class, and configs', () => {
+test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
   const text = copyPreamble(shardB[0]);
   assert.match(text, /rebuild\/out\/review\/ unit u-0005/);
   assert.match(text, /E668:E665:E657/);
   assert.match(text, /·Roe·May·They/);
-  assert.match(text, /dangling-anchor-dropped/);
-  assert.match(text, /default, ss05/);
+  assert.doesNotMatch(text, /dangling-anchor-dropped/);
+  assert.doesNotMatch(text, /ss05/);
 });
 
 test('fixture units satisfy the contract fields the frontend relies on', () => {

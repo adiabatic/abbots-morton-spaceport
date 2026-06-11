@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review prettier woff2 clean
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -56,6 +56,13 @@ explainer:
 
 serve:
 	uv run python tools/serve.py
+
+# Regenerate the §11 review surface under rebuild/out/review/ (`review` is taken by the scoped-anchor-selector review above).
+review-build:
+	uv run python -m rebuild.review.build
+
+review-serve:
+	uv run python -m rebuild.review.serve
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all

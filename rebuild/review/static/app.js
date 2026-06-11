@@ -47,6 +47,7 @@ const MACHINE_TITLE =
 let state = withDefaults(parseHash(location.hash));
 let visibleUnits = [];
 let machineUnits = [];
+let transientMachineUnitId = null;
 let renderedKey = null;
 let renderToken = 0;
 const machineFoldBuilders = new Map();
@@ -318,13 +319,11 @@ function renderBatch(units, machine) {
 
 function renderMachineSection(container, machine) {
   if (machine.length === 0) return;
-  container.append(
-    el(
-      'h2',
-      'machine-heading',
-      `Machine-approved in this view: ${machine.length} ink-identical units (no verdict needed)`,
-    ),
-  );
+  const heading =
+    state.machine === '1'
+      ? `Machine-approved in this view: ${machine.length} ink-identical units (no verdict needed)`
+      : 'This deep-linked unit is machine-approved (ink-identical) — no verdict needed; it stays out of your queue and disappears when you move on.';
+  container.append(el('h2', 'machine-heading', heading));
   const byClass = new Map();
   for (const unit of machine) {
     if (!byClass.has(unit.class)) byClass.set(unit.class, []);
@@ -397,8 +396,9 @@ async function ensureCursor() {
   if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
     if (unit && unit.ink_identical) {
-      // Deep-linking to a machine-approved unit auto-enables the toggle (and scopes to its class) instead of 404ing.
-      setStateReplace({ machine: '1', class: unit.class });
+      // Deep-linking to a machine-approved unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again.
+      transientMachineUnitId = unit.id;
+      setStateReplace({});
       return false;
     }
     if (unit && unit.batch !== state.batch && unitMatchesFilters(unit, state, store.records.get(unit.id))) {
@@ -535,6 +535,11 @@ async function applyHashState() {
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
+  if (transientMachineUnitId && state.unit !== transientMachineUnitId) transientMachineUnitId = null;
+  if (transientMachineUnitId && !machine.some((unit) => unit.id === transientMachineUnitId)) {
+    const transient = unitsById.get(transientMachineUnitId);
+    if (transient) machine.push(transient);
+  }
   visibleUnits = human;
   machineUnits = machine;
   const key = JSON.stringify([
@@ -545,6 +550,7 @@ async function applyHashState() {
     state.family,
     state.status,
     state.machine,
+    transientMachineUnitId,
   ]);
   if (key !== renderedKey) {
     renderBatch(human, machine);
