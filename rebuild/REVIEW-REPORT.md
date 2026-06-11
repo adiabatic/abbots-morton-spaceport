@@ -26,22 +26,23 @@ Both columns render with kerning off (`font-kerning: none` on the sample cells, 
 
 ### Keyboard map
 
-| Key      | Action                                                    |
-| -------- | --------------------------------------------------------- |
-| `a`      | Skip + auto-advance                                       |
-| `s`      | Reject (want the old behavior back) + auto-advance        |
-| `d`      | Fine either way (any-of channel) + auto-advance           |
-| `f`      | Approve (the new behavior is right) + auto-advance        |
-| `u`      | Undo last verdict                                         |
-| `n`      | Focus the note input for the current unit                 |
-| `g`      | Approve the whole group under the cursor                  |
-| `x`      | Toggle the explain panel (same as the row's Why? button)  |
-| `↓` `↑`  | Move cursor without verdicting                            |
-| `[` `]`  | Previous / next batch                                     |
-| `?`      | Help overlay                                              |
-| `Escape` | Blur input / close overlay                                |
+| Key      | Action                                                         |
+| -------- | -------------------------------------------------------------- |
+| `a`      | Skip + auto-advance                                            |
+| `s`      | Reject (want the old behavior back) + auto-advance             |
+| `d`      | Fine either way (any-of channel) + auto-advance                |
+| `c`      | Neither — both behaviors look wrong (follow-up) + auto-advance |
+| `f`      | Approve (the new behavior is right) + auto-advance             |
+| `u`      | Undo last verdict                                              |
+| `n`      | Focus the note input for the current unit                      |
+| `g`      | Approve the whole group under the cursor                       |
+| `x`      | Toggle the explain panel (same as the row's Why? button)       |
+| `↓` `↑`  | Move cursor without verdicting                                 |
+| `[` `]`  | Previous / next batch                                          |
+| `?`      | Help overlay                                                   |
+| `Escape` | Blur input / close overlay                                     |
 
-The four verdict keys sit on the left home row: `a` skip, `s` reject, `d` fine-either-way, `f` approve. Shortcuts are suppressed while a note input is focused; `Escape` gets you back out. A verdict always covers the whole unit — every config in its config set (most units show no config marker because they diverge under every non-ss10 config; when a small badge like "only when ss03 is on" is present, hover it for the full list).
+The four main verdict keys sit on the left home row: `a` skip, `s` reject, `d` fine-either-way, `f` approve. The fifth verdict, `c` neither, means both behaviors look wrong — the unit needs follow-up authoring work rather than a pick; its button sits directly below Either in the verdict grid. Shortcuts are suppressed while a note input is focused; `Escape` gets you back out. A verdict always covers the whole unit — every config in its config set (most units show no config marker because they diverge under every non-ss10 config; when a small badge like "only when ss03 is on" is present, hover it for the full list). Approving a unit draws a green outline around its after sample; rejecting overlays a red X on it; either outlines both samples green (both are fine); neither overlays the red X on both (both are wrong) — all four visuals follow the row's recorded verdict, so they survive re-render and import, and clear on undo.
 
 ### Reading the explain panel
 
@@ -64,11 +65,12 @@ Every row carries an always-visible one-line summary under the renderings — wh
 
 ### What to do with each exported artifact
 
-Run the export CLI on the downloaded file; the resulting `tmp/review-triage.yaml` has three sections:
+Run the export CLI on the downloaded file; the resulting `tmp/review-triage.yaml` has four sections:
 
 - **`pins`** (from approvals): whole-word `data-expect` strings, each already validated for syntax (the repo's real `parse_expect`) and semantics against the after-font. Copy each into its `suggested_home` (e.g. `site/the-manual.html`) as a `data-expect` / `data-expect-noncanonically` attribute — this is the opinions-become-pins loop from §10 item 5. `duplicate_of` flags pins already covered.
 - **`policy_edits`** (from rejections): one-line `policy.prefer[+]` / `policy.refuse[+]` / `policy.contract[+]` records naming the target rune file, an appendable keypath, the deciding provenance records, and the decided stage. These are _drafts_, never auto-applied: review each, paste into the named `glyph_data/runes/*.yaml`, and rebuild. Units with `no_mechanical_draft` have no expressible one-line counter-lever — start from `names_provenance` and the unit's explain panel by hand.
 - **`any_of`** (from fine-either-way): candidate expect strings (after-behavior first) for the any-of channel, realized as `_assert_expect_any` until the corpus connective exists. Units whose before/after behaviors are whole-word-identical (cell-only divergences) deliberately carry a single candidate.
+- **`neither`** (from neither-verdicts): both the old and the new behavior look wrong, so nothing automatic is drafted — no pin, no policy edit, no any-of. Each entry carries the unit id, codepoints, notation, the reviewer's note, and `names_provenance` (the `glyph_data/runes/*.yaml` records the outcome was attributed to — the follow-up author's levers). These units need fresh authoring work, starting from the provenance and the unit's explain panel.
 
 ## What was verified mechanically vs what needs your eyes
 

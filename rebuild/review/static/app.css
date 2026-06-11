@@ -28,6 +28,7 @@
   --approve: light-dark(#1a7f37, #57d989);
   --reject: light-dark(#c43030, #ff7b72);
   --either: light-dark(#8250df, #c297ff);
+  --neither: light-dark(#9a6700, #e3b341);
   --skip: light-dark(#777, #999);
 }
 
@@ -297,7 +298,7 @@ details.group.machine-group {
 
 .col-headers {
   display: grid;
-  grid-template-columns: 30ch minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 34ch minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
   padding: 0.6rem 1rem;
   font-size: 14px;
@@ -347,7 +348,7 @@ details.group {
 
 .row {
   display: grid;
-  grid-template-columns: 30ch minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 34ch minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
   align-items: baseline;
   padding: 0.9rem 1rem;
@@ -365,6 +366,11 @@ details.group {
 
   &[data-verdict="approve"] {
     border-left-color: var(--approve);
+
+    .qs.after {
+      outline: 3px solid var(--approve);
+      outline-offset: -3px;
+    }
   }
 
   &[data-verdict="reject"] {
@@ -373,6 +379,36 @@ details.group {
 
   &[data-verdict="either"] {
     border-left-color: var(--either);
+
+    .qs {
+      outline: 3px solid var(--approve);
+      outline-offset: -3px;
+    }
+  }
+
+  &[data-verdict="neither"] {
+    border-left-color: var(--neither);
+  }
+
+  &[data-verdict="reject"] .qs.after::after,
+  &[data-verdict="neither"] .qs::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        to top right,
+        transparent calc(50% - 1.5px),
+        var(--reject) calc(50% - 1.5px) calc(50% + 1.5px),
+        transparent calc(50% + 1.5px)
+      ),
+      linear-gradient(
+        to bottom right,
+        transparent calc(50% - 1.5px),
+        var(--reject) calc(50% - 1.5px) calc(50% + 1.5px),
+        transparent calc(50% + 1.5px)
+      );
   }
 
   &[data-verdict="skip"] {
@@ -448,16 +484,22 @@ details.group {
     }
 
     .verdict-buttons {
-      display: flex;
-      flex-wrap: wrap;
+      display: grid;
+      grid-template-columns: repeat(4, max-content);
+      justify-content: start;
       gap: 0.3rem;
 
       .verdict-btn {
         font-size: 12px;
         padding: 0.15rem 0.5rem;
+        white-space: nowrap;
 
         kbd {
           font-size: 10px;
+        }
+
+        &[data-verdict="neither"] {
+          grid-column: 3;
         }
 
         &[aria-pressed="true"] {
@@ -476,6 +518,11 @@ details.group {
           &[data-verdict="either"] {
             border-color: var(--either);
             color: var(--either);
+          }
+
+          &[data-verdict="neither"] {
+            border-color: var(--neither);
+            color: var(--neither);
           }
 
           &[data-verdict="skip"] {

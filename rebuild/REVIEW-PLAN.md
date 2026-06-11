@@ -98,22 +98,23 @@ Design stance per the frontend doc's pre-coding questions — Purpose: a one-per
 - **Batches and grouping**: class → family-pair group → batch of 300 units, per §2.1. The page shows one batch at a time; groups within a batch are `details.collapsible` folds with unit counts and a whole-group approve button (justified by the 1:6.4 dedupe ratio; `intended` classes are bulk-confirmable, `drift-accepted` classes get the eyeballs). A sidebar lists classes with status, deduped/raw counts, ledger `why`, and per-class progress.
 - **One-key home-row verdicts** (exact map, also shown in a `?` help overlay; ignored while focus is in an input/textarea/select except Escape):
 
-| Key                   | Action                                                             |
-| --------------------- | ------------------------------------------------------------------ |
-| `a`                   | Approve (thumbs-up), record, auto-advance to next unverdicted unit |
-| `s`                   | Reject (thumbs-down), record, auto-advance                         |
-| `d`                   | Fine either way (any-of), record, auto-advance                     |
-| `f`                   | Skip (explicit no-verdict record), advance                         |
-| `u`                   | Undo: pop the last verdict action and return the cursor to it      |
-| `n`                   | Focus the current unit's note field (Escape returns to the list)   |
-| `g`                   | Approve every remaining unverdicted unit in the current group      |
-| `x`                   | Toggle the current unit's explain/provenance detail panel          |
-| `ArrowDown`/`ArrowUp` | Move the cursor without verdicting                                 |
-| `[` / `]`             | Previous / next batch                                              |
-| `?`                   | Help overlay                                                       |
-| `Escape`              | Blur input / close overlay                                         |
+| Key                   | Action                                                                          |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `a`                   | Skip (explicit no-verdict record), advance to next unverdicted unit             |
+| `s`                   | Reject (thumbs-down), record, auto-advance                                      |
+| `d`                   | Fine either way (any-of), record, auto-advance                                  |
+| `c`                   | Neither — both behaviors look wrong; flag for follow-up authoring, auto-advance |
+| `f`                   | Approve (thumbs-up), record, auto-advance                                       |
+| `u`                   | Undo: pop the last verdict action and return the cursor to it                   |
+| `n`                   | Focus the current unit's note field (Escape returns to the list)                |
+| `g`                   | Approve every remaining unverdicted unit in the current group                   |
+| `x`                   | Toggle the current unit's explain/provenance detail panel                       |
+| `ArrowDown`/`ArrowUp` | Move the cursor without verdicting                                              |
+| `[` / `]`             | Previous / next batch                                                           |
+| `?`                   | Help overlay                                                                    |
+| `Escape`              | Blur input / close overlay                                                      |
 
-The four verdict keys run left to right along the left home row — `a` skip, `s` reject, `d` fine-either-way, `f` approve (per direct user feedback, twice reworked: the original opposite-hands `j`/`f`/`d`/`k` map became a/s/d/f, then the order settled as skip/reject/either/approve). The keys are accelerators over real `<button>` elements (visible focus indicators, keyboard-accessible per WCAG); one delegated document `keydown` handler drives the same code path as clicks. Auto-advance scrolls with `behavior: smooth`, dropping to `auto` under `prefers-reduced-motion`.
+The four main verdict keys run left to right along the left home row — `a` skip, `s` reject, `d` fine-either-way, `f` approve (per direct user feedback, twice reworked: the original opposite-hands `j`/`f`/`d`/`k` map became a/s/d/f, then the order settled as skip/reject/either/approve). A fifth verdict, `c` neither, records that both the old and the new behavior look wrong — the unit needs follow-up authoring work rather than a pick; its button sits in a second grid row directly below Either (the verdict-button container is a 4-column grid, `c` in column 3). The keys are accelerators over real `<button>` elements (visible focus indicators, keyboard-accessible per WCAG); one delegated document `keydown` handler drives the same code path as clicks. Auto-advance scrolls with `behavior: smooth`, dropping to `auto` under `prefers-reduced-motion`. A row's recorded verdict also marks the after sample itself: approve draws an inset green outline around the after cell, reject overlays a non-interactive red X (`::after`, two crossing gradient strokes, `pointer-events: none`); both are CSS off the row's `data-verdict`, so they appear on record or import, survive re-render, and clear on undo.
 
 - **Per-row notes**: a text input per unit, included in the verdict record and threaded into the drafted `why:` stubs.
 - **Whole-unit verdicts**: a verdict always covers all of the unit's configs. (The originally planned per-config chip scoping was removed on user feedback — since every config renders identically, a click that changes nothing visible is misleading. The inert chip strip that replaced it was then removed too, in favor of the `config_note` badge above.)
@@ -131,7 +132,7 @@ View state lives in `location.hash` as `URLSearchParams`, tables.html-style (`pa
 All three drafts are precomputed per unit by `drafts.py` at generation time and shipped in the shard JSON; the browser only selects them. The authoritative export is two-stage:
 
 1. **The page** exports `verdicts.json` (download/copy) — the canonical, re-importable work product.
-2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml`) joins verdicts to units, re-validates every selected draft, and writes **one triage YAML with three sections** for human placement. Nothing is auto-applied to the corpus or the rune files.
+2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml`) joins verdicts to units, re-validates every selected draft, and writes **one triage YAML with four sections** for human placement. Nothing is auto-applied to the corpus or the rune files.
 
 ### 4.1 `verdicts.json`
 
@@ -147,16 +148,16 @@ All three drafts are precomputed per unit by `drafts.py` at generation time and 
 }
 ```
 
-`verdict` ∈ `approve` | `reject` | `either` | `skip`; a verdict covers all of the unit's configs (the import path ignores the `configs` field that pre-rework exports carried).
+`verdict` ∈ `approve` | `reject` | `either` | `neither` | `skip`; a verdict covers all of the unit's configs (the import path ignores the `configs` field that pre-rework exports carried).
 
-### 4.2 The triage YAML (three sections)
+### 4.2 The triage YAML (four sections)
 
 ```yaml
 review:
   mode: m1-audit
   source: rebuild/out/m1/divergence-audit.tsv
   exported_at: 2026-06-10T18:45:00Z
-  counts: {approve: 1980, reject: 14, either: 120, skip: 297, units_total: 2411, rows_covered: 13418}
+  counts: {approve: 1980, reject: 14, either: 120, neither: 3, skip: 294, units_total: 2411, rows_covered: 13418}
 
 pins:                       # one per approved unit — thumbs-up drafts a whole-word data-expect pin
   - unit: u-0412
@@ -191,6 +192,14 @@ any_of:                     # one per fine-either-way unit — both behaviors as
       - "·Pea | ·Owe ~x~ ·May"              # the baseline behavior, also acceptable
     realized_as: _assert_expect_any         # executable form until the corpus any-of connective (§10.5) exists
     note: ""
+
+neither:                    # one per neither-verdicted unit — both behaviors look wrong; nothing automatic is drafted
+  - unit: u-0533
+    codepoints: "E652:200C:E652:E679"
+    notation: "·Tea ◊ZWNJ ·Tea·Oy"
+    note: "both joins look wrong; needs a fresh stance"
+    names_provenance:                       # the records explain attributed the outcome to — the follow-up author's levers
+      - glyph_data/runes/qsTea.yaml:policy.extend[0]
 ```
 
 ### 4.3 Drafter rules
@@ -198,6 +207,7 @@ any_of:                     # one per fine-either-way unit — both behaviors as
 - **Pin drafter (approve)**: whole-word, bare letter tokens only — no variant assertions (design §10.5: "whole-word assertions remain the preferred cheap lock"). Tokens from the notation map (`·Tea`, `◊space`, `◊ZWNJ`; the namer dot per `doc/data-expect.md`'s literal syntax); connections from the **after** settled seams (`y5`→`~x~`, `y0`→`~b~`, `y8`→`~t~`, `y6`→`~6~`, break→`|`, formed ligature→`+`). Attribute is `data-expect-noncanonically` unless the sequence is Manual-canonical; ss scope rides as the `stylistic_set` attribute value (in-string ss scoping is §10.5 future work — never drafted). **Syntax** validated with `test_shaping.parse_expect` (imported read-only via the `_import_test_shaping()` pattern); **semantics** validated against `fonts/after.otf` through the rebuild-side harness `rebuild/validate_pins.py` already uses (`rebuild/validation/pins.py` + `rebuild/validation/shaping.Shaper`) — never by monkeypatching the test module's `site/` font constants. A pin failing against the _old_ font is expected (it is the pin doing its job at cutover); `semantics_after_font` is the recorded gate. Duplicate discipline: the drafter checks the corpus for an existing `data-expect` on the same text under the same feature context and sets `duplicate_of` instead of emitting a redundant pin.
 - **Policy drafter (reject)**: from the precomputed explain trace. Target file is the rune file of the divergent position; the draft names every provenance record in `trace.eliminations`/`notes` that decided the new outcome, plus `decided_stage`. The suggested record is the smallest one-line counter-lever, chosen in this order: (1) when the divergence includes a join the baseline broke (a break→yN gap adjacent to the divergent cell) and provenance is nonempty, a `refuse` on the anchor reaching across that gap, scoped to the neighbor — positive-record outcomes get a refuse, and only a refuse can restore the break (a contract would shrink the extension but keep the unwanted join); (2) when the divergent cell gained an en-ext/ex-ext on a join both fonts share and a `policy.extend` decided, a `contract` by the same amount on that side; (3) when the divergence is name-grain (both behaviors group the codepoints identically and agree on every seam — a refuse here would break a join both fonts share), a `prefer` with `mode: absolute` pinning the baseline cell's entry/exit (read from the alias map) `over` the new cell's, or its stance when only the stance differs; name-grain differences with no expressible lever (post-ZWNJ locked twins, bind pullbacks, suppressed extensions) get **no policy draft**, and the export surfaces the reject with `keypath: null` plus the unit's provenance for hand-editing; (4) otherwise, with nonempty provenance, a `refuse` of the cell's exit (or stance) in the window; (5) a `prefer` pinning the baseline outcome when the structural floor decided (empty provenance). Suggested records are validated against the rune schema under `rebuild/schema/` (`schema_valid`), and the `why:` stub embeds the unit id and the reviewer's note. It is a draft for human judgment, never applied.
 - **Any-of drafter (either)**: both behaviors rendered as full expect strings by the engine (the reviewer never writes syntax) — after-behavior first, baseline-behavior second — each individually `parse_expect`-valid; `features` from the config token; realized as a generated `_assert_expect_any(_qs_text(...), [...])` test until the corpus-layer connective lands, at which point the records migrate mechanically.
+- **Neither (no drafter)**: a neither verdict means neither the old nor the new behavior is right, so there is deliberately no automatic draft — no pin (nothing to lock), no policy edit (no behavior to restore), no any-of (nothing acceptable). The export carries only the unit's identity (id, codepoints, notation), the reviewer's note, and `names_provenance` so the follow-up author starts from the records that decided the outcome.
 
 ## 5. Testing strategy
 

@@ -282,6 +282,12 @@ def test_export_round_trip(built, tmp_path):
             },
             {"unit": ids[2], "verdict": "either", "note": "", "at": "2026-06-10T18:22:00Z"},
             {"unit": ids[3], "verdict": "skip", "note": "", "at": "2026-06-10T18:22:10Z"},
+            {
+                "unit": ids[1],
+                "verdict": "neither",
+                "note": "both joins look wrong",
+                "at": "2026-06-10T18:22:20Z",
+            },
         ],
     }
     verdicts_path.write_text(json.dumps(payload))
@@ -291,6 +297,7 @@ def test_export_round_trip(built, tmp_path):
     assert counts["approve"] == 1
     assert counts["reject"] == 2
     assert counts["either"] == 1
+    assert counts["neither"] == 1
     assert counts["skip"] == 1
     assert counts["units_total"] == 2411
     assert counts["human_units_total"] == 725
@@ -318,7 +325,7 @@ def test_export_round_trip(built, tmp_path):
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }
     assert counts["rows_covered"] == sum(
-        len(units[uid]["configs"]) for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3])
+        len(units[uid]["configs"]) for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3], ids[1])
     )
 
     assert len(triage["pins"]) == 1
@@ -341,9 +348,32 @@ def test_export_round_trip(built, tmp_path):
     assert triage["any_of"][0]["realized_as"] == "_assert_expect_any"
     assert all(status == "pass" for status in triage["any_of"][0]["candidates_parse"])
 
+    # The neither section drafts nothing automatic — only the unit's identity, the reviewer's note, and the provenance levers for follow-up authoring.
+    assert len(triage["neither"]) == 1
+    neither = triage["neither"][0]
+    assert neither == {
+        "unit": ids[1],
+        "codepoints": units[ids[1]]["codepoints"],
+        "notation": units[ids[1]]["notation"],
+        "note": "both joins look wrong",
+        "names_provenance": units[ids[1]]["provenance"],
+    }
+    section_units = {
+        "pins": {entry["unit"] for entry in triage["pins"]},
+        "policy_edits": {entry["unit"] for entry in triage["policy_edits"]},
+        "any_of": {entry["unit"] for entry in triage["any_of"]},
+        "neither": {entry["unit"] for entry in triage["neither"]},
+    }
+    assert section_units == {
+        "pins": {ids[0]},
+        "policy_edits": {drafted_reject, manual_reject},
+        "any_of": {ids[2]},
+        "neither": {ids[1]},
+    }
+
     text = yaml.safe_dump(triage, sort_keys=False, allow_unicode=True, width=10**6)
     parsed = yaml.safe_load(text)
-    assert set(parsed) == {"review", "machine_approved", "pins", "policy_edits", "any_of"}
+    assert set(parsed) == {"review", "machine_approved", "pins", "policy_edits", "any_of", "neither"}
 
 
 def test_export_rejects_bad_format(tmp_path):
