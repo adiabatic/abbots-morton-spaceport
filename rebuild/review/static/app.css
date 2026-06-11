@@ -355,6 +355,24 @@ details.group {
   border-bottom: 1px solid var(--hairline);
   border-left: 5px solid transparent;
   scroll-margin-top: 7rem;
+  position: relative;
+
+  .clear-verdict {
+    position: absolute;
+    top: 0.45rem;
+    left: 0.75rem;
+    font-size: 12px;
+    padding: 0.1rem 0.45rem;
+    color: var(--muted);
+
+    kbd {
+      font-size: 10px;
+    }
+
+    &:disabled {
+      opacity: 0.3;
+    }
+  }
 
   &:last-child {
     border-bottom: none;

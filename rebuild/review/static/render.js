@@ -61,7 +61,7 @@ export function unitMatchesFilters(unit, filters, record) {
   if (filters.group && unit.group !== filters.group) return false;
   if (filters.family && !familiesOfGroup(unit.group).includes(filters.family)) return false;
   if (filters.config && !unit.configs.includes(filters.config)) return false;
-  if (filters.status) {
+  if (filters.status && filters.unit !== unit.id) {
     if (filters.status === 'unverdicted') return !record;
     if (filters.status === 'verdicted') return Boolean(record);
     return Boolean(record) && record.verdict === filters.status;

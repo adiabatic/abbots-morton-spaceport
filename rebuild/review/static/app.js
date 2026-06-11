@@ -40,6 +40,7 @@ const REJECT_MENU_CHOICES = [
   { action: 'reject-no-comment', key: 's', label: 'no comment', note: null },
   { action: 'reject-old-way', key: 'a', label: 'the old way seems nicer to write out by hand', note: 'the old way seems nicer to write out by hand' },
   { action: 'reject-new-broken', key: 'f', label: 'the new way is broken', note: 'the new way is broken' },
+  { action: 'reject-worse-extension', key: 'z', label: 'new way has a worse-looking extension/contraction', note: 'new way has a worse-looking extension/contraction' },
   { action: 'reject-comment', key: 'x', label: 'write a comment', note: null },
 ];
 
@@ -181,6 +182,15 @@ function buildRow(unit) {
   row.dataset.group = unit.group;
 
   const label = el('div', 'label');
+  if (!unit.ink_identical) {
+    const clear = el('button', 'clear-verdict');
+    clear.type = 'button';
+    clear.title = "Clear this unit's verdict (Backspace or Delete; pressing its active verdict key again also clears)";
+    clear.tabIndex = -1;
+    clear.append(document.createTextNode('Clear '));
+    clear.append(el('kbd', null, '\u232b'));
+    label.append(clear);
+  }
   label.append(el('div', 'notation', unit.notation));
 
   const codepoints = el('div', 'codepoints');
@@ -402,6 +412,9 @@ function syncRowVerdict(unitId, row = rowFor(unitId)) {
   const record = store.records.get(unitId);
   if (record) row.dataset.verdict = record.verdict;
   else delete row.dataset.verdict;
+  const clear = row.querySelector('.clear-verdict');
+  if (clear) clear.disabled = !record;
+
   for (const button of row.querySelectorAll('.verdict-btn')) {
     button.setAttribute('aria-pressed', String(Boolean(record) && record.verdict === button.dataset.verdict));
   }
@@ -412,6 +425,7 @@ function syncRowVerdict(unitId, row = rowFor(unitId)) {
 function cursorUnitId() {
   if (state.unit) {
     if (visibleUnits.some((unit) => unit.id === state.unit)) return state.unit;
+    if (document.querySelector(`#batch .row:not(.machine)[data-unit="${state.unit}"]`)) return state.unit;
     // A machine-approved unit can hold the URL cursor for deep links, but it is never the verdict cursor: keys and auto-advance operate over the human workload only.
     if (machineUnits.some((unit) => unit.id === state.unit)) return null;
   }
@@ -420,7 +434,9 @@ function cursorUnitId() {
 
 async function ensureCursor() {
   const inView = (unitId) =>
-    visibleUnits.some((unit) => unit.id === unitId) || machineUnits.some((unit) => unit.id === unitId);
+    visibleUnits.some((unit) => unit.id === unitId) ||
+    machineUnits.some((unit) => unit.id === unitId) ||
+    Boolean(document.querySelector(`#batch .row[data-unit="${unitId}"]`));
   if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
     if (unit && unit.ink_identical) {
@@ -718,9 +734,14 @@ function rejectWithComment() {
   if (row) row.querySelector('.note').focus();
 }
 
-function moveCursor(delta) {
+function renderedCursorIds() {
   const ids = [];
-  for (const unit of visibleUnits) ids.push(unit.id);
+  for (const row of document.querySelectorAll('#batch .row:not(.machine)')) ids.push(row.dataset.unit);
+  return ids;
+}
+
+function moveCursor(delta) {
+  const ids = renderedCursorIds();
   const index = stepIndex(ids.length, ids.indexOf(cursorUnitId()), delta);
   if (index === -1) return;
   setStateReplace({ unit: ids[index] });
@@ -859,6 +880,7 @@ function wireEvents() {
       modified: event.ctrlKey || event.metaKey || event.altKey,
       rejectMenuOpen: rejectMenuUnitId !== null,
       noteInput: Boolean(event.target.closest?.('.note')),
+      shift: event.shiftKey,
     });
     if (!action) return;
     if (action === 'escape') {
@@ -870,6 +892,13 @@ function wireEvents() {
       const row = event.target.closest('.row');
       event.target.blur();
       if (row) advanceFrom(row.dataset.unit);
+      return;
+    }
+    if (action === 'note-stay') {
+      event.preventDefault();
+      const row = event.target.closest('.row');
+      event.target.blur();
+      if (row && row.dataset.unit !== state.unit) setStateReplace({ unit: row.dataset.unit });
       return;
     }
     if (action === 'reject-cancel') {
@@ -894,6 +923,14 @@ function wireEvents() {
     } else if (action === 'reject') {
       const unitId = cursorUnitId();
       if (unitId) openRejectMenu(unitId);
+    } else if (action === 'clear-verdict') {
+      const unitId = cursorUnitId();
+      if (unitId && store.records.has(unitId)) {
+        recordVerdict(store, unitId, null);
+        syncRowVerdict(unitId);
+        updateProgress();
+        toast(`Cleared ${unitId}`);
+      }
     } else if (action === 'undo') {
       undoLast();
     } else if (action === 'note') {
@@ -948,6 +985,13 @@ function wireEvents() {
       }
       applyVerdict(row.dataset.unit, verdictButton.dataset.verdict);
       advanceFrom(row.dataset.unit);
+      return;
+    }
+    const clear = event.target.closest('.clear-verdict');
+    if (clear && row) {
+      recordVerdict(store, row.dataset.unit, null);
+      syncRowVerdict(row.dataset.unit);
+      updateProgress();
       return;
     }
     const copy = event.target.closest('.copy-unit');
