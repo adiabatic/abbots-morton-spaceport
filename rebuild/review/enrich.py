@@ -1,4 +1,4 @@
-"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): rune-name notation, old seams from the §13.1 baseline subsets, the settle/explain precompute (new seams, extensions, eliminations, render text), divergent-position computation against the alias map, and highlight x-ranges in font units from real shaping of both fonts."""
+"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): rune-name notation, old seams from the §13.1 baseline subsets, the settle/explain precompute (new seams, extensions, eliminations, render text), divergent-position computation against the alias map, and highlight x-ranges in font units from real kern-neutral shaping of both fonts (the baseline subset rows were extracted with the old font's kerning on, so highlight pens come from live `kern: False` shaping instead — matching the app's `font-kerning: none` rendering)."""
 
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ from rebuild.pipeline.explain import ExplainReport, explain
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
+from rebuild.review.ink import kern_neutral
 from rebuild.validation.rowmodel import Row, iter_rows
-from rebuild.validation.shaping import Shaper
+from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -243,7 +244,7 @@ def _highlight(
 
 
 class Enricher:
-    """Holds the loaded spec, the per-config baseline subset tables, the after-font shaper, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config."""
+    """Holds the loaded spec, the per-config baseline subset tables, a kern-neutral shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config."""
 
     def __init__(
         self,
@@ -252,10 +253,12 @@ class Enricher:
         after_font: Path,
         alias_path: Path | None = None,
         repo_root: Path = REPO_ROOT,
+        before_font: Path = SENIOR_FONT,
     ):
         self.spec = spec
         self.subset_dir = Path(subset_dir)
         self.after_shaper = Shaper(after_font)
+        self.before_shaper = Shaper(before_font)
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         self._subset_rows: dict[str, dict[str, Row]] = {}
         self.mismatches: list[str] = []
@@ -331,12 +334,17 @@ class Enricher:
         diff_positions = tuple(sorted({_covering(after_spans, cp) for cp in diff_cp}))
         pair = self._pick_pair(divergent_gaps, diff_positions, after_seams, len(settled))
 
-        shaped = self.after_shaper.shape(
-            "".join(chr(value) for value in values), dict.fromkeys(features, True) or None
-        )
+        hb_features = kern_neutral(dict.fromkeys(features, True))
+        shaped = self.after_shaper.shape("".join(chr(value) for value in values), hb_features)
         after_pens = _pen_positions(shaped.positions)
         after_cluster_spans = _spans_from_clusters(shaped.clusters, len(values))
-        before_pens = _pen_positions(row.positions)
+        # The subset row's positions were extracted with the old font's kerning on; the before pens come from a live kern-neutral re-shape instead, with the glyph identities checked against the audited row.
+        before_shaped = self.before_shaper.shape("".join(chr(value) for value in values), hb_features)
+        if before_shaped.names != tuple(row.glyphs):
+            self.mismatches.append(
+                f"{config} {unit.codepoints}: kern-neutral before glyphs {before_shaped.names} != subset row {tuple(row.glyphs)}"
+            )
+        before_pens = _pen_positions(before_shaped.positions)
 
         if pair is not None:
             cp_start = after_spans[pair[0]][0]

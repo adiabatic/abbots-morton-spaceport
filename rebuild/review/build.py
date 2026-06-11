@@ -228,7 +228,7 @@ def build_m1(
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(repo_root)
-    enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root)
+    enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root, before_font=before_font)
     drafter = Drafter(after_font, repo_root=repo_root)
 
     by_class = workload.units_by_class()

@@ -20,6 +20,7 @@ from rebuild.review.enrich import (
     rune_display,
     text_entities,
 )
+from rebuild.review.ink import kern_neutral
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -177,8 +178,14 @@ def test_highlight_matches_shaped_advances_on_a_joined_unit(enricher, units_by_k
     assert enriched.highlight_after["advance_total"] == sum(adv for _x, _y, adv in shaped.positions)
     assert enriched.highlight_after["x_min"] == 0
     assert enriched.highlight_after["x_max"] == enriched.highlight_after["advance_total"]
+    before_shaped = enricher.before_shaper.shape(
+        "".join(chr(v) for v in unit.codepoint_values), kern_neutral(None)
+    )
+    assert enriched.highlight_before["advance_total"] == sum(
+        adv for _x, _y, adv in before_shaped.positions
+    )
     row = enricher.subset_row("default", unit.codepoints)
-    assert enriched.highlight_before["advance_total"] == sum(adv for _x, _y, adv in row.positions)
+    assert enriched.before_glyphs == row.glyphs
 
 
 def test_highlight_covers_the_pair_not_the_run_when_pair_is_interior(enricher, units_by_key):

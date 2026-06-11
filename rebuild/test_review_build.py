@@ -70,15 +70,15 @@ def test_full_build_passes_the_contract_checker(built):
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The ink census the rebatching rests on: 1,549 machine-approved / 862 human units, all machine-approved units inside the three name-grain classes, each of which keeps visible stragglers for human eyes."""
+    """The kern-neutral ink census the rebatching rests on: 1,686 machine-approved / 725 human units, all machine-approved units inside the three name-grain classes, each of which is now fully machine-approved (their former visible stragglers differed only in the old font's kerning)."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
-    assert machine["units"] == 1549
-    assert manifest["totals"]["units"] - machine["units"] == 862
+    assert machine["units"] == 1686
+    assert manifest["totals"]["units"] - machine["units"] == 725
     assert machine["by_class"] == {
-        "zwnj-word-initial-unification": 206,
-        "dangling-anchor-dropped": 1218,
-        "bare-name-live-join": 125,
+        "zwnj-word-initial-unification": 213,
+        "dangling-anchor-dropped": 1334,
+        "bare-name-live-join": 139,
     }
     assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
     assert machine["method"]
@@ -86,7 +86,6 @@ def test_machine_approved_histogram_pins_the_census(built):
     for meta in manifest["classes"]:
         expected = machine["by_class"].get(meta["id"], 0)
         assert meta["machine_approved_count"] == expected, meta["id"]
-        assert meta["unit_count"] - meta["machine_approved_count"] > 0, meta["id"]
     assert by_id["dangling-anchor-dropped"]["unit_count"] == 1334
     assert by_id["zwnj-word-initial-unification"]["unit_count"] == 213
     assert by_id["bare-name-live-join"]["unit_count"] == 139
@@ -103,7 +102,7 @@ def test_batches_cover_the_human_workload_only(built):
             else:
                 human_batches.append((unit["id"], unit["batch"]))
     human_batches.sort()
-    assert len(human_batches) == 862
+    assert len(human_batches) == 725
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
@@ -294,14 +293,14 @@ def test_export_round_trip(built, tmp_path):
     assert counts["either"] == 1
     assert counts["skip"] == 1
     assert counts["units_total"] == 2411
-    assert counts["human_units_total"] == 862
+    assert counts["human_units_total"] == 725
 
     machine = triage["machine_approved"]
-    assert machine["count"] == 1549
+    assert machine["count"] == 1686
     assert machine["by_class"] == {
-        "zwnj-word-initial-unification": 206,
-        "dangling-anchor-dropped": 1218,
-        "bare-name-live-join": 125,
+        "zwnj-word-initial-unification": 213,
+        "dangling-anchor-dropped": 1334,
+        "bare-name-live-join": 139,
     }
     assert machine["method"]
     assert machine["rows_covered"] == sum(
@@ -314,7 +313,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
         else:
             expanded.append(int(token[2:]))
-    assert len(expanded) == 1549
+    assert len(expanded) == 1686
     assert {f"u-{number:04d}" for number in expanded} == {
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }

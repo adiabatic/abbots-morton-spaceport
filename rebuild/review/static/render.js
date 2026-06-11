@@ -99,8 +99,5 @@ export function availableBatches(manifest, classId) {
 }
 
 export function copyPreamble(unit) {
-  return (
-    `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}), ` +
-    `class ${unit.class}, configs ${unit.configs.join(', ')}. `
-  );
+  return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
 }

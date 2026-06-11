@@ -40,7 +40,7 @@ rebuild/out/review/
 
 Both font copies get their source path and sha256 recorded in `manifest.json` (the recon verified the live site OTF is byte-identical to the oracle's `font_sha256`, so "before" is faithful). The directory is fully self-contained; deleting it and rebuilding is always safe.
 
-### 1.3 CLI surface (no Makefile changes; document these on the generated page itself, check.html-style)
+### 1.3 CLI surface (documented on the generated page itself, check.html-style; the originally binding "no Makefile changes" was later relaxed by the user to two additive targets, `review-build` and `review-serve` — plain `review` was already taken by the scoped-anchor-selector page)
 
 | Task                       | Command                                                                                                                                |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,9 +58,11 @@ Build and serve are separate commands (the server is long-running); `serve.py` p
 
 The render unit is the recon's deduped triple: (`codepoints`, `baseline`, `new`) → 2,411 units covering all 15,528 audit rows; the ledger class is a function of the triple. Each unit carries its config list plus a build-time `config_note` — null when the unit's set covers every non-ss10 acceptance config (the overwhelmingly common case), otherwise a feature-gating phrase computed generically against the manifest's full config list: "only when f is on" when the set is exactly the configs containing feature tag f ("only under ss10" for the isolation overlay), "only when f is off" when it is exactly the non-ss10 configs without f, and the literal "only under: …" fallback otherwise — plus `render_groups` partitioning the configs by rendered-outcome identity (always a single group under the M1 dedupe key; extra groups would render stacked); a verdict fans out to all of the unit's (config, codepoints) audit rows. Units are ordered for triage: ledger class in the ledger's own file order, then group = lead family pair (code-point order), then codepoints.
 
-**Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both shipped fonts under every config in its set (uharfbuzz via `rebuild.validation.shaping.Shaper`); each glyph's outline is recorded with fontTools' `DecomposingRecordingPen`, translated by the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`, and the sorted pieces compared. A unit whose placed ink is identical under **every** config is `ink_identical: true` — both fonts render it pixel-identically, only glyph names differ, so no human judgment is meaningful and the build machine-approves it. M1 facts (the census, reproduced by the build and pinned by tests): 1,549 of 2,411 units are ink-identical, falling entirely inside the three name-grain classes — dangling-anchor-dropped 1,218 of 1,334, zwnj-word-initial-unification 206 of 213, bare-name-live-join 125 of 139 — leaving 137 visibly-different units in those classes plus 725 elsewhere, 862 human-workload units in all. In table-diff mode the same comparison runs over each entry's witness string under its config; a witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays `ink_identical: false` in the human workload.
+**Kern-neutrality rule (binding for every review-surface comparison)**: the rebuild deliberately has no kerning until the design's §12 milestone, so the old font's `kern` feature is pure noise in any before/after comparison. Every place the review build shapes text — the ink census, highlight x-ranges, boundary-mark positions, pin-semantics validation — passes `kern: False` to HarfBuzz for **both** fonts (`ink.kern_neutral`, merging the config's stylistic-set features with an unconditional kern-off), and the frontend renders both sample columns with `font-kerning: none` (composing with the per-row inline `font-feature-settings`). The before-font highlight pens come from live kern-neutral shaping rather than the §13.1 subset rows' positions, because those were extracted with kerning on (the glyph identities are still checked against the subset row). A no-op on the after font today, but explicit so the rule survives §12, where kern differences get their own review. Other rebuild consumers (oracle conformance, pin replay) keep their own shaping semantics — the rule is scoped to `rebuild/review/`.
 
-**Batches cover the human workload only**: fixed slices of 300 non-ink-identical units in triage order, computed at generation time after the ink pass and recorded in the manifest (M1: 862 human units → 3 batches). Ink-identical units carry `batch: null` and are never paged to a human; the manifest carries a separate `machine_approved` record (units, rows, the verification-method one-liner, per-class counts) and each class's `machine_approved_count`, so sidebar counts, batch labels, and progress denominators count the human workload while the machine-approved total stays visible as its own line.
+**Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both shipped fonts under every config in its set (uharfbuzz via `rebuild.validation.shaping.Shaper`, kern-neutral per the rule above); each glyph's outline is recorded with fontTools' `DecomposingRecordingPen`, translated by the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`, and the sorted pieces compared. A unit whose placed ink is identical under **every** config is `ink_identical: true` — both fonts render it pixel-identically, only glyph names differ, so no human judgment is meaningful and the build machine-approves it. M1 facts (the kern-neutral census, reproduced by the build and pinned by tests): 1,686 of 2,411 units are ink-identical, falling entirely inside the three name-grain classes, each in full — dangling-anchor-dropped 1,334, zwnj-word-initial-unification 213, bare-name-live-join 139 (their former 137 visible stragglers were kern-only) — leaving 725 human-workload units, all in the other eleven classes. In table-diff mode the same comparison runs over each entry's witness string under its config; a witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays `ink_identical: false` in the human workload.
+
+**Batches cover the human workload only**: fixed slices of 300 non-ink-identical units in triage order, computed at generation time after the ink pass and recorded in the manifest (M1: 725 human units → 3 batches). Ink-identical units carry `batch: null` and are never paged to a human; the manifest carries a separate `machine_approved` record (units, rows, the verification-method one-liner, per-class counts) and each class's `machine_approved_count`, so sidebar counts, batch labels, and progress denominators count the human workload while the machine-approved total stays visible as its own line.
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
@@ -247,10 +249,10 @@ any_of:                     # one per fine-either-way unit — both behaviors as
   "batch_size": 300,
   "totals": {"units": 2411, "rows": 15528, "batches": 3},
   "machine_approved": {
-    "units": 1549,
-    "rows": 10666,
-    "method": "Shaped with uharfbuzz in both shipped fonts under every config in the unit's set; …",
-    "by_class": {"zwnj-word-initial-unification": 206, "dangling-anchor-dropped": 1218, "bare-name-live-join": 125}
+    "units": 1686,
+    "rows": 11621,
+    "method": "Shaped with uharfbuzz in both shipped fonts (kerning disabled — …) under every config in the unit's set; …",
+    "by_class": {"zwnj-word-initial-unification": 213, "dangling-anchor-dropped": 1334, "bare-name-live-join": 139}
   },
   "classes": [
     {
@@ -260,9 +262,9 @@ any_of:                     # one per fine-either-way unit — both behaviors as
       "why": "…the ledger's reviewed rationale, verbatim…",
       "unit_count": 1334,
       "row_count": 9283,
-      "machine_approved_count": 1218,
+      "machine_approved_count": 1334,
       "shard": "units/dangling-anchor-dropped.json",
-      "batches": [2]
+      "batches": []
     }
   ],
   "build_command": "uv run python -m rebuild.review.build",

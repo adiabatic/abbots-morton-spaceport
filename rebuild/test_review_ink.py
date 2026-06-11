@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, may-exit-withdrawal-generalized units are not, the verdict is deterministic, and the full histogram pins 1,549 machine-approved / 862 human units with the three name-grain per-class splits."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, may-exit-withdrawal-generalized units are not, the verdict is deterministic, and the full kern-neutral histogram pins 1,686 machine-approved / 725 human units with the three name-grain classes fully machine-approved."""
 
 from pathlib import Path
 
@@ -6,7 +6,8 @@ import pytest
 
 from rebuild.review.audit import assign_batches, load_workload
 from rebuild.review.enrich import LETTERS
-from rebuild.review.ink import InkComparator, features_for
+from rebuild.review.ink import InkComparator, features_for, kern_neutral
+from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
@@ -15,9 +16,9 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 INK_CLASS_SPLITS = {
-    "dangling-anchor-dropped": (1218, 1334),
-    "zwnj-word-initial-unification": (206, 213),
-    "bare-name-live-join": (125, 139),
+    "dangling-anchor-dropped": (1334, 1334),
+    "zwnj-word-initial-unification": (213, 213),
+    "bare-name-live-join": (139, 139),
 }
 
 
@@ -40,6 +41,24 @@ def test_features_for_config_tokens():
     assert features_for(None) == {}
     assert features_for("ss03") == {"ss03": True}
     assert features_for("ss02+ss03+ss05") == {"ss02": True, "ss03": True, "ss05": True}
+
+
+def test_kern_neutral_always_disables_kern():
+    assert kern_neutral(None) == {"kern": False}
+    assert kern_neutral({}) == {"kern": False}
+    assert kern_neutral({"ss03": True}) == {"ss03": True, "kern": False}
+    assert kern_neutral({"kern": True}) == {"kern": False}
+
+
+def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(workload, comparator):
+    """The worked kern-noise example: ◊ZWNJ ·May·Oy·Pea renders the same ink in both fonts once `kern` is off, and the old font really does kern it (positions move when the feature toggles), so the unit was a kern-only straggler before the census went kern-neutral."""
+    unit = next(item for item in workload.units if item.codepoints == "200C:E665:E679:E650")
+    assert comparator.ink_identical(_text(unit), unit.configs) is True
+    before = Shaper(BEFORE_FONT)
+    kerned = before.shape(_text(unit), {**features_for(unit.configs[0]), "kern": True})
+    neutral = before.shape(_text(unit), kern_neutral(features_for(unit.configs[0])))
+    assert kerned.names == neutral.names
+    assert kerned.positions != neutral.positions
 
 
 def test_u_0000_is_ink_identical(workload, comparator):
@@ -65,7 +84,7 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The census facts the rebatching rests on: 1,549 of 2,411 units are ink-identical under every config in their sets, all inside the three name-grain classes, leaving 862 units of human workload."""
+    """The kern-neutral census facts the rebatching rests on: 1,686 of 2,411 units are ink-identical under every config in their sets — the three name-grain classes in full, since their former 137 visible stragglers differed only in the old font's kerning — leaving 725 units of human workload."""
     machine_by_class: dict[str, int] = {}
     total_by_class: dict[str, int] = {}
     for unit in workload.units:
@@ -73,12 +92,12 @@ def test_full_histogram_reproduces_the_census(workload, comparator):
         if comparator.ink_identical(_text(unit), unit.configs):
             unit.ink_identical = True
             machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    assert sum(machine_by_class.values()) == 1549
-    assert len(workload.units) - sum(machine_by_class.values()) == 862
+    assert sum(machine_by_class.values()) == 1686
+    assert len(workload.units) - sum(machine_by_class.values()) == 725
     assert machine_by_class == {class_id: split[0] for class_id, split in INK_CLASS_SPLITS.items()}
     for class_id, (machine, total) in INK_CLASS_SPLITS.items():
         assert total_by_class[class_id] == total, class_id
-        assert total - machine > 0, f"{class_id} must keep visible stragglers for human eyes"
+        assert machine == total, f"{class_id} is fully machine-approved once kerning is neutralized"
 
     batches = assign_batches(workload.units)
     assert batches == 3
