@@ -16,8 +16,8 @@ const EXPECTED = [
   ['ArrowUp', 'prev'],
   ['k', 'next'],
   ['i', 'prev'],
-  ['[', 'prev-batch'],
-  [']', 'next-batch'],
+  ['[', 'prev-class'],
+  [']', 'next-class'],
   ['?', 'help'],
 ];
 

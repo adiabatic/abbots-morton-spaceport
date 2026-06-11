@@ -622,17 +622,29 @@ function applyVerdict(unitId, verdict) {
   }
 }
 
-function advanceFrom(unitId) {
+async function advanceFrom(unitId) {
   const ids = [];
   for (const unit of visibleUnits) ids.push(unit.id);
   const fromIndex = ids.indexOf(unitId);
   const next = nextUnverdictedIndex(ids, fromIndex, (id) => store.records.has(id));
-  if (next === -1) {
-    toast('Batch fully verdicted — press ] for the next batch');
-    updateTitle();
+  if (next !== -1) {
+    setStateReplace({ unit: ids[next] });
     return;
   }
-  setStateReplace({ unit: ids[next] });
+  const batches = availableBatches(manifest, state.class);
+  for (const batch of batches) {
+    if (batch <= state.batch) continue;
+    const units = await unitsForView(batch, state.class);
+    const { human } = partitionUnits(units, { ...state, batch }, (id) => store.records.get(id));
+    const open = human.find((unit) => !store.records.has(unit.id));
+    if (open) {
+      toast(`Batch ${state.batch} done — continuing in batch ${batch}`);
+      setState({ batch, unit: open.id });
+      return;
+    }
+  }
+  toast('Everything in this view is verdicted — press ] for the next class');
+  updateTitle();
 }
 
 function verdictCursor(verdict) {
@@ -719,6 +731,17 @@ function shiftBatch(delta) {
   const index = stepIndex(batches.length, batches.indexOf(state.batch), delta);
   if (index === -1 || batches[index] === state.batch) return;
   setState({ batch: batches[index], unit: null });
+}
+
+function shiftClass(delta) {
+  const ids = [];
+  for (const cls of manifest.classes) if (humanClassCount(cls) > 0) ids.push(cls.id);
+  if (ids.length === 0) return;
+  const current = ids.indexOf(state.class);
+  const next = current === -1 ? (delta > 0 ? 0 : ids.length - 1) : (current + delta + ids.length) % ids.length;
+  const classId = ids[next];
+  const batches = availableBatches(manifest, classId);
+  setState({ class: classId, batch: batches.length > 0 ? batches[0] : 0, unit: null, group: null });
 }
 
 function approveGroupOf(unitId) {
@@ -886,10 +909,10 @@ function wireEvents() {
       moveCursor(1);
     } else if (action === 'prev') {
       moveCursor(-1);
-    } else if (action === 'prev-batch') {
-      shiftBatch(-1);
-    } else if (action === 'next-batch') {
-      shiftBatch(1);
+    } else if (action === 'prev-class') {
+      shiftClass(-1);
+    } else if (action === 'next-class') {
+      shiftClass(1);
     } else if (action === 'help') {
       if (helpDialog.open) helpDialog.close();
       else helpDialog.showModal();

@@ -12,8 +12,8 @@ export const KEY_MAP = new Map([
   ['ArrowUp', 'prev'],
   ['k', 'next'],
   ['i', 'prev'],
-  ['[', 'prev-batch'],
-  [']', 'next-batch'],
+  ['[', 'prev-class'],
+  [']', 'next-class'],
   ['?', 'help'],
   ['Escape', 'escape'],
 ]);

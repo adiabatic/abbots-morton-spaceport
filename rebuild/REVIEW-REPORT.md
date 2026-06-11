@@ -39,7 +39,7 @@ Both columns render with kerning off (`font-kerning: none` on the sample cells, 
 | `x`      | Toggle the explain panel (same as the row's Why? button)                                                                                     |
 | `↓` `↑`  | Move cursor without verdicting                                                                                                               |
 | `k` `i`  | Same as `↓` `↑` — next / previous unit                                                                                                       |
-| `[` `]`  | Previous / next batch                                                                                                                        |
+| `[` `]`  | Previous / next class (toolbar arrows page batches)                                                                                          |
 | `?`      | Help overlay                                                                                                                                 |
 | `Escape` | Blur input / close overlay (or cancel the reject popup)                                                                                      |
 
