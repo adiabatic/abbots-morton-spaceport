@@ -72,6 +72,25 @@
       }
     },
     "boundary_marks": [],
+    "secondary_seams": [
+      {
+        "pair": {
+          "left": 1,
+          "right": 2
+        },
+        "before": {
+          "x_min": 500,
+          "x_max": 1500,
+          "advance_total": 1500
+        },
+        "after": {
+          "x_min": 500,
+          "x_max": 1450,
+          "advance_total": 1450
+        },
+        "home": "u-0003"
+      }
+    ],
     "explain": "position 0: the baseline kept an exit toward an entryless follower; the rebuild drops the dangling anchor and breaks.",
     "summary": "New: \u00b7Roe\u00b7May\u00b7They settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
     "provenance": [
@@ -178,6 +197,25 @@
       }
     },
     "boundary_marks": [],
+    "secondary_seams": [
+      {
+        "pair": {
+          "left": 1,
+          "right": 2
+        },
+        "before": {
+          "x_min": 450,
+          "x_max": 1400,
+          "advance_total": 1400
+        },
+        "after": {
+          "x_min": 450,
+          "x_max": 1400,
+          "advance_total": 1400
+        },
+        "home": null
+      }
+    ],
     "explain": "position 0: same exit-drop family as u-0005, second batch slice.",
     "summary": "New: \u00b7It\u00b7Day\u00b7Exam settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
     "provenance": [

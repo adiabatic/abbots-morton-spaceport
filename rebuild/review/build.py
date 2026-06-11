@@ -22,7 +22,15 @@ from rebuild.review import tablediff
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, assign_batches, load_workload
 from rebuild.review.drafts import Drafter
 from rebuild.review.ink import VERIFICATION_METHOD, InkComparator
-from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, notation, text_entities
+from rebuild.review.enrich import (
+    LETTERS,
+    EnrichedUnit,
+    Enricher,
+    load_spec,
+    notation,
+    resolve_secondary_homes,
+    text_entities,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -153,6 +161,17 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "pair": {"left": enriched.pair[0], "right": enriched.pair[1]} if enriched.pair else None,
         "highlight": {"before": enriched.highlight_before, "after": enriched.highlight_after},
         "boundary_marks": list(enriched.boundary_marks),
+        "secondary_seams": [
+            {
+                "pair": {"left": seam.pair[0], "right": seam.pair[1]},
+                "before": seam.highlight_before,
+                "after": seam.highlight_after,
+                "home": seam.home,
+            }
+            for seam in enriched.secondary_seams
+            if not seam.suppressed
+        ]
+        or None,
         "summary": enriched.summary,
         "explain": enriched.explain_text,
         "provenance": list(enriched.provenance),
@@ -232,10 +251,16 @@ def build_m1(
     drafter = Drafter(after_font, repo_root=repo_root)
 
     by_class = workload.units_by_class()
+    enriched_by_class = {
+        entry.id: [enricher.enrich(unit) for unit in by_class[entry.id]] for entry in workload.classes_present
+    }
+    seam_census = resolve_secondary_homes(
+        [item for entry in workload.classes_present for item in enriched_by_class[entry.id]]
+    )
     classes_meta: list[dict] = []
     for entry in workload.classes_present:
         units = by_class[entry.id]
-        shard = [unit_to_json(enricher.enrich(unit), drafter) for unit in units]
+        shard = [unit_to_json(enriched, drafter) for enriched in enriched_by_class[entry.id]]
         _write_json(out_dir / "units" / f"{entry.id}.json", shard)
         classes_meta.append(
             {
@@ -270,6 +295,7 @@ def build_m1(
         "batch_size": batch_size,
         "totals": {"units": len(workload.units), "rows": workload.row_count, "batches": total_batches},
         "machine_approved": _machine_approved_meta(machine_units),
+        "secondary_seams": seam_census,
         "classes": classes_meta,
         "build_command": BUILD_COMMAND,
         "serve_command": SERVE_COMMAND,
@@ -564,6 +590,15 @@ def check_manifest(manifest: dict) -> list[str]:
                 sum(by_class.values()) == machine["units"],
                 "machine_approved.by_class must sum to machine_approved.units",
             )
+    seam_census = manifest.get("secondary_seams")
+    if seam_census is not None:
+        need(
+            isinstance(seam_census, dict)
+            and {"units_with_markers", "seams_homed", "seams_homeless", "seams_suppressed_invisible"}
+            == set(seam_census)
+            and all(isinstance(count, int) for count in seam_census.values()),
+            "secondary_seams must carry the four integer census counts",
+        )
     fonts = manifest.get("fonts")
     need(isinstance(fonts, dict) and set(fonts or ()) == {"before", "after"}, "fonts must map before/after")
     if isinstance(fonts, dict):
@@ -719,6 +754,45 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             ):
                 need(record["x_min"] <= record["x_max"], f"highlight.{side} x_min must not exceed x_max")
 
+    def need_rect(record, label: str) -> None:
+        need(
+            isinstance(record, dict)
+            and all(isinstance(record.get(key), int) for key in ("x_min", "x_max", "advance_total")),
+            f"{label} must carry integer x_min/x_max/advance_total",
+        )
+        if isinstance(record, dict) and all(isinstance(record.get(key), int) for key in ("x_min", "x_max")):
+            need(record["x_min"] <= record["x_max"], f"{label} x_min must not exceed x_max")
+
+    seams = unit.get("secondary_seams")
+    if seams is not None:
+        need(isinstance(seams, list) and seams, "secondary_seams must be null or a nonempty list")
+        need(unit.get("ink_identical") is not True, "machine-approved units must not carry secondary_seams")
+        for index, seam in enumerate(seams if isinstance(seams, list) else ()):
+            label = f"secondary_seams[{index}]"
+            if not isinstance(seam, dict) or {"pair", "before", "after", "home"} - set(seam):
+                errors.append(f"unit {identifier}: {label} must carry pair/before/after/home")
+                continue
+            seam_pair = seam.get("pair")
+            need(
+                isinstance(seam_pair, dict)
+                and isinstance(seam_pair.get("left"), int)
+                and isinstance(seam_pair.get("right"), int)
+                and seam_pair["left"] < seam_pair["right"],
+                f"{label}.pair must be {{left, right}} with left < right",
+            )
+            if pair is not None and isinstance(seam_pair, dict):
+                need(
+                    (seam_pair.get("left"), seam_pair.get("right")) != (pair.get("left"), pair.get("right")),
+                    f"{label} must not duplicate the primary pair",
+                )
+            need_rect(seam.get("before"), f"{label}.before")
+            need_rect(seam.get("after"), f"{label}.after")
+            home = seam.get("home")
+            need(
+                home is None or (isinstance(home, str) and home.startswith("u-")),
+                f"{label}.home must be null or a unit id",
+            )
+
     drafts = unit.get("drafts")
     need(
         isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
@@ -784,6 +858,10 @@ def check_output_dir(out_dir: Path) -> list[str]:
     seen_rows = 0
     seen_ids: set[str] = set()
     seen_machine_by_class: dict[str, int] = {}
+    seam_homes: list[tuple[str, str]] = []
+    seam_units = 0
+    seams_homed = 0
+    seams_homeless = 0
     for meta in manifest.get("classes", ()):
         shard_path = out_dir / meta.get("shard", "")
         if not shard_path.exists():
@@ -804,6 +882,16 @@ def check_output_dir(out_dir: Path) -> list[str]:
                 machine_count += 1
             elif mode == "m1-audit" and unit.get("batch") not in meta.get("batches", ()):
                 errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
+            if unit.get("secondary_seams"):
+                seam_units += 1
+                for seam in unit["secondary_seams"]:
+                    if not isinstance(seam, dict):
+                        continue
+                    if seam.get("home") is None:
+                        seams_homeless += 1
+                    else:
+                        seams_homed += 1
+                        seam_homes.append((unit.get("id"), seam["home"]))
         if machine_count != meta.get("machine_approved_count"):
             errors.append(
                 f"class {meta.get('id')}: {machine_count} ink-identical units, "
@@ -826,6 +914,20 @@ def check_output_dir(out_dir: Path) -> list[str]:
         )
     if seen_machine_by_class != {key: value for key, value in (machine.get("by_class") or {}).items()}:
         errors.append("machine_approved.by_class does not match the shards' ink-identical counts")
+    for unit_id, home in seam_homes:
+        if home == unit_id:
+            errors.append(f"unit {unit_id}: a secondary seam names itself as home")
+        elif home not in seen_ids:
+            errors.append(f"unit {unit_id}: secondary seam home {home} is not a unit in this output")
+    seam_census = manifest.get("secondary_seams")
+    if isinstance(seam_census, dict):
+        for key, observed in (
+            ("units_with_markers", seam_units),
+            ("seams_homed", seams_homed),
+            ("seams_homeless", seams_homeless),
+        ):
+            if seam_census.get(key) != observed:
+                errors.append(f"secondary_seams.{key} {seam_census.get(key)} != {observed} in the shards")
 
     for side, record in (manifest.get("fonts") or {}).items():
         font_path = out_dir / record.get("file", "")

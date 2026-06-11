@@ -15,6 +15,8 @@ import {
   renderGroupsOf,
   highlightRect,
   markOffset,
+  secondarySeamsOf,
+  seamChip,
   familiesOfGroup,
   unitMatchesFilters,
   partitionUnits,
@@ -144,6 +146,23 @@ function buildSample(unit, side, featureSettings) {
     const band = el('span', 'pair-band');
     band.style.left = `${rect.left}px`;
     band.style.width = `${rect.width}px`;
+    cell.append(band);
+  }
+  for (const seam of secondarySeamsOf(unit)) {
+    if (!seam[side]) continue;
+    const rect = highlightRect(seam[side], FONT_SIZE, upem);
+    const band = el('span', 'secondary-band');
+    band.style.left = `${rect.left}px`;
+    band.style.width = `${rect.width}px`;
+    const chip = seamChip(seam);
+    const node = el(chip.home ? 'a' : 'span', 'seam-chip', chip.label);
+    if (chip.home) {
+      node.href = `#unit=${chip.home}`;
+      node.dataset.home = chip.home;
+    }
+    node.title = chip.title;
+    node.tabIndex = -1;
+    band.append(node);
     cell.append(band);
   }
   for (const mark of unit.boundary_marks ?? []) {
@@ -370,7 +389,7 @@ function revealMachineUnit(unitId) {
   if (!row) return false;
   for (const cursor of document.querySelectorAll('.row.cursor')) cursor.classList.remove('cursor');
   row.classList.add('cursor');
-  row.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+  row.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
   return true;
 }
 
@@ -433,7 +452,7 @@ function updateCursorDom(scroll = true) {
   row.classList.add('cursor');
   const fold = row.closest('details.group');
   if (fold && !fold.open) fold.open = true;
-  if (scroll) row.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+  if (scroll) row.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
 }
 
 function updateGroupCounts() {
@@ -890,6 +909,13 @@ function wireEvents() {
   );
 
   document.getElementById('batch').addEventListener('click', (event) => {
+    const chip = event.target.closest('.seam-chip');
+    if (chip) {
+      event.preventDefault();
+      // The hash carries only the home unit id — the same deep-link form as a pasted URL — so the existing machinery relocates across batches and classes, or transiently reveals a machine-approved home.
+      if (chip.dataset.home) location.hash = `unit=${chip.dataset.home}`;
+      return;
+    }
     const row = event.target.closest('.row');
     const verdictButton = event.target.closest('.verdict-btn');
     if (verdictButton && row) {

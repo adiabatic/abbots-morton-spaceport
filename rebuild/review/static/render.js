@@ -31,6 +31,27 @@ export function markOffset(x, fontSize, upem) {
   return (x * fontSize) / upem;
 }
 
+export function secondarySeamsOf(unit) {
+  if (unit.ink_identical) return [];
+  return Array.isArray(unit.secondary_seams) ? unit.secondary_seams : [];
+}
+
+export function seamChip(seam) {
+  if (seam.home) {
+    return {
+      home: seam.home,
+      label: seam.home,
+      title: `This dim band is a secondary divergent seam; its behavior is judged at its home unit ${seam.home}. Click to jump there.`,
+    };
+  }
+  return {
+    home: null,
+    label: 'only here',
+    title:
+      'This secondary divergent seam has no shorter home unit where the same behavior is the primary judgment, so judge it in this unit.',
+  };
+}
+
 export function familiesOfGroup(group) {
   return group ? group.split(':') : [];
 }

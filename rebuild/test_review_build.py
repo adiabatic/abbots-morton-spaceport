@@ -59,6 +59,9 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any("ligation" in unit["kinds"] for unit in units)
     assert any(unit["pair"] is None for unit in units)
     assert any(unit["drafts"]["pin"]["duplicate_of"] for unit in units)
+    assert any(
+        seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
+    ), "a fixture unit must exercise the homed secondary-seam branch"
 
 
 def test_full_build_passes_the_contract_checker(built):
@@ -89,6 +92,67 @@ def test_machine_approved_histogram_pins_the_census(built):
     assert by_id["dangling-anchor-dropped"]["unit_count"] == 1334
     assert by_id["zwnj-word-initial-unification"]["unit_count"] == 213
     assert by_id["bare-name-live-join"]["unit_count"] == 139
+
+
+def test_secondary_seam_census_pins_the_real_data(built):
+    """The secondary-seam resolution census over the real M1 workload: 159 units carry visible markers (223 raw secondary seams, of which 51 resolve to an ink-identical home and are suppressed as invisible), 43 seams link to the shorter unit where the same behavior is the primary judgment, and 129 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary), so they carry home null and are judged in place."""
+    out_dir, manifest = built
+    assert manifest["secondary_seams"] == {
+        "units_with_markers": 159,
+        "seams_homed": 43,
+        "seams_homeless": 129,
+        "seams_suppressed_invisible": 51,
+    }
+
+    units_by_id = {}
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            units_by_id[unit["id"]] = unit
+    homed = 0
+    homeless = 0
+    units_with = 0
+    for unit in units_by_id.values():
+        seams = unit.get("secondary_seams")
+        if not seams:
+            continue
+        units_with += 1
+        assert unit["ink_identical"] is False, unit["id"]
+        primary = (unit["pair"]["left"], unit["pair"]["right"])
+        for seam in seams:
+            assert (seam["pair"]["left"], seam["pair"]["right"]) != primary, unit["id"]
+            if seam["home"] is None:
+                homeless += 1
+                continue
+            homed += 1
+            home = units_by_id[seam["home"]]
+            tokens = unit["codepoints"].split(":")
+            home_tokens = home["codepoints"].split(":")
+            assert len(home_tokens) <= len(tokens), unit["id"]
+            assert any(
+                tokens[offset : offset + len(home_tokens)] == home_tokens
+                for offset in range(len(tokens) - len(home_tokens) + 1)
+            ), f"{unit['id']}: home {home['id']} is not a substring"
+            assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
+            assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
+    assert (units_with, homed, homeless) == (159, 43, 129)
+
+
+def test_known_secondary_seam_homes_at_the_shorter_primary(built):
+    """The worked example: ·Pea·Pea·It·It's trailing ·It·It seam is a secondary divergence whose home is the ·Pea·It·It unit, where that same join is the primary (amber-band) judgment."""
+    out_dir, manifest = built
+    units_by_codepoints = {}
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            units_by_codepoints[unit["codepoints"]] = unit
+    unit = units_by_codepoints["E650:E650:E670:E670"]
+    assert unit["pair"] == {"left": 0, "right": 1}
+    (seam,) = unit["secondary_seams"]
+    assert seam["pair"] == {"left": 2, "right": 3}
+    home = units_by_codepoints["E650:E670:E670"]
+    assert seam["home"] == home["id"]
+    assert home["pair"] == {"left": 1, "right": 2}
+    for side in ("before", "after"):
+        assert seam[side]["x_min"] <= seam[side]["x_max"] <= seam[side]["advance_total"]
 
 
 def test_batches_cover_the_human_workload_only(built):

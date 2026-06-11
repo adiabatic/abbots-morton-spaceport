@@ -354,6 +354,7 @@ details.group {
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--hairline);
   border-left: 5px solid transparent;
+  scroll-margin-top: 7rem;
 
   &:last-child {
     border-bottom: none;
@@ -689,6 +690,39 @@ details.group {
       background: var(--hot-fill);
       border-bottom: 5px solid var(--hot);
       pointer-events: none;
+    }
+
+    /* A secondary divergent seam: clearly subordinate to the primary amber band — fainter fill, a dashed top edge instead of the solid bottom one — with the home-unit chip as the only clickable part. */
+    .secondary-band {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      background: light-dark(rgba(217, 119, 6, 0.06), rgba(255, 184, 107, 0.05));
+      border-top: 3px dashed light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
+      pointer-events: none;
+
+      .seam-chip {
+        position: absolute;
+        top: 0.35rem;
+        left: 50%;
+        translate: -50% 0;
+        pointer-events: auto;
+        font-family: var(--code-font);
+        font-size: 10px;
+        line-height: 1.5;
+        padding: 0 0.5em;
+        border: 1px solid var(--hairline);
+        border-radius: 8px;
+        background: var(--card);
+        color: var(--muted);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      a.seam-chip:hover {
+        border-color: var(--hot);
+        color: var(--hot);
+      }
     }
 
     .boundary-mark {
