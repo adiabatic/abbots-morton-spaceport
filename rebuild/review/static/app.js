@@ -686,12 +686,20 @@ function exportPayload() {
   return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
 }
 
+function verdictsFilename(now = new Date()) {
+  const time = now
+    .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
+    .replaceAll(':', '.')
+    .replace(/\s+/gu, '');
+  return `verdicts-${time}.json`;
+}
+
 function downloadVerdicts() {
   const blob = new Blob([exportPayload()], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = 'verdicts.json';
+  anchor.download = verdictsFilename();
   anchor.click();
   URL.revokeObjectURL(url);
   markExported(store);
