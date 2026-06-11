@@ -38,6 +38,7 @@ const REJECT_MENU_CHOICES = [
   { action: 'reject-no-comment', key: 's', label: 'no comment', note: null },
   { action: 'reject-old-way', key: 'a', label: 'the old way seems nicer to write out by hand', note: 'the old way seems nicer to write out by hand' },
   { action: 'reject-new-broken', key: 'f', label: 'the new way is broken', note: 'the new way is broken' },
+  { action: 'reject-comment', key: 'x', label: 'write a comment', note: null },
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
@@ -645,6 +646,10 @@ function openRejectMenu(unitId) {
     const option = event.target.closest('.reject-option');
     if (!option) return;
     event.stopPropagation();
+    if (option.dataset.action === 'reject-comment') {
+      rejectWithComment();
+      return;
+    }
     const choice = REJECT_MENU_CHOICES.find((entry) => entry.action === option.dataset.action);
     chooseRejectOption(choice.note);
   });
@@ -671,6 +676,15 @@ function chooseRejectOption(cannedNote) {
   }
   applyVerdict(unitId, 'reject');
   advanceFrom(unitId);
+}
+
+function rejectWithComment() {
+  const unitId = rejectMenuUnitId;
+  closeRejectMenu();
+  if (!unitId) return;
+  applyVerdict(unitId, 'reject');
+  const row = rowFor(unitId);
+  if (row) row.querySelector('.note').focus();
 }
 
 function moveCursor(delta) {
@@ -802,15 +816,28 @@ function wireEvents() {
       overlayOpen,
       modified: event.ctrlKey || event.metaKey || event.altKey,
       rejectMenuOpen: rejectMenuUnitId !== null,
+      noteInput: Boolean(event.target.closest?.('.note')),
     });
     if (!action) return;
     if (action === 'escape') {
       if (isEditableTarget(event.target)) event.target.blur();
       return;
     }
+    if (action === 'note-advance') {
+      event.preventDefault();
+      const row = event.target.closest('.row');
+      event.target.blur();
+      if (row) advanceFrom(row.dataset.unit);
+      return;
+    }
     if (action === 'reject-cancel') {
       event.preventDefault();
       closeRejectMenu();
+      return;
+    }
+    if (action === 'reject-comment') {
+      event.preventDefault();
+      rejectWithComment();
       return;
     }
     const menuChoice = REJECT_MENU_CHOICES.find((entry) => entry.action === action);
