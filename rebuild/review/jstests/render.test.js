@@ -6,6 +6,8 @@ import {
   renderGroupsOf,
   highlightRect,
   markOffset,
+  secondarySeamsOf,
+  seamChip,
   familiesOfGroup,
   unitMatchesFilters,
   partitionUnits,
@@ -190,6 +192,29 @@ test('copyPreamble names only the unit, codepoints, and notation — the rest is
   assert.doesNotMatch(text, /ss05/);
 });
 
+test('secondarySeamsOf returns seams for human units and nothing for machine-approved or legacy units', () => {
+  const homed = shardB.find((unit) => unit.id === 'u-0005');
+  assert.equal(secondarySeamsOf(homed).length, 1);
+  assert.equal(secondarySeamsOf(homed)[0].home, 'u-0003');
+  const legacy = { ink_identical: false };
+  assert.deepEqual(secondarySeamsOf(legacy), []);
+  const nulled = { ink_identical: false, secondary_seams: null };
+  assert.deepEqual(secondarySeamsOf(nulled), []);
+  const machine = { ink_identical: true, secondary_seams: [{ home: 'u-0003' }] };
+  assert.deepEqual(secondarySeamsOf(machine), [], 'machine-approved renderings never show seam markers');
+});
+
+test('seamChip labels a homed seam with the home unit id and a home-less seam with "only here"', () => {
+  const homed = seamChip({ home: 'u-0312' });
+  assert.equal(homed.home, 'u-0312');
+  assert.equal(homed.label, 'u-0312');
+  assert.match(homed.title, /u-0312/);
+  const homeless = seamChip({ home: null });
+  assert.equal(homeless.home, null);
+  assert.equal(homeless.label, 'only here');
+  assert.match(homeless.title, /no shorter home/);
+});
+
 test('fixture units satisfy the contract fields the frontend relies on', () => {
   for (const unit of [...shardA, ...shardB]) {
     assert.match(unit.id, /^u-\d{4}$/);
@@ -210,5 +235,28 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
       assert.equal(typeof mark.x, 'number');
       assert.ok(['zwnj', 'space'].includes(mark.kind));
     }
+    if (unit.secondary_seams != null) {
+      assert.ok(Array.isArray(unit.secondary_seams) && unit.secondary_seams.length >= 1);
+      assert.equal(unit.ink_identical, false);
+      for (const seam of unit.secondary_seams) {
+        assert.ok(Number.isInteger(seam.pair.left) && Number.isInteger(seam.pair.right));
+        assert.ok(seam.pair.left < seam.pair.right);
+        assert.notDeepEqual(seam.pair, unit.pair, `${unit.id}: a secondary seam must not duplicate the primary pair`);
+        for (const side of ['before', 'after']) {
+          assert.ok(Number.isInteger(seam[side].x_min) && Number.isInteger(seam[side].x_max));
+          assert.ok(seam[side].x_min <= seam[side].x_max);
+          assert.ok(Number.isInteger(seam[side].advance_total));
+        }
+        assert.ok(seam.home === null || /^u-\d{4}$/.test(seam.home));
+      }
+    }
   }
+  assert.ok(
+    [...shardA, ...shardB].some((unit) => (unit.secondary_seams ?? []).some((seam) => seam.home)),
+    'the fixtures must exercise a homed secondary seam',
+  );
+  assert.ok(
+    [...shardA, ...shardB].some((unit) => (unit.secondary_seams ?? []).some((seam) => seam.home === null)),
+    'the fixtures must exercise a home-less secondary seam',
+  );
 });

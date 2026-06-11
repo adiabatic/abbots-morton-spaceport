@@ -186,6 +186,17 @@ def cell_token(cell: CellId) -> str:
 
 
 @dataclass
+class SecondarySeam:
+    """One divergent adjacency beyond a unit's primary pair: the (left, right) after-cell indices, the same per-side highlight rects the primary band uses, and — after `resolve_secondary_homes` — either the home unit id where this behavior is the primary judgment, None when no home exists, or `suppressed` when the home is ink-identical (nothing visible to judge, so no marker is emitted)."""
+
+    pair: tuple[int, int]
+    highlight_before: dict
+    highlight_after: dict
+    home: str | None = None
+    suppressed: bool = False
+
+
+@dataclass
 class EnrichedUnit:
     unit: Unit
     notation: str
@@ -208,6 +219,7 @@ class EnrichedUnit:
     notes: tuple[str, ...] = ()
     after_spans: tuple[tuple[int, int], ...] = ()
     before_spans: tuple[tuple[int, int], ...] = ()
+    secondary_seams: tuple[SecondarySeam, ...] = ()
 
 
 def _pen_positions(positions: tuple[tuple[int, int, int], ...]) -> list[int]:
@@ -357,6 +369,21 @@ class Enricher:
         highlight_after = _highlight(after_pens, after_cluster_spans, cp_start, cp_end)
         highlight_before = _highlight(before_pens, before_spans, cp_start, cp_end)
 
+        secondary_seams: list[SecondarySeam] = []
+        if pair is not None and not unit.ink_identical:
+            for left, right in _secondary_pairs(
+                pair, divergent_gaps, diff_positions, after_seams, len(settled)
+            ):
+                seam_start = after_spans[left][0]
+                seam_end = after_spans[right][1] - 1
+                secondary_seams.append(
+                    SecondarySeam(
+                        pair=(left, right),
+                        highlight_before=_highlight(before_pens, before_spans, seam_start, seam_end),
+                        highlight_after=_highlight(after_pens, after_cluster_spans, seam_start, seam_end),
+                    )
+                )
+
         boundary_marks = tuple(
             {
                 "index": index,
@@ -409,6 +436,7 @@ class Enricher:
             diff_traces=diff_traces,
             after_spans=tuple(after_spans),
             before_spans=tuple(before_spans),
+            secondary_seams=tuple(secondary_seams),
         )
 
     def _diff_codepoints(
@@ -472,6 +500,137 @@ class Enricher:
         if joins_right or (position + 1 < cell_count and not joins_left):
             return (position, position + 1)
         return (position - 1, position)
+
+
+def _secondary_pairs(
+    primary: tuple[int, int],
+    divergent_gaps: list[tuple[int, int]],
+    diff_positions: tuple[int, ...],
+    after_seams: tuple[str, ...],
+    cell_count: int,
+) -> tuple[tuple[int, int], ...]:
+    """Every divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a derived neighbor seam for each divergent position not already covered by the primary or a gap (mirroring `_pick_pair`'s adjacency-then-join-direction fallback)."""
+    pairs: list[tuple[int, int]] = []
+
+    def add(candidate: tuple[int, int]) -> None:
+        if candidate != primary and candidate not in pairs:
+            pairs.append(candidate)
+
+    for gap in divergent_gaps:
+        add(gap)
+    covered = {primary[0], primary[1]}
+    for left, right in divergent_gaps:
+        covered.update((left, right))
+    remaining = [position for position in diff_positions if position not in covered]
+    index = 0
+    while index < len(remaining):
+        position = remaining[index]
+        if index + 1 < len(remaining) and remaining[index + 1] == position + 1:
+            add((position, position + 1))
+            index += 2
+            continue
+        joins_right = position + 1 < cell_count and after_seams[position] != "break"
+        joins_left = position > 0 and after_seams[position - 1] != "break"
+        if joins_right or (position + 1 < cell_count and not joins_left):
+            add((position, position + 1))
+        elif position > 0:
+            add((position - 1, position))
+        index += 1
+    return tuple(sorted(pairs))
+
+
+def _seam_outcomes_match(
+    item: EnrichedUnit, left: int, right: int, candidate: EnrichedUnit, offset: int
+) -> bool:
+    """Whether `candidate`, occurring at codepoint `offset` inside `item`, has the same before AND after outcomes at the seam (item's after cells `left`/`right`) — identical covering spans after offset adjustment, identical glyph/cell identities, identical seam tokens — and judges that seam as its own primary pair."""
+    span_left = item.after_spans[left]
+    span_right = item.after_spans[right]
+    shifted_left = (span_left[0] - offset, span_left[1] - offset)
+    shifted_right = (span_right[0] - offset, span_right[1] - offset)
+    try:
+        candidate_left = candidate.after_spans.index(shifted_left)
+    except ValueError:
+        return False
+    candidate_right = candidate_left + 1
+    if candidate_right >= len(candidate.after_spans):
+        return False
+    if candidate.after_spans[candidate_right] != shifted_right:
+        return False
+    if candidate.after_cells[candidate_left] != item.after_cells[left]:
+        return False
+    if candidate.after_cells[candidate_right] != item.after_cells[right]:
+        return False
+    if candidate.after_seams[candidate_left] != item.after_seams[left]:
+        return False
+    gap = span_left[1] - 1
+    mine_left = _covering(list(item.before_spans), gap)
+    mine_right = _covering(list(item.before_spans), gap + 1)
+    theirs_left = _covering(list(candidate.before_spans), gap - offset)
+    theirs_right = _covering(list(candidate.before_spans), gap + 1 - offset)
+    for mine, theirs in ((mine_left, theirs_left), (mine_right, theirs_right)):
+        their_span = candidate.before_spans[theirs]
+        if (their_span[0] + offset, their_span[1] + offset) != tuple(item.before_spans[mine]):
+            return False
+        if candidate.before_glyphs[theirs] != item.before_glyphs[mine]:
+            return False
+    if mine_left != mine_right and candidate.before_seams[theirs_left] != item.before_seams[mine_left]:
+        return False
+    return candidate.pair == (candidate_left, candidate_right)
+
+
+def _find_home(
+    item: EnrichedUnit,
+    seam: SecondarySeam,
+    by_codepoints: dict[tuple[int, ...], list[EnrichedUnit]],
+) -> EnrichedUnit | None:
+    """The seam's home: the shortest unit in the universe whose codepoint string is a substring of `item`'s containing the seam's two cells, with matching before/after outcomes at the seam and that seam as its primary pair. Shortest substring length wins; ties break to the lowest unit id. None when no unit qualifies."""
+    values = item.unit.codepoint_values
+    left, right = seam.pair
+    minimum = item.after_spans[right][1] - item.after_spans[left][0]
+    for length in range(minimum, len(values) + 1):
+        matches: list[EnrichedUnit] = []
+        first_offset = max(0, item.after_spans[right][1] - length)
+        last_offset = min(item.after_spans[left][0], len(values) - length)
+        for offset in range(first_offset, last_offset + 1):
+            window = values[offset : offset + length]
+            for candidate in by_codepoints.get(window, ()):
+                if candidate.unit.unit_id == item.unit.unit_id:
+                    continue
+                if _seam_outcomes_match(item, left, right, candidate, offset):
+                    matches.append(candidate)
+        if matches:
+            return min(matches, key=lambda match: match.unit.unit_id)
+    return None
+
+
+def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
+    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
+    by_codepoints: dict[tuple[int, ...], list[EnrichedUnit]] = {}
+    for item in enriched_units:
+        by_codepoints.setdefault(item.unit.codepoint_values, []).append(item)
+    census = {
+        "units_with_markers": 0,
+        "seams_homed": 0,
+        "seams_homeless": 0,
+        "seams_suppressed_invisible": 0,
+    }
+    for item in enriched_units:
+        visible = 0
+        for seam in item.secondary_seams:
+            home = _find_home(item, seam, by_codepoints)
+            if home is None:
+                census["seams_homeless"] += 1
+                visible += 1
+            elif home.unit.ink_identical:
+                seam.suppressed = True
+                census["seams_suppressed_invisible"] += 1
+            else:
+                seam.home = home.unit.unit_id
+                census["seams_homed"] += 1
+                visible += 1
+        if visible:
+            census["units_with_markers"] += 1
+    return census
 
 
 def _summarize(

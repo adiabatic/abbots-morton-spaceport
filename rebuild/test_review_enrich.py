@@ -12,11 +12,14 @@ from rebuild.pipeline.settle import settle
 from rebuild.review.audit import load_workload
 from rebuild.review.enrich import (
     LETTERS,
+    EnrichedUnit,
     Enricher,
+    SecondarySeam,
     letter_display,
     load_spec,
     notation,
     parse_entry_extension,
+    resolve_secondary_homes,
     rune_display,
     text_entities,
 )
@@ -181,9 +184,7 @@ def test_highlight_matches_shaped_advances_on_a_joined_unit(enricher, units_by_k
     before_shaped = enricher.before_shaper.shape(
         "".join(chr(v) for v in unit.codepoint_values), kern_neutral(None)
     )
-    assert enriched.highlight_before["advance_total"] == sum(
-        adv for _x, _y, adv in before_shaped.positions
-    )
+    assert enriched.highlight_before["advance_total"] == sum(adv for _x, _y, adv in before_shaped.positions)
     row = enricher.subset_row("default", unit.codepoints)
     assert enriched.before_glyphs == row.glyphs
 
@@ -234,6 +235,157 @@ def test_explain_text_keeps_header_and_divergent_positions(enricher, units_by_ke
     assert enriched.explain_text.startswith("sequence E652:E670")
     assert "position 1: qsIt" in enriched.explain_text
     assert "position 0: qsTea" not in enriched.explain_text
+
+
+def _stub_enriched(unit_id, values, cells, seams, pair, *, ink_identical=False, seam_pairs=()):
+    """A minimal EnrichedUnit for resolver tests: one codepoint per cell, before glyphs derived from the cell tokens, all before seams break."""
+    from rebuild.review.audit import Unit, format_codepoints
+
+    spans = tuple((index, index + 1) for index in range(len(values)))
+    return EnrichedUnit(
+        unit=Unit(
+            codepoints=format_codepoints(values),
+            baseline=tuple(f"old-{cell}" for cell in cells),
+            new=tuple(cells),
+            class_id="synthetic",
+            rows=(),
+            unit_id=unit_id,
+            ink_identical=ink_identical,
+        ),
+        notation="",
+        text_entities="",
+        before_glyphs=tuple(f"old-{cell}" for cell in cells),
+        before_seams=("break",) * (len(cells) - 1),
+        after_cells=tuple(cells),
+        after_seams=tuple(seams),
+        after_extensions=(),
+        diff_positions=(),
+        pair=pair,
+        highlight_before={},
+        highlight_after={},
+        boundary_marks=(),
+        explain_text="",
+        provenance=(),
+        report=None,
+        after_spans=spans,
+        before_spans=spans,
+        secondary_seams=tuple(
+            SecondarySeam(pair=seam_pair, highlight_before={}, highlight_after={}) for seam_pair in seam_pairs
+        ),
+    )
+
+
+def test_secondary_home_prefers_the_shortest_matching_substring_unit():
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    short = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1))
+    longer = _stub_enriched("u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1))
+    census = resolve_secondary_homes([item, short, longer])
+    assert item.secondary_seams[0].home == "u-0002"
+    assert census == {
+        "units_with_markers": 1,
+        "seams_homed": 1,
+        "seams_homeless": 0,
+        "seams_suppressed_invisible": 0,
+    }
+
+
+def test_secondary_home_rejects_a_substring_candidate_whose_outcome_differs():
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    wrong_cell = _stub_enriched("u-0002", (0xE665, 0xE652), ("B", "C-other"), ("y5",), pair=(0, 1))
+    matching = _stub_enriched(
+        "u-0003", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(0, 1)
+    )
+    resolve_secondary_homes([item, wrong_cell, matching])
+    assert item.secondary_seams[0].home == "u-0003"
+
+
+def test_secondary_home_requires_the_seam_to_be_the_candidates_primary_pair():
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    secondary_there_too = _stub_enriched(
+        "u-0002", (0xE665, 0xE652, 0xE670), ("B", "C", "D"), ("y5", "break"), pair=(1, 2)
+    )
+    census = resolve_secondary_homes([item, secondary_there_too])
+    assert item.secondary_seams[0].home is None
+    assert census["seams_homeless"] == 1
+
+
+def test_secondary_seam_with_an_ink_identical_home_is_suppressed():
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    invisible = _stub_enriched(
+        "u-0002", (0xE665, 0xE652), ("B", "C"), ("y5",), pair=(0, 1), ink_identical=True
+    )
+    census = resolve_secondary_homes([item, invisible])
+    seam = item.secondary_seams[0]
+    assert seam.suppressed is True
+    assert seam.home is None
+    assert census == {
+        "units_with_markers": 0,
+        "seams_homed": 0,
+        "seams_homeless": 0,
+        "seams_suppressed_invisible": 1,
+    }
+
+
+def test_secondary_seam_without_any_home_is_emitted_with_home_none():
+    item = _stub_enriched(
+        "u-0001",
+        (0xE650, 0xE665, 0xE652, 0xE670),
+        ("A", "B", "C", "D"),
+        ("y0", "y5", "break"),
+        pair=(0, 1),
+        seam_pairs=((1, 2),),
+    )
+    census = resolve_secondary_homes([item])
+    seam = item.secondary_seams[0]
+    assert seam.home is None
+    assert seam.suppressed is False
+    assert census == {
+        "units_with_markers": 1,
+        "seams_homed": 0,
+        "seams_homeless": 1,
+        "seams_suppressed_invisible": 0,
+    }
+
+
+def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, workload):
+    unit = next(item for item in workload.units if item.codepoints == "E650:E650:E670:E670")
+    enriched = enricher.enrich(unit)
+    assert enriched.pair == (0, 1)
+    assert len(enriched.secondary_seams) == 1
+    seam = enriched.secondary_seams[0]
+    assert seam.pair == (2, 3)
+    for rect in (seam.highlight_before, seam.highlight_after):
+        assert set(rect) == {"x_min", "x_max", "advance_total"}
+        assert 0 <= rect["x_min"] <= rect["x_max"] <= rect["advance_total"]
+    assert seam.highlight_after["x_min"] > enriched.highlight_after["x_min"]
 
 
 def test_subset_rows_load_for_every_config(enricher, workload):
