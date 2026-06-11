@@ -23,9 +23,30 @@
       "upem": 550
     }
   },
-  "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+  "configs": [
+    "default",
+    "ss02",
+    "ss03",
+    "ss04",
+    "ss05",
+    "ss02+ss03",
+    "ss02+ss03+ss05",
+    "ss10"
+  ],
   "batch_size": 4,
-  "totals": { "units": 6, "rows": 14, "batches": 2 },
+  "totals": {
+    "units": 6,
+    "rows": 14,
+    "batches": 2
+  },
+  "machine_approved": {
+    "units": 1,
+    "rows": 2,
+    "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed, translated, sorted, and compared.",
+    "by_class": {
+      "marker-staging-ligature-formation": 1
+    }
+  },
   "classes": [
     {
       "id": "marker-staging-ligature-formation",
@@ -34,8 +55,11 @@
       "why": "Marker staging differs but the formed ligature is identical; reviewed as intended.",
       "unit_count": 4,
       "row_count": 9,
+      "machine_approved_count": 1,
       "shard": "units/marker-staging-ligature-formation.json",
-      "batches": [0]
+      "batches": [
+        0
+      ]
     },
     {
       "id": "dangling-anchor-dropped",
@@ -44,8 +68,12 @@
       "why": "The rebuild drops exits that dangle toward entryless followers; accepted drift pending eyeballs.",
       "unit_count": 2,
       "row_count": 5,
+      "machine_approved_count": 0,
       "shard": "units/dangling-anchor-dropped.json",
-      "batches": [0, 1]
+      "batches": [
+        0,
+        1
+      ]
     }
   ],
   "build_command": "uv run python -m rebuild.review.build",

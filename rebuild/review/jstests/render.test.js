@@ -8,6 +8,9 @@ import {
   markOffset,
   familiesOfGroup,
   unitMatchesFilters,
+  partitionUnits,
+  humanClassCount,
+  humanTotal,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -108,6 +111,50 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
   assert.equal(unitMatchesFilters(unit, { ...empty, status: 'reject' }, { verdict: 'approve' }), false);
 });
 
+const emptyFilters = {
+  class: null,
+  group: null,
+  family: null,
+  config: null,
+  status: null,
+  machine: null,
+};
+const allUnits = [...shardA, ...shardB];
+const noRecords = () => undefined;
+
+test('ink-identical units are hidden unless the machine toggle is on', () => {
+  const off = partitionUnits(allUnits, emptyFilters, noRecords);
+  assert.deepEqual(
+    off.human.map((unit) => unit.id),
+    allUnits.filter((unit) => !unit.ink_identical).map((unit) => unit.id),
+  );
+  assert.deepEqual(off.machine, []);
+  const on = partitionUnits(allUnits, { ...emptyFilters, machine: '1' }, noRecords);
+  assert.deepEqual(on.human.map((unit) => unit.id), off.human.map((unit) => unit.id));
+  assert.deepEqual(
+    on.machine.map((unit) => unit.id),
+    allUnits.filter((unit) => unit.ink_identical).map((unit) => unit.id),
+  );
+  assert.ok(on.machine.length >= 1);
+});
+
+test('class and family filters apply to machine units; the status filter does not', () => {
+  const machineUnit = allUnits.find((unit) => unit.ink_identical);
+  const filters = { ...emptyFilters, machine: '1', status: 'unverdicted' };
+  const partitioned = partitionUnits(allUnits, filters, noRecords);
+  assert.ok(partitioned.machine.some((unit) => unit.id === machineUnit.id));
+  const wrongClass = partitionUnits(allUnits, { ...filters, class: 'dangling-anchor-dropped' }, noRecords);
+  assert.deepEqual(wrongClass.machine, []);
+});
+
+test('human and machine counts come from the manifest class metadata', () => {
+  const marker = manifest.classes.find((cls) => cls.id === 'marker-staging-ligature-formation');
+  const dangling = manifest.classes.find((cls) => cls.id === 'dangling-anchor-dropped');
+  assert.equal(humanClassCount(marker), marker.unit_count - 1);
+  assert.equal(humanClassCount(dangling), dangling.unit_count);
+  assert.equal(humanTotal(manifest), manifest.totals.units - manifest.machine_approved.units);
+});
+
 test('nextUnverdictedIndex advances, wraps, and reports exhaustion', () => {
   const ids = ['a', 'b', 'c', 'd'];
   const verdicted = new Set(['a', 'c']);
@@ -146,7 +193,9 @@ test('copyPreamble names the unit, codepoints, notation, class, and configs', ()
 test('fixture units satisfy the contract fields the frontend relies on', () => {
   for (const unit of [...shardA, ...shardB]) {
     assert.match(unit.id, /^u-\d{4}$/);
-    assert.equal(typeof unit.batch, 'number');
+    assert.equal(typeof unit.ink_identical, 'boolean');
+    if (unit.ink_identical) assert.equal(unit.batch, null);
+    else assert.equal(typeof unit.batch, 'number');
     assert.equal(typeof unit.text_entities, 'string');
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);
     assert.ok(Array.isArray(unit.configs) && unit.configs.length >= 1);

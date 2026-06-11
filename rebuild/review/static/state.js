@@ -1,4 +1,4 @@
-export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status'];
+export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status', 'machine'];
 
 export function parseHash(hash) {
   const params = new URLSearchParams((hash ?? '').replace(/^#/, ''));

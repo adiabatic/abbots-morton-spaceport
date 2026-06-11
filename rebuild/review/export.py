@@ -59,6 +59,42 @@ def rows_covered(unit: dict) -> int:
     return len(unit.get("configs", ()))
 
 
+def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
+    """Collapse sorted u-NNNN ids into "u-0000..u-0024"-style range strings so 1,549 machine-approved ids stay readable in the triage YAML."""
+    numbers = sorted(int(unit_id.split("-", 1)[1]) for unit_id in unit_ids)
+    ranges: list[str] = []
+    start = previous = None
+    for number in numbers:
+        if start is None:
+            start = previous = number
+            continue
+        if number == previous + 1:
+            previous = number
+            continue
+        ranges.append(f"u-{start:04d}" if start == previous else f"u-{start:04d}..u-{previous:04d}")
+        start = previous = number
+    if start is not None:
+        ranges.append(f"u-{start:04d}" if start == previous else f"u-{start:04d}..u-{previous:04d}")
+    return ranges
+
+
+def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
+    """The triage YAML's machine_approved record: machine-verdicted (ink-identical) units are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
+    machine = [unit for unit in units.values() if unit.get("ink_identical")]
+    by_class: dict[str, int] = {}
+    for unit in machine:
+        by_class[unit["class"]] = by_class.get(unit["class"], 0) + 1
+    meta = manifest.get("machine_approved") or {}
+    return {
+        "count": len(machine),
+        "rows_covered": sum(rows_covered(unit) for unit in machine),
+        "by_class": by_class,
+        "method": meta.get("method")
+        or "Both fonts shape and place identical outlines for these units under every config in their sets.",
+        "unit_ids": _compact_id_ranges([unit["id"] for unit in machine]),
+    }
+
+
 def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict:
     counts = {"approve": 0, "reject": 0, "either": 0, "skip": 0}
     covered = 0
@@ -157,6 +193,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
     if missing:
         print(f"warning: {len(missing)} verdicts reference unknown units: {missing[:5]}", file=sys.stderr)
 
+    machine = machine_approved_section(manifest, units)
     review = {
         "mode": manifest.get("mode"),
         "source": manifest.get("source"),
@@ -165,9 +202,21 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z"),
-        "counts": {**counts, "units_total": len(units), "rows_covered": covered},
+        # rows_covered counts human-verdict rows only; the machine-approved units' rows are reported separately under machine_approved.rows_covered.
+        "counts": {
+            **counts,
+            "units_total": len(units),
+            "human_units_total": len(units) - machine["count"],
+            "rows_covered": covered,
+        },
     }
-    return {"review": review, "pins": pins, "policy_edits": policy_edits, "any_of": any_of}
+    return {
+        "review": review,
+        "machine_approved": machine,
+        "pins": pins,
+        "policy_edits": policy_edits,
+        "any_of": any_of,
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -185,9 +234,11 @@ def main(argv: list[str] | None = None) -> None:
         yaml.safe_dump(triage, sort_keys=False, allow_unicode=True, width=10**6), encoding="utf-8"
     )
     counts = triage["review"]["counts"]
+    machine = triage["machine_approved"]
     print(
         f"Wrote {args.out} (pins {len(triage['pins'])}, policy edits {len(triage['policy_edits'])}, "
-        f"any-of {len(triage['any_of'])}; rows covered {counts['rows_covered']})",
+        f"any-of {len(triage['any_of'])}; rows covered {counts['rows_covered']}; "
+        f"machine-approved {machine['count']} units / {machine['rows_covered']} rows)",
         file=sys.stderr,
     )
 

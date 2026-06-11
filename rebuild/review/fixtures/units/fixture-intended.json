@@ -2,11 +2,12 @@
  {
   "id": "u-0000",
   "batch": 0,
+  "ink_identical": false,
   "class": "fixture-intended",
   "group": "qsTea:qsOy",
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",
-  "notation": "◊ZWNJ ·Tea·Oy",
+  "notation": "\u25caZWNJ \u00b7Tea\u00b7Oy",
   "configs": [
    "ss03",
    "ss02+ss03",
@@ -74,11 +75,11 @@
    }
   ],
   "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.bar-into-loop\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
-  "summary": "New: ◊ZWNJ ·Tea·Oy settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "summary": "New: \u25caZWNJ \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
    "pin": {
-    "expect": "◊ZWNJ | ·Tea+Oy",
+    "expect": "\u25caZWNJ | \u00b7Tea+Oy",
     "attribute": "data-expect-noncanonically",
     "stylistic_set": "03",
     "syntax": "pass",
@@ -89,11 +90,11 @@
    "policy": {
     "file": "glyph_data/runes/qsTea_qsOy.yaml",
     "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: bar-into-loop, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (◊ZWNJ ·Tea·Oy)'}",
+    "suggested_record": "{stance: bar-into-loop, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)'}",
     "names_provenance": [],
     "decided_stage": "only-candidate",
     "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for 200C:E652:E679 (◊ZWNJ ·Tea·Oy)"
+    "why_stub": "Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)"
    },
    "any_of": {
     "text": "ZWNJ qsTea qsOy",
@@ -101,8 +102,8 @@
      "ss03": true
     },
     "candidates": [
-     "◊ZWNJ | ·Tea+Oy",
-     "◊ZWNJ | ·Tea | ·Oy"
+     "\u25caZWNJ | \u00b7Tea+Oy",
+     "\u25caZWNJ | \u00b7Tea | \u00b7Oy"
     ]
    }
   }
@@ -110,11 +111,12 @@
  {
   "id": "u-0001",
   "batch": 0,
+  "ink_identical": false,
   "class": "fixture-intended",
   "group": "qsIt:qsIt",
   "codepoints": "E670:E670",
   "text_entities": "&#xE670;&#xE670;",
-  "notation": "·It·It",
+  "notation": "\u00b7It\u00b7It",
   "configs": [
    "default",
    "ss02",
@@ -185,11 +187,11 @@
   },
   "boundary_marks": [],
   "explain": "sequence E670:E670   config default\nsettled: qsIt.bar qsIt.bar\n\nposition 0: qsIt\n  decided by: floor",
-  "summary": "New: ·It·It settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
    "pin": {
-    "expect": "·It | ·It",
+    "expect": "\u00b7It | \u00b7It",
     "attribute": "data-expect-noncanonically",
     "stylistic_set": null,
     "syntax": "pass",
@@ -200,17 +202,17 @@
    "policy": {
     "file": "glyph_data/runes/qsIt.yaml",
     "keypath": "policy.prefer[+]",
-    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (·It·It)'}",
+    "suggested_record": "{cell: {exit: none}, when: {right: {family: [qsIt]}}, why: 'Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)'}",
     "names_provenance": [],
     "decided_stage": "floor",
     "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (·It·It)"
+    "why_stub": "Reviewer rejected the M1 outcome for E670:E670 (\u00b7It\u00b7It)"
    },
    "any_of": {
     "text": "qsIt qsIt",
     "features": {},
     "candidates": [
-     "·It | ·It"
+     "\u00b7It | \u00b7It"
     ]
    }
   }
@@ -218,11 +220,12 @@
  {
   "id": "u-0002",
   "batch": 0,
+  "ink_identical": false,
   "class": "fixture-intended",
   "group": "qsTea:qsIt",
   "codepoints": "E652:E670",
   "text_entities": "&#xE652;&#xE670;",
-  "notation": "·Tea·It",
+  "notation": "\u00b7Tea\u00b7It",
   "configs": [
    "default",
    "ss02",
@@ -292,13 +295,13 @@
   },
   "boundary_marks": [],
   "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.bar.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
-  "summary": "New: ·Tea·It settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "summary": "New: \u00b7Tea\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsIt.yaml:policy.extend[0]"
   ],
   "drafts": {
    "pin": {
-    "expect": "·Tea ~x~ ·It",
+    "expect": "\u00b7Tea ~x~ \u00b7It",
     "attribute": "data-expect",
     "stylistic_set": null,
     "syntax": "pass",
@@ -309,31 +312,32 @@
    "policy": {
     "file": "glyph_data/runes/qsIt.yaml",
     "keypath": "policy.contract[+]",
-    "suggested_record": "{entry: x-height, by: 1, when: {left: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E652:E670 (·Tea·It)'}",
+    "suggested_record": "{entry: x-height, by: 1, when: {left: {family: [qsTea]}}, why: 'Reviewer rejected the M1 outcome for E652:E670 (\u00b7Tea\u00b7It)'}",
     "names_provenance": [
      "glyph_data/runes/qsIt.yaml:policy.extend[0]"
     ],
     "decided_stage": "join-count",
     "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E652:E670 (·Tea·It)"
+    "why_stub": "Reviewer rejected the M1 outcome for E652:E670 (\u00b7Tea\u00b7It)"
    },
    "any_of": {
     "text": "qsTea qsIt",
     "features": {},
     "candidates": [
-     "·Tea ~x~ ·It"
+     "\u00b7Tea ~x~ \u00b7It"
     ]
    }
   }
  },
  {
   "id": "u-0003",
-  "batch": 0,
+  "batch": null,
+  "ink_identical": true,
   "class": "fixture-intended",
   "group": "qsPea:qsMay",
   "codepoints": "E650:E665",
   "text_entities": "&#xE650;&#xE665;",
-  "notation": "·Pea·May",
+  "notation": "\u00b7Pea\u00b7May",
   "configs": [
    "ss02",
    "ss02+ss03",
@@ -396,11 +400,11 @@
   },
   "boundary_marks": [],
   "explain": "sequence E650:E665   config ss02\nsettled: qsPea qsMay.loop.en-y0.en-ext-1\n\nposition 0: qsPea\n  decided by: join-count",
-  "summary": "New: ·Pea·May settles differently from the baseline — decided by fixture data (open the explain panel for the candidate table).",
+  "summary": "New: \u00b7Pea\u00b7May settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
    "pin": {
-    "expect": "·Pea ~b~ ·May",
+    "expect": "\u00b7Pea ~b~ \u00b7May",
     "attribute": "data-expect-noncanonically",
     "stylistic_set": "02",
     "syntax": "pass",
@@ -411,11 +415,11 @@
    "policy": {
     "file": "glyph_data/runes/qsPea.yaml",
     "keypath": "policy.prefer[+]",
-    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E650:E665 (·Pea·May)'}",
+    "suggested_record": "{cell: {exit: baseline}, when: {right: {family: [qsMay]}}, why: 'Reviewer rejected the M1 outcome for E650:E665 (\u00b7Pea\u00b7May)'}",
     "names_provenance": [],
     "decided_stage": "join-count",
     "schema_valid": true,
-    "why_stub": "Reviewer rejected the M1 outcome for E650:E665 (·Pea·May)"
+    "why_stub": "Reviewer rejected the M1 outcome for E650:E665 (\u00b7Pea\u00b7May)"
    },
    "any_of": {
     "text": "qsPea qsMay",
@@ -423,7 +427,7 @@
      "ss02": true
     },
     "candidates": [
-     "·Pea ~b~ ·May"
+     "\u00b7Pea ~b~ \u00b7May"
     ]
    }
   }

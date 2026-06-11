@@ -45,8 +45,9 @@ class Unit:
     group: str = ""
     exemplar: bool = False
     unit_id: str = ""
-    batch: int = 0
+    batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
+    ink_identical: bool = False
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:
@@ -127,9 +128,8 @@ def build_units(
     rows: list[AuditRow],
     ledger: list[LedgerClass],
     family_of: dict[int, str],
-    batch_size: int = BATCH_SIZE,
 ) -> list[Unit]:
-    """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids and batch indices assigned. The ledger class is a function of the triple; a triple matched to two classes would be an upstream classification bug, so it raises."""
+    """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids assigned; batch indices are assigned later by `assign_batches`, once the build has computed each unit's ink_identical flag. The ledger class is a function of the triple; a triple matched to two classes would be an upstream classification bug, so it raises."""
     by_triple: dict[tuple[str, tuple[str, ...], tuple[str, ...]], list[AuditRow]] = {}
     for row in rows:
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
@@ -172,9 +172,20 @@ def build_units(
     )
     for index, unit in enumerate(units):
         unit.unit_id = f"u-{index:04d}"
-        unit.batch = index // batch_size
         unit.exemplar = any((row.config, row.codepoints) in exemplar_keys for row in unit.rows)
     return units
+
+
+def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
+    """Batches cover the human workload only: non-ink-identical units get fixed slices of batch_size in triage order, ink-identical units carry batch None (machine-approved, never paged to a human). Returns the batch count."""
+    index = 0
+    for unit in units:
+        if unit.ink_identical:
+            unit.batch = None
+        else:
+            unit.batch = index // batch_size
+            index += 1
+    return (index + batch_size - 1) // batch_size
 
 
 @dataclass
@@ -195,11 +206,10 @@ def load_workload(
     audit_path: Path,
     ledger_path: Path,
     family_of: dict[int, str],
-    batch_size: int = BATCH_SIZE,
 ) -> Workload:
     rows = load_audit(audit_path)
     ledger = load_ledger(ledger_path)
-    units = build_units(rows, ledger, family_of, batch_size)
+    units = build_units(rows, ledger, family_of)
     present = {unit.class_id for unit in units}
     return Workload(
         units=units,
