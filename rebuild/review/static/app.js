@@ -29,10 +29,15 @@ import {
 const FONT_SIZE = 88;
 const VERDICT_LABELS = [
   ['skip', 'Skip', 'a', 'Skip — record no verdict and advance'],
-  ['reject', 'Reject', 's', 'Reject — want the old behavior back'],
+  ['reject', 'Reject', 's', 'Reject — want the old behavior back (opens a follow-up choice)'],
   ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
   ['approve', 'Approve', 'f', 'Approve — the new behavior is right'],
   ['neither', 'Neither', 'c', 'Neither — both behaviors look wrong; flag for follow-up'],
+];
+const REJECT_MENU_CHOICES = [
+  { action: 'reject-no-comment', key: 's', label: 'no comment', note: null },
+  { action: 'reject-old-way', key: 'a', label: 'the old way seems nicer to write out by hand', note: 'the old way seems nicer to write out by hand' },
+  { action: 'reject-new-broken', key: 'f', label: 'the new way is broken', note: 'the new way is broken' },
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
@@ -189,6 +194,7 @@ function buildRow(unit) {
     button.dataset.verdict = verdict;
     button.title = unit.ink_identical ? MACHINE_TITLE : title;
     button.disabled = unit.ink_identical;
+    if (verdict === 'reject') button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-pressed', 'false');
     button.append(document.createTextNode(`${text} `));
     const kbd = el('kbd', null, key);
@@ -286,6 +292,7 @@ function buildRow(unit) {
 }
 
 function renderBatch(units, machine) {
+  closeRejectMenu();
   const container = document.getElementById('batch');
   container.textContent = '';
   machineFoldBuilders.clear();
@@ -615,6 +622,57 @@ function verdictCursor(verdict) {
   advanceFrom(unitId);
 }
 
+let rejectMenuUnitId = null;
+let rejectMenuNode = null;
+
+function openRejectMenu(unitId) {
+  closeRejectMenu();
+  const row = rowFor(unitId);
+  if (!row) return;
+  const menu = el('div', 'reject-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Reject ${unitId} — choose a note`);
+  for (const choice of REJECT_MENU_CHOICES) {
+    const option = el('button', 'reject-option');
+    option.type = 'button';
+    option.dataset.action = choice.action;
+    option.setAttribute('role', 'menuitem');
+    option.append(el('kbd', null, choice.key));
+    option.append(document.createTextNode(` ${choice.label}`));
+    menu.append(option);
+  }
+  menu.addEventListener('click', (event) => {
+    const option = event.target.closest('.reject-option');
+    if (!option) return;
+    event.stopPropagation();
+    const choice = REJECT_MENU_CHOICES.find((entry) => entry.action === option.dataset.action);
+    chooseRejectOption(choice.note);
+  });
+  row.querySelector('.verdict-buttons').append(menu);
+  rejectMenuUnitId = unitId;
+  rejectMenuNode = menu;
+  menu.querySelector('.reject-option').focus();
+}
+
+function closeRejectMenu() {
+  if (rejectMenuNode) rejectMenuNode.remove();
+  rejectMenuUnitId = null;
+  rejectMenuNode = null;
+}
+
+function chooseRejectOption(cannedNote) {
+  const unitId = rejectMenuUnitId;
+  closeRejectMenu();
+  if (!unitId) return;
+  const row = rowFor(unitId);
+  if (cannedNote !== null && row) {
+    row.querySelector('.note').value = cannedNote;
+    updateNote(store, unitId, cannedNote);
+  }
+  applyVerdict(unitId, 'reject');
+  advanceFrom(unitId);
+}
+
 function moveCursor(delta) {
   const ids = [];
   for (const unit of visibleUnits) ids.push(unit.id);
@@ -743,15 +801,30 @@ function wireEvents() {
       inInput: isEditableTarget(event.target),
       overlayOpen,
       modified: event.ctrlKey || event.metaKey || event.altKey,
+      rejectMenuOpen: rejectMenuUnitId !== null,
     });
     if (!action) return;
     if (action === 'escape') {
       if (isEditableTarget(event.target)) event.target.blur();
       return;
     }
+    if (action === 'reject-cancel') {
+      event.preventDefault();
+      closeRejectMenu();
+      return;
+    }
+    const menuChoice = REJECT_MENU_CHOICES.find((entry) => entry.action === action);
+    if (menuChoice) {
+      event.preventDefault();
+      chooseRejectOption(menuChoice.note);
+      return;
+    }
     event.preventDefault();
-    if (action === 'approve' || action === 'reject' || action === 'either' || action === 'neither' || action === 'skip') {
+    if (action === 'approve' || action === 'either' || action === 'neither' || action === 'skip') {
       verdictCursor(action);
+    } else if (action === 'reject') {
+      const unitId = cursorUnitId();
+      if (unitId) openRejectMenu(unitId);
     } else if (action === 'undo') {
       undoLast();
     } else if (action === 'note') {
@@ -777,10 +850,26 @@ function wireEvents() {
     }
   });
 
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (rejectMenuUnitId === null) return;
+      if (event.target.closest('.reject-menu')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeRejectMenu();
+    },
+    true,
+  );
+
   document.getElementById('batch').addEventListener('click', (event) => {
     const row = event.target.closest('.row');
     const verdictButton = event.target.closest('.verdict-btn');
     if (verdictButton && row) {
+      if (verdictButton.dataset.verdict === 'reject') {
+        openRejectMenu(row.dataset.unit);
+        return;
+      }
       applyVerdict(row.dataset.unit, verdictButton.dataset.verdict);
       advanceFrom(row.dataset.unit);
       return;

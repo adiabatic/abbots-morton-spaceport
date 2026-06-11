@@ -10,13 +10,30 @@ export const KEY_MAP = new Map([
   ['x', 'explain'],
   ['ArrowDown', 'next'],
   ['ArrowUp', 'prev'],
+  ['k', 'next'],
+  ['i', 'prev'],
   ['[', 'prev-batch'],
   [']', 'next-batch'],
   ['?', 'help'],
   ['Escape', 'escape'],
 ]);
 
-export function actionForKey(key, { inInput = false, overlayOpen = false, modified = false } = {}) {
+export const REJECT_MENU_MAP = new Map([
+  ['s', 'reject-no-comment'],
+  ['a', 'reject-old-way'],
+  ['f', 'reject-new-broken'],
+  ['Escape', 'reject-cancel'],
+]);
+
+export function actionForKey(
+  key,
+  { inInput = false, overlayOpen = false, modified = false, rejectMenuOpen = false } = {},
+) {
+  if (rejectMenuOpen) {
+    if (key === 'Escape') return 'reject-cancel';
+    if (modified || inInput) return null;
+    return REJECT_MENU_MAP.get(key) ?? null;
+  }
   if (key === 'Escape') return 'escape';
   if (modified || inInput) return null;
   if (overlayOpen) return key === '?' ? 'help' : null;

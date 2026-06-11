@@ -14,6 +14,8 @@ const EXPECTED = [
   ['x', 'explain'],
   ['ArrowDown', 'next'],
   ['ArrowUp', 'prev'],
+  ['k', 'next'],
+  ['i', 'prev'],
   ['[', 'prev-batch'],
   [']', 'next-batch'],
   ['?', 'help'],
@@ -56,9 +58,37 @@ test('unbound keys return null', () => {
   assert.equal(actionForKey('Enter'), null);
 });
 
-test('the retired j/k verdict keys are fully unbound', () => {
+test('the retired j verdict key stays unbound; k is now a navigation alias', () => {
   assert.equal(actionForKey('j'), null);
-  assert.equal(actionForKey('k'), null);
   assert.equal(KEY_MAP.has('j'), false);
-  assert.equal(KEY_MAP.has('k'), false);
+  assert.equal(actionForKey('k'), 'next');
+  assert.equal(KEY_MAP.get('k'), 'next');
+});
+
+test('i and k mirror the arrow keys', () => {
+  assert.equal(actionForKey('i'), actionForKey('ArrowUp'));
+  assert.equal(actionForKey('k'), actionForKey('ArrowDown'));
+  assert.equal(actionForKey('i', { inInput: true }), null);
+  assert.equal(actionForKey('k', { inInput: true }), null);
+  assert.equal(actionForKey('i', { overlayOpen: true }), null);
+  assert.equal(actionForKey('k', { overlayOpen: true }), null);
+});
+
+test('while the reject menu is open, s/a/f/Escape map to the menu actions', () => {
+  assert.equal(actionForKey('s', { rejectMenuOpen: true }), 'reject-no-comment');
+  assert.equal(actionForKey('a', { rejectMenuOpen: true }), 'reject-old-way');
+  assert.equal(actionForKey('f', { rejectMenuOpen: true }), 'reject-new-broken');
+  assert.equal(actionForKey('Escape', { rejectMenuOpen: true }), 'reject-cancel');
+});
+
+test('while the reject menu is open, every other key is suppressed', () => {
+  for (const key of ['d', 'c', 'u', 'n', 'g', 'x', 'ArrowDown', 'ArrowUp', 'i', 'k', '[', ']', '?', 'z', 'Enter']) {
+    assert.equal(actionForKey(key, { rejectMenuOpen: true }), null, `key ${key}`);
+  }
+});
+
+test('reject-menu choices respect input focus and modifiers, but Escape still cancels', () => {
+  assert.equal(actionForKey('s', { rejectMenuOpen: true, inInput: true }), null);
+  assert.equal(actionForKey('a', { rejectMenuOpen: true, modified: true }), null);
+  assert.equal(actionForKey('Escape', { rejectMenuOpen: true, inInput: true }), 'reject-cancel');
 });
