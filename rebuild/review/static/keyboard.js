@@ -15,6 +15,8 @@ export const KEY_MAP = new Map([
   ['[', 'prev-class'],
   [']', 'next-class'],
   ['?', 'help'],
+  ['Backspace', 'clear-verdict'],
+  ['Delete', 'clear-verdict'],
   ['Escape', 'escape'],
 ]);
 
@@ -23,12 +25,13 @@ export const REJECT_MENU_MAP = new Map([
   ['a', 'reject-old-way'],
   ['f', 'reject-new-broken'],
   ['x', 'reject-comment'],
+  ['z', 'reject-worse-extension'],
   ['Escape', 'reject-cancel'],
 ]);
 
 export function actionForKey(
   key,
-  { inInput = false, overlayOpen = false, modified = false, rejectMenuOpen = false, noteInput = false } = {},
+  { inInput = false, overlayOpen = false, modified = false, rejectMenuOpen = false, noteInput = false, shift = false } = {},
 ) {
   if (rejectMenuOpen) {
     if (key === 'Escape') return 'reject-cancel';
@@ -36,7 +39,7 @@ export function actionForKey(
     return REJECT_MENU_MAP.get(key) ?? null;
   }
   if (key === 'Escape') return 'escape';
-  if (key === 'Enter' && noteInput && !modified) return 'note-advance';
+  if (key === 'Enter' && noteInput && !modified) return shift ? 'note-stay' : 'note-advance';
   if (modified || inInput) return null;
   if (overlayOpen) return key === '?' ? 'help' : null;
   return KEY_MAP.get(key) ?? null;
