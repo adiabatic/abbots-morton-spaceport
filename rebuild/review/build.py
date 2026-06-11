@@ -88,7 +88,27 @@ def _generated_at(*inputs: Path) -> str:
     )
 
 
-def unit_to_json(enriched: EnrichedUnit, drafter: Drafter) -> dict:
+def _config_features(config: str) -> frozenset[str]:
+    return frozenset() if config == "default" else frozenset(config.split("+"))
+
+
+def config_note(unit_configs, full_configs) -> str | None:
+    """The optional per-unit badge text describing when a divergence applies, computed from the unit's config set against the manifest's full acceptance-config list. Null when the unit covers every non-ss10 config (the overwhelmingly common case, where the set carries no information); otherwise a feature-gating phrase when the set is exactly the configs with some feature tag on ("only when ss03 is on", or "only under ss10" for the isolation overlay) or exactly the non-ss10 configs with it off ("only when ss03 is off"); otherwise the literal fallback "only under: <set>"."""
+    covered = set(unit_configs)
+    non_isolated = [config for config in full_configs if "ss10" not in _config_features(config)]
+    if covered >= set(non_isolated):
+        return None
+    tags = sorted({tag for config in full_configs for tag in _config_features(config)})
+    for tag in tags:
+        if covered == {config for config in full_configs if tag in _config_features(config)}:
+            return "only under ss10" if tag == "ss10" else f"only when {tag} is on"
+    for tag in tags:
+        if covered == {config for config in non_isolated if tag not in _config_features(config)}:
+            return f"only when {tag} is off"
+    return "only under: " + ", ".join(unit_configs)
+
+
+def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
     unit = enriched.unit
     pin = drafter.draft_pin(enriched)
     policy = drafter.draft_policy(enriched)
@@ -102,6 +122,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter) -> dict:
         "text_entities": enriched.text_entities,
         "notation": enriched.notation,
         "configs": list(unit.configs),
+        "config_note": config_note(unit.configs, full_configs),
         "render_groups": [{"configs": list(group)} for group in unit.render_groups],
         "kinds": list(unit.kinds),
         "exemplar": unit.exemplar,
@@ -253,7 +274,7 @@ def _relative(path: Path, repo_root: Path) -> str:
 # --- table-diff mode -----------------------------------------------------------------
 
 
-def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) -> dict:
+def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int, full_configs) -> dict:
     witness = entry.witness
     members = entry.paired or (entry,)
     if entry.table == "treaty":
@@ -312,6 +333,7 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int) 
         "text_entities": text_entities(witness) if witness else None,
         "notation": notation(witness) if witness else entry.key.label(),
         "configs": [entry.config],
+        "config_note": config_note((entry.config,), full_configs),
         "render_groups": [{"configs": [entry.config]}],
         "kinds": [entry.table],
         "exemplar": False,
@@ -383,6 +405,7 @@ def build_table_diff(
         except Exception as error:  # noqa: BLE001 — witnesses are an enrichment, not a gate
             print(f"warning: witness search unavailable ({error})", file=sys.stderr)
 
+    all_configs = sorted({entry.config for entry in entries})
     by_bucket: dict[str, list[tablediff.DiffEntry]] = {}
     for entry in entries:
         by_bucket.setdefault(entry.bucket, []).append(entry)
@@ -397,7 +420,7 @@ def build_table_diff(
         batches = set()
         for entry in members:
             batch = index // batch_size
-            shard.append(_table_diff_unit_json(entry, f"u-{index:04d}", batch))
+            shard.append(_table_diff_unit_json(entry, f"u-{index:04d}", batch, all_configs))
             batches.add(batch)
             index += 1
         _write_json(out_dir / "units" / f"{bucket}.json", shard)
@@ -425,7 +448,7 @@ def build_table_diff(
         "repo_head": _repo_head(repo_root),
         "source": {"baseline": str(baseline_dir), "new": str(new_dir)},
         "fonts": fonts,
-        "configs": sorted({entry.config for entry in entries}),
+        "configs": all_configs,
         "batch_size": batch_size,
         "totals": {
             "units": index,
@@ -517,6 +540,12 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
+    need("config_note" in unit, "config_note must be present")
+    note = unit.get("config_note")
+    need(
+        note is None or (isinstance(note, str) and note),
+        "config_note must be null or a nonempty string",
+    )
     groups = unit.get("render_groups")
     need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
     grouped_configs: list[str] = []

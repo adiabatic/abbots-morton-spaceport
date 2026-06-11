@@ -13,7 +13,6 @@ import {
 } from './verdicts.js';
 import {
   renderGroupsOf,
-  configsTitle,
   highlightRect,
   markOffset,
   familiesOfGroup,
@@ -154,14 +153,12 @@ function buildRow(unit) {
   meta.append(el('span', 'unit-id', unit.id));
   for (const kind of unit.kinds ?? []) meta.append(el('span', 'kind', kind));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
-  label.append(meta);
-
-  const chips = el('div', 'config-chips');
-  chips.title = configsTitle(unit);
-  for (const config of unit.configs) {
-    chips.append(el('span', 'chip', config));
+  if (unit.config_note) {
+    const badge = el('span', 'config-note', unit.config_note);
+    badge.title = unit.configs.join(', ');
+    meta.append(badge);
   }
-  label.append(chips);
+  label.append(meta);
 
   const buttons = el('div', 'verdict-buttons');
   for (const [verdict, text, key, title] of VERDICT_LABELS) {

@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 import yaml
 
+from rebuild.review.audit import ACCEPTANCE_CONFIGS
 from rebuild.review.build import (
     build_m1,
     build_table_diff,
     check_manifest,
     check_output_dir,
     check_unit,
+    config_note,
 )
 from rebuild.review.export import build_triage, load_units, load_verdicts
 
@@ -77,6 +79,32 @@ def test_every_built_unit_has_one_render_group_and_a_summary(built):
             assert unit["render_groups"][0]["configs"] == unit["configs"], unit["id"]
             assert unit["summary"].startswith("New: "), unit["id"]
             assert "decided by" in unit["summary"] or "no policy record" in unit["summary"], unit["id"]
+
+
+def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
+    full = ACCEPTANCE_CONFIGS
+    non_ss10 = tuple(config for config in full if config != "ss10")
+    assert config_note(non_ss10, full) is None
+    assert config_note(full, full) is None
+    assert config_note(("ss03", "ss02+ss03", "ss02+ss03+ss05"), full) == "only when ss03 is on"
+    assert config_note(("default", "ss02", "ss04", "ss05"), full) == "only when ss03 is off"
+    assert config_note(("ss10",), full) == "only under ss10"
+    assert config_note(("default", "ss03"), full) == "only under: default, ss03"
+
+
+def test_config_note_distribution_over_the_built_output(built):
+    """The M1 facts the badge design rests on: the config-set space collapses to four notes — null for the 2,028 units covering every non-ss10 config, plus the ss03-gated, ss03-excluded, and ss10-only minorities."""
+    out_dir, manifest = built
+    histogram = {}
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
+    assert histogram == {
+        None: 2028,
+        "only when ss03 is on": 149,
+        "only when ss03 is off": 217,
+        "only under ss10": 17,
+    }
 
 
 def test_built_classes_keep_ledger_order_and_counts(built):
