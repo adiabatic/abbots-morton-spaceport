@@ -17,6 +17,9 @@ import {
   markOffset,
   familiesOfGroup,
   unitMatchesFilters,
+  partitionUnits,
+  humanClassCount,
+  humanTotal,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -37,10 +40,16 @@ const shardCache = new Map();
 const unitsById = new Map();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
+const MACHINE_BADGE = 'ink-identical — machine approved';
+const MACHINE_TITLE =
+  'Both fonts render this unit identically under every config in its set; no human input is meaningful.';
+
 let state = withDefaults(parseHash(location.hash));
 let visibleUnits = [];
+let machineUnits = [];
 let renderedKey = null;
 let renderToken = 0;
+const machineFoldBuilders = new Map();
 
 function withDefaults(parsed) {
   const next = { ...parsed };
@@ -78,16 +87,22 @@ async function shardUnits(classId) {
   return shardCache.get(classId);
 }
 
-async function unitsForBatch(batch, classFilter) {
+async function unitsForView(batch, classFilter) {
   const classes = [];
   for (const cls of manifest.classes) {
-    if (classFilter && cls.id !== classFilter) continue;
+    if (classFilter) {
+      if (cls.id === classFilter) classes.push(cls);
+      continue;
+    }
     if (cls.batches.includes(batch)) classes.push(cls);
+    else if (cls.batches.length === 0 && batch === 0) classes.push(cls);
   }
   const lists = await Promise.all(classes.map((cls) => shardUnits(cls.id)));
   const units = [];
   for (const list of lists) {
-    for (const unit of list) if (unit.batch === batch) units.push(unit);
+    for (const unit of list) {
+      if (unit.ink_identical || unit.batch === batch) units.push(unit);
+    }
   }
   return units;
 }
@@ -133,7 +148,7 @@ function buildSample(unit, side, featureSettings) {
 }
 
 function buildRow(unit) {
-  const row = el('article', 'row');
+  const row = el('article', unit.ink_identical ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
   row.dataset.unit = unit.id;
   row.dataset.group = unit.group;
@@ -153,6 +168,11 @@ function buildRow(unit) {
   meta.append(el('span', 'unit-id', unit.id));
   for (const kind of unit.kinds ?? []) meta.append(el('span', 'kind', kind));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
+  if (unit.ink_identical) {
+    const badge = el('span', 'machine-badge', MACHINE_BADGE);
+    badge.title = MACHINE_TITLE;
+    meta.append(badge);
+  }
   if (unit.config_note) {
     const badge = el('span', 'config-note', unit.config_note);
     badge.title = unit.configs.join(', ');
@@ -165,7 +185,8 @@ function buildRow(unit) {
     const button = el('button', 'verdict-btn');
     button.type = 'button';
     button.dataset.verdict = verdict;
-    button.title = title;
+    button.title = unit.ink_identical ? MACHINE_TITLE : title;
+    button.disabled = unit.ink_identical;
     button.setAttribute('aria-pressed', 'false');
     button.append(document.createTextNode(`${text} `));
     const kbd = el('kbd', null, key);
@@ -177,6 +198,7 @@ function buildRow(unit) {
   const note = el('input', 'note');
   note.type = 'text';
   note.placeholder = 'note (n)';
+  note.disabled = unit.ink_identical;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
   label.append(note);
 
@@ -261,10 +283,11 @@ function buildRow(unit) {
   return row;
 }
 
-function renderBatch(units) {
+function renderBatch(units, machine) {
   const container = document.getElementById('batch');
   container.textContent = '';
-  if (units.length === 0) {
+  machineFoldBuilders.clear();
+  if (units.length === 0 && machine.length === 0) {
     container.append(el('p', 'empty', 'No units match the current batch and filters.'));
     return;
   }
@@ -289,7 +312,58 @@ function renderBatch(units) {
     }
     groupNode.append(buildRow(unit));
   }
+  renderMachineSection(container, machine);
   updateGroupCounts();
+}
+
+function renderMachineSection(container, machine) {
+  if (machine.length === 0) return;
+  container.append(
+    el(
+      'h2',
+      'machine-heading',
+      `Machine-approved in this view: ${machine.length} ink-identical units (no verdict needed)`,
+    ),
+  );
+  const byClass = new Map();
+  for (const unit of machine) {
+    if (!byClass.has(unit.class)) byClass.set(unit.class, []);
+    byClass.get(unit.class).push(unit);
+  }
+  for (const [classId, classUnits] of byClass) {
+    const fold = el('details', 'group machine-group');
+    fold.dataset.machineClass = classId;
+    const summary = el('summary');
+    summary.append(el('span', 'group-name', classId));
+    summary.append(el('span', 'group-counts', `${classUnits.length} units — ${MACHINE_BADGE}`));
+    fold.append(summary);
+    const build = () => {
+      if (!machineFoldBuilders.has(fold)) return;
+      machineFoldBuilders.delete(fold);
+      for (const unit of classUnits) fold.append(buildRow(unit));
+    };
+    machineFoldBuilders.set(fold, build);
+    fold.addEventListener('toggle', () => {
+      if (fold.open) build();
+    });
+    container.append(fold);
+  }
+}
+
+function revealMachineUnit(unitId) {
+  const unit = unitsById.get(unitId);
+  if (!unit || !unit.ink_identical) return false;
+  const fold = document.querySelector(`details.machine-group[data-machine-class="${unit.class}"]`);
+  if (!fold) return false;
+  const build = machineFoldBuilders.get(fold);
+  if (build) build();
+  fold.open = true;
+  const row = rowFor(unitId);
+  if (!row) return false;
+  for (const cursor of document.querySelectorAll('.row.cursor')) cursor.classList.remove('cursor');
+  row.classList.add('cursor');
+  row.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'auto' : 'smooth' });
+  return true;
 }
 
 function rowFor(unitId) {
@@ -309,13 +383,24 @@ function syncRowVerdict(unitId, row = rowFor(unitId)) {
 }
 
 function cursorUnitId() {
-  if (state.unit && visibleUnits.some((unit) => unit.id === state.unit)) return state.unit;
+  if (state.unit) {
+    if (visibleUnits.some((unit) => unit.id === state.unit)) return state.unit;
+    // A machine-approved unit can hold the URL cursor for deep links, but it is never the verdict cursor: keys and auto-advance operate over the human workload only.
+    if (machineUnits.some((unit) => unit.id === state.unit)) return null;
+  }
   return visibleUnits.length > 0 ? visibleUnits[0].id : null;
 }
 
 async function ensureCursor() {
-  if (state.unit && !visibleUnits.some((unit) => unit.id === state.unit)) {
+  const inView = (unitId) =>
+    visibleUnits.some((unit) => unit.id === unitId) || machineUnits.some((unit) => unit.id === unitId);
+  if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
+    if (unit && unit.ink_identical) {
+      // Deep-linking to a machine-approved unit auto-enables the toggle (and scopes to its class) instead of 404ing.
+      setStateReplace({ machine: '1', class: unit.class });
+      return false;
+    }
     if (unit && unit.batch !== state.batch && unitMatchesFilters(unit, state, store.records.get(unit.id))) {
       setStateReplace({ batch: unit.batch, class: state.class && unit.class !== state.class ? null : state.class });
       return false;
@@ -343,7 +428,7 @@ function updateCursorDom(scroll = true) {
 }
 
 function updateGroupCounts() {
-  for (const fold of document.querySelectorAll('details.group')) {
+  for (const fold of document.querySelectorAll('details.group:not(.machine-group)')) {
     const rows = fold.querySelectorAll('.row');
     let verdicted = 0;
     for (const row of rows) if (row.dataset.verdict) verdicted += 1;
@@ -359,7 +444,7 @@ function updateProgress() {
     `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
   const counts = verdictCounts(store);
   document.getElementById('overall-progress').textContent =
-    `Overall: ${store.records.size}/${manifest.totals.units} ` +
+    `Overall: ${store.records.size}/${humanTotal(manifest)} ` +
     `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} →${counts.skip})`;
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
@@ -406,8 +491,10 @@ function updateClassCounts() {
         if (unit.class === cls.id && store.records.has(unitId)) verdicted += 1;
       }
     }
-    const progress = known ? `${verdicted}/${cls.unit_count}` : `${cls.unit_count} units`;
-    button.querySelector('.class-counts').textContent = `${progress} · ${cls.row_count} rows`;
+    const human = humanClassCount(cls);
+    const progress = known ? `${verdicted}/${human}` : `${human} units`;
+    const machine = cls.machine_approved_count ? ` · ${cls.machine_approved_count} machine` : '';
+    button.querySelector('.class-counts').textContent = `${progress} · ${cls.row_count} rows${machine}`;
     button.setAttribute('aria-pressed', String(state.class === cls.id));
   }
 }
@@ -440,26 +527,34 @@ function syncFilterControls() {
   document.getElementById('filter-family').value = state.family ?? '';
   document.getElementById('filter-config').value = state.config ?? '';
   document.getElementById('filter-status').value = state.status ?? '';
+  document.getElementById('show-machine').checked = state.machine === '1';
 }
 
 async function applyHashState() {
   const token = (renderToken += 1);
-  const units = await unitsForBatch(state.batch, state.class);
+  const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
-  const filtered = [];
-  for (const unit of units) {
-    if (unitMatchesFilters(unit, state, store.records.get(unit.id))) filtered.push(unit);
-  }
-  visibleUnits = filtered;
-  const key = JSON.stringify([state.class, state.batch, state.group, state.config, state.family, state.status]);
+  const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
+  visibleUnits = human;
+  machineUnits = machine;
+  const key = JSON.stringify([
+    state.class,
+    state.batch,
+    state.group,
+    state.config,
+    state.family,
+    state.status,
+    state.machine,
+  ]);
   if (key !== renderedKey) {
-    renderBatch(filtered);
+    renderBatch(human, machine);
     renderedKey = key;
   }
   populateFilterOptions();
   syncFilterControls();
   if (!(await ensureCursor())) return;
   updateCursorDom();
+  if (state.unit) revealMachineUnit(state.unit);
   updateProgress();
   updateTitle();
   updateBatchNav();
@@ -723,6 +818,9 @@ function wireEvents() {
   document.getElementById('clear-filters').addEventListener('click', () => {
     setState({ family: null, config: null, status: null, group: null });
   });
+  document.getElementById('show-machine').addEventListener('change', (event) => {
+    setState({ machine: event.target.checked ? '1' : null });
+  });
 
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
   document.getElementById('next-batch').addEventListener('click', () => shiftBatch(1));
@@ -763,9 +861,17 @@ function wireEvents() {
 function renderChrome() {
   document.getElementById('build-command').textContent = manifest.build_command ?? '';
   document.getElementById('serve-command').textContent = manifest.serve_command ?? '';
+  const machine = manifest.machine_approved;
   document.getElementById('manifest-meta').textContent =
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
-    `${manifest.totals.units} units / ${manifest.totals.rows} rows in ${manifest.totals.batches} batches.`;
+    `${humanTotal(manifest)} human-workload units in ${manifest.totals.batches} batches, plus ` +
+    `${machine?.units ?? 0} machine-approved, covering ${manifest.totals.rows} rows.`;
+  const line = document.getElementById('machine-approved-line');
+  if (machine && machine.units > 0) {
+    line.textContent = `${machine.units} ink-identical units machine-approved`;
+    line.title = machine.method ?? '';
+    line.hidden = false;
+  }
 }
 
 renderChrome();

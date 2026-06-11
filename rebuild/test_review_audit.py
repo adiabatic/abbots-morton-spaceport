@@ -6,6 +6,7 @@ import pytest
 
 from rebuild.review.audit import (
     AuditRow,
+    assign_batches,
     build_units,
     load_audit,
     load_ledger,
@@ -118,11 +119,26 @@ def test_triage_order_follows_ledger_then_group_then_codepoints(workload):
                 )
 
 
-def test_unit_ids_and_batches_are_sequential(workload):
+def test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known(workload):
     for index, unit in enumerate(workload.units):
         assert unit.unit_id == f"u-{index:04d}"
-        assert unit.batch == index // 300
-    assert workload.units[-1].batch == 8
+        assert unit.batch is None
+        assert unit.ink_identical is False
+
+
+def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(workload):
+    for index, unit in enumerate(workload.units):
+        unit.ink_identical = index % 3 == 0
+    try:
+        total = assign_batches(workload.units, batch_size=300)
+        human = [unit for unit in workload.units if not unit.ink_identical]
+        assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
+        assert all(unit.batch is None for unit in workload.units if unit.ink_identical)
+        assert total == (len(human) + 299) // 300
+    finally:
+        for unit in workload.units:
+            unit.ink_identical = False
+            unit.batch = None
 
 
 def test_ordering_is_deterministic(workload):

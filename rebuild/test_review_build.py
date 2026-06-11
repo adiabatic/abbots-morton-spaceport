@@ -64,9 +64,50 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 2411, "rows": 15528, "batches": 9}
+    assert manifest["totals"] == {"units": 2411, "rows": 15528, "batches": 3}
     assert len(manifest["classes"]) == 14
     assert manifest["mode"] == "m1-audit"
+
+
+def test_machine_approved_histogram_pins_the_census(built):
+    """The ink census the rebatching rests on: 1,549 machine-approved / 862 human units, all machine-approved units inside the three name-grain classes, each of which keeps visible stragglers for human eyes."""
+    out_dir, manifest = built
+    machine = manifest["machine_approved"]
+    assert machine["units"] == 1549
+    assert manifest["totals"]["units"] - machine["units"] == 862
+    assert machine["by_class"] == {
+        "zwnj-word-initial-unification": 206,
+        "dangling-anchor-dropped": 1218,
+        "bare-name-live-join": 125,
+    }
+    assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
+    assert machine["method"]
+    by_id = {meta["id"]: meta for meta in manifest["classes"]}
+    for meta in manifest["classes"]:
+        expected = machine["by_class"].get(meta["id"], 0)
+        assert meta["machine_approved_count"] == expected, meta["id"]
+        assert meta["unit_count"] - meta["machine_approved_count"] > 0, meta["id"]
+    assert by_id["dangling-anchor-dropped"]["unit_count"] == 1334
+    assert by_id["zwnj-word-initial-unification"]["unit_count"] == 213
+    assert by_id["bare-name-live-join"]["unit_count"] == 139
+
+
+def test_batches_cover_the_human_workload_only(built):
+    out_dir, manifest = built
+    human_batches = []
+    for meta in manifest["classes"]:
+        shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        for unit in shard:
+            if unit["ink_identical"]:
+                assert unit["batch"] is None, unit["id"]
+            else:
+                human_batches.append((unit["id"], unit["batch"]))
+    human_batches.sort()
+    assert len(human_batches) == 862
+    assert [batch for _unit_id, batch in human_batches] == [
+        index // 300 for index in range(len(human_batches))
+    ]
+    assert manifest["totals"]["batches"] == 3
 
 
 def test_every_built_unit_has_one_render_group_and_a_summary(built):
@@ -253,6 +294,30 @@ def test_export_round_trip(built, tmp_path):
     assert counts["either"] == 1
     assert counts["skip"] == 1
     assert counts["units_total"] == 2411
+    assert counts["human_units_total"] == 862
+
+    machine = triage["machine_approved"]
+    assert machine["count"] == 1549
+    assert machine["by_class"] == {
+        "zwnj-word-initial-unification": 206,
+        "dangling-anchor-dropped": 1218,
+        "bare-name-live-join": 125,
+    }
+    assert machine["method"]
+    assert machine["rows_covered"] == sum(
+        len(unit["configs"]) for unit in units.values() if unit["ink_identical"]
+    )
+    expanded = []
+    for token in machine["unit_ids"]:
+        if ".." in token:
+            start, end = token.split("..")
+            expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
+        else:
+            expanded.append(int(token[2:]))
+    assert len(expanded) == 1549
+    assert {f"u-{number:04d}" for number in expanded} == {
+        unit_id for unit_id, unit in units.items() if unit["ink_identical"]
+    }
     assert counts["rows_covered"] == sum(
         len(units[uid]["configs"]) for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3])
     )
@@ -279,7 +344,7 @@ def test_export_round_trip(built, tmp_path):
 
     text = yaml.safe_dump(triage, sort_keys=False, allow_unicode=True, width=10**6)
     parsed = yaml.safe_load(text)
-    assert set(parsed) == {"review", "pins", "policy_edits", "any_of"}
+    assert set(parsed) == {"review", "machine_approved", "pins", "policy_edits", "any_of"}
 
 
 def test_export_rejects_bad_format(tmp_path):

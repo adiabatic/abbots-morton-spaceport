@@ -48,6 +48,29 @@ export function unitMatchesFilters(unit, filters, record) {
   return true;
 }
 
+export function partitionUnits(units, filters, recordOf) {
+  const human = [];
+  const machine = [];
+  for (const unit of units) {
+    if (unit.ink_identical) {
+      if (filters.machine === '1' && unitMatchesFilters(unit, { ...filters, status: null }, undefined)) {
+        machine.push(unit);
+      }
+    } else if (unitMatchesFilters(unit, filters, recordOf(unit.id))) {
+      human.push(unit);
+    }
+  }
+  return { human, machine };
+}
+
+export function humanClassCount(cls) {
+  return cls.unit_count - (cls.machine_approved_count ?? 0);
+}
+
+export function humanTotal(manifest) {
+  return manifest.totals.units - (manifest.machine_approved?.units ?? 0);
+}
+
 export function nextUnverdictedIndex(unitIds, fromIndex, hasVerdict) {
   const total = unitIds.length;
   for (let step = 1; step <= total; step += 1) {

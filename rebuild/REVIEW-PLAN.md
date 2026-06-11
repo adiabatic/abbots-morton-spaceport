@@ -15,6 +15,7 @@ A package, not a single module — the engine has five separable concerns and tw
 | `rebuild/review/tablediff.py` | A     | General mode: key-aligned diff of two settlement/treaty table directories, remove+add pairing, provenance-only demotion, witness-string search. Produces the same unit model as `audit.py`.              |
 | `rebuild/review/enrich.py`    | A     | Rune-name notation, old seams from the baseline subsets, the explain precompute (new seams, extensions, eliminations, render text), divergent-position computation, highlight offsets from font metrics. |
 | `rebuild/review/drafts.py`    | A     | The three verdict drafters (pin, policy edit, any-of) plus their validation.                                                                                                                             |
+| `rebuild/review/ink.py`       | A     | Ink-identity comparison: shape each unit in both fonts under every config in its set, compare the placed outlines, and machine-approve units whose ink is pixel-identical (only names differ).           |
 | `rebuild/review/build.py`     | A     | The generation CLI: assembles units, writes `rebuild/out/review/` (manifest, shards, copied fonts, copied static app). Also the `snapshot` subcommand.                                                   |
 | `rebuild/review/export.py`    | A     | The verdicts-to-triage-YAML CLI.                                                                                                                                                                         |
 | `rebuild/review/serve.py`     | A     | Port-7294 livereload server, a line-for-line sibling of `tools/serve.py` over `rebuild/out/review/`, watch globs `**/*.html`, `**/*.css`, `**/*.js`, `**/*.otf`, `**/*.json`.                            |
@@ -55,7 +56,11 @@ Build and serve are separate commands (the server is long-running); `serve.py` p
 
 ### 2.1 Units, dedupe, ordering
 
-The render unit is the recon's deduped triple: (`codepoints`, `baseline`, `new`) → 2,411 units covering all 15,528 audit rows; the ledger class is a function of the triple. Each unit carries its config list plus a build-time `config_note` — null when the unit's set covers every non-ss10 acceptance config (the overwhelmingly common case), otherwise a feature-gating phrase computed generically against the manifest's full config list: "only when f is on" when the set is exactly the configs containing feature tag f ("only under ss10" for the isolation overlay), "only when f is off" when it is exactly the non-ss10 configs without f, and the literal "only under: …" fallback otherwise — plus `render_groups` partitioning the configs by rendered-outcome identity (always a single group under the M1 dedupe key; extra groups would render stacked); a verdict fans out to all of the unit's (config, codepoints) audit rows. Units are ordered for triage: ledger class in the ledger's own file order, then group = lead family pair (code-point order), then codepoints. Batches are fixed slices of 300 units in that order, computed at generation time and recorded in the manifest (M1: 9 batches; the worst class, dangling-anchor-dropped, spans ~5).
+The render unit is the recon's deduped triple: (`codepoints`, `baseline`, `new`) → 2,411 units covering all 15,528 audit rows; the ledger class is a function of the triple. Each unit carries its config list plus a build-time `config_note` — null when the unit's set covers every non-ss10 acceptance config (the overwhelmingly common case), otherwise a feature-gating phrase computed generically against the manifest's full config list: "only when f is on" when the set is exactly the configs containing feature tag f ("only under ss10" for the isolation overlay), "only when f is off" when it is exactly the non-ss10 configs without f, and the literal "only under: …" fallback otherwise — plus `render_groups` partitioning the configs by rendered-outcome identity (always a single group under the M1 dedupe key; extra groups would render stacked); a verdict fans out to all of the unit's (config, codepoints) audit rows. Units are ordered for triage: ledger class in the ledger's own file order, then group = lead family pair (code-point order), then codepoints.
+
+**Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both shipped fonts under every config in its set (uharfbuzz via `rebuild.validation.shaping.Shaper`); each glyph's outline is recorded with fontTools' `DecomposingRecordingPen`, translated by the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`, and the sorted pieces compared. A unit whose placed ink is identical under **every** config is `ink_identical: true` — both fonts render it pixel-identically, only glyph names differ, so no human judgment is meaningful and the build machine-approves it. M1 facts (the census, reproduced by the build and pinned by tests): 1,549 of 2,411 units are ink-identical, falling entirely inside the three name-grain classes — dangling-anchor-dropped 1,218 of 1,334, zwnj-word-initial-unification 206 of 213, bare-name-live-join 125 of 139 — leaving 137 visibly-different units in those classes plus 725 elsewhere, 862 human-workload units in all. In table-diff mode the same comparison runs over each entry's witness string under its config; a witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays `ink_identical: false` in the human workload.
+
+**Batches cover the human workload only**: fixed slices of 300 non-ink-identical units in triage order, computed at generation time after the ink pass and recorded in the manifest (M1: 862 human units → 3 batches). Ink-identical units carry `batch: null` and are never paged to a human; the manifest carries a separate `machine_approved` record (units, rows, the verification-method one-liner, per-class counts) and each class's `machine_approved_count`, so sidebar counts, batch labels, and progress denominators count the human workload while the machine-approved total stays visible as its own line.
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
@@ -240,7 +245,13 @@ any_of:                     # one per fine-either-way unit — both behaviors as
   },
   "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
   "batch_size": 300,
-  "totals": {"units": 2411, "rows": 15528, "batches": 9},
+  "totals": {"units": 2411, "rows": 15528, "batches": 3},
+  "machine_approved": {
+    "units": 1549,
+    "rows": 10666,
+    "method": "Shaped with uharfbuzz in both shipped fonts under every config in the unit's set; …",
+    "by_class": {"zwnj-word-initial-unification": 206, "dangling-anchor-dropped": 1218, "bare-name-live-join": 125}
+  },
   "classes": [
     {
       "id": "dangling-anchor-dropped",
@@ -249,8 +260,9 @@ any_of:                     # one per fine-either-way unit — both behaviors as
       "why": "…the ledger's reviewed rationale, verbatim…",
       "unit_count": 1334,
       "row_count": 9283,
+      "machine_approved_count": 1218,
       "shard": "units/dangling-anchor-dropped.json",
-      "batches": [0, 1, 2, 3, 4]
+      "batches": [2]
     }
   ],
   "build_command": "uv run python -m rebuild.review.build",
@@ -258,14 +270,15 @@ any_of:                     # one per fine-either-way unit — both behaviors as
 }
 ```
 
-Types: all counts are integers; `batches` lists the zero-based global batch indices the class's units occupy; `classes` preserves ledger file order (triage order). In table-diff mode `classes` carries the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null` and `why` generated.
+Types: all counts are integers; `batches` lists the zero-based global batch indices the class's **human-workload** units occupy (`totals.batches` counts human batches too); `machine_approved.by_class` lists only classes with a nonzero count, while every class carries `machine_approved_count` (possibly 0); `classes` preserves ledger file order (triage order). In table-diff mode `classes` carries the diff buckets (`added`, `removed`, `regrouped`, `changed`, `provenance-only`) with `status: null` and `why` generated. The class-level `ink_identical` flag is the ledger's reviewed-classification metadata and is distinct from the per-unit `ink_identical` boolean, which is computed from the fonts at build time.
 
 ### 7.2 Unit shard (`units/<class-id>.json`) — an array of units in triage order
 
 ```json
 {
   "id": "u-0412",
-  "batch": 6,
+  "batch": 1,
+  "ink_identical": false,
   "class": "marker-staging-ligature-formation",
   "group": "qsTea:qsOy",
   "codepoints": "200C:E652:E679",
@@ -296,7 +309,7 @@ Types: all counts are integers; `batches` lists the zero-based global batch indi
 }
 ```
 
-Field semantics: `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `config_note` is null for the general case (the set covers every non-ss10 config) and otherwise the badge phrase computed by the §2.1 rule — the frontend renders it verbatim when present and nothing when null; `render_groups` partitions `configs` by rendered-outcome identity — exactly one group under the M1 dedupe key, with any extra group rendered as a stacked before/after pair under its own feature settings; `summary` is the always-visible one-line prose summary in rune-name notation; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
+Field semantics: `ink_identical` is required on every unit in both modes (the contract checker enforces it); when true the unit is machine-approved, `batch` is `null`, and the frontend shows it only behind the "Show machine-approved" toggle with verdict controls disabled; `text_entities` is the rendered run as numeric character references (never raw PUA — the frontend injects it with `innerHTML` into the sample cells only); `seams` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`); `diff_positions` are glyph indices whose cell or trailing seam diverges; `pair` is the primary divergent adjacency to highlight (`null` for single-position divergences with no seam change); `highlight` x-values and `boundary_marks[].x` are in font units — the frontend converts with `font-size / upem`; `config_note` is null for the general case (the set covers every non-ss10 config) and otherwise the badge phrase computed by the §2.1 rule — the frontend renders it verbatim when present and nothing when null; `render_groups` partitions `configs` by rendered-outcome identity — exactly one group under the M1 dedupe key, with any extra group rendered as a stacked before/after pair under its own feature settings; `summary` is the always-visible one-line prose summary in rune-name notation; `explain` is display-only preformatted text; `stylistic_set` is `null` or the space-separated zero-padded form (`"02 05"`); all strings are NFC, all keys snake_case. The fixture shard under `rebuild/review/fixtures/` contains about six hand-written units exercising every branch (multi-config, ZWNJ, namer dot, ligation, `pair: null`, a `duplicate_of` pin), and the contract checker in `test_review_build.py` validates fixtures and real output identically.
 
 ### 7.3 `verdicts.json`
 

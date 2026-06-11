@@ -19,8 +19,9 @@ import warnings
 from pathlib import Path
 
 from rebuild.review import tablediff
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, load_workload
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, assign_batches, load_workload
 from rebuild.review.drafts import Drafter
+from rebuild.review.ink import VERIFICATION_METHOD, InkComparator
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, notation, text_entities
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -108,6 +109,21 @@ def config_note(unit_configs, full_configs) -> str | None:
     return "only under: " + ", ".join(unit_configs)
 
 
+def _machine_approved_meta(machine_units) -> dict:
+    """The manifest's machine_approved record: the ink-identical total, the audit rows those units cover, the verification method one-liner, and the per-class unit counts (classes with zero machine-approved units are omitted)."""
+    by_class: dict[str, int] = {}
+    rows = 0
+    for unit in machine_units:
+        by_class[unit.class_id] = by_class.get(unit.class_id, 0) + 1
+        rows += len(unit.rows)
+    return {
+        "units": len(machine_units),
+        "rows": rows,
+        "method": VERIFICATION_METHOD,
+        "by_class": by_class,
+    }
+
+
 def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTANCE_CONFIGS) -> dict:
     unit = enriched.unit
     pin = drafter.draft_pin(enriched)
@@ -116,6 +132,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
     return {
         "id": unit.unit_id,
         "batch": unit.batch,
+        "ink_identical": unit.ink_identical,
         "class": unit.class_id,
         "group": unit.group,
         "codepoints": unit.codepoints,
@@ -202,7 +219,12 @@ def build_m1(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    workload = load_workload(audit_path, ledger_path, dict(LETTERS), batch_size)
+    workload = load_workload(audit_path, ledger_path, dict(LETTERS))
+    comparator = InkComparator(before_font, after_font)
+    for unit in workload.units:
+        text = "".join(chr(value) for value in unit.codepoint_values)
+        unit.ink_identical = comparator.ink_identical(text, unit.configs)
+    total_batches = assign_batches(workload.units, batch_size)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(repo_root)
@@ -223,8 +245,9 @@ def build_m1(
                 "why": entry.why,
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
+                "machine_approved_count": sum(1 for unit in units if unit.ink_identical),
                 "shard": f"units/{entry.id}.json",
-                "batches": sorted({unit.batch for unit in units}),
+                "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
         )
 
@@ -232,7 +255,7 @@ def build_m1(
         "before": _copy_font(before_font, out_dir, "before.otf", "AMS Review Before", repo_root),
         "after": _copy_font(after_font, out_dir, "after.otf", "AMS Review After", repo_root),
     }
-    total_batches = max(unit.batch for unit in workload.units) + 1 if workload.units else 0
+    machine_units = [unit for unit in workload.units if unit.ink_identical]
     manifest = {
         "format": MANIFEST_FORMAT,
         "mode": "m1-audit",
@@ -246,6 +269,7 @@ def build_m1(
         "configs": list(ACCEPTANCE_CONFIGS),
         "batch_size": batch_size,
         "totals": {"units": len(workload.units), "rows": workload.row_count, "batches": total_batches},
+        "machine_approved": _machine_approved_meta(machine_units),
         "classes": classes_meta,
         "build_command": BUILD_COMMAND,
         "serve_command": SERVE_COMMAND,
@@ -274,7 +298,9 @@ def _relative(path: Path, repo_root: Path) -> str:
 # --- table-diff mode -----------------------------------------------------------------
 
 
-def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int, full_configs) -> dict:
+def _table_diff_unit_json(
+    entry: tablediff.DiffEntry, unit_id: str, batch: int | None, full_configs, ink_identical: bool
+) -> dict:
     witness = entry.witness
     members = entry.paired or (entry,)
     if entry.table == "treaty":
@@ -327,6 +353,7 @@ def _table_diff_unit_json(entry: tablediff.DiffEntry, unit_id: str, batch: int, 
     return {
         "id": unit_id,
         "batch": batch,
+        "ink_identical": ink_identical,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
         "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
@@ -410,20 +437,39 @@ def build_table_diff(
     for entry in entries:
         by_bucket.setdefault(entry.bucket, []).append(entry)
 
+    comparator = InkComparator(before_font, after_font)
     classes_meta: list[dict] = []
     index = 0
+    human_index = 0
+    machine_units = 0
+    machine_rows = 0
+    machine_by_class: dict[str, int] = {}
     for bucket in tablediff.DIFF_BUCKETS:
         members = by_bucket.get(bucket, [])
         if not members:
             continue
         shard = []
         batches = set()
+        machine_count = 0
         for entry in members:
-            batch = index // batch_size
-            shard.append(_table_diff_unit_json(entry, f"u-{index:04d}", batch, all_configs))
-            batches.add(batch)
+            # A witnessless entry has no renderable text to shape, so it cannot be proven ink-identical and stays in the human workload.
+            ink_identical = bool(entry.witness) and comparator.ink_identical(
+                "".join(chr(value) for value in entry.witness), (entry.config,)
+            )
+            if ink_identical:
+                batch = None
+                machine_count += 1
+                machine_rows += max(len(entry.paired), 1)
+            else:
+                batch = human_index // batch_size
+                batches.add(batch)
+                human_index += 1
+            shard.append(_table_diff_unit_json(entry, f"u-{index:04d}", batch, all_configs, ink_identical))
             index += 1
         _write_json(out_dir / "units" / f"{bucket}.json", shard)
+        machine_units += machine_count
+        if machine_count:
+            machine_by_class[bucket] = machine_count
         classes_meta.append(
             {
                 "id": bucket,
@@ -432,6 +478,7 @@ def build_table_diff(
                 "why": tablediff.BUCKET_WHY[bucket],
                 "unit_count": len(members),
                 "row_count": sum(max(len(entry.paired), 1) for entry in members),
+                "machine_approved_count": machine_count,
                 "shard": f"units/{bucket}.json",
                 "batches": sorted(batches),
             }
@@ -453,7 +500,13 @@ def build_table_diff(
         "totals": {
             "units": index,
             "rows": sum(meta["row_count"] for meta in classes_meta),
-            "batches": (index + batch_size - 1) // batch_size,
+            "batches": (human_index + batch_size - 1) // batch_size,
+        },
+        "machine_approved": {
+            "units": machine_units,
+            "rows": machine_rows,
+            "method": VERIFICATION_METHOD,
+            "by_class": machine_by_class,
         },
         "classes": classes_meta,
         "build_command": BUILD_COMMAND + " --mode table-diff",
@@ -492,6 +545,25 @@ def check_manifest(manifest: dict) -> list[str]:
     if isinstance(totals, dict):
         for key in ("units", "rows", "batches"):
             need(isinstance(totals.get(key), int), f"totals.{key} must be an integer")
+    machine = manifest.get("machine_approved")
+    need(isinstance(machine, dict), "machine_approved must be a mapping")
+    if isinstance(machine, dict):
+        for key in ("units", "rows"):
+            need(isinstance(machine.get(key), int), f"machine_approved.{key} must be an integer")
+        need(
+            isinstance(machine.get("method"), str) and machine.get("method"),
+            "machine_approved.method must be a nonempty string",
+        )
+        by_class = machine.get("by_class")
+        need(
+            isinstance(by_class, dict) and all(isinstance(count, int) for count in (by_class or {}).values()),
+            "machine_approved.by_class must map class ids to integers",
+        )
+        if isinstance(by_class, dict) and isinstance(machine.get("units"), int):
+            need(
+                sum(by_class.values()) == machine["units"],
+                "machine_approved.by_class must sum to machine_approved.units",
+            )
     fonts = manifest.get("fonts")
     need(isinstance(fonts, dict) and set(fonts or ()) == {"before", "after"}, "fonts must map before/after")
     if isinstance(fonts, dict):
@@ -508,7 +580,7 @@ def check_manifest(manifest: dict) -> list[str]:
         identifier = meta.get("id", "<missing>")
         for key in ("id", "shard", "why"):
             need(isinstance(meta.get(key), str), f"classes[{identifier}].{key} must be a string")
-        for key in ("unit_count", "row_count"):
+        for key in ("unit_count", "row_count", "machine_approved_count"):
             need(isinstance(meta.get(key), int), f"classes[{identifier}].{key} must be an integer")
         need(isinstance(meta.get("batches"), list), f"classes[{identifier}].batches must be a list")
         need("status" in meta, f"classes[{identifier}].status must be present")
@@ -536,7 +608,11 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             errors.append(f"unit {identifier}: {message}")
 
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
-    need(isinstance(unit.get("batch"), int), "batch must be an integer")
+    need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
+    if unit.get("ink_identical") is True:
+        need(unit.get("batch") is None, "ink-identical units must carry batch null")
+    else:
+        need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
@@ -707,6 +783,7 @@ def check_output_dir(out_dir: Path) -> list[str]:
     seen_units = 0
     seen_rows = 0
     seen_ids: set[str] = set()
+    seen_machine_by_class: dict[str, int] = {}
     for meta in manifest.get("classes", ()):
         shard_path = out_dir / meta.get("shard", "")
         if not shard_path.exists():
@@ -715,6 +792,7 @@ def check_output_dir(out_dir: Path) -> list[str]:
         shard = json.loads(shard_path.read_text(encoding="utf-8"))
         if len(shard) != meta.get("unit_count"):
             errors.append(f"shard {meta['id']}: {len(shard)} units, manifest says {meta.get('unit_count')}")
+        machine_count = 0
         for unit in shard:
             errors.extend(check_unit(unit, mode))
             if unit.get("class") != meta.get("id"):
@@ -722,8 +800,17 @@ def check_output_dir(out_dir: Path) -> list[str]:
             if unit.get("id") in seen_ids:
                 errors.append(f"duplicate unit id {unit.get('id')}")
             seen_ids.add(unit.get("id"))
-            if mode == "m1-audit" and unit.get("batch") not in meta.get("batches", ()):
+            if unit.get("ink_identical") is True:
+                machine_count += 1
+            elif mode == "m1-audit" and unit.get("batch") not in meta.get("batches", ()):
                 errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
+        if machine_count != meta.get("machine_approved_count"):
+            errors.append(
+                f"class {meta.get('id')}: {machine_count} ink-identical units, "
+                f"manifest says {meta.get('machine_approved_count')}"
+            )
+        if machine_count:
+            seen_machine_by_class[meta["id"]] = machine_count
         seen_units += len(shard)
         seen_rows += meta.get("row_count", 0)
     totals = manifest.get("totals", {})
@@ -731,6 +818,14 @@ def check_output_dir(out_dir: Path) -> list[str]:
         errors.append(f"totals.units {totals.get('units')} != {seen_units} shard units")
     if seen_rows != totals.get("rows"):
         errors.append(f"totals.rows {totals.get('rows')} != {seen_rows} summed class rows")
+    machine = manifest.get("machine_approved") or {}
+    if sum(seen_machine_by_class.values()) != machine.get("units"):
+        errors.append(
+            f"machine_approved.units {machine.get('units')} != "
+            f"{sum(seen_machine_by_class.values())} ink-identical shard units"
+        )
+    if seen_machine_by_class != {key: value for key, value in (machine.get("by_class") or {}).items()}:
+        errors.append("machine_approved.by_class does not match the shards' ink-identical counts")
 
     for side, record in (manifest.get("fonts") or {}).items():
         font_path = out_dir / record.get("file", "")

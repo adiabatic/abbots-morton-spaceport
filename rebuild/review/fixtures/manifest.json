@@ -23,9 +23,30 @@
    "upem": 550
   }
  },
- "configs": ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10"],
+ "configs": [
+  "default",
+  "ss02",
+  "ss03",
+  "ss04",
+  "ss05",
+  "ss02+ss03",
+  "ss02+ss03+ss05",
+  "ss10"
+ ],
  "batch_size": 300,
- "totals": {"units": 6, "rows": 25, "batches": 1},
+ "totals": {
+  "units": 6,
+  "rows": 25,
+  "batches": 1
+ },
+ "machine_approved": {
+  "units": 1,
+  "rows": 3,
+  "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared.",
+  "by_class": {
+   "fixture-intended": 1
+  }
+ },
  "classes": [
   {
    "id": "fixture-intended",
@@ -34,8 +55,11 @@
    "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.",
    "unit_count": 4,
    "row_count": 18,
+   "machine_approved_count": 1,
    "shard": "units/fixture-intended.json",
-   "batches": [0]
+   "batches": [
+    0
+   ]
   },
   {
    "id": "fixture-drift",
@@ -44,8 +68,11 @@
    "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches.",
    "unit_count": 2,
    "row_count": 7,
+   "machine_approved_count": 0,
    "shard": "units/fixture-drift.json",
-   "batches": [0]
+   "batches": [
+    0
+   ]
   }
  ],
  "build_command": "uv run python -m rebuild.review.build",

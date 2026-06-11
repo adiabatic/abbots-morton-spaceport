@@ -12,6 +12,7 @@
       <p class="position" role="status">
         <span id="batch-progress">Loading…</span>
         <span id="overall-progress"></span>
+        <span id="machine-approved-line" hidden></span>
         <span id="unexported-nudge" hidden></span>
       </p>
       <div class="strip-actions">
@@ -60,6 +61,10 @@
               </select>
             </label>
             <button type="button" id="clear-filters">Clear filters</button>
+            <label class="machine-toggle" title="Ink-identical units are hidden by default: both fonts render them identically, so they were machine-approved and need no human verdict.">
+              <input type="checkbox" id="show-machine" />
+              Show machine-approved
+            </label>
           </div>
         </section>
 
@@ -92,6 +97,7 @@
         </tbody>
       </table>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit shows a small badge (“only when ss03 is on”, “only under ss10”, …) only when its config set is informative — hover it for the full list. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
+      <p>Units whose ink is pixel-identical in both fonts under every config were machine-approved at build time and are hidden by default; the “Show machine-approved” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
       <form method="dialog"><button>Close</button></form>
     </dialog>
 
