@@ -116,15 +116,20 @@ def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
-    unit = units_by_key[("E652:E670", "default")]
+    # The round-1 verdict pass deleted qsIt's halves entry-extension record, so the old flagship ·Tea·It unit re-converged; the class's surviving exemplar is the ss03 phenomenon-1b window where ·May composes en-ext-1 + ex-ext-1.
+    unit = units_by_key[("E650:E665:E652", "ss03")]
     enriched = enricher.enrich(unit)
-    assert enriched.before_glyphs == ("qsTea.half.ex-y5", "qsIt.en-y5.ex-y0")
-    assert enriched.before_seams == ("y5",)
-    assert enriched.after_seams == ("y5",)
-    assert enriched.after_extensions == (1,)
-    assert enriched.diff_positions == (1,)
+    assert enriched.before_glyphs == (
+        "qsPea",
+        "qsMay.en-y0.ex-y5.ex-ext-1",
+        "qsTea.half.en-y5.after-xheight-exit",
+    )
+    assert enriched.before_seams == ("y0", "y5")
+    assert enriched.after_seams == ("y0", "y5")
+    assert enriched.after_extensions == (1, 1)
+    assert enriched.diff_positions == (0, 1)
     assert enriched.pair == (0, 1)
-    assert "glyph_data/runes/qsIt.yaml:policy.extend" in " ".join(enriched.provenance)
+    assert "glyph_data/runes/qsMay.yaml:policy.extend" in " ".join(enriched.provenance)
 
 
 def test_zwnj_unit_carries_boundary_mark(enricher, units_by_key):

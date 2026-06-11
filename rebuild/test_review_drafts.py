@@ -126,12 +126,12 @@ def test_policy_draft_prefers_contract_for_gained_extension(drafter, enricher, w
     unit = next(
         unit
         for unit in workload.units
-        if unit.codepoints == "E652:E670" and unit.class_id == "halves-entry-extension-restored"
+        if unit.codepoints == "E679:E670:E665" and unit.class_id == "halves-entry-extension-restored"
     )
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
     assert policy.keypath == "policy.contract[+]"
-    assert policy.file == "glyph_data/runes/qsIt.yaml"
+    assert policy.file == "glyph_data/runes/qsMay.yaml"
     assert "by: 1" in policy.suggested_record
     assert any("policy.extend" in pointer for pointer in policy.names_provenance)
 

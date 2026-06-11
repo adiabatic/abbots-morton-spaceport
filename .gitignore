@@ -28,3 +28,5 @@ rebuild/out/
 
 # Claude Code local state
 .claude/scheduled_tasks.lock
+/verdicts-*.json
+/verdicts.json

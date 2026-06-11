@@ -67,21 +67,21 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 2411, "rows": 15528, "batches": 3}
-    assert len(manifest["classes"]) == 14
+    assert manifest["totals"] == {"units": 2410, "rows": 15525, "batches": 2}
+    assert len(manifest["classes"]) == 13
     assert manifest["mode"] == "m1-audit"
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on: 1,686 machine-approved / 725 human units, all machine-approved units inside the three name-grain classes, each of which is now fully machine-approved (their former visible stragglers differed only in the old font's kerning)."""
+    """The kern-neutral ink census the rebatching rests on: after the round-1 reverts, 1,871 machine-approved / 539 human units, all machine-approved units inside the three name-grain classes, each of which is fully machine-approved (their visible stragglers differ only in the old font's kerning)."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
-    assert machine["units"] == 1686
-    assert manifest["totals"]["units"] - machine["units"] == 725
+    assert machine["units"] == 1871
+    assert manifest["totals"]["units"] - machine["units"] == 539
     assert machine["by_class"] == {
         "zwnj-word-initial-unification": 213,
-        "dangling-anchor-dropped": 1334,
-        "bare-name-live-join": 139,
+        "dangling-anchor-dropped": 1520,
+        "bare-name-live-join": 138,
     }
     assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
     assert machine["method"]
@@ -89,19 +89,19 @@ def test_machine_approved_histogram_pins_the_census(built):
     for meta in manifest["classes"]:
         expected = machine["by_class"].get(meta["id"], 0)
         assert meta["machine_approved_count"] == expected, meta["id"]
-    assert by_id["dangling-anchor-dropped"]["unit_count"] == 1334
+    assert by_id["dangling-anchor-dropped"]["unit_count"] == 1520
     assert by_id["zwnj-word-initial-unification"]["unit_count"] == 213
-    assert by_id["bare-name-live-join"]["unit_count"] == 139
+    assert by_id["bare-name-live-join"]["unit_count"] == 138
 
 
 def test_secondary_seam_census_pins_the_real_data(built):
-    """The secondary-seam resolution census over the real M1 workload: 159 units carry visible markers (223 raw secondary seams, of which 51 resolve to an ink-identical home and are suppressed as invisible), 43 seams link to the shorter unit where the same behavior is the primary judgment, and 129 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary), so they carry home null and are judged in place."""
+    """The secondary-seam resolution census over the post-round-1 M1 workload: 73 units carry visible markers (140 raw secondary seams, of which 63 resolve to an ink-identical home and are suppressed as invisible), 18 seams link to the shorter unit where the same behavior is the primary judgment, and 59 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary), so they carry home null and are judged in place."""
     out_dir, manifest = built
     assert manifest["secondary_seams"] == {
-        "units_with_markers": 159,
-        "seams_homed": 43,
-        "seams_homeless": 129,
-        "seams_suppressed_invisible": 51,
+        "units_with_markers": 73,
+        "seams_homed": 18,
+        "seams_homeless": 59,
+        "seams_suppressed_invisible": 63,
     }
 
     units_by_id = {}
@@ -134,7 +134,7 @@ def test_secondary_seam_census_pins_the_real_data(built):
             ), f"{unit['id']}: home {home['id']} is not a substring"
             assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
             assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
-    assert (units_with, homed, homeless) == (159, 43, 129)
+    assert (units_with, homed, homeless) == (73, 18, 59)
 
 
 def test_known_secondary_seam_homes_at_the_shorter_primary(built):
@@ -166,11 +166,11 @@ def test_batches_cover_the_human_workload_only(built):
             else:
                 human_batches.append((unit["id"], unit["batch"]))
     human_batches.sort()
-    assert len(human_batches) == 725
+    assert len(human_batches) == 539
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
-    assert manifest["totals"]["batches"] == 3
+    assert manifest["totals"]["batches"] == 2
 
 
 def test_every_built_unit_has_one_render_group_and_a_summary(built):
@@ -205,7 +205,7 @@ def test_config_note_distribution_over_the_built_output(built):
             histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
     assert histogram == {
         None: 2028,
-        "only when ss03 is on": 149,
+        "only when ss03 is on": 148,
         "only when ss03 is off": 217,
         "only under ss10": 17,
     }
@@ -363,15 +363,15 @@ def test_export_round_trip(built, tmp_path):
     assert counts["either"] == 1
     assert counts["neither"] == 1
     assert counts["skip"] == 1
-    assert counts["units_total"] == 2411
-    assert counts["human_units_total"] == 725
+    assert counts["units_total"] == 2410
+    assert counts["human_units_total"] == 539
 
     machine = triage["machine_approved"]
-    assert machine["count"] == 1686
+    assert machine["count"] == 1871
     assert machine["by_class"] == {
         "zwnj-word-initial-unification": 213,
-        "dangling-anchor-dropped": 1334,
-        "bare-name-live-join": 139,
+        "dangling-anchor-dropped": 1520,
+        "bare-name-live-join": 138,
     }
     assert machine["method"]
     assert machine["rows_covered"] == sum(
@@ -384,7 +384,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
         else:
             expanded.append(int(token[2:]))
-    assert len(expanded) == 1686
+    assert len(expanded) == 1871
     assert {f"u-{number:04d}" for number in expanded} == {
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }
