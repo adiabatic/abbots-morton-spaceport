@@ -388,7 +388,8 @@ details.group {
       color: var(--muted);
 
       .kind,
-      .exemplar {
+      .exemplar,
+      .config-note {
         border: 1px solid var(--hairline);
         border-radius: 8px;
         padding: 0 0.45em;
@@ -398,21 +399,9 @@ details.group {
         color: var(--hot);
         border-color: var(--hot);
       }
-    }
 
-    .config-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.3rem;
-      cursor: default;
-
-      .chip {
-        font-family: var(--code-font);
-        font-size: 11px;
-        padding: 0.1rem 0.5rem;
-        border: 1px solid var(--hairline);
-        border-radius: 9px;
-        color: var(--muted);
+      .config-note {
+        cursor: default;
       }
     }
 

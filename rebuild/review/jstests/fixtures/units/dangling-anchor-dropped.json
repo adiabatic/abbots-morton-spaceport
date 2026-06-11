@@ -11,6 +11,7 @@
    "default",
    "ss05"
   ],
+  "config_note": "only under: default, ss05",
   "render_groups": [
    {
     "configs": [
@@ -116,6 +117,7 @@
   "configs": [
    "ss04"
   ],
+  "config_note": "only when ss04 is on",
   "render_groups": [
    {
     "configs": [

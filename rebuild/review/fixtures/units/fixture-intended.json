@@ -12,6 +12,7 @@
    "ss02+ss03",
    "ss02+ss03+ss05"
   ],
+  "config_note": "only when ss03 is on",
   "render_groups": [
    {
     "configs": [
@@ -123,6 +124,7 @@
    "ss02+ss03",
    "ss02+ss03+ss05"
   ],
+  "config_note": null,
   "render_groups": [
    {
     "configs": [
@@ -230,6 +232,7 @@
    "ss02+ss03",
    "ss02+ss03+ss05"
   ],
+  "config_note": null,
   "render_groups": [
    {
     "configs": [
@@ -336,6 +339,7 @@
    "ss02+ss03",
    "ss02+ss03+ss05"
   ],
+  "config_note": "only when ss02 is on",
   "render_groups": [
    {
     "configs": [
