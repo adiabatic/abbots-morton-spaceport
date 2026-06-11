@@ -141,7 +141,7 @@ def test_provenance_and_record_parsing(spec):
     assert refuse.when.left == Condition(family=("qsIt",))
     assert refuse.provenance.file == "glyph_data/runes/qsIt.yaml"
     assert refuse.provenance.path == "policy.refuse[0]"
-    flagship = spec.runes["qsIt"].policy.extend[2]
+    flagship = spec.runes["qsIt"].policy.extend[1]
     assert flagship.exit == "baseline" and flagship.by == 1 and flagship.when.self_entry == "live"
     contract = spec.runes["qsMay"].policy.contract[0]
     assert contract.bind == "pulled-back-stubless"

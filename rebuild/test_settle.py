@@ -1,4 +1,4 @@
-"""Settlement-kernel tests over the real M1 rune data (rebuild/pipeline/fixtures.py) plus small synthetic specs for the stages the real records leave unexercised (prefers, the structural-floor joint flag, bind contracts).
+"""Settlement-kernel tests over the real M1 rune data (rebuild/pipeline/fixtures.py), small synthetic specs for the stages the real records leave unexercised (prefers, the structural-floor joint flag, bind contracts), and round-1 verdict pins that load glyph_data/runes/*.yaml directly (the fixture transcription is frozen at M1 and predates the verdict records).
 
 Expectations marked AUTHORED-DATA FINDING assert the authored rune files' actual semantics where they knowingly diverge from today's font (the qsMay grounded exit is unscoped and its refusal list lacks qsTea; the qsMay baseline entry extension's trigger list lacks qsTea_qsOy; qsMay withdraws its exit stub mid-word). Those rows are divergence-ledger material for Phase 5, not kernel bugs — see the Deviations section appended to rebuild/M1-PLAN.md.
 """
@@ -295,3 +295,62 @@ def test_bind_contract_lands_in_the_adjustments_grammar():
     spec = _synthetic_spec(contract_b=(contract,))
     labels = _labels(spec, [0xE001, 0xE002])
     assert labels == ("A.stroke.ex-y5", "B.hook.en-y5.en-bind-hook-after-a")
+
+
+# Round-1 verdict pins over the real loaded rune YAML. The fixture spec above is the frozen M1 transcription and intentionally predates the round-1 verdict records, so these rows load glyph_data/runes/*.yaml directly. They pin the greedy ·May·May pairing of the round-1 verdict (u-0341, "the old way seems nicer to write out by hand"): chains pair up y0 | break | y0 | break, like the shipped font does at every length. The quad is the verdicted window; the quint and sextet are the only gate that sees qsMay.policy.prefer[1] (the chain-interior record) — the acceptance oracle's window universe tops out at four letters, where the word-start record alone reproduces every outcome, and without the chain-interior record chains of five or more regress to the rejected defer-to-the-tail grouping.
+
+
+@pytest.fixture(scope="module")
+def real_spec():
+    import warnings
+
+    from rebuild.pipeline.spec_load import load_default_spec
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return load_default_spec()
+
+
+MAY_CHAIN_ROWS = (
+    (
+        4,
+        (
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0",
+        ),
+    ),
+    (
+        5,
+        (
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop",
+        ),
+    ),
+    (
+        6,
+        (
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.grounded-loop.ex-y0",
+            "qsMay.loop.en-y0",
+        ),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "length,expected", MAY_CHAIN_ROWS, ids=[f"qsMay-x{row[0]}" for row in MAY_CHAIN_ROWS]
+)
+def test_round1_greedy_may_chain_pairing(real_spec, length, expected):
+    may = real_spec.registry.families["qsMay"].codepoint
+    labels = tuple(
+        cell_label(real_spec, settled.cell) for settled in settle(real_spec, [may] * length, frozenset())
+    )
+    assert labels == expected

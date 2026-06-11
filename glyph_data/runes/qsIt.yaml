@@ -66,10 +66,10 @@ policy:
     exit: baseline
     when: {self: {entry: none}, left: {family: [qsZoo, qsShe, qsIt, qsEat, qsOwe]}, right: {family: qsUtter}}
     why: Carried from today's before-·Utter stance ("needed to make words ending in -ian look right"); these predecessors veto the unentered ·It·Utter baseline join.
-  prefer: []
+  prefer:
+  - {cell: {exit: none}, over: {exit: baseline}, when: {right: {family: qsIt, then: {family: qsMay}}}, why: 'Round-1 verdict, ·X·It·It·May (u-0278, u-0282, u-0297): before a ·May that needs the baseline entry, the entered ·It declines the ·It·It join so ·It·May keeps it — "the former looks less awkward to right" (sic), "The old way seems nicer to write out by hand". Yielding and then-scoped, so the approved ·It·It join gains everywhere else are untouched.'}
   extend:
-  # Transcribed faithfully from the old YAML even though the probed ·Tea.half·It window today shows no entry extension; the E-UNREALIZED gap gate and the divergence ledger arbitrate (M1 plan, section 5 authoring note).
-  - {stance: bar, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, except: [{family: qsPea}], joined_at: x-height}}}
+  # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
   - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
   - {stance: bar, exit: baseline, by: 1, when: {self: {entry: live}}}
   - {stance: bar, exit: baseline, by: 1, when: {self: {entry: none}, right: {family: qsI}}}

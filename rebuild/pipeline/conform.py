@@ -598,8 +598,6 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if "seam-loss" in phenomena:
         if gains:
             return "regrouping-floor-drift"
-        if set(row.codepoints.split(":")) == {"E665"}:
-            return "may-quad-order-deferral"
         return None
     if gains:
         gain_runes = {item.split(":", 1)[1] for item in gains}
@@ -651,7 +649,6 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 for _class_id in (
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
-    "may-quad-order-deferral",
     "zwnj-follower-exit-restored",
     "pre-ligature-cleanup-regularized",
     "ss03-chain-join-gains",

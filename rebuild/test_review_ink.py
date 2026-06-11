@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, may-exit-withdrawal-generalized units are not, the verdict is deterministic, and the full kern-neutral histogram pins 1,686 machine-approved / 725 human units with the three name-grain classes fully machine-approved."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, may-exit-withdrawal-generalized units are not, the verdict is deterministic, and the full kern-neutral histogram pins 1,871 machine-approved / 539 human units (the post-round-1 census) with the three name-grain classes fully machine-approved."""
 
 from pathlib import Path
 
@@ -16,9 +16,9 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 INK_CLASS_SPLITS = {
-    "dangling-anchor-dropped": (1334, 1334),
+    "dangling-anchor-dropped": (1520, 1520),
     "zwnj-word-initial-unification": (213, 213),
-    "bare-name-live-join": (139, 139),
+    "bare-name-live-join": (138, 138),
 }
 
 
@@ -84,7 +84,7 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on: 1,686 of 2,411 units are ink-identical under every config in their sets — the three name-grain classes in full, since their former 137 visible stragglers differed only in the old font's kerning — leaving 725 units of human workload."""
+    """The kern-neutral census facts the rebatching rests on: after the round-1 reverts, 1,871 of 2,410 units are ink-identical under every config in their sets — the three name-grain classes in full, since their visible stragglers differ only in the old font's kerning — leaving 539 units of human workload."""
     machine_by_class: dict[str, int] = {}
     total_by_class: dict[str, int] = {}
     for unit in workload.units:
@@ -92,15 +92,15 @@ def test_full_histogram_reproduces_the_census(workload, comparator):
         if comparator.ink_identical(_text(unit), unit.configs):
             unit.ink_identical = True
             machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    assert sum(machine_by_class.values()) == 1686
-    assert len(workload.units) - sum(machine_by_class.values()) == 725
+    assert sum(machine_by_class.values()) == 1871
+    assert len(workload.units) - sum(machine_by_class.values()) == 539
     assert machine_by_class == {class_id: split[0] for class_id, split in INK_CLASS_SPLITS.items()}
     for class_id, (machine, total) in INK_CLASS_SPLITS.items():
         assert total_by_class[class_id] == total, class_id
         assert machine == total, f"{class_id} is fully machine-approved once kerning is neutralized"
 
     batches = assign_batches(workload.units)
-    assert batches == 3
+    assert batches == 2
     human = [unit for unit in workload.units if not unit.ink_identical]
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical)
