@@ -18,6 +18,7 @@ from rebuild.review.enrich import (
     letter_display,
     load_spec,
     notation,
+    notation_tokens,
     parse_entry_extension,
     resolve_secondary_homes,
     rune_display,
@@ -74,6 +75,30 @@ def test_notation_examples():
 
 def test_text_entities_are_numeric_references():
     assert text_entities((0x200C, 0xE652)) == "&#x200C;&#xE652;"
+
+
+def test_notation_tokens_align_one_to_one_with_codepoints():
+    assert notation_tokens((0x200C, 0xE652, 0xE679)) == ("◊ZWNJ", "·Tea", "·Oy")
+    assert notation_tokens((0x00B7, 0xE679)) == ("·", "·Oy")
+    assert notation_tokens((0xE650, 0x0020, 0xE650)) == ("·Pea", "␣", "·Pea")
+    assert notation_tokens((0xE664, 0xE65D)) == ("·-ing", "·J’ai")
+
+
+def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key):
+    # A plain two-letter pair: cell indices and codepoint positions coincide.
+    plain = enricher.enrich(units_by_key[("E652:E670", "default")])
+    assert plain.pair == (0, 1)
+    assert plain.pair_codepoints == (0, 1)
+    # An interior pair after a ZWNJ break: the span starts at the pair's first codepoint, not at zero.
+    interior = enricher.enrich(units_by_key[("E650:200C:E650:E665", "default")])
+    assert interior.pair == (2, 3)
+    assert interior.pair_codepoints == (2, 3)
+    # A trailing ligature: one cell covers two codepoints, so the span is wider than the cell pair.
+    ligated = enricher.enrich(units_by_key[("200C:E652:E679", "default")])
+    assert ligated.pair == (0, 1)
+    assert ligated.after_cells[-1].startswith("qsTea_qsOy/")
+    assert ligated.pair_codepoints == (0, 2)
+    assert ligated.notation_tokens == ("◊ZWNJ", "·Tea", "·Oy")
 
 
 def test_parse_entry_extension():

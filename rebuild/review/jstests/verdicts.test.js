@@ -108,14 +108,17 @@ test('export and import round-trip', () => {
   recordVerdict(store, 'u-0412', 'approve', { at: 't1' });
   recordVerdict(store, 'u-0413', 'either', { at: 't2', note: 'fine both ways' });
   recordVerdict(store, 'u-0414', 'neither', { at: 't3', note: 'both joins look wrong' });
+  recordVerdict(store, 'u-0415', 'identical', { at: 't4', note: 'cannot see the flagged difference' });
   const doc = assembleExport(store, 'gen-1');
   const fresh = createStore();
   const result = importVerdicts(fresh, doc, 'gen-1');
   assert.equal(result.ok, true);
-  assert.equal(result.added, 3);
+  assert.equal(result.added, 4);
   assert.deepEqual(fresh.records.get('u-0413'), store.records.get('u-0413'));
   assert.deepEqual(fresh.records.get('u-0414'), store.records.get('u-0414'));
   assert.equal(fresh.records.get('u-0414').verdict, 'neither');
+  assert.deepEqual(fresh.records.get('u-0415'), store.records.get('u-0415'));
+  assert.equal(fresh.records.get('u-0415').verdict, 'identical');
 });
 
 test('import refuses a manifest mismatch unless forced', () => {
@@ -179,9 +182,10 @@ test('markExported clears the dirty set and counts stay accurate', () => {
   recordVerdict(store, 'u-0002', 'skip');
   recordVerdict(store, 'u-0003', 'either');
   recordVerdict(store, 'u-0004', 'neither');
+  recordVerdict(store, 'u-0005', 'identical');
   markExported(store);
   assert.equal(store.unexported.size, 0);
-  assert.deepEqual(verdictCounts(store), { approve: 1, reject: 0, either: 1, neither: 1, skip: 1 });
+  assert.deepEqual(verdictCounts(store), { approve: 1, reject: 0, either: 1, identical: 1, neither: 1, skip: 1 });
 });
 
 test('neither is a first-class verdict kind: recordable, countable, undoable', () => {
@@ -194,6 +198,20 @@ test('neither is a first-class verdict kind: recordable, countable, undoable', (
     at: 't1',
   });
   assert.equal(verdictCounts(store).neither, 1);
+  undo(store);
+  assert.equal(store.records.has('u-0001'), false);
+});
+
+test('identical is a first-class verdict kind: recordable, countable, undoable', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'identical', { note: 'the highlighted portion looks the same', at: 't1' });
+  assert.deepEqual(store.records.get('u-0001'), {
+    unit: 'u-0001',
+    verdict: 'identical',
+    note: 'the highlighted portion looks the same',
+    at: 't1',
+  });
+  assert.equal(verdictCounts(store).identical, 1);
   undo(store);
   assert.equal(store.records.has('u-0001'), false);
 });

@@ -8,6 +8,11 @@
   "codepoints": "00B7:E679:E652",
   "text_entities": "&#x00B7;&#xE679;&#xE652;",
   "notation": "\u00b7 \u00b7Oy\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7",
+   "\u00b7Oy",
+   "\u00b7Tea"
+  ],
   "configs": [
    "default",
    "ss04",
@@ -61,6 +66,10 @@
    "left": 1,
    "right": 2
   },
+  "pair_codepoints": [
+   1,
+   2
+  ],
   "highlight": {
    "before": {
     "x_min": 150,
@@ -139,6 +148,10 @@
   "codepoints": "E652:E679",
   "text_entities": "&#xE652;&#xE679;",
   "notation": "\u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
   "configs": [
    "ss03",
    "ss02+ss03",
@@ -180,6 +193,7 @@
    0
   ],
   "pair": null,
+  "pair_codepoints": null,
   "highlight": {
    "before": {
     "x_min": 0,

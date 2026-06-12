@@ -122,3 +122,19 @@ export function availableBatches(manifest, classId) {
 export function copyPreamble(unit) {
   return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
 }
+
+export function isLetterToken(token) {
+  return typeof token === 'string' && token.length > 1 && token.startsWith('·');
+}
+
+export function tokenSeparators(tokens) {
+  // Mirrors the build's notation() spacing rule: letters concatenate, boundary tokens (◊ZWNJ, ␣, the bare namer dot ·) are space-separated, so joining separators[i] + tokens[i] reproduces unit.notation.
+  const separators = [];
+  let previousWasLetter = false;
+  for (const token of tokens) {
+    const letter = isLetterToken(token);
+    separators.push(separators.length === 0 ? '' : letter && previousWasLetter ? '' : ' ');
+    previousWasLetter = letter;
+  }
+  return separators;
+}

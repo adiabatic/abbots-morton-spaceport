@@ -8,6 +8,11 @@
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",
   "notation": "\u25caZWNJ \u00b7Tea\u00b7Oy",
+  "notation_tokens": [
+   "\u25caZWNJ",
+   "\u00b7Tea",
+   "\u00b7Oy"
+  ],
   "configs": [
    "ss03",
    "ss02+ss03",
@@ -55,6 +60,10 @@
    "left": 0,
    "right": 1
   },
+  "pair_codepoints": [
+   0,
+   2
+  ],
   "highlight": {
    "before": {
     "x_min": 0,
@@ -117,6 +126,10 @@
   "codepoints": "E670:E670",
   "text_entities": "&#xE670;&#xE670;",
   "notation": "\u00b7It\u00b7It",
+  "notation_tokens": [
+   "\u00b7It",
+   "\u00b7It"
+  ],
   "configs": [
    "default",
    "ss02",
@@ -173,6 +186,10 @@
    "left": 0,
    "right": 1
   },
+  "pair_codepoints": [
+   0,
+   1
+  ],
   "highlight": {
    "before": {
     "x_min": 0,
@@ -226,6 +243,10 @@
   "codepoints": "E652:E670",
   "text_entities": "&#xE652;&#xE670;",
   "notation": "\u00b7Tea\u00b7It",
+  "notation_tokens": [
+   "\u00b7Tea",
+   "\u00b7It"
+  ],
   "configs": [
    "default",
    "ss02",
@@ -281,6 +302,10 @@
    "left": 0,
    "right": 1
   },
+  "pair_codepoints": [
+   0,
+   1
+  ],
   "highlight": {
    "before": {
     "x_min": 0,
@@ -338,6 +363,10 @@
   "codepoints": "E650:E665",
   "text_entities": "&#xE650;&#xE665;",
   "notation": "\u00b7Pea\u00b7May",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7May"
+  ],
   "configs": [
    "ss02",
    "ss02+ss03",
@@ -386,6 +415,10 @@
    "left": 0,
    "right": 1
   },
+  "pair_codepoints": [
+   0,
+   1
+  ],
   "highlight": {
    "before": {
     "x_min": 0,

@@ -141,6 +141,16 @@ def notation(codepoint_values: tuple[int, ...]) -> str:
     return "".join(parts)
 
 
+def notation_tokens(codepoint_values: tuple[int, ...]) -> tuple[str, ...]:
+    """Display tokens aligned one-to-one with codepoint positions: letter names (·May) and the boundary tokens (◊ZWNJ, ␣, ·) exactly as `notation` renders them, so joining them with `notation`'s spacing rule reproduces the caption string."""
+    return tuple(
+        letter_display(LETTERS[value])
+        if value in LETTERS
+        else _BOUNDARY_NOTATION.get(value, f"U+{value:04X}")
+        for value in codepoint_values
+    )
+
+
 def text_entities(codepoint_values: tuple[int, ...]) -> str:
     return "".join(f"&#x{value:04X};" for value in codepoint_values)
 
@@ -220,6 +230,8 @@ class EnrichedUnit:
     after_spans: tuple[tuple[int, int], ...] = ()
     before_spans: tuple[tuple[int, int], ...] = ()
     secondary_seams: tuple[SecondarySeam, ...] = ()
+    pair_codepoints: tuple[int, int] | None = None
+    notation_tokens: tuple[str, ...] = ()
 
 
 def _pen_positions(positions: tuple[tuple[int, int, int], ...]) -> list[int]:
@@ -358,9 +370,9 @@ class Enricher:
             )
         before_pens = _pen_positions(before_shaped.positions)
 
+        pair_codepoints = (after_spans[pair[0]][0], after_spans[pair[1]][1] - 1) if pair is not None else None
         if pair is not None:
-            cp_start = after_spans[pair[0]][0]
-            cp_end = after_spans[pair[1]][1] - 1
+            cp_start, cp_end = pair_codepoints
         elif diff_positions:
             cp_start = after_spans[diff_positions[0]][0]
             cp_end = after_spans[diff_positions[-1]][1] - 1
@@ -418,6 +430,7 @@ class Enricher:
         return EnrichedUnit(
             unit=unit,
             notation=notation(values),
+            notation_tokens=notation_tokens(values),
             text_entities=text_entities(values),
             before_glyphs=tuple(row.glyphs),
             before_seams=before_seams,
@@ -426,6 +439,7 @@ class Enricher:
             after_extensions=after_extensions,
             diff_positions=diff_positions,
             pair=pair,
+            pair_codepoints=pair_codepoints,
             highlight_before=highlight_before,
             highlight_after=highlight_after,
             boundary_marks=boundary_marks,

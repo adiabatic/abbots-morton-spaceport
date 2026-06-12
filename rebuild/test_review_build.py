@@ -317,12 +317,48 @@ def test_builds_are_byte_identical(built, tmp_path):
         assert shard.read_bytes() == (second / "units" / shard.name).read_bytes()
 
 
+def _join_notation_tokens(tokens):
+    """The frontend's reconstruction rule (render.js tokenSeparators): letters concatenate, boundary tokens — anything that isn't ·-prefixed with more than the dot, including the bare namer dot — get a space on each side."""
+    joined = ""
+    previous_was_letter = False
+    for index, token in enumerate(tokens):
+        letter = len(token) > 1 and token.startswith("·")
+        if index > 0 and not (letter and previous_was_letter):
+            joined += " "
+        joined += token
+        previous_was_letter = letter
+    return joined
+
+
+def test_notation_tokens_round_trip_for_every_unit(built):
+    """The text-line pair-mark contract over the whole workload: every unit's notation_tokens align one-to-one with its codepoint positions, joining them with the spacing rule reproduces unit.notation exactly, and pair_codepoints (when present) is a valid inclusive span into those positions."""
+    out_dir, manifest = built
+    checked = 0
+    marked = 0
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            tokens = unit["notation_tokens"]
+            assert len(tokens) == len(unit["codepoints"].split(":")), unit["id"]
+            assert _join_notation_tokens(tokens) == unit["notation"], unit["id"]
+            span = unit["pair_codepoints"]
+            if unit["pair"] is not None:
+                assert span is not None, unit["id"]
+            if span is not None:
+                start, end = span
+                assert 0 <= start <= end < len(tokens), unit["id"]
+                marked += 1
+            checked += 1
+    assert checked == manifest["totals"]["units"]
+    assert marked > 0
+
+
 def test_export_round_trip(built, tmp_path):
     out_dir, manifest = built
     _manifest, units = load_units(out_dir)
     ids = sorted(units)
     drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
     manual_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"] is None)
+    identical_unit = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject))
     verdicts_path = tmp_path / "verdicts.json"
     payload = {
         "format": "ams-review-verdicts/1",
@@ -352,6 +388,12 @@ def test_export_round_trip(built, tmp_path):
                 "note": "both joins look wrong",
                 "at": "2026-06-10T18:22:20Z",
             },
+            {
+                "unit": identical_unit,
+                "verdict": "identical",
+                "note": "cannot see the flagged difference",
+                "at": "2026-06-10T18:22:30Z",
+            },
         ],
     }
     verdicts_path.write_text(json.dumps(payload))
@@ -361,6 +403,7 @@ def test_export_round_trip(built, tmp_path):
     assert counts["approve"] == 1
     assert counts["reject"] == 2
     assert counts["either"] == 1
+    assert counts["identical"] == 1
     assert counts["neither"] == 1
     assert counts["skip"] == 1
     assert counts["units_total"] == 2410
@@ -389,7 +432,8 @@ def test_export_round_trip(built, tmp_path):
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }
     assert counts["rows_covered"] == sum(
-        len(units[uid]["configs"]) for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3], ids[1])
+        len(units[uid]["configs"])
+        for uid in (ids[0], drafted_reject, manual_reject, ids[2], ids[3], ids[1], identical_unit)
     )
 
     assert len(triage["pins"]) == 1
@@ -422,22 +466,43 @@ def test_export_round_trip(built, tmp_path):
         "note": "both joins look wrong",
         "names_provenance": units[ids[1]]["provenance"],
     }
+
+    # The identical section drafts nothing either — these are claims the flagged difference is invisible, signal for the ink-comparator and highlight tooling.
+    assert len(triage["identical"]) == 1
+    identical = triage["identical"][0]
+    assert identical == {
+        "unit": identical_unit,
+        "codepoints": units[identical_unit]["codepoints"],
+        "notation": units[identical_unit]["notation"],
+        "note": "cannot see the flagged difference",
+    }
+
     section_units = {
         "pins": {entry["unit"] for entry in triage["pins"]},
         "policy_edits": {entry["unit"] for entry in triage["policy_edits"]},
         "any_of": {entry["unit"] for entry in triage["any_of"]},
         "neither": {entry["unit"] for entry in triage["neither"]},
+        "identical": {entry["unit"] for entry in triage["identical"]},
     }
     assert section_units == {
         "pins": {ids[0]},
         "policy_edits": {drafted_reject, manual_reject},
         "any_of": {ids[2]},
         "neither": {ids[1]},
+        "identical": {identical_unit},
     }
 
     text = yaml.safe_dump(triage, sort_keys=False, allow_unicode=True, width=10**6)
     parsed = yaml.safe_load(text)
-    assert set(parsed) == {"review", "machine_approved", "pins", "policy_edits", "any_of", "neither"}
+    assert set(parsed) == {
+        "review",
+        "machine_approved",
+        "pins",
+        "policy_edits",
+        "any_of",
+        "neither",
+        "identical",
+    }
 
 
 def test_export_rejects_bad_format(tmp_path):

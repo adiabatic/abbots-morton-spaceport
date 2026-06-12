@@ -28,6 +28,7 @@
   --approve: light-dark(#1a7f37, #57d989);
   --reject: light-dark(#c43030, #ff7b72);
   --either: light-dark(#8250df, #c297ff);
+  --identical: light-dark(#0e7a8a, #5fc8d8);
   --neither: light-dark(#9a6700, #e3b341);
   --skip: light-dark(#777, #999);
 }
@@ -405,6 +406,10 @@ details.group {
     }
   }
 
+  &[data-verdict="identical"] {
+    border-left-color: var(--identical);
+  }
+
   &[data-verdict="neither"] {
     border-left-color: var(--neither);
   }
@@ -444,6 +449,15 @@ details.group {
     .notation {
       font-size: 16px;
       color: light-dark(#222, #eee);
+    }
+
+    /* The text-line twin of the sample cells' amber pair band: the same --hot underline marking the divergent pair's tokens on the notation and codepoints lines. */
+    .pair-mark {
+      text-decoration-line: underline;
+      text-decoration-color: var(--hot);
+      text-decoration-thickness: 3px;
+      text-decoration-skip-ink: none;
+      text-underline-offset: 0.18em;
     }
 
     .codepoints {
@@ -547,6 +561,8 @@ details.group {
           font-size: 10px;
         }
 
+        /* The column-3 stack under Identical: DOM order skip, reject, identical, approve fills row 1, then Either and Neither drop into rows 2 and 3 of the same column. */
+        &[data-verdict="either"],
         &[data-verdict="neither"] {
           grid-column: 3;
         }
@@ -567,6 +583,11 @@ details.group {
           &[data-verdict="either"] {
             border-color: var(--either);
             color: var(--either);
+          }
+
+          &[data-verdict="identical"] {
+            border-color: var(--identical);
+            color: var(--identical);
           }
 
           &[data-verdict="neither"] {

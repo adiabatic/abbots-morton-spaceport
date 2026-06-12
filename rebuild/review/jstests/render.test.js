@@ -17,6 +17,8 @@ import {
   stepIndex,
   availableBatches,
   copyPreamble,
+  isLetterToken,
+  tokenSeparators,
 } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
@@ -190,6 +192,38 @@ test('copyPreamble names only the unit, codepoints, and notation — the rest is
   assert.match(text, /·Roe·May·They/);
   assert.doesNotMatch(text, /dangling-anchor-dropped/);
   assert.doesNotMatch(text, /ss05/);
+});
+
+test('isLetterToken accepts letter names and rejects boundary tokens', () => {
+  assert.equal(isLetterToken('·May'), true);
+  assert.equal(isLetterToken('·-ing'), true);
+  assert.equal(isLetterToken('·J’ai'), true);
+  assert.equal(isLetterToken('·'), false, 'the bare namer dot is a boundary token');
+  assert.equal(isLetterToken('◊ZWNJ'), false);
+  assert.equal(isLetterToken('␣'), false);
+  assert.equal(isLetterToken('U+E6FF'), false);
+});
+
+test('tokenSeparators reproduces the notation spacing rule', () => {
+  const join = (tokens) => tokenSeparators(tokens).map((sep, index) => sep + tokens[index]).join('');
+  assert.equal(join(['◊ZWNJ', '·Tea', '·Oy']), '◊ZWNJ ·Tea·Oy');
+  assert.equal(join(['·Pea', '·May']), '·Pea·May');
+  assert.equal(join(['·', '·Oy']), '· ·Oy');
+  assert.equal(join(['·Pea', '␣', '·Pea']), '·Pea ␣ ·Pea');
+});
+
+test('every fixture unit joins its notation tokens back into its notation string', () => {
+  for (const unit of [...shardA, ...shardB]) {
+    const tokens = unit.notation_tokens;
+    assert.equal(tokens.length, unit.codepoints.split(':').length, unit.id);
+    const joined = tokenSeparators(tokens).map((sep, index) => sep + tokens[index]).join('');
+    assert.equal(joined, unit.notation, unit.id);
+    if (unit.pair_codepoints !== null) {
+      const [start, end] = unit.pair_codepoints;
+      assert.ok(Number.isInteger(start) && Number.isInteger(end) && 0 <= start && start <= end, unit.id);
+      assert.ok(end < tokens.length, unit.id);
+    }
+  }
 });
 
 test('secondarySeamsOf returns seams for human units and nothing for machine-approved or legacy units', () => {
