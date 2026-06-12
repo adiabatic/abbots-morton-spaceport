@@ -28,6 +28,7 @@ from rebuild.review.enrich import (
     Enricher,
     load_spec,
     notation,
+    notation_tokens,
     resolve_secondary_homes,
     text_entities,
 )
@@ -146,6 +147,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "codepoints": unit.codepoints,
         "text_entities": enriched.text_entities,
         "notation": enriched.notation,
+        "notation_tokens": list(enriched.notation_tokens),
         "configs": list(unit.configs),
         "config_note": config_note(unit.configs, full_configs),
         "render_groups": [{"configs": list(group)} for group in unit.render_groups],
@@ -159,6 +161,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         },
         "diff_positions": list(enriched.diff_positions),
         "pair": {"left": enriched.pair[0], "right": enriched.pair[1]} if enriched.pair else None,
+        "pair_codepoints": list(enriched.pair_codepoints) if enriched.pair_codepoints else None,
         "highlight": {"before": enriched.highlight_before, "after": enriched.highlight_after},
         "boundary_marks": list(enriched.boundary_marks),
         "secondary_seams": [
@@ -385,6 +388,7 @@ def _table_diff_unit_json(
         "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
         "text_entities": text_entities(witness) if witness else None,
         "notation": notation(witness) if witness else entry.key.label(),
+        "notation_tokens": list(notation_tokens(witness)) if witness else None,
         "configs": [entry.config],
         "config_note": config_note((entry.config,), full_configs),
         "render_groups": [{"configs": [entry.config]}],
@@ -394,6 +398,7 @@ def _table_diff_unit_json(
         "after": after,
         "diff_positions": diff_positions,
         "pair": pair,
+        "pair_codepoints": None,
         "highlight": None,
         "boundary_marks": [],
         "summary": summary,
@@ -737,6 +742,35 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             and pair["left"] < pair["right"],
             "pair must be {left, right} with left < right",
         )
+
+    tokens = unit.get("notation_tokens")
+    if mode == "m1-audit":
+        need(
+            isinstance(tokens, list) and tokens and all(isinstance(t, str) and t for t in tokens),
+            "notation_tokens must be a nonempty list of nonempty strings in m1-audit mode",
+        )
+    if renderable and isinstance(tokens, list):
+        need(
+            len(tokens) == len(unit["codepoints"].split(":")),
+            "notation_tokens must align one-to-one with codepoint positions",
+        )
+    need("pair_codepoints" in unit, "pair_codepoints must be present")
+    span = unit.get("pair_codepoints")
+    if span is not None:
+        need(
+            isinstance(span, list)
+            and len(span) == 2
+            and all(isinstance(value, int) for value in span)
+            and 0 <= span[0] <= span[1],
+            "pair_codepoints must be [start, end] with 0 <= start <= end",
+        )
+        if isinstance(span, list) and len(span) == 2 and isinstance(tokens, list):
+            need(
+                isinstance(span[1], int) and span[1] < len(tokens),
+                "pair_codepoints must stay within the codepoint positions",
+            )
+    if mode == "m1-audit" and pair is not None:
+        need(isinstance(span, list), "pair_codepoints must be non-null when pair is present")
 
     highlight = unit.get("highlight")
     if mode == "m1-audit":

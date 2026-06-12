@@ -8,6 +8,11 @@
     "codepoints": "E668:E665:E657",
     "text_entities": "&#xE668;&#xE665;&#xE657;",
     "notation": "\u00b7Roe\u00b7May\u00b7They",
+    "notation_tokens": [
+      "\u00b7Roe",
+      "\u00b7May",
+      "\u00b7They"
+    ],
     "configs": [
       "default",
       "ss05"
@@ -59,6 +64,10 @@
       "left": 0,
       "right": 1
     },
+    "pair_codepoints": [
+      0,
+      1
+    ],
     "highlight": {
       "before": {
         "x_min": 0,
@@ -135,6 +144,11 @@
     "codepoints": "E670:E653:E66C",
     "text_entities": "&#xE670;&#xE653;&#xE66C;",
     "notation": "\u00b7It\u00b7Day\u00b7Exam",
+    "notation_tokens": [
+      "\u00b7It",
+      "\u00b7Day",
+      "\u00b7Exam"
+    ],
     "configs": [
       "ss04"
     ],
@@ -184,6 +198,10 @@
       "left": 0,
       "right": 1
     },
+    "pair_codepoints": [
+      0,
+      1
+    ],
     "highlight": {
       "before": {
         "x_min": 0,

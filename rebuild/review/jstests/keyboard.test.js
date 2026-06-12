@@ -8,6 +8,7 @@ const EXPECTED = [
   ['d', 'either'],
   ['f', 'approve'],
   ['c', 'neither'],
+  ['e', 'identical'],
   ['u', 'undo'],
   ['n', 'note'],
   ['g', 'group-approve'],
@@ -86,7 +87,7 @@ test('while the reject menu is open, s/a/f/x/Escape map to the menu actions', ()
 });
 
 test('while the reject menu is open, every other key is suppressed', () => {
-  for (const key of ['d', 'c', 'u', 'n', 'g', 'ArrowDown', 'ArrowUp', 'i', 'k', '[', ']', '?', 'q', 'Enter']) {
+  for (const key of ['d', 'c', 'e', 'u', 'n', 'g', 'ArrowDown', 'ArrowUp', 'i', 'k', '[', ']', '?', 'q', 'Enter']) {
     assert.equal(actionForKey(key, { rejectMenuOpen: true }), null, `key ${key}`);
   }
 });

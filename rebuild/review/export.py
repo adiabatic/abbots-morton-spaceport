@@ -1,4 +1,4 @@
-"""The verdicts-to-triage-YAML CLI (rebuild/REVIEW-PLAN.md §4.2): join an exported verdicts.json to the built review directory's units, re-validate every selected draft, and write one triage YAML with four sections (pins, policy_edits, any_of, neither) for human placement. Nothing is auto-applied to the corpus or the rune files.
+"""The verdicts-to-triage-YAML CLI (rebuild/REVIEW-PLAN.md §4.2): join an exported verdicts.json to the built review directory's units, re-validate every selected draft, and write one triage YAML with five sections (pins, policy_edits, any_of, neither, identical) for human placement. Nothing is auto-applied to the corpus or the rune files.
 
 Usage: uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml
 """
@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
 
 VERDICTS_FORMAT = "ams-review-verdicts/1"
-VERDICT_VALUES = ("approve", "reject", "either", "neither", "skip")
+VERDICT_VALUES = ("approve", "reject", "either", "identical", "neither", "skip")
 
 
 def load_units(review_dir: Path) -> tuple[dict, dict[str, dict]]:
@@ -96,12 +96,13 @@ def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
 
 
 def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict:
-    counts = {"approve": 0, "reject": 0, "either": 0, "neither": 0, "skip": 0}
+    counts = {"approve": 0, "reject": 0, "either": 0, "identical": 0, "neither": 0, "skip": 0}
     covered = 0
     pins: list[dict] = []
     policy_edits: list[dict] = []
     any_of: list[dict] = []
     neither: list[dict] = []
+    identical: list[dict] = []
     missing: list[str] = []
 
     if verdicts.get("manifest_generated_at") not in (None, manifest.get("generated_at")):
@@ -201,6 +202,16 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
                     "names_provenance": unit.get("provenance", []),
                 }
             )
+        elif verdict == "identical":
+            # The reviewer cannot see the flagged difference: nothing is drafted — these claims are signal for the ink-comparator and highlight tooling, which flagged a difference no human can spot.
+            identical.append(
+                {
+                    "unit": unit["id"],
+                    "codepoints": unit.get("codepoints"),
+                    "notation": unit.get("notation"),
+                    "note": note,
+                }
+            )
 
     if missing:
         print(f"warning: {len(missing)} verdicts reference unknown units: {missing[:5]}", file=sys.stderr)
@@ -229,6 +240,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         "policy_edits": policy_edits,
         "any_of": any_of,
         "neither": neither,
+        "identical": identical,
     }
 
 
@@ -250,7 +262,8 @@ def main(argv: list[str] | None = None) -> None:
     machine = triage["machine_approved"]
     print(
         f"Wrote {args.out} (pins {len(triage['pins'])}, policy edits {len(triage['policy_edits'])}, "
-        f"any-of {len(triage['any_of'])}, neither {len(triage['neither'])}; rows covered {counts['rows_covered']}; "
+        f"any-of {len(triage['any_of'])}, neither {len(triage['neither'])}, "
+        f"identical {len(triage['identical'])}; rows covered {counts['rows_covered']}; "
         f"machine-approved {machine['count']} units / {machine['rows_covered']} rows)",
         file=sys.stderr,
     )

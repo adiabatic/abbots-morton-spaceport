@@ -26,14 +26,16 @@ import {
   stepIndex,
   availableBatches,
   copyPreamble,
+  tokenSeparators,
 } from './render.js';
 
 const FONT_SIZE = 88;
 const VERDICT_LABELS = [
   ['skip', 'Skip', 'a', 'Skip — record no verdict and advance'],
   ['reject', 'Reject', 's', 'Reject — want the old behavior back (opens a follow-up choice)'],
-  ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
+  ['identical', 'Identical', 'e', 'The highlighted portion looks identical'],
   ['approve', 'Approve', 'f', 'Approve — the new behavior is right'],
+  ['either', 'Either', 'd', 'Fine either way (any-of channel)'],
   ['neither', 'Neither', 'c', 'Neither — both behaviors look wrong; flag for follow-up'],
 ];
 const REJECT_MENU_CHOICES = [
@@ -175,6 +177,45 @@ function buildSample(unit, side, featureSettings) {
   return cell;
 }
 
+function appendMarkedTokens(node, tokens, separators, span) {
+  // The pair-mark span covers the pair's tokens and the separators between them; the separator before the first marked token stays outside.
+  const pieces = { before: '', inside: '', after: '' };
+  for (const [index, token] of tokens.entries()) {
+    if (index < span[0]) pieces.before += separators[index] + token;
+    else if (index === span[0]) {
+      pieces.before += separators[index];
+      pieces.inside += token;
+    } else if (index <= span[1]) pieces.inside += separators[index] + token;
+    else pieces.after += separators[index] + token;
+  }
+  if (pieces.before) node.append(document.createTextNode(pieces.before));
+  node.append(el('span', 'pair-mark', pieces.inside));
+  if (pieces.after) node.append(document.createTextNode(pieces.after));
+}
+
+function buildNotationLine(unit) {
+  const line = el('div', 'notation');
+  const tokens = unit.notation_tokens;
+  if (!Array.isArray(tokens) || tokens.length === 0 || !unit.pair_codepoints) {
+    line.textContent = unit.notation;
+    return line;
+  }
+  appendMarkedTokens(line, tokens, tokenSeparators(tokens), unit.pair_codepoints);
+  return line;
+}
+
+function buildCodepointsCode(unit) {
+  const code = el('code');
+  if (typeof unit.codepoints !== 'string' || !unit.pair_codepoints) {
+    code.textContent = unit.codepoints ?? '';
+    return code;
+  }
+  const tokens = unit.codepoints.split(':');
+  const separators = tokens.map((_token, index) => (index === 0 ? '' : ':'));
+  appendMarkedTokens(code, tokens, separators, unit.pair_codepoints);
+  return code;
+}
+
 function buildRow(unit) {
   const row = el('article', unit.ink_identical ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
@@ -191,10 +232,10 @@ function buildRow(unit) {
     clear.append(el('kbd', null, '\u232b'));
     label.append(clear);
   }
-  label.append(el('div', 'notation', unit.notation));
+  label.append(buildNotationLine(unit));
 
   const codepoints = el('div', 'codepoints');
-  const code = el('code', null, unit.codepoints);
+  const code = buildCodepointsCode(unit);
   const copy = el('button', 'copy-unit', 'Copy');
   copy.type = 'button';
   copy.title = 'Copy a prompt preamble for this unit';
@@ -489,7 +530,7 @@ function updateProgress() {
   const counts = verdictCounts(store);
   document.getElementById('overall-progress').textContent =
     `Overall: ${store.records.size}/${humanTotal(manifest)} ` +
-    `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} ∅${counts.neither} →${counts.skip})`;
+    `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} ≡${counts.identical} ∅${counts.neither} →${counts.skip})`;
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
   nudge.textContent = `${store.unexported.size} unexported`;
@@ -918,7 +959,13 @@ function wireEvents() {
       return;
     }
     event.preventDefault();
-    if (action === 'approve' || action === 'either' || action === 'neither' || action === 'skip') {
+    if (
+      action === 'approve' ||
+      action === 'either' ||
+      action === 'identical' ||
+      action === 'neither' ||
+      action === 'skip'
+    ) {
       verdictCursor(action);
     } else if (action === 'reject') {
       const unitId = cursorUnitId();

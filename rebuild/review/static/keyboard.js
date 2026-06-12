@@ -4,6 +4,7 @@ export const KEY_MAP = new Map([
   ['d', 'either'],
   ['f', 'approve'],
   ['c', 'neither'],
+  ['e', 'identical'],
   ['u', 'undo'],
   ['n', 'note'],
   ['g', 'group-approve'],
