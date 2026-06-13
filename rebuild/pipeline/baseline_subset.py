@@ -16,7 +16,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_DIR = REPO_ROOT / "rebuild" / "out"
 OUT_DIR = BASELINE_DIR / "m1"
 
-M1_ALPHABET = frozenset({0x0020, 0x00B7, 0x200C, 0xE650, 0xE652, 0xE665, 0xE670, 0xE679})
+M1_ALPHABET = frozenset(
+    {0x0020, 0x00B7, 0x200C, 0xE650, 0xE652, 0xE653, 0xE665, 0xE666, 0xE670, 0xE679, 0xE67A}
+)
 
 
 def _codepoints_in_alphabet(field: str, alphabet: frozenset[int]) -> bool:

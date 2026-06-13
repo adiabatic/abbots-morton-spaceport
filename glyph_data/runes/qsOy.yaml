@@ -33,7 +33,7 @@ stances:
         - "    #"  #
     surface:
       entries:
-        x-height: {x: 0, stroke: horizontal, joined: open-on-the-left, from: [{family: [qsGay, qsFee, qsMay, qsNo, qsLow, qsRoe, qsI, qsAh, qsUtter, qsOut], joined_at: x-height}]}
+        x-height: {x: 0, stroke: horizontal, joined: open-on-the-left, from: [{family: [qsDay_qsUtter, qsGay, qsFee, qsMay, qsNo, qsLow, qsRoe, qsI, qsAh, qsUtter, qsOut], joined_at: x-height}]}
       exits:
         baseline: {x: 8, stroke: vertical, withdrawal: safe}
       cells:

@@ -1,0 +1,83 @@
+rune: qsNo
+codepoint: 0xE666
+ductus:
+  loop: |
+    Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
+  flipped: |
+    As the loop, but drawn upside down: begun from the lower left, looping over the top, and exiting at the baseline on the right.  # DRAFT — pending author sign-off
+mono:
+  bitmap:
+  - "#   #"  #
+  - " # # "
+  - "  #  "
+  - " # # "
+  - " # # "
+  - "  #  "  #
+stances:
+  loop:
+    way: loop
+    traits: []
+    bitmap:
+    - "#   #"  #
+    - " # # "
+    - "  #  "
+    - " # # "
+    - " # # "
+    - "  #  "  #
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "#    "  #
+        - " # # "
+        - "  #  "
+        - " # # "
+        - " # # "
+        - "  #  "  #
+    surface:
+      entries:
+        x-height: {x: 0, stroke: diagonal}
+      exits:
+        x-height: {x: 5, stroke: diagonal, withdrawal: pulled-back}
+      cells: []
+      unlocks: []
+      require: []
+  flipped:
+    way: flipped
+    traits: [alt]
+    bitmap:
+    - "  #  "  #
+    - " # # "
+    - " # # "
+    - "  #  "
+    - " # # "
+    - "#   #"  #
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "  #  "  #
+        - " # # "
+        - " # # "
+        - "  #  "
+        - " # # "
+        - "#    "  #
+    surface:
+      entries:
+        baseline: {x: 0, stroke: diagonal, from: [{family: [qsDay, qsVie, qsIt, qsOy, qsNo, qsUtter, qsTea_qsOy], joined_at: baseline}]}
+      exits:
+        baseline: {x: 5, stroke: diagonal, withdrawal: pulled-back, toward: [{family: qsDay}, {family: qsMay}, {family: qsNo}, {family: qsIt}, {family: qsOy}, {family: qsUtter}]}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order: [loop, flipped]
+  refuse: []
+  prefer:
+  - {stance: flipped, when: {left: {family: qsIt}}, why: 'Design §5.3''s worked ·It·No example. In isolation both seam heights score one join, so the tie goes to flipped (·It''s baseline exit into ·No''s baseline entry); in ·It·No·Owe the x-height path scores two and plain loop wins before the prefer is consulted; in ·Roe·It·No, ·It''s pairings force the x-height exit and only loop can join. Yields-to-joins, so the preference suspends whenever a height buys a better neighbor join.'}
+  - {cell: {exit: x-height}, over: {exit: baseline}, when: {left: {except: [{family: qsIt}]}, right: {family: [qsDay, qsNo, qsIt, qsOy]}}, why: 'As a word-initial lead, ·No keeps its loop x-height exit into the x-height-entering followers (·No·Day/·No·No/·No·It/·No·Oy all join at the x-height today) rather than dropping to the flipped baseline exit the structural floor would otherwise prefer. Yields-to-joins, so ·No·May/·No·Utter — which only the baseline flipped exit can reach — are untouched; the left except keeps the §5.3 ·It·No flipped preference (prefer[0]) authoritative after ·It.'}
+  extend:
+  - {stance: loop, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsFee}}}
+  contract:
+  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsJai}}}
+  resolve: []
+  groups: {}

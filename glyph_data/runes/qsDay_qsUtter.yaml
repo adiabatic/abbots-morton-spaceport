@@ -1,0 +1,90 @@
+rune: qsDay_qsUtter
+sequence: [qsDay, qsUtter]
+ductus:
+  full: |
+    The ·Day downstroke and the ·Utter stroke drawn as one motion: straight down the left, hooking out of the descender foot and rising across to exit at the x-height on the right, where it may connect to the next letter.  # DRAFT — pending author sign-off
+  half: |
+    As the full ligature, but begun from the ·Day foot hook at the baseline, then rising across to the x-height exit on the right.  # DRAFT — pending author sign-off
+stances:
+  full:
+    way: full
+    traits: []
+    bitmap:
+    - "#    ##"  #
+    - "#   #  "
+    - "#  #   "
+    - "#  #   "
+    - "# #    "
+    - "# #    "  #
+    - "##     "
+    - "##     "
+    - "#      "
+    y_offset: -3
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "#    # "  #
+        - "#   #  "
+        - "#  #   "
+        - "#  #   "
+        - "# #    "
+        - "# #    "  #
+        - "##     "
+        - "##     "
+        - "#      "
+        y_offset: -3
+    surface:
+      entries:
+        x-height: {x: 0, stroke: vertical}
+      exits:
+        x-height: {x: 7, stroke: horizontal, withdrawal: pulled-back}
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    way: half
+    traits: [half]
+    bitmap:
+    - "     ###"  #
+    - "    #   "
+    - "   #    "
+    - "   #    "
+    - "  #     "
+    - "# #     "  #
+    - "##      "
+    - "##      "
+    - "#       "
+    y_offset: -3
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "     ## "  #
+        - "    #   "
+        - "   #    "
+        - "   #    "
+        - "  #     "
+        - "# #     "  #
+        - "##      "
+        - "##      "
+        - "#       "
+        y_offset: -3
+    surface:
+      entries:
+        baseline: {x: 0, stroke: diagonal}
+      exits:
+        x-height: {x: 8, stroke: horizontal, withdrawal: pulled-back}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order: [full, half]
+  refuse: []
+  prefer: []
+  extend:
+  - {stance: full, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - {stance: full, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  - {stance: half, entry: baseline, by: 1, when: {left: {family: [qsTea, qsYe], joined_at: baseline}}}
+  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  contract: []
+  resolve: []
+  groups: {}

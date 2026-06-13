@@ -19,6 +19,8 @@ To revisit: re-read `rebuild/POLICY-ROUND-2-REPORT.md` ("Why it is structurally 
 
 ## The main thread — M1 rune migration
 
+**In progress (paused at a checkpoint): the qsDay + qsUtter + qsNo batch.** All four rune files (qsDay, qsUtter, qsNo, and the qsDay_qsUtter ligature) plus the qsIt Q2 fix and the alphabet/alias/contact wiring are authored; all hard gates are green; the oracle is down to **2,535 unmatched rows (from 6,189)** after the 2026-06-13 triage session, with zero regressions. The ss10 isolation overlay (−2,823, intended), the qsDay_qsUtter ligature receivers, and the ss04 entered-·It over-extension are resolved as fix-to-match. **The remaining 2,535 (645 unique windows) are verdict-gated** — new joins the engine makes that the old font did not — and the decision (2026-06-13) is to **checkpoint, then build the round-3 review surface and present every family fresh** (no fast-tracking the look-alikes of approved classes). Resume from **`rebuild/M1-BATCH2-PROGRESS.md`** — it now has the verdict-family table, the session's resolved-vs-residue split, the known-pending wiring tests (not regressions), the methodology learnings, and the re-run/probe commands. Nothing is committed.
+
 The rebuild is migrating the cursive-join engine rune by rune and validating each batch against the old shipped font via the oracle (`rebuild/M1-REPORT.md`). The next batch (M1-REPORT §11.3) is **qsDay + qsUtter, plus qsNo or qsFee**:
 
 - **qsDay + qsUtter** — dominate the deferred-partner list (§4.6) and adjudicate the two recorded expressiveness questions (qsIt's ss04 before-·Utter stance nulling inherited derives — the closed vocabulary has no negated-feature condition; the trait-qualified group widening in `utter-pass-through-vetoes`).

@@ -62,7 +62,7 @@ stances:
     surface:
       entries:
         # The default from-scope is the baseline-effective trigger set per the migration's allowlist-polarity rule (section 13.3): only the halves reach this row without ss03, even though today's YAML row is formally unscoped.
-        x-height: {x: 0, stroke: vertical, from: [{class: halves-that-exit-at-x-height}]}
+        x-height: {x: 0, stroke: vertical, from: [{class: halves-that-exit-at-x-height, except: [{family: qsDay_qsUtter}]}]}
         # Today's `entry_curs_only [0, 8]`: the anchor registers for GPOS parity, but settlement never chooses this row as an entry.
         top: {x: 0, selectable: false}
       exits:
@@ -71,7 +71,7 @@ stances:
         never: [{entry: x-height, exit: x-height}]
       cells: []
       unlocks:
-      - {entry: x-height, feature: ss03, when: {left: {family: [qsMay, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot], joined_at: x-height}}}
+      - {entry: x-height, feature: ss03, when: {left: {family: [qsDay_qsUtter, qsMay, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot], joined_at: x-height}}}
       require: []
 policy:
   order: [full, half]
