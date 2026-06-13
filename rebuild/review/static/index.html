@@ -15,6 +15,21 @@
         <span id="machine-approved-line" hidden></span>
         <span id="unexported-nudge" hidden></span>
       </p>
+      <div class="search">
+        <label for="unit-search">Find</label>
+        <input
+          type="search"
+          id="unit-search"
+          placeholder="unit, notation, codepoints, class… (/)"
+          autocomplete="off"
+          spellcheck="false"
+          role="combobox"
+          aria-keyshortcuts="/"
+          aria-controls="search-results"
+          aria-expanded="false"
+        />
+        <div id="search-results" role="listbox" aria-label="Search results across all classes" hidden></div>
+      </div>
       <div class="strip-actions">
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="copy-verdicts">Copy verdicts</button>
@@ -98,6 +113,7 @@
           <tr><td><kbd>↓</kbd> / <kbd>↑</kbd></td><td>Move the cursor without verdicting</td></tr>
           <tr><td><kbd>k</kbd> / <kbd>i</kbd></td><td>Same as <kbd>↓</kbd> / <kbd>↑</kbd> — next / previous unit</td></tr>
           <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next class in the sidebar list (wraps; skips fully machine-approved classes)</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Focus the cross-class unit search (matches id, notation, codepoints, and class/group/kind across every class); <kbd>↓</kbd>/<kbd>↑</kbd> move, <kbd>Enter</kbd> jumps, <kbd>Escape</kbd> closes</td></tr>
           <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
         </tbody>

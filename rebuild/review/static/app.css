@@ -137,6 +137,108 @@ summary:focus-visible {
   }
 }
 
+.search {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 14px;
+
+  label {
+    color: var(--muted);
+  }
+
+  input[type="search"] {
+    font: inherit;
+    font-size: 13px;
+    width: 18rem;
+    max-width: 40vw;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    background: var(--card);
+    color: inherit;
+  }
+
+  #search-results {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    z-index: 35;
+    width: min(34rem, 80vw);
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 0.3rem;
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px light-dark(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.55));
+
+    &[hidden] {
+      display: none;
+    }
+
+    .search-result {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
+      gap: 0.5rem;
+      align-items: baseline;
+      width: 100%;
+      text-align: left;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 0.3rem 0.5rem;
+      background: transparent;
+
+      &:hover {
+        border-color: transparent;
+        background: light-dark(#eee, #333);
+      }
+
+      &[aria-selected="true"] {
+        background: var(--accent);
+        color: #fff;
+
+        .search-class,
+        .search-where {
+          color: inherit;
+        }
+      }
+
+      .search-id {
+        font-family: var(--code-font);
+        font-size: 12px;
+      }
+
+      .search-notation {
+        font-size: 14px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .search-class {
+        font-family: var(--code-font);
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .search-where {
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+    }
+
+    .search-empty,
+    .search-more {
+      margin: 0.25rem 0.4rem;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  }
+}
+
 .layout {
   display: grid;
   grid-template-columns: 19rem minmax(0, 1fr);

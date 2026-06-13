@@ -123,6 +123,44 @@ export function copyPreamble(unit) {
   return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
 }
 
+export function searchHaystack(unit) {
+  const codepoints = unit.codepoints ?? '';
+  const parts = [
+    unit.id,
+    unit.notation,
+    (unit.notation ?? '').replaceAll('·', ''),
+    codepoints,
+    codepoints.replaceAll(':', ''),
+    unit.class,
+    unit.group,
+    ...(unit.kinds ?? []),
+  ];
+  return parts.join(' ').toLowerCase();
+}
+
+function searchScore(unit, tokens, query) {
+  const id = unit.id.toLowerCase();
+  if (id === query) return 0;
+  if (id.startsWith(query) || tokens.some((token) => id.startsWith(token))) return 1;
+  if ((unit.notation ?? '').toLowerCase().includes(query)) return 2;
+  return 3;
+}
+
+export function searchUnits(units, query, limit = 50) {
+  const trimmed = (query ?? '').trim().toLowerCase();
+  if (!trimmed) return { matches: [], total: 0 };
+  const tokens = trimmed.split(/\s+/u);
+  const ranked = [];
+  for (const unit of units) {
+    const haystack = searchHaystack(unit);
+    if (tokens.every((token) => haystack.includes(token))) {
+      ranked.push({ unit, score: searchScore(unit, tokens, trimmed) });
+    }
+  }
+  ranked.sort((a, b) => a.score - b.score || a.unit.id.localeCompare(b.unit.id));
+  return { matches: ranked.slice(0, limit).map((entry) => entry.unit), total: ranked.length };
+}
+
 export function isLetterToken(token) {
   return typeof token === 'string' && token.length > 1 && token.startsWith('·');
 }

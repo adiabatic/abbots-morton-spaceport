@@ -19,6 +19,8 @@ import {
   copyPreamble,
   isLetterToken,
   tokenSeparators,
+  searchHaystack,
+  searchUnits,
 } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
@@ -293,4 +295,67 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     [...shardA, ...shardB].some((unit) => (unit.secondary_seams ?? []).some((seam) => seam.home === null)),
     'the fixtures must exercise a home-less secondary seam',
   );
+});
+
+test('searchHaystack folds id, notation, codepoints, class, group, and kinds into one lowercase string', () => {
+  const haystack = searchHaystack(shardA[0]);
+  assert.ok(haystack.includes('u-0001'));
+  assert.ok(haystack.includes('·tea·oy'));
+  assert.ok(haystack.includes('teaoy'), 'notation with the namer dots stripped is searchable');
+  assert.ok(haystack.includes('200c:e652:e679'));
+  assert.ok(haystack.includes('200ce652e679'), 'codepoints with the colons stripped are searchable');
+  assert.ok(haystack.includes('marker-staging-ligature-formation'));
+  assert.ok(haystack.includes('qstea:qsoy'));
+  assert.ok(haystack.includes('ligation'));
+});
+
+test('searchUnits finds a unit by its exact id across every shard', () => {
+  const { matches, total } = searchUnits(allUnits, 'u-0006');
+  assert.equal(total, 1);
+  assert.equal(matches[0].id, 'u-0006');
+});
+
+test('searchUnits matches notation with and without the namer dots, case-insensitively', () => {
+  assert.deepEqual(
+    searchUnits(allUnits, '·Pea·May').matches.map((unit) => unit.id),
+    ['u-0003'],
+  );
+  assert.deepEqual(
+    searchUnits(allUnits, 'peamay').matches.map((unit) => unit.id),
+    ['u-0003'],
+  );
+});
+
+test('searchUnits matches codepoints with and without the colons', () => {
+  assert.deepEqual(searchUnits(allUnits, 'E66C').matches.map((unit) => unit.id), ['u-0006']);
+  assert.deepEqual(searchUnits(allUnits, 'e670e653').matches.map((unit) => unit.id), ['u-0006']);
+});
+
+test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
+  const byClass = searchUnits(allUnits, 'dangling-anchor-dropped');
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-0005', 'u-0006']);
+  const extension = searchUnits(allUnits, 'extension');
+  assert.deepEqual(extension.matches.map((unit) => unit.id), ['u-0004']);
+  assert.equal(extension.matches[0].ink_identical, true, 'a machine-approved unit is still findable');
+});
+
+test('searchUnits requires every whitespace-separated token to match (AND)', () => {
+  assert.deepEqual(searchUnits(allUnits, 'tea oy').matches.map((unit) => unit.id).sort(), ['u-0001', 'u-0002']);
+  assert.equal(searchUnits(allUnits, 'tea exam').total, 0);
+});
+
+test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
+  // "u-0005" appears verbatim only in u-0005, but a 3-codepoint substring could in principle collide; the exact-id rank keeps it first.
+  const { matches } = searchUnits(allUnits, 'u-0005');
+  assert.equal(matches[0].id, 'u-0005');
+});
+
+test('searchUnits caps the matches at the limit but reports the true total', () => {
+  const { matches, total } = searchUnits(allUnits, 'u-', 2);
+  assert.equal(total, 6, 'every fixture unit id starts with u-');
+  assert.equal(matches.length, 2);
+});
+
+test('searchUnits returns nothing for a blank query', () => {
+  assert.deepEqual(searchUnits(allUnits, '   '), { matches: [], total: 0 });
 });

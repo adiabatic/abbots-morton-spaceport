@@ -27,6 +27,7 @@ import {
   availableBatches,
   copyPreamble,
   tokenSeparators,
+  searchUnits,
 } from './render.js';
 
 const FONT_SIZE = 88;
@@ -64,6 +65,12 @@ let renderedKey = null;
 let renderToken = 0;
 const machineFoldBuilders = new Map();
 
+let allShardsPromise = null;
+let allShardsLoaded = false;
+let searchActive = -1;
+let blurTimer = null;
+const SEARCH_LIMIT = 50;
+
 function withDefaults(parsed) {
   const next = { ...parsed };
   if (next.batch === null) {
@@ -98,6 +105,17 @@ async function shardUnits(classId) {
     shardCache.set(classId, promise);
   }
   return shardCache.get(classId);
+}
+
+function ensureAllShards() {
+  if (!allShardsPromise) {
+    allShardsPromise = Promise.all(manifest.classes.map((cls) => shardUnits(cls.id))).then(() => {
+      allShardsLoaded = true;
+      populateFilterOptions();
+      updateClassCounts();
+    });
+  }
+  return allShardsPromise;
 }
 
 async function unitsForView(batch, classFilter) {
@@ -909,6 +927,115 @@ function runImport(text) {
   document.getElementById('import').close();
 }
 
+function cancelBlurClose() {
+  if (blurTimer !== null) {
+    clearTimeout(blurTimer);
+    blurTimer = null;
+  }
+}
+
+function presentational(node) {
+  node.setAttribute('role', 'presentation');
+  return node;
+}
+
+function closeSearch() {
+  cancelBlurClose();
+  const results = document.getElementById('search-results');
+  results.hidden = true;
+  results.textContent = '';
+  searchActive = -1;
+  const input = document.getElementById('unit-search');
+  input.setAttribute('aria-expanded', 'false');
+  input.removeAttribute('aria-activedescendant');
+}
+
+function selectSearchResult(unitId) {
+  if (!unitId) return;
+  closeSearch();
+  document.getElementById('unit-search').blur();
+  // The hash carries only the unit id — the same deep-link form as a seam chip — so the existing machinery relocates across batches and classes and transiently reveals a machine-approved home.
+  const next = `unit=${unitId}`;
+  // Re-selecting the unit you're already deep-linked to leaves the hash byte-identical, so the browser fires no hashchange; re-resolve directly so the row still re-cursors and re-scrolls.
+  if (location.hash.replace(/^#/, '') === next) applyHashState();
+  else location.hash = next;
+}
+
+function activeSearchUnitId() {
+  const rows = document.querySelectorAll('#search-results .search-result');
+  if (searchActive < 0 || searchActive >= rows.length) return null;
+  return rows[searchActive].dataset.unit;
+}
+
+function setSearchActive(index) {
+  const rows = document.querySelectorAll('#search-results .search-result');
+  if (rows.length === 0) return;
+  searchActive = (index + rows.length) % rows.length;
+  const input = document.getElementById('unit-search');
+  for (const [position, row] of rows.entries()) {
+    const current = position === searchActive;
+    row.setAttribute('aria-selected', String(current));
+    if (current) {
+      input.setAttribute('aria-activedescendant', row.id);
+      row.scrollIntoView({ block: 'nearest' });
+    }
+  }
+}
+
+function renderSearchResults(query) {
+  const results = document.getElementById('search-results');
+  const { matches, total } = searchUnits([...unitsById.values()], query, SEARCH_LIMIT);
+  results.textContent = '';
+  results.hidden = false;
+  const input = document.getElementById('unit-search');
+  input.setAttribute('aria-expanded', 'true');
+  input.removeAttribute('aria-activedescendant');
+  searchActive = -1;
+  if (matches.length === 0) {
+    results.append(presentational(el('p', 'search-empty', 'No units match.')));
+    return;
+  }
+  for (const [position, unit] of matches.entries()) {
+    const row = el('button', 'search-result');
+    row.type = 'button';
+    row.id = `search-opt-${unit.id}`;
+    row.dataset.unit = unit.id;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', 'false');
+    row.setAttribute('aria-setsize', String(matches.length));
+    row.setAttribute('aria-posinset', String(position + 1));
+    row.append(el('span', 'search-id', unit.id));
+    row.append(el('span', 'search-notation', unit.notation));
+    row.append(el('span', 'search-class', unit.class));
+    const where = unit.ink_identical ? 'machine' : `batch ${unit.batch}`;
+    row.append(el('span', 'search-where', where));
+    results.append(row);
+  }
+  if (total > matches.length) {
+    results.append(
+      presentational(el('p', 'search-more', `Showing ${matches.length} of ${total} matches — refine to narrow.`)),
+    );
+  }
+}
+
+async function runSearch() {
+  const input = document.getElementById('unit-search');
+  const query = input.value;
+  if (!query.trim()) {
+    closeSearch();
+    return;
+  }
+  if (!allShardsLoaded) {
+    const results = document.getElementById('search-results');
+    results.textContent = '';
+    results.hidden = false;
+    results.append(presentational(el('p', 'search-empty', 'Loading every class…')));
+    await ensureAllShards();
+    if (input.value !== query || document.activeElement !== input) return;
+  }
+  renderSearchResults(query);
+}
+
 function wireEvents() {
   const helpDialog = document.getElementById('help');
   const importDialog = document.getElementById('import');
@@ -1000,6 +1127,10 @@ function wireEvents() {
     } else if (action === 'help') {
       if (helpDialog.open) helpDialog.close();
       else helpDialog.showModal();
+    } else if (action === 'search') {
+      const input = document.getElementById('unit-search');
+      input.focus();
+      input.select();
     }
   });
 
@@ -1091,6 +1222,40 @@ function wireEvents() {
   });
   document.getElementById('show-machine').addEventListener('change', (event) => {
     setState({ machine: event.target.checked ? '1' : null });
+  });
+
+  const searchInput = document.getElementById('unit-search');
+  const searchResults = document.getElementById('search-results');
+  searchInput.addEventListener('focus', () => {
+    cancelBlurClose();
+    ensureAllShards();
+    if (searchInput.value.trim()) runSearch();
+  });
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('keydown', (event) => {
+    // Only intercept navigation when real result rows exist — during the all-shards load only the placeholder is shown, so let the browser keep native caret movement.
+    if (searchResults.hidden || !searchResults.querySelector('.search-result')) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setSearchActive(searchActive + 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setSearchActive(searchActive - 1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const firstId = searchResults.querySelector('.search-result')?.dataset.unit;
+      selectSearchResult(activeSearchUnitId() ?? firstId);
+    }
+  });
+  // Hide on blur after a beat so a result's mousedown still registers as a selection; the timer is cancelled if the box is re-focused first (so a fast reopen isn't blanked).
+  searchInput.addEventListener('blur', () => {
+    blurTimer = setTimeout(closeSearch, 150);
+  });
+  searchResults.addEventListener('mousedown', (event) => {
+    const row = event.target.closest('.search-result');
+    if (!row) return;
+    event.preventDefault();
+    selectSearchResult(row.dataset.unit);
   });
 
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));

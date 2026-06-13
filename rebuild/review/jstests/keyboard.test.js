@@ -19,6 +19,7 @@ const EXPECTED = [
   ['i', 'prev'],
   ['[', 'prev-class'],
   [']', 'next-class'],
+  ['/', 'search'],
   ['?', 'help'],
   ['Backspace', 'clear-verdict'],
   ['Delete', 'clear-verdict'],
@@ -59,6 +60,12 @@ test('with an overlay open only help and escape act', () => {
 test('unbound keys return null', () => {
   assert.equal(actionForKey('z'), null);
   assert.equal(actionForKey('Enter'), null);
+});
+
+test('slash focuses search, but types literally inside an input and yields to an open overlay', () => {
+  assert.equal(actionForKey('/'), 'search');
+  assert.equal(actionForKey('/', { inInput: true }), null);
+  assert.equal(actionForKey('/', { overlayOpen: true }), null);
 });
 
 test('the retired j verdict key stays unbound; k is now a navigation alias', () => {
