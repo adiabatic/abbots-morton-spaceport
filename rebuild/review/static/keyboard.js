@@ -15,6 +15,7 @@ export const KEY_MAP = new Map([
   ['i', 'prev'],
   ['[', 'prev-class'],
   [']', 'next-class'],
+  ['/', 'search'],
   ['?', 'help'],
   ['Backspace', 'clear-verdict'],
   ['Delete', 'clear-verdict'],
