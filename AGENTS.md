@@ -1,5 +1,9 @@
 # Instructions for agents
 
+## Roadmap and open decisions
+
+- @WHATNEXT.md is the forward-looking punch list — what ought to happen next, and the open forks in the road. Read it when you need that context, and keep it up to date as work lands.
+
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
