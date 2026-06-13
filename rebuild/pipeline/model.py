@@ -67,10 +67,10 @@ class When:
 
 @dataclass(frozen=True)
 class Stub:
-    """Same-row attachment ink at a side's anchor row. `when` names the liveness state that removes the columns (design section 3.2): `when: withdrawn` means the columns are blank in the withdrawn/base state and inked exactly when the side joins (the M1-PLAN template reading, binding per the authoring notes); `when: joined` is the opposite polarity (the qsGay case)."""
+    """Same-row attachment ink at a side's anchor row. `inks_when` names the liveness state in which the columns are inked (design section 3.2): `inks_when: joined` means a connector nub that is blank in the base drawing and inks exactly when the side joins; `inks_when: withdrawn` is the opposite polarity, ink that retracts on joining (the qsGay case)."""
 
     cols: tuple[int, ...]
-    when: str  # "joined" | "withdrawn"
+    inks_when: str  # "joined" | "withdrawn"
 
 
 @dataclass(frozen=True)

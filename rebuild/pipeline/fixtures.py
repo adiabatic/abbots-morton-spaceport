@@ -316,7 +316,7 @@ def _pea() -> Rune:
                     "x-height",
                     x=0,
                     stroke="vertical",
-                    stub=Stub(cols=(0,), when="withdrawn"),
+                    stub=Stub(cols=(0,), inks_when="joined"),
                     scope=(
                         Condition(family=("qsMay",), joined_at="x-height"),
                         Condition(family=("qsUtter",), joined_at="x-height"),
@@ -346,7 +346,7 @@ def _pea() -> Rune:
                     "x-height",
                     x=0,
                     stroke="vertical",
-                    stub=Stub(cols=(0,), when="withdrawn"),
+                    stub=Stub(cols=(0,), inks_when="joined"),
                     scope=(
                         Condition(family=("qsMay",), joined_at="x-height"),
                         Condition(family=("qsUtter",), joined_at="x-height"),
@@ -363,7 +363,7 @@ def _pea() -> Rune:
                     ink_y=6,
                     stroke="vertical",
                     withdrawal="safe",
-                    stub=Stub(cols=(3,), when="withdrawn"),
+                    stub=Stub(cols=(3,), inks_when="joined"),
                     scope=(
                         Condition(
                             klass=("can-enter-at-x-height",),

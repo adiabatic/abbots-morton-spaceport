@@ -143,10 +143,10 @@
     "stub": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cols", "when"],
+      "required": ["cols", "inks_when"],
       "properties": {
         "cols": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 1},
-        "when": {"enum": ["joined", "withdrawn"]}
+        "inks_when": {"enum": ["joined", "withdrawn"]}
       }
     },
     "pairing": {
