@@ -539,8 +539,7 @@ class _Linter:
         ductus = self.raw.get("ductus")
         if not isinstance(ductus, dict):
             ductus = {}
-        realized = {name for name, value in ductus.items() if isinstance(value, str)}
-        unrealized = {name for name, value in ductus.items() if isinstance(value, dict)}
+        realized = set(ductus)
         used: set[str] = set()
         for stance_name, stance_raw in self._stances().items():
             way = stance_raw.get("way")
@@ -549,11 +548,6 @@ class _Linter:
                 self.context.error(
                     f"stances.{stance_name}.way",
                     f"stance {stance_name!r} names way {way!r}, which is not in the ductus",
-                )
-            elif way in unrealized:
-                self.context.error(
-                    f"stances.{stance_name}.way",
-                    f"stance {stance_name!r} names way {way!r}, which the ductus marks unrealized",
                 )
         for way in sorted(realized - used):
             self.context.error(
@@ -846,9 +840,7 @@ def _resolve_groups(
 
 def _build_rune(context: _FileContext, classes: dict[str, frozenset[str]]) -> Rune:
     raw = context.data
-    ductus = {
-        way: (prose if isinstance(prose, str) else None) for way, prose in (raw.get("ductus") or {}).items()
-    }
+    ductus = dict(raw.get("ductus") or {})
     stances = {}
     for stance_name, stance_raw in (raw.get("stances") or {}).items():
         base_path = f"stances.{stance_name}"

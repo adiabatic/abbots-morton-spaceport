@@ -570,7 +570,7 @@ def _may() -> Rune:
     return Rune(
         name="qsMay",
         codepoint=0xE665,
-        ductus={"loop": "draft", "grounded-loop": "draft", "counterclockwise": None},
+        ductus={"loop": "draft", "grounded-loop": "draft"},
         stances={"loop": loop, "grounded-loop": grounded},
         policy=policy,
     )

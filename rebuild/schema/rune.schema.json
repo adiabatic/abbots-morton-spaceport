@@ -14,12 +14,7 @@
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
-      "additionalProperties": {
-        "oneOf": [
-          {"type": "string"},
-          {"type": "object", "additionalProperties": false, "required": ["unrealized"], "properties": {"unrealized": {"const": true}}}
-        ]
-      }
+      "additionalProperties": {"type": "string"}
     },
     "notes": {"type": "string"},
     "mono": {"$ref": "#/$defs/drawing"},
