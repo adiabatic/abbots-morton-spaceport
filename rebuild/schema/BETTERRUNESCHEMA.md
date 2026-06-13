@@ -187,7 +187,7 @@ Owner-only decisions, foundational first then region by region in schema reading
 
 ### Open
 
-- **q05 — display-name format depth (skeleton/identity).** The headline contract is that you author rune/way/traits/surface/policy and names like `qsMay.loop.en-y0.ex-y5.en-ext-1` are generated, never authored. Document: (a) omit entirely, (b) brief "names are generated; you never read or write them," (c) full format. _Lean: (b), in the root/`stances` container hover._
+- **q05 — display-name format depth (skeleton/identity). [RESOLVED]** → Document the **full naming scheme** so a generated name can be read back to what you authored (useful when debugging FEA or glyph tables). Lives on the root/`rune` container hover (cross-cutting, per D4), not repeated on leaf keys. Format (from `geometry.py:90 display_name`): `rune`, then the non-default stance, then `en-y<N>` / `ex-y<N>` for the live anchor heights (N = the height's y value: baseline 0, x-height 5, y6 6, top 8), then `ex-wd` if the exit withdrew relative to the base drawing, then the adjustment tokens (`en-ext-1`, `locked`, …). Capped at 63 bytes; overflow hashes the tail. Generated only — never authored. Real example: `qsMay.grounded-loop.en-y5.ex-y0`.
 - **q06 — ligature teaching (skeleton/sequence).** How much to explain what a ligature is. _Lean: one-line reminder ("a single glyph standing for two adjacent letters, e.g. `qsTea_qsOy` = ·Tea·Oy")._
 - **q07 — `unrealized` framing (skeleton/ductus).** Only qsMay's counterclockwise is `unrealized: true`. Frame as a niche affordance, discourage, or encourage. _Lean: niche affordance._
 - **q08 — `y_offset` depth (skeleton).** Rule only, or rule + one-line why. _Lean: rule + one-line why._
