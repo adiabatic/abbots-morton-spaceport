@@ -7,7 +7,7 @@ The plan for slotting accessible documentation into `rune.schema.json` (the sche
 - One question at a time. Anything the codebase can answer, we answer by reading the codebase — not by asking. The interview is reserved for decisions only the owner can make: tone, audience, naming, taste, and where prose lives.
 - Confirmed process: **every** open question is asked individually, including the low-stakes "how much detail / how to phrase it" calls — no batching, even where there's an obvious lean.
 - Each answer gets written down here, then committed, before moving on.
-- Guided by [Diátaxis](https://diataxis.fr/): a schema `description` is fundamentally *reference* (austere, lookup-oriented), but this project wants it *understandable*, which pulls in some *explanation*. The decisions below resolve that tension deliberately rather than by accident.
+- Guided by [Diátaxis](https://diataxis.fr/): a schema `description` is fundamentally _reference_ (austere, lookup-oriented), but this project wants it _understandable_, which pulls in some _explanation_. The decisions below resolve that tension deliberately rather than by accident.
 
 ## Decisions
 
@@ -15,11 +15,11 @@ The plan for slotting accessible documentation into `rune.schema.json` (the sche
 
 **The sole consumer of this documentation is the owner (Nathan).** There is no third-party reader to calibrate for. So:
 
-- We may freely assume fluency in the project's own vocabulary — ·Letter names, `qsName` families, *stance*, *ductus*, *ink*, *trait*, *half*/*alt*, *anchor*, *seam*. We do **not** re-teach font internals the owner already knows.
-- We **do** explain the schema-specific machinery the owner does *not* carry in their head (what an `unlock` does, what `withdrawal: safe` promises, what `ok`/`split` on an `extend` mean, etc.).
+- We may freely assume fluency in the project's own vocabulary — ·Letter names, `qsName` families, _stance_, _ductus_, _ink_, _trait_, _half_/_alt_, _anchor_, _seam_. We do **not** re-teach font internals the owner already knows.
+- We **do** explain the schema-specific machinery the owner does _not_ carry in their head (what an `unlock` does, what `withdrawal: safe` promises, what `ok`/`split` on an `extend` mean, etc.).
 - **Austere reference goes up front; the "why" must be right there too — not buried.** The owner is explicitly unwilling to dig into `model.py` docstrings or the M1 plan to recover intent. So the "why" lives where the eyes already are, not one hop away.
 
-Concretely, each `description` string is **two beats in one string**: a terse lead that says what the thing *is* (the austere reference), immediately followed by the *why/how* in the same string so both surface together. No separate explanation document the owner would have to go open. Diátaxis purity yields to convenience here because there is exactly one reader and they value "handy" over "clean."
+Concretely, each `description` string is **two beats in one string**: a terse lead that says what the thing _is_ (the austere reference), immediately followed by the _why/how_ in the same string so both surface together. No separate explanation document the owner would have to go open. Diátaxis purity yields to convenience here because there is exactly one reader and they value "handy" over "clean."
 
 ### D2 — Delivery surface: editor-hover tooltips
 
@@ -41,7 +41,7 @@ Each description closes with **one real ·X·Y example pulled from an actual run
 
 This fixes a reusable template, validated by the winning draft:
 
-1. **Lead** — one sentence: what the thing *is* and *when you'd reach for it*, in plain terms (no internal machinery).
+1. **Lead** — one sentence: what the thing _is_ and _when you'd reach for it_, in plain terms (no internal machinery).
 2. **Mechanics** — a short line naming the sub-keys the author actually sets (e.g. "names the side (`entry`/`exit`), how many pixels (`by:`), and when (`when:`)").
 3. **Example** — `Example: …` a single concrete ·X·Y outcome from a named rune.
 
@@ -68,7 +68,7 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `$.codepoint` | Unicode code point (integer) for the raw cmap glyph. Mutually exclusive with `sequence`. | lines 11, 34–37; model.py 200 | `codepoint: 0xE665` | code |
 | `$.sequence` | Ligatures only: the two-or-more component families. Mutually exclusive with `codepoint`. | lines 12, 34–37; model.py 201 | `sequence: [qsTea, qsOy]` | code |
 | `$.ductus` | Map from way name to a stroke-narrative string. Documentation, not executable. | schema lines 13–16; model.py 202; CLAUDE.md §Ductus | qsMay `loop: '…'` | code |
-| `$.notes` | Free-form text for design decisions and join *constraints* (distinct from ductus, which is how-to-draw). | line 24; model.py 203 | qsTea_qsOy "Entryless by declaration…" | code |
+| `$.notes` | Free-form text for design decisions and join _constraints_ (distinct from ductus, which is how-to-draw). | line 24; model.py 203 | qsTea_qsOy "Entryless by declaration…" | code |
 | `$.mono` | The monospace reference drawing (`$defs/drawing`): a bitmap and optional `y_offset`. | line 25; `$defs/drawing` 59–66; model.py 204 | qsDay mono with `y_offset: -3` | code |
 | `$.mono.bitmap` / `$defs/drawing.bitmap` | Array of row strings top-to-bottom; `#` = ink, space = blank. Bare trailing `#` mark the y=5 and y=0 rows. | line 64; geometry `_grid` | 9 rows for deep ·May | code |
 | `$.mono.y_offset` / `$defs/drawing.y_offset` | Vertical pixel shift; negative pushes the bitmap down. Deep letters use `-3`; non-deep omit it (defaults 0). | line 65; CLAUDE.md "deep letters… y_offset of -3" | `y_offset: -3` | code |
@@ -104,7 +104,7 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `$defs/exitRow.x_off_convention` | `true` opts this exit x out of the max-ink+1 convention check. Validation opt-out only. | line 139 | unused in current corpus | intent |
 | `$defs/withdrawalBinding` | Either `safe` or a `motionName` naming a sibling bitmap. | lines 142–147; spec_load.py validates | — | code |
 | `$defs/stub.cols` | Column indices where stub ink appears/disappears. | line 153; geometry.py `_apply_stub` | `cols: [0]` | code |
-| `$defs/stub.inks_when` | The join state in which the stub columns are **inked** — a connector nub that blinks on with the seam. `joined` = blank in the base drawing, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that retracts on joining (the qsGay case, unused in the corpus). Renamed from `when` (q13) to read in the positive: the field now names the *inked* state, not the absent one. | model.py:70 Stub; geometry.py:201–206 | qsPea `stub: {cols: [0], inks_when: joined}` | intent |
+| `$defs/stub.inks_when` | The join state in which the stub columns are **inked** — a connector nub that blinks on with the seam. `joined` = blank in the base drawing, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that retracts on joining (the qsGay case, unused in the corpus). Renamed from `when` (q13) to read in the positive: the field now names the _inked_ state, not the absent one. | model.py:70 Stub; geometry.py:201–206 | qsPea `stub: {cols: [0], inks_when: joined}` | intent |
 | `$defs/height` | The four anchor heights: baseline (y0), x-height (y5), y6 (y6), top (y8). | line 53; geometry `HEIGHT_Y` | — | code |
 | `$defs/strokeOrientation` | horizontal / vertical / diagonal. | line 56; settle.py | — | code |
 
@@ -143,10 +143,10 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `…leftCondition.stroke` | Left neighbor's exit stroke orientation. | line 372 | — | code |
 | `…leftCondition.is` | Boundary-token type on the left (boundary/space/zwnj/namer-dot). | line 373 | `{is: boundary}` | code |
 | `…leftCondition.except` | Static-condition carve-outs; if any matches, the condition fails. | line 374; settle.py | `{except:[{family:qsDay}]}` | code |
-| `$defs/rightCondition` | Constrains the *raw* right neighbor (not yet settled): `family`, `class`, `stroke`, `is`, `except`, plus optional `then`. No `stance`/`joined_at`. | lines 377–388; settle.py `cond_matches_right` | `{family:qsIt, then:{family:qsMay}}` | code |
+| `$defs/rightCondition` | Constrains the _raw_ right neighbor (not yet settled): `family`, `class`, `stroke`, `is`, `except`, plus optional `then`. No `stance`/`joined_at`. | lines 377–388; settle.py `cond_matches_right` | `{family:qsIt, then:{family:qsMay}}` | code |
 | `…rightCondition.then` | One-level lookahead at the position after next; only the `rightConditionNoThen` axes. For taste (prefer) coordination of two seams. | line 387; settle.py | qsIt prefer `then` | code |
 | `$defs/rightConditionNoThen` | Same right axes minus `then`; used on refuse/require and exit `toward` scopes where lookahead is disallowed. | lines 390–400 | qsMay refuse right cond | code |
-| `$defs/selfCondition` | Current letter's own seam state: `entry: live|none`, `exit: live|none`. | lines 402–410; settle.py `when_matches` | `{entry: none}` | code |
+| `$defs/selfCondition` | Current letter's own seam state: `entry: live\|none`, `exit: live\|none`. | lines 402–410; settle.py `when_matches` | `{entry: none}` | code |
 | `$defs/staticCondition` | Simple selector (family/class/stance/trait) used in group definitions and `except`. No joined_at/stroke/is. | lines 328–337 | `{family:qsZoo, trait:half}` | code |
 | `$defs/boundaryValue` | boundary / space / zwnj / namer-dot — the `is:` token types; space and zwnj split runs, namer-dot does not. | line 57; settle.py | `is: boundary` | code |
 | `$defs/motionName` | Way/stance id: `^[a-z][a-z0-9-]*$`, and must NOT contain `before`, `after`, `noentry`, `noexit`, `nonjoining`, or `ss[0-9]`. Names describe the motion, not the neighbors. | lines 46–51; spec_load.py `_lint_identifiers` | `loop`, `grounded-loop`, `bar` | code |
@@ -177,9 +177,53 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `$defs/groupDefinition` | `union` and/or `minus` lists of static conditions defining a class's membership. | lines 319–327 | `{union:[{family:qsZoo, trait:half}, …]}` | code |
 | `$defs/cellPattern` | An `{entry?, exit?}` pattern (≥1 key) used by prefer `cell`/`over`. | lines 239–247 | `{exit: baseline}` | code |
 
-## Interview queue
+## Agenda — walking qsPea.yaml top to bottom
 
-Owner-only decisions, foundational first then region by region in schema reading order. The first four are already settled by D1–D4; the rest are open and asked one at a time. "Lean" is my recommendation, to react to rather than start from scratch.
+The interview follows **qsPea.yaml in document order**: we walk every key from the top of the file down, one at a time, so each concept arrives in reading order instead of by region — and so the plain "code" keys that the region pass skipped (`codepoint`, `way`, entry `x`/`stroke`, `require`, …) get a hover too. For each key we explain it, draft the hover, record it here, and commit. The earlier region/q-numbered work is preserved below as the resolved-question log and the open-question leans; the walk points into them by q-number.
+
+Status keys: **done** — hover locked, see the q-entry · **open** — needs an owner decision · **code** — no owner judgment needed, but we still walk it and draft a hover straight from the code/inventory, and the owner reacts.
+
+"Lean" in the open entries below is my recommendation, there to react to rather than start cold.
+
+### The walk
+
+| #  | Key (document order)            | Concept                                                           | Status                            |
+| -- | ------------------------------- | ----------------------------------------------------------------- | --------------------------------- |
+| 1  | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
+| 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | code (sequence done q06)          |
+| 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done q07 (string-only)            |
+| 4  | `mono` / `bitmap`               | monospace reference drawing; row-string + `#` row markers         | code                              |
+| 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
+| 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | code                              |
+| 7  | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
+| 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | code                              |
+| 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | code                              |
+| 10 | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | code                              |
+| 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | code                              |
+| 12 | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
+| 13 | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | open **NEXT** (q19, q21)          |
+| 14 | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | code                              |
+| 15 | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | open                              |
+| 16 | `pairings`                      | which entry/exit combos this stance allows                        | open q16                          |
+| 17 | `cells`                         | per-state bitmap overrides; the term "cell"; `-withdrawn`         | open q14, q15                     |
+| 18 | `unlocks`                       | feature-gated extra joins                                         | open q17, q18                     |
+| 19 | `require`                       | stance settles only if a named side is live                       | code                              |
+| 20 | `stances.half` / `bitmaps`      | named alternate drawings (e.g. `half-dips-both-sides`)            | code                              |
+| 21 | exitRow `toward`                | exit guest list (raw right neighbor)                              | open (pairs with `from`)          |
+| 22 | exitRow `ink_y`                 | fallback ink row when the exit's own row is blank                 | done q12                          |
+| 23 | `policy.order`                  | stance preference; `order[0]` is the isolated default             | code                              |
+| 24 | `policy.refuse` (+ `why`)       | forbid a (stance, entry, exit) under a window; the `why` bar      | open + q25                        |
+| 25 | `policy.prefer`                 | tie-breakers (qsPea has none)                                     | open                              |
+| 26 | `policy.extend`                 | widen connector ink; `by` / `when` / `class` / `joined_at`        | done template (D3); open ok/split |
+| 27 | `policy.contract`               | narrow a connector (qsPea has none)                               | code                              |
+| 28 | `policy.resolve`                | hand-authored ambiguity (none anywhere yet)                       | code                              |
+| 29 | `policy.groups`                 | rune-local predicate classes (qsPea has none)                     | code                              |
+
+Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't appear in qsPea, so they aren't walk rows here — we'll re-meet them on a rune that uses them. The when-grammar decisions q19–q23 (mental model, `then`, `except`, reserved tokens, namer-dot/word position) surface first at **`from`** (row 13) and recur at policy `when`; migration-bridging q24 and the `why`-bar q25 surface at `policy.refuse` (row 24). qsPea's only real `cells` and `toward` live on the **half** stance, so rows 17 and 21 get their worked examples there.
+
+## Resolved-question log and open leans
+
+The q-numbered detail the walk points into. Resolved entries hold the locked hover drafts; open entries carry the lean to react to.
 
 ### Resolved by D1–D4
 
@@ -198,7 +242,7 @@ Owner-only decisions, foundational first then region by region in schema reading
 - **q10 — `selectable: false` status (surface). [RESOLVED]** → **Keep the field; frame it as a parity carry-over.** Proven empirically: removing `selectable: false` from qsTea's `top` entry and rebuilding leaves every settlement table byte-identical (no shaping change anywhere) and only drops three GPOS cursive entry anchors (`qsTea.half.en-y5` / `.ex-y5` / `.ex-y5.locked` carrying `<anchor 50 400>`) — exactly the old font's `entry_curs_only [0, 8]`. So it's GPOS-parity only, never a shaping lever, and unlike `unrealized` it is **not** safe to delete (it would break byte-parity with the old shipped font). Draft: "Default `true`. Set `false` to emit an anchor for GPOS cursive-positioning parity while keeping the join engine from ever joining there — it changes no shaping, only the anchor table. Removing it leaves every settlement identical and just drops the parity anchors. Carried over from the old font's `entry_curs_only`; rarely needed on new work. Example: qsTea's `top: {x: 0, selectable: false}`."
 - **q11 — `x_off_convention` status (surface). [RESOLVED]** → **Keep the field; plainest possible wording.** Draft (owner approved): "The build warns if an anchor isn't sitting in its usual spot. `x_off_convention: true` just means 'I put it there on purpose — skip the warning.' Nothing in the font uses it yet." (Genuinely unused in every rune; a deliberate escape hatch kept like `selectable`.)
 - **q12 — `ink_y` keep/avoid (surface). [RESOLVED]** → **Neutral tool, plain wording.** Draft: "The row to scan for ink when the exit anchor's own row is blank, so the build still measures where the stroke really exits. Example: ·Pea's half form sets `ink_y: 6`."
-- **q13 — `stub.when` naming (surface). [RESOLVED]** → **Rename to the positive `inks_when`.** The old `when` named the state in which the nub was *blank* (`when: withdrawn` = nub appears on joining), which reads backwards. Like the `unrealized` removal (q07), the chosen rename was executed inline, not just noted: the field is now `inks_when` and the two values flip so the name reads in the positive — `when: withdrawn` → `inks_when: joined` (the nub inks on joining), `when: joined` → `inks_when: withdrawn` (ink that retracts on joining; still unused). The code predicate flipped to `inks_when == "joined"`. Touched `model.py` (Stub field + docstring), `geometry.py` (×2), `surface.py`, `spec_load.py`, `rune.schema.json` (`$defs/stub`), `fixtures.py` (×3, values flipped), and qsPea's 3 data sites. Behaviorally inert — predicate and values flipped together, so every drawing is identical; `make test` 6753 passed. Draft hover: "The join state in which these stub columns are inked — a connector nub that blinks on with the seam. `joined` = blank in the base drawing, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that retracts on joining (no rune uses it). Example: qsPea's full x-height entry, `stub: {cols: [0], inks_when: joined}` — column 0 is blank until ·May or ·Utter joins, then a nub sprouts to catch the incoming stroke."
+- **q13 — `stub.when` naming (surface). [RESOLVED]** → **Rename to the positive `inks_when`.** The old `when` named the state in which the nub was _blank_ (`when: withdrawn` = nub appears on joining), which reads backwards. Like the `unrealized` removal (q07), the chosen rename was executed inline, not just noted: the field is now `inks_when` and the two values flip so the name reads in the positive — `when: withdrawn` → `inks_when: joined` (the nub inks on joining), `when: joined` → `inks_when: withdrawn` (ink that retracts on joining; still unused). The code predicate flipped to `inks_when == "joined"`. Touched `model.py` (Stub field + docstring), `geometry.py` (×2), `surface.py`, `spec_load.py`, `rune.schema.json` (`$defs/stub`), `fixtures.py` (×3, values flipped), and qsPea's 3 data sites. Behaviorally inert — predicate and values flipped together, so every drawing is identical; `make test` 6753 passed. Draft hover: "The join state in which these stub columns are inked — a connector nub that blinks on with the seam. `joined` = blank in the base drawing, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that retracts on joining (no rune uses it). Example: qsPea's full x-height entry, `stub: {cols: [0], inks_when: joined}` — column 0 is blank until ·May or ·Utter joins, then a nub sprouts to catch the incoming stroke."
 - **q14 — `-withdrawn` visibility (surface/cells).** Explain withdrawn prominently, only in the cells section, or hide it? _Lean: in the cells section, tied to a qsMay example._
 - **q15 — the term "cell" (surface).** Keep "cell" (code-aligned, greppable) or use a friendlier prose label? _Lean: keep "cell," define on first use as "one concrete entry-exit join state."_
 - **q16 — `pairings` framing (surface).** Mechanical whitelist vs design-first ("the pairs this letter accepts"). _Lean: design-first + one-line mechanics._
