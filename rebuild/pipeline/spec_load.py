@@ -323,7 +323,7 @@ def _when(raw: dict | None) -> When:
 def _stub(raw: dict | None) -> Stub | None:
     if raw is None:
         return None
-    return Stub(cols=tuple(raw["cols"]), when=raw["when"])
+    return Stub(cols=tuple(raw["cols"]), inks_when=raw["inks_when"])
 
 
 def _bitmap(raw: dict) -> Bitmap:

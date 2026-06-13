@@ -199,10 +199,10 @@ def realize(
     entry_live = cell.entry is not None
     exit_live = cell.exit is not None
     if plan.entry_stub is not None and entry_live:
-        present = plan.entry_stub.when == "withdrawn"
+        present = plan.entry_stub.inks_when == "joined"
         _apply_stub(grid, y_offset, _height_y(cell.entry), plan.entry_stub.cols, present)
     if plan.exit_stub is not None and exit_live:
-        present = plan.exit_stub.when == "withdrawn"
+        present = plan.exit_stub.inks_when == "joined"
         _apply_stub(grid, y_offset, _height_y(cell.exit), plan.exit_stub.cols, present)
 
     entry_anchor: tuple[int, int] | None = None

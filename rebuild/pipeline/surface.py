@@ -240,7 +240,7 @@ def resolved_cell_bitmap(spec: ResolvedSpec, plan: CellPlan) -> Bitmap:
         index = len(rows) - 1 - (y - base.y_offset)
         if not 0 <= index < len(rows):
             continue
-        pixel = "#" if stub.when == "withdrawn" else " "
+        pixel = "#" if stub.inks_when == "joined" else " "
         for column in stub.cols:
             while column >= len(rows[index]):
                 rows[index].append(" ")
