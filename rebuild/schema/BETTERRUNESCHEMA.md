@@ -22,11 +22,15 @@ Concretely, each `description` string is **two beats in one string**: a terse le
 
 ### D2 — Delivery surface: editor-hover tooltips
 
-The descriptions are read as **editor hover tooltips** while authoring a rune YAML (the YAML language server resolves `$schema` → `rune.schema.json` and pops the matching key's `description`). This sets the format budget:
+The descriptions are read as **editor hover tooltips in VS Code specifically** while authoring a rune YAML (the Red Hat YAML extension resolves `$schema` → `rune.schema.json` and pops the matching key's `description`). Targeting one editor sharpens the budget:
 
-- **Tight and self-contained.** A tooltip is a small floating box, not a page. Each description should land in roughly a short paragraph or two — lead sentence + the why — and stand on its own without requiring a scroll or a click-through.
-- **Markdown that degrades gracefully.** Some editors render the description as Markdown in the hover; others flatten it to plain text. So light Markdown is fine (backticks, the occasional bullet), but the prose must still read cleanly with the markup stripped. No reliance on tables, headings, or multi-level nesting inside a description.
-- **Per-key, not per-region.** Because the hover is keyed to whatever the cursor is on, every documented key carries its own complete answer; we don't lean on a neighboring key's description for context.
+- **Markdown renders — use it.** VS Code renders the `description` as Markdown in the hover, so backticks, **bold**, and bullet lists all display properly. No need to write for a plain-text fallback. Still keep it tight: a hover is a small floating box, so aim for a lead sentence plus the why, maybe a short bullet list — not a wall.
+- **Tight and self-contained.** Each description stands on its own without a scroll or click-through.
+- **Per-key, not per-region.** The hover is keyed to whatever the cursor is on, so every documented key carries its own complete answer; we don't lean on a neighboring key's description for context.
+
+### Interview-style learning (how to ask the owner)
+
+The owner is, by design, not steeped in the schema's internal machinery — that is the whole reason this documentation exists. So interview questions must **not** themselves lean on unexplained concepts. When the owner's judgment is needed, anchor the question on something they already know (a join they author by hand, a ·X·Y outcome, a term from `CLAUDE.md`'s "How to do simple changes") and, where possible, have them **react to a real drafted description** rather than answer an abstract meta-question. Show, don't quiz.
 
 ## Field inventory
 
