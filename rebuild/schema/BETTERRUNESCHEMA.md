@@ -32,6 +32,18 @@ The descriptions are read as **editor hover tooltips in VS Code specifically** w
 
 The owner is, by design, not steeped in the schema's internal machinery — that is the whole reason this documentation exists. So interview questions must **not** themselves lean on unexplained concepts. When the owner's judgment is needed, anchor the question on something they already know (a join they author by hand, a ·X·Y outcome, a term from `CLAUDE.md`'s "How to do simple changes") and, where possible, have them **react to a real drafted description** rather than answer an abstract meta-question. Show, don't quiz.
 
+### D3 — Every description ends with a worked example
+
+Each description closes with **one real ·X·Y example pulled from an actual rune**. The owner picked this by reacting to two real drafts of the `extend` hover; the example-bearing one won. Maximal concreteness beats leanness here, since the reader values "handy" and there is only one reader to please.
+
+This fixes a reusable template, validated by the winning draft:
+
+1. **Lead** — one sentence: what the thing *is* and *when you'd reach for it*, in plain terms (no internal machinery).
+2. **Mechanics** — a short line naming the sub-keys the author actually sets (e.g. "names the side (`entry`/`exit`), how many pixels (`by:`), and when (`when:`)").
+3. **Example** — `Example: …` a single concrete ·X·Y outcome from a named rune.
+
+Worked examples must be kept honest against the runes as they change; the example is chosen to be the most illustrative real instance, and updated if that rune's behavior moves. (See the deferred note on auto-checking examples.)
+
 ## Field inventory
 
 *(To be populated from the schema-understanding survey: every field/`$def`, its plain meaning, where the pipeline consumes it, a real example, and whether it's codebase-answerable or needs the owner's intent.)*
