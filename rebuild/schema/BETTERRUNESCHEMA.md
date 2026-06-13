@@ -104,7 +104,7 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `$defs/exitRow.x_off_convention` | `true` opts this exit x out of the max-ink+1 convention check. Validation opt-out only. | line 139 | unused in current corpus | intent |
 | `$defs/withdrawalBinding` | Either `safe` or a `motionName` naming a sibling bitmap. | lines 142–147; spec_load.py validates | — | code |
 | `$defs/stub.cols` | Column indices where stub ink appears/disappears. | line 153; geometry.py `_apply_stub` | `cols: [0]` | code |
-| `$defs/stub.when` | `joined` = columns blank in base, inked when the side joins; `withdrawn` = inked in base, blanked when withdrawn. (Names the state in which the columns *flip*, which can be misread.) | line 154; geometry.py | `when: withdrawn` | intent |
+| `$defs/stub.when` | The join state in which the stub columns are **blank** (they're inked in the other state) — `when` names the *absent* state, which is easy to misread. `withdrawn` = blank in the base drawing, inked when this side joins (a connector nub that appears on joining); `joined` = inked in base, blanked when joined (the qsGay case, unused in the corpus). | model.py:70 Stub; geometry.py:201–206 | qsPea `stub: {cols: [0], when: withdrawn}` | intent |
 | `$defs/height` | The four anchor heights: baseline (y0), x-height (y5), y6 (y6), top (y8). | line 53; geometry `HEIGHT_Y` | — | code |
 | `$defs/strokeOrientation` | horizontal / vertical / diagonal. | line 56; settle.py | — | code |
 
