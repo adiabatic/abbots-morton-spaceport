@@ -199,7 +199,7 @@ class Rune:
     name: str
     codepoint: int | None = None
     sequence: tuple[str, ...] | None = None  # ligature runes declare this instead of a codepoint
-    ductus: Mapping[str, str | None] = field(default_factory=dict)  # None value = unrealized way
+    ductus: Mapping[str, str] = field(default_factory=dict)  # way name -> hand-drawing prose
     notes: str | None = None
     mono: Bitmap | None = None
     stances: Mapping[str, Stance] = field(default_factory=dict)

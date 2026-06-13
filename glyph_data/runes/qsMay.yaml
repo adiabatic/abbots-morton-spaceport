@@ -5,7 +5,6 @@ ductus:
     Written clockwise, starting from the leftmost pixel at the baseline, then it continues right, loops around underneath the baseline, and then exits at the x-height on the right.
   grounded-loop: |
     Written counter-clockwise, from the rightmost pixel at the x-height. Goes down past the baseline, then loops back a teeny bit at the baseline and then doubles back over itself and exits on the right at the baseline.
-  counterclockwise: {unrealized: true}
 mono:
   bitmap:
   - "   ##"  #

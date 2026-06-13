@@ -94,7 +94,6 @@ def test_loads_all_six_runes(spec):
 
 def test_ductus_shapes(spec):
     may = spec.runes["qsMay"].ductus
-    assert may["counterclockwise"] is None
     assert "clockwise" in may["loop"]
     assert spec.runes["qsIt"].ductus["bar"].strip() == "- Either written from top to bottom or bottom to top."
 
@@ -184,12 +183,6 @@ def test_dangling_way(tmp_path):
     text = MINIMAL_RUNE.replace("way: bar", "way: pole")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("not in the ductus" in issue.message for issue in error.issues)
-
-
-def test_stance_on_unrealized_way(tmp_path):
-    text = MINIMAL_RUNE.replace("  bar: |\n    A vertical stroke.\n", "  bar:\n    unrealized: true\n")
-    error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("unrealized" in issue.message for issue in error.issues)
 
 
 def test_realized_way_without_stance(tmp_path):
