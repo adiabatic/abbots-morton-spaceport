@@ -44,10 +44,167 @@ This fixes a reusable template, validated by the winning draft:
 
 Worked examples must be kept honest against the runes as they change; the example is chosen to be the most illustrative real instance, and updated if that rune's behavior moves. (See the deferred note on auto-checking examples.)
 
+### D4 — Inline, no separate guide; cross-cutting prose rides the nearest container's hover
+
+The schema-understanding survey recommended a two-tier split: terse reference inline, plus a separate `doc/rune-schema-guide.md` companion holding all the teaching. **We are not doing that** — it contradicts D1, where the owner ruled out opening a separate doc to recover intent. Everything the owner needs lives in the schema `description` strings, surfaced in VS Code hovers.
+
+The one real problem that split was solving — cross-cutting concepts (the rune → stance → surface mental model; the left-settled / right-raw condition symmetry; the reserved-token history) don't belong on any single leaf key — is handled without a second file: **cross-cutting explanation rides the nearest container key's `description`.** Hover `when` and you get the left/right symmetry; hover a child like `leftCondition.joined_at` and you get the specific fact plus a one-clause pointer up to `when`. The root schema `description` and the `stances` / `surface` / `policy` container descriptions carry the orientation. No file to open; every concept is one hover away from where it's used.
+
+`BETTERRUNESCHEMA.md` (this file) stays the working plan: it holds the field inventory and the open-decision log, and is the source the final `description` strings are cut from. It is not itself shipped.
+
 ## Field inventory
 
-*(To be populated from the schema-understanding survey: every field/`$def`, its plain meaning, where the pipeline consumes it, a real example, and whether it's codebase-answerable or needs the owner's intent.)*
+Built from the schema-understanding survey and corroborated against `model.py` (read directly). Two of the six regional surveyors failed to return structured data — policy riders and the Diátaxis/house-style pass — so Region 5 below and the Diátaxis framing were reconstructed from the schema and `model.py` and spot-checked by hand. **Class** is `code` (meaning fixed by the pipeline — documented from the code, no interview needed) or `intent` (needs the owner's judgment about use, naming, or audience — these feed the interview queue).
+
+### Region 1 — top-level skeleton and stance identity
+
+| Path | Plain meaning | Provenance | Example | Class |
+| --- | --- | --- | --- | --- |
+| root description | One rune per file: a closed ductus, stances carrying full join surfaces, and policy riders. Stance identity is the structured tuple; generated display names never appear in authored data. | schema lines 4–5 | — | code |
+| `$.rune` | PostScript family name for this letter, e.g. `qsMay`. Pattern `qs[A-Z][A-Za-z]*`, optionally a ligature like `qsTea_qsOy`. | line 10; `$defs/familyName` line 39; `Rune.name` model.py 199 | `rune: qsMay` | code |
+| `$.codepoint` | Unicode code point (integer) for the raw cmap glyph. Mutually exclusive with `sequence`. | lines 11, 34–37; model.py 200 | `codepoint: 0xE665` | code |
+| `$.sequence` | Ligatures only: the two-or-more component families. Mutually exclusive with `codepoint`. | lines 12, 34–37; model.py 201 | `sequence: [qsTea, qsOy]` | code |
+| `$.ductus` | Map from way name to a stroke narrative string, or `{unrealized: true}` for a way that exists in the design's logic but is never drawn. Documentation, not executable. | lines 13–22; model.py 202; CLAUDE.md §Ductus | `loop: '…'`, `counterclockwise: {unrealized: true}` | code |
+| `$.notes` | Free-form text for design decisions and join *constraints* (distinct from ductus, which is how-to-draw). | line 24; model.py 203 | qsTea_qsOy "Entryless by declaration…" | code |
+| `$.mono` | The monospace reference drawing (`$defs/drawing`): a bitmap and optional `y_offset`. | line 25; `$defs/drawing` 59–66; model.py 204 | qsDay mono with `y_offset: -3` | code |
+| `$.mono.bitmap` / `$defs/drawing.bitmap` | Array of row strings top-to-bottom; `#` = ink, space = blank. Bare trailing `#` mark the y=5 and y=0 rows. | line 64; geometry `_grid` | 9 rows for deep ·May | code |
+| `$.mono.y_offset` / `$defs/drawing.y_offset` | Vertical pixel shift; negative pushes the bitmap down. Deep letters use `-3`; non-deep omit it (defaults 0). | line 65; CLAUDE.md "deep letters… y_offset of -3" | `y_offset: -3` | code |
+| `$.stances` | Map of stance name → stance object. Each is a contextual shape the letter can take. | lines 26–30; model.py 205 | `{full: {…}, half: {…}}` | code |
+| `$defs/stance` | One stance: required `way` and `bitmap`, optional `traits`, `y_offset`, named `bitmaps`, and `surface`. | lines 68–84; model.py Stance 155–162 | — | code |
+| `$.stances[s].way` | The pen-motion id; must match a `ductus` key. Several stances may share a way. | line 73; `$defs/motionName` | `way: loop` | code |
+| `$.stances[s].traits` | Array of design flags, currently only `half` (shortened to x-height) and `alt` (alternate form). Empty if neither. | line 74; model.py 159 | `traits: [half]`; `traits: [alt]` | code |
+| `$.stances[s].bitmap` | This stance's own pixel grid. | line 75 | qsMay loop bitmap | code |
+| `$.stances[s].y_offset` | Per-stance vertical shift; overrides mono when present. | line 76 | `y_offset: -3` | code |
+| `$.stances[s].bitmaps` | Map of named alternate drawings (e.g. `pulled-back`) used by join bindings and withdrawals. | lines 77–81; model.py 161 | `{pulled-back: {…}}` | code |
+| `$.stances[s].surface` | This stance's join surfaces — see Regions 2 and 3. | line 82; `$defs/surface` 85–111 | — | code |
+
+### Region 2 — surface entry/exit rows
+
+| Path | Plain meaning | Provenance | Example | Class |
+| --- | --- | --- | --- | --- |
+| `$defs/surface.entries` | Map height → entry row. One entry per height; defines where/how a predecessor joins in on the left. | lines 89–92; surface.py `effective_rows`; settle.py | qsMay baseline + x-height entries | code |
+| `$defs/surface.exits` | Map height → exit row. One exit per height; defines how this stance reaches the successor on the right. | lines 94–97; surface.py | qsMay x-height exit | code |
+| `$defs/entryRow.x` | Entry anchor x. Convention: leftmost ink column at that height's row. | line 118; surface.py `resolve_cell` | `x: 0` | code |
+| `$defs/entryRow.stroke` | Stroke direction at the entry row (horizontal/vertical/diagonal); filters which left families may join. | line 119; settle.py `cond_matches_left` | `stroke: horizontal` | code |
+| `$defs/entryRow.from` | List of left conditions restricting which predecessors may join here; absent = unrestricted. | line 120; settle.py | qsMay x-height `from` list | code |
+| `$defs/entryRow.joined` | Name of a sibling bitmap used when this entry is live (the redraw that accommodates the join). | line 121; surface.py `resolve_cell` | `joined: pulled-back` | code |
+| `$defs/entryRow.joined_x` | Override entry x that applies only while the `joined` bitmap is active. | line 122; surface.py | `joined_x: 2` (qsMay grounded-loop) | code |
+| `$defs/entryRow.stub` | Phantom connector column(s) that appear/vanish at this row — see stub fields below. | line 123 | qsPea x-height entry stub | code |
+| `$defs/entryRow.selectable` | Boolean (default true). False = a GPOS-only anchor not offered as a settlement choice (non-joining visual parity). | line 124; surface.py `enumerate_cells` | unused in current corpus | intent |
+| `$defs/entryRow.x_off_convention` | `true` opts this entry x out of the leftmost-ink convention check; suppresses the warning only, does not move the anchor. | line 125; surface.py `check_anchor_conventions` | unused in current corpus | intent |
+| `$defs/exitRow.x` | Exit anchor x. Convention: one column right of the rightmost ink at that height. | line 133; surface.py | `x: 5` | code |
+| `$defs/exitRow.stroke` | Stroke direction at the exit row; filters which right families may receive it. | line 134; settle.py `cond_matches_right` | `stroke: horizontal` | code |
+| `$defs/exitRow.toward` | List of right conditions restricting which successors may receive this exit; absent = unrestricted. | line 135; settle.py | qsUtter baseline exit `toward` | code |
+| `$defs/exitRow.withdrawal` | What to draw when the exit is declined mid-word: a sibling bitmap name, or `safe` (base already correct — compiler verifies no reaching ink). | line 136; `$defs/withdrawalBinding` 142–147; surface.py | `withdrawal: safe`; `withdrawal: pulled-back` | code |
+| `$defs/exitRow.stub` | Same as entry stub, exit side. | line 137 | qsPea x-height exit stub | code |
+| `$defs/exitRow.ink_y` | Fallback row y to scan for ink when the declared exit height has no ink. Legacy convention. | line 138; geometry.py `seam_gap` | `ink_y: 6` (qsPea half) | intent |
+| `$defs/exitRow.x_off_convention` | `true` opts this exit x out of the max-ink+1 convention check. Validation opt-out only. | line 139 | unused in current corpus | intent |
+| `$defs/withdrawalBinding` | Either `safe` or a `motionName` naming a sibling bitmap. | lines 142–147; spec_load.py validates | — | code |
+| `$defs/stub.cols` | Column indices where stub ink appears/disappears. | line 153; geometry.py `_apply_stub` | `cols: [0]` | code |
+| `$defs/stub.when` | `joined` = columns blank in base, inked when the side joins; `withdrawn` = inked in base, blanked when withdrawn. (Names the state in which the columns *flip*, which can be misread.) | line 154; geometry.py | `when: withdrawn` | intent |
+| `$defs/height` | The four anchor heights: baseline (y0), x-height (y5), y6 (y6), top (y8). | line 53; geometry `HEIGHT_Y` | — | code |
+| `$defs/strokeOrientation` | horizontal / vertical / diagonal. | line 56; settle.py | — | code |
+
+### Region 3 — surface pairings, cells, unlocks, require
+
+| Path | Plain meaning | Provenance | Example | Class |
+| --- | --- | --- | --- | --- |
+| `$defs/surface.pairings` | Two-sided join constraints: `never` (forbidden entry/exit pairs) or `only` (a complete whitelist). At least one must be present; `only` wins if both appear. | lines 99–106; settle.py `_pairing_allowed` | qsIt `only` of 7 pairs | code |
+| `$defs/pairing` | One `{entry, exit}` height pair from `heightOrNone`. | lines 157–164; surface.py `_pairing` | `{entry: baseline, exit: baseline}` | code |
+| `$defs/surface.cells` | Explicit per-state bitmap overrides: when a given entry/exit state is live, render this named bitmap instead of composing side bindings. | line 108; surface.py `resolve_cell` | qsMay `{entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}` | code |
+| `$defs/cellBinding.entry` / `.exit` | The cell's state token, a `cellSide` value (a height, a `*-withdrawn` height, or `none`). | lines 171–172; surface.py `_matches_state` | `x-height-withdrawn` | code |
+| `$defs/cellBinding.bitmap` | Name of the sibling bitmap (key under stance `bitmaps`) to render this cell with. | line 173; geometry `realize` | `pulled-back` | code |
+| `$defs/cellBinding.entry_x` / `.exit_x` | Optional per-cell anchor x overrides. | lines 174–175; surface.py | rare | code |
+| `$defs/surface.unlocks` | Rows/pairings that become available only when a stylistic-set feature is on (and any `when` matches). Lets users toggle otherwise-forbidden joins. | line 109; surface.py `effective_rows`, settle.py `_active_pairing_unlocks` | qsIt ss04 baseline-baseline unlocks | code |
+| `$defs/unlock.feature` | Required `ssNN` feature tag that activates this unlock. | line 183; `$defs/featureTag` | `ss04` | code |
+| `$defs/unlock.entry` / `.exit` / `.pairing` | Exactly one of these: the height row or the pairing the feature unlocks. | lines 184–193 | qsTea `{entry: x-height, feature: ss02}` | code |
+| `$defs/unlock.when` | Optional context gate (left/right/self/word/feature) on the unlock. | line 187; settle.py | qsIt unlock `when: {left:…, right:…}` | code |
+| `$defs/surface.require` | Array of `entry`/`exit`: a stance only settles if the named side is live. Excludes the none-on-that-side cells. For join-born stances. | line 110; settle.py `candidates` | `require: []` (typical) | code |
+| `$defs/heightOrNone` | The four heights plus `none`. | line 54 | — | code |
+| `$defs/cellSide` | The five `heightOrNone` values plus `*-withdrawn` variants (anchor stays, stroke retracts). | line 55; surface.py `_matches_state` | `x-height-withdrawn` | code |
+| `$defs/featureTag` | A `ssNN` stylistic-set id, regex `^ss[0-9]{2}$`. | line 58; emit_gsub.py | `ss04` | code |
+
+### Region 4 — the when/condition grammar
+
+| Path | Plain meaning | Provenance | Example | Class |
+| --- | --- | --- | --- | --- |
+| `$defs/when` | Groups all constraints on one join decision: optional `left`, `right`, `self`, `word`, `feature`. All present axes must hold. | lines 339–349; settle.py `when_matches` | `{left:{…}, right:{family:[qsDay,qsUtter]}}` | code |
+| `$defs/when.word` | Word position initial/medial/final/isolated, derived from run-splitting boundaries (space, ZWNJ; the namer-dot does not split). | line 347; settle.py `word_position` | `word: initial` | code |
+| `$defs/when.feature` | `ssNN` feature that must be active for the when to match. | line 348; settle.py | `feature: ss03` | code |
+| `$defs/whenWindowDecidable` | A `when` that forbids `then:` on its right side; used by refuse/require/resolve.at so the decision needs no peek past the next position. | lines 351–361; spec_load.py `_lint_refuse_window_rule` | qsMay refuse `when` | code |
+| `$defs/leftCondition` | Constrains the (already-settled) left neighbor: `family`, `class`, `stance`, `joined_at`, `stroke`, `is`, `except`. | lines 363–375; settle.py `cond_matches_left` | `{family:[qsDay_qsUtter], joined_at: x-height}` | code |
+| `…leftCondition.family` | Left family name or list. | line 368 | `{family:[qsTea,qsDay]}` | code |
+| `…leftCondition.class` | Named predicate class / rune-local group (from `policy.groups`). | line 369; settle.py `_members` | `class: halves-that-exit-at-x-height` | code |
+| `…leftCondition.stance` | The settled variant the left neighbor took (left-only — only the left is settled). | line 370 | `{family: qsDay, stance: half}` | code |
+| `…leftCondition.joined_at` | The seam height the left neighbor joined at (left-only). | line 371; settle.py | `joined_at: x-height` | code |
+| `…leftCondition.stroke` | Left neighbor's exit stroke orientation. | line 372 | — | code |
+| `…leftCondition.is` | Boundary-token type on the left (boundary/space/zwnj/namer-dot). | line 373 | `{is: boundary}` | code |
+| `…leftCondition.except` | Static-condition carve-outs; if any matches, the condition fails. | line 374; settle.py | `{except:[{family:qsDay}]}` | code |
+| `$defs/rightCondition` | Constrains the *raw* right neighbor (not yet settled): `family`, `class`, `stroke`, `is`, `except`, plus optional `then`. No `stance`/`joined_at`. | lines 377–388; settle.py `cond_matches_right` | `{family:qsIt, then:{family:qsMay}}` | code |
+| `…rightCondition.then` | One-level lookahead at the position after next; only the `rightConditionNoThen` axes. For taste (prefer) coordination of two seams. | line 387; settle.py | qsIt prefer `then` | code |
+| `$defs/rightConditionNoThen` | Same right axes minus `then`; used on refuse/require and exit `toward` scopes where lookahead is disallowed. | lines 390–400 | qsMay refuse right cond | code |
+| `$defs/selfCondition` | Current letter's own seam state: `entry: live|none`, `exit: live|none`. | lines 402–410; settle.py `when_matches` | `{entry: none}` | code |
+| `$defs/staticCondition` | Simple selector (family/class/stance/trait) used in group definitions and `except`. No joined_at/stroke/is. | lines 328–337 | `{family:qsZoo, trait:half}` | code |
+| `$defs/boundaryValue` | boundary / space / zwnj / namer-dot — the `is:` token types; space and zwnj split runs, namer-dot does not. | line 57; settle.py | `is: boundary` | code |
+| `$defs/motionName` | Way/stance id: `^[a-z][a-z0-9-]*$`, and must NOT contain `before`, `after`, `noentry`, `noexit`, `nonjoining`, or `ss[0-9]`. Names describe the motion, not the neighbors. | lines 46–51; spec_load.py `_lint_identifiers` | `loop`, `grounded-loop`, `bar` | code |
+| `$defs/familyName` | `qsX` or underscore-joined ligature `qsX_qsY`. | line 39 | `qsTea_qsOy` | code |
+| `$defs/familyOrList` | A single family or a non-empty list of families. | lines 40–45 | — | code |
+
+### Region 5 — policy riders (the settlement-steering layer)
+
+| Path | Plain meaning | Provenance | Example | Class |
+| --- | --- | --- | --- | --- |
+| `$.policy` | Container for the riders that steer settlement: `order`, `refuse`, `prefer`, `extend`, `contract`, `resolve`, `groups`. | lines 32, 195–210; model.py Policy 186–194 | — | code |
+| `$.policy.order` | Stance preference order; `order[0]` is the default/isolated stance. | line 199; model.py 188; `Rune.default_stance` | `order: [loop, grounded-loop]` | code |
+| `$.policy.refuse` | Records forbidding a `(stance, entry, exit)` combination under a window-decidable `when`. Optional `why`. | lines 200, 212–222; settle.py | qsMay refuse grounded-loop baseline before qsTea/… | code |
+| `$.policy.prefer` | Tie-breakers: prefer one cell pattern `over` another, `mode` `yields-to-joins` (default) or `absolute`. Absolute records must give a `why` (schema enforces). | lines 201, 224–238; settle.py prefer stages | qsMay `{cell:{exit:baseline}, when:…, why:…}` | code |
+| `…preferRecord.cell` / `.over` | The `cellPattern` (entry/exit, ≥1 key) that is preferred, and optionally the one it beats. | lines 230–231, 239–247 | `cell:{exit:baseline}` | code |
+| `…preferRecord.mode` | `yields-to-joins` (defer if a join improves) or `absolute` (always wins; requires `why`). | lines 232, 236–237; settle.py | implicit yielding in qsMay | code |
+| `$.policy.extend` | Widen connector ink by `by` pixels at one of `entry`/`exit` under `when`. Optional `ok`/`split` acceptance guards and `bind`. | lines 202, 248–266; model.py PolicyRecord; settle.py `ext` adjustments | qsMay loop exit `by:1`, `ok:[1,1]` | code |
+| `…extendRecord.by` | Pixel count to widen (≥1). | line 256 | `by: 1` | code |
+| `…extendRecord.ok` / `.split` | Two-int acceptance-window guards on the extension (settlement-acceptance bound; rare). | lines 257–258; model.py 178,181 | `ok: [1, 1]` (qsMay) | intent |
+| `…extendRecord.bind` | Substitute a named sibling bitmap instead of arithmetic widening. | line 259 | — | code |
+| `$.policy.contract` | Narrow a connector: `by` N pixels, `trim` N receiver-side pixels, or `bind` a sibling bitmap, at one of entry/exit under `when`. | lines 203, 268–296; settle.py `con`/`trim`/`bind` | qsMay loop entry `bind: pulled-back-stubless` | code |
+| `…contractRecord.by` / `.trim` / `.bind` | The three contract operations (at least one required): pixel narrow / receiver-side ink blanking with anchor kept / named-bitmap substitution. | lines 276–296; model.py | `trim`, `by`, `bind` | code |
+| `$.policy.resolve` | Hand-authored ambiguity resolution and migration tracking. `pick` + `why` required; optional `against`, `at`, `when`, `migrated`. Currently `[]` everywhere. | lines 204, 298–317; settle.py | `resolve: []` | code |
+| `…resolveRecord.against` | The other rune (and optional id) the resolution is decided against. | lines 303–311 | — | code |
+| `…resolveRecord.at` / `.when` | Window-decidable / general context for the resolution. | lines 312–313 | — | code |
+| `…resolveRecord.pick` / `.migrated` | The chosen outcome object, and an optional migration-provenance string. | lines 314, 316 | — | code |
+| `$.policy.groups` | Rune-local named predicate classes (union/minus of static conditions), referenced via `class:` in conditions. | lines 205–209, 319–337; model.py 194 | qsIt `utter-pass-through-vetoes` | code |
+| `$defs/groupDefinition` | `union` and/or `minus` lists of static conditions defining a class's membership. | lines 319–327 | `{union:[{family:qsZoo, trait:half}, …]}` | code |
+| `$defs/cellPattern` | An `{entry?, exit?}` pattern (≥1 key) used by prefer `cell`/`over`. | lines 239–247 | `{exit: baseline}` | code |
 
 ## Interview queue
 
-*(To be populated: the ordered list of owner-only questions, foundational first, then region by region in schema reading order.)*
+Owner-only decisions, foundational first then region by region in schema reading order. The first four are already settled by D1–D4; the rest are open and asked one at a time. "Lean" is my recommendation, to react to rather than start from scratch.
+
+### Resolved by D1–D4
+
+- **q01 — audience level.** → D1: sole reader is the owner; assume project fluency, explain only schema-specific machinery.
+- **q02 — doc architecture (terse + separate guide?).** → D1 + D4: inline, no separate guide; cross-cutting prose rides container hovers.
+- **q03 — explanation doc yes/no.** → D4: no standalone guide; BETTERRUNESCHEMA.md stays the plan, descriptions are cut from it.
+- **q04 — tone.** → D3: lightly explanatory plain language — one plain sentence of what-it-is, the sub-keys named, then a worked example.
+
+### Open
+
+- **q05 — display-name format depth (skeleton/identity).** The headline contract is that you author rune/way/traits/surface/policy and names like `qsMay.loop.en-y0.ex-y5.en-ext-1` are generated, never authored. Document: (a) omit entirely, (b) brief "names are generated; you never read or write them," (c) full format. _Lean: (b), in the root/`stances` container hover._
+- **q06 — ligature teaching (skeleton/sequence).** How much to explain what a ligature is. _Lean: one-line reminder ("a single glyph standing for two adjacent letters, e.g. `qsTea_qsOy` = ·Tea·Oy")._
+- **q07 — `unrealized` framing (skeleton/ductus).** Only qsMay's counterclockwise is `unrealized: true`. Frame as a niche affordance, discourage, or encourage. _Lean: niche affordance._
+- **q08 — `y_offset` depth (skeleton).** Rule only, or rule + one-line why. _Lean: rule + one-line why._
+- **q09 — `traits` closed enum (skeleton).** Is `half`/`alt` deliberately closed, or do you expect to add qualities (narrow/wide/…)? _Lean: closed and intentional unless you name a need._
+- **q10 — `selectable: false` status (surface).** Defined but unused in the corpus — planned or dormant? _Lean: "currently unused; reserved for non-joining GPOS-only anchors."_
+- **q11 — `x_off_convention` status (surface).** Also unused — real case or safety valve? _Lean: safety valve._
+- **q12 — `ink_y` keep/avoid (surface).** Legacy row-scan fallback (qsPea half). Avoid on new letters, or neutral? _Lean: legacy-leaning; document as a rarely-needed fallback._
+- **q13 — `stub.when` naming (surface).** The polarity (`when: withdrawn` = inked in base, blanked when withdrawn) is easy to misread. Keep names + document carefully, or rename? _Lean: keep names, defuse with a worked example._
+- **q14 — `-withdrawn` visibility (surface/cells).** Explain withdrawn prominently, only in the cells section, or hide it? _Lean: in the cells section, tied to a qsMay example._
+- **q15 — the term "cell" (surface).** Keep "cell" (code-aligned, greppable) or use a friendlier prose label? _Lean: keep "cell," define on first use as "one concrete entry-exit join state."_
+- **q16 — `pairings` framing (surface).** Mechanical whitelist vs design-first ("the pairs this letter accepts"). _Lean: design-first + one-line mechanics._
+- **q17 — ssNN user-facing meaning (surface/unlocks).** Do the stylistic sets (qsIt ss04, qsTea ss02/ss03/ss05) have user-facing purposes/names, or are they internal join toggles? _Lean: capture a one-line purpose per set you intend users to toggle; mark the rest engine-internal._
+- **q18 — unlock didactics (surface).** Lead with the simple case then "optionally gated by context," or full gated form up front. _Lean: simple first, one gated qsIt example._
+- **q19 — condition mental model (when grammar).** Teach the left-settled / right-raw symmetry as the organizing idea, or state each axis procedurally? _Lean: teach the symmetry on the `when` container hover; leaf keys stay procedural and point up._
+- **q20 — `then` framing (when grammar).** Use-case framing (veto vs taste) vs window mechanics, for why `then` is allowed on prefer but banned on refuse/require. _Lean: use case first, mechanics as a note._
+- **q21 — `except` framing (when grammar).** Positive carve-out ("all except these") vs logical negation. _Lean: positive carve-out + a brief logical note._
+- **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline ("names = the motion, not the neighbors"); history kept terse._
+- **q23 — namer-dot / word position (when grammar).** Surface that space and ZWNJ split runs but the namer-dot does not, or keep word position opaque? _Lean: surface it (you author these conditions)._
+- **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
+- **q25 — `why` rationale bar (policy).** Should the `why` description set a bar ("record the design verdict or constraint this rule honors, so a future reader won't delete it as redundant") or just say "free-text rationale"? _Lean: set a bar — the qsMay·May notes show why._
