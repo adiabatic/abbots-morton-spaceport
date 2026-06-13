@@ -5,6 +5,7 @@ The plan for slotting accessible documentation into `rune.schema.json` (the sche
 ## How we're working
 
 - One question at a time. Anything the codebase can answer, we answer by reading the codebase — not by asking. The interview is reserved for decisions only the owner can make: tone, audience, naming, taste, and where prose lives.
+- Confirmed process: **every** open question is asked individually, including the low-stakes "how much detail / how to phrase it" calls — no batching, even where there's an obvious lean.
 - Each answer gets written down here, then committed, before moving on.
 - Guided by [Diátaxis](https://diataxis.fr/): a schema `description` is fundamentally *reference* (austere, lookup-oriented), but this project wants it *understandable*, which pulls in some *explanation*. The decisions below resolve that tension deliberately rather than by accident.
 
