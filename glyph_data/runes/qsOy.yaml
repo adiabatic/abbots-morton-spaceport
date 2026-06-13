@@ -33,20 +33,41 @@ stances:
         - "    #"  #
     surface:
       entries:
-        x-height: {x: 0, stroke: horizontal, joined: open-on-the-left, from: [{family: [qsDay_qsUtter, qsGay, qsFee, qsMay, qsNo, qsLow, qsRoe, qsI, qsAh, qsUtter, qsOut], joined_at: x-height}]}
-      exits:
-        baseline: {x: 8, stroke: vertical, withdrawal: safe}
-      cells:
-      - {entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}
+        x-height:
+          x: 0
+          stroke: horizontal
+          joined: open-on-the-left
+          from:
+          - family:
+            - qsDay_qsUtter
+            - qsGay
+            - qsFee
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsRoe
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            joined_at: x-height
+      exits: {baseline: {x: 8, stroke: vertical, withdrawal: safe}}
+      cells: [{entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}]
       unlocks: []
       require: []
 policy:
   order: [loop]
   refuse: []
   prefer:
-  - {cell: {exit: none}, over: {exit: baseline}, when: {right: {family: [qsTea, qsIt]}}, why: 'Round-1 verdict, 37 windows: when the groupings tie, ·Oy leaves its baseline exit unrealized so the follower pair joins instead — "I think I would rather prefer ·Tea·It to join" (u-0280); "The old way seems nicer to write out by hand" (the rest). Yielding, so a strict-gain ·Oy·Tea/·Oy·It join is kept.'}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when: {right: {family: [qsTea, qsIt]}}
+    why: 'Round-1 verdict, 37 windows: when the groupings tie, ·Oy leaves its baseline exit unrealized so the follower pair joins instead — "I think I would rather prefer ·Tea·It to join" (u-0280); "The old way seems nicer to write out by hand" (the rest). Yielding, so a strict-gain ·Oy·Tea/·Oy·It join is kept.'
   extend:
-  - {stance: loop, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - stance: loop
+    entry: x-height
+    by: 1
+    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   contract: []
   resolve: []
   groups: {}

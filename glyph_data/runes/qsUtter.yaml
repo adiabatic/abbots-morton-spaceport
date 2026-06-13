@@ -34,10 +34,8 @@ stances:
         - "#    "
         - "#    "  #
     surface:
-      entries:
-        baseline: {x: 0, stroke: vertical}
-      exits:
-        x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}
+      entries: {baseline: {x: 0, stroke: vertical}}
+      exits: {x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}}
       cells: []
       unlocks: []
       require: []
@@ -78,9 +76,17 @@ stances:
         - "   ## "  #
     surface:
       entries:
-        x-height: {x: 0, stroke: horizontal, joined: reaches-way-back, from: [{family: [qsMay, qsFee], joined_at: x-height}]}
+        x-height:
+          x: 0
+          stroke: horizontal
+          joined: reaches-way-back
+          from: [{family: [qsMay, qsFee], joined_at: x-height}]
       exits:
-        baseline: {x: 5, stroke: horizontal, withdrawal: pulled-back, toward: [{family: qsMay}, {family: qsNo}]}
+        baseline:
+          x: 5
+          stroke: horizontal
+          withdrawal: pulled-back
+          toward: [family: qsMay, family: qsNo]
       cells:
       - {entry: x-height, exit: baseline, bitmap: reaches-way-back, exit_x: 6}
       - {entry: x-height, exit: baseline-withdrawn, bitmap: reaches-way-back-withdrawn}
@@ -90,13 +96,18 @@ policy:
   order: [mono, flipped]
   refuse:
   - {stance: flipped, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
-  - {stance: mono, exit: x-height, when: {right: {family: qsMay}}, why: '·Utter·May joins at the baseline today (baseline E67A:E665, the old before-may stance qsUtter.alt.ex-y0 → qsMay.en-y0): ·Utter takes its flipped baseline exit into ·May, not the mono x-height exit. Refusing the mono x-height exit before ·May forces the flipped baseline join even where the mono exit would otherwise chain an extra join.'}
+  - stance: mono
+    exit: x-height
+    when: {right: {family: qsMay}}
+    why: '·Utter·May joins at the baseline today (baseline E67A:E665, the old before-may stance qsUtter.alt.ex-y0 → qsMay.en-y0): ·Utter takes its flipped baseline exit into ·May, not the mono x-height exit. Refusing the mono x-height exit before ·May forces the flipped baseline join even where the mono exit would otherwise chain an extra join.'
   prefer: []
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  - {stance: flipped, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
-  contract:
-  - {stance: mono, exit: x-height, by: 2, when: {right: {family: qsJai}}}
+  - stance: flipped
+    entry: x-height
+    by: 1
+    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
+  contract: [{stance: mono, exit: x-height, by: 2, when: {right: {family: qsJai}}}]
   resolve: []
   groups: {}
