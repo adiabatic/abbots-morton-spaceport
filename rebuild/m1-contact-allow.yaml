@@ -41,3 +41,195 @@
   why: ZWNJ-locked twin; right half ·Pea exits at the x-height.
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
   why: ZWNJ-locked twin; the chain continues.
+
+# --- qsDay + qsUtter + qsNo batch: off-anchor corners on baseline-proven joins with the newly migrated letters ---
+
+# --- qsDay + qsUtter + qsNo batch: off-anchor corners on baseline-proven joins with the newly migrated letters ---
+- signature: contact:qsIt.bar.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y1
+  why: ·It·(Day+Utter) joins at the x-height today (the ·Day·Utter ligature forms, seam y5); ·It's bar abuts the ligature's left ·Day downstroke one row off the seam — the vertical-abutment corner today's font draws.
+- signature: contact:qsIt.bar.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
+  why: ·It·(Day+Utter) joins at the x-height today (the ·Day·Utter ligature forms, seam y5); ·It's bar abuts the ligature's left ·Day downstroke one row off the seam — the vertical-abutment corner today's font draws.
+- signature: contact:qsIt.bar.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y1
+  why: ·It·(Day+Utter) joins at the x-height today (the ·Day·Utter ligature forms, seam y5); ·It's bar abuts the ligature's left ·Day downstroke one row off the seam — the vertical-abutment corner today's font draws.
+- signature: contact:qsIt.bar.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y1
+  why: ·It·(Day+Utter) joins at the x-height today (the ·Day·Utter ligature forms, seam y5); ·It's bar abuts the ligature's left ·Day downstroke one row off the seam — the vertical-abutment corner today's font draws.
+- signature: contact:qsIt.bar.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5:y-2
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0:y-2
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-1
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0.ex-y5:y-1
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.grounded-loop.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
+  why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5.locked:qsDay_qsUtter.full.en-y5:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsMay.loop.ex-y5:qsDay_qsUtter.full.en-y5:y-2
+  why: ·May·(Day+Utter) joins at the x-height today (baseline E665:E653:E67A, seam y5); the two descenders abut below the baseline.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsIt.bar.en-y0.ex-y0.ex-ext-1:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsIt.bar.en-y0.ex-y5:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0.locked:qsIt.bar.en-y0.ex-y0.ex-ext-1:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.ex-y0.locked:qsIt.bar.en-y0.ex-y5:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0:qsIt.bar.en-y0.ex-y0.ex-ext-1:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.ex-y0:qsIt.bar.en-y0.ex-y5:y1
+  why: New ·It onward-exit variants (toward the migrated ·Utter/·Day) on the already-blessed ·Oy·It baseline corner; the ·Oy tail against ·It's bar at y1 is unchanged.
+- signature: contact:qsOy.loop.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsOy.loop.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Oy·Utter joins at the baseline today (baseline E679:E67A, seam y0); ·Oy's diagonal tail abuts ·Utter's left downstroke at y1, the same corner as the blessed ·Oy·It.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsIt.bar.en-y0.ex-y0.ex-ext-1:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsIt.bar.en-y0.ex-y5:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Tea·Oy ligature into the migrated follower joins at the baseline today (seam y0); the ligature's ·Oy tail abuts the follower's left stroke at y1 — the same corner as the blessed ·Tea·Oy·It.
+
+# Off-anchor y1 corners surfaced by the qsDay_qsUtter ligature receiver joins and the ss04 entered-·It pass-through (dropping the spurious ex-ext-1); each is a baseline join the old font already draws.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsIt.bar.en-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsIt.bar.en-y0.ex-y5:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsTea.full.en-y0:y1
+  why: ·Oy·Tea joins at the baseline today (baseline row E679:E652, seam y0); same ·Oy-tail-against-bar corner as the blessed ·Oy·It, on the entered/extended ·Oy cell.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
+  why: ·Oy·Utter joins at the baseline today (baseline row E679:E67A, seam y0); the entered/extended ·Oy cell's y1 tail against ·Utter's baseline-entry stroke.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Oy·Utter joins at the baseline today (baseline row E679:E67A, seam y0); the entered/extended ·Oy cell's y1 tail against ·Utter's baseline-entry stroke.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Oy·Utter joins at the baseline today (baseline row E679:E67A, seam y0); the entered/extended ·Oy cell's y1 tail against ·Utter's baseline-entry stroke.
+- signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0:y1
+  why: ·Pea·Utter joins at the baseline today (baseline row E650:E67A, seam y0); the entered+extended full ·Pea cell's y1 body adjacency on the baseline join into ·Utter.
+- signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: ·Pea·Utter joins at the baseline today (baseline row E650:E67A, seam y0); the entered+extended full ·Pea cell's y1 body adjacency on the baseline join into ·Utter.
+- signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Pea·Utter joins at the baseline today (baseline row E650:E67A, seam y0); the entered+extended full ·Pea cell's y1 body adjacency on the baseline join into ·Utter.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Oy·Utter joins at the baseline today (baseline row E679:E67A, seam y0); the entered/extended ·Oy cell's y1 tail against ·Utter's baseline-entry stroke.
+- signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Pea·Utter joins at the baseline today (baseline row E650:E67A, seam y0); the entered+extended full ·Pea cell's y1 body adjacency on the baseline join into ·Utter.
+- signature: contact:qsIt.bar.en-y0.ex-y0:qsIt.bar.en-y0:y1
+  why: Entered ·It·It baseline join (the reviewed-approved entered-it-baseline-join-gain class); the un-extended ss04 pass-through ·It cell makes the same y1 body adjacency its ex-ext-1 twin makes (the extension lengthens the y0 connector, not the y1 corner).
+- signature: contact:qsIt.bar.en-y0.ex-y0:qsIt.bar.en-y0.ex-y0:y1
+  why: Entered ·It·It baseline join (the reviewed-approved entered-it-baseline-join-gain class); the un-extended ss04 pass-through ·It cell makes the same y1 body adjacency its ex-ext-1 twin makes (the extension lengthens the y0 connector, not the y1 corner).
+- signature: contact:qsIt.bar.en-y0.ex-y0:qsUtter.mono.en-y0:y1
+  why: Entered ·It·Utter baseline join (the qsIt before-utter unlock / entered-it baseline gain); the un-extended ss04 pass-through ·It cell's y1 body adjacency, same corner as its ex-ext-1 twin.
+- signature: contact:qsIt.bar.en-y0.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
+  why: Entered ·It·Utter baseline join (the qsIt before-utter unlock / entered-it baseline gain); the un-extended ss04 pass-through ·It cell's y1 body adjacency, same corner as its ex-ext-1 twin.
+- signature: contact:qsIt.bar.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: Entered ·It·Utter baseline join (the qsIt before-utter unlock / entered-it baseline gain); the un-extended ss04 pass-through ·It cell's y1 body adjacency, same corner as its ex-ext-1 twin.
+- signature: contact:qsOy.loop.en-y5.ex-y0:qsIt.bar.en-y0.ex-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsOy.loop.en-y5.ex-y0.en-ext-1:qsIt.bar.en-y0.ex-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsOy.loop.ex-y0:qsIt.bar.en-y0.ex-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsOy.loop.ex-y0.locked:qsIt.bar.en-y0.ex-y0:y1
+  why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); the entered/extended ·Oy cell's tail sits one column left of ·It's bar at y1 — the same corner as the blessed bare ·Oy·It, with ·It now also carrying its baseline exit in the ss04 pass-through.
+- signature: contact:qsTea_qsOy.bar-into-loop.ex-y0:qsIt.bar.en-y0.ex-y0:y1
+  why: ·Tea·Oy ligature into ·It joins at the baseline today (baseline row E652:E679:E670, seam y0); the ligature's ·Oy tail against ·It's bar — the blessed ·Tea·Oy·It corner, with ·It now carrying its baseline exit in the ss04 pass-through.

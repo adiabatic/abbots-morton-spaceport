@@ -1,0 +1,101 @@
+rune: qsDay
+codepoint: 0xE653
+ductus:
+  full: |
+    A single stroke straight down the left from the x-height through the baseline, then a hook out of the foot kicking up and to the right toward the baseline, where it may connect to the next letter.  # DRAFT — pending author sign-off
+  half: |
+    As the full way, but only the foot hook is drawn: begun at the baseline on the left, dropping into the descender and kicking back up to the right.  # DRAFT — pending author sign-off
+mono:
+  bitmap:
+  - "#    "  #
+  - "#    "
+  - "#    "
+  - "#    "
+  - "#    "
+  - "#  # "  #
+  - "# #  "
+  - "##   "
+  - "#    "
+  y_offset: -3
+stances:
+  full:
+    way: full
+    traits: []
+    bitmap:
+    - "#   "  #
+    - "#   "
+    - "#   "
+    - "#   "
+    - "#   "
+    - "#  #"  #
+    - "# # "
+    - "##  "
+    - "#   "
+    y_offset: -3
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "#   "  #
+        - "#   "
+        - "#   "
+        - "#   "
+        - "#   "
+        - "#   "  #
+        - "# # "
+        - "##  "
+        - "#   "
+        y_offset: -3
+    surface:
+      entries:
+        x-height: {x: 0, stroke: vertical}
+      exits:
+        baseline: {x: 4, stroke: diagonal, withdrawal: pulled-back}
+      cells: []
+      unlocks: []
+      require: []
+  half:
+    way: half
+    traits: [half]
+    bitmap:
+    - "    "  #
+    - "    "
+    - "    "
+    - "    "
+    - "    "
+    - "#  #"  #
+    - "# # "
+    - "##  "
+    - "#   "
+    y_offset: -3
+    bitmaps:
+      pulled-back:
+        bitmap:
+        - "    "  #
+        - "    "
+        - "    "
+        - "    "
+        - "    "
+        - "#   "  #
+        - "# # "
+        - "##  "
+        - "#   "
+        y_offset: -3
+    surface:
+      entries:
+        baseline: {x: 0, stroke: diagonal}
+      exits:
+        baseline: {x: 4, stroke: diagonal, withdrawal: pulled-back}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order: [full, half]
+  refuse:
+  - {stance: half, entry: baseline, when: {left: {family: qsWay}}}
+  prefer: []
+  extend:
+  - {stance: full, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - {stance: half, entry: baseline, by: 1, when: {left: {family: [qsTea, qsYe], joined_at: baseline}}}
+  contract: []
+  resolve: []
+  groups: {}

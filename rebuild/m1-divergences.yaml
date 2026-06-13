@@ -30,6 +30,15 @@
   why: |
     Today's qsMay.noentry shadow stance carries no exit anchor, so a post-ZWNJ ·May cannot join rightward at all; the chokepoint twin severs only the entry (the ZWNJ break is the left seam), so the follower's own right-side joins are restored. Design section 3.4: ZWNJ splits the run, it does not mute the word-initial letter's surface. Round-1 verdict: 6 approvals; u-0267's window additionally lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (the gained join survives).
 
+- id: zwnj-word-initial-seam-moved
+  status: drift-accepted
+  match: {predicate: zwnj_word_initial_seam_moved, configs: all}
+  count: 0
+  exemplars:
+    - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.flipped.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
+  why: |
+    A sibling of zwnj-word-initial-unification for the case where the old `.noentry` shadow stance joined its follower at a different seam height than word-initial settlement does, so the unification moves the seam rather than agreeing on it. Post-ZWNJ ·Utter·May is the worked example: today's `qsUtter.noentry` shadow joins ·May at the x-height (y5), but settling the post-ZWNJ ·Utter as word-initial — byte-identical to its post-space and bare forms, all of which join ·May at the baseline (y0) — lands the join at y0. The old shipped font is itself inconsistent here (post-space ·Utter·May joins at y0 while post-ZWNJ joins at y5); the new model unifies post-ZWNJ to the word-initial form (design section 3.4). The predicate fires only when the sole seam change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a seam still routes to its own class. Status drift-accepted pending a human verdict pass: this is a real visible seam-height change, so it should be ratified like zwnj-follower-exit-restored was, not silently absorbed.
+
 - id: pre-ligature-cleanup-regularized
   status: reviewed-approved
   match: {predicate: pre_ligature_cleanup_regularized, configs: all}
@@ -128,6 +137,16 @@
     - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.loop.ex-y0|qsTea.full.en-y0"}
   why: |
     When the base drawing already carries the live anchor, today's pipeline leaves the bare cmap glyph in place and joins on it; the new table always rewrites to the settled cell glyph (cell labels are never the bare name). Drawing and seam identical; name grain only. Also covers the ss10 overlay, where the new font renders the raw cmap glyph at every position while the alias for the old bare name is the anchor-free boundary cell.
+
+- id: ss10-isolation-completed
+  status: intended
+  match: {predicate: ss10_isolation_completed, configs: [ss10]}
+  count: 0
+  exemplars:
+    - {config: ss10, codepoints: "E665:E653", baseline: "qsMay|qsDay (joined y5)", new: "qsMay/loop/None/None/|qsDay/full/None/None/ (break)"}
+    - {config: ss10, codepoints: "E666:E666", baseline: "qsNo|qsNo (joined y5)", new: "qsNo/loop/None/None/|qsNo/loop/None/None/ (break)"}
+  why: |
+    The ss10 isolated overlay (conform._compare_row, the isolated_overlay_active branch) renders every letter as its anchor-free default-stance cell, so under ss10 the new font breaks every seam by design ("every seam visually a break"). The old shipped font's ss10 feature was authored before this batch's qsDay/qsNo/qsUtter and never extended to isolate them, so under ss10 the old font still draws their cursive joins on the bare cmap glyphs (verified in the baseline subset: qsMay|qsDay and qsNo|qsNo both carry a y5 seam under ss10, while every existing|existing pair breaks). Every row here is therefore old-font-joins / new-font-breaks on a seam touching one of the new runes — the new overlay completing an isolation the old font left incomplete. The predicate requires every lost seam to neighbor a new rune, so a hypothetical existing|existing ss10 regression would stay unmatched and fail rather than be absorbed.
 
 - id: kern-channel-out-of-scope
   status: triaged

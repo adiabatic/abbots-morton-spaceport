@@ -33,7 +33,7 @@ stances:
     surface:
       entries:
         y6: {x: 0, stroke: vertical}
-        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}]}
+        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}, {family: qsDay_qsUtter, joined_at: x-height}]}
         baseline: {x: 3, stroke: vertical, from: [{family: qsEt}, {family: qsAwe}]}
       exits:
         baseline: {x: 4, stroke: vertical, withdrawal: safe}
@@ -70,7 +70,7 @@ stances:
     surface:
       entries:
         y6: {x: 0, stroke: vertical}
-        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}]}
+        x-height: {x: 0, stroke: vertical, stub: {cols: [0], when: withdrawn}, from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, joined_at: x-height}, {family: qsDay_qsUtter, joined_at: x-height}]}
       exits:
         y6: {x: 4, stroke: vertical, withdrawal: safe, toward: [{family: qsPea}]}
         x-height: {x: 4, ink_y: 6, stroke: vertical, withdrawal: safe, stub: {cols: [3], when: withdrawn}, toward: [{class: can-enter-at-x-height, except: [{family: qsTea}, {family: qsDay}, {family: qsFee}, {family: qsYe}, {family: qsOwe}]}]}

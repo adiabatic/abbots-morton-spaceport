@@ -591,9 +591,15 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if "ligation" in phenomena:
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
+        # The qsDay_qsUtter ligature forms unconditionally in the old font too (bare E653:E67A renders as the ligature in every config), so only the post-marker windows diverge: the old pipeline renames the lead to .noentry / leaks a bare name after a ZWNJ or the namer dot, and never forms the ligature there. Same staging phenomenon as ·Tea·Oy.
+        if "E653:E67A" in row.codepoints and ("200C" in row.codepoints or "00B7" in row.codepoints):
+            return "marker-staging-ligature-formation"
         return None
     gains = {item for item in phenomena if item.startswith("seam-gain:")}
     if "seam-moved" in phenomena:
+        # A pure seam move (no gain, no loss) on a row whose old glyph was a post-ZWNJ .noentry shadow is the word-initial unification choosing a different seam height than the shadow stance drew: the old .noentry shadow joined its follower at one height, but settling the post-ZWNJ letter as word-initial (identical to its post-space form) lands the join elsewhere. Routed only when the sole seam change is the move, so a post-ZWNJ row that also gains or loses a seam still falls through to its own class.
+        if "old-noentry" in phenomena and not gains and "seam-loss" not in phenomena:
+            return "zwnj-word-initial-seam-moved"
         return None
     if "seam-loss" in phenomena:
         if gains:
@@ -649,6 +655,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 for _class_id in (
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
+    "zwnj-word-initial-seam-moved",
     "zwnj-follower-exit-restored",
     "pre-ligature-cleanup-regularized",
     "ss03-chain-join-gains",
@@ -668,6 +675,31 @@ for _class_id in (
 def _kern_channel_out_of_scope(row: DivergentRow) -> bool:
     """Position-only rows whose drifted slot the comparison marked kern-attributable (the old pair carries a nonzero sidecar kern, or the drift sits on a ZWNJ adjacency). Everything else position-shaped stays unmatched and fails — non-kern position drift is chased to ground, never absorbed here."""
     return row.kinds == ("position",) and "position-kern-attributable" in row.phenomena
+
+
+# The runes this M1 batch added whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
+SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsDay", "qsNo", "qsUtter", "qsDay_qsUtter"})
+
+
+@predicate("ss10_isolation_completed")
+def _ss10_isolation_completed(row: DivergentRow) -> bool:
+    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here)."""
+    if row.config != "ss10" or "seam" not in row.kinds:
+        return False
+    runes = [token.split("/", 1)[0] for token in row.new_cells]
+    saw_loss = False
+    for index, (old_seam, new_seam) in enumerate(zip(row.baseline_seams, row.new_seams)):
+        if old_seam == new_seam:
+            continue
+        if new_seam != "break":
+            return False
+        if old_seam in ("break", "lig"):
+            continue
+        neighbors = {runes[index] if index < len(runes) else "?", runes[index + 1] if index + 1 < len(runes) else "?"}
+        if not (neighbors & SS10_UNCOVERED_BY_OLD_FONT):
+            return False
+        saw_loss = True
+    return saw_loss
 
 
 ZWNJ_CODEPOINT = 0x200C
@@ -771,6 +803,7 @@ def compare_against_baseline(
                     if drift is not None:
                         drift_notes, kern_attributable = drift
                         phenomena = ("position-kern-attributable",) if kern_attributable else ()
+                        prior_ink_match = matches[0] if len(matches) == 1 else None
                         if divergent is None:
                             divergent = DivergentRow(
                                 config=config,
@@ -789,7 +822,12 @@ def compare_against_baseline(
                                 kinds=divergent.kinds + ("position",),
                                 phenomena=divergent.phenomena + phenomena + ("position-drift",),
                             )
-                        matches = _match_ledger(ledger, divergent)
+                        rematch = _match_ledger(ledger, divergent)
+                        # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
+                        if not rematch and kern_attributable and prior_ink_match is not None:
+                            matches = [prior_ink_match]
+                        else:
+                            matches = rematch
                 else:
                     report.positions_excluded += 1
             if divergent is None:
