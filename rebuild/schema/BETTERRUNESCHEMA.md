@@ -20,7 +20,13 @@ The plan for slotting accessible documentation into `rune.schema.json` (the sche
 
 Concretely, each `description` string is **two beats in one string**: a terse lead that says what the thing *is* (the austere reference), immediately followed by the *why/how* in the same string so both surface together. No separate explanation document the owner would have to go open. Diátaxis purity yields to convenience here because there is exactly one reader and they value "handy" over "clean."
 
-*(Open follow-up, to confirm next: the delivery surface — almost certainly editor-hover tooltips while editing a rune YAML — which sets the length budget for each description.)*
+### D2 — Delivery surface: editor-hover tooltips
+
+The descriptions are read as **editor hover tooltips** while authoring a rune YAML (the YAML language server resolves `$schema` → `rune.schema.json` and pops the matching key's `description`). This sets the format budget:
+
+- **Tight and self-contained.** A tooltip is a small floating box, not a page. Each description should land in roughly a short paragraph or two — lead sentence + the why — and stand on its own without requiring a scroll or a click-through.
+- **Markdown that degrades gracefully.** Some editors render the description as Markdown in the hover; others flatten it to plain text. So light Markdown is fine (backticks, the occasional bullet), but the prose must still read cleanly with the markup stripped. No reliance on tables, headings, or multi-level nesting inside a description.
+- **Per-key, not per-region.** Because the hover is keyed to whatever the cursor is on, every documented key carries its own complete answer; we don't lean on a neighboring key's description for context.
 
 ## Field inventory
 
