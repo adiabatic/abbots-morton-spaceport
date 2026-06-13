@@ -190,7 +190,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | #  | Key (document order)            | Concept                                                           | Status                            |
 | -- | ------------------------------- | ----------------------------------------------------------------- | --------------------------------- |
 | 1  | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
-| 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | code (sequence done q06)          |
+| 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06)            |
 | 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done q07 (string-only)            |
 | 4  | `mono` / `bitmap`               | monospace reference drawing; row-string + `#` row markers         | code                              |
 | 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
@@ -255,3 +255,9 @@ The q-numbered detail the walk points into. Resolved entries hold the locked hov
 - **q23 — namer-dot / word position (when grammar).** Surface that space and ZWNJ split runs but the namer-dot does not, or keep word position opaque? _Lean: surface it (you author these conditions)._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
 - **q25 — `why` rationale bar (policy).** Should the `why` description set a bar ("record the design verdict or constraint this rule honors, so a future reader won't delete it as redundant") or just say "free-text rationale"? _Lean: set a bar — the qsMay·May notes show why._
+
+### Code-key hover drafts (the top-down walk)
+
+Hovers locked for the plain "code" keys as we walk qsPea.yaml. No q-number — these needed no design decision, only a wording/detail call the owner reacted to. Referenced from the walk table as "R<row>".
+
+- **R2 — `codepoint`. [DRAFTED]** → **Terse, just the facts** (the owner already knows what a code point is; spelling out the cmap-vs-stance "why" read as over-explaining — same calibration as q06). Draft: "The Unicode code point for this rune's raw glyph. One per rune, mutually exclusive with `sequence` (ligatures use that instead). Example: ·Pea is `codepoint: 0xE650`."
