@@ -84,6 +84,12 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 ### Formatting
 
 - When rewriting `glyph_data/quikscript.yaml`, keep anchor coordinate pairs inline as `[x, y]`. Keep short `traits`, `modifiers`, and `select` / `derive` reference lists inline too, and only fall back to block lists when entries are genuinely long enough that inline formatting hurts readability.
+- The width rule that decides flow-vs-block in the data YAML (`glyph_data/quikscript.yaml` and the rune files under `glyph_data/runes/`): **keep a mapping or list inline (flow style) as long as the whole line stays within 100 columns; when it doesn't, break the _outermost_ flow collection on that line into block style and re-apply the rule to the resulting lines.** Four consequences to honor:
+  - It's recursive to a fixpoint — breaking the outer collection just moves its children onto their own lines, and any of those still over 100 break again.
+  - The 100-column target is best-effort, not a guarantee — a long scalar (`ductus`, a paragraph-length `why:`) can't be broken and is left long, matching the no-hard-wrap prose rule.
+  - **A collection whose subtree carries comments must stay block regardless of width** — flow style can't hold per-item line comments, so inlining a `bitmap:` list would silently destroy its `#` row markers.
+  - YAML forbids a block collection nested inside a flow one, which is _why_ the break is at the outermost collection — once any child must be block, its whole map goes block, so short scalar siblings (`{x: 0, stroke: horizontal}`) get their own lines too.
+- The reflow is mechanized by `tools/reflow_yaml.py` (ruamel round-trip, so comments and block scalars survive, and idempotent so re-running is a no-op). Run `uv run python tools/reflow_yaml.py` to reflow `quikscript.yaml` plus every `glyph_data/runes/*.yaml`, or pass explicit paths.
 
 ### Selectors
 
