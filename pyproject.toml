@@ -16,6 +16,7 @@ dev = [
     "livereload>=2.7.1",
     "pyright>=1.1.408",
     "pre-commit>=4.6.0",
+    "ruamel.yaml>=0.18.0",
 ]
 
 [tool.pytest.ini_options]
