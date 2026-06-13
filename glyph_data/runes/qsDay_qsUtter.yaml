@@ -34,10 +34,8 @@ stances:
         - "#      "
         y_offset: -3
     surface:
-      entries:
-        x-height: {x: 0, stroke: vertical}
-      exits:
-        x-height: {x: 7, stroke: horizontal, withdrawal: pulled-back}
+      entries: {x-height: {x: 0, stroke: vertical}}
+      exits: {x-height: {x: 7, stroke: horizontal, withdrawal: pulled-back}}
       cells: []
       unlocks: []
       require: []
@@ -69,10 +67,8 @@ stances:
         - "#       "
         y_offset: -3
     surface:
-      entries:
-        baseline: {x: 0, stroke: diagonal}
-      exits:
-        x-height: {x: 8, stroke: horizontal, withdrawal: pulled-back}
+      entries: {baseline: {x: 0, stroke: diagonal}}
+      exits: {x-height: {x: 8, stroke: horizontal, withdrawal: pulled-back}}
       cells: []
       unlocks: []
       require: []
@@ -81,9 +77,15 @@ policy:
   refuse: []
   prefer: []
   extend:
-  - {stance: full, entry: x-height, by: 1, when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}}
+  - stance: full
+    entry: x-height
+    by: 1
+    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   - {stance: full, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  - {stance: half, entry: baseline, by: 1, when: {left: {family: [qsTea, qsYe], joined_at: baseline}}}
+  - stance: half
+    entry: baseline
+    by: 1
+    when: {left: {family: [qsTea, qsYe], joined_at: baseline}}
   - {stance: half, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   contract: []
   resolve: []
