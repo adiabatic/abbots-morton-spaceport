@@ -91,7 +91,7 @@ Built from the schema-understanding survey and corroborated against `model.py` (
 | `$defs/entryRow.joined` | Name of a sibling bitmap used when this entry is live (the redraw that accommodates the join). | line 121; surface.py `resolve_cell` | `joined: pulled-back` | code |
 | `$defs/entryRow.joined_x` | Override entry x that applies only while the `joined` bitmap is active. | line 122; surface.py | `joined_x: 2` (qsMay grounded-loop) | code |
 | `$defs/entryRow.stub` | Phantom connector column(s) that appear/vanish at this row — see stub fields below. | line 123 | qsPea x-height entry stub | code |
-| `$defs/entryRow.selectable` | Boolean (default true). False = a GPOS-only anchor not offered as a settlement choice (non-joining visual parity). | line 124; surface.py `enumerate_cells` | unused in current corpus | intent |
+| `$defs/entryRow.selectable` | Boolean (default true). False = a GPOS-only anchor that settlement never picks as a join, kept for cursive-positioning parity. | line 124; surface.py:68/199/279 | qsTea `top: {x: 0, selectable: false}` (the old `entry_curs_only [0, 8]`) | intent |
 | `$defs/entryRow.x_off_convention` | `true` opts this entry x out of the leftmost-ink convention check; suppresses the warning only, does not move the anchor. | line 125; surface.py `check_anchor_conventions` | unused in current corpus | intent |
 | `$defs/exitRow.x` | Exit anchor x. Convention: one column right of the rightmost ink at that height. | line 133; surface.py | `x: 5` | code |
 | `$defs/exitRow.stroke` | Stroke direction at the exit row; filters which right families may receive it. | line 134; settle.py `cond_matches_right` | `stroke: horizontal` | code |
