@@ -10,7 +10,9 @@
   "yaml.maxItemsComputed": 6000,
   "yaml.schemas": {
     "./.vscode/quikscript.schema.json": ["glyph_data/quikscript.yaml"],
-    "./.vscode/permissive.schema.json": ["glyph_data/metadata.yaml"]
+    "./.vscode/permissive.schema.json": ["glyph_data/metadata.yaml"],
+    "./rebuild/schema/rune.schema.json": ["glyph_data/runes/*.yaml"],
+    "./rebuild/schema/script.schema.json": ["rebuild/script.yaml"]
   },
 
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
