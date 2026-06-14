@@ -79,15 +79,18 @@
       }
     },
     "surface": {
+      "description": "This stance's join surfaces — how it connects to neighbors. `entries` are the left side: where a predecessor may join in, by height. `exits` are the right side: how this stance reaches toward the successor, by height. The rest constrain those: `pairings`, `cells`, `unlocks`, `require`.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "entries": {
+          "description": "The left side: each height (baseline, x-height, y6, top) where a predecessor may join into this stance, mapped to an entry row.",
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/height"},
           "additionalProperties": {"$ref": "#/$defs/entryRow"}
         },
         "exits": {
+          "description": "The right side: each height where this stance reaches toward the successor, mapped to an exit row.",
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/height"},
           "additionalProperties": {"$ref": "#/$defs/exitRow"}
