@@ -271,6 +271,7 @@
       ]
     },
     "contractRecord": {
+      "description": "The opposite of `extend`: records that shorten or redraw one side of a join for specific neighbors. Each fires when its `when` matches during settlement, naming one side (`entry` or `exit`) and how to pull it back. Pick exactly one: `by: N` trims the connector by N pixels and shifts the anchor in; `trim: N` blanks N pixels of ink on this side but leaves the anchor where it was; `bind: <stance>` swaps in a hand-drawn sibling bitmap, for when the pull-back spans rows and isn't simple arithmetic. Most-specific record wins per side, and a side's adjustment never sums. Examples: ·No's loop exit shortens by a pixel before ·J'ai — `{stance: loop, exit: x-height, by: 1, when: {right: {family: qsJai}}}`; ·May's loop entry redraws before ·Fee — `{stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee, joined_at: x-height}}}`.",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],
