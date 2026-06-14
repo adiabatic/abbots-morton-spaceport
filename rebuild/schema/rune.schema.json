@@ -198,7 +198,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "order": {"type": "array", "items": {"$ref": "#/$defs/motionName"}, "minItems": 1},
+        "order": {"type": "array", "items": {"$ref": "#/$defs/motionName"}, "minItems": 1, "description": "This rune's stances ranked by precedence, default first. The first stance is the one this letter wears in isolation and the base of its name; list every stance so the order is explicit. When two stances survive all the join reasoning and prefers in a tie, the earlier-listed one wins — this is a late, blunt tiebreaker, not a join condition, so reach for `prefer` or `refuse` when the choice actually depends on the neighbors. Any stance you omit is appended in declaration order."},
         "refuse": {"type": "array", "items": {"$ref": "#/$defs/refuseRecord"}},
         "prefer": {"type": "array", "items": {"$ref": "#/$defs/preferRecord"}},
         "extend": {"type": "array", "items": {"$ref": "#/$defs/extendRecord"}},
