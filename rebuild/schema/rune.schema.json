@@ -212,6 +212,7 @@
       }
     },
     "refuseRecord": {
+      "description": "A veto: it strikes a join candidate out of contention before settlement chooses. Target it with `stance` and/or an `entry`/`exit` height to forbid only that specific join — that stance, joining at that height; with none of those it kills every joining candidate, forcing this letter to sit unjoined when the `when` matches. The `when` can read the settled left neighbor but only the raw right one. Example: ·It refuses its x-height exit into the full ·Day's entry — `{stance: bar, exit: x-height, when: {right: {family: qsDay}}, why: …}` — so ·It·Day joins low instead of through the forbidden same-height pass-through.",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],
@@ -220,7 +221,7 @@
         "entry": {"$ref": "#/$defs/height"},
         "exit": {"$ref": "#/$defs/height"},
         "when": {"$ref": "#/$defs/whenWindowDecidable"},
-        "why": {"type": "string"}
+        "why": {"type": "string", "description": "An optional note saying why this join is forbidden. It shows up in the build's elimination diagnostics but changes no shaping."}
       }
     },
     "preferRecord": {
