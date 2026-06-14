@@ -199,7 +199,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                           |
 | 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | done R7                           |
 | 10 | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | done R8                           |
-| 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | code                              |
+| 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | done R9                           |
 | 12 | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
 | 13 | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | open **NEXT** (q19, q21)          |
 | 14 | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | code                              |
@@ -250,6 +250,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R6 — `way`.** Names the pen-motion; must be a `ductus` key; stances can share a way. No example. → schema (`stance.way`).
 - **R7 — `surface` / `entries` / `exits`.** Container teaches the left/right orientation (`entries` = predecessor joins in on the left; `exits` = reach toward the successor on the right); the two leaves stay self-contained (D2), each restating its side. → schema (`surface`, `surface.entries`, `surface.exits`).
 - **R8 — entry-row `x`.** The anchor's column; conventionally the leftmost ink at the row, with the off-convention warning cross-referenced to `x_off_convention`. → schema (`entryRow.x`).
+- **R9 — entry-row `stroke`.** The declared orientation (h/v/d) where a predecessor lands; not a hard gate — it's what a `stroke:` condition filters on (corrects the inventory's loose "filters which families join"). → schema (`entryRow.stroke`).
 
 ### Open (leans to react to)
 
