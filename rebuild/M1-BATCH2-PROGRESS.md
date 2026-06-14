@@ -4,7 +4,7 @@ Status as of the pause: **all hard gates green; oracle not yet clean (2,535 unma
 
 ## Session update (2026-06-13): 6,189 → 2,535, the residue is verdict-gated
 
-A triage session drove the oracle from 6,189 to 2,535 unmatched with **zero regressions** (every remaining unmatched window touches a new letter; matched-class counts only grew; the lone reviewed-rejected class that shrank did so because its rows *resolved*, and a seam-loss+seam-gain row always classifies as regrouping-floor-drift so it can never go unmatched). 0 multi-matched, 0 defect-gate errors, `make test` green.
+A triage session drove the oracle from 6,189 to 2,535 unmatched with **zero regressions** (every remaining unmatched window touches a new letter; matched-class counts only grew; the lone reviewed-rejected class that shrank did so because its rows _resolved_, and a seam-loss+seam-gain row always classifies as regrouping-floor-drift so it can never go unmatched). 0 multi-matched, 0 defect-gate errors, `make test` green.
 
 Resolved this session:
 
@@ -76,10 +76,10 @@ After editing rune files always re-run `uv run python -m rebuild.pipeline.baseli
 
 ## Methodology learnings (read before continuing — these cost real iterations)
 
-1. **The old `select` semantics are subtler than "not_after = refuse."** Worked examples where a literal reading was wrong: qsDay `half.not_after [qsTea, qsYe, qsWay]` does NOT break ·Tea·Day — the baseline *joins* ·Tea·Day at the baseline/half **with the entry extension** (`not_after` + `extend_entry_after` together mean "always extend after these"; only qsWay, which has no paired extend, actually breaks). **Always check the baseline before encoding a select list as a refuse.**
-2. **Check the seam column, not just the glyph names.** `qsMay|qsNo` (bare|bare) is a *join at y5* (bare-name-live-join), not a break. Misreading bare-name joins as breaks caused two wrong-direction fixes.
-3. **Lead vs. entered stance choice.** A two-stance letter (qsNo loop/flipped, qsUtter mono/flipped) behaves differently as a word-initial *lead* (chooses its stance by join-count + floor) vs. *entered* (its entry from-scope already picked the stance). The floor prefers the *lower* seam (baseline), which fought the old font's preference for the x-height join on several ·No-lead pairs — resolved with a cell-grain `prefer {cell:{exit:x-height}, over:{exit:baseline}}` (scoped `left: except qsIt` to avoid an E-AMBIGUOUS clash with the §5.3 flipped-after-·It prefer).
-4. **`require: [exit]` / `require: [entry]` gate a stance on a live side.** Used `require: [exit]` on qsUtter flipped so the reach-back only fires when ·Utter continues forward (·May·Utter·No joins; bare ·May·Utter breaks). Beware: ·No flipped is used word-initially with a *dangling* (not live) entry, so `require: [entry]` there was WRONG.
+1. **The old `select` semantics are subtler than "not_after = refuse."** Worked examples where a literal reading was wrong: qsDay `half.not_after [qsTea, qsYe, qsWay]` does NOT break ·Tea·Day — the baseline _joins_ ·Tea·Day at the baseline/half **with the entry extension** (`not_after` + `extend_entry_after` together mean "always extend after these"; only qsWay, which has no paired extend, actually breaks). **Always check the baseline before encoding a select list as a refuse.**
+2. **Check the seam column, not just the glyph names.** `qsMay|qsNo` (bare|bare) is a _join at y5_ (bare-name-live-join), not a break. Misreading bare-name joins as breaks caused two wrong-direction fixes.
+3. **Lead vs. entered stance choice.** A two-stance letter (qsNo loop/flipped, qsUtter mono/flipped) behaves differently as a word-initial _lead_ (chooses its stance by join-count + floor) vs. _entered_ (its entry from-scope already picked the stance). The floor prefers the _lower_ seam (baseline), which fought the old font's preference for the x-height join on several ·No-lead pairs — resolved with a cell-grain `prefer {cell:{exit:x-height}, over:{exit:baseline}}` (scoped `left: except qsIt` to avoid an E-AMBIGUOUS clash with the §5.3 flipped-after-·It prefer).
+4. **`require: [exit]` / `require: [entry]` gate a stance on a live side.** Used `require: [exit]` on qsUtter flipped so the reach-back only fires when ·Utter continues forward (·May·Utter·No joins; bare ·May·Utter breaks). Beware: ·No flipped is used word-initially with a _dangling_ (not live) entry, so `require: [entry]` there was WRONG.
 5. **Withdrawal bindings, not `withdrawal: safe`, for any non-vertical exit.** `verify_withdrawal_safe` requires the declined exit's terminal ink to continue vertically; diagonal/horizontal exit limbs (·No, ·Day hook, ·Utter, the ligature) need a named `withdrawal:` binding + a pulled-back `bitmaps:` sibling. Mid-word declines then classify as `may-exit-withdrawal-generalized` (the classifier matches any `+ex-bind-`, conform.py:620 — general, not qsMay-specific); boundaries keep the base drawing.
 6. **Data-driven scoping is the fast path.** Querying the baseline subset for "which predecessors join X" / "the 2-letter seam map" resolved scopes far faster than reasoning from the design. The definitive 2-letter seam map for the new letters is in the appendix below — use it.
 
@@ -87,11 +87,11 @@ After editing rune files always re-run `uv run python -m rebuild.pipeline.baseli
 
 The original A/B/C bucket analysis below has been **largely resolved** by the 2026-06-13 session; it is kept for the methodology it records, but the live remaining work is the **verdict pile in the session update at the top of this file**, not these buckets.
 
-### A. ss10 isolated-overlay — RESOLVED (was 2,926). The `ss10_isolation_completed` ledger entry (intended) absorbed 2,823; the diagnosis was *not* a classifier gap on the new font but the old font's ss10 never isolating the new letters. ~76 ss10 rows (position/extension residue) remain, folded into the verdict pile's "ss10 residue".
+### A. ss10 isolated-overlay — RESOLVED (was 2,926). The `ss10_isolation_completed` ledger entry (intended) absorbed 2,823; the diagnosis was _not_ a classifier gap on the new font but the old font's ss10 never isolating the new letters. ~76 ss10 rows (position/extension residue) remain, folded into the verdict pile's "ss10 residue"
 
-### B. ss04 pass-through — PARTIALLY RESOLVED (was 770). The ·It entered-exit over-extension (Group B, seams already agreed) is fixed via the qsIt line-78 scoping. The remainder is **Group A** (x-height-exiting lead lowered under ss04, 111 unique) — a genuine verdict/design question (does ss04 flatten the chain or keep the natural join?), plus 2 ss04 ligature-decline windows.
+### B. ss04 pass-through — PARTIALLY RESOLVED (was 770). The ·It entered-exit over-extension (Group B, seams already agreed) is fixed via the qsIt line-78 scoping. The remainder is **Group A** (x-height-exiting lead lowered under ss04, 111 unique) — a genuine verdict/design question (does ss04 flatten the chain or keep the natural join?), plus 2 ss04 ligature-decline windows
 
-### C. Default / ss02 / ss03 / ss05 join-shaping tail — Day·Utter ligature joins RESOLVED (the ligature-receiver fixes + marker-staging routing). The rest is the verdict pile: ·No-chain gains, ·Tea·It / ·Oy·It / ·May·Utter gains, etc. The original adjacent-pair seeds below are stale; trust the verdict table at the top.
+### C. Default / ss02 / ss03 / ss05 join-shaping tail — Day·Utter ligature joins RESOLVED (the ligature-receiver fixes + marker-staging routing). The rest is the verdict pile: ·No-chain gains, ·Tea·It / ·Oy·It / ·May·Utter gains, etc. The original adjacent-pair seeds below are stale; trust the verdict table at the top
 
 **Judgment call still open**: some of these may be acceptable drift (like the existing `regrouping-floor-drift` / `*-join-gains` classes) rather than bugs. Adjudicate per-window; don't assume everything must reach old-font-identical.
 
@@ -101,6 +101,7 @@ The original A/B/C bucket analysis below has been **largely resolved** by the 20
 uv run python -m rebuild.pipeline.run_m1            # build + oracle; exit 1 while oracle fails
 uv run python -c "import json; d=json.load(open('rebuild/out/m1/oracle_summary.json')); print(d['pass'], d['unmatched'], d['multi_matched'])"
 ```
+
 PASS = `unmatched == 0 and multi_matched == 0`. Per-row detail in `rebuild/out/m1/divergence-audit.tsv` (columns: config, codepoints, kinds, matched_entry, baseline, new); `matched_entry == 'UNMATCHED'` are the rows still to resolve. The baseline subset tables are `rebuild/out/m1/baseline-<config>.subset.tsv.gz` (TSV: codepoints, glyph-names `|`-joined, advances, **seam column**, positions). The seam column is column index 3 — check it, don't infer joins from bare names.
 
 A new divergence class needs: a `predicate` function in `rebuild/pipeline/conform.py` (see `classify_divergence`) **and** an entry in `rebuild/m1-divergences.yaml` (`id / status / match{predicate, configs} / why`; count is filled by the run). Off-anchor contacts on new joins get blessed in `rebuild/m1-contact-allow.yaml` (signature `contact:<left>:<right>:y<row>`, baseline-citing why).
