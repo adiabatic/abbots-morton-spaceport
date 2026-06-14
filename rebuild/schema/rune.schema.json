@@ -302,6 +302,7 @@
       ]
     },
     "resolveRecord": {
+      "description": "A recorded tie-break for a conflict the engine refuses to guess on: when two policy records collide on the same seam and neither is more specific, the build stops with an error and you settle it here. Two shapes. `against` points at the specific competing record on another rune — `{rune: qsGay, id: plant-word-initial}` — and `pick` names the winner. `at` instead overrides the engine's default for a named window class — `{at: {right: {family: qsTea}}}`. Either way `why:` is required, since a resolve is a judgment call. `migrated:` tags one carried over wholesale from the old font, keeping that import debt visible. Every rune carries `resolve: []` today — you only add one when the build hands you an E-INCOMPARABLE or E-AMBIGUOUS conflict to break.",
       "type": "object",
       "additionalProperties": false,
       "required": ["pick", "why"],
