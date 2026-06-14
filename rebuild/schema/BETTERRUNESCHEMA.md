@@ -201,7 +201,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 10 | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | done R8                           |
 | 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | done R9                           |
 | 12 | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
-| 13 | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | open **NEXT** (q19, q21)          |
+| 13 | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | done R10 (q19)                    |
 | 14 | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | code                              |
 | 15 | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | open                              |
 | 16 | `pairings`                      | which entry/exit combos this stance allows                        | open q16                          |
@@ -251,6 +251,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R7 — `surface` / `entries` / `exits`.** Container teaches the left/right orientation (`entries` = predecessor joins in on the left; `exits` = reach toward the successor on the right); the two leaves stay self-contained (D2), each restating its side. → schema (`surface`, `surface.entries`, `surface.exits`).
 - **R8 — entry-row `x`.** The anchor's column; conventionally the leftmost ink at the row, with the off-convention warning cross-referenced to `x_off_convention`. → schema (`entryRow.x`).
 - **R9 — entry-row `stroke`.** The declared orientation (h/v/d) where a predecessor lands; not a hard gate — it's what a `stroke:` condition filters on (corrects the inventory's loose "filters which families join"). → schema (`entryRow.stroke`).
+- **R10 — entry-row `from`.** Resolves q19 at the `from` anchor: it carries the left-settled/right-raw asymmetry (these conditions can read the settled left neighbor's `stance`/`joined_at`, which the raw-right `toward` can't), so the leaf condition keys can stay short and point here. Example kept (complex key). → schema (`entryRow.from`).
 
 ### Open (leans to react to)
 

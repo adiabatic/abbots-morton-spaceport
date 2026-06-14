@@ -116,7 +116,7 @@
       "properties": {
         "x": {"type": "integer", "description": "The entry anchor's column at this height's row — conventionally the leftmost-ink column in that row. The build warns if it sits elsewhere; set `x_off_convention` to say it's deliberate."},
         "stroke": {"$ref": "#/$defs/strokeOrientation", "description": "The stroke orientation where a predecessor lands at this entry: `horizontal`, `vertical`, or `diagonal`. Declarative — it doesn't gate joins by itself; it's the value a `stroke:` condition can filter on."},
-        "from": {"type": "array", "items": {"$ref": "#/$defs/leftCondition"}, "minItems": 1},
+        "from": {"type": "array", "items": {"$ref": "#/$defs/leftCondition"}, "minItems": 1, "description": "Which left neighbors may join at this entry — a list of conditions; absent means anyone. The left neighbor is already settled here, so these can inspect its chosen `stance` and the seam height it landed at (`joined_at`) — axes the right-side `toward` can't use. Example: ·Pea's x-height entry takes ·May/·Utter only when they land at the x-height."},
         "joined": {"$ref": "#/$defs/motionName"},
         "joined_x": {"type": "integer"},
         "stub": {"$ref": "#/$defs/stub"},
