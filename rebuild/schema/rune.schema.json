@@ -205,6 +205,7 @@
         "contract": {"type": "array", "items": {"$ref": "#/$defs/contractRecord"}},
         "resolve": {"type": "array", "items": {"$ref": "#/$defs/resolveRecord"}},
         "groups": {
+          "description": "Named sets of letters this rune's own conditions can call up by name. Define one under a name, then reference it as `class: that-name` anywhere a `when:` takes families. It's for a trigger list this rune reuses across records — name it once instead of repeating the families. Shared, cross-rune sets belong in the script-wide predicate-class registry instead; these `groups` are private to this rune. Each group is a `union`/`minus` of families (see `groupDefinition`), and a `trait` or `stance` qualifier on a member is widened away to its whole family. Most runes need none and leave this `{}`. Example: ·It names `utter-pass-through-vetoes` (·Zoo, ·She, ·Ye, ·Owe) — the predecessors that veto its before-·Utter baseline pass-through — and reuses it as `except: [class: utter-pass-through-vetoes]`.",
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/motionName"},
           "additionalProperties": {"$ref": "#/$defs/groupDefinition"}
