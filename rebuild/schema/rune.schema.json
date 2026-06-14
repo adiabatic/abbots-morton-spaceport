@@ -66,7 +66,7 @@
       "additionalProperties": false,
       "required": ["way", "bitmap"],
       "properties": {
-        "way": {"$ref": "#/$defs/motionName"},
+        "way": {"$ref": "#/$defs/motionName", "description": "The pen-motion this stance is drawn with — must be one of the rune's `ductus` keys. Stances can share a way."},
         "traits": {"type": "array", "items": {"enum": ["half", "alt"]}, "description": "The stance's design flags — a closed set: `half` (shortened to the x-height) and `alt` (an alternate form). Omit for neither. Anything else that distinguishes a stance lives in named bitmaps or policy groups, not here. Example: qsPea's half stance — `traits: [half]`."},
         "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
         "y_offset": {"type": "integer"},
