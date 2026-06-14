@@ -129,8 +129,8 @@
       "additionalProperties": false,
       "required": ["x"],
       "properties": {
-        "x": {"type": "integer"},
-        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "x": {"type": "integer", "description": "The exit anchor's column at this height's row — conventionally one column to the right of the rightmost ink in that row. The build warns if it lands elsewhere; set `x_off_convention` to say it's deliberate."},
+        "stroke": {"$ref": "#/$defs/strokeOrientation", "description": "The stroke orientation this stance's exit presents at this height: `horizontal`, `vertical`, or `diagonal`. Declarative — it doesn't gate joins by itself; it's the value the following letter's entry `from` `stroke:` condition reads."},
         "toward": {"type": "array", "items": {"$ref": "#/$defs/rightConditionNoThen"}, "minItems": 1},
         "withdrawal": {"$ref": "#/$defs/withdrawalBinding"},
         "stub": {"$ref": "#/$defs/stub"},
