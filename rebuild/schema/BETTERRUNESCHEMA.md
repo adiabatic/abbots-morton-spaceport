@@ -192,11 +192,11 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 1  | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
 | 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06)            |
 | 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                           |
-| 4  | `mono`                          | the `mono` reference drawing (bitmap row-format at row 8)         | done R4                           |
+| 4  | `mono`                          | the `mono` reference drawing                                      | done R4                           |
 | 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
 | 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | code                              |
 | 7  | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
-| 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | code                              |
+| 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                           |
 | 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | code                              |
 | 10 | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | code                              |
 | 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | code                              |
@@ -246,6 +246,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R2 — `codepoint`.** Terse, just the facts (owner knows code points; the cmap-vs-stance why over-explained). → schema (`codepoint`).
 - **R3 — `ductus`.** What-it-is + docs-only; the parity lint omitted (you'll meet it if you trip it). → schema (`ductus`).
 - **R4 — `mono`.** Plain framing — the monospace reference drawing; proportional shapes live in `stances`. No unused caveat, no example. → schema (`mono`).
+- **R5 — `bitmap`.** Format only — row strings top to bottom, `#`=ink, space=blank; the y=5/y=0 `#`-marker convention left out. Same text on both bitmap nodes. → schema (`drawing.bitmap`, `stance.bitmap`).
 
 ### Open (leans to react to)
 
