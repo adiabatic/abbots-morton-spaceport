@@ -194,7 +194,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                           |
 | 4  | `mono`                          | the `mono` reference drawing                                      | done R4                           |
 | 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
-| 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | code                              |
+| 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | done R6                           |
 | 7  | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
 | 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                           |
 | 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | code                              |
@@ -223,7 +223,7 @@ Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't app
 
 ## Decision log
 
-Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11). Drawing/bitmap keys skip the worked example — the bitmap in the file already is the example (R4).
+Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11). Examples have become the exception: D3's "always end with an example" holds for complex/contextual keys (joins, policy, the `extend` it came from), but simple scalar and drawing keys drop it as self-evident (R4 mono, R5 bitmap, R6 way).
 
 ### Settled by D1–D4
 
@@ -247,6 +247,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R3 — `ductus`.** What-it-is + docs-only; the parity lint omitted (you'll meet it if you trip it). → schema (`ductus`).
 - **R4 — `mono`.** Plain framing — the monospace reference drawing; proportional shapes live in `stances`. No unused caveat, no example. → schema (`mono`).
 - **R5 — `bitmap`.** Format only — row strings top to bottom, `#`=ink, space=blank; the y=5/y=0 `#`-marker convention left out. Same text on both bitmap nodes. → schema (`drawing.bitmap`, `stance.bitmap`).
+- **R6 — `way`.** Names the pen-motion; must be a `ductus` key; stances can share a way. No example. → schema (`stance.way`).
 
 ### Open (leans to react to)
 
