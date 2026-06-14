@@ -1,12 +1,12 @@
 # Better rune-schema documentation — working plan
 
-The plan for slotting accessible documentation into `rune.schema.json` (the schema that governs `glyph_data/runes/*.yaml`, e.g. `qsMay.yaml`). This file is the scratchpad: we interview, record answers here, reconcile, and only then write the real `description` strings into the schema. It is not itself shipped documentation.
+The plan for slotting accessible documentation into `rune.schema.json` (the schema that governs `glyph_data/runes/*.yaml`, e.g. `qsMay.yaml`). Workflow: we interview, and the moment a description is settled we write it **straight into `rune.schema.json`** as that key's `description`. This file is the task tracker — the walk, the field inventory, and the decision log (the call and its why, not the hover text). It is not itself shipped documentation.
 
 ## How we're working
 
 - One question at a time. Anything the codebase can answer, we answer by reading the codebase — not by asking. The interview is reserved for decisions only the owner can make: tone, audience, naming, taste, and where prose lives.
 - Confirmed process: **every** open question is asked individually, including the low-stakes "how much detail / how to phrase it" calls — no batching, even where there's an obvious lean.
-- Each answer gets written down here, then committed, before moving on.
+- Each decision is written straight into the schema as the key's `description`, logged in the tracker below (decision + why), then committed, before moving on.
 - Guided by [Diátaxis](https://diataxis.fr/): a schema `description` is fundamentally _reference_ (austere, lookup-oriented), but this project wants it _understandable_, which pulls in some _explanation_. The decisions below resolve that tension deliberately rather than by accident.
 
 ## Decisions
@@ -53,7 +53,7 @@ The schema-understanding survey recommended a two-tier split: terse reference in
 
 The one real problem that split was solving — cross-cutting concepts (the rune → stance → surface mental model; the left-settled / right-raw condition symmetry; the reserved-token history) don't belong on any single leaf key — is handled without a second file: **cross-cutting explanation rides the nearest container key's `description`.** Hover `when` and you get the left/right symmetry; hover a child like `leftCondition.joined_at` and you get the specific fact plus a one-clause pointer up to `when`. The root schema `description` and the `stances` / `surface` / `policy` container descriptions carry the orientation. No file to open; every concept is one hover away from where it's used.
 
-`BETTERRUNESCHEMA.md` (this file) stays the working plan: it holds the field inventory and the open-decision log, and is the source the final `description` strings are cut from. It is not itself shipped.
+`BETTERRUNESCHEMA.md` (this file) is the task tracker: the walk, the field inventory, and the decision log. The hover **text** lives in `rune.schema.json`, written as each decision lands; this file records only the decision and its why. It is not itself shipped.
 
 ## Field inventory
 
@@ -191,7 +191,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | -- | ------------------------------- | ----------------------------------------------------------------- | --------------------------------- |
 | 1  | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
 | 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06)            |
-| 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done q07 (string-only)            |
+| 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                           |
 | 4  | `mono` / `bitmap`               | monospace reference drawing; row-string + `#` row markers         | code                              |
 | 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
 | 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | code                              |
@@ -221,28 +221,33 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 
 Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't appear in qsPea, so they aren't walk rows here — we'll re-meet them on a rune that uses them. The when-grammar decisions q19–q23 (mental model, `then`, `except`, reserved tokens, namer-dot/word position) surface first at **`from`** (row 13) and recur at policy `when`; migration-bridging q24 and the `why`-bar q25 surface at `policy.refuse` (row 24). qsPea's only real `cells` and `toward` live on the **half** stance, so rows 17 and 21 get their worked examples there.
 
-## Resolved-question log and open leans
+## Decision log
 
-The q-numbered detail the walk points into. Resolved entries hold the locked hover drafts; open entries carry the lean to react to.
+Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11).
 
-### Resolved by D1–D4
+### Settled by D1–D4
 
-- **q01 — audience level.** → D1: sole reader is the owner; assume project fluency, explain only schema-specific machinery.
-- **q02 — doc architecture (terse + separate guide?).** → D1 + D4: inline, no separate guide; cross-cutting prose rides container hovers.
-- **q03 — explanation doc yes/no.** → D4: no standalone guide; BETTERRUNESCHEMA.md stays the plan, descriptions are cut from it.
-- **q04 — tone.** → D3: lightly explanatory plain language — one plain sentence of what-it-is, the sub-keys named, then a worked example.
+- **q01 — audience.** D1: sole reader is the owner; assume project fluency, explain only schema-specific machinery.
+- **q02 — doc architecture.** D1 + D4: inline, no separate guide; cross-cutting prose rides container hovers.
+- **q03 — explanation doc.** D4: no standalone guide.
+- **q04 — tone.** D3: plain what-it-is, sub-keys named, then a worked example.
 
-### Open
+### Resolved (text in schema)
 
-- **q05 — display-name format depth (skeleton/identity). [RESOLVED]** → Document the **full naming scheme** so a generated name can be read back to what you authored (useful when debugging FEA or glyph tables). Lives on the root/`rune` container hover (cross-cutting, per D4), not repeated on leaf keys. Format (from `geometry.py:90 display_name`): `rune`, then the non-default stance, then `en-y<N>` / `ex-y<N>` for the live anchor heights (N = the height's y value: baseline 0, x-height 5, y6 6, top 8), then `ex-wd` if the exit withdrew relative to the base drawing, then the adjustment tokens (`en-ext-1`, `locked`, …). Capped at 63 bytes; overflow hashes the tail. Generated only — never authored. Real example: `qsMay.grounded-loop.en-y5.ex-y0`.
-- **q06 — ligature teaching (skeleton/sequence). [RESOLVED]** → **Assume you know.** Just the mechanics, no definition of "ligature." Draft: "Ligature runes only (instead of `codepoint`): the component families this single glyph stands in for, in order. Example: `sequence: [qsTea, qsOy]` — the ·Tea·Oy ligature `qsTea_qsOy`." (Calibration: thorough for unfamiliar machinery, lean for concepts the owner uses daily.)
-- **q07 — `unrealized` framing (skeleton/ductus). [REMOVED]** → Rather than frame it, the owner decided the `{unrealized: true}` ductus form earns nothing — it never built anything and had exactly one data use (qsMay's `counterclockwise`). It was deleted entirely from the schema, `model.py`, `spec_load.py` (parse + the stance-names-an-unrealized-way lint), `qsMay.yaml`, `fixtures.py`, and `test_spec_load.py`. `ductus` values are now strings only. (Historical mentions remain in `doc/rebuild-design.md`, `rebuild/M1-PLAN.md`, `rebuild/M1-REPORT.md`, and `rebuild/recon/m1-families.md` — left as point-in-time record unless the owner wants them scrubbed.) No hover to write._
-- **q08 — `y_offset` depth (skeleton). [RESOLVED]** → **Rule + one-line why.** Draft: "Shifts this drawing down by N pixels so a Deep letter reaches below the baseline. Deep letters use `-3`; everything else omits it (defaults to 0). Example: qsMay (a Deep letter) sets `y_offset: -3`."
-- **q09 — `traits` closed enum (skeleton). [RESOLVED]** → **Closed and intentional.** Hover states the closed set plainly and points anything else to named bitmaps / policy groups. Draft: "The stance's design flags — a closed set: `half` (shortened to the x-height) and `alt` (an alternate form). Omit for neither. Anything else that distinguishes a stance lives in named bitmaps or policy groups, not here. Example: qsPea's half stance — `traits: [half]`."
-- **q10 — `selectable: false` status (surface). [RESOLVED]** → **Keep the field; frame it as a parity carry-over.** Proven empirically: removing `selectable: false` from qsTea's `top` entry and rebuilding leaves every settlement table byte-identical (no shaping change anywhere) and only drops three GPOS cursive entry anchors (`qsTea.half.en-y5` / `.ex-y5` / `.ex-y5.locked` carrying `<anchor 50 400>`) — exactly the old font's `entry_curs_only [0, 8]`. So it's GPOS-parity only, never a shaping lever, and unlike `unrealized` it is **not** safe to delete (it would break byte-parity with the old shipped font). Draft: "Default `true`. Set `false` to emit an anchor for GPOS cursive-positioning parity while keeping the join engine from ever joining there — it changes no shaping, only the anchor table. Removing it leaves every settlement identical and just drops the parity anchors. Carried over from the old font's `entry_curs_only`; rarely needed on new work. Example: qsTea's `top: {x: 0, selectable: false}`."
-- **q11 — `x_off_convention` status (surface). [RESOLVED]** → **Keep the field; plainest possible wording.** Draft (owner approved): "The build warns if an anchor isn't sitting in its usual spot. `x_off_convention: true` just means 'I put it there on purpose — skip the warning.' Nothing in the font uses it yet." (Genuinely unused in every rune; a deliberate escape hatch kept like `selectable`.)
-- **q12 — `ink_y` keep/avoid (surface). [RESOLVED]** → **Neutral tool, plain wording.** Draft: "The row to scan for ink when the exit anchor's own row is blank, so the build still measures where the stroke really exits. Example: ·Pea's half form sets `ink_y: 6`."
-- **q13 — `stub.when` naming (surface). [RESOLVED]** → **Rename to the positive `inks_when`.** The old `when` named the state in which the nub was _blank_ (`when: withdrawn` = nub appears on joining), which reads backwards. Like the `unrealized` removal (q07), the chosen rename was executed inline, not just noted: the field is now `inks_when` and the two values flip so the name reads in the positive — `when: withdrawn` → `inks_when: joined` (the nub inks on joining), `when: joined` → `inks_when: withdrawn` (ink that retracts on joining; still unused). The code predicate flipped to `inks_when == "joined"`. Touched `model.py` (Stub field + docstring), `geometry.py` (×2), `surface.py`, `spec_load.py`, `rune.schema.json` (`$defs/stub`), `fixtures.py` (×3, values flipped), and qsPea's 3 data sites. Behaviorally inert — predicate and values flipped together, so every drawing is identical; `make test` 6753 passed. Draft hover: "The join state in which these stub columns are inked — a connector nub that blinks on with the seam. `joined` = blank in the base drawing, inks when a neighbor joins this side; `withdrawn` = the reverse, ink that retracts on joining (no rune uses it). Example: qsPea's full x-height entry, `stub: {cols: [0], inks_when: joined}` — column 0 is blank until ·May or ·Utter joins, then a nub sprouts to catch the incoming stroke."
+- **q05 — `rune` display-name scheme.** Document the full generated naming scheme on the `rune` hover so a name reads back to what you authored (debugging FEA/glyph tables); generated only, never written. → schema (`rune`).
+- **q06 — `sequence`.** Assume ligature knowledge; mechanics only. → schema (`sequence`).
+- **q07 — `unrealized` removed.** The `{unrealized: true}` ductus form earned nothing (one dead data use), so it was deleted from the schema, `model.py`, `spec_load.py`, `qsMay.yaml`, `fixtures.py`, and `test_spec_load.py`; `ductus` values are strings only. Historical mentions remain in `doc/rebuild-design.md`, `rebuild/M1-*.md`, and `rebuild/recon/m1-families.md`. No hover.
+- **q08 — `y_offset`.** Rule plus a one-line why (Deep letters −3). → schema (`drawing.y_offset`).
+- **q09 — `traits`.** Closed `half`/`alt` set; anything else lives in named bitmaps or policy groups. → schema (`stance.traits`).
+- **q10 — `selectable: false`.** Keep it, framed as a GPOS-parity carry-over — proven byte-identical settlement, only the parity anchors drop, and unlike `unrealized` it is _not_ safe to delete. → schema (`entryRow.selectable`).
+- **q11 — `x_off_convention`.** Keep it, plainest wording ("I meant to put it there, skip the warning"; unused in every rune). → schema (entry/exit `x_off_convention`).
+- **q12 — `ink_y`.** Neutral fallback-row tool, plain wording. → schema (`exitRow.ink_y`).
+- **q13 — `stub.when` → `inks_when`.** Renamed to read in the positive (field names the _inked_ state; values flipped `withdrawn`↔`joined`), executed inline across code, schema, data, fixtures, and tests; behaviorally inert. Also fixed five rebuild/ tests that `make test` (which skips `rebuild/`) never ran. → schema (`stub`, `stub.cols`, `stub.inks_when`).
+- **R2 — `codepoint`.** Terse, just the facts (owner knows code points; the cmap-vs-stance why over-explained). → schema (`codepoint`).
+- **R3 — `ductus`.** What-it-is + docs-only; the parity lint omitted (you'll meet it if you trip it). → schema (`ductus`).
+
+### Open (leans to react to)
+
 - **q14 — `-withdrawn` visibility (surface/cells).** Explain withdrawn prominently, only in the cells section, or hide it? _Lean: in the cells section, tied to a qsMay example._
 - **q15 — the term "cell" (surface).** Keep "cell" (code-aligned, greppable) or use a friendlier prose label? _Lean: keep "cell," define on first use as "one concrete entry-exit join state."_
 - **q16 — `pairings` framing (surface).** Mechanical whitelist vs design-first ("the pairs this letter accepts"). _Lean: design-first + one-line mechanics._
@@ -255,9 +260,3 @@ The q-numbered detail the walk points into. Resolved entries hold the locked hov
 - **q23 — namer-dot / word position (when grammar).** Surface that space and ZWNJ split runs but the namer-dot does not, or keep word position opaque? _Lean: surface it (you author these conditions)._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
 - **q25 — `why` rationale bar (policy).** Should the `why` description set a bar ("record the design verdict or constraint this rule honors, so a future reader won't delete it as redundant") or just say "free-text rationale"? _Lean: set a bar — the qsMay·May notes show why._
-
-### Code-key hover drafts (the top-down walk)
-
-Hovers locked for the plain "code" keys as we walk qsPea.yaml. No q-number — these needed no design decision, only a wording/detail call the owner reacted to. Referenced from the walk table as "R<row>".
-
-- **R2 — `codepoint`. [DRAFTED]** → **Terse, just the facts** (the owner already knows what a code point is; spelling out the cmap-vs-stance "why" read as over-explaining — same calibration as q06). Draft: "The Unicode code point for this rune's raw glyph. One per rune, mutually exclusive with `sequence` (ligatures use that instead). Example: ·Pea is `codepoint: 0xE650`."
