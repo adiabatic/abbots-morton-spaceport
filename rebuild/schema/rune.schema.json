@@ -96,6 +96,7 @@
           "additionalProperties": {"$ref": "#/$defs/exitRow"}
         },
         "pairings": {
+          "description": "Which seam height-combinations this letter will and won't make. `never` lists the pairs you forbid; `only` is the complete whitelist of the ones you allow — anything not listed is then off the table. Each side is a height (`baseline`, `x-height`, `y6`, `top`) or `none` when that side isn't joined. It only constrains a stance joined on both sides at once; one-sided and isolated forms always exist. An `unlocks` row can re-admit a pair this forbids. Example: ·May's loop sets `never: [{entry: baseline, exit: baseline}, {entry: x-height, exit: x-height}]` — it won't pass a stroke straight through at the same height.",
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
