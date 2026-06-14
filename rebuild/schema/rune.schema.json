@@ -250,6 +250,7 @@
       }
     },
     "extendRecord": {
+      "description": "Lengthen one side of this stance's seam stroke when the join matches — the inverse of `contract`. Name the side and height with `entry` (left) or `exit` (right) plus a height, then `by: N` to add N pixels: the stroke widens at that row and the neighbor slides over, so the connecting stroke gains N pixels of ink. `when:` gates which joins get it; left-side records can read the settled neighbor's `stance` and `joined_at`, right-side ones can't. Most-specific record wins, and extensions never sum on one side. `ok: [lo, hi]` is the band of total extension the build's seam check will accept (defaults to `[by, by]`); widen it when both sides of a seam can legitimately add up past `by`. `split` is reserved and unused. Example: ·May's loop adds a pixel of x-height exit toward ·Day/·Fee/·Jay and a few others — `{stance: loop, exit: x-height, by: 1, when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}`.",
       "type": "object",
       "additionalProperties": false,
       "required": ["by", "when"],
@@ -258,8 +259,8 @@
         "entry": {"$ref": "#/$defs/height"},
         "exit": {"$ref": "#/$defs/height"},
         "by": {"type": "integer", "minimum": 1},
-        "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
-        "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+        "ok": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "The band of total extension the build's seam check will accept — `[lo, hi]`, defaulting to `[by, by]`. Widen it when extension from both sides of a seam can legitimately push the total past `by`."},
+        "split": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Reserved and unused — parsed and modeled, but no rune sets it and nothing in the build consumes it."},
         "bind": {"$ref": "#/$defs/motionName"},
         "when": {"$ref": "#/$defs/when"},
         "why": {"type": "string"}

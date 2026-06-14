@@ -187,37 +187,37 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 
 ### The walk
 
-| #   | Key (document order)            | Concept                                                           | Status                            |
-| --- | ------------------------------- | ----------------------------------------------------------------- | --------------------------------- |
-| 1   | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
-| 2   | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06)            |
-| 3   | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                           |
-| 4   | `mono`                          | the `mono` reference drawing                                      | done R4                           |
-| 5   | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
-| 6   | `stances.full.way`              | motion id, must match a `ductus` key                              | done R6                           |
-| 7   | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
-| 8   | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                           |
-| 9   | `surface` / `entries` / `exits` | the join-surface containers                                       | done R7                           |
-| 10  | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | done R8                           |
-| 11  | entryRow `stroke`               | entry stroke orientation; filters which families may join         | done R9                           |
-| 12  | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
-| 13  | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | done R10 (q19)                    |
-| 14  | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | done R11/R12                      |
-| 15  | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | done R13                          |
-| 16  | `pairings`                      | which entry/exit combos this stance allows                        | done R14 (q16)                    |
-| 17  | `cells`                         | per-state bitmap overrides; the term "cell"; `-withdrawn`         | done R15 (q14, q15)               |
-| 18  | `unlocks`                       | feature-gated extra joins                                         | done R16 (q17, q18)               |
-| 19  | `require`                       | stance settles only if a named side is live                       | done R17                          |
-| 20  | `stances.half` / `bitmaps`      | named alternate drawings (e.g. `half-dips-both-sides`)            | done R18                          |
-| 21  | exitRow `toward`                | exit guest list (raw right neighbor)                              | done R19                          |
-| 22  | exitRow `ink_y`                 | fallback ink row when the exit's own row is blank                 | done q12                          |
-| 23  | `policy.order`                  | stance preference; `order[0]` is the isolated default             | done R20                          |
-| 24  | `policy.refuse` (+ `why`)       | forbid a (stance, entry, exit) under a window; the `why` bar      | done R21 (q25)                    |
-| 25  | `policy.prefer`                 | tie-breakers (qsPea has none)                                     | done R22                          |
-| 26  | `policy.extend`                 | widen connector ink; `by` / `when` / `class` / `joined_at`        | done template (D3); open ok/split |
-| 27  | `policy.contract`               | narrow a connector (qsPea has none)                               | code                              |
-| 28  | `policy.resolve`                | hand-authored ambiguity (none anywhere yet)                       | code                              |
-| 29  | `policy.groups`                 | rune-local predicate classes (qsPea has none)                     | code                              |
+| #   | Key (document order)            | Concept                                                           | Status                 |
+| --- | ------------------------------- | ----------------------------------------------------------------- | ---------------------- |
+| 1   | `rune`                          | family name + the generated display-name scheme                   | done q05               |
+| 2   | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06) |
+| 3   | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                |
+| 4   | `mono`                          | the `mono` reference drawing                                      | done R4                |
+| 5   | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08               |
+| 6   | `stances.full.way`              | motion id, must match a `ductus` key                              | done R6                |
+| 7   | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09               |
+| 8   | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                |
+| 9   | `surface` / `entries` / `exits` | the join-surface containers                                       | done R7                |
+| 10  | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | done R8                |
+| 11  | entryRow `stroke`               | entry stroke orientation; filters which families may join         | done R9                |
+| 12  | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13               |
+| 13  | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | done R10 (q19)         |
+| 14  | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | done R11/R12           |
+| 15  | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | done R13               |
+| 16  | `pairings`                      | which entry/exit combos this stance allows                        | done R14 (q16)         |
+| 17  | `cells`                         | per-state bitmap overrides; the term "cell"; `-withdrawn`         | done R15 (q14, q15)    |
+| 18  | `unlocks`                       | feature-gated extra joins                                         | done R16 (q17, q18)    |
+| 19  | `require`                       | stance settles only if a named side is live                       | done R17               |
+| 20  | `stances.half` / `bitmaps`      | named alternate drawings (e.g. `half-dips-both-sides`)            | done R18               |
+| 21  | exitRow `toward`                | exit guest list (raw right neighbor)                              | done R19               |
+| 22  | exitRow `ink_y`                 | fallback ink row when the exit's own row is blank                 | done q12               |
+| 23  | `policy.order`                  | stance preference; `order[0]` is the isolated default             | done R20               |
+| 24  | `policy.refuse` (+ `why`)       | forbid a (stance, entry, exit) under a window; the `why` bar      | done R21 (q25)         |
+| 25  | `policy.prefer`                 | tie-breakers (qsPea has none)                                     | done R22               |
+| 26  | `policy.extend`                 | widen connector ink; `by` / `when` / `class` / `joined_at`        | done R23 (ok/split)    |
+| 27  | `policy.contract`               | narrow a connector (qsPea has none)                               | code                   |
+| 28  | `policy.resolve`                | hand-authored ambiguity (none anywhere yet)                       | code                   |
+| 29  | `policy.groups`                 | rune-local predicate classes (qsPea has none)                     | code                   |
 
 Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't appear in qsPea, so they aren't walk rows here — we'll re-meet them on a rune that uses them. The when-grammar decisions q19–q23 (mental model, `then`, `except`, reserved tokens, namer-dot/word position) surface first at **`from`** (row 13) and recur at policy `when`; migration-bridging q24 and the `why`-bar q25 surface at `policy.refuse` (row 24). qsPea's only real `cells` and `toward` live on the **half** stance, so rows 17 and 21 get their worked examples there.
 
@@ -264,6 +264,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R20 — `policy.order`.** Stances ranked by precedence, default first (the isolated form and name base). No example (simple ranking key). Kept the steer — order is a late, blunt tiebreaker, so reach for `prefer`/`refuse` when the pick depends on neighbors — to head off misusing it for context-dependent choices; omitted stances append in declaration order. → schema (`policy.order`).
 - **R21 — `policy.refuse` + `why` (resolves q25).** Record hover: a veto that strikes a join candidate before settlement; target by `stance`/`entry`/`exit` to forbid only that join, or none to kill every join. Self-contained (keeps the one-clause left-settled/right-raw `when` note) and "surface row" jargon replaced with "that stance, joining at that height" per owner feedback. Example: ·It refusing its x-height exit into the full ·Day. q25: the `why` leaf lands as a **plain optional note** ("why this join is forbidden; shows in diagnostics, changes no shaping"), not a bar — reversing the earlier set-a-bar lean once the corpus showed many deliberately bare refusals (qsDay, several qsIt), so a bar would misrepresent the data. → schema (`refuseRecord`, `refuseRecord.why`).
 - **R22 — `policy.prefer`.** Tie-breakers: a record speaks for one surviving stance (or a `cell`/`over` pattern) under `when`, with `mode` (`yields-to-joins` default vs `absolute`, which requires `why`) setting how hard it pushes; may live on this rune or the follower. Teaching example chosen over the bare one — ·No's `flipped`-after-·It walks the yields-to-joins nuance (tie in isolation, but ·It·No·Owe still takes x-height for the second join), the one subtlety prose alone can't carry. Hover lives on `preferRecord`, mirroring refuse. → schema (`preferRecord`).
+- **R23 — `policy.extend` + `ok`/`split`.** The D3 template was recorded but never actually written to the schema; written now (critic-trimmed from the longest draft, mechanism dumps cut). Frames extend as the inverse of `contract`: name side+height, `by: N` adds ink and slides the neighbor; most-specific wins, never sums on one side. Owner kept the `split` reserved/unused flag in the main hover (the more-informative version). `ok` leaf: the acceptance band `[lo, hi]`, default `[by, by]`, widen when both seam sides extend. `split` leaf: reserved and unused. Example: ·May's loop x-height exit `by: 1`. → schema (`extendRecord`, `extendRecord.ok`, `extendRecord.split`).
 
 ### Open (leans to react to)
 
