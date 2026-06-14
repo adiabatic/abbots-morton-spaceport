@@ -71,6 +71,7 @@
         "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
         "y_offset": {"type": "integer"},
         "bitmaps": {
+          "description": "Named alternate drawings this stance can swap to — each a full pixel redraw, as opposed to the default `bitmap`. Author one when a join needs a different shape that stub or extension arithmetic can't produce. The names are wired up elsewhere: a row's `joined`/`withdrawal` binding, a `cells.bitmap`, or a policy record's `bind` all refer to a bitmap by name to pull it in. Example: qsMay's loop stance carries a `pulled-back` bitmap (the entry stub tucked in), bound by its x-height entry when ·May lands joined there.",
           "type": "object",
           "propertyNames": {"$ref": "#/$defs/motionName"},
           "additionalProperties": {"$ref": "#/$defs/drawing"}
