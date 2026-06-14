@@ -18,7 +18,7 @@
       "additionalProperties": {"type": "string"}
     },
     "notes": {"type": "string"},
-    "mono": {"$ref": "#/$defs/drawing"},
+    "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference drawing of this letter: a `bitmap` plus optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
       "type": "object",
       "minProperties": 1,

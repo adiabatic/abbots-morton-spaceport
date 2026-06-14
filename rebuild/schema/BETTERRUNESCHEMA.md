@@ -192,7 +192,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 1  | `rune`                          | family name + the generated display-name scheme                   | done q05                          |
 | 2  | `codepoint`                     | raw cmap glyph id (vs `sequence` for ligatures)                   | done R2 (sequence q06)            |
 | 3  | `ductus` (full/half)            | stroke narrative; a way and how it's drawn                        | done R3                           |
-| 4  | `mono` / `bitmap`               | monospace reference drawing; row-string + `#` row markers         | code                              |
+| 4  | `mono`                          | the `mono` reference drawing (bitmap row-format at row 8)         | done R4                           |
 | 5  | `mono.y_offset`                 | vertical shift; Deep letters -3                                   | done q08                          |
 | 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | code                              |
 | 7  | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
@@ -223,7 +223,7 @@ Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't app
 
 ## Decision log
 
-Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11).
+Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11). Drawing/bitmap keys skip the worked example — the bitmap in the file already is the example (R4).
 
 ### Settled by D1–D4
 
@@ -245,6 +245,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **q13 — `stub.when` → `inks_when`.** Renamed to read in the positive (field names the _inked_ state; values flipped `withdrawn`↔`joined`), executed inline across code, schema, data, fixtures, and tests; behaviorally inert. Also fixed five rebuild/ tests that `make test` (which skips `rebuild/`) never ran. → schema (`stub`, `stub.cols`, `stub.inks_when`).
 - **R2 — `codepoint`.** Terse, just the facts (owner knows code points; the cmap-vs-stance why over-explained). → schema (`codepoint`).
 - **R3 — `ductus`.** What-it-is + docs-only; the parity lint omitted (you'll meet it if you trip it). → schema (`ductus`).
+- **R4 — `mono`.** Plain framing — the monospace reference drawing; proportional shapes live in `stances`. No unused caveat, no example. → schema (`mono`).
 
 ### Open (leans to react to)
 
