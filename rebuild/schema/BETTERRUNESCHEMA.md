@@ -203,7 +203,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 12  | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
 | 13  | entryRow `from`                 | entry guest list + the left-settled/right-raw split + `joined_at` | done R10 (q19)                    |
 | 14  | exitRow `x` / `stroke`          | exit anchor x = max-ink+1; exit stroke                            | done R11/R12                      |
-| 15  | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | open                              |
+| 15  | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | done R13                          |
 | 16  | `pairings`                      | which entry/exit combos this stance allows                        | open q16                          |
 | 17  | `cells`                         | per-state bitmap overrides; the term "cell"; `-withdrawn`         | open q14, q15                     |
 | 18  | `unlocks`                       | feature-gated extra joins                                         | open q17, q18                     |
@@ -254,6 +254,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R10 — entry-row `from`.** Resolves q19 at the `from` anchor: it carries the left-settled/right-raw asymmetry (these conditions can read the settled left neighbor's `stance`/`joined_at`, which the raw-right `toward` can't), so the leaf condition keys can stay short and point here. Example kept (complex key). → schema (`entryRow.from`).
 - **R11 — exit-row `x`.** The anchor's column; conventionally one column right of the rightmost ink at the row (the mirror of R8's leftmost-ink entry rule), with the off-convention warning cross-referenced to `x_off_convention`. Terser variant chosen — the entry-vs-exit contrast is left to the sibling hover rather than spelled out here. → schema (`exitRow.x`).
 - **R12 — exit-row `stroke`.** The declared orientation (h/v/d) this stance's exit presents; not a hard gate. Names the reader — it's the value the following letter's entry `from` `stroke:` condition matches against (chosen over the generic "a `stroke:` condition" mirror for concreteness). → schema (`exitRow.stroke`).
+- **R13 — exit-row `withdrawal`.** What the exit draws when nothing joins: `safe` (the base bitmap is already clean) or a sibling bitmap name (the pulled-back shape). Spells out that `safe` is a build-checked promise — it errors if reaching ink remains — since that enforcement is machinery the owner doesn't carry. Example kept (complex key). → schema (`exitRow.withdrawal`).
 
 ### Open (leans to react to)
 
