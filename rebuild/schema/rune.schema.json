@@ -115,7 +115,7 @@
       "required": ["x"],
       "properties": {
         "x": {"type": "integer", "description": "The entry anchor's column at this height's row — conventionally the leftmost-ink column in that row. The build warns if it sits elsewhere; set `x_off_convention` to say it's deliberate."},
-        "stroke": {"$ref": "#/$defs/strokeOrientation"},
+        "stroke": {"$ref": "#/$defs/strokeOrientation", "description": "The stroke orientation where a predecessor lands at this entry: `horizontal`, `vertical`, or `diagonal`. Declarative — it doesn't gate joins by itself; it's the value a `stroke:` condition can filter on."},
         "from": {"type": "array", "items": {"$ref": "#/$defs/leftCondition"}, "minItems": 1},
         "joined": {"$ref": "#/$defs/motionName"},
         "joined_x": {"type": "integer"},
