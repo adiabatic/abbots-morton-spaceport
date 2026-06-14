@@ -197,7 +197,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 6  | `stances.full.way`              | motion id, must match a `ductus` key                              | done R6                           |
 | 7  | `stances.full.traits`           | the closed `half`/`alt` set                                       | done q09                          |
 | 8  | `stances.full.bitmap`           | this stance's own pixel grid                                      | done R5                           |
-| 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | code                              |
+| 9  | `surface` / `entries` / `exits` | the join-surface containers                                       | done R7                           |
 | 10 | entryRow `x`                    | entry anchor x = leftmost ink at the row                          | code                              |
 | 11 | entryRow `stroke`               | entry stroke orientation; filters which families may join         | code                              |
 | 12 | entryRow `stub`                 | connector nub (now `inks_when`)                                   | done q13                          |
@@ -248,6 +248,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R4 — `mono`.** Plain framing — the monospace reference drawing; proportional shapes live in `stances`. No unused caveat, no example. → schema (`mono`).
 - **R5 — `bitmap`.** Format only — row strings top to bottom, `#`=ink, space=blank; the y=5/y=0 `#`-marker convention left out. Same text on both bitmap nodes. → schema (`drawing.bitmap`, `stance.bitmap`).
 - **R6 — `way`.** Names the pen-motion; must be a `ductus` key; stances can share a way. No example. → schema (`stance.way`).
+- **R7 — `surface` / `entries` / `exits`.** Container teaches the left/right orientation (`entries` = predecessor joins in on the left; `exits` = reach toward the successor on the right); the two leaves stay self-contained (D2), each restating its side. → schema (`surface`, `surface.entries`, `surface.exits`).
 
 ### Open (leans to react to)
 
