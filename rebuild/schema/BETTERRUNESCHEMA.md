@@ -211,7 +211,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 20  | `stances.half` / `bitmaps`      | named alternate drawings (e.g. `half-dips-both-sides`)            | done R18                          |
 | 21  | exitRow `toward`                | exit guest list (raw right neighbor)                              | done R19                          |
 | 22  | exitRow `ink_y`                 | fallback ink row when the exit's own row is blank                 | done q12                          |
-| 23  | `policy.order`                  | stance preference; `order[0]` is the isolated default             | code                              |
+| 23  | `policy.order`                  | stance preference; `order[0]` is the isolated default             | done R20                          |
 | 24  | `policy.refuse` (+ `why`)       | forbid a (stance, entry, exit) under a window; the `why` bar      | open + q25                        |
 | 25  | `policy.prefer`                 | tie-breakers (qsPea has none)                                     | open                              |
 | 26  | `policy.extend`                 | widen connector ink; `by` / `when` / `class` / `joined_at`        | done template (D3); open ok/split |
@@ -261,6 +261,7 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R17 — `surface.require`.** Which sides must be live for the stance to apply; a required-but-unjoined side drops it, so it's the mid-join-only marker. `[]` is the stand-alone default (all of qsPea's). Example kept — ·Utter's join-born `reaches-way-back` (`require: [exit]`) shows the non-trivial use the rule alone doesn't make vivid. → schema (`surface.require`).
 - **R18 — `stance.bitmaps`.** Named alternate drawings (full pixel redraws vs the default `bitmap`), for shapes stub/extension arithmetic can't make. Full wiring list chosen — names the three reference sites (`joined`/`withdrawal` binding, `cells.bitmap`, policy `bind`) so the author knows how one gets pulled in. Example: qsMay's loop `pulled-back`, bound by its x-height entry. (Walk row 20's "stances.half" adds no new keys — the half stance reuses `way`/`traits`/`bitmap`/`surface`, already documented.) → schema (`stance.bitmaps`).
 - **R19 — exit-row `toward`.** The raw right-side mirror of `from`: which successors this exit may reach toward, matchable only by static identity (`family`/`class`/`stroke`/boundary) because the successor isn't settled yet — naming `stance`/`joined_at` is a build error. Example labeled per the owner's wording — "·Utter.alt's `reaches-way-back` exit" toward ·May/·No — to flag that the connecting shape is a totally different ·Utter, not the default. → schema (`exitRow.toward`).
+- **R20 — `policy.order`.** Stances ranked by precedence, default first (the isolated form and name base). No example (simple ranking key). Kept the steer — order is a late, blunt tiebreaker, so reach for `prefer`/`refuse` when the pick depends on neighbors — to head off misusing it for context-dependent choices; omitted stances append in declaration order. → schema (`policy.order`).
 
 ### Open (leans to react to)
 
