@@ -151,7 +151,7 @@ def test_provenance_and_record_parsing(spec):
 def test_scope_condition_parsing(spec):
     row = spec.runes["qsPea"].stances["half"].surface.exits["x-height"]
     assert row.ink_y == 6
-    assert row.stub is not None and row.stub.cols == (3,) and row.stub.when == "withdrawn"
+    assert row.stub is not None and row.stub.cols == (3,) and row.stub.inks_when == "joined"
     (scope,) = row.scope
     assert scope.klass == ("can-enter-at-x-height",)
     assert scope.except_ == tuple(

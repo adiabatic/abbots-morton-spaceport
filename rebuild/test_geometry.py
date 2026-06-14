@@ -98,7 +98,7 @@ class TestStubArithmetic:
     def test_pea_entry_dip_appears_when_live(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "full", "x-height", None, ()),
-            entry_stub=Stub(cols=(0,), when="withdrawn"),
+            entry_stub=Stub(cols=(0,), inks_when="joined"),
         )
         record = geometry.realize(spec, plan)
         y5_row = record.bitmap[3]
@@ -108,7 +108,7 @@ class TestStubArithmetic:
     def test_pea_dip_absent_when_withdrawn(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "full", None, "baseline", ()),
-            entry_stub=Stub(cols=(0,), when="withdrawn"),
+            entry_stub=Stub(cols=(0,), inks_when="joined"),
         )
         record = geometry.realize(spec, plan)
         assert record.bitmap[3] == "   #"
@@ -116,7 +116,7 @@ class TestStubArithmetic:
     def test_pea_half_exit_dip(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "half", None, "x-height", ()),
-            exit_stub=Stub(cols=(3,), when="withdrawn"),
+            exit_stub=Stub(cols=(3,), inks_when="joined"),
             exit_ink_y=6,
         )
         record = geometry.realize(spec, plan)
@@ -137,7 +137,7 @@ class TestStubArithmetic:
     def test_joined_stub_polarity_removes_ink_when_live(self, spec):
         plan = CellPlan(
             cell=CellId("qsPea", "full", "x-height", None, ()),
-            entry_stub=Stub(cols=(3,), when="joined"),
+            entry_stub=Stub(cols=(3,), inks_when="withdrawn"),
         )
         record = geometry.realize(spec, plan)
         assert record.bitmap[3] == "    "
