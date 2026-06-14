@@ -206,7 +206,7 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 | 15  | exitRow `withdrawal`            | what to draw when the exit is declined; `safe` vs a bitmap name   | done R13                          |
 | 16  | `pairings`                      | which entry/exit combos this stance allows                        | done R14 (q16)                    |
 | 17  | `cells`                         | per-state bitmap overrides; the term "cell"; `-withdrawn`         | done R15 (q14, q15)               |
-| 18  | `unlocks`                       | feature-gated extra joins                                         | open q17, q18                     |
+| 18  | `unlocks`                       | feature-gated extra joins                                         | done R16 (q17, q18)               |
 | 19  | `require`                       | stance settles only if a named side is live                       | code                              |
 | 20  | `stances.half` / `bitmaps`      | named alternate drawings (e.g. `half-dips-both-sides`)            | code                              |
 | 21  | exitRow `toward`                | exit guest list (raw right neighbor)                              | open (pairs with `from`)          |
@@ -257,11 +257,10 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R13 — exit-row `withdrawal`.** What the exit draws when nothing joins: `safe` (the base bitmap is already clean) or a sibling bitmap name (the pulled-back shape). Spells out that `safe` is a build-checked promise — it errors if reaching ink remains — since that enforcement is machinery the owner doesn't carry. Example kept (complex key). → schema (`exitRow.withdrawal`).
 - **R14 — `surface.pairings` (resolves q16).** Design-first framing: leads with the height-pairs the letter will and won't make, then the `never`/`only` mechanics, the both-sides-only scope (one-sided and isolated forms always exist), and the `unlocks` re-admit escape hatch. Example kept (·May's same-height-pass-through `never`). → schema (`surface.pairings`).
 - **R15 — `surface.cells` (resolves q14, q15).** q15: keep the word "cell," defined on first use as one concrete entry-state-plus-exit-state combination — it's the pipeline's own term and shows up in build errors, so greppable beats softened. q14: demonstrate `-withdrawn` rather than only defining it — the worked example is ·May's `x-height-withdrawn` `pulled-back` cell (owner chose the showing example over the lighter ·Pea one). Frames `cells` as an override on the build's own per-cell drawing pick. → schema (`surface.cells`).
+- **R16 — `surface.unlocks` (resolves q17, q18).** q17: the `ssNN` sets have descriptions, not user-facing names — they're already written up in the README's "Stylistic sets" section (`ss02`…`ss07`), so the hover stays mechanical and points there rather than restating per-set purposes. q18: simple-first didactics — name the three one-capability grants (`entry`/`exit`/`pairing`), then the optional `when:` gate (same left-settled/right-raw rules as `from`), then the ink-must-exist anchor note, then one gated ·It ss04 example. → schema (`surface.unlocks`).
 
 ### Open (leans to react to)
 
-- **q17 — ssNN user-facing meaning (surface/unlocks).** Do the stylistic sets (qsIt ss04, qsTea ss02/ss03/ss05) have user-facing purposes/names, or are they internal join toggles? _Lean: capture a one-line purpose per set you intend users to toggle; mark the rest engine-internal._
-- **q18 — unlock didactics (surface).** Lead with the simple case then "optionally gated by context," or full gated form up front. _Lean: simple first, one gated qsIt example._
 - **q19 — condition mental model (when grammar).** Teach the left-settled / right-raw symmetry as the organizing idea, or state each axis procedurally? _Lean: teach the symmetry on the `when` container hover; leaf keys stay procedural and point up._
 - **q20 — `then` framing (when grammar).** Use-case framing (veto vs taste) vs window mechanics, for why `then` is allowed on prefer but banned on refuse/require. _Lean: use case first, mechanics as a note._
 - **q21 — `except` framing (when grammar).** Positive carve-out ("all except these") vs logical negation. _Lean: positive carve-out + a brief logical note._
