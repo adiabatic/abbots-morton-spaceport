@@ -105,7 +105,7 @@
             "only": {"type": "array", "items": {"$ref": "#/$defs/pairing"}, "minItems": 1}
           }
         },
-        "cells": {"type": "array", "items": {"$ref": "#/$defs/cellBinding"}},
+        "cells": {"type": "array", "items": {"$ref": "#/$defs/cellBinding"}, "description": "Names the exact drawing for a specific join state this stance settles into. A \"cell\" is one concrete entry-state-plus-exit-state combination. The build normally picks each cell's drawing on its own — from an entry's `joined` binding, a declined exit's `withdrawal`, or the base bitmap; list a cell here only to override that, giving the state its own named `bitmap`. Each row is `{entry, exit, bitmap}`, where `entry`/`exit` are a height, `none`, or a height plus `-withdrawn` for an exit declined mid-word that pulled its ink back. Example: ·May's loop draws its `pulled-back` shape when joined at the x-height on the left and its exit was withdrawn — `cells: [{entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}]`."},
         "unlocks": {"type": "array", "items": {"$ref": "#/$defs/unlock"}},
         "require": {"type": "array", "items": {"enum": ["entry", "exit"]}}
       }
