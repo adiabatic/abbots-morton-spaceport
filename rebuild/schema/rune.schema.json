@@ -225,6 +225,7 @@
       }
     },
     "preferRecord": {
+      "description": "Tie-breaker records. When more than one stance survives a seam, a `prefer` record speaks for one so it wins. Each names what it favors — a whole `stance`, or a `cell` exit/entry pattern (with `over:` naming the loser) — under a `when` condition. `mode` decides how hard it pushes: `yields-to-joins` (the default) stands down whenever some other choice buys a better join with the neighbor, so it only settles genuine ties; `absolute` wins regardless and so demands a `why`. A record may live on this rune (favoring its own candidate) or on the follower (voting for the seam its own continuation joins best under). Example: ·No prefers its `flipped` stance after ·It (`stance: flipped`, `when: {left: {family: qsIt}}`) — both seam heights tie on join count in isolation, so the tie goes to the baseline join; because it yields to joins, ·It·No·Owe still takes the x-height path when that scores a second join.",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],
