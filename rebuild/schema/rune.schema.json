@@ -17,7 +17,7 @@
       "propertyNames": {"$ref": "#/$defs/motionName"},
       "additionalProperties": {"type": "string"}
     },
-    "notes": {"type": "string"},
+    "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
     "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference drawing of this letter: a `bitmap` plus optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
       "type": "object",
