@@ -354,7 +354,7 @@
         "left": {"$ref": "#/$defs/leftCondition"},
         "right": {"$ref": "#/$defs/rightCondition"},
         "self": {"$ref": "#/$defs/selfCondition"},
-        "word": {"enum": ["initial", "medial", "final", "isolated"]},
+        "word": {"description": "Where this letter sits in its word: `initial`, `medial`, `final`, or `isolated`.\n\nA word breaks on a `space`, a `zwnj`, or the start or end of the text. A break on the left makes the letter `initial`, one on the right `final`, both `isolated`, neither `medial`.\n\nThe namer dot does not break a word — a letter beside one stays `medial` on that side, even though `is: namer-dot` still matches it as a neighbor.", "enum": ["initial", "medial", "final", "isolated"]},
         "feature": {"$ref": "#/$defs/featureTag"}
       }
     },
