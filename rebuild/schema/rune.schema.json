@@ -25,7 +25,7 @@
       "propertyNames": {"$ref": "#/$defs/motionName"},
       "additionalProperties": {"$ref": "#/$defs/stance"}
     },
-    "policy": {"$ref": "#/$defs/policy"}
+    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nThe riders: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."}
   },
   "oneOf": [
     {"required": ["codepoint"], "not": {"required": ["sequence"]}},
