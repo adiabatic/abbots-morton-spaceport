@@ -221,6 +221,28 @@ Status keys: **done** — hover locked, see the q-entry · **open** — needs an
 
 Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't appear in qsPea, so they aren't walk rows here — we'll re-meet them on a rune that uses them. The when-grammar decisions q19–q23 (mental model, `then`, `except`, reserved tokens, namer-dot/word position) surface first at **`from`** (row 13) and recur at policy `when`; migration-bridging q24 and the `why`-bar q25 surface at `policy.refuse` (row 24). qsPea's only real `cells` and `toward` live on the **half** stance, so rows 17 and 21 get their worked examples there.
 
+### Phase 2 — the when-grammar region (beyond qsPea's 29 rows)
+
+The shared `$defs` qsPea references but the document-order walk never reached, plus the `policy` container backfill that surfaced when `when` couldn't be explained without it. Carries the still-open q19–q24. Row order is a plan, not a contract — it can shift as the owner reacts.
+
+| #   | Key                                        | Concept                                                        | Status     |
+|-----|--------------------------------------------|----------------------------------------------------------------|------------|
+| B1  | `policy` (container)                       | what the whole rider block is for; the `when:` hook            | done R27   |
+| P1  | `when` (container)                         | left-settled / right-raw symmetry; every listed axis must AND  | open q19   |
+| P2  | `when.word`                                | run position; space/ZWNJ split, the namer-dot doesn't          | open q23   |
+| P3  | `when.feature`                             | active `ssNN` gate                                             | code       |
+| P4  | `leftCondition` (+ leaves)                 | settled-left axes; `joined_at` / `stance`                      | code (q19) |
+| P5  | `rightCondition.then`                      | one-level lookahead; allowed on prefer, banned on refuse       | open q20   |
+| P6  | `*Condition.except`                        | static carve-outs                                              | open q21   |
+| P7  | `rightCondition` / `rightCondition…NoThen` | raw-right axes; why `then` is split out                        | code       |
+| P8  | `selfCondition`                            | this letter's own entry/exit live state                        | code       |
+| P9  | `whenWindowDecidable`                      | the no-`then` `when` for window-decidable records              | code       |
+| P10 | `staticCondition`                          | the bare selector used in groups / `except`                    | code       |
+| P11 | `groupDefinition`                          | union / minus membership                                       | code       |
+| P12 | `motionName`                               | the reserved-token rule                                        | open q22   |
+| P13 | scalar `$defs`                             | `familyName`, `familyOrList`, `boundaryValue`, heights, stroke | code       |
+| P14 | migration bridging                         | old `entry_xheight_exit_baseline`-style keys                   | open q24   |
+
 ## Decision log
 
 Source of truth for hover **text** is `rune.schema.json` — each locked description is written onto its key there. This log keeps the call and its why so a future reader knows it was deliberate; "→ schema (`key`)" points at where the text lives. Calibration so far: terse for concepts the owner uses daily (q06, R2, R3); fuller only for machinery they don't carry, and plain beats precise-but-dense (q11). Examples have become the exception: D3's "always end with an example" holds for complex/contextual keys (joins, policy, the `extend` it came from), but simple scalar and drawing keys drop it as self-evident (R4 mono, R5 bitmap, R6 way).
@@ -268,6 +290,10 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 - **R24 — `policy.contract`.** The inverse of `extend`: shorten/redraw one side for specific neighbors, picking exactly one of `by` (trim connector + shift anchor), `trim` (blank ink, keep anchor), or `bind` (swap a hand-drawn sibling for a multi-row redraw). Owner asked for **both** examples, so the hover shows two — ·No's `by` exit before ·J'ai and ·May's `bind` entry before ·Fee — demonstrating the simple and the redraw paths together. → schema (`contractRecord`).
 - **R25 — `policy.resolve`.** A recorded tie-break for an arbitration conflict the engine won't guess on (build stops with E-INCOMPARABLE / E-AMBIGUOUS): `against` names the competing record on another rune, `at` overrides the default for a window class, `pick` chooses, `why` is required, `migrated` flags import debt. No rune carries one (all `resolve: []`, M1 expects zero), so there's no real example — owner chose illustrative shape tokens (`{rune: qsGay, id: …}`, `{at: {right: {family: qsTea}}}`) over prose-only, with the hover noting they're not a live join. → schema (`resolveRecord`).
 - **R26 — `policy.groups`.** Rune-private named family sets, referenced by `class: name` in this rune's own `when:` conditions; the cross-rune complement is the script-wide predicate-class registry. Owner kept the **trait-widening** note — a `trait`/`stance` qualifier on a member is widened to the whole family — because qsIt's own group hits it (`{family: qsZoo, trait: half}` → all ·Zoo, which qsIt's `why` flags). Example: qsIt's `utter-pass-through-vetoes` reused as `except: [class: …]`. → schema (`policy.groups`). **Walk complete — qsPea is fully documented.**
+
+### Phase 2 (when-grammar region)
+
+- **R27 — `policy` container (backfill).** The walk documented every policy child (R20–R26) but skipped the `policy:` container itself, so hovering `when:` inside a record had no surrounding context. Backfilled onto `properties.policy` as a sibling of its `$ref` (matching `rune`/`mono`). Owner reworked the lead twice for plainness — "steering layer" and "gates one join decision" both rejected as jargon — landing on three short paragraphs (own request for the paragraph breaks): plain what-it-is, the `surface`-holds-regardless vs. `policy`-adjusts-per-neighbor contrast, then the seven riders with one-word glosses, closing on the `when:` hook into the rest of this phase. No example (container key, per R7/R20). → schema (`policy`).
 
 ### Open (leans to react to)
 
