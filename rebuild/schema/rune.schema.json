@@ -345,6 +345,7 @@
       }
     },
     "when": {
+      "description": "The surroundings a record needs before it fires. List any of `left`, `right`, `self`, `word`, `feature`. The record fires only if all of them match.\n\n`left` reads the already-settled left neighbor, so it can name the `stance` it chose and the height it `joined_at`. `right` reads the raw, not-yet-settled right neighbor, so it matches only static identity (`family`, `class`, `stroke`, boundary) — never a stance or a seam height.\n\n`self` is this letter's own entry/exit state. `word` is its position in the run (initial, medial, final, isolated). `feature` is the active stylistic set (`ssNN`).\n\nExample: ·Pea's full-way refuse uses `{left: {joined_at: y6}, right: {class: can-enter-at-x-height}}`: a settled-left height beside a raw-right class.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,

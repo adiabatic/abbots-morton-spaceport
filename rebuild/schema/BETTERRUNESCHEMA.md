@@ -225,23 +225,23 @@ Notes: `selectable` / `x_off_convention` (resolved via qsTea, q10/q11) don't app
 
 The shared `$defs` qsPea references but the document-order walk never reached, plus the `policy` container backfill that surfaced when `when` couldn't be explained without it. Carries the still-open q19–q24. Row order is a plan, not a contract — it can shift as the owner reacts.
 
-| #   | Key                                        | Concept                                                        | Status     |
-|-----|--------------------------------------------|----------------------------------------------------------------|------------|
-| B1  | `policy` (container)                       | what the whole rider block is for; the `when:` hook            | done R27   |
-| P1  | `when` (container)                         | left-settled / right-raw symmetry; every listed axis must AND  | open q19   |
-| P2  | `when.word`                                | run position; space/ZWNJ split, the namer-dot doesn't          | open q23   |
-| P3  | `when.feature`                             | active `ssNN` gate                                             | code       |
-| P4  | `leftCondition` (+ leaves)                 | settled-left axes; `joined_at` / `stance`                      | code (q19) |
-| P5  | `rightCondition.then`                      | one-level lookahead; allowed on prefer, banned on refuse       | open q20   |
-| P6  | `*Condition.except`                        | static carve-outs                                              | open q21   |
-| P7  | `rightCondition` / `rightCondition…NoThen` | raw-right axes; why `then` is split out                        | code       |
-| P8  | `selfCondition`                            | this letter's own entry/exit live state                        | code       |
-| P9  | `whenWindowDecidable`                      | the no-`then` `when` for window-decidable records              | code       |
-| P10 | `staticCondition`                          | the bare selector used in groups / `except`                    | code       |
-| P11 | `groupDefinition`                          | union / minus membership                                       | code       |
-| P12 | `motionName`                               | the reserved-token rule                                        | open q22   |
-| P13 | scalar `$defs`                             | `familyName`, `familyOrList`, `boundaryValue`, heights, stroke | code       |
-| P14 | migration bridging                         | old `entry_xheight_exit_baseline`-style keys                   | open q24   |
+| #   | Key                                        | Concept                                                        | Status      |
+|-----|--------------------------------------------|----------------------------------------------------------------|-------------|
+| B1  | `policy` (container)                       | what the whole rider block is for; the `when:` hook            | done R27    |
+| P1  | `when` (container)                         | left-settled / right-raw symmetry; every listed axis must AND  | done R28    |
+| P2  | `when.word`                                | run position; space/ZWNJ split, the namer-dot doesn't          | open q23    |
+| P3  | `when.feature`                             | active `ssNN` gate                                             | code        |
+| P4  | `leftCondition` (+ leaves)                 | settled-left axes; `joined_at` / `stance`                      | code (→R28) |
+| P5  | `rightCondition.then`                      | one-level lookahead; allowed on prefer, banned on refuse       | open q20    |
+| P6  | `*Condition.except`                        | static carve-outs                                              | open q21    |
+| P7  | `rightCondition` / `rightCondition…NoThen` | raw-right axes; why `then` is split out                        | code        |
+| P8  | `selfCondition`                            | this letter's own entry/exit live state                        | code        |
+| P9  | `whenWindowDecidable`                      | the no-`then` `when` for window-decidable records              | code        |
+| P10 | `staticCondition`                          | the bare selector used in groups / `except`                    | code        |
+| P11 | `groupDefinition`                          | union / minus membership                                       | code        |
+| P12 | `motionName`                               | the reserved-token rule                                        | open q22    |
+| P13 | scalar `$defs`                             | `familyName`, `familyOrList`, `boundaryValue`, heights, stroke | code        |
+| P14 | migration bridging                         | old `entry_xheight_exit_baseline`-style keys                   | open q24    |
 
 ## Decision log
 
@@ -294,10 +294,10 @@ Source of truth for hover **text** is `rune.schema.json` — each locked descrip
 ### Phase 2 (when-grammar region)
 
 - **R27 — `policy` container (backfill).** The walk documented every policy child (R20–R26) but skipped the `policy:` container itself, so hovering `when:` inside a record had no surrounding context. Backfilled onto `properties.policy` as a sibling of its `$ref` (matching `rune`/`mono`). Owner reworked the lead twice for plainness — "steering layer" and "gates one join decision" both rejected as jargon — landing on three short paragraphs (own request for the paragraph breaks): plain what-it-is, the `surface`-holds-regardless vs. `policy`-adjusts-per-neighbor contrast, then the seven riders with one-word glosses, closing on the `when:` hook into the rest of this phase. No example (container key, per R7/R20). → schema (`policy`).
+- **R28 — `when` container (resolves q19).** The keystone D4 hover: the cross-cutting left-settled / right-raw symmetry lives here so the leaf condition keys can stay procedural and point up. First two attempts at the lead were rejected as jargon ("gates one join decision") and as premature (the `policy` container wasn't established yet — that detour produced R27); the third landed once `policy` existed and the opener echoed its "which neighbors they fire for" close. Built sentence by sentence at the owner's pace: opener "The surroundings a record needs before it fires. List any of `left`, `right`, `self`, `word`, `feature`. The record fires only if all of them match." (no em dash, "only if all of them match" beat "must hold at once"); a symmetry paragraph ending on an em dash ("static identity (…) — never a stance or a seam height"); a third paragraph spelling out the `word`/`feature` enums but with no framing sentence; and a real ·Pea full-way refuse example showing settled-left height beside raw-right class. → schema (`when`).
 
 ### Open (leans to react to)
 
-- **q19 — condition mental model (when grammar).** Teach the left-settled / right-raw symmetry as the organizing idea, or state each axis procedurally? _Lean: teach the symmetry on the `when` container hover; leaf keys stay procedural and point up._
 - **q20 — `then` framing (when grammar).** Use-case framing (veto vs taste) vs window mechanics, for why `then` is allowed on prefer but banned on refuse/require. _Lean: use case first, mechanics as a note._
 - **q21 — `except` framing (when grammar).** Positive carve-out ("all except these") vs logical negation. _Lean: positive carve-out + a brief logical note._
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline ("names = the motion, not the neighbors"); history kept terse._
