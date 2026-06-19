@@ -20,6 +20,7 @@
     "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
     "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference drawing of this letter: a `bitmap` plus optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
+      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a drawing plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono` drawing. At least one is required, and policy records refer back to a stance by this name.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
