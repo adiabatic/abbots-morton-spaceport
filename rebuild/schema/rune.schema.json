@@ -370,6 +370,7 @@
       }
     },
     "leftCondition": {
+      "description": "What the left neighbor must be for this to match. Pin it down by `family`, by `class` (a named group), or by the exact `stance` it settled into; by the height it `joined_at`; by its exit `stroke`; or by `is` for a boundary like a space. `except` lists cases that make it fail instead.\n\nOnly the left side can name `stance` and `joined_at`, because the left neighbor is already settled by the time this letter is placed (see `when`).",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
