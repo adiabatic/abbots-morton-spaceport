@@ -395,7 +395,7 @@
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},
         "except": {"description": "Drops neighbors from the match. A neighbor listed here is skipped even when the condition's other keys fit. On its own it's a plain negation — `left: {except: [family: qsIt]}` matches any left neighbor but ·It.", "type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
-        "then": {"$ref": "#/$defs/rightConditionNoThen"}
+        "then": {"description": "Lets one join's decision account for the join just beyond it: it looks past the immediate right neighbor to the letter after that.\n\nAllowed only on `prefer`, the taste layer, which can afford to wait for that much context. `refuse` and `require` ban it — they decide from a fixed window at the seam, so they can't peek ahead.\n\nInside `then`, only the raw right axes apply (`family`, `class`, `stroke`, `is`, `except`), and it can't nest — the peek stops at that second letter.\n\nExample: ·It's `prefer` uses `{right: {family: qsIt, then: {family: qsMay}}}` so an entered ·It drops its ·It·It join when a ·May (which needs the baseline entry) follows — ·X·It·It·May.", "$ref": "#/$defs/rightConditionNoThen"}
       }
     },
     "rightConditionNoThen": {
