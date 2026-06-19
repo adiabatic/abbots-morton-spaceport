@@ -34,6 +34,7 @@
   "$defs": {
     "familyName": {"type": "string", "pattern": "^qs[A-Z][A-Za-z]*(_qs[A-Z][A-Za-z]*)*$"},
     "familyOrList": {
+      "description": "A single family (`qsMay`) or a list of families (`[qsMay, qsUtter]`). Matches if any family matches.",
       "oneOf": [
         {"$ref": "#/$defs/familyName"},
         {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 1}
@@ -339,7 +340,7 @@
       "minProperties": 1,
       "properties": {
         "family": {"$ref": "#/$defs/familyOrList"},
-        "class": {"$ref": "#/$defs/motionName"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
         "stance": {"$ref": "#/$defs/motionName"},
         "trait": {"enum": ["half", "alt"]}
       }
@@ -376,9 +377,9 @@
       "minProperties": 1,
       "properties": {
         "family": {"$ref": "#/$defs/familyOrList"},
-        "class": {"$ref": "#/$defs/motionName"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
         "stance": {"$ref": "#/$defs/motionName"},
-        "joined_at": {"$ref": "#/$defs/heightOrNone"},
+        "joined_at": {"$ref": "#/$defs/heightOrNone", "description": "The seam height the left neighbor settled at (`baseline`, `x-height`, `y6`, `top`, or `none`). Usable only on the left — the right neighbor isn't settled yet, so it has no seam height to name."},
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},
         "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
@@ -390,7 +391,7 @@
       "minProperties": 1,
       "properties": {
         "family": {"$ref": "#/$defs/familyOrList"},
-        "class": {"$ref": "#/$defs/motionName"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},
         "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
@@ -403,7 +404,7 @@
       "minProperties": 1,
       "properties": {
         "family": {"$ref": "#/$defs/familyOrList"},
-        "class": {"$ref": "#/$defs/motionName"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters — either a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the letter is a member."},
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},
         "except": {"type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1}
