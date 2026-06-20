@@ -16,7 +16,7 @@ Resolved this session:
 **The remaining 2,535 (645 unique windows) are verdict-gated** — new joins the engine makes that the old font did not, the same kind of taste calls rounds 1–2 settled. Decision (2026-06-13): **checkpoint, then build the round-3 review surface and present all families fresh (no fast-tracking look-alikes).** The families, by unique-window count:
 
 | Verdict family | rows | uniq |
-|---|---|---|
+| --- | --- | --- |
 | ·No-chain join-maximizer gains (flip-to-baseline, loop·Oy, It-both-sides) | 971 | 157 |
 | Withdrawal / seam-loss — ·No flipped exit, ·Utter chain-flip (**context-dependent / engine-limited**) | 599 | 96 |
 | ·May gains (·May·Utter reach-back, post-ZWNJ ·Utter·May·X) | 174 | 75 |
@@ -48,7 +48,7 @@ Migrate qsDay (0xE653), qsUtter (0xE67A), qsNo (0xE666) into rune files, plus th
 ## Files changed (all additive or rebuild-internal; old font untouched)
 
 | File | Change |
-|---|---|
+| --- | --- |
 | `glyph_data/runes/qsDay.yaml` | NEW — full + half stances (deep, y_offset −3). |
 | `glyph_data/runes/qsNo.yaml` | NEW — loop + flipped (alt) stances; the §5.3 prefer; a cell-grain loop-x-height prefer. |
 | `glyph_data/runes/qsUtter.yaml` | NEW — mono + flipped stances; the reaches-way-back cell; `require: [exit]` on flipped. |
@@ -112,7 +112,7 @@ When the oracle is clean: run the full gate suite (`make test`, `uv run pytest r
 
 `break` = no join; `yN` = seam height; `lig` = forms the ligature. This is ground truth; the rune scopes were derived from it.
 
-```
+```text
 Pea.Day  y0 (Pea→Day.half baseline)      Day.Pea  break        No.Pea  break        Utter.Pea  y5 (mono→Pea x-h)
 Pea.No   y5 (Pea.half→No.loop x-h)       Day.Tea  y0           No.Tea  break        Utter.Tea  break
 Pea.Utter y0                             Day.Day  y0 (→half)    No.Day  y5 (loop)    Utter.Day  y5 (mono→Day x-h)
