@@ -26,18 +26,25 @@ Three things worth remembering from the walk:
 - **A latent bug was fixed in passing:** the D3-templated `extend` hover had been recorded as decided but never actually written into the schema. It is written now (R23).
 - **Owner wording corrections that stuck:** "·Utter.alt's `reaches-way-back` exit" on `toward`; "surface row" replaced with "that stance, joining at that height" on `refuse`; both examples shown on `contract`.
 
+Since the qsPea walk the effort has continued through **R39**. The authoritative per-entry record is the decision log in `BETTERRUNESCHEMA.md`; in brief:
+
+- **R27–R31 — the when-grammar region.** The `policy` container (R27), the `when` container with its left-settled / right-raw symmetry (R28), `leftCondition` (R29), the shared condition leaves and scalars plus the `except` carve-outs (R30), and `rightCondition.then` (R31, resolving q20).
+- **R32 — `when.word`** (resolving q23).
+- **R33–R39 — the source-order pass** (see "What is next" for the methodology): `notes` (R33), the `stances` map (R34), `stance.y_offset` (R35), `entryRow.joined` (R36) and `entryRow.joined_x` (R37), a clarity-and-scope rework of `exitRow.withdrawal` (R38), and a cross-cutting sweep banishing the prose noun **"drawing"** from every hover (R39 — now a banned term recorded in D1; say `bitmap` or a plain verb instead).
+
 ## What is next
 
-The natural next phase is the **`when`-grammar condition region**. These are shared `$defs` that `qsPea` references but that were not part of its 29-row document-order walk: the `when` container itself, `leftCondition` / `rightCondition` / `selfCondition` and their sub-keys (`joined_at`, `then`, `except`, `stroke`, `class`), and the `motionName` reserved-token rule. They carry the still-open questions **q19–q24**, each already recorded with a lean in the "Open (leans to react to)" section of `BETTERRUNESCHEMA.md`:
+**Selection rule (set this session): a source-order pass over the real rune YAML.** Instead of picking by abstract walk-row code, document the next still-**bare** field that actually appears in a live `glyph_data/runes/*.yaml`, walking document order across the files — root order `rune` → `codepoint`/`sequence` → `ductus` → `notes` → `mono` → `stances` → `policy`, then descending into each. The tracker's decision log has a **"Source-order pass over real YAML"** subsection spelling this out. The Phase-2 when-grammar walk table still maps the territory and lists what remains.
 
-- **q19 — condition mental model.** Teach the left-settled / right-raw symmetry as the organizing idea on the `when` container hover; leaf keys stay procedural and point up to it. (Partly resolved already — the asymmetry rode onto `from` at R10 — but the `when` container hover itself is still unwritten.)
-- **q20 — `then` framing.** Why `then` is allowed on `prefer` but banned on `refuse`/`require`; lean is use-case first, window mechanics as a note.
-- **q21 — `except` framing.** Positive carve-out ("all except these") vs logical negation; lean is the carve-out plus a brief logical note.
-- **q22 — reserved-token history.** Why `before`/`after`/`noentry`/… and `ss[0-9]` are forbidden in stance names (they were old display-name suffixes); lean is the principle inline ("names describe the motion, not the neighbors") with the history kept terse.
-- **q23 — namer-dot / word position.** Whether to surface that space and ZWNJ split runs but the namer-dot does not; lean is to surface it.
-- **q24 — migration bridging.** Whether to map the old `quikscript.yaml` `entry_xheight_exit_baseline`-style keys to the new schema; lean is a brief mapping note kept terse.
+**Paused inside the `surface` block.** `entryRow` and `exitRow` are now fully documented. The immediate open fork — asked, then deferred by the owner — is whether to:
 
-Per D4, the cross-cutting symmetry belongs on the `when` **container** hover; the leaf condition keys stay procedural and carry a one-clause pointer up to the container.
+- give the `pairing` `$def` leaves (`entry`/`exit`, the `{entry, exit}` items under `surface.pairings` never/only) their own hovers, even though the documented `pairings` container already explains each side ("a height … or `none`"); **or**
+- treat them as covered by the container (per D4) and **skip to `cellBinding`** — 5 genuinely bare leaves (`entry`/`exit`/`bitmap`/`entry_x`/`exit_x`), the cell-grain mirror of `joined`/`joined_x`. Real occurrences: `qsMay.yaml:81`, `qsPea.yaml:98`. **Recommended lean: skip to `cellBinding`.**
+
+**Also open / logged in the tracker:**
+
+- The `bitmaps` `$def` scope-precision follow-up (does it need the same "names resolve to this stance's own `bitmaps`, not the base `bitmap` or `mono`" note that `joined`/`withdrawal` got in R36/R38?).
+- Remaining when-grammar leaves and containers: **q22** (`motionName` reserved-token history), **q24** (migration bridging), and the code-class condition containers (`rightCondition`/`rightConditionNoThen`, `selfCondition`, `whenWindowDecidable`, `staticCondition` — including its trap-warning `stance`/`trait`, `groupDefinition`). q19/q21 are already resolved (R28/R30).
 
 ## Health note
 
