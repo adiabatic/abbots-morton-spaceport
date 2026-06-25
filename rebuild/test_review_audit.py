@@ -1,4 +1,4 @@
-"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to 2,411 units, exemplar resolution, and deterministic triage ordering."""
+"""Tests for the review surface's M1-mode unit assembly: TSV/ledger loading, the dedupe to per-config-class units (including the UNMATCHED verdict windows that carry a per-config class map), exemplar resolution, and deterministic triage ordering."""
 
 from pathlib import Path
 
@@ -59,13 +59,22 @@ def test_fixture_units_dedupe_and_carry_configs(tmp_path):
     assert by_codepoints["E652:E670"].kinds == ("cell", "seam")
 
 
-def test_conflicting_class_assignment_raises():
+def test_conflicting_class_resolves_to_unmatched_with_config_classes():
+    """A triple whose audit rows carry different classes per config is no longer a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but novel under default), the unit takes the UNMATCHED sentinel as its class — so the novel default behavior is what gets adjudicated — and records every config's class in config_classes. Two distinct *matched* classes for one triple is still a genuine classification bug and raises."""
     rows = [
+        AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
+        AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),
+    ]
+    (unit,) = build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    assert unit.class_id == "UNMATCHED"
+    assert unit.config_classes == {"default": "UNMATCHED", "ss03": "ss03-chain-join-gains"}
+
+    conflicting = [
         AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
         AuditRow("ss02", "E650:E665", ("cell",), "class-b", ("a",), ("b",)),
     ]
-    with pytest.raises(ValueError, match="multiple ledger classes"):
-        build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    with pytest.raises(ValueError, match="multiple matched ledger classes"):
+        build_units(conflicting, load_ledger(LEDGER_PATH), dict(LETTERS))
 
 
 def test_render_groups_split_by_rendered_outcome_identity():
@@ -78,27 +87,28 @@ def test_render_groups_split_by_rendered_outcome_identity():
 
 
 def test_every_real_unit_has_exactly_one_render_group(workload):
-    """The M1 invariant of the dedupe key: a unit's rows share (codepoints, baseline, new), so the per-config rendered outcomes can never differ within a unit. If this ever fails, the data violates the dedupe key's documented guarantee and the extra groups must render stacked, never collapsed."""
+    """The M1 invariant of the dedupe key: a unit's rows share (codepoints, baseline, new), so the per-config rendered outcomes can never differ within a unit — even the per-config-split UNMATCHED units (blessed under ss03, novel under default) render identically across configs, the difference being only the class label. If this ever fails, the data violates the dedupe key's documented guarantee and the extra groups must render stacked, never collapsed."""
     for unit in workload.units:
         assert unit.render_groups == (unit.configs,)
 
 
 def test_real_audit_dedupes_to_measured_counts(workload):
-    assert workload.row_count == 15525
-    assert len(workload.units) == 2410
-    assert sum(len(unit.rows) for unit in workload.units) == 15525
+    assert workload.row_count == 83597
+    assert len(workload.units) == 16422
+    assert sum(len(unit.rows) for unit in workload.units) == 83597
 
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
     exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    assert len(exemplar_keys) == 18
+    assert len(exemplar_keys) == 21
     covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
     assert exemplar_keys <= covered
 
 
 def test_triage_order_follows_ledger_then_group_then_codepoints(workload):
+    # The UNMATCHED units carry the sentinel class at workload level (their verdict family is assigned later, at build time); they rank after every ledger class so they sort last and clean-unit ids are preserved.
     class_order = {entry.id: index for index, entry in enumerate(workload.ledger)}
-    indices = [class_order[unit.class_id] for unit in workload.units]
+    indices = [class_order.get(unit.class_id, len(workload.ledger)) for unit in workload.units]
     assert indices == sorted(indices)
     by_class: dict[str, list] = {}
     for unit in workload.units:

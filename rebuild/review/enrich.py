@@ -144,9 +144,11 @@ def notation(codepoint_values: tuple[int, ...]) -> str:
 def notation_tokens(codepoint_values: tuple[int, ...]) -> tuple[str, ...]:
     """Display tokens aligned one-to-one with codepoint positions: letter names (·May) and the boundary tokens (◊ZWNJ, ␣, ·) exactly as `notation` renders them, so joining them with `notation`'s spacing rule reproduces the caption string."""
     return tuple(
-        letter_display(LETTERS[value])
-        if value in LETTERS
-        else _BOUNDARY_NOTATION.get(value, f"U+{value:04X}")
+        (
+            letter_display(LETTERS[value])
+            if value in LETTERS
+            else _BOUNDARY_NOTATION.get(value, f"U+{value:04X}")
+        )
         for value in codepoint_values
     )
 
@@ -330,7 +332,8 @@ class Enricher:
             settled = overlay_settled(self.spec, settled)
 
         derived_cells = tuple(cell_token(item.cell) for item in settled)
-        if derived_cells != unit.new:
+        # The audit's `new` column is overloaded: for cell/seam rows it is the settled cell tokens, but for position-only rows (the kern-channel-out-of-scope residue) it carries per-slot position diagnostics, never cell tokens. Compare the re-settlement against the audit only when `new` is cell-shaped, and always render `after_cells` from the re-derived cells so they parallel `after_seams`.
+        if all("/" in token for token in unit.new) and derived_cells != unit.new:
             self.mismatches.append(
                 f"{config} {unit.codepoints}: derived cells {derived_cells} != audit {unit.new}"
             )
@@ -434,7 +437,7 @@ class Enricher:
             text_entities=text_entities(values),
             before_glyphs=tuple(row.glyphs),
             before_seams=before_seams,
-            after_cells=unit.new,
+            after_cells=derived_cells,
             after_seams=after_seams,
             after_extensions=after_extensions,
             diff_positions=diff_positions,

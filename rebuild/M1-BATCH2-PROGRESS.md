@@ -2,6 +2,37 @@
 
 Status as of the pause: **all hard gates green; oracle not yet clean (2,535 unmatched rows of 128,832 compared, down from 6,189).** Nothing committed. This note is the resume point — read it, re-run the oracle, and continue from the "Remaining work" section. The approved plan is `~/.claude/plans/crystalline-sprouting-ripple.md`.
 
+## Round 3 (2026-06-24): the verdict-family review surface is built
+
+The round-3 review surface is built and serves the 721 UNMATCHED triples (645 windows) grouped into 10 verdict families. It is **presentation-only**: no rune/ledger/font change, the oracle stays at 2,535 until the families are adjudicated. Decisions taken (user-confirmed): presentation-only synthetic classes (not proposed-ledger predicates); per-config-class on one unit (not splitting the 56 ss03-blessed/default-novel windows into two); defer the stylistic-set-only windows for a later pass.
+
+What changed (all under `rebuild/review/` + `rebuild/test_review_*`, nothing in `glyph_data/` or `rebuild/pipeline/` shaping — `make test` green at 6753, all 107 review tests pass):
+
+- **`audit.py`** — dropped the one-class-per-triple raise; `Unit` now carries `config_classes` (config → matched_entry) and `family_id`. A triple UNMATCHED under any config takes the UNMATCHED sentinel (UNMATCHED-wins, so the novel default behavior is what is adjudicated); the 56 ss03-blessed/default-novel windows stay one unit and record both facts. Two distinct _matched_ classes for one triple still raises. New `synthesize_family_classes()` mints the family `LedgerClass` records.
+- **`families.py`** (NEW) — `assign_family(enriched)` over the before/after settled seams + stylistic-set gating. Total over every UNMATCHED unit. The seam at a gap is the left cell's **exit** (its trailing component, for a ligature) joining the right cell's **entry** (its lead), so `qsTea_qsOy → qsIt` at the baseline is an `oy-it-baseline` window, not `tea-it-xheight` (caught in adversarial review).
+- **`build.py`** — `build_m1` now enriches every unit once (UNMATCHED units were never enriched before), assigns families, and appends the family classes after the ledger classes (they sort strictly last so clean-unit ids stay stable). Additive shard fields `config_classes` + `config_class_note` (the blessed/novel strip).
+- **`enrich.py`** — `after_cells` is now the re-derived settled cells, not the audit `new` column. The audit `new` is overloaded: cell/seam rows carry cell tokens, but the 188 `kern-channel-out-of-scope` position-only rows carry per-slot diagnostics. Using the derived cells makes `after_cells` parallel `after_seams` (fixing a latent contract violation that only surfaced once the build completed) and the re-settlement mismatch warning is guarded to cell-shaped `new` only.
+- **`static/{app.js,app.css}`** — additive only: a per-config blessed/novel badge and an `unmatched` sidebar status color. No change to the shard/verdict/export machinery.
+
+The 10 families (default-config first, then the deferred stylistic-set buckets):
+
+| Family | units | adjudicate? |
+| --- | --- | --- |
+| `no-chain-gains` | 67 | now |
+| `tea-it-xheight` | 39 | now |
+| `oy-it-baseline` | 22 | now |
+| `may-utter-gains` | 24 | now |
+| `seam-loss-withdrawal` | 154 | now (context-dependent / partly engine-limited losses — the depth-2 family from the round-2 analysis) |
+| `extension-non-summing` | 15 | now |
+| `unmatched-misc` | 3 | now (other gains: ·Pea·Pea·Day+Utter, ·Day·It·Day+Utter, ·Day+Utter·May·May) |
+| `deferred-ss04` | 253 | later (ss04 Group A + ss04 ligature declines) |
+| `deferred-ss10` | 76 | later (isolation-overlay residue) |
+| `deferred-ss03` | 68 | later (ss02/ss03/ss05-gated) |
+
+324 of the 645 windows are default-reachable (adjudicate now); 321 are stylistic-set-only (deferred). The build was adversarially reviewed (4 dimensions: data-model integrity, grouper bucketing, the enrich change, test-rebaseline soundness) — 0 confirmed serious defects; the one minor mis-bucket (the ligature-lead one above) is fixed.
+
+Deferred / noted: `build_m1` does not delete stale shard files from a persistent out-dir, so a class-set change leaves orphan `units/*.json` (the app ignores them — it loads only manifest-referenced shards — but a glob over-counts; `rm -rf rebuild/out/review` before a rebuild clears them). The 4 pre-existing rebuild-suite failures (`test_spec_load`×3, `test_surface`×1) are unrelated modeling questions left for batch-close, not regressions. **Next: the human adjudication of the default families.**
+
 ## Session update (2026-06-13): 6,189 → 2,535, the residue is verdict-gated
 
 A triage session drove the oracle from 6,189 to 2,535 unmatched with **zero regressions** (every remaining unmatched window touches a new letter; matched-class counts only grew; the lone reviewed-rejected class that shrank did so because its rows _resolved_, and a seam-loss+seam-gain row always classifies as regrouping-floor-drift so it can never go unmatched). 0 multi-matched, 0 defect-gate errors, `make test` green.

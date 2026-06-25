@@ -18,9 +18,18 @@ import sys
 import warnings
 from pathlib import Path
 
-from rebuild.review import tablediff
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, assign_batches, load_workload
+from rebuild.review import families, tablediff
+from rebuild.review.audit import (
+    ACCEPTANCE_CONFIGS,
+    BATCH_SIZE,
+    UNMATCHED_CLASS,
+    _config_index,
+    assign_batches,
+    load_workload,
+    synthesize_family_classes,
+)
 from rebuild.review.drafts import Drafter
+from rebuild.review.families import assign_family
 from rebuild.review.ink import VERIFICATION_METHOD, InkComparator
 from rebuild.review.enrich import (
     LETTERS,
@@ -118,6 +127,25 @@ def config_note(unit_configs, full_configs) -> str | None:
     return "only under: " + ", ".join(unit_configs)
 
 
+def _config_class_note(unit) -> str | None:
+    """For a per-config-split unit (UNMATCHED under some configs, already blessed under others — the ss03-chain-join-gains windows), a short strip describing both facts, e.g. "blessed as ss03-chain-join-gains under ss03, ss02+ss03; novel under default, ss02". None when the unit's class is the same across every config (every matched unit and every fully-novel unit)."""
+    config_classes = unit.config_classes
+    if not config_classes:
+        return None
+    novel = [config for config, cls in config_classes.items() if cls == UNMATCHED_CLASS]
+    blessed = [config for config, cls in config_classes.items() if cls != UNMATCHED_CLASS]
+    if not novel or not blessed:
+        return None
+    by_class: dict[str, list[str]] = {}
+    for config in sorted(blessed, key=_config_index):
+        by_class.setdefault(config_classes[config], []).append(config)
+    blessed_phrase = "; ".join(
+        f"blessed as {cls} under {', '.join(configs)}" for cls, configs in by_class.items()
+    )
+    novel_phrase = "novel under " + ", ".join(sorted(novel, key=_config_index))
+    return f"{blessed_phrase}; {novel_phrase}"
+
+
 def _machine_approved_meta(machine_units) -> dict:
     """The manifest's machine_approved record: the ink-identical total, the audit rows those units cover, the verification method one-liner, and the per-class unit counts (classes with zero machine-approved units are omitted)."""
     by_class: dict[str, int] = {}
@@ -150,6 +178,8 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "notation_tokens": list(enriched.notation_tokens),
         "configs": list(unit.configs),
         "config_note": config_note(unit.configs, full_configs),
+        "config_classes": dict(unit.config_classes) or None,
+        "config_class_note": _config_class_note(unit),
         "render_groups": [{"configs": list(group)} for group in unit.render_groups],
         "kinds": list(unit.kinds),
         "exemplar": unit.exemplar,
@@ -253,17 +283,24 @@ def build_m1(
     enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root, before_font=before_font)
     drafter = Drafter(after_font, repo_root=repo_root)
 
-    by_class = workload.units_by_class()
-    enriched_by_class = {
-        entry.id: [enricher.enrich(unit) for unit in by_class[entry.id]] for entry in workload.classes_present
-    }
-    seam_census = resolve_secondary_homes(
-        [item for entry in workload.classes_present for item in enriched_by_class[entry.id]]
+    # Enrich every unit once. UNMATCHED units were never enriched before (they had no ledger class and so never reached the old per-class loop); this single flat pass both produces their shard fields and yields the before/after seams the verdict-family grouper reads.
+    enriched_by_id = {unit.unit_id: enricher.enrich(unit) for unit in workload.units}
+
+    # Promote each UNMATCHED unit's verdict family to its class so the existing per-class loop shards it under that family.
+    for unit in workload.units:
+        if unit.class_id == UNMATCHED_CLASS:
+            unit.family_id = assign_family(enriched_by_id[unit.unit_id])
+            unit.class_id = unit.family_id
+
+    classes = workload.classes_present + synthesize_family_classes(
+        workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
     )
+    by_class = workload.units_by_class()
+    seam_census = resolve_secondary_homes(list(enriched_by_id.values()))
     classes_meta: list[dict] = []
-    for entry in workload.classes_present:
+    for entry in classes:
         units = by_class[entry.id]
-        shard = [unit_to_json(enriched, drafter) for enriched in enriched_by_class[entry.id]]
+        shard = [unit_to_json(enriched_by_id[unit.unit_id], drafter) for unit in units]
         _write_json(out_dir / "units" / f"{entry.id}.json", shard)
         classes_meta.append(
             {

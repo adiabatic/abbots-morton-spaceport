@@ -274,6 +274,10 @@ function buildRow(unit) {
     badge.title = unit.configs.join(', ');
     meta.append(badge);
   }
+  if (unit.config_class_note) {
+    const badge = el('span', 'config-class-note', unit.config_class_note);
+    meta.append(badge);
+  }
   label.append(meta);
 
   const buttons = el('div', 'verdict-buttons');

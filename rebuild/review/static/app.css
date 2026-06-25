@@ -318,6 +318,11 @@ summary:focus-visible {
         color: var(--hot);
         border-color: var(--hot);
       }
+
+      &[data-status="unmatched"] {
+        color: var(--either);
+        border-color: var(--either);
+      }
     }
   }
 
@@ -593,7 +598,8 @@ details.group {
 
       .kind,
       .exemplar,
-      .config-note {
+      .config-note,
+      .config-class-note {
         border: 1px solid var(--hairline);
         border-radius: 8px;
         padding: 0 0.45em;
@@ -606,6 +612,12 @@ details.group {
 
       .config-note {
         cursor: default;
+      }
+
+      .config-class-note {
+        cursor: default;
+        color: var(--either);
+        border-color: var(--either);
       }
 
       .machine-badge {
