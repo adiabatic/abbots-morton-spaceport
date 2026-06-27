@@ -46,6 +46,11 @@ const REJECT_MENU_CHOICES = [
   { action: 'reject-worse-extension', key: 'z', label: 'new way has a worse-looking extension/contraction', note: 'new way has a worse-looking extension/contraction' },
   { action: 'reject-comment', key: 'x', label: 'write a comment', note: null },
 ];
+const NEITHER_MENU_CHOICES = [
+  { action: 'neither-no-comment', key: 'c', label: 'no comment', note: null },
+  { action: 'neither-ss10', key: 'd', label: 'Under ss10 these must be fully isolated; old font joins them, new font ligates them — both wrong', note: 'Under ss10 these must be fully isolated; old font joins them, new font ligates them — both wrong' },
+  { action: 'neither-comment', key: 'x', label: 'write a comment', note: null },
+];
 
 const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
@@ -287,7 +292,7 @@ function buildRow(unit) {
     button.dataset.verdict = verdict;
     button.title = unit.ink_identical ? MACHINE_TITLE : title;
     button.disabled = unit.ink_identical;
-    if (verdict === 'reject') button.setAttribute('aria-haspopup', 'menu');
+    if (verdict === 'reject' || verdict === 'neither') button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-pressed', 'false');
     button.append(document.createTextNode(`${text} `));
     const kbd = el('kbd', null, key);
@@ -386,6 +391,7 @@ function buildRow(unit) {
 
 function renderBatch(units, machine) {
   closeRejectMenu();
+  closeNeitherMenu();
   const container = document.getElementById('batch');
   container.textContent = '';
   machineFoldBuilders.clear();
@@ -797,6 +803,70 @@ function rejectWithComment() {
   if (row) row.querySelector('.note').focus();
 }
 
+let neitherMenuUnitId = null;
+let neitherMenuNode = null;
+
+function openNeitherMenu(unitId) {
+  closeNeitherMenu();
+  const row = rowFor(unitId);
+  if (!row) return;
+  const menu = el('div', 'neither-menu');
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Neither ${unitId} — choose a note`);
+  for (const choice of NEITHER_MENU_CHOICES) {
+    const option = el('button', 'neither-option');
+    option.type = 'button';
+    option.dataset.action = choice.action;
+    option.setAttribute('role', 'menuitem');
+    option.append(el('kbd', null, choice.key));
+    option.append(document.createTextNode(` ${choice.label}`));
+    menu.append(option);
+  }
+  menu.addEventListener('click', (event) => {
+    const option = event.target.closest('.neither-option');
+    if (!option) return;
+    event.stopPropagation();
+    if (option.dataset.action === 'neither-comment') {
+      neitherWithComment();
+      return;
+    }
+    const choice = NEITHER_MENU_CHOICES.find((entry) => entry.action === option.dataset.action);
+    chooseNeitherOption(choice.note);
+  });
+  row.querySelector('.verdict-buttons').append(menu);
+  neitherMenuUnitId = unitId;
+  neitherMenuNode = menu;
+  menu.querySelector('.neither-option').focus();
+}
+
+function closeNeitherMenu() {
+  if (neitherMenuNode) neitherMenuNode.remove();
+  neitherMenuUnitId = null;
+  neitherMenuNode = null;
+}
+
+function chooseNeitherOption(cannedNote) {
+  const unitId = neitherMenuUnitId;
+  closeNeitherMenu();
+  if (!unitId) return;
+  const row = rowFor(unitId);
+  if (cannedNote !== null && row) {
+    row.querySelector('.note').value = cannedNote;
+    updateNote(store, unitId, cannedNote);
+  }
+  applyVerdict(unitId, 'neither');
+  advanceFrom(unitId);
+}
+
+function neitherWithComment() {
+  const unitId = neitherMenuUnitId;
+  closeNeitherMenu();
+  if (!unitId) return;
+  applyVerdict(unitId, 'neither');
+  const row = rowFor(unitId);
+  if (row) row.querySelector('.note').focus();
+}
+
 function renderedCursorIds() {
   const ids = [];
   for (const row of document.querySelectorAll('#batch .row:not(.machine)')) ids.push(row.dataset.unit);
@@ -1051,6 +1121,7 @@ function wireEvents() {
       overlayOpen,
       modified: event.ctrlKey || event.metaKey || event.altKey,
       rejectMenuOpen: rejectMenuUnitId !== null,
+      neitherMenuOpen: neitherMenuUnitId !== null,
       noteInput: Boolean(event.target.closest?.('.note')),
       shift: event.shiftKey,
     });
@@ -1089,18 +1160,31 @@ function wireEvents() {
       chooseRejectOption(menuChoice.note);
       return;
     }
+    if (action === 'neither-cancel') {
+      event.preventDefault();
+      closeNeitherMenu();
+      return;
+    }
+    if (action === 'neither-comment') {
+      event.preventDefault();
+      neitherWithComment();
+      return;
+    }
+    const neitherChoice = NEITHER_MENU_CHOICES.find((entry) => entry.action === action);
+    if (neitherChoice) {
+      event.preventDefault();
+      chooseNeitherOption(neitherChoice.note);
+      return;
+    }
     event.preventDefault();
-    if (
-      action === 'approve' ||
-      action === 'either' ||
-      action === 'identical' ||
-      action === 'neither' ||
-      action === 'skip'
-    ) {
+    if (action === 'approve' || action === 'either' || action === 'identical' || action === 'skip') {
       verdictCursor(action);
     } else if (action === 'reject') {
       const unitId = cursorUnitId();
       if (unitId) openRejectMenu(unitId);
+    } else if (action === 'neither') {
+      const unitId = cursorUnitId();
+      if (unitId) openNeitherMenu(unitId);
     } else if (action === 'clear-verdict') {
       const unitId = cursorUnitId();
       if (unitId && store.records.has(unitId)) {
@@ -1141,11 +1225,12 @@ function wireEvents() {
   document.addEventListener(
     'click',
     (event) => {
-      if (rejectMenuUnitId === null) return;
-      if (event.target.closest('.reject-menu')) return;
+      if (rejectMenuUnitId === null && neitherMenuUnitId === null) return;
+      if (event.target.closest('.reject-menu') || event.target.closest('.neither-menu')) return;
       event.preventDefault();
       event.stopPropagation();
       closeRejectMenu();
+      closeNeitherMenu();
     },
     true,
   );
@@ -1163,6 +1248,10 @@ function wireEvents() {
     if (verdictButton && row) {
       if (verdictButton.dataset.verdict === 'reject') {
         openRejectMenu(row.dataset.unit);
+        return;
+      }
+      if (verdictButton.dataset.verdict === 'neither') {
+        openNeitherMenu(row.dataset.unit);
         return;
       }
       applyVerdict(row.dataset.unit, verdictButton.dataset.verdict);

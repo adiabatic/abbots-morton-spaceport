@@ -99,6 +99,25 @@ test('while the reject menu is open, every other key is suppressed', () => {
   }
 });
 
+test('while the neither menu is open, c/d/x/Escape map to the menu actions', () => {
+  assert.equal(actionForKey('c', { neitherMenuOpen: true }), 'neither-no-comment');
+  assert.equal(actionForKey('d', { neitherMenuOpen: true }), 'neither-ss10');
+  assert.equal(actionForKey('x', { neitherMenuOpen: true }), 'neither-comment');
+  assert.equal(actionForKey('Escape', { neitherMenuOpen: true }), 'neither-cancel');
+});
+
+test('while the neither menu is open, every other key is suppressed', () => {
+  for (const key of ['a', 's', 'f', 'e', 'z', 'u', 'n', 'g', 'ArrowDown', 'ArrowUp', 'i', 'k', '[', ']', '?', 'q', 'Enter']) {
+    assert.equal(actionForKey(key, { neitherMenuOpen: true }), null, `key ${key}`);
+  }
+});
+
+test('neither-menu choices respect input focus and modifiers, but Escape still cancels', () => {
+  assert.equal(actionForKey('c', { neitherMenuOpen: true, inInput: true }), null);
+  assert.equal(actionForKey('d', { neitherMenuOpen: true, modified: true }), null);
+  assert.equal(actionForKey('Escape', { neitherMenuOpen: true, inInput: true }), 'neither-cancel');
+});
+
 test('Enter in the note input saves and advances; Enter elsewhere stays inert', () => {
   assert.equal(actionForKey('Enter', { inInput: true, noteInput: true }), 'note-advance');
   assert.equal(actionForKey('Enter', { inInput: true, noteInput: true, shift: true }), 'note-stay');
