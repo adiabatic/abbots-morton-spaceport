@@ -31,14 +31,34 @@ export const REJECT_MENU_MAP = new Map([
   ['Escape', 'reject-cancel'],
 ]);
 
+export const NEITHER_MENU_MAP = new Map([
+  ['c', 'neither-no-comment'],
+  ['d', 'neither-ss10'],
+  ['x', 'neither-comment'],
+  ['Escape', 'neither-cancel'],
+]);
+
 export function actionForKey(
   key,
-  { inInput = false, overlayOpen = false, modified = false, rejectMenuOpen = false, noteInput = false, shift = false } = {},
+  {
+    inInput = false,
+    overlayOpen = false,
+    modified = false,
+    rejectMenuOpen = false,
+    neitherMenuOpen = false,
+    noteInput = false,
+    shift = false,
+  } = {},
 ) {
   if (rejectMenuOpen) {
     if (key === 'Escape') return 'reject-cancel';
     if (modified || inInput) return null;
     return REJECT_MENU_MAP.get(key) ?? null;
+  }
+  if (neitherMenuOpen) {
+    if (key === 'Escape') return 'neither-cancel';
+    if (modified || inInput) return null;
+    return NEITHER_MENU_MAP.get(key) ?? null;
   }
   if (key === 'Escape') return 'escape';
   if (key === 'Enter' && noteInput && !modified) return shift ? 'note-stay' : 'note-advance';
