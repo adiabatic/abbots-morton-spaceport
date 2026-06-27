@@ -62,6 +62,13 @@ const MACHINE_BADGE = 'ink-identical — machine approved';
 const MACHINE_TITLE =
   'Both fonts render this unit identically under every config in its set; no human input is meaningful.';
 
+function configNoteDetail(note) {
+  const descriptions = manifest.feature_descriptions;
+  if (!descriptions) return null;
+  const match = note.match(/^only when (ss\d+) is (?:on|off)$/) ?? note.match(/^only under (ss\d+)$/);
+  return match ? (descriptions[match[1]] ?? null) : null;
+}
+
 let state = withDefaults(parseHash(location.hash));
 let visibleUnits = [];
 let machineUnits = [];
@@ -275,7 +282,10 @@ function buildRow(unit) {
     meta.append(badge);
   }
   if (unit.config_note) {
-    const badge = el('span', 'config-note', unit.config_note);
+    const badge = el('span', 'config-note');
+    badge.append(el('span', 'config-note-gate', unit.config_note));
+    const detail = configNoteDetail(unit.config_note);
+    if (detail) badge.append(el('span', 'config-note-detail', ` — ${detail}`));
     badge.title = unit.configs.join(', ');
     meta.append(badge);
   }

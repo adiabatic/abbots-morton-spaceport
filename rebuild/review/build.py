@@ -107,6 +107,17 @@ def _generated_at(*inputs: Path) -> str:
     )
 
 
+FEATURE_DESCRIPTIONS = {
+    "ss02": "allow ·I·Tea to join at the Short height",
+    "ss03": "allow ·Tea to be joined to at the x-height",
+    "ss04": "allow ·It to join at baseline after ·Day and before ·Low",
+    "ss05": "allow ·Et·Tea·… double baseline joins again (older, manual-style behavior)",
+    "ss06": "use gapped ·Owe (doesn’t connect at the top)",
+    "ss07": "allow ·Owe·Day to join at the x-height again",
+    "ss10": "suppress all joins for the wrapped letter(s)",
+}
+
+
 def _config_features(config: str) -> frozenset[str]:
     return frozenset() if config == "default" else frozenset(config.split("+"))
 
@@ -332,6 +343,7 @@ def build_m1(
         },
         "fonts": fonts,
         "configs": list(ACCEPTANCE_CONFIGS),
+        "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
         "totals": {"units": len(workload.units), "rows": workload.row_count, "batches": total_batches},
         "machine_approved": _machine_approved_meta(machine_units),
@@ -564,6 +576,7 @@ def build_table_diff(
         "source": {"baseline": str(baseline_dir), "new": str(new_dir)},
         "fonts": fonts,
         "configs": all_configs,
+        "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
         "totals": {
             "units": index,
