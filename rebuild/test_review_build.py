@@ -11,6 +11,7 @@ import yaml
 
 from rebuild.review.audit import ACCEPTANCE_CONFIGS
 from rebuild.review.build import (
+    FEATURE_DESCRIPTIONS,
     build_m1,
     build_table_diff,
     check_manifest,
@@ -214,6 +215,17 @@ def test_config_note_distribution_over_the_built_output(built):
         "only under: default, ss02, ss05": 35,
         "only under ss10": 3137,
     }
+
+
+def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
+    """FEATURE_DESCRIPTIONS is a hand-mirror of README's "Stylistic sets" section (the wording is trimmed for the badge, so only the set of keys is pinned). If the author adds or retires a stylistic set in the README, this fails until the build map is updated, so the glowing badge can never silently lack — or invent — a set."""
+    import re
+
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## Stylistic sets", 1)[1].split("\n## ", 1)[0]
+    readme_sets = set(re.findall(r"^- `(ss\d+)`:", section, re.MULTILINE))
+    assert readme_sets, "no `ssNN` bullets found under README's Stylistic sets heading"
+    assert set(FEATURE_DESCRIPTIONS) == readme_sets
 
 
 def test_manifest_carries_feature_descriptions_for_every_single_feature_note(built):
