@@ -216,6 +216,26 @@ def test_config_note_distribution_over_the_built_output(built):
     }
 
 
+def test_manifest_carries_feature_descriptions_for_every_single_feature_note(built):
+    """The glowing config-note badge appends what each stylistic set is for; the manifest ships the feature→description map (mirrored from README's "Stylistic sets") and every single-feature gating note in the output resolves to a description."""
+    import re
+
+    out_dir, manifest = built
+    descriptions = manifest["feature_descriptions"]
+    assert set(descriptions) == {"ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss10"}
+    assert all(isinstance(text, str) and text for text in descriptions.values())
+    notes = set()
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            if unit["config_note"]:
+                notes.add(unit["config_note"])
+    pattern = re.compile(r"^only when (ss\d+) is (?:on|off)$|^only under (ss\d+)$")
+    for note in notes:
+        match = pattern.match(note)
+        if match:
+            assert descriptions[match.group(1) or match.group(2)]
+
+
 def test_built_classes_keep_ledger_order_then_families(built):
     """The sidebar order: the present ledger classes in ledger-file order, then the verdict families in FAMILY_ORDER. Families sort strictly last so clean-unit ids stay stable across a fresh build. Each ledger class carries its ledger why; each family carries its FAMILY_WHY. (The ledger `count` field is not asserted — it is the oracle's static bookkeeping, not maintained against the live audit, so row_count is only required positive.)"""
     from rebuild.review import families

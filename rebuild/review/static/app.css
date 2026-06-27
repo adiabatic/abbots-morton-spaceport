@@ -612,6 +612,23 @@ details.group {
 
       .config-note {
         cursor: default;
+        color: var(--hot);
+        border-color: var(--hot);
+        background: var(--hot-fill);
+        font-weight: 600;
+        box-shadow:
+          0 0 0 1px var(--hot),
+          0 0 7px 1px color-mix(in srgb, var(--hot) 55%, transparent);
+
+        .config-note-gate {
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+        }
+
+        .config-note-detail {
+          font-weight: 400;
+          opacity: 0.85;
+        }
       }
 
       .config-class-note {
