@@ -134,7 +134,7 @@ In order to properly transcribe [The Manual][tm], I needed a way to force the di
 In order to exactly match the contents of [The Manual][tm] without peppering the HTML with zero-width joiners everywhere, I decided to add a number of OpenType stylistic sets to turn on and off behavior that only happened sometimes. They are:
 
 - `ss02`: allow ·I·Tea to join at the Short height
-- `ss03`: allow ·Tea to be joined to at the x-height
+- `ss03`: allow ·Tea to be joined to at the x-height as a full-size ·Tea (it stays full — descending to the baseline — when a following letter joins it there; otherwise the half ·Tea)
 - `ss04`: allow ·It to join at baseline after ·Day and before ·Low
 - `ss05`: allow `·Et ~b~ ·Tea ~b~ ...` double baseline joins again when you want the older/manual-style behavior
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
