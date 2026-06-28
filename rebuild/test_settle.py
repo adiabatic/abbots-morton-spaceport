@@ -316,7 +316,7 @@ MAY_CHAIN_ROWS = (
         4,
         (
             "qsMay.grounded-loop.ex-y0",
-            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop.en-y0",
             "qsMay.grounded-loop.ex-y0",
             "qsMay.loop.en-y0",
         ),
@@ -325,9 +325,9 @@ MAY_CHAIN_ROWS = (
         5,
         (
             "qsMay.grounded-loop.ex-y0",
-            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop.en-y0",
             "qsMay.grounded-loop.ex-y0",
-            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop.en-y0",
             "qsMay.loop",
         ),
     ),
@@ -335,9 +335,9 @@ MAY_CHAIN_ROWS = (
         6,
         (
             "qsMay.grounded-loop.ex-y0",
-            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop.en-y0",
             "qsMay.grounded-loop.ex-y0",
-            "qsMay.loop.en-y0.ex-bind-pulled-back",
+            "qsMay.loop.en-y0",
             "qsMay.grounded-loop.ex-y0",
             "qsMay.loop.en-y0",
         ),

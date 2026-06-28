@@ -24,18 +24,9 @@ stances:
     - " #   "
     - "#    "
     - "#    "  #
-    bitmaps:
-      pulled-back:
-        bitmap:
-        - "   # "  #
-        - "  #  "
-        - " #   "
-        - " #   "
-        - "#    "
-        - "#    "  #
     surface:
       entries: {baseline: {x: 0, stroke: vertical}}
-      exits: {x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}}
+      exits: {x-height: {x: 5, stroke: horizontal}}
       cells: []
       unlocks: []
       require: []
@@ -50,14 +41,6 @@ stances:
     - " #   "
     - "  ###"  #
     bitmaps:
-      pulled-back:
-        bitmap:
-        - "  ## "  #
-        - " #   "
-        - "#    "
-        - "#    "
-        - " #   "
-        - "  ## "  #
       reaches-way-back:
         bitmap:
         - "##### "  #
@@ -81,12 +64,7 @@ stances:
           stroke: horizontal
           joined: reaches-way-back
           from: [{family: [qsMay, qsFee], joined_at: x-height}]
-      exits:
-        baseline:
-          x: 5
-          stroke: horizontal
-          withdrawal: pulled-back
-          toward: [family: qsMay, family: qsNo]
+      exits: {baseline: {x: 5, stroke: horizontal}}
       cells:
       - {entry: x-height, exit: baseline, bitmap: reaches-way-back, exit_x: 6}
       - {entry: x-height, exit: baseline-withdrawn, bitmap: reaches-way-back-withdrawn}

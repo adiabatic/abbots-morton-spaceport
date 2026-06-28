@@ -97,7 +97,7 @@ def test_resolve_explicit_cell_bindings(spec):
     assert plan.bitmap == "pulled-back"
     assert plan.entry_x == 3
     assert plan.entry_stub is None and plan.exit_stub is None
-    assert not plan.safety_checks
+    assert plan.safety_checks == (("exit", "x-height"),)
     plan = surface.resolve_cell(spec, CellId("qsPea", "half", "x-height", "x-height", ()))
     assert plan.bitmap == "half-dips-both-sides"
     assert (plan.entry_x, plan.exit_x) == (0, 4)
@@ -111,11 +111,9 @@ def test_resolve_side_bindings_and_overrides(spec):
     assert plan.bitmap == "pulled-back-grounded"
     assert plan.entry_x == 2
     assert plan.exit_x == 4
-    # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands; the mid-word decline arrives as an ex-bind adjustment from settlement.
+    # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands. ·May's loop exit no longer withdraws — its pulled-back binding is entry-side only now — so there is no exit ex-bind rendering.
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", None, None, ()))
     assert plan.bitmap is None
-    plan = surface.resolve_cell(spec, CellId("qsMay", "loop", None, None, ("ex-bind-pulled-back",)))
-    assert plan.bitmap == "pulled-back"
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", "baseline", "x-height", ()))
     assert plan.bitmap is None
     assert (plan.entry_x, plan.exit_x) == (0, 5)

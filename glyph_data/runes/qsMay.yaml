@@ -76,9 +76,9 @@ stances:
           - {family: qsI}
           - {family: qsAh}
           - {family: qsUtter}
-      exits: {x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}}
+      exits: {x-height: {x: 5, stroke: horizontal}}
       pairings: {never: [{entry: baseline, exit: baseline}, {entry: x-height, exit: x-height}]}
-      cells: [{entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}]
+      cells: []
       unlocks: []
       require: []
   grounded-loop:

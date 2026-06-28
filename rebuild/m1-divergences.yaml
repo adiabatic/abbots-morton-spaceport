@@ -107,16 +107,6 @@
     Extensions never sum on one seam (design section 6.2): when the predecessor's exit already carries the seam's extra pixel, the follower's entry extension is suppressed. Today's pipeline applies both on these windows. Prototype divergence 3 / M1-PLAN expected class 4. Round-1 verdict: 28 approvals / 2 rejects / 3 eithers; the 2 rejects (u-0636 "new way has a worse ·May·It join", u-0656 "the old way seems nicer to write out by hand") contradict the 28 same-phenomenon approvals at window grain and honoring them would repeal the non-summing law, so they are presumed noise pending one ruling — re-present them next to u-0637/u-0654/u-0663.
     Round-2 verdict (POLICY-ROUND-2-REPORT.md): the two re-presented rejects (u-0417 ·Pea·May·It·May, u-0437 ◊ZWNJ ·May·It·May) were re-confirmed as rejects by the user. The build-tested lever hunt confirms there is no closed-vocabulary record that flips them to old ink without collateral: the only mechanism that drops ·May's en-ext-1 is this same non-summing suppression, which fires solely on the immediate-left predecessor's exit extension, so honoring the rejects would either repeal the 28-window non-summing law or require the same depth-2 left-context predicate the engine does not have. Status stays reviewed-approved (the 28 approvals govern the class); these 2 windows are documented engine-limited residue alongside the halves-entry-extension-restored 27, to be addressed by the same feature-scoped extension-suppression milestone.
 
-- id: may-exit-withdrawal-generalized
-  status: reviewed-approved
-  match: {predicate: may_exit_withdrawal_generalized, configs: all}
-  count: 1390
-  exemplars:
-    - {config: default, codepoints: "E665:E652", baseline: "qsMay|qsTea (connector kept)", new: "qsMay.loop.ex-bind-pulled-back|qsTea.full"}
-    - {config: ss03, codepoints: "E665:E652:E652", baseline: "qsMay.ex-ext-1|qsTea|qsTea (dangling extended connector)", new: "qsMay.loop.ex-bind-pulled-back|qsTea.full|qsTea.full"}
-  why: |
-    The withdrawal binding is cell semantics on every mid-word declined exit (design sections 3.2 and 5.1), generalizing today's before-entryless-ligature-only pull-back; boundaries keep the base drawing (anchor kept at boundary). Includes the cleanup of today's stranded ss03 ex-ext-1 connector extended toward a half-·Tea that never materializes. Round-1 verdict: 85 approvals / 52 eithers / 0 rejects — the pulled-back ·May bitmap is liked generally (the user's final taste, superseding the earlier loop-stance skip-notes). The round-1 reverts added 163 arrival rows whose only remaining delta is the pulled-back cell.
-
 - id: dangling-anchor-dropped
   status: intended
   match: {predicate: dangling_anchor_dropped, configs: all}

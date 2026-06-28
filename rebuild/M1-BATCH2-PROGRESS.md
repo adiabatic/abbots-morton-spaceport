@@ -1,6 +1,22 @@
 # M1 batch 2 — qsDay + qsUtter + qsNo: in-progress checkpoint
 
-Status as of the pause: **all hard gates green; oracle not yet clean (2,535 unmatched rows of 128,832 compared, down from 6,189).** Nothing committed. This note is the resume point — read it, re-run the oracle, and continue from the "Remaining work" section. The approved plan is `~/.claude/plans/crystalline-sprouting-ripple.md`.
+Status as of the pause: **all hard gates green; oracle not yet clean (4,169 unmatched rows of 128,832 compared — up from 2,535 after the 2026-06-27 pulled-back removal surfaced new joins; see that section).** Nothing committed. This note is the resume point — read it, re-run the oracle, and continue from the "Remaining work" section. The approved plan is `~/.claude/plans/crystalline-sprouting-ripple.md`.
+
+## Session update (2026-06-27): pulled-back removed, the new joins embraced
+
+Mid-adjudication the reviewer flagged that the `pulled-back` exit bitmap was rendering where it shouldn't. Investigation confirmed it was a rebuild-rune invention — the legacy shipped font has no pulled-back shape for any of these letters and draws their exit terminal nub unconditionally. Worse, the exit-side `withdrawal: pulled-back` was the implicit mechanism that kept several pairs _unjoined_: by retracting the connector it stopped the letter from reaching its follower, so settlement declined the join. Decision (user): **remove every exit-side pulled-back and embrace the joins that result.**
+
+What changed:
+
+- **Runes (`qsUtter`, `qsNo`, `qsDay`, `qsDay_qsUtter`, `qsMay`)** — deleted every exit-side `withdrawal: pulled-back` and its now-unused `bitmaps.pulled-back`. **·May keeps its entry-side stub** (`joined: pulled-back` / `pulled-back-grounded` + the `pulled-back-stubless` contract for ·Fee) — the one legitimate pulled-back, used only when a partner reaches over ·May at the x-height. `quikscript.yaml` reflowed (no semantic change).
+- **`m1-contact-allow.yaml`** — +26 `dangle:` blessings (a new category in the file): removing the withdrawal bindings makes the bare/word-final terminal nubs trip the E-DANGLE gate, so each is blessed as intentional letterform ink (matching the old font, which draws them unconditionally). The reaching pixel doesn't continue vertically, so `withdrawal: safe` can't earn the proof — the explicit bless is the honest record.
+- **`m1-divergences.yaml`** — **removed the `may-exit-withdrawal-generalized` ledger entry.** Its exemplars, `why`, and round-1 verdict ("the pulled-back ·May bitmap is liked generally") all describe the deleted behavior; this change reverses it. Its `classify_divergence` branch is **kept** (load-bearing — it routes the affected rows to UNMATCHED instead of letting `bare-name-live-join` reabsorb and hide them). Removing the entry surfaces its **220 rows / 61 windows** for fresh review (+10 default `extension-non-summing`, +51 `deferred-ss03` — mostly stylistic-set-gated, which is deferred anyway).
+
+Result: the new engine now joins pairs the old font left unjoined — ·Utter·No and ·No·No at the x-height, ·No·Tea flipping to join at the baseline, etc. Oracle **2,535 → 4,169 unmatched**, all within the five touched families (zero collateral). The review surface was rebuilt (15,645 units; family census now `no-chain-gains` 160, `tea-it-xheight` 39, `oy-it-baseline` 21, `may-utter-gains` 86, `seam-loss-withdrawal` 142, `extension-non-summing` 30, `unmatched-misc` 115, `deferred-ss04` 252, `deferred-ss10` 76, `deferred-ss03` 107). The census tests were re-baselined and the obsolete `test_a_may_exit_withdrawal_unit_is_visibly_different` deleted. `make test` green (6,753); rebuild suite 388 passed / 4 failed (the same pre-existing `test_spec_load`×3 + `test_surface`×1, confirmed red on clean HEAD).
+
+In-progress verdicts survived: the 147 verdicts in `verdicts-10.53.42AM.json` were remapped by content identity (`codepoints` + before/after render) onto the new `u-NNNN` ids → `verdicts-10.53.42AM.remapped.json` (120 carried, 27 dropped — exactly the pulled-back windows this change rewrote, 0 collisions). The remap tool is `tmp/remap_verdicts.py`; import the remapped file to resume.
+
+This supersedes methodology learning #5 below for these letters: the withdrawal binding is no longer the right model for their non-vertical exits — the terminal stays drawn (blessed dangle), and mid-word declines no longer pull back.
 
 ## Round 3 (2026-06-24): the verdict-family review surface is built
 
