@@ -253,15 +253,6 @@ function buildRow(unit) {
   row.dataset.group = unit.group;
 
   const label = el('div', 'label');
-  if (!unit.ink_identical) {
-    const clear = el('button', 'clear-verdict');
-    clear.type = 'button';
-    clear.title = "Clear this unit's verdict (Backspace or Delete; pressing its active verdict key again also clears)";
-    clear.tabIndex = -1;
-    clear.append(document.createTextNode('Clear '));
-    clear.append(el('kbd', null, '\u232b'));
-    label.append(clear);
-  }
   label.append(buildNotationLine(unit));
 
   const codepoints = el('div', 'codepoints');
@@ -314,6 +305,15 @@ function buildRow(unit) {
     button.append(kbd);
     buttons.append(button);
   }
+  if (!unit.ink_identical) {
+    const clear = el('button', 'clear-verdict');
+    clear.type = 'button';
+    clear.title = "Clear this unit's verdict (Backspace or Delete; pressing its active verdict key again also clears)";
+    clear.tabIndex = -1;
+    clear.append(document.createTextNode('Clear '));
+    clear.append(el('kbd', null, '⌫'));
+    buttons.append(clear);
+  }
   label.append(buttons);
 
   const note = el('input', 'note');
@@ -321,7 +321,6 @@ function buildRow(unit) {
   note.placeholder = 'note (n)';
   note.disabled = unit.ink_identical;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
-  label.append(note);
 
   const groups = renderGroupsOf(unit);
   row.append(label, buildSample(unit, 'before', groups[0].featureSettings), buildSample(unit, 'after', groups[0].featureSettings));
@@ -332,6 +331,7 @@ function buildRow(unit) {
     extra.append(buildSample(unit, 'before', group.featureSettings), buildSample(unit, 'after', group.featureSettings));
     row.append(extra);
   }
+  row.append(note);
 
   const summary = el('div', 'summary');
   summary.append(el('p', 'summary-text', unit.summary ?? ''));
