@@ -465,23 +465,6 @@ details.group {
   scroll-margin-top: 7rem;
   position: relative;
 
-  .clear-verdict {
-    position: absolute;
-    top: 0.45rem;
-    left: 0.75rem;
-    font-size: 12px;
-    padding: 0.1rem 0.45rem;
-    color: var(--muted);
-
-    kbd {
-      font-size: 10px;
-    }
-
-    &:disabled {
-      opacity: 0.3;
-    }
-  }
-
   &:last-child {
     border-bottom: none;
   }
@@ -693,6 +676,23 @@ details.group {
       justify-content: start;
       gap: 0.3rem;
 
+      .clear-verdict {
+        grid-row: 1;
+        grid-column: 4;
+        justify-self: start;
+        font-size: 12px;
+        padding: 0.1rem 0.45rem;
+        color: var(--muted);
+
+        kbd {
+          font-size: 10px;
+        }
+
+        &:disabled {
+          opacity: 0.3;
+        }
+      }
+
       .reject-menu {
         position: absolute;
         top: calc(100% + 0.35rem);
@@ -760,10 +760,35 @@ details.group {
           font-size: 10px;
         }
 
-        /* The column-3 stack under Identical: DOM order skip, reject, identical, approve fills row 1, then Either and Neither drop into rows 2 and 3 of the same column. */
-        &[data-verdict="either"],
-        &[data-verdict="neither"] {
+        /* The A/S/D/F home-row keys sit on the middle (D) row; the E/D/C keys stack vertically in column 3, matching their physical column on the keyboard. */
+        &[data-verdict="skip"] {
+          grid-row: 2;
+          grid-column: 1;
+        }
+
+        &[data-verdict="reject"] {
+          grid-row: 2;
+          grid-column: 2;
+        }
+
+        &[data-verdict="identical"] {
+          grid-row: 1;
           grid-column: 3;
+        }
+
+        &[data-verdict="either"] {
+          grid-row: 2;
+          grid-column: 3;
+        }
+
+        &[data-verdict="neither"] {
+          grid-row: 3;
+          grid-column: 3;
+        }
+
+        &[data-verdict="approve"] {
+          grid-row: 2;
+          grid-column: 4;
         }
 
         &[aria-pressed="true"] {
@@ -801,16 +826,18 @@ details.group {
         }
       }
     }
+  }
 
-    .note {
-      font: inherit;
-      font-size: 13px;
-      padding: 0.25rem 0.45rem;
-      border: 1px solid var(--hairline);
-      border-radius: 4px;
-      background: light-dark(#fafafa, #1f1f1f);
-      color: inherit;
-    }
+  .note {
+    grid-column: 1 / -1;
+    width: 100%;
+    font: inherit;
+    font-size: 13px;
+    padding: 0.25rem 0.45rem;
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    background: light-dark(#fafafa, #1f1f1f);
+    color: inherit;
   }
 
   .render-group {
