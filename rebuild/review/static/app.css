@@ -596,7 +596,6 @@ details.group {
       font-size: 11px;
       color: var(--muted);
 
-      .kind,
       .exemplar,
       .config-note,
       .config-class-note {
