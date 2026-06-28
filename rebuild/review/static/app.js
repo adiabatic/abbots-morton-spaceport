@@ -274,7 +274,6 @@ function buildRow(unit) {
 
   const meta = el('div', 'meta-chips');
   meta.append(el('span', 'unit-id', unit.id));
-  for (const kind of unit.kinds ?? []) meta.append(el('span', 'kind', kind));
   if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
   if (unit.ink_identical) {
     const badge = el('span', 'machine-badge', MACHINE_BADGE);
