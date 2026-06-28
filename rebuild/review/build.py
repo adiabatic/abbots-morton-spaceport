@@ -109,7 +109,7 @@ def _generated_at(*inputs: Path) -> str:
 
 FEATURE_DESCRIPTIONS = {
     "ss02": "allow ·I·Tea to join at the Short height",
-    "ss03": "allow ·Tea to be joined to at the x-height",
+    "ss03": "join ·Tea at the x-height as a full-size ·Tea (full when a baseline-join follows)",
     "ss04": "allow ·It to join at baseline after ·Day and before ·Low",
     "ss05": "allow ·Et·Tea·… double baseline joins again (older, manual-style behavior)",
     "ss06": "use gapped ·Owe (doesn’t connect at the top)",

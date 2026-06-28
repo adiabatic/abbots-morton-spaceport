@@ -6,7 +6,7 @@ boundary_tokens:
   namer-dot: {codepoint: 0x00B7, splits_runs: false}
 features:
   ss02: {kind: capability, description: "·Tea x-height entry after ·I"}
-  ss03: {kind: capability, description: "x-height exiters reach half-·Tea"}
+  ss03: {kind: capability, description: "x-height exiters reach ·Tea (full-size bar when a baseline-join follows, else the half stub)"}
   ss04: {kind: capability, description: "·It same-height baseline pass-through"}
   ss05: {kind: capability, description: "·Tea both-baseline after ·Et"}
   ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
