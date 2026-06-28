@@ -31,6 +31,7 @@
         <div id="search-results" role="listbox" aria-label="Search results across all classes" hidden></div>
       </div>
       <div class="strip-actions">
+        <button type="button" id="jump-unverdicted" title="Jump to the topmost unverdicted unit in this view">Top unverdicted</button>
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="copy-verdicts">Copy verdicts</button>
         <button type="button" id="open-import">Import…</button>
@@ -118,6 +119,7 @@
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
         </tbody>
       </table>
+      <p>Verdicting a unit that has no verdict yet advances to the next unverdicted unit; re-verdicting a unit that already has a verdict updates it in place and keeps the cursor put, so you can revise without losing your spot. The “Top unverdicted” button up top jumps to the topmost unverdicted unit in the current view.</p>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit shows a small badge (“only when ss03 is on”, “only under ss10”, …) only when its config set is informative — hover it for the full list. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
       <p>Units whose ink is pixel-identical in both fonts under every config were machine-approved at build time and are hidden by default; the “Show machine-approved” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
       <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the rebuild has no kerning until its own later milestone, so the old font’s kern feature would be pure comparison noise. Kern differences get their own review when that milestone lands.</p>

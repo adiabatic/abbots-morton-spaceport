@@ -282,6 +282,12 @@ function buildRow(unit) {
   }
   if (unit.config_note) {
     const badge = el('span', 'config-note');
+    const ssMatch =
+      unit.config_note.match(/^only when (ss\d+) is (on|off)$/) ?? unit.config_note.match(/^only under (ss\d+)$/);
+    if (ssMatch) {
+      badge.dataset.ss = ssMatch[1];
+      badge.dataset.state = ssMatch[2] === 'off' ? 'off' : 'on';
+    }
     badge.append(el('span', 'config-note-gate', unit.config_note));
     const detail = configNoteDetail(unit.config_note);
     if (detail) badge.append(el('span', 'config-note-detail', ` — ${detail}`));
@@ -704,6 +710,7 @@ function applyVerdict(unitId, verdict) {
   const row = rowFor(unitId);
   const note = row ? row.querySelector('.note').value : '';
   const existing = store.records.get(unitId);
+  const wasUnverdicted = !existing;
   if (existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
@@ -714,6 +721,7 @@ function applyVerdict(unitId, verdict) {
   if (store.unexported.size > 0 && store.unexported.size % 50 === 0) {
     toast(`${store.unexported.size} verdicts not yet exported — consider downloading verdicts.json`);
   }
+  return wasUnverdicted;
 }
 
 async function advanceFrom(unitId) {
@@ -744,8 +752,16 @@ async function advanceFrom(unitId) {
 function verdictCursor(verdict) {
   const unitId = cursorUnitId();
   if (!unitId) return;
-  applyVerdict(unitId, verdict);
-  advanceFrom(unitId);
+  if (applyVerdict(unitId, verdict)) advanceFrom(unitId);
+}
+
+function jumpToFirstUnverdicted() {
+  const open = visibleUnits.find((unit) => !store.records.has(unit.id));
+  if (!open) {
+    toast('Everything in this view is verdicted');
+    return;
+  }
+  setStateReplace({ unit: open.id });
 }
 
 let rejectMenuUnitId = null;
@@ -799,8 +815,7 @@ function chooseRejectOption(cannedNote) {
     row.querySelector('.note').value = cannedNote;
     updateNote(store, unitId, cannedNote);
   }
-  applyVerdict(unitId, 'reject');
-  advanceFrom(unitId);
+  if (applyVerdict(unitId, 'reject')) advanceFrom(unitId);
 }
 
 function rejectWithComment() {
@@ -863,8 +878,7 @@ function chooseNeitherOption(cannedNote) {
     row.querySelector('.note').value = cannedNote;
     updateNote(store, unitId, cannedNote);
   }
-  applyVerdict(unitId, 'neither');
-  advanceFrom(unitId);
+  if (applyVerdict(unitId, 'neither')) advanceFrom(unitId);
 }
 
 function neitherWithComment() {
@@ -1263,8 +1277,7 @@ function wireEvents() {
         openNeitherMenu(row.dataset.unit);
         return;
       }
-      applyVerdict(row.dataset.unit, verdictButton.dataset.verdict);
-      advanceFrom(row.dataset.unit);
+      if (applyVerdict(row.dataset.unit, verdictButton.dataset.verdict)) advanceFrom(row.dataset.unit);
       return;
     }
     const clear = event.target.closest('.clear-verdict');
@@ -1360,6 +1373,7 @@ function wireEvents() {
     selectSearchResult(row.dataset.unit);
   });
 
+  document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
   document.getElementById('next-batch').addEventListener('click', () => shiftBatch(1));
   document.getElementById('open-help').addEventListener('click', () => helpDialog.showModal());
