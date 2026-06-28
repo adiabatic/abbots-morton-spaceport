@@ -93,14 +93,14 @@ def test_every_real_unit_has_exactly_one_render_group(workload):
 
 
 def test_real_audit_dedupes_to_measured_counts(workload):
-    assert workload.row_count == 83597
-    assert len(workload.units) == 16422
-    assert sum(len(unit.rows) for unit in workload.units) == 83597
+    assert workload.row_count == 78865
+    assert len(workload.units) == 15645
+    assert sum(len(unit.rows) for unit in workload.units) == 78865
 
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
     exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    assert len(exemplar_keys) == 21
+    assert len(exemplar_keys) == 19
     covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
     assert exemplar_keys <= covered
 

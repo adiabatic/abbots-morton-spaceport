@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, may-exit-withdrawal-generalized units are not, the verdict is deterministic, and the full kern-neutral histogram pins 8,317 machine-approved / 8,105 human units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 10,267 machine-approved / 5,378 human units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning."""
 
 from pathlib import Path
 
@@ -16,10 +16,9 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 MACHINE_BY_CLASS = {
-    "zwnj-word-initial-unification": 921,
-    "halves-entry-extension-restored": 5,
-    "dangling-anchor-dropped": 5551,
-    "bare-name-live-join": 1840,
+    "zwnj-word-initial-unification": 979,
+    "dangling-anchor-dropped": 6874,
+    "bare-name-live-join": 2414,
 }
 
 
@@ -69,13 +68,6 @@ def test_u_0000_is_ink_identical(workload, comparator):
     assert comparator.ink_identical(_text(unit), unit.configs) is True
 
 
-def test_a_may_exit_withdrawal_unit_is_visibly_different(workload, comparator):
-    units = [unit for unit in workload.units if unit.class_id == "may-exit-withdrawal-generalized"]
-    assert units
-    unit = units[0]
-    assert comparator.ink_identical(_text(unit), unit.configs) is False
-
-
 def test_verdicts_are_deterministic_across_two_comparators(workload, comparator):
     again = InkComparator(BEFORE_FONT, AFTER_FONT)
     sample = workload.units[::200]
@@ -85,19 +77,19 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 8,317 of 16,422 units are ink-identical under every config in their sets, concentrated in the name-grain classes (dangling-anchor-dropped, bare-name-live-join, the zwnj unification, and a few halves-entry-extension stragglers) whose visible difference is only the old font's kerning — leaving 8,105 units of human workload. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
+    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 10,267 of 15,645 units are ink-identical under every config in their sets, concentrated in the name-grain classes (dangling-anchor-dropped, bare-name-live-join, the zwnj unification) whose visible difference is only the old font's kerning — leaving 5,378 units of human workload. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
     machine_by_class: dict[str, int] = {}
     for unit in workload.units:
         if comparator.ink_identical(_text(unit), unit.configs):
             unit.ink_identical = True
             machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    assert sum(machine_by_class.values()) == 8317
-    assert len(workload.units) - sum(machine_by_class.values()) == 8105
+    assert sum(machine_by_class.values()) == 10267
+    assert len(workload.units) - sum(machine_by_class.values()) == 5378
     assert machine_by_class == MACHINE_BY_CLASS
     assert not any(unit.class_id == "UNMATCHED" and unit.ink_identical for unit in workload.units)
 
     batches = assign_batches(workload.units)
-    assert batches == 28
+    assert batches == 18
     human = [unit for unit in workload.units if not unit.ink_identical]
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical)

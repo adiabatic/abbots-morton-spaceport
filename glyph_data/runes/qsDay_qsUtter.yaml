@@ -20,22 +20,9 @@ stances:
     - "##     "
     - "#      "
     y_offset: -3
-    bitmaps:
-      pulled-back:
-        bitmap:
-        - "#    # "  #
-        - "#   #  "
-        - "#  #   "
-        - "#  #   "
-        - "# #    "
-        - "# #    "  #
-        - "##     "
-        - "##     "
-        - "#      "
-        y_offset: -3
     surface:
       entries: {x-height: {x: 0, stroke: vertical}}
-      exits: {x-height: {x: 7, stroke: horizontal, withdrawal: pulled-back}}
+      exits: {x-height: {x: 7, stroke: horizontal}}
       cells: []
       unlocks: []
       require: []
@@ -53,22 +40,9 @@ stances:
     - "##      "
     - "#       "
     y_offset: -3
-    bitmaps:
-      pulled-back:
-        bitmap:
-        - "     ## "  #
-        - "    #   "
-        - "   #    "
-        - "   #    "
-        - "  #     "
-        - "# #     "  #
-        - "##      "
-        - "##      "
-        - "#       "
-        y_offset: -3
     surface:
       entries: {baseline: {x: 0, stroke: diagonal}}
-      exits: {x-height: {x: 8, stroke: horizontal, withdrawal: pulled-back}}
+      exits: {x-height: {x: 8, stroke: horizontal}}
       cells: []
       unlocks: []
       require: []

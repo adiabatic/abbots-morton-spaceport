@@ -19,16 +19,16 @@ AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
 MEASURED_CENSUS = {
-    "no-chain-gains": 67,
+    "no-chain-gains": 160,
     "tea-it-xheight": 39,
-    "oy-it-baseline": 22,
-    "may-utter-gains": 24,
-    "seam-loss-withdrawal": 154,
-    "extension-non-summing": 15,
-    "unmatched-misc": 3,
-    "deferred-ss04": 253,
+    "oy-it-baseline": 21,
+    "may-utter-gains": 86,
+    "seam-loss-withdrawal": 142,
+    "extension-non-summing": 30,
+    "unmatched-misc": 115,
+    "deferred-ss04": 252,
     "deferred-ss10": 76,
-    "deferred-ss03": 68,
+    "deferred-ss03": 107,
 }
 
 
@@ -151,7 +151,7 @@ def test_partition_is_total_and_matches_the_measured_census(assigned):
     census: dict[str, int] = {}
     for family in assigned:
         census[family] = census.get(family, 0) + 1
-    assert sum(census.values()) == 721, "every UNMATCHED window must land in exactly one family"
+    assert sum(census.values()) == 1028, "every UNMATCHED window must land in exactly one family"
     assert census == MEASURED_CENSUS
 
 
