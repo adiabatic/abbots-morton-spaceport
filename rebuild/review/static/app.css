@@ -530,6 +530,7 @@ details.group {
   }
 
   .label {
+    align-self: start;
     font-size: 14px;
     color: light-dark(#444, #ccc);
     display: flex;
