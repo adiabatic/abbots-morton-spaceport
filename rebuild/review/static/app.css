@@ -465,6 +465,10 @@ details.group {
   scroll-margin-top: 7rem;
   position: relative;
 
+  & > .qs {
+    grid-row: 1;
+  }
+
   &:last-child {
     border-bottom: none;
   }
@@ -530,6 +534,7 @@ details.group {
   }
 
   .label {
+    grid-row: 1 / span 2;
     align-self: start;
     font-size: 14px;
     color: light-dark(#444, #ccc);
@@ -830,7 +835,9 @@ details.group {
   }
 
   .note {
-    grid-column: 1 / -1;
+    grid-column: 2 / -1;
+    grid-row: 2;
+    align-self: start;
     width: 100%;
     font: inherit;
     font-size: 13px;
