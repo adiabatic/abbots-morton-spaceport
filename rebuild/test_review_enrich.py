@@ -101,6 +101,15 @@ def test_pair_codepoints_covers_the_pairs_codepoint_span(enricher, units_by_key)
     assert ligated.notation_tokens == ("◊ZWNJ", "·Tea", "·Oy")
 
 
+def test_position_only_drift_marks_the_boundary_without_a_pair(enricher, units_by_key):
+    # A kern-channel-out-of-scope unit: an advance-only one-pixel drift on the boundary-adjacent letter, no cell- or seam-grain divergence. The mark lands on the word break beside the drift (the ◊ZWNJ), and pair stays None so no sample band lights up.
+    enriched = enricher.enrich(units_by_key[("E650:E650:200C:E67A", "ss10")])
+    assert enriched.pair is None
+    assert enriched.diff_positions == ()
+    assert enriched.notation_tokens == ("·Pea", "·Pea", "◊ZWNJ", "·Utter")
+    assert enriched.pair_codepoints == (2, 2)
+
+
 def test_parse_entry_extension():
     assert parse_entry_extension(("en-ext-1",)) == 1
     assert parse_entry_extension(("en-con-2", "locked")) == -2

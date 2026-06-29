@@ -269,6 +269,15 @@ def _highlight(
     return {"x_min": pens[first], "x_max": pens[last + 1], "advance_total": pens[-1]}
 
 
+def _advance_drift_cell(before_pens: list[int], after_pens: list[int], cell_count: int) -> int | None:
+    """The first cell whose kern-neutral advance differs between the two fonts, or None. Locates a position-only divergence with no cell- or seam-grain pair — the kern-channel-out-of-scope residue, an advance-only one-pixel drift on the boundary-adjacent letter. The drift's gap is the word break beside it, so the caller marks the nearest boundary token (the ◊ZWNJ / ␣ / · that brackets the gap), not the letter, and never lights up a sample band."""
+    limit = min(cell_count, len(before_pens) - 1, len(after_pens) - 1)
+    for index in range(limit):
+        if before_pens[index + 1] - before_pens[index] != after_pens[index + 1] - after_pens[index]:
+            return index
+    return None
+
+
 class Enricher:
     """Holds the loaded spec, the per-config baseline subset tables, a kern-neutral shaper per font, and the alias map; `enrich` computes every precomputed shard field for one unit under its first config."""
 
@@ -374,6 +383,12 @@ class Enricher:
         before_pens = _pen_positions(before_shaped.positions)
 
         pair_codepoints = (after_spans[pair[0]][0], after_spans[pair[1]][1] - 1) if pair is not None else None
+        if pair is None and not diff_positions:
+            drifted = _advance_drift_cell(before_pens, after_pens, len(settled))
+            if drifted is not None:
+                boundaries = [i for i in range(len(settled)) if values[after_spans[i][0]] in BOUNDARIES]
+                mark = min(boundaries, key=lambda i: (abs(i - drifted), i)) if boundaries else drifted
+                pair_codepoints = (after_spans[mark][0], after_spans[mark][1] - 1)
         if pair is not None:
             cp_start, cp_end = pair_codepoints
         elif diff_positions:
