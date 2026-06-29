@@ -2,7 +2,7 @@
 
 The living checkpoint for turning the round-3 review verdicts into rune-data edits, one logical change at a time. Each change is made, eyeballed, and committed on its own before the next begins — commits are the real checkpoint; this file tracks what each commit accounted for, what remains, and the open questions.
 
-> **Resume here (2026-06-29).** This is an in-flight pass _within_ the M1 round-3 adjudication — finish it before resuming WHATNEXT.md's main migration thread. **The extensions/contractions phase is COMPLETE** (E1 `8749048`, E3 `5ffff0e`; E2 parked; same-seam + contractions no-op). **Next up: Phase 2** — start with `seam-loss-withdrawal` (83 rejects, the pulled-back aftermath); see "Phase 2 candidates" below. Workflow rules: one logical change per commit, verify each with the **full-rebuild recipe** (not just the settle probe — see "Resume commands"), show the user before committing, and keep this file honest. Working style the user likes: scope each edit tightly, prove it surgical, present pros/cons, don't commit without approval.
+> **Resume here (2026-06-29, updated).** This is an in-flight pass _within_ the M1 round-3 adjudication — finish it before resuming WHATNEXT.md's main migration thread. **The extensions/contractions phase is COMPLETE** (E1 `8749048`, E3 `5ffff0e`; E2 parked; same-seam + contractions no-op). **Phase 2 (`seam-loss-withdrawal`, 83 rejects) is IN PROGRESS — Group A is COMMITTED.** Next: re-verify and land **Group B** (qsIt, 16 windows) and **Group D-1** (qsNo, 1 window); Group C is **held** and D-2 + 6 windows are **parked**. See the full "Phase 2 — seam-loss-withdrawal" section below for the triage table, the exact edits, and the per-group status. Workflow rules: one logical change per commit, verify each with the **full-rebuild recipe** (not just the settle probe — see "Resume commands"), show the user before committing, and keep this file honest. Working style the user likes: scope each edit tightly, prove it surgical, present pros/cons, don't commit without approval.
 
 ## Source of truth
 
@@ -44,9 +44,24 @@ The extension/contraction story is concentrated in three review classes plus one
 
 **Extensions/contractions phase: COMPLETE** (2026-06-29) — E1 + E3 committed, E2 parked, same-seam + contractions no-op.
 
-## Phase 2 candidates (verdict piles outside extensions)
+## Phase 2 — seam-loss-withdrawal (IN PROGRESS)
 
-Reject-heavy / mixed (need rune work): `seam-loss-withdrawal` (59a / **83r** — the 2026-06-27 pulled-back-removal aftermath, the biggest actionable reject pile). Mostly-neither: `regrouping-floor-drift` (24n), `deferred-ss04` (44r but ssNN-parked). Approve-heavy (likely confirm-only no-ops): `no-chain-gains` 160, `kern-channel-out-of-scope` 187, `may-utter-gains` 86, `ss03-chain-join-gains` 70, `entered-it-baseline-join-gain` 87, `tea-it-xheight` 39, `pea-chain-regularized` 37, `oy-it-baseline` 20.
+The 83 `seam-loss-withdrawal` rejects (the 2026-06-27 pulled-back-removal aftermath, biggest actionable reject pile) triage into **three root causes / five logical changes**. Triaged + empirically settle-tested 2026-06-29 (workflow `seam-loss-withdrawal-triage`; harness `tmp/seam_loss_probe.py` and the clean-vs-candidate differ `tmp/seam_loss_diff.py`). **Use `seam_loss_diff.py` as the collateral arbiter** — it re-settles BOTH the real runes and a candidate dir under the default config and flags only windows that actually move; the bare shard comparison reads STALE shard `after` seams and reports phantom regressions (the trap two triage agents nearly fell into).
+
+| # | Logical change | Rune edit | Restores | Collateral | Status |
+| --- | --- | --- | ---: | --- | --- |
+| **A** | word-initial ·Utter·No keeps its x-height join | `qsUtter` refuse `{stance: alternate, exit: baseline, when: {left: {is: boundary}, right: {family: qsNo}}}` | 43/config (44 ss03) | 0, all 8 configs | **COMMITTED** (`e300b13` + the `flipped`→`alternate` rename; user-framed as "'un-' shouldn't use alternate ·Utter", The Manual p21). Full-rebuild verified −304 oracle rows; `make test` green (6753). |
+| **B** | ·It·It·Utter joins again | `qsIt` policy.refuse (the before-·Utter veto whose `when` is `self: {entry: none}`, `right: {family: qsUtter}`): drop `qsIt` from its `left.family` list | 16/16 | 0 (settle-level) | **NEXT** — re-verify against current HEAD (the 4 post-A commits moved the baseline), full-rebuild, then commit. |
+| **D-1** | ·No·May·May·May joins | `qsNo` policy.prefer `{cell: {exit: baseline}, over: {exit: x-height}, when: {right: {family: qsMay}}}` | 1/3 | 0 (settle-level) | **NEXT** — re-verify + full-rebuild, then commit. |
+| **C** | word-initial ·Pea·No / ·Tea·No join | `qsPea` + `qsTea` prefer `{cell: {exit: x-height}, over: {exit: baseline}, when: {left: {is: boundary}, right: {family: qsNo}}}` | 14/20 | 0 | **HELD** (user, 2026-06-29): the same lever turns 4 ◊ZWNJ·Pea/·Tea·No windows from break → x-height (not the old baseline) — a behavior change to bless or narrow first. |
+| **D-2** | 2× ◊ZWNJ·Utter·May | qsUtter `self.entry: live` relax + qsMay x-height-entry refuse | 2 | **9 regressions** | **PARK/REWORK** — the qsUtter relaxation flips 9 approved `ss03-chain-join-gains` (·Utter·May·Tea) from baseline → x-height under default; net loss for 2 targets. (The D-triage agent missed this; caught by `seam_loss_diff.py`.) |
+| **—** | 6 engine-limited | — | — | — | **PARK** as documented drift in the `seam-loss-withdrawal` ledger entry (mirror the round-2 prose): ·Oy·Tea·No ×2, ◊ZWNJ·Pea·No ×2, ◊ZWNJ·Tea·No ×2 — they want the predecessor at the _baseline_ because ·No flips for its follower, a depth-2/3 left/right fact the frozen `when:` cannot read (same wall as round 2). |
+
+**Root causes:** A+C are the **qsNo chain-flip** (·No takes its baseline `flipped`/`alternate` stance to gain a forward join, lowering/breaking the predecessor join); B is the **·It·It·Utter withdrawal** (the second ·It, entered by the first, is vetoed before ·Utter by a carried-over before-·Utter refuse); D is the **·May tail**. The settle probe is **default-config only** — the commit gate is always the full per-config rebuild diff.
+
+### Remaining Phase-2 piles (after seam-loss-withdrawal)
+
+Mostly-neither: `regrouping-floor-drift` (24n), `deferred-ss04` (44r but ssNN-parked). Approve-heavy (likely confirm-only no-ops): `no-chain-gains` 160, `kern-channel-out-of-scope` 187, `may-utter-gains` 86, `ss03-chain-join-gains` 70, `entered-it-baseline-join-gain` 87, `tea-it-xheight` 39, `pea-chain-regularized` 37, `oy-it-baseline` 20.
 
 ## Open follow-ups / questions
 
@@ -56,8 +71,9 @@ Reject-heavy / mixed (need rune work): `seam-loss-withdrawal` (59a / **83r** —
 ## Gates / known state
 
 - **Settle probe** (per-change spot check): see commands below.
-- **Rebuild suite:** `uv run pytest rebuild/ -n auto --dist worksteal -q`. Baseline on a clean tree = **4 pre-existing failures** (`test_surface::test_real_cell_bindings_all_match`, `test_spec_load::{test_loads_all_six_runes, test_predicate_class_membership, test_group_resolution}`) — unrelated to this work. Any rune edit also trips `test_review_enrich::test_derived_cells_match_the_audit` until the review surface is rebuilt; that one is **expected**, not a regression.
-- **`make test`** (main font, `test/ site/`) does not read the rune files; runs green independently.
+- **Rebuild suite:** `uv run pytest rebuild/ -n auto --dist worksteal -q`. **Updated baseline (2026-06-29): a clean HEAD now fails ~13**, not 4 — the 4 documented (`test_surface::test_real_cell_bindings_all_match`, `test_spec_load::{test_loads_all_six_runes, test_predicate_class_membership, test_group_resolution}`) **plus ~9 review-census pins** (`test_review_audit`, `test_review_families`, `test_review_ink`, `test_review_build::{machine_approved_histogram, secondary_seam_census, config_note_distribution, full_build_passes_the_contract_checker, batches_cover_the_human_workload_only, export_round_trip}`). Cause: the committed review surface (`rebuild/out/review`, gitignored) is **stale relative to HEAD** — it predates E1/E3. A rune edit adds ~2 more expected trips (`test_review_enrich`, `test_review_drafts`). **All review failures clear on a phase-end `uv run python -m rebuild.review.build` into `rebuild/out/review` + a census-pin re-baseline** (do this once the seam-loss edits land, like the round-3 rebuild did). Distinguish real regressions by diffing the failure set against this clean-HEAD baseline.
+- **`make test`** (main font, `test/ site/`) does not read the rune files; runs green independently (6753 passed).
+- **Collateral verification harness (this pass):** `tmp/seam_loss_diff.py <candidate_runes_dir>` re-settles the real runes and a candidate dir under the default config and reports per-group target restoration + any approved-window movement (real collateral). `tmp/seam_loss_probe.py` is the older shard-comparison probe — prefer the differ; the shard `after` seams are config-shadowed and produce phantom regressions.
 
 ## Resume commands
 
