@@ -3,7 +3,7 @@ codepoint: 0xE67A
 ductus:
   mono: |
     A short stroke begun at the top right, curving down and to the left to the baseline.  # DRAFT — pending author sign-off
-  flipped: |
+  alternate: |
     The mirror motion: begun at the lower left, curving up and over to exit on the right; when a previous letter joins at the x-height, the opening bar reaches back across it.  # DRAFT — pending author sign-off
 mono:
   bitmap:
@@ -30,8 +30,8 @@ stances:
       cells: []
       unlocks: []
       require: []
-  flipped:
-    way: flipped
+  alternate:
+    way: alternate
     traits: [alt]
     bitmap:
     - "  ## "  #
@@ -71,18 +71,18 @@ stances:
       unlocks: []
       require: [exit]
 policy:
-  order: [mono, flipped]
+  order: [mono, alternate]
   refuse:
   - {stance: flipped, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
   - stance: mono
     exit: x-height
     when: {right: {family: qsMay}}
-    why: '·Utter·May joins at the baseline today (baseline E67A:E665, the old before-may stance qsUtter.alt.ex-y0 → qsMay.en-y0): ·Utter takes its flipped baseline exit into ·May, not the mono x-height exit. Refusing the mono x-height exit before ·May forces the flipped baseline join even where the mono exit would otherwise chain an extra join.'
+    why: '·Utter·May joins at the baseline today (baseline E67A:E665, the old before-may stance qsUtter.alt.ex-y0 → qsMay.en-y0): ·Utter takes its alternate baseline exit into ·May, not the mono x-height exit. Refusing the mono x-height exit before ·May forces the alternate baseline join even where the mono exit would otherwise chain an extra join.'
   prefer: []
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  - stance: flipped
+  - stance: alternate
     entry: x-height
     by: 1
     when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}

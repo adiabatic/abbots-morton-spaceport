@@ -63,8 +63,8 @@ qsOy: {rune: qsOy, stance: loop}
 qsOy.en-y5.ex-y0: {rune: qsOy, stance: loop, entry: x-height, exit: baseline}
 qsOy.noentry: {rune: qsOy, stance: loop, adjustments: [locked]}
 qsUtter: {rune: qsUtter, stance: mono}
-qsUtter.alt.en-y5.ex-y0.reaches-way-back: {rune: qsUtter, stance: flipped, entry: x-height, exit: baseline}
-qsUtter.alt.ex-y0: {rune: qsUtter, stance: flipped, exit: baseline}
-qsUtter.alt.ex-y0.before-may: {rune: qsUtter, stance: flipped, exit: baseline}
+qsUtter.alt.en-y5.ex-y0.reaches-way-back: {rune: qsUtter, stance: alternate, entry: x-height, exit: baseline}
+qsUtter.alt.ex-y0: {rune: qsUtter, stance: alternate, exit: baseline}
+qsUtter.alt.ex-y0.before-may: {rune: qsUtter, stance: alternate, exit: baseline}
 qsUtter.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [ex-ext-1]}
 qsUtter.noentry: {rune: qsUtter, stance: mono, adjustments: [locked]}

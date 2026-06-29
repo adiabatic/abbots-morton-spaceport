@@ -35,7 +35,7 @@
   match: {predicate: zwnj_word_initial_seam_moved, configs: all}
   count: 0
   exemplars:
-    - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.flipped.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
+    - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
   why: |
     A sibling of zwnj-word-initial-unification for the case where the old `.noentry` shadow stance joined its follower at a different seam height than word-initial settlement does, so the unification moves the seam rather than agreeing on it. Post-ZWNJ ·Utter·May is the worked example: today's `qsUtter.noentry` shadow joins ·May at the x-height (y5), but settling the post-ZWNJ ·Utter as word-initial — byte-identical to its post-space and bare forms, all of which join ·May at the baseline (y0) — lands the join at y0. The old shipped font is itself inconsistent here (post-space ·Utter·May joins at y0 while post-ZWNJ joins at y5); the new model unifies post-ZWNJ to the word-initial form (design section 3.4). The predicate fires only when the sole seam change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a seam still routes to its own class. Status drift-accepted pending a human verdict pass: this is a real visible seam-height change, so it should be ratified like zwnj-follower-exit-restored was, not silently absorbed.
 
