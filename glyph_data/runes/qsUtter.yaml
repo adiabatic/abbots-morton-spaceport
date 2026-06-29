@@ -74,6 +74,10 @@ policy:
   order: [mono, alternate]
   refuse:
   - {stance: alternate, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
+  - stance: alternate
+    exit: baseline
+    when: {left: {is: boundary}, right: {family: qsNo}}
+    why: “un-”, as a prefix, should not use the alternate ·Utter. It says so in The Manual, on page 21.
   - stance: mono
     exit: x-height
     when: {right: {family: qsMay}}
