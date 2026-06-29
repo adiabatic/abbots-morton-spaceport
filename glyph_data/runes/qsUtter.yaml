@@ -2,9 +2,9 @@ rune: qsUtter
 codepoint: 0xE67A
 ductus:
   mono: |
-    A short stroke begun at the top right, curving down and to the left to the baseline.  # DRAFT — pending author sign-off
+    A short stroke begun at the bottom left, curving upwards and rightwards, to the x-height.
   alternate: |
-    The mirror motion: begun at the lower left, curving up and over to exit on the right; when a previous letter joins at the x-height, the opening bar reaches back across it.  # DRAFT — pending author sign-off
+    Begun at the top, curving leftward and downward, eventually looping around to the bottom right at the baseline. When a previous letter joins at the x-height, the pen will double back over the connecting stroke a bit.
 mono:
   bitmap:
   - "   ##"  #
