@@ -155,7 +155,7 @@ policy:
     exit: x-height
     by: 1
     ok: [1, 1]
-    when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}
+    when: {right: {family: [qsDay, qsDay_qsUtter, qsFee, qsJai, qsJay, qsRoe, qsIt]}}
   - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   - {stance: loop, exit: x-height, by: 1, when: {self: {entry: live}}}
   - stance: loop
