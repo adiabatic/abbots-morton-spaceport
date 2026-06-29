@@ -937,7 +937,7 @@ details.group {
     -webkit-font-smoothing: none;
     font-smooth: never;
     position: relative;
-    white-space: nowrap;
+    white-space: pre;
     overflow-x: auto;
     --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
     background-image:
