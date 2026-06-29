@@ -39,7 +39,14 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null });
+});
+
+test('a units worklist rides the hash and round-trips', () => {
+  assert.equal(parseHash('#units=u-1163,u-2224').units, 'u-1163,u-2224');
+  assert.equal(parseHash('#batch=0').units, null);
+  const serialized = writeHash({ batch: 0, units: 'u-1163,u-2224' });
+  assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
 });
 
 test('the machine toggle rides the hash and round-trips', () => {

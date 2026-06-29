@@ -19,6 +19,7 @@ import {
   seamChip,
   familiesOfGroup,
   unitMatchesFilters,
+  unitWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -131,6 +132,20 @@ function ensureAllShards() {
 }
 
 async function unitsForView(batch, classFilter) {
+  if (state.units) {
+    await ensureAllShards();
+    const seen = new Set();
+    const units = [];
+    for (const id of unitWorklist(state.units)) {
+      const unit = unitsById.get(id);
+      if (unit && !seen.has(id)) {
+        seen.add(id);
+        units.push(unit);
+      }
+    }
+    units.sort((a, b) => a.group.localeCompare(b.group) || a.id.localeCompare(b.id));
+    return units;
+  }
   const classes = [];
   for (const cls of manifest.classes) {
     if (classFilter) {
@@ -678,6 +693,7 @@ async function applyHashState() {
     state.family,
     state.status,
     state.machine,
+    state.units,
     transientMachineUnitId,
   ]);
   if (key !== renderedKey) {
