@@ -73,7 +73,7 @@ stances:
 policy:
   order: [mono, alternate]
   refuse:
-  - {stance: flipped, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
+  - {stance: alternate, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
   - stance: mono
     exit: x-height
     when: {right: {family: qsMay}}
