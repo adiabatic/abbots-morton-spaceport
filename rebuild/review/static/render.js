@@ -56,10 +56,15 @@ export function familiesOfGroup(group) {
   return group ? group.split(':') : [];
 }
 
+export function unitWorklist(value) {
+  return value ? value.split(',').map((id) => id.trim()).filter(Boolean) : [];
+}
+
 export function unitMatchesFilters(unit, filters, record) {
   if (filters.class && unit.class !== filters.class) return false;
   if (filters.group && unit.group !== filters.group) return false;
   if (filters.family && !familiesOfGroup(unit.group).includes(filters.family)) return false;
+  if (filters.units && !unitWorklist(filters.units).includes(unit.id)) return false;
   if (filters.config && !unit.configs.includes(filters.config)) return false;
   if (filters.status && filters.unit !== unit.id) {
     if (filters.status === 'unverdicted') return !record;

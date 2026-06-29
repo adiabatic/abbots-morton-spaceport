@@ -10,6 +10,7 @@ import {
   seamChip,
   familiesOfGroup,
   unitMatchesFilters,
+  unitWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -117,6 +118,21 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
   assert.equal(unitMatchesFilters(unit, { ...empty, status: 'reject' }, { verdict: 'approve' }), false);
 });
 
+test('unitWorklist splits, trims, and drops empties', () => {
+  assert.deepEqual(unitWorklist('u-1163,u-2224'), ['u-1163', 'u-2224']);
+  assert.deepEqual(unitWorklist(' u-1163 , u-2224 ,'), ['u-1163', 'u-2224']);
+  assert.deepEqual(unitWorklist(''), []);
+  assert.deepEqual(unitWorklist(null), []);
+});
+
+test('the units worklist filter keeps only the listed ids and composes with other filters', () => {
+  const unit = shardA[0];
+  const empty = { class: null, group: null, family: null, config: null, status: null, units: null };
+  assert.equal(unitMatchesFilters(unit, { ...empty, units: `other,${unit.id}` }, undefined), true);
+  assert.equal(unitMatchesFilters(unit, { ...empty, units: 'u-9990,u-9991' }, undefined), false);
+  assert.equal(unitMatchesFilters(unit, { ...empty, units: unit.id, class: 'dangling-anchor-dropped' }, undefined), false);
+});
+
 const emptyFilters = {
   class: null,
   group: null,
@@ -124,9 +140,16 @@ const emptyFilters = {
   config: null,
   status: null,
   machine: null,
+  units: null,
 };
 const allUnits = [...shardA, ...shardB];
 const noRecords = () => undefined;
+
+test('partitionUnits with a units worklist narrows the human queue to the listed ids', () => {
+  const wanted = allUnits.filter((unit) => !unit.ink_identical).slice(0, 2).map((unit) => unit.id);
+  const { human } = partitionUnits(allUnits, { ...emptyFilters, units: wanted.join(',') }, noRecords);
+  assert.deepEqual(human.map((unit) => unit.id).sort(), [...wanted].sort());
+});
 
 test('ink-identical units are hidden unless the machine toggle is on', () => {
   const off = partitionUnits(allUnits, emptyFilters, noRecords);
