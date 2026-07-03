@@ -25,6 +25,22 @@
   why: The same y6 corner with the second ·Pea in the half way exiting at the x-height mid-chain.
 - signature: contact:qsPea.half.ex-y6:qsPea.half.en-y6.ex-y6:y7
   why: The same y6 corner continuing the ·Pea·Pea·Pea chain.
+- signature: contact:qsPea.half.en-y5.ex-y6:qsPea.full.en-y6:y7
+  why: The blessed ·Pea·Pea y6 corner with the left ·Pea entered at the x-height (·May·Pea·Pea and friends, the 2026-07-03 pairing lift).
+- signature: contact:qsPea.half.en-y5.ex-y6:qsPea.full.en-y6.ex-y0:y7
+  why: The x-height-entered variant; right ·Pea carries the baseline exit onward.
+- signature: contact:qsPea.half.en-y5.ex-y6:qsPea.half.en-y6.ex-y5:y7
+  why: The x-height-entered variant; right half ·Pea exits at the x-height.
+- signature: contact:qsPea.half.en-y5.ex-y6:qsPea.half.en-y6.ex-y6:y7
+  why: The x-height-entered variant; the chain continues.
+- signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.full.en-y6:y7
+  why: The extended-entry twin of the x-height-entered ·Pea·Pea y6 corner.
+- signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.full.en-y6.ex-y0:y7
+  why: The extended-entry twin; right ·Pea carries the baseline exit onward.
+- signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.half.en-y6.ex-y5:y7
+  why: The extended-entry twin; right half ·Pea exits at the x-height.
+- signature: contact:qsPea.half.en-y5.ex-y6.en-ext-1:qsPea.half.en-y6.ex-y6:y7
+  why: The extended-entry twin; the chain continues.
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6:y7
   why: Mid-chain variant of the blessed ·Pea·Pea y6 corner (left ·Pea itself entered at y6).
 - signature: contact:qsPea.half.en-y6.ex-y6:qsPea.full.en-y6.ex-y0:y7
@@ -145,6 +161,12 @@
   why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
 - signature: contact:qsPea.full.en-y5.ex-y0:qsUtter.mono.en-y0:y1
   why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0:y1
+  why: ·Pea entered at the top join keeps its baseline exit into ·Utter (the 2026-07-03 u-1344 wish); ·Pea's right downstroke abuts ·Utter's left downstroke at y1, the same corner as the en-y5 siblings.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: ·Pea entered at the top join keeps its baseline exit into ·Utter (the 2026-07-03 u-1344 wish); ·Pea's right downstroke abuts ·Utter's left downstroke at y1, the same corner as the en-y5 siblings.
+- signature: contact:qsPea.full.en-y6.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: ·Pea entered at the top join keeps its baseline exit into ·Utter (the 2026-07-03 u-1344 wish); ·Pea's right downstroke abuts ·Utter's left downstroke at y1, the same corner as the en-y5 siblings.
 - signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
   why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
 - signature: contact:qsPea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
@@ -284,6 +306,8 @@
   why: ·May entered at the baseline keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsMay.loop.en-y0.en-ext-1:exit:x-height
   why: The extended-entry variant of ·May's loop x-height terminal entered at the baseline; the entry extension does not move the exit nub.
+- signature: dangle:qsMay.loop.en-y5:exit:x-height
+  why: ·May entered at the x-height (·Utter's reach into the stubless pulled-back form) keeps the same loop x-height terminal on a declined exit.
 - signature: dangle:qsMay.loop.en-y5.en-ext-1:exit:x-height
   why: The extended-entry variant of ·May's loop x-height terminal entered at the x-height; the entry extension does not move the exit nub.
 - signature: dangle:qsMay.loop.locked:exit:x-height

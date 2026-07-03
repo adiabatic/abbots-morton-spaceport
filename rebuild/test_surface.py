@@ -87,15 +87,15 @@ def test_qsmay_and_ligature_cells(spec):
 def test_qspea_pairings_and_dip_cells(spec):
     cells = cells_as_tuples(spec, "qsPea")
     assert ("half", "x-height", "x-height") in cells
-    assert ("half", "x-height", "y6") not in cells
+    assert ("half", "x-height", "y6") in cells
     assert ("full", "baseline", "baseline") not in cells
     assert ("half", "y6", "y6") in cells
 
 
 def test_resolve_explicit_cell_bindings(spec):
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", "x-height", None, ()))
-    assert plan.bitmap == "pulled-back"
-    assert plan.entry_x == 3
+    assert plan.bitmap == "pulled-back-stubless"
+    assert plan.entry_x == 2
     assert plan.entry_stub is None and plan.exit_stub is None
     assert plan.safety_checks == (("exit", "x-height"),)
     plan = surface.resolve_cell(spec, CellId("qsPea", "half", "x-height", "x-height", ()))

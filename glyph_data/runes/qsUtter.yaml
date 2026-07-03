@@ -80,9 +80,11 @@ policy:
     why: “un-”, as a prefix, should not use the alternate ·Utter. It says so in The Manual, on page 21.
   - stance: mono
     exit: x-height
-    when: {right: {family: qsMay}}
-    why: '·Utter·May joins at the baseline today (baseline E67A:E665, the old before-may stance qsUtter.alt.ex-y0 → qsMay.en-y0): ·Utter takes its alternate baseline exit into ·May, not the mono x-height exit. Refusing the mono x-height exit before ·May forces the alternate baseline join even where the mono exit would otherwise chain an extra join.'
-  prefer: []
+    when: {self: {entry: none}, right: {family: qsMay}}
+  prefer:
+  - cell: {exit: none}
+    over: {exit: x-height}
+    when: {right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}

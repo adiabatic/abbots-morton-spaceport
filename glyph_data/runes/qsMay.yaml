@@ -33,18 +33,6 @@ stances:
     - "  ## "
     y_offset: -3
     bitmaps:
-      pulled-back:
-        bitmap:
-        - "   # "  #
-        - "  #  "
-        - "  #  "
-        - " #   "
-        - " #   "
-        - "#### "  #
-        - " #  #"
-        - " #  #"
-        - "  ## "
-        y_offset: -3
       pulled-back-stubless:
         bitmap:
         - "  # "  #
@@ -63,7 +51,8 @@ stances:
         x-height:
           x: 3
           stroke: horizontal
-          joined: pulled-back
+          joined: pulled-back-stubless
+          joined_x: 2
           from:
           - {family: qsDay_qsUtter}
           - {family: qsThey_qsUtter}
@@ -138,18 +127,16 @@ policy:
     exit: baseline
     when:
       right: {family: [qsTea, qsDay, qsZoo, qsHe, qsNo, qsRoe, qsIt, qsEat, qsUtter, qsOoze]}
-    why: These never receive ·May's grounded baseline exit. (·Tea is baseline-proven — today ·May·Tea breaks while ·May·May joins — and the off-anchor contact gate independently rejects the loop top touching the bar.)
   - stance: grounded-loop
     exit: baseline
     when: {self: {entry: live}, right: {family: [qsThaw, qsYe]}}
     why: ·Thaw and ·Ye additionally reject the grounded exit when ·May is entered at the x-height.
   prefer:
-  - cell: {exit: baseline}
-    when: {left: {is: boundary}, right: {family: qsMay}}
-    why: 'Round-1 verdict on ·May·May·May·May — "the old way seems nicer to write out by hand": at word start, pair up — the grounded baseline join into the next ·May beats declining when the join counts tie.'
-  - cell: {exit: baseline}
-    when: {left: {family: qsMay, joined_at: none}, right: {family: qsMay}}
-    why: 'Chain interior of the same verdict ("the old way seems nicer to write out by hand"): after an unjoined ·May, pair with the next ·May. The acceptance oracle''s window universe tops out at four letters, where the word-start record alone already reproduces every outcome (including the u-0341 quad flip), so this record is invisible to the divergence audit — do not delete it as redundant. Its real load is ·May chains of five or more, which without it regress to the rejected defer-to-the-tail grouping instead of the old greedy y0 | break | y0 | break pairing the shipped font draws at every length; the length-5 and length-6 settle assertions in rebuild/test_settle.py pin it. Like the word-start record, its left: condition can never match a non-·May predecessor seam.'
+  - cell: {exit: x-height}
+    over: {entry: x-height}
+    when: {left: {family: qsUtter}, right: {except: [family: qsTea]}}
+  - {cell: {exit: baseline}, when: {left: {is: boundary}, right: {family: qsMay}}}
+  - {cell: {exit: baseline}, when: {left: {family: qsMay, joined_at: none}, right: {family: qsMay}}}
   extend:
   - stance: loop
     exit: x-height
@@ -170,11 +157,6 @@ policy:
     entry: x-height
     by: 1
     when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
-  contract:
-  - stance: loop
-    entry: x-height
-    bind: pulled-back-stubless
-    when: {left: {family: qsFee, joined_at: x-height}}
-    why: ·Fee's long reach-over absorbs the baseline stub; the redraw spans rows, so it is a bound shape, not arithmetic.
+  contract: []
   resolve: []
   groups: {}
