@@ -172,6 +172,22 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
     return summary
 
 
+def run_zwnj_gate(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
+    spec = load_default_spec()
+    report = conform.run_zwnj_equivalence(out_dir / "M1.otf", spec, max_length=max_length, out_dir=out_dir)
+    summary = {
+        "sequences": report.sequences,
+        "shaping_runs": report.shaping_runs,
+        "divergences": len(report.divergences),
+        "pass": not report.divergences,
+    }
+    for divergence in report.divergences[:20]:
+        summary.setdefault("divergence_exemplars", []).append(
+            f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
+        )
+    return summary
+
+
 def run_oracle(out_dir: Path = OUT_DIR) -> dict:
     spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
@@ -210,6 +226,12 @@ def main() -> None:
     print(json.dumps(summary, indent=2))
     if summary["defect_errors"]:
         raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
+    zwnj_gate = run_zwnj_gate()
+    print(json.dumps(zwnj_gate, indent=2))
+    if not zwnj_gate["pass"]:
+        raise SystemExit(
+            "ZWNJ-equals-word-boundary gate failed; see zwnj_equivalence_summary.json"
+        )
     oracle = run_oracle()
     print(json.dumps(oracle, indent=2))
     if not oracle["pass"]:

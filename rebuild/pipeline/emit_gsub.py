@@ -227,7 +227,11 @@ def _settle_lines(
 
 
 def _assert_invariants(
-    rules: Iterable, named_glyphs: frozenset[str], fea: str, locked: frozenset[str]
+    rules: Iterable,
+    named_glyphs: frozenset[str],
+    fea: str,
+    locked: frozenset[str],
+    allowed_ignores: frozenset[str] = frozenset(),
 ) -> None:
     for rule in rules:
         for slot in (rule.look1, rule.look2):
@@ -249,7 +253,11 @@ def _assert_invariants(
                     missing.add(name)
     if missing:
         raise EmitError(f"rules name glyphs outside the planned glyph set: {sorted(missing)}")
-    selection_lines = [line for line in fea.split("\n") if "ignore sub" in line and "namer_dot" not in line]
+    selection_lines = [
+        line
+        for line in fea.split("\n")
+        if "ignore sub" in line and line.split("#")[0].strip() not in allowed_ignores
+    ]
     if selection_lines:
         raise EmitError(f"selection-semantics ignore sub leaked into the emitted FEA: {selection_lines[:3]}")
 
@@ -313,6 +321,8 @@ def emit_gsub(
             namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
             namer_lines.append(
                 "lookup m1_namer_dot_word_start {\n"
+                # HarfBuzz skips default-ignorables (ZWNJ) in contextual matching unless a rule names them, so without this ignore the dot would lower "through" a ZWNJ, breaking the ZWNJ-equals-word-boundary invariant (design section 3.4).
+                f"    ignore sub {dot_glyph}' uni200C;\n"
                 f"    sub {dot_glyph}' @m1_namer_short_followers by {lowered_glyph};\n"
                 "} m1_namer_dot_word_start;"
             )
@@ -354,7 +364,10 @@ def emit_gsub(
     named_glyphs.update(names_by_cell.values())
     named_glyphs.update(spec.runes)
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
-    _assert_invariants(rules, frozenset(named_glyphs), fea, locked_set)
+    allowed_ignores = (
+        frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
+    )
+    _assert_invariants(rules, frozenset(named_glyphs), fea, locked_set, allowed_ignores)
 
     return GsubPlan(
         fea_text=fea,

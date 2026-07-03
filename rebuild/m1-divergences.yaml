@@ -1,16 +1,25 @@
 # The M1 divergence ledger (M1-PLAN section 6): one entry per reviewed divergence class between the settlement function and the section 13.1 baseline oracle over the 8-symbol alphabet.
-# Every divergent row must match exactly one entry; `conform.classify_divergence` assigns each row the single highest-precedence class from its phenomenon set (ligation, then seam topology, then cell-grain deltas in the order extension-restored > non-summing > withdrawal > locked > dropped > added), so the predicates partition by construction. Counts are filled from the conformance run and reviewed as a diff; the run never writes this file. Per-row detail lands in rebuild/out/m1/divergence-audit.tsv.
+# Every divergent row must match exactly one entry; `conform.classify_divergence` assigns each row the single highest-precedence class from its phenomenon set (the ZWNJ blanket first — any non-position row whose window contains a ZWNJ — then ligation, then seam topology, then cell-grain deltas in the order extension-restored > non-summing > withdrawal > locked > dropped > added), so the predicates partition by construction. Counts are filled from the conformance run and reviewed as a diff; the run never writes this file. Per-row detail lands in rebuild/out/m1/divergence-audit.tsv.
 # Status vocabulary: intended (designed behavior, no review needed) | drift-accepted (observed drift accepted pending human review) | triaged (explicit triage channel) | reviewed-approved (the class behavior was triaged by the user in the round-1 verdict pass and approved; the divergence is user-ratified, not merely drift-accepted) | reviewed-rejected (the class behavior was rejected in the round-1 verdict pass and that round's policy records restore the old behavior; the surviving rows are the documented residue).
+
+- id: zwnj-boundary-echo
+  status: intended
+  match: {predicate: zwnj_boundary_echo, configs: all}
+  count: 17995
+  exemplars:
+    - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.locked|qsMay.loop.en-y0 (y0 join, word-initial)"}
+  why: |
+    The ratified ZWNJ-equals-word-boundary rule (2026-07-03, generalizing design section 3.4): a window containing a ZWNJ never needs its own verdict. Post-ZWNJ is definitionally word-initial and pre-ZWNJ definitionally word-final, so the new font renders every segment of a ZWNJ window identically to that segment standing alone — a guarantee that lives in the font's vetting code, not in this transitional ledger: check_split_buffer + check_zwnj_structure enforce it per build over the exhaustive enumeration (with the namer-dot carve-out removed — the dot no longer lowers through a ZWNJ, the last cross-ZWNJ behavior), and the rune schema no longer admits `is: zwnj`, so no record can ever distinguish a ZWNJ context from a text edge. A ZWNJ row can therefore only diverge from the baseline in two ways, neither adjudicable here: a segment-internal divergence, which resurfaces on the segment's own enumerated row (every segment of a length-≤5 window is itself a length-≤5 window), or the old font's shadow-universe inconsistency across the ZWNJ (post-space ·Utter·May joins at y0 while post-ZWNJ joined at y5), which is exactly what the rule retires — unrecoverable by design, since honoring it would resurrect the shadow universe. Subsumes the ZWNJ share of the former zwnj-word-initial-unification (round-1: 1,421 ink-identical rows), zwnj-follower-exit-restored (reviewed-approved), and zwnj-word-initial-seam-moved classes, and the round-2 re-adjudication of the same-question-twice pairs (u-15220 approve vs u-15230 reject on identical new ink) that motivated the rule. Position-only rows are exempt and still route through kern attribution.
 
 - id: zwnj-word-initial-unification
   status: intended
   match: {predicate: zwnj_word_initial_unification, configs: all}
   ink_identical: true
-  count: 1421
+  count: 0
   exemplars:
     - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.bar.locked|qsIt.bar"}
   why: |
-    Post-ZWNJ is definitionally word-initial in the new model (design section 3.4): the authored .noentry shadow universe is deleted and the chokepoint mints generated locked twins instead, so every post-ZWNJ position diverges at name grain (old `<x>.noentry` or a contextually leaked bare name, new `<cell>.locked`). Seams agree; the locked twin's drawing equals the old shadow glyph's.
+    Post-ZWNJ is definitionally word-initial in the new model (design section 3.4): the authored .noentry shadow universe is deleted and the chokepoint mints generated locked twins instead, so every post-ZWNJ position diverges at name grain (old `<x>.noentry` or a contextually leaked bare name, new `<cell>.locked`). Seams agree; the locked twin's drawing equals the old shadow glyph's. Since the zwnj-boundary-echo blanket (above) now takes every ZWNJ row first, this entry keeps only the namer-dot remainder of the shadow-universe deletion — the old pipeline minted the same `.noentry` shadows after the namer dot (id kept for the documentation trail).
 
 - id: marker-staging-ligature-formation
   status: intended
@@ -19,16 +28,16 @@
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.bar-into-loop.locked"}
   why: |
-    Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals ratify the intent (the four "·May should use the loop stance" skip-notes are superseded by the user's final taste — ·May already settles on the loop stance with the pulled-back exit bind).
+    Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals ratify the intent (the four "·May should use the loop stance" skip-notes are superseded by the user's final taste — ·May already settles on the loop stance with the pulled-back exit bind). The zwnj-boundary-echo blanket (above) now takes the post-ZWNJ flavor; this entry keeps the ss03 and post-namer-dot rows.
 
 - id: zwnj-follower-exit-restored
   status: reviewed-approved
   match: {predicate: zwnj_follower_exit_restored, configs: all}
-  count: 30
+  count: 0
   exemplars:
     - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.bar.en-y5 (y0 join gained)"}
   why: |
-    Today's qsMay.noentry shadow stance carries no exit anchor, so a post-ZWNJ ·May cannot join rightward at all; the chokepoint twin severs only the entry (the ZWNJ break is the left seam), so the follower's own right-side joins are restored. Design section 3.4: ZWNJ splits the run, it does not mute the word-initial letter's surface. Round-1 verdict: 6 approvals; u-0267's window additionally lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (the gained join survives).
+    Today's qsMay.noentry shadow stance carries no exit anchor, so a post-ZWNJ ·May cannot join rightward at all; the chokepoint twin severs only the entry (the ZWNJ break is the left seam), so the follower's own right-side joins are restored. Design section 3.4: ZWNJ splits the run, it does not mute the word-initial letter's surface. Round-1 verdict: 6 approvals; u-0267's window additionally lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (the gained join survives). Since the zwnj-boundary-echo blanket (above) now takes every ZWNJ row first, this entry keeps only the namer-dot flavor, if any — the old font's post-dot shadows also mute right-side joins (id kept for the documentation trail).
 
 - id: zwnj-word-initial-seam-moved
   status: drift-accepted
@@ -37,7 +46,7 @@
   exemplars:
     - {config: default, codepoints: "200C:E67A:E665", baseline: "space|qsUtter.noentry|qsMay.en-y5 (y5 join on the shadow)", new: "uni200C|qsUtter.alternate.ex-baseline|qsMay.loop.en-baseline (y0 join, word-initial)"}
   why: |
-    A sibling of zwnj-word-initial-unification for the case where the old `.noentry` shadow stance joined its follower at a different seam height than word-initial settlement does, so the unification moves the seam rather than agreeing on it. Post-ZWNJ ·Utter·May is the worked example: today's `qsUtter.noentry` shadow joins ·May at the x-height (y5), but settling the post-ZWNJ ·Utter as word-initial — byte-identical to its post-space and bare forms, all of which join ·May at the baseline (y0) — lands the join at y0. The old shipped font is itself inconsistent here (post-space ·Utter·May joins at y0 while post-ZWNJ joins at y5); the new model unifies post-ZWNJ to the word-initial form (design section 3.4). The predicate fires only when the sole seam change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a seam still routes to its own class. Status drift-accepted pending a human verdict pass: this is a real visible seam-height change, so it should be ratified like zwnj-follower-exit-restored was, not silently absorbed.
+    A sibling of zwnj-word-initial-unification for the case where the old `.noentry` shadow stance joined its follower at a different seam height than word-initial settlement does, so the unification moves the seam rather than agreeing on it. Post-ZWNJ ·Utter·May is the worked example: today's `qsUtter.noentry` shadow joins ·May at the x-height (y5), but settling the post-ZWNJ ·Utter as word-initial — byte-identical to its post-space and bare forms, all of which join ·May at the baseline (y0) — lands the join at y0. The old shipped font is itself inconsistent here (post-space ·Utter·May joins at y0 while post-ZWNJ joins at y5); the new model unifies post-ZWNJ to the word-initial form (design section 3.4). The predicate fires only when the sole seam change is a move with no gain and no loss, so a post-ZWNJ row that also gains or loses a seam still routes to its own class. The pending human verdict pass this entry carried is discharged by the ratified ZWNJ-equals-word-boundary rule: the zwnj-boundary-echo blanket (above) now takes every ZWNJ row first, so this entry keeps only the namer-dot flavor, if any (id kept for the documentation trail).
 
 - id: pre-ligature-cleanup-regularized
   status: reviewed-approved

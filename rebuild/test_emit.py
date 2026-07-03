@@ -163,7 +163,10 @@ class TestEmitGsub:
         assert "lookup m1_namer_dot_word_start {" in fea
         followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
         assert all(name.startswith(("qsIt", "qsOy")) for name in followers)
-        assert "ignore sub" not in fea
+        lookup_body = fea.split("lookup m1_namer_dot_word_start {")[1].split("}")[0]
+        assert lookup_body.index("ignore sub periodcentered' uni200C;") < lookup_body.index(
+            "sub periodcentered' @m1_namer_short_followers by periodcentered.lowered;"
+        )
 
 
 class TestEmitGpos:

@@ -59,6 +59,7 @@ E679 E670                 # Oy It
 00B7 E670                 # namer dot before short It (lowers)
 00B7 E652                 # namer dot before tall Tea (stays)
 E665 00B7 E670            # mid-word namer dot before It
+00B7 200C E670            # namer dot ZWNJ It (the dot must not lower through the ZWNJ)
 #
 # Four-family seams and longer mixed windows.
 E650 E665 E652            # Pea May Tea
