@@ -161,6 +161,13 @@ def zwnj_slots(text: str, shaped: list[dict]) -> set[int]:
     }
 
 
+def splitting_boundary_chars(spec: ResolvedSpec) -> frozenset[str]:
+    """The characters of every run-splitting boundary token (space and ZWNJ today; the namer dot deliberately does not split runs and is excluded)."""
+    return frozenset(
+        chr(token.codepoint) for token in spec.registry.boundary_tokens.values() if token.splits_runs
+    )
+
+
 def normalize_actual(text: str, shaped: list[dict]) -> list[str]:
     slots = zwnj_slots(text, shaped)
     return [
@@ -252,14 +259,29 @@ def _slot_signature(shaper: Shaper, glyph: dict) -> tuple:
     return (shaper.outline_signature(glyph["name"]), glyph["x_advance"], glyph["x_offset"], glyph["y_offset"])
 
 
-def check_split_buffer(text, config, features, shaper: Shaper, shaped, divergences) -> None:
-    """ZWNJ split-buffer equivalence, compared per slot on (outline, advance, offsets) — name-blind, because locked twins are bitmap-identical to the bare runes by design."""
-    slots = zwnj_slots(text, shaped)
+def check_split_buffer(
+    text, config, features, shaper: Shaper, shaped, divergences, splitters: frozenset[str] = frozenset({ZWNJ})
+) -> None:
+    """Run-splitting-boundary split-buffer equivalence: with every splitter slot dropped, the buffer must match its splitter-separated segments shaped alone, compared per slot on (outline, advance, offsets) — name-blind, because locked twins are bitmap-identical to the bare runes by design."""
+    slots = {
+        index
+        for index, glyph in enumerate(shaped)
+        if glyph["cluster"] < len(text) and text[glyph["cluster"]] in splitters
+    }
     full = [glyph for index, glyph in enumerate(shaped) if index not in slots]
+    segments, current = [], []
+    for ch in text:
+        if ch in splitters:
+            if current:
+                segments.append("".join(current))
+                current = []
+        else:
+            current.append(ch)
+    if current:
+        segments.append("".join(current))
     split: list[dict] = []
-    for segment in text.split(ZWNJ):
-        if segment:
-            split.extend(shaper.shape(segment, features))
+    for segment in segments:
+        split.extend(shaper.shape(segment, features))
     if len(full) != len(split):
         divergences.append(
             Divergence(
@@ -406,31 +428,32 @@ def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[
     return labels
 
 
-def run_zwnj_equivalence(
+def run_boundary_equivalence(
     font_path: Path,
     spec: ResolvedSpec,
     configs: Iterable[str] = ACCEPTANCE_CONFIGS,
     max_length: int = 5,
     out_dir: Path | None = None,
 ) -> ConformReport:
-    """The ZWNJ-equals-word-boundary vetting gate: every length-1..max_length sequence containing at least one ZWNJ must shape slot-for-slot identically (outline, advance, offsets) to its ZWNJ-split segments shaped alone (check_split_buffer), and every ZWNJ slot must be zero-advance and inkless (check_zwnj_structure). Font-internal only — no settlement, no oracle, no ledger — so it runs on every build and any divergence is a defect by definition. This is the permanent, exhaustive form of the rule the transitional zwnj-boundary-echo ledger class rides on."""
+    """The boundary-equals-text-edge vetting gate: every length-1..max_length sequence containing at least one run-splitting boundary (space or ZWNJ) must shape slot-for-slot identically (outline, advance, offsets) to its boundary-split segments shaped alone (check_split_buffer), and every ZWNJ slot must be zero-advance and inkless (check_zwnj_structure). Font-internal only — no settlement, no oracle, no ledger — so it runs on every build and any divergence is a defect by definition. This is the permanent, exhaustive form of the rule the transitional zwnj-boundary-echo ledger class rides on. The namer dot is deliberately outside the invariant: it does not split runs and stays addressable as `is: namer-dot`."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
+    splitters = splitting_boundary_chars(spec)
     report = ConformReport(font=str(font_path))
     features_by_config = {config: features_for_config(config) for config in configs}
     for length in range(1, max_length + 1):
         for combo in itertools.product(alphabet, repeat=length):
             text = "".join(combo)
-            if ZWNJ not in text:
+            if not (set(text) & splitters):
                 continue
             report.sequences += 1
             for config, features in features_by_config.items():
                 shaped = shaper.shape(text, features)
                 report.shaping_runs += 1
                 check_zwnj_structure(text, config, shaper, shaped, report.divergences)
-                check_split_buffer(text, config, features, shaper, shaped, report.divergences)
+                check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
     if out_dir is not None:
-        report.write(Path(out_dir) / "zwnj_equivalence_summary.json")
+        report.write(Path(out_dir) / "boundary_equivalence_summary.json")
     return report
 
 
@@ -468,6 +491,7 @@ def run_conformance(
     ]
     report.sequences = len(sequences)
 
+    splitters = splitting_boundary_chars(spec)
     for text in sequences:
         codepoints = [ord(ch) for ch in text]
         for config in configs:
@@ -475,8 +499,8 @@ def run_conformance(
             shaped = shaper.shape(text, features)
             report.shaping_runs += 1
             check_zwnj_structure(text, config, shaper, shaped, report.divergences)
-            if ZWNJ in text:
-                check_split_buffer(text, config, features, shaper, shaped, report.divergences)
+            if set(text) & splitters:
+                check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
             settled = settle_module.settle(spec, codepoints, features)
             expected_cells = settled_names(spec, settled, glyph_names)
             if isolated_overlay_active(spec, features):
@@ -726,7 +750,10 @@ def _ss10_isolation_completed(row: DivergentRow) -> bool:
             return False
         if old_seam in ("break", "lig"):
             continue
-        neighbors = {runes[index] if index < len(runes) else "?", runes[index + 1] if index + 1 < len(runes) else "?"}
+        neighbors = {
+            runes[index] if index < len(runes) else "?",
+            runes[index + 1] if index + 1 < len(runes) else "?",
+        }
         if not (neighbors & SS10_UNCOVERED_BY_OLD_FONT):
             return False
         saw_loss = True

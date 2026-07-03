@@ -266,15 +266,18 @@ def test_trait_qualified_except_atom_rejected(tmp_path):
     assert any("trait" in issue.message and "not representable" in issue.message for issue in error.issues)
 
 
-def test_zwnj_not_addressable_in_when(tmp_path):
-    """The grammar half of the ZWNJ-equals-word-boundary guarantee: `is: zwnj` is not in the schema's boundaryValue enum, so no record can render a ZWNJ context differently from the same letters at a text edge. The rendering half is conform.check_split_buffer."""
-    text = MINIMAL_RUNE + textwrap.dedent("""\
-        policy:
-          refuse:
-          - {exit: baseline, when: {left: {is: zwnj}}}
-        """)
-    error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("got 'zwnj'" in issue.message for issue in error.issues)
+def test_run_splitting_boundaries_not_addressable_in_when(tmp_path):
+    """The grammar half of the boundary-equals-text-edge guarantee: neither `is: zwnj` nor `is: space` is in the schema's boundaryValue enum, so no record can render a run-splitting boundary context differently from the same letters at a text edge. The rendering half is conform.check_split_buffer. The namer dot does not split runs and stays addressable."""
+    for kind in ("zwnj", "space"):
+        text = MINIMAL_RUNE + textwrap.dedent(f"""\
+            policy:
+              refuse:
+              - {{exit: baseline, when: {{left: {{is: {kind}}}}}}}
+            """)
+        error = load_tmp_error(tmp_path, {"qsIt": text})
+        enum_issues = [issue.message for issue in error.issues if f"got '{kind}'" in issue.message]
+        assert enum_issues, kind
+        assert all("'namer-dot'" in message for message in enum_issues), kind
 
 
 def test_codepoint_must_match_registry(tmp_path):

@@ -52,7 +52,7 @@
     "heightOrNone": {"enum": ["baseline", "x-height", "y6", "top", "none"]},
     "cellSide": {"enum": ["baseline", "x-height", "y6", "top", "none", "baseline-withdrawn", "x-height-withdrawn", "y6-withdrawn", "top-withdrawn"]},
     "strokeOrientation": {"description": "A stroke orientation: `horizontal`, `vertical`, or `diagonal`. Matches when the neighbor presents this stroke at the seam.", "enum": ["horizontal", "vertical", "diagonal"]},
-    "boundaryValue": {"description": "Matches a boundary rather than a letter. `space` and `namer-dot` each match just that token; `boundary` matches those two, ZWNJ, and the start or end of the text (where there's no glyph at all). ZWNJ is deliberately not addressable on its own: post-ZWNJ is definitionally word-initial and pre-ZWNJ definitionally word-final (design section 3.4), so no record may render a ZWNJ context differently from the same letters at a text edge.", "enum": ["boundary", "space", "namer-dot"]},
+    "boundaryValue": {"description": "Matches a boundary rather than a letter. `namer-dot` matches just the namer dot; `boundary` matches the namer dot, space, ZWNJ, and the start or end of the text (where there's no glyph at all). Space and ZWNJ are deliberately not addressable on their own: they split runs, so what follows one is definitionally word-initial and what precedes one definitionally word-final (design section 3.4), and no record may render them differently from the same letters at a text edge. The namer dot stays addressable because it does not split runs.", "enum": ["boundary", "namer-dot"]},
     "featureTag": {"type": "string", "pattern": "^ss[0-9]{2}$"},
     "drawing": {
       "type": "object",
