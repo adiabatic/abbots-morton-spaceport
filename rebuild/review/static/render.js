@@ -75,14 +75,17 @@ export function unitMatchesFilters(unit, filters, record) {
 }
 
 export function partitionUnits(units, filters, recordOf) {
+  const worklist = Boolean(filters.units);
+  const effective = worklist ? { units: filters.units } : filters;
+  const showMachine = filters.machine === '1' || worklist;
   const human = [];
   const machine = [];
   for (const unit of units) {
     if (unit.ink_identical) {
-      if (filters.machine === '1' && unitMatchesFilters(unit, { ...filters, status: null }, undefined)) {
+      if (showMachine && unitMatchesFilters(unit, { ...effective, status: null }, undefined)) {
         machine.push(unit);
       }
-    } else if (unitMatchesFilters(unit, filters, recordOf(unit.id))) {
+    } else if (unitMatchesFilters(unit, effective, recordOf(unit.id))) {
       human.push(unit);
     }
   }

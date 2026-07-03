@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseHash, writeHash, STATE_KEYS } from '../static/state.js';
+import { parseHash, writeHash, STATE_KEYS, shedWorklist } from '../static/state.js';
 
 test('parseHash returns nulls for an empty hash', () => {
   const state = parseHash('');
@@ -47,6 +47,20 @@ test('a units worklist rides the hash and round-trips', () => {
   assert.equal(parseHash('#batch=0').units, null);
   const serialized = writeHash({ batch: 0, units: 'u-1163,u-2224' });
   assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
+});
+
+test('shedWorklist drops units when a navigation patch changes class, batch, group, config, family, or status', () => {
+  for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
+    assert.equal(shedWorklist({ [key]: value }).units, null, `changing ${key} must shed the worklist`);
+  }
+  const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
+  assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
+});
+
+test('shedWorklist keeps a cursor move or machine toggle inside the worklist', () => {
+  assert.deepEqual(shedWorklist({ unit: 'u-0003' }), { unit: 'u-0003' });
+  assert.deepEqual(shedWorklist({ machine: '1' }), { machine: '1' });
+  assert.deepEqual(shedWorklist({}), {});
 });
 
 test('the machine toggle rides the hash and round-trips', () => {
