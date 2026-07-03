@@ -1,4 +1,4 @@
-import { parseHash, writeHash } from './state.js';
+import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
 import {
   createStore,
@@ -94,14 +94,14 @@ function withDefaults(parsed) {
 }
 
 function setState(patch) {
-  state = { ...state, ...patch };
+  state = { ...state, ...shedWorklist(patch) };
   const serialized = writeHash(state);
   if (location.hash.replace(/^#/, '') !== serialized) location.hash = serialized;
   else applyHashState();
 }
 
 function setStateReplace(patch) {
-  state = { ...state, ...patch };
+  state = { ...state, ...shedWorklist(patch) };
   history.replaceState(null, '', `#${writeHash(state)}`);
   applyHashState();
 }
@@ -459,7 +459,9 @@ function renderMachineSection(container, machine) {
   const heading =
     state.machine === '1'
       ? `Machine-approved in this view: ${machine.length} ink-identical units (no verdict needed)`
-      : 'This deep-linked unit is machine-approved (ink-identical) — no verdict needed; it stays out of your queue and disappears when you move on.';
+      : state.units
+        ? `Machine-approved in your worklist: ${machine.length} ink-identical unit${machine.length === 1 ? '' : 's'} shown below (no verdict needed)`
+        : 'This deep-linked unit is machine-approved (ink-identical) — no verdict needed; it stays out of your queue and disappears when you move on.';
   container.append(el('h2', 'machine-heading', heading));
   const byClass = new Map();
   for (const unit of machine) {
@@ -482,6 +484,10 @@ function renderMachineSection(container, machine) {
     fold.addEventListener('toggle', () => {
       if (fold.open) build();
     });
+    if (state.units) {
+      fold.open = true;
+      build();
+    }
     container.append(fold);
   }
 }
@@ -699,6 +705,11 @@ async function applyHashState() {
   if (key !== renderedKey) {
     renderBatch(human, machine);
     renderedKey = key;
+    if (state.units) {
+      const listed = new Set(unitWorklist(state.units)).size;
+      const shown = human.length + machine.length;
+      if (shown < listed) toast(`${listed - shown} of ${listed} listed units aren't in this build — showing the ${shown} that are.`);
+    }
   }
   populateFilterOptions();
   syncFilterControls();

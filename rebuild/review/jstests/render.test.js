@@ -151,6 +151,36 @@ test('partitionUnits with a units worklist narrows the human queue to the listed
   assert.deepEqual(human.map((unit) => unit.id).sort(), [...wanted].sort());
 });
 
+test('a units worklist spanning classes and batches keeps every listed unit visible, including a machine-approved one', () => {
+  const machineUnit = allUnits.find((unit) => unit.ink_identical);
+  const humanUnits = allUnits.filter((unit) => !unit.ink_identical);
+  const wanted = [humanUnits[0].id, machineUnit.id, humanUnits[humanUnits.length - 1].id];
+  const { human, machine } = partitionUnits(allUnits, { ...emptyFilters, units: wanted.join(',') }, noRecords);
+  const shown = new Set([...human, ...machine].map((unit) => unit.id));
+  for (const id of wanted) assert.ok(shown.has(id), `${id} must render in the worklist view`);
+  assert.ok(machine.some((unit) => unit.id === machineUnit.id), 'a machine-approved unit named in the worklist stays visible without the machine toggle');
+  assert.ok(human.some((unit) => unit.id === humanUnits[0].id), 'the human units in the worklist stay in the verdict queue');
+  assert.ok(human.some((unit) => unit.id === humanUnits[humanUnits.length - 1].id), 'a worklist unit from a different class and batch still renders');
+});
+
+test('a units worklist is exclusive: class/config/status filters never drop a listed id', () => {
+  const machineUnit = allUnits.find((unit) => unit.ink_identical);
+  const humanUnits = allUnits.filter((unit) => !unit.ink_identical);
+  const wanted = [humanUnits[0].id, machineUnit.id, humanUnits[humanUnits.length - 1].id];
+  const filters = {
+    ...emptyFilters,
+    units: wanted.join(','),
+    class: 'dangling-anchor-dropped',
+    config: 'ss04',
+    status: 'verdicted',
+  };
+  const { human, machine } = partitionUnits(allUnits, filters, noRecords);
+  const shown = new Set([...human, ...machine].map((unit) => unit.id));
+  for (const id of wanted) assert.ok(shown.has(id), `${id} must render despite conflicting class/config/status filters`);
+  assert.ok(machine.some((unit) => unit.id === machineUnit.id), 'a machine-approved listed id survives a conflicting class filter');
+  assert.equal(shown.size, wanted.length, 'no unlisted unit leaks into the worklist view');
+});
+
 test('ink-identical units are hidden unless the machine toggle is on', () => {
   const off = partitionUnits(allUnits, emptyFilters, noRecords);
   assert.deepEqual(
