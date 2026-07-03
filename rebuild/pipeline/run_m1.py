@@ -16,7 +16,16 @@ from typing import Mapping
 
 import yaml
 
-from rebuild.pipeline import compile_font, conform, defects, emit_gpos, emit_gsub, geometry, surface
+from rebuild.pipeline import (
+    compile_font,
+    conform,
+    defects,
+    emit_gpos,
+    emit_gsub,
+    geometry,
+    manual_pins,
+    surface,
+)
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.model import (
     CellId,
@@ -190,6 +199,14 @@ def run_boundary_gate(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
     return summary
 
 
+def run_manual_pin_gate(out_dir: Path = OUT_DIR) -> dict:
+    spec = load_default_spec()
+    report = manual_pins.run_gate(out_dir / "M1.otf", spec)
+    summary = manual_pins.summarize(report)
+    (out_dir / "manual_pins_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    return summary
+
+
 def run_oracle(out_dir: Path = OUT_DIR) -> dict:
     spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
@@ -232,6 +249,10 @@ def main() -> None:
     print(json.dumps(boundary_gate, indent=2))
     if not boundary_gate["pass"]:
         raise SystemExit("boundary-equals-text-edge gate failed; see boundary_equivalence_summary.json")
+    pin_gate = run_manual_pin_gate()
+    print(json.dumps(pin_gate, indent=2))
+    if not pin_gate["pass"]:
+        raise SystemExit("Manual-pin gate failed; see manual_pins_summary.json")
     oracle = run_oracle()
     print(json.dumps(oracle, indent=2))
     if not oracle["pass"]:
