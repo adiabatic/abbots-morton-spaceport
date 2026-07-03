@@ -266,6 +266,17 @@ def test_trait_qualified_except_atom_rejected(tmp_path):
     assert any("trait" in issue.message and "not representable" in issue.message for issue in error.issues)
 
 
+def test_zwnj_not_addressable_in_when(tmp_path):
+    """The grammar half of the ZWNJ-equals-word-boundary guarantee: `is: zwnj` is not in the schema's boundaryValue enum, so no record can render a ZWNJ context differently from the same letters at a text edge. The rendering half is conform.check_split_buffer."""
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {left: {is: zwnj}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("got 'zwnj'" in issue.message for issue in error.issues)
+
+
 def test_codepoint_must_match_registry(tmp_path):
     text = MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: 0xE671")
     error = load_tmp_error(tmp_path, {"qsIt": text})

@@ -118,6 +118,10 @@ class TestAliasAndLedger:
         )
         ledger = [
             {
+                "id": "zwnj-boundary-echo",
+                "match": {"predicate": "zwnj_boundary_echo", "configs": "all"},
+            },
+            {
                 "id": "zwnj-word-initial-unification",
                 "match": {"predicate": "zwnj_word_initial_unification", "configs": "all"},
             },
@@ -126,7 +130,19 @@ class TestAliasAndLedger:
                 "match": {"predicate": "dangling_anchor_dropped", "configs": "all"},
             },
         ]
-        assert conform._match_ledger(ledger, row) == ["zwnj-word-initial-unification"]
+        assert conform._match_ledger(ledger, row) == ["zwnj-boundary-echo"]
+        namer_dot_row = conform.DivergentRow(
+            config="default",
+            codepoints="00B7:E652:E670",
+            kinds=("cell",),
+            position=1,
+            baseline_glyphs=("periodcentered", "qsTea.noentry", "qsIt"),
+            baseline_seams=("break", "break"),
+            new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/bar/None/None/"),
+            new_seams=("break", "break"),
+            phenomena=("old-noentry",),
+        )
+        assert conform._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
 
     def test_classifier_assigns_each_phenomenon_set_one_class(self):
         base = dict(
@@ -155,6 +171,33 @@ class TestAliasAndLedger:
         for phenomena, expected in cases:
             row = conform.DivergentRow(**base, phenomena=phenomena)
             assert conform.classify_divergence(row) == expected, phenomena
+
+    def test_zwnj_blanket_takes_every_nonposition_row(self):
+        """The ratified ZWNJ-equals-word-boundary rule: a ZWNJ window's cell/seam-grain divergence is absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
+        base = dict(
+            config="default",
+            codepoints="200C:E670:E670",
+            kinds=("cell",),
+            position=1,
+            baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
+            baseline_seams=("break", "break"),
+            new_cells=("uni200C", "qsIt/bar/None/None/locked", "qsIt/bar/None/None/"),
+            new_seams=("break", "break"),
+        )
+        for phenomena in [
+            ("+locked", "old-noentry"),
+            ("exit-dropped",),
+            ("seam-gain:qsIt", "exit-added"),
+            ("seam-loss",),
+            ("+en-ext-1",),
+            ("ligation",),
+        ]:
+            row = conform.DivergentRow(**base, phenomena=phenomena)
+            assert conform.classify_divergence(row) == "zwnj-boundary-echo", phenomena
+        position_row = conform.DivergentRow(
+            **{**base, "kinds": ("position",)}, phenomena=("position-kern-attributable",)
+        )
+        assert conform.classify_divergence(position_row) is None
 
 
 class TestKernEvaluator:
