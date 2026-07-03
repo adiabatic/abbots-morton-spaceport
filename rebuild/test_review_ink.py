@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 10,083 machine-approved / 5,889 human units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 10,083 machine-approved units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning; of the 5,889 non-identical units, the boundary-echo no-verdict exemption leaves 4,010 as human workload."""
 
 from pathlib import Path
 
@@ -77,7 +77,7 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 10,083 of 15,972 units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning — leaving 5,889 units of human workload. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
+    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 10,083 of 15,972 units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning. Of the 5,889 non-identical units, the 1,879 boundary-echo ones are exempt under the ratified boundary rule (no_verdict), leaving 4,010 units of human workload in 14 batches. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
     machine_by_class: dict[str, int] = {}
     for unit in workload.units:
         if comparator.ink_identical(_text(unit), unit.configs):
@@ -89,7 +89,10 @@ def test_full_histogram_reproduces_the_census(workload, comparator):
     assert not any(unit.class_id == "UNMATCHED" and unit.ink_identical for unit in workload.units)
 
     batches = assign_batches(workload.units)
-    assert batches == 20
-    human = [unit for unit in workload.units if not unit.ink_identical]
+    assert batches == 14
+    exempt = [unit for unit in workload.units if unit.no_verdict and not unit.ink_identical]
+    assert len(exempt) == 1879
+    human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
+    assert len(human) == 4010
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-    assert all(unit.batch is None for unit in workload.units if unit.ink_identical)
+    assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)

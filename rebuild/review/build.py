@@ -181,6 +181,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "id": unit.unit_id,
         "batch": unit.batch,
         "ink_identical": unit.ink_identical,
+        "no_verdict": unit.no_verdict,
         "class": unit.class_id,
         "group": unit.group,
         "codepoints": unit.codepoints,
@@ -318,6 +319,7 @@ def build_m1(
                 "id": entry.id,
                 "status": entry.status,
                 "ink_identical": entry.ink_identical,
+                "no_verdict": entry.no_verdict,
                 "why": entry.why,
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
@@ -432,6 +434,7 @@ def _table_diff_unit_json(
         "id": unit_id,
         "batch": batch,
         "ink_identical": ink_identical,
+        "no_verdict": False,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
         "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
@@ -555,6 +558,7 @@ def build_table_diff(
                 "id": bucket,
                 "status": None,
                 "ink_identical": False,
+                "no_verdict": False,
                 "why": tablediff.BUCKET_WHY[bucket],
                 "unit_count": len(members),
                 "row_count": sum(max(len(entry.paired), 1) for entry in members),
@@ -677,6 +681,7 @@ def check_manifest(manifest: dict) -> list[str]:
         need(
             isinstance(meta.get("ink_identical"), bool), f"classes[{identifier}].ink_identical must be a bool"
         )
+        need(isinstance(meta.get("no_verdict"), bool), f"classes[{identifier}].no_verdict must be a bool")
     return errors
 
 
@@ -699,8 +704,9 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
 
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
     need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
-    if unit.get("ink_identical") is True:
-        need(unit.get("batch") is None, "ink-identical units must carry batch null")
+    need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
+    if unit.get("ink_identical") is True or unit.get("no_verdict") is True:
+        need(unit.get("batch") is None, "ink-identical and no-verdict units must carry batch null")
     else:
         need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
     for key in ("class", "group", "notation", "summary", "explain"):
@@ -962,9 +968,18 @@ def check_output_dir(out_dir: Path) -> list[str]:
             if unit.get("id") in seen_ids:
                 errors.append(f"duplicate unit id {unit.get('id')}")
             seen_ids.add(unit.get("id"))
+            if unit.get("no_verdict") != bool(meta.get("no_verdict")):
+                errors.append(
+                    f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
+                    f"whose no_verdict is {meta.get('no_verdict')}"
+                )
             if unit.get("ink_identical") is True:
                 machine_count += 1
-            elif mode == "m1-audit" and unit.get("batch") not in meta.get("batches", ()):
+            elif (
+                mode == "m1-audit"
+                and unit.get("no_verdict") is not True
+                and unit.get("batch") not in meta.get("batches", ())
+            ):
                 errors.append(f"unit {unit.get('id')}: batch {unit.get('batch')} not in class batches")
             if unit.get("secondary_seams"):
                 seam_units += 1

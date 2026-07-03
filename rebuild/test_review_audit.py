@@ -141,14 +141,22 @@ def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(worklo
         unit.ink_identical = index % 3 == 0
     try:
         total = assign_batches(workload.units, batch_size=300)
-        human = [unit for unit in workload.units if not unit.ink_identical]
+        human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
         assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-        assert all(unit.batch is None for unit in workload.units if unit.ink_identical)
+        assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
         assert total == (len(human) + 299) // 300
     finally:
         for unit in workload.units:
             unit.ink_identical = False
             unit.batch = None
+
+
+def test_no_verdict_flag_mirrors_the_ledger_class(workload):
+    """The ledger's `no_verdict: true` (today only the boundary-echo blanket, per the ratified boundary-equals-word-boundary rule) marks every unit of that class exempt from individual verdicts; every other unit stays verdictable."""
+    flagged = {entry.id for entry in workload.ledger if entry.no_verdict}
+    assert flagged == {"boundary-echo"}
+    for unit in workload.units:
+        assert unit.no_verdict == (unit.class_id in flagged), unit.unit_id
 
 
 def test_ordering_is_deterministic(workload):

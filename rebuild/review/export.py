@@ -104,6 +104,7 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
     neither: list[dict] = []
     identical: list[dict] = []
     missing: list[str] = []
+    exempt: list[str] = []
 
     if verdicts.get("manifest_generated_at") not in (None, manifest.get("generated_at")):
         print(
@@ -116,6 +117,9 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         unit = units.get(record.get("unit", ""))
         if unit is None:
             missing.append(record.get("unit", "<missing>"))
+            continue
+        if unit.get("no_verdict"):
+            exempt.append(unit["id"])
             continue
         verdict = record["verdict"]
         counts[verdict] += 1
@@ -215,6 +219,11 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
 
     if missing:
         print(f"warning: {len(missing)} verdicts reference unknown units: {missing[:5]}", file=sys.stderr)
+    if exempt:
+        print(
+            f"warning: {len(exempt)} verdicts land on no-verdict units and are inert history: {exempt[:5]}",
+            file=sys.stderr,
+        )
 
     machine = machine_approved_section(manifest, units)
     review = {
@@ -229,7 +238,10 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
         "counts": {
             **counts,
             "units_total": len(units),
-            "human_units_total": len(units) - machine["count"],
+            "human_units_total": sum(
+                1 for unit in units.values() if not unit.get("ink_identical") and not unit.get("no_verdict")
+            ),
+            "skipped_no_verdict": len(exempt),
             "rows_covered": covered,
         },
     }
