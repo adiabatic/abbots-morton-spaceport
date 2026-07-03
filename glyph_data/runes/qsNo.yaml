@@ -46,7 +46,8 @@ stances:
           x: 0
           stroke: diagonal
           from:
-          - {family: [qsDay, qsVie, qsIt, qsOy, qsNo, qsUtter, qsTea_qsOy], joined_at: baseline}
+          - family: [qsPea, qsDay, qsVie, qsIt, qsOy, qsNo, qsUtter, qsTea_qsOy]
+            joined_at: baseline
       exits: {baseline: {x: 5, stroke: diagonal}}
       cells: []
       unlocks: []

@@ -94,7 +94,6 @@ stances:
           toward:
           - class: can-enter-at-x-height
             except: [family: qsTea, family: qsDay, family: qsFee, family: qsYe, family: qsOwe]
-      pairings: {never: [{entry: x-height, exit: y6}]}
       cells: [{entry: x-height, exit: x-height, bitmap: half-dips-both-sides}]
       unlocks: []
       require: []
@@ -105,19 +104,7 @@ policy:
     exit: baseline
     when:
       right:
-        family:
-        - qsZoo
-        - qsCheer
-        - qsJay
-        - qsNo
-        - qsRoe
-        - qsLlan
-        - qsIt
-        - qsEt
-        - qsEight
-        - qsAwe
-        - qsOx
-        - qsFoot
+        family: [qsZoo, qsCheer, qsJay, qsRoe, qsLlan, qsIt, qsEt, qsEight, qsAwe, qsOx, qsFoot]
     why: These join ·Pea through the half way's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.
   - stance: full
     exit: baseline
@@ -125,7 +112,13 @@ policy:
       left: {joined_at: y6}
       right:
         class: can-enter-at-x-height
-        except: [family: qsTea, family: qsDay, family: qsFee, family: qsYe, family: qsMay]
+        except:
+        - {family: qsTea}
+        - {family: qsDay}
+        - {family: qsFee}
+        - {family: qsYe}
+        - {family: qsMay}
+        - {family: qsUtter}
     why: Entered at y6, ·Pea hands x-height-capable followers to the half way; only these five keep the full baseline exit.
   prefer: []
   extend:
