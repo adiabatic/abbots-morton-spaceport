@@ -2,9 +2,9 @@ rune: qsDay_qsUtter
 sequence: [qsDay, qsUtter]
 ductus:
   full: |
-    The ·Day downstroke and the ·Utter stroke drawn as one motion: straight down the left, hooking out of the descender foot and rising across to exit at the x-height on the right, where it may connect to the next letter.  # DRAFT — pending author sign-off
+    The ·Day downstroke and the ·Utter stroke drawn as one motion: straight down the left, hooking out of the descender foot and rising across to exit at the x-height on the right, where it may connect to the next letter.
   half: |
-    As the full ligature, but begun from the ·Day foot hook at the baseline, then rising across to the x-height exit on the right.  # DRAFT — pending author sign-off
+    As the full ligature, but begun from the ·Day foot hook at the baseline, then rising across to the x-height exit on the right.
 stances:
   full:
     way: full

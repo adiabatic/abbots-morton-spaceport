@@ -4,7 +4,7 @@ ductus:
   loop: |
     Drawn clockwise from the top left, looping at the bottom, and then exiting on the top right.
   flipped: |
-    As the loop, but drawn upside down: begun from the lower left, looping over the top, and exiting at the baseline on the right.  # DRAFT — pending author sign-off
+    As the loop, but drawn upside down: begun from the lower left, looping over the top, and exiting at the baseline on the right.
 mono:
   bitmap:
   - "#   #"  #
