@@ -172,7 +172,7 @@ def test_policy_draft_pins_baseline_cell_on_name_grain_divergence(drafter, enric
     unit = next(
         unit
         for unit in workload.units
-        if unit.codepoints == "E650:200C:E650:E665" and unit.class_id == "zwnj-word-initial-unification"
+        if unit.codepoints == "E650:200C:E650:E665" and unit.class_id == "boundary-echo"
     )
     policy = drafter.draft_policy(enricher.enrich(unit))
     assert policy is not None
@@ -187,7 +187,7 @@ def test_policy_draft_declines_unexpressible_name_grain_divergence(drafter, enri
     unit = next(
         unit
         for unit in workload.units
-        if unit.codepoints == "E650:200C:E650:E670" and unit.class_id == "zwnj-word-initial-unification"
+        if unit.codepoints == "E650:200C:E650:E670" and unit.class_id == "boundary-echo"
     )
     assert drafter.draft_policy(enricher.enrich(unit)) is None
 

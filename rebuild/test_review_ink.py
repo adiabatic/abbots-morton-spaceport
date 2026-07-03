@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 10,267 machine-approved / 5,378 human units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 10,083 machine-approved / 5,889 human units over the M1-batch-2 workload, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning."""
 
 from pathlib import Path
 
@@ -16,9 +16,9 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 MACHINE_BY_CLASS = {
-    "zwnj-word-initial-unification": 979,
-    "dangling-anchor-dropped": 6874,
-    "bare-name-live-join": 2414,
+    "boundary-echo": 4465,
+    "dangling-anchor-dropped": 4148,
+    "bare-name-live-join": 1470,
 }
 
 
@@ -64,7 +64,7 @@ def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(workload, c
 def test_u_0000_is_ink_identical(workload, comparator):
     unit = workload.units[0]
     assert unit.unit_id == "u-0000"
-    assert unit.codepoints == "E650:200C:E650:E653"
+    assert unit.codepoints == "0020:E650:E650"
     assert comparator.ink_identical(_text(unit), unit.configs) is True
 
 
@@ -77,19 +77,19 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 10,267 of 15,645 units are ink-identical under every config in their sets, concentrated in the name-grain classes (dangling-anchor-dropped, bare-name-live-join, the zwnj unification) whose visible difference is only the old font's kerning — leaving 5,378 units of human workload. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
+    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload: 10,083 of 15,972 units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning — leaving 5,889 units of human workload. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review."""
     machine_by_class: dict[str, int] = {}
     for unit in workload.units:
         if comparator.ink_identical(_text(unit), unit.configs):
             unit.ink_identical = True
             machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    assert sum(machine_by_class.values()) == 10267
-    assert len(workload.units) - sum(machine_by_class.values()) == 5378
+    assert sum(machine_by_class.values()) == 10083
+    assert len(workload.units) - sum(machine_by_class.values()) == 5889
     assert machine_by_class == MACHINE_BY_CLASS
     assert not any(unit.class_id == "UNMATCHED" and unit.ink_identical for unit in workload.units)
 
     batches = assign_batches(workload.units)
-    assert batches == 18
+    assert batches == 20
     human = [unit for unit in workload.units if not unit.ink_identical]
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical)

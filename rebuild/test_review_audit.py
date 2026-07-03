@@ -93,9 +93,9 @@ def test_every_real_unit_has_exactly_one_render_group(workload):
 
 
 def test_real_audit_dedupes_to_measured_counts(workload):
-    assert workload.row_count == 78865
-    assert len(workload.units) == 15645
-    assert sum(len(unit.rows) for unit in workload.units) == 78865
+    assert workload.row_count == 80990
+    assert len(workload.units) == 15972
+    assert sum(len(unit.rows) for unit in workload.units) == 80990
 
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
