@@ -55,13 +55,13 @@ policy:
   order: [loop, flipped]
   refuse: []
   prefer:
-  - stance: flipped
-    when: {left: {family: qsIt}}
-    why: 'Design §5.3''s worked ·It·No example. In isolation both seam heights score one join, so the tie goes to flipped (·It''s baseline exit into ·No''s baseline entry); in ·It·No·Owe the x-height path scores two and plain loop wins before the prefer is consulted; in ·Roe·It·No, ·It''s pairings force the x-height exit and only loop can join. Yields-to-joins, so the preference suspends whenever a height buys a better neighbor join.'
+  - {stance: flipped, when: {left: {family: qsIt}}}
   - cell: {exit: x-height}
     over: {exit: baseline}
     when: {left: {except: [family: qsIt]}, right: {family: [qsDay, qsNo, qsIt, qsOy]}}
-    why: 'As a word-initial lead, ·No keeps its loop x-height exit into the x-height-entering followers (·No·Day/·No·No/·No·It/·No·Oy all join at the x-height today) rather than dropping to the flipped baseline exit the structural floor would otherwise prefer. Yields-to-joins, so ·No·May/·No·Utter — which only the baseline flipped exit can reach — are untouched; the left except keeps the §5.3 ·It·No flipped preference (prefer[0]) authoritative after ·It.'
+  - cell: {exit: baseline}
+    over: {exit: x-height}
+    when: {left: {is: boundary}, right: {family: qsMay}}
   extend:
   - stance: loop
     entry: x-height

@@ -80,18 +80,15 @@ policy:
     exit: baseline
     when:
       self: {entry: none}
-      left: {family: [qsZoo, qsShe, qsIt, qsEat, qsOwe]}
+      left: {family: [qsZoo, qsShe, qsEat, qsOwe]}
       right: {family: qsUtter}
-    why: Carried from today's before-·Utter stance ("needed to make words ending in -ian look right"); these predecessors veto the unentered ·It·Utter baseline join.
   - stance: bar
     exit: baseline
     when: {self: {entry: live}, left: {family: qsDay, stance: half}, right: {family: qsUtter}}
-    why: Carried from the old entry_baseline_before_utter not_after [{qsDay, half}] — only the half ·Day vetoes the entered ·It·Utter baseline pass-through; the full ·Day keeps it. Authored at family+stance grain because the family-widened utter-pass-through-vetoes group cannot tell half ·Day from full ·Day.
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
     when: {right: {family: qsIt, then: {family: qsMay}}}
-    why: 'Round-1 verdict, ·X·It·It·May (u-0278, u-0282, u-0297): before a ·May that needs the baseline entry, the entered ·It declines the ·It·It join so ·It·May keeps it — "the former looks less awkward to right" (sic), "The old way seems nicer to write out by hand". Yielding and then-scoped, so the approved ·It·It join gains everywhere else are untouched.'
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
   - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
