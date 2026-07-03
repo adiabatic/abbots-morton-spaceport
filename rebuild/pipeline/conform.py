@@ -435,7 +435,7 @@ def run_boundary_equivalence(
     max_length: int = 5,
     out_dir: Path | None = None,
 ) -> ConformReport:
-    """The boundary-equals-text-edge vetting gate: every length-1..max_length sequence containing at least one run-splitting boundary (space or ZWNJ) must shape slot-for-slot identically (outline, advance, offsets) to its boundary-split segments shaped alone (check_split_buffer), and every ZWNJ slot must be zero-advance and inkless (check_zwnj_structure). Font-internal only — no settlement, no oracle, no ledger — so it runs on every build and any divergence is a defect by definition. This is the permanent, exhaustive form of the rule the transitional zwnj-boundary-echo ledger class rides on. The namer dot is deliberately outside the invariant: it does not split runs and stays addressable as `is: namer-dot`."""
+    """The boundary-equals-text-edge vetting gate: every length-1..max_length sequence containing at least one run-splitting boundary (space or ZWNJ) must shape slot-for-slot identically (outline, advance, offsets) to its boundary-split segments shaped alone (check_split_buffer), and every ZWNJ slot must be zero-advance and inkless (check_zwnj_structure). Font-internal only — no settlement, no oracle, no ledger — so it runs on every build and any divergence is a defect by definition. This is the permanent, exhaustive form of the rule the transitional boundary-echo ledger class rides on. The namer dot is deliberately outside the invariant: it does not split runs and stays addressable as `is: namer-dot`."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -637,9 +637,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
     if any(item.startswith("position") for item in phenomena):
         # Position drift never rides a cell-grain class (the ink-identity claim it would hide is exactly what the position channel tests); position-only rows go through the kern-attribution predicate instead.
         return None
-    if "200C" in row.codepoints.split(":"):
-        # The ratified ZWNJ-equals-word-boundary rule (design section 3.4): the new font renders every segment of a ZWNJ window identically to that segment standing alone — enforced per build by check_split_buffer — so a ZWNJ row can only diverge from the baseline where the old font's shadow universe was itself inconsistent across the ZWNJ, and every segment-internal divergence resurfaces on the segment's own enumerated row. ZWNJ rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
-        return "zwnj-boundary-echo"
+    if {"0020", "200C"} & set(row.codepoints.split(":")):
+        # The ratified boundary-equals-word-boundary rule (design section 3.4, extended to space 2026-07-03): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by run_boundary_equivalence — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
+        return "boundary-echo"
     if "ligation" in phenomena:
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
@@ -705,7 +705,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 
 
 for _class_id in (
-    "zwnj-boundary-echo",
+    "boundary-echo",
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
     "zwnj-word-initial-seam-moved",
@@ -736,8 +736,8 @@ SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsDay", "qsNo", "qsUtter", "qsDay_qsUtt
 
 @predicate("ss10_isolation_completed")
 def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). ZWNJ rows are excluded so the zwnj-boundary-echo blanket keeps the partition exact."""
-    if "200C" in row.codepoints.split(":"):
+    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
+    if {"0020", "200C"} & set(row.codepoints.split(":")):
         return False
     if row.config != "ss10" or "seam" not in row.kinds:
         return False

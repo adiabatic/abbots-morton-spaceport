@@ -118,8 +118,8 @@ class TestAliasAndLedger:
         )
         ledger = [
             {
-                "id": "zwnj-boundary-echo",
-                "match": {"predicate": "zwnj_boundary_echo", "configs": "all"},
+                "id": "boundary-echo",
+                "match": {"predicate": "boundary_echo", "configs": "all"},
             },
             {
                 "id": "zwnj-word-initial-unification",
@@ -130,7 +130,7 @@ class TestAliasAndLedger:
                 "match": {"predicate": "dangling_anchor_dropped", "configs": "all"},
             },
         ]
-        assert conform._match_ledger(ledger, row) == ["zwnj-boundary-echo"]
+        assert conform._match_ledger(ledger, row) == ["boundary-echo"]
         namer_dot_row = conform.DivergentRow(
             config="default",
             codepoints="00B7:E652:E670",
@@ -172,11 +172,10 @@ class TestAliasAndLedger:
             row = conform.DivergentRow(**base, phenomena=phenomena)
             assert conform.classify_divergence(row) == expected, phenomena
 
-    def test_zwnj_blanket_takes_every_nonposition_row(self):
-        """The ratified ZWNJ-equals-word-boundary rule: a ZWNJ window's cell/seam-grain divergence is absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
+    def test_boundary_blanket_takes_every_nonposition_row(self):
+        """The ratified boundary-equals-word-boundary rule: a window containing a run-splitting boundary (space or ZWNJ) has its cell/seam-grain divergence absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
         base = dict(
             config="default",
-            codepoints="200C:E670:E670",
             kinds=("cell",),
             position=1,
             baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
@@ -184,20 +183,23 @@ class TestAliasAndLedger:
             new_cells=("uni200C", "qsIt/bar/None/None/locked", "qsIt/bar/None/None/"),
             new_seams=("break", "break"),
         )
-        for phenomena in [
-            ("+locked", "old-noentry"),
-            ("exit-dropped",),
-            ("seam-gain:qsIt", "exit-added"),
-            ("seam-loss",),
-            ("+en-ext-1",),
-            ("ligation",),
-        ]:
-            row = conform.DivergentRow(**base, phenomena=phenomena)
-            assert conform.classify_divergence(row) == "zwnj-boundary-echo", phenomena
-        position_row = conform.DivergentRow(
-            **{**base, "kinds": ("position",)}, phenomena=("position-kern-attributable",)
-        )
-        assert conform.classify_divergence(position_row) is None
+        for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
+            for phenomena in [
+                ("+locked", "old-noentry"),
+                ("exit-dropped",),
+                ("seam-gain:qsIt", "exit-added"),
+                ("seam-loss",),
+                ("+en-ext-1",),
+                ("ligation",),
+            ]:
+                row = conform.DivergentRow(**base, codepoints=codepoints, phenomena=phenomena)
+                assert conform.classify_divergence(row) == "boundary-echo", (codepoints, phenomena)
+            position_row = conform.DivergentRow(
+                **{**base, "kinds": ("position",)},
+                codepoints=codepoints,
+                phenomena=("position-kern-attributable",),
+            )
+            assert conform.classify_divergence(position_row) is None
 
 
 class TestKernEvaluator:
@@ -325,3 +327,19 @@ class TestClassifierRouting:
 
     def test_position_drift_never_rides_a_cell_grain_class(self):
         assert conform.classify_divergence(self._row("default", ("exit-dropped", "position-drift"))) is None
+
+    def test_ss10_predicate_yields_boundary_rows_to_the_blanket(self):
+        for boundary in ("0020", "200C"):
+            row = conform.DivergentRow(
+                config="ss10",
+                codepoints=f"{boundary}:E665:E653",
+                kinds=("cell", "seam"),
+                position=1,
+                baseline_glyphs=("space", "qsMay", "qsDay"),
+                baseline_seams=("break", "y5"),
+                new_cells=("space", "qsMay/loop/None/None/", "qsDay/full/None/None/"),
+                new_seams=("break", "break"),
+                phenomena=("seam-loss",),
+            )
+            assert conform.PREDICATES["ss10_isolation_completed"](row) is False, boundary
+            assert conform.classify_divergence(row) == "boundary-echo", boundary
