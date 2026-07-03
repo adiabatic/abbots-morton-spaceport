@@ -52,6 +52,10 @@ export function seamChip(seam) {
   };
 }
 
+export function needsNoVerdict(unit) {
+  return Boolean(unit.ink_identical || unit.no_verdict);
+}
+
 export function familiesOfGroup(group) {
   return group ? group.split(':') : [];
 }
@@ -81,7 +85,7 @@ export function partitionUnits(units, filters, recordOf) {
   const human = [];
   const machine = [];
   for (const unit of units) {
-    if (unit.ink_identical) {
+    if (needsNoVerdict(unit)) {
       if (showMachine && unitMatchesFilters(unit, { ...effective, status: null }, undefined)) {
         machine.push(unit);
       }
@@ -93,11 +97,22 @@ export function partitionUnits(units, filters, recordOf) {
 }
 
 export function humanClassCount(cls) {
+  if (cls.no_verdict) return 0;
   return cls.unit_count - (cls.machine_approved_count ?? 0);
 }
 
 export function humanTotal(manifest) {
-  return manifest.totals.units - (manifest.machine_approved?.units ?? 0);
+  let total = 0;
+  for (const cls of manifest.classes) total += humanClassCount(cls);
+  return total;
+}
+
+export function noVerdictTotal(manifest) {
+  let total = 0;
+  for (const cls of manifest.classes) {
+    if (cls.no_verdict) total += cls.unit_count - (cls.machine_approved_count ?? 0);
+  }
+  return total;
 }
 
 export function nextUnverdictedIndex(unitIds, fromIndex, hasVerdict) {

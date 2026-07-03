@@ -79,9 +79,9 @@
               </select>
             </label>
             <button type="button" id="clear-filters">Clear filters</button>
-            <label class="machine-toggle" title="Ink-identical units are hidden by default: both fonts render them identically, so they were machine-approved and need no human verdict.">
+            <label class="machine-toggle" title="Units needing no verdict are hidden by default: ink-identical units were machine-approved, and units in a no-verdict ledger class (like boundary-echo) are adjudicated wholesale by a ratified rule.">
               <input type="checkbox" id="show-machine" />
-              Show machine-approved
+              Show no-verdict units
             </label>
           </div>
         </section>
@@ -113,7 +113,7 @@
           <tr><td><kbd>x</kbd></td><td>Toggle the current unit’s explain/provenance panel (same as the row’s “Why?” button)</td></tr>
           <tr><td><kbd>↓</kbd> / <kbd>↑</kbd></td><td>Move the cursor without verdicting</td></tr>
           <tr><td><kbd>k</kbd> / <kbd>i</kbd></td><td>Same as <kbd>↓</kbd> / <kbd>↑</kbd> — next / previous unit</td></tr>
-          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next class in the sidebar list (wraps; skips fully machine-approved classes)</td></tr>
+          <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next class in the sidebar list (wraps; skips classes with no human workload)</td></tr>
           <tr><td><kbd>/</kbd></td><td>Focus the cross-class unit search (matches id, notation, codepoints, and class/group/kind across every class); <kbd>↓</kbd>/<kbd>↑</kbd> move, <kbd>Enter</kbd> jumps, <kbd>Escape</kbd> closes</td></tr>
           <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
@@ -121,7 +121,7 @@
       </table>
       <p>Verdicting a unit that has no verdict yet advances to the next unverdicted unit; re-verdicting a unit that already has a verdict updates it in place and keeps the cursor put, so you can revise without losing your spot. The “Top unverdicted” button up top jumps to the topmost unverdicted unit in the current view.</p>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit shows a small badge (“only when ss03 is on”, “only under ss10”, …) only when its config set is informative — hover it for the full list. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
-      <p>Units whose ink is pixel-identical in both fonts under every config were machine-approved at build time and are hidden by default; the “Show machine-approved” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
+      <p>Units whose ink is pixel-identical in both fonts under every config were machine-approved at build time, and units in a no-verdict ledger class (like boundary-echo, whose windows the ratified boundary rule adjudicates wholesale) never need individual verdicts; both kinds are hidden by default. The “Show no-verdict units” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
       <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the rebuild has no kerning until its own later milestone, so the old font’s kern feature would be pure comparison noise. Kern differences get their own review when that milestone lands.</p>
       <p>Unmarked regions render identically in both fonts (or differ only invisibly, at name grain); a dim dashed band marks a secondary divergent seam that is judged at its linked home unit — click the band’s chip to jump there (“only here” means the seam has no shorter home and is judged in this unit).</p>
       <form method="dialog"><button>Close</button></form>

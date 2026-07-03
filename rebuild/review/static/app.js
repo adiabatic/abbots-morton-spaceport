@@ -17,12 +17,14 @@ import {
   markOffset,
   secondarySeamsOf,
   seamChip,
+  needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
   unitWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
+  noVerdictTotal,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -62,6 +64,9 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MACHINE_BADGE = 'ink-identical — machine approved';
 const MACHINE_TITLE =
   'Both fonts render this unit identically under every config in its set; no human input is meaningful.';
+const NO_VERDICT_BADGE = 'no verdict needed';
+const NO_VERDICT_TITLE =
+  "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
 
 function configNoteDetail(note) {
   const descriptions = manifest.feature_descriptions;
@@ -159,7 +164,7 @@ async function unitsForView(batch, classFilter) {
   const units = [];
   for (const list of lists) {
     for (const unit of list) {
-      if (unit.ink_identical || unit.batch === batch) units.push(unit);
+      if (needsNoVerdict(unit) || unit.batch === batch) units.push(unit);
     }
   }
   return units;
@@ -262,7 +267,9 @@ function buildCodepointsCode(unit) {
 }
 
 function buildRow(unit) {
-  const row = el('article', unit.ink_identical ? 'row machine' : 'row');
+  const exempt = needsNoVerdict(unit);
+  const exemptTitle = unit.ink_identical ? MACHINE_TITLE : NO_VERDICT_TITLE;
+  const row = el('article', exempt ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
   row.dataset.unit = unit.id;
   row.dataset.group = unit.group;
@@ -284,6 +291,10 @@ function buildRow(unit) {
   if (unit.ink_identical) {
     const badge = el('span', 'machine-badge', MACHINE_BADGE);
     badge.title = MACHINE_TITLE;
+    meta.append(badge);
+  } else if (unit.no_verdict) {
+    const badge = el('span', 'machine-badge', NO_VERDICT_BADGE);
+    badge.title = NO_VERDICT_TITLE;
     meta.append(badge);
   }
   if (unit.config_note) {
@@ -311,8 +322,8 @@ function buildRow(unit) {
     const button = el('button', 'verdict-btn');
     button.type = 'button';
     button.dataset.verdict = verdict;
-    button.title = unit.ink_identical ? MACHINE_TITLE : title;
-    button.disabled = unit.ink_identical;
+    button.title = exempt ? exemptTitle : title;
+    button.disabled = exempt;
     if (verdict === 'reject' || verdict === 'neither') button.setAttribute('aria-haspopup', 'menu');
     button.setAttribute('aria-pressed', 'false');
     button.append(document.createTextNode(`${text} `));
@@ -320,7 +331,7 @@ function buildRow(unit) {
     button.append(kbd);
     buttons.append(button);
   }
-  if (!unit.ink_identical) {
+  if (!exempt) {
     const clear = el('button', 'clear-verdict');
     clear.type = 'button';
     clear.title = "Clear this unit's verdict (Backspace or Delete; pressing its active verdict key again also clears)";
@@ -334,7 +345,7 @@ function buildRow(unit) {
   const note = el('input', 'note');
   note.type = 'text';
   note.placeholder = 'note (n)';
-  note.disabled = unit.ink_identical;
+  note.disabled = exempt;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
 
   const groups = renderGroupsOf(unit);
@@ -458,10 +469,10 @@ function renderMachineSection(container, machine) {
   if (machine.length === 0) return;
   const heading =
     state.machine === '1'
-      ? `Machine-approved in this view: ${machine.length} ink-identical units (no verdict needed)`
+      ? `No verdict needed in this view: ${machine.length} units (ink-identical or in a no-verdict class)`
       : state.units
-        ? `Machine-approved in your worklist: ${machine.length} ink-identical unit${machine.length === 1 ? '' : 's'} shown below (no verdict needed)`
-        : 'This deep-linked unit is machine-approved (ink-identical) — no verdict needed; it stays out of your queue and disappears when you move on.';
+        ? `No verdict needed in your worklist: ${machine.length} unit${machine.length === 1 ? '' : 's'} shown below`
+        : 'This deep-linked unit needs no verdict — it stays out of your queue and disappears when you move on.';
   container.append(el('h2', 'machine-heading', heading));
   const byClass = new Map();
   for (const unit of machine) {
@@ -471,9 +482,10 @@ function renderMachineSection(container, machine) {
   for (const [classId, classUnits] of byClass) {
     const fold = el('details', 'group machine-group');
     fold.dataset.machineClass = classId;
+    const badge = classUnits.every((unit) => unit.ink_identical) ? MACHINE_BADGE : NO_VERDICT_BADGE;
     const summary = el('summary');
     summary.append(el('span', 'group-name', classId));
-    summary.append(el('span', 'group-counts', `${classUnits.length} units — ${MACHINE_BADGE}`));
+    summary.append(el('span', 'group-counts', `${classUnits.length} units — ${badge}`));
     fold.append(summary);
     const build = () => {
       if (!machineFoldBuilders.has(fold)) return;
@@ -494,7 +506,7 @@ function renderMachineSection(container, machine) {
 
 function revealMachineUnit(unitId) {
   const unit = unitsById.get(unitId);
-  if (!unit || !unit.ink_identical) return false;
+  if (!unit || !needsNoVerdict(unit)) return false;
   const fold = document.querySelector(`details.machine-group[data-machine-class="${unit.class}"]`);
   if (!fold) return false;
   const build = machineFoldBuilders.get(fold);
@@ -544,8 +556,8 @@ async function ensureCursor() {
     Boolean(document.querySelector(`#batch .row[data-unit="${unitId}"]`));
   if (state.unit && !inView(state.unit)) {
     const unit = await findUnitAnywhere(state.unit);
-    if (unit && unit.ink_identical) {
-      // Deep-linking to a machine-approved unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again.
+    if (unit && needsNoVerdict(unit)) {
+      // Deep-linking to a machine-approved or no-verdict unit reveals just that unit transiently; the persistent toggle stays off and any navigation away hides it again.
       transientMachineUnitId = unit.id;
       setStateReplace({});
       return false;
@@ -632,6 +644,12 @@ function renderSidebar() {
 function updateClassCounts() {
   for (const button of document.querySelectorAll('.class-button')) {
     const cls = manifest.classes.find((entry) => entry.id === button.dataset.class);
+    if (cls.no_verdict) {
+      button.querySelector('.class-counts').textContent =
+        `${cls.unit_count} units — ${NO_VERDICT_BADGE} · ${cls.row_count} rows`;
+      button.setAttribute('aria-pressed', String(state.class === cls.id));
+      continue;
+    }
     let verdicted = 0;
     let known = false;
     if (shardCache.has(cls.id)) {
@@ -1131,7 +1149,7 @@ function renderSearchResults(query) {
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
     row.append(el('span', 'search-class', unit.class));
-    const where = unit.ink_identical ? 'machine' : `batch ${unit.batch}`;
+    const where = unit.ink_identical ? 'machine' : unit.no_verdict ? 'no verdict' : `batch ${unit.batch}`;
     row.append(el('span', 'search-where', where));
     results.append(row);
   }
@@ -1441,10 +1459,12 @@ function renderChrome() {
   document.getElementById('build-command').textContent = manifest.build_command ?? '';
   document.getElementById('serve-command').textContent = manifest.serve_command ?? '';
   const machine = manifest.machine_approved;
+  const exempt = noVerdictTotal(manifest);
   document.getElementById('manifest-meta').textContent =
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
     `${humanTotal(manifest)} human-workload units in ${manifest.totals.batches} batches, plus ` +
-    `${machine?.units ?? 0} machine-approved, covering ${manifest.totals.rows} rows.`;
+    `${machine?.units ?? 0} machine-approved${exempt ? ` and ${exempt} in no-verdict classes` : ''}, ` +
+    `covering ${manifest.totals.rows} rows.`;
   const line = document.getElementById('machine-approved-line');
   if (machine && machine.units > 0) {
     line.textContent = `${machine.units} ink-identical units machine-approved`;

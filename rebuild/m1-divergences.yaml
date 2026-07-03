@@ -1,9 +1,11 @@
 # The M1 divergence ledger (M1-PLAN section 6): one entry per reviewed divergence class between the settlement function and the section 13.1 baseline oracle over the 8-symbol alphabet.
 # Every divergent row must match exactly one entry; `conform.classify_divergence` assigns each row the single highest-precedence class from its phenomenon set (the boundary-echo blanket first — any non-position row whose window contains a run-splitting boundary, space or ZWNJ — then ligation, then seam topology, then cell-grain deltas in the order extension-restored > non-summing > withdrawal > locked > dropped > added), so the predicates partition by construction. Counts are filled from the conformance run and reviewed as a diff; the run never writes this file. Per-row detail lands in rebuild/out/m1/divergence-audit.tsv.
 # Status vocabulary: intended (designed behavior, no review needed) | drift-accepted (observed drift accepted pending human review) | triaged (explicit triage channel) | reviewed-approved (the class behavior was triaged by the user in the round-1 verdict pass and approved; the divergence is user-ratified, not merely drift-accepted) | reviewed-rejected (the class behavior was rejected in the round-1 verdict pass and that round's policy records restore the old behavior; the surviving rows are the documented residue).
+# An entry may additionally carry `no_verdict: true`: a ratified rule adjudicates the class wholesale, so no unit in it ever needs an individual verdict. The review build gives such units no batch and the surface disables their verdict controls; verdicts recorded against them in old exports are inert history.
 
 - id: boundary-echo
   status: intended
+  no_verdict: true
   match: {predicate: boundary_echo, configs: all}
   count: 33508
   exemplars:

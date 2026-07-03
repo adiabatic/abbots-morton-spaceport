@@ -31,6 +31,7 @@ class LedgerClass:
     status: str
     why: str
     ink_identical: bool
+    no_verdict: bool
     count: int
     exemplar_keys: frozenset[tuple[str, str]]  # (config, codepoints)
 
@@ -50,6 +51,7 @@ class Unit:
     batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
+    no_verdict: bool = False
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""
 
@@ -99,6 +101,7 @@ def load_ledger(path: Path) -> list[LedgerClass]:
                 status=entry.get("status", ""),
                 why=(entry.get("why") or "").strip(),
                 ink_identical=bool(entry.get("ink_identical", False)),
+                no_verdict=bool(entry.get("no_verdict", False)),
                 count=int(entry.get("count", 0)),
                 exemplar_keys=frozenset(
                     (exemplar["config"], exemplar["codepoints"]) for exemplar in entry.get("exemplars", ())
@@ -124,6 +127,7 @@ def synthesize_family_classes(
             status="unmatched",
             why=family_why.get(family_id, ""),
             ink_identical=False,
+            no_verdict=False,
             count=counts[family_id],
             exemplar_keys=frozenset(),
         )
@@ -158,6 +162,7 @@ def build_units(
     family_of: dict[int, str],
 ) -> list[Unit]:
     """Dedupe to (codepoints, baseline, new) units and return them in triage order with ids assigned; batch indices are assigned later by `assign_batches`, once the build has computed each unit's ink_identical flag. A triple's matched ledger class can vary by config — most often a window already blessed under ss03 but UNMATCHED (novel) under the default config — so each unit carries the full per-config class map in `config_classes`, and its own `class_id` is the single matched class when the triple is everywhere-matched, or the UNMATCHED sentinel when any config leaves it unmatched (UNMATCHED-wins, so the novel default behavior is what gets adjudicated; the blessed configs ride along in `config_classes` for display). A triple resolving to two distinct *matched* classes would be a genuine classification bug and still raises."""
+    exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
     by_triple: dict[tuple[str, tuple[str, ...], tuple[str, ...]], list[AuditRow]] = {}
     for row in rows:
         by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
@@ -183,6 +188,7 @@ def build_units(
                 kinds=kinds,
                 group=group_for(parse_codepoints(codepoints), family_of),
                 render_groups=render_groups_for_rows(ordered),
+                no_verdict=class_id in exempt_classes,
                 config_classes=config_classes,
             )
         )
@@ -209,10 +215,10 @@ def build_units(
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
-    """Batches cover the human workload only: non-ink-identical units get fixed slices of batch_size in triage order, ink-identical units carry batch None (machine-approved, never paged to a human). Returns the batch count."""
+    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while ink-identical units (machine-approved) and units of no-verdict ledger classes carry batch None — neither is ever paged to a human. Returns the batch count."""
     index = 0
     for unit in units:
-        if unit.ink_identical:
+        if unit.ink_identical or unit.no_verdict:
             unit.batch = None
         else:
             unit.batch = index // batch_size

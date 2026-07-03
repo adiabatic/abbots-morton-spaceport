@@ -8,12 +8,14 @@ import {
   markOffset,
   secondarySeamsOf,
   seamChip,
+  needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
   unitWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
+  noVerdictTotal,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -197,6 +199,24 @@ test('ink-identical units are hidden unless the machine toggle is on', () => {
   assert.ok(on.machine.length >= 1);
 });
 
+test('needsNoVerdict covers both exemption kinds', () => {
+  assert.equal(needsNoVerdict({ ink_identical: true, no_verdict: false }), true);
+  assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: true }), true);
+  assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: false }), false);
+  assert.equal(needsNoVerdict({ ink_identical: false }), false, 'a legacy unit without the field stays human');
+});
+
+test('a no-verdict unit leaves the human queue and appears with the machine toggle', () => {
+  const exemptUnit = { ...allUnits.find((unit) => !unit.ink_identical), id: 'u-8888', no_verdict: true, batch: null };
+  const units = [...allUnits, exemptUnit];
+  const off = partitionUnits(units, emptyFilters, noRecords);
+  assert.ok(!off.human.some((unit) => unit.id === 'u-8888'));
+  assert.deepEqual(off.machine, []);
+  const on = partitionUnits(units, { ...emptyFilters, machine: '1' }, noRecords);
+  assert.ok(!on.human.some((unit) => unit.id === 'u-8888'));
+  assert.ok(on.machine.some((unit) => unit.id === 'u-8888'));
+});
+
 test('class and family filters apply to machine units; the status filter does not', () => {
   const machineUnit = allUnits.find((unit) => unit.ink_identical);
   const filters = { ...emptyFilters, machine: '1', status: 'unverdicted' };
@@ -212,6 +232,15 @@ test('human and machine counts come from the manifest class metadata', () => {
   assert.equal(humanClassCount(marker), marker.unit_count - 1);
   assert.equal(humanClassCount(dangling), dangling.unit_count);
   assert.equal(humanTotal(manifest), manifest.totals.units - manifest.machine_approved.units);
+  assert.equal(noVerdictTotal(manifest), 0);
+});
+
+test('a no-verdict class contributes nothing to the human workload and everything non-identical to the exempt total', () => {
+  const exemptClass = { id: 'boundary-echo', no_verdict: true, unit_count: 6344, machine_approved_count: 4465 };
+  assert.equal(humanClassCount(exemptClass), 0);
+  const synthetic = { totals: { units: 6350 }, classes: [exemptClass, { id: 'x', no_verdict: false, unit_count: 6, machine_approved_count: 1 }] };
+  assert.equal(humanTotal(synthetic), 5);
+  assert.equal(noVerdictTotal(synthetic), 1879);
 });
 
 test('nextUnverdictedIndex advances, wraps, and reports exhaustion', () => {
@@ -308,7 +337,8 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
   for (const unit of [...shardA, ...shardB]) {
     assert.match(unit.id, /^u-\d{4}$/);
     assert.equal(typeof unit.ink_identical, 'boolean');
-    if (unit.ink_identical) assert.equal(unit.batch, null);
+    assert.equal(typeof unit.no_verdict, 'boolean');
+    if (unit.ink_identical || unit.no_verdict) assert.equal(unit.batch, null);
     else assert.equal(typeof unit.batch, 'number');
     assert.equal(typeof unit.text_entities, 'string');
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);

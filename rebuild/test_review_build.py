@@ -68,13 +68,13 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 15972, "rows": 80990, "batches": 20}
+    assert manifest["totals"] == {"units": 15972, "rows": 80990, "batches": 14}
     assert len(manifest["classes"]) == 23
     assert manifest["mode"] == "m1-audit"
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload: 10,083 machine-approved / 5,889 human units, the machine-approved ones concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join)."""
+    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload: 10,083 machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), 5,889 non-identical units, and — after the boundary-echo no-verdict exemption removes its 1,879 non-identical units — 4,010 units of human workload."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
     assert machine["units"] == 10083
@@ -93,6 +93,9 @@ def test_machine_approved_histogram_pins_the_census(built):
     assert by_id["boundary-echo"]["unit_count"] == 6344
     assert by_id["dangling-anchor-dropped"]["unit_count"] == 4149
     assert by_id["bare-name-live-join"]["unit_count"] == 1470
+    assert by_id["boundary-echo"]["no_verdict"] is True
+    assert all(meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] != "boundary-echo")
+    assert by_id["boundary-echo"]["batches"] == []
 
 
 def test_secondary_seam_census_pins_the_real_data(built):
@@ -162,17 +165,17 @@ def test_batches_cover_the_human_workload_only(built):
     for meta in manifest["classes"]:
         shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
         for unit in shard:
-            if unit["ink_identical"]:
+            if unit["ink_identical"] or unit["no_verdict"]:
                 assert unit["batch"] is None, unit["id"]
             else:
                 human_batches.append((unit["id"], unit["batch"]))
     # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
     human_batches.sort(key=lambda pair: int(pair[0][2:]))
-    assert len(human_batches) == 5889
+    assert len(human_batches) == 4010
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
-    assert manifest["totals"]["batches"] == 20
+    assert manifest["totals"]["batches"] == 14
 
 
 def test_every_built_unit_has_one_render_group_and_a_summary(built):
@@ -400,7 +403,8 @@ def test_notation_tokens_round_trip_for_every_unit(built):
 def test_export_round_trip(built, tmp_path):
     out_dir, manifest = built
     _manifest, units = load_units(out_dir)
-    ids = sorted(units)
+    ids = sorted(uid for uid, unit in units.items() if not unit["no_verdict"])
+    exempt_unit = next(uid for uid in sorted(units) if units[uid]["no_verdict"])
     drafted_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"])
     manual_reject = next(uid for uid in ids[4:] if units[uid]["drafts"]["policy"] is None)
     identical_unit = next(uid for uid in ids[4:] if uid not in (drafted_reject, manual_reject))
@@ -411,6 +415,8 @@ def test_export_round_trip(built, tmp_path):
         "exported_at": "2026-06-10T18:40:02Z",
         "verdicts": [
             {"unit": ids[0], "verdict": "approve", "note": "", "at": "2026-06-10T18:21:09Z"},
+            # A verdict recorded against a no-verdict unit (a stale master, or a misclick on a revealed exempt row) is inert history: skipped, counted, and never drafted.
+            {"unit": exempt_unit, "verdict": "reject", "note": "", "at": "2026-06-10T18:21:10Z"},
             {
                 "unit": drafted_reject,
                 "verdict": "reject",
@@ -451,8 +457,9 @@ def test_export_round_trip(built, tmp_path):
     assert counts["identical"] == 1
     assert counts["neither"] == 1
     assert counts["skip"] == 1
+    assert counts["skipped_no_verdict"] == 1
     assert counts["units_total"] == 15972
-    assert counts["human_units_total"] == 5889
+    assert counts["human_units_total"] == 4010
 
     machine = triage["machine_approved"]
     assert machine["count"] == 10083
