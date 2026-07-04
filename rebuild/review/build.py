@@ -26,6 +26,7 @@ from rebuild.review.audit import (
     _config_index,
     assign_batches,
     load_workload,
+    merge_ink_duplicate_units,
     synthesize_family_classes,
 )
 from rebuild.review.drafts import Drafter
@@ -96,15 +97,19 @@ def _repo_head(repo_root: Path) -> str:
         return "unknown"
 
 
+UNIT_ASSEMBLY_EPOCH = "2026-07-04T07:00:00Z"
+
+
 def _generated_at(*inputs: Path) -> str:
-    """Deterministic across consecutive builds of the same inputs (the §6 byte-identity gate), and different whenever an input changes: the latest input mtime as UTC ISO."""
+    """Deterministic across consecutive builds of the same inputs (the §6 byte-identity gate), and different whenever an input changes: the latest input mtime as UTC ISO, floored at UNIT_ASSEMBLY_EPOCH. Bump the epoch whenever a build-code change re-keys or renumbers units with no input change (the ink-duplicate merge did this on 2026-07-04) — unit ids must never be joined across manifests, and without the floor a code-only change would leave the stamp unchanged, letting the app silently restore a stale autosave or import an old export by id onto the wrong units."""
     latest = max(path.stat().st_mtime for path in inputs if path.exists())
-    return (
+    stamp = (
         datetime.datetime.fromtimestamp(latest, tz=datetime.timezone.utc)
         .replace(microsecond=0)
         .isoformat()
         .replace("+00:00", "Z")
     )
+    return max(stamp, UNIT_ASSEMBLY_EPOCH)
 
 
 FEATURE_DESCRIPTIONS = {
@@ -285,6 +290,10 @@ def build_m1(
 
     workload = load_workload(audit_path, ledger_path, dict(LETTERS))
     comparator = InkComparator(before_font, after_font)
+    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
+    merge_ink_duplicate_units(workload.units, comparator.signature, exempt_classes)
+    present = {unit.class_id for unit in workload.units}
+    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
     for unit in workload.units:
         text = "".join(chr(value) for value in unit.codepoint_values)
         unit.ink_identical = comparator.ink_identical(text, unit.configs)

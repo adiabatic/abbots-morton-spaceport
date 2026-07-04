@@ -77,3 +77,8 @@ class InkComparator:
             if self.ink_pieces("before", text, features) != self.ink_pieces("after", text, features):
                 return False
         return True
+
+    def signature(self, text: str, config: str) -> tuple:
+        """The rendered-outcome identity of one text under one config: the (before pieces, after pieces) pair. Two rows whose signatures are equal put exactly the same ink in the same places in both fonts, so they present the same visual question no matter how their glyph names differ."""
+        features = features_for(config)
+        return (self.ink_pieces("before", text, features), self.ink_pieces("after", text, features))

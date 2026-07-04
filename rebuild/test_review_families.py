@@ -1,4 +1,4 @@
-"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units — deterministic, total (every window lands in a family, summing to the audit's 1,182), with the stylistic-set-only windows deferred and the named default families matching the measured census."""
+"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in a family, summing to the audit's 1,182), with the stylistic-set-only windows deferred and the named default families matching the measured census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
 
 import warnings
 from pathlib import Path

@@ -1,4 +1,4 @@
-"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1): load rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupe the 15,528 audit rows to (codepoints, baseline, new) units, and order them for triage — ledger class in ledger file order, then lead-family-pair group in code-point order, then codepoints — with fixed batch slices assigned over the global order."""
+"""M1-mode unit assembly for the review surface (rebuild/REVIEW-PLAN.md §1.1, §2.1): load rebuild/out/m1/divergence-audit.tsv and rebuild/m1-divergences.yaml, dedupe the audit rows to (codepoints, baseline, new) units, and order them for triage — ledger class in ledger file order, then lead-family-pair group in code-point order, then codepoints — with fixed batch slices assigned over the global order. The name-grain dedupe key can split one visual question into sibling units when a config merely relabels a glyph without moving ink; the build folds those back together with `merge_ink_duplicate_units` before enrichment and batching."""
 
 from __future__ import annotations
 
@@ -212,6 +212,57 @@ def build_units(
         unit.unit_id = f"u-{index:04d}"
         unit.exemplar = any((row.config, row.codepoints) in exemplar_keys for row in unit.rows)
     return units
+
+
+def merge_ink_duplicate_units(units: list[Unit], ink_sig, exempt_classes: set[str] = frozenset()) -> dict:
+    """Fold sibling units of the same window whose placed ink is identical in both fonts across every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that merely relabels a glyph — the old font's ss04 lookups rename word-initial ·It without changing its ink — splits one visual question into two units and asks it twice. `ink_sig(text, config)` supplies the rendered-outcome identity (see InkComparator.signature); units are only folded when every config on both sides yields the same signature, so a fold is proof the units present the same picture. The survivor is the sibling with the earliest config; it absorbs the others' rows, configs, kinds, and config_classes, keeps its own (earliest-config) baseline/new name tuples for display, re-resolves its class with the same UNMATCHED-wins rule as build_units, and collapses to a single render group (ink identity is exactly render-group identity). A fold that would put two distinct matched ledger classes on one unit is skipped — different names legitimately hit different ledger predicates — and counted in the returned stats. Mutates `units` in place and renumbers unit ids to stay contiguous; run before enrichment and batch assignment."""
+    by_window: dict[str, list[Unit]] = {}
+    for unit in units:
+        by_window.setdefault(unit.codepoints, []).append(unit)
+    folded: set[int] = set()
+    stats = {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
+    for codepoints, siblings in by_window.items():
+        if len(siblings) < 2:
+            continue
+        text = "".join(chr(value) for value in parse_codepoints(codepoints))
+        groups: dict[tuple, list[Unit]] = {}
+        for unit in siblings:
+            signatures = {ink_sig(text, config) for config in unit.configs}
+            if len(signatures) == 1:
+                groups.setdefault(signatures.pop(), []).append(unit)
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            members.sort(key=lambda unit: _config_index(unit.configs[0]))
+            survivor = members[0]
+            merged_any = False
+            for unit in members[1:]:
+                matched = {cls for cls in survivor.config_classes.values() if cls != UNMATCHED_CLASS} | {
+                    cls for cls in unit.config_classes.values() if cls != UNMATCHED_CLASS
+                }
+                if len(matched) > 1:
+                    stats["kept_split_matched_classes"] += 1
+                    continue
+                rows = tuple(sorted(survivor.rows + unit.rows, key=lambda row: _config_index(row.config)))
+                survivor.rows = rows
+                survivor.configs = tuple(row.config for row in rows)
+                survivor.kinds = tuple(sorted(set(survivor.kinds) | set(unit.kinds)))
+                survivor.config_classes = {**survivor.config_classes, **unit.config_classes}
+                classes = set(survivor.config_classes.values())
+                survivor.class_id = UNMATCHED_CLASS if UNMATCHED_CLASS in classes else matched.pop()
+                survivor.no_verdict = survivor.class_id in exempt_classes
+                survivor.render_groups = (survivor.configs,)
+                survivor.exemplar = survivor.exemplar or unit.exemplar
+                folded.add(id(unit))
+                merged_any = True
+            if merged_any:
+                stats["windows_folded"] += 1
+    if folded:
+        units[:] = [unit for unit in units if id(unit) not in folded]
+        for index, unit in enumerate(units):
+            unit.unit_id = f"u-{index:04d}"
+    stats["units_folded"] = len(folded)
+    return stats
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
