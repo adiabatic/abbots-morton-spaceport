@@ -65,7 +65,11 @@ policy:
   - cell: {exit: none}
     over: {exit: baseline}
     when: {right: {family: qsIt, then: {family: qsUtter}}}
-    why: The Manual's "Indian" (·It·No·Day·It·Utter·No, the-manual.html data-expect) breaks ·Day | ·It so ·It keeps its baseline exit for ·Utter — ·It cannot join at the baseline on both sides, so the immediate ·Day·It join would foreclose ·It·Utter. Under ss04 the pass-through unlock gives the joined path more joins and this yielding prefer never fires.
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      self: {entry: none}
+      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsMay, qsIt, qsUtter]}}
   extend:
   - stance: full
     entry: x-height
