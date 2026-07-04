@@ -36,16 +36,6 @@ Surfaced during the visual review of the second-order shaping-leak fix batch (co
 
 Making them join is a separate, additive design decision — not a revert of the leak fix. Check ·Jai’s baseline exit anchor against ·Excite’s and ·Gay’s entry geometry, decide whether a baseline join is feasible and visually desirable, and if so add the join (anchors / joining stances) so the stroke genuinely connects; the existing demote-override cleanup then becomes moot for those pairs. Scope it and present options before changing anything.
 
-## Restructure source so join mismatches are inexpressible
-
-Follow-on to the Phase A static validator (`tools/quikscript_join_analysis.py:validate_join_consistency`) and Phase B derived guards. Once those have stabilized for a few feature additions, look at where the validator is still doing meaningful work — i.e., places where the same join is declared on both sides and the two declarations have to be kept in sync (e.g., one stance’s `cursive_exit` paired with another stance’s matching `cursive_entry` and an `extend_entry_after`).
-
-If a cluster of those exists, propose a top-level `joins:` (or similar) section in `glyph_data/quikscript.yaml` that declares pair-level joins as bilateral edges, with both sides’ anchors derived from the edge declaration. The goal is to reduce mismatches from “build-fails on inconsistent state” to “inexpressible in source”.
-
-Don’t design this until the Phase A complaints (and Phase B derivation gaps) tell us where the current source language is genuinely inadequate.
-
-Current status: `tools/quikscript_join_analysis.py:collect_join_warnings` is clean for the real senior glyph set, and `test_real_join_warning_collector_is_clean` locks that in. Only revisit a top-level `joins:` section if future real-data warnings show repeated bilateral source-maintenance pain.
-
 ## The Manual
 
 - Leave a column on the right of the page to show page-number markers (that link to the PDF’s pages) (and also to leave space for the buttons)
