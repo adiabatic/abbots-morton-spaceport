@@ -148,7 +148,7 @@ policy:
   - stance: loop
     entry: baseline
     by: 1
-    when: {left: {family: [qsPea, qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}}
+    when: {left: {family: [qsPea, qsTea_qsOy, qsYe, qsHe], joined_at: baseline}}
   - stance: loop
     entry: x-height
     by: 1
