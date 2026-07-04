@@ -38,6 +38,10 @@ Owner instruction, governing every hover written or reworked from here on:
 - **Vertical whitespace is load-bearing.** Prefer several short paragraphs over one dense one — "I need my vertical whitespace to keep the fatigue down."
 - **Don't crib the committed hovers' style.** Much of the existing text was drafted by an earlier, less capable model (with significant human editing since); write plainer, with less jargon the owner doesn't personally know, rather than matching the incumbent voice. Restructuring a committed hover to this shape while touching it for other reasons is welcome.
 
+### D6 — Wording is edited in a drafts file, not picked from options (set 2026-07-04)
+
+The owner works in VS Code, where AskUserQuestion previews are a poor surface for word-smithing. New loop: one hover per round is staged in `tmp/hover-drafts.md` (editable Markdown; blank line = the `\n\n` break; paragraphs stay unwrapped) and simultaneously written into `rune.schema.json` so the real tooltip renders on hover in a rune file (`.vscode/settings.json` maps the schema onto `glyph_data/runes/*.yaml`). The owner edits the draft directly — expected mode: pointing at a phrase and asking for it to be dejargonized — then says "land it"; the text lands verbatim through the usual gates (JSON validation, tracker entry, lint, commit). AskUserQuestion survives only for genuine forks, never wording. The schema carries the unapproved draft between rounds by design and is not committed until landed.
+
 ### Interview-style learning (how to ask the owner)
 
 The owner is, by design, not steeped in the schema’s internal machinery — that is the whole reason this documentation exists. So interview questions must **not** themselves lean on unexplained concepts. When the owner’s judgment is needed, anchor the question on something they already know (a join they author by hand, a ·X·Y outcome, a term from `CLAUDE.md`’s “How to do simple changes”) and, where possible, have them **react to a real drafted description** rather than answer an abstract meta-question. Show, don’t quiz.
