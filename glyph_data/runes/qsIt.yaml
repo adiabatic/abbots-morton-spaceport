@@ -60,6 +60,9 @@ stances:
 policy:
   refuse:
   - {entry: x-height, when: {left: {family: qsIt}}}
+  - entry: baseline
+    when: {left: {family: qsIt}}
+    why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
   - stance: bar
     exit: x-height
     when: {right: {family: qsDay}}
@@ -85,10 +88,7 @@ policy:
   - stance: bar
     exit: baseline
     when: {self: {entry: live}, left: {family: qsDay, stance: half}, right: {family: qsUtter}}
-  prefer:
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when: {right: {family: qsIt, then: {family: [qsMay, qsNo, qsUtter]}}}
+  prefer: []
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
   - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}

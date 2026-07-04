@@ -87,11 +87,13 @@
 - id: entered-it-baseline-join-gain
   status: reviewed-approved
   match: {predicate: entered_it_baseline_join_gain, configs: all}
-  count: 319
+  count: 0
   exemplars:
     - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.bar.en-y5.ex-y0.ex-ext-1|qsIt.bar.en-y0 (y5,y0)"}
   why: |
     The old YAML places the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal on the unentered stance only (quikscript.yaml entry_nowhere_exit_baseline; the entered en-y5/ex-y0 stance carries no such refusal), so the authored self-scoped refusal is faithful and an entered ·It legally joins a following ·It/·Tea at the baseline. Today's break is a cascade artifact, not authored law; the extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the why of the refusal (one extra-thick stroke) does not apply. Off-anchor contact gate clean over these cells. Every member row's gained seam has an entered ·It on its left (the classifier routes unentered-·It gains — the ss03 ·It·May·Tea chains — to ss03-chain-join-gains instead, and an unentered-·It gain outside ss03 matches nothing and fails). Round-1 verdict: 33 approvals; the two skips u-0397/u-0399 ("I like the extra join but the extension between ·Tea and ·It shouldn't change because ·It joins to something else next") are discharged by the round-1 deletion of qsIt's halves entry-extension record — the gained joins survive and the ·Tea·It seam is back at baseline width (exemplar refreshed: the en-ext-1 is gone).
+
+    Reversed 2026-07-04 (IT1): the user ruled ·It never joins to itself, so qsIt now refuses its baseline entry after qsIt (mirroring the x-height refuse) and this class matches nothing; the entry stays at count 0 for the documentation trail, and the 33 round-1 approvals are superseded at rule level. The 492 member rows moved to dangling-anchor-dropped (485) and pea-chain-regularized (7). The only new divergence from the old font is the 6 ss04 ·X·It·It·Utter windows — the baseline pass-through chain into ·Utter that the old font really drew, structurally inexpressible to carve out because refuse records cannot be feature-scoped — headed to review as intended divergence.
 
 - id: pea-chain-regularized
   status: reviewed-approved
