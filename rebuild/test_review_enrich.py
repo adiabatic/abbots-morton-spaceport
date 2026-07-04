@@ -161,7 +161,7 @@ def test_known_halves_extension_unit(enricher, units_by_key):
     assert enriched.before_seams == ("y0", "y5")
     assert enriched.after_seams == ("y0", "y5")
     assert enriched.after_extensions == (1, 1)
-    assert enriched.diff_positions == (0, 1)
+    assert enriched.diff_positions == (0, 1, 2)
     assert enriched.pair == (0, 1)
     assert "glyph_data/runes/qsMay.yaml:policy.extend" in " ".join(enriched.provenance)
 
