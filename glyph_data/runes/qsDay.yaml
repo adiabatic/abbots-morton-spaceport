@@ -78,6 +78,11 @@ policy:
     when:
       left: {family: qsTea, joined_at: baseline}
       right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      left: {family: [qsIt, qsUtter]}
+      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsUtter]}}
   extend:
   - stance: full
     entry: x-height
