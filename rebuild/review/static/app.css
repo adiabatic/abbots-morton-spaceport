@@ -587,7 +587,8 @@ details.group {
 
       .exemplar,
       .config-note,
-      .config-class-note {
+      .config-class-note,
+      .echo-chip {
         border: 1px solid var(--hairline);
         border-radius: 8px;
         padding: 0 0.45em;
@@ -596,6 +597,16 @@ details.group {
       .exemplar {
         color: var(--hot);
         border-color: var(--hot);
+      }
+
+      .echo-chip {
+        color: var(--muted);
+        text-decoration: none;
+
+        &:hover {
+          border-color: var(--hot);
+          color: var(--hot);
+        }
       }
 
       .config-note {

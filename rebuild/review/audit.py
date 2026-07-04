@@ -54,6 +54,7 @@ class Unit:
     no_verdict: bool = False
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""
+    echo: str | None = None
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:

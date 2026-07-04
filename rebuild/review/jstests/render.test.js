@@ -24,6 +24,8 @@ import {
   tokenSeparators,
   searchHaystack,
   searchUnits,
+  echoChip,
+  echoFillTargets,
 } from '../static/render.js';
 
 const fixtureDir = new URL('./fixtures/', import.meta.url);
@@ -73,6 +75,42 @@ test('renderGroupsOf collapses a single-group unit and tolerates missing render_
   assert.deepEqual(renderGroupsOf(legacy), [
     { configs: ['ss05'], label: 'ss05', featureSettings: '"ss05" 1', primary: true },
   ]);
+});
+
+test('echoChip appears only for multi-member echo groups and deep-links the worklist', () => {
+  const unit = { id: 'u-0005', echo: 'e-0000', class: 'dangling-anchor-dropped' };
+  assert.equal(echoChip(unit, ['u-0005']), null);
+  assert.equal(echoChip({ ...unit, echo: null }, ['u-0005', 'u-0006']), null);
+  const chip = echoChip(unit, ['u-0005', 'u-0006', 'u-0007']);
+  assert.equal(chip.label, 'echo ×3');
+  assert.equal(chip.href, '#units=u-0005,u-0006,u-0007');
+  assert.ok(chip.title.includes('dangling-anchor-dropped'));
+});
+
+test('echoFillTargets excludes the unit itself and anything already verdicted', () => {
+  const unit = { id: 'u-0005', echo: 'e-0000' };
+  const verdicted = new Set(['u-0007']);
+  assert.deepEqual(
+    echoFillTargets(unit, ['u-0005', 'u-0006', 'u-0007'], (id) => verdicted.has(id)),
+    ['u-0006'],
+  );
+  assert.deepEqual(echoFillTargets({ id: 'u-0005', echo: null }, ['u-0005', 'u-0006'], () => false), []);
+  assert.deepEqual(echoFillTargets(undefined, ['u-0005'], () => false), []);
+});
+
+test('fixture echo ids group only within a shard and singletons carry their own id', () => {
+  const members = new Map();
+  for (const unit of [...shardA, ...shardB]) {
+    if (unit.echo === null) {
+      assert.equal(unit.batch, null, unit.id);
+      continue;
+    }
+    if (!members.has(unit.echo)) members.set(unit.echo, []);
+    members.get(unit.echo).push(unit);
+  }
+  const grouped = [...members.values()].find((units) => units.length > 1);
+  assert.ok(grouped, 'fixtures must exercise a multi-member echo group');
+  assert.equal(new Set(grouped.map((unit) => unit.class)).size, 1);
 });
 
 test('every fixture unit carries exactly one render group covering its configs', () => {

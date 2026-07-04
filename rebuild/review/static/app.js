@@ -3,6 +3,7 @@ import { actionForKey, isEditableTarget } from './keyboard.js';
 import {
   createStore,
   recordVerdict,
+  recordVerdictWithEchoes,
   updateNote,
   groupApprove,
   undo,
@@ -17,6 +18,8 @@ import {
   markOffset,
   secondarySeamsOf,
   seamChip,
+  echoChip,
+  echoFillTargets,
   needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
@@ -59,6 +62,7 @@ const manifest = await (await fetch('manifest.json')).json();
 const store = createStore();
 const shardCache = new Map();
 const unitsById = new Map();
+const echoIndex = new Map();
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
 const MACHINE_BADGE = 'ink-identical — machine approved';
@@ -117,7 +121,13 @@ async function shardUnits(classId) {
     const promise = fetch(cls.shard)
       .then((response) => response.json())
       .then((units) => {
-        for (const unit of units) unitsById.set(unit.id, unit);
+        for (const unit of units) {
+          unitsById.set(unit.id, unit);
+          if (unit.echo) {
+            if (!echoIndex.has(unit.echo)) echoIndex.set(unit.echo, []);
+            echoIndex.get(unit.echo).push(unit.id);
+          }
+        }
         return units;
       });
     shardCache.set(classId, promise);
@@ -314,6 +324,14 @@ function buildRow(unit) {
   if (unit.config_class_note) {
     const badge = el('span', 'config-class-note', unit.config_class_note);
     meta.append(badge);
+  }
+  const echo = echoChip(unit, echoIndex.get(unit.echo) ?? []);
+  if (echo) {
+    const chip = el('a', 'echo-chip', echo.label);
+    chip.href = echo.href;
+    chip.title = echo.title;
+    chip.dataset.echo = unit.echo;
+    meta.append(chip);
   }
   label.append(meta);
 
@@ -759,7 +777,17 @@ function applyVerdict(unitId, verdict) {
   if (existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
-    recordVerdict(store, unitId, verdict, { note });
+    // A verdict fills the unverdicted rest of the unit's echo group (same change, same judged pair — one question); skip is a per-unit deferral and never echoes, and already-verdicted members are never overwritten.
+    const unit = unitsById.get(unitId);
+    const echoes =
+      verdict === 'skip' || !unit
+        ? []
+        : echoFillTargets(unit, echoIndex.get(unit.echo) ?? [], (id) => store.records.has(id));
+    const applied = recordVerdictWithEchoes(store, unitId, verdict, echoes, { note });
+    for (const id of applied) syncRowVerdict(id);
+    if (applied.length > 1) {
+      toast(`Echoed to ${applied.length - 1} matching window${applied.length === 2 ? '' : 's'} (u to undo all)`);
+    }
   }
   syncRowVerdict(unitId);
   updateProgress();
@@ -992,11 +1020,19 @@ function approveGroupOf(unitId) {
   for (const candidate of visibleUnits) {
     if (candidate.group === unit.group && !store.records.has(candidate.id)) ids.push(candidate.id);
   }
-  const applied = groupApprove(store, ids);
+  // Each approval echoes to the rest of its echo group, wherever those windows live; groupApprove skips anything already verdicted, so duplicates in the list are harmless.
+  const expanded = [...ids];
+  for (const id of ids) {
+    const member = unitsById.get(id);
+    if (member?.echo) expanded.push(...(echoIndex.get(member.echo) ?? []));
+  }
+  const applied = groupApprove(store, expanded);
   for (const id of applied) syncRowVerdict(id);
   updateProgress();
   scheduleAutosave();
-  toast(`Approved ${applied.length} remaining in ${unit.group}`);
+  const inGroup = applied.filter((id) => ids.includes(id)).length;
+  const echoed = applied.length - inGroup;
+  toast(`Approved ${inGroup} remaining in ${unit.group}${echoed > 0 ? ` + ${echoed} echoes elsewhere` : ''}`);
   advanceFrom(unitId);
 }
 
@@ -1394,6 +1430,13 @@ function wireEvents() {
       event.preventDefault();
       // The hash carries only the home unit id — the same deep-link form as a pasted URL — so the existing machinery relocates across batches and classes, or transiently reveals a machine-approved home.
       if (chip.dataset.home) location.hash = `unit=${chip.dataset.home}`;
+      return;
+    }
+    const echoLink = event.target.closest('.echo-chip');
+    if (echoLink) {
+      event.preventDefault();
+      // The hash carries the group's unit ids as a worklist — the existing #units= machinery renders exactly those units, stacked and grouped.
+      location.hash = echoLink.getAttribute('href').replace(/^#/, '');
       return;
     }
     const row = event.target.closest('.row');
