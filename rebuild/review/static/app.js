@@ -801,13 +801,31 @@ function verdictCursor(verdict) {
   if (applyVerdict(unitId, verdict)) advanceFrom(unitId);
 }
 
-function jumpToFirstUnverdicted() {
-  const open = visibleUnits.find((unit) => !store.records.has(unit.id));
-  if (!open) {
-    toast('Everything in this view is verdicted');
+async function jumpToFirstUnverdicted() {
+  if (state.units) {
+    const open = visibleUnits.find((unit) => !store.records.has(unit.id));
+    if (!open) {
+      toast('Everything in this worklist is verdicted');
+      return;
+    }
+    setStateReplace({ unit: open.id });
     return;
   }
-  setStateReplace({ unit: open.id });
+  for (const batch of availableBatches(manifest, null)) {
+    const units = await unitsForView(batch, null);
+    const { human } = partitionUnits(units, { ...state, class: null, batch }, (id) => store.records.get(id));
+    const open = human.find((unit) => !store.records.has(unit.id));
+    if (!open) continue;
+    const keepClass = state.class && open.class === state.class ? state.class : null;
+    if (state.class && !keepClass) toast(`First unverdicted is in ${open.class} — class filter cleared`);
+    if (batch === state.batch && keepClass === state.class) {
+      setStateReplace({ unit: open.id });
+    } else {
+      setState({ batch, class: keepClass, unit: open.id });
+    }
+    return;
+  }
+  toast('Every unit in every class and batch is verdicted');
 }
 
 let rejectMenuUnitId = null;
