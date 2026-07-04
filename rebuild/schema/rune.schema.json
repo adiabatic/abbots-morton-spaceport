@@ -163,8 +163,8 @@
       "additionalProperties": false,
       "required": ["entry", "exit"],
       "properties": {
-        "entry": {"$ref": "#/$defs/heightOrNone"},
-        "exit": {"$ref": "#/$defs/heightOrNone"}
+        "entry": {"$ref": "#/$defs/heightOrNone", "description": "The pair's left side: the height a predecessor joins in at (`baseline`, `x-height`, `y6`, `top`), or `none` for no join on that side."},
+        "exit": {"$ref": "#/$defs/heightOrNone", "description": "The pair's right side: the height this letter reaches its successor at, or `none` for no join on that side."}
       }
     },
     "cellBinding": {
