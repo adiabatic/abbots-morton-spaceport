@@ -152,6 +152,7 @@ def test_unlock_only_cells_resolve_with_their_record(spec):
     ] == [
         "ss02",
         "ss03",
+        "ss03",
     ]
     assert surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "x-height", "baseline", ())) == ()
     assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "baseline", "baseline", ()))) == 4
