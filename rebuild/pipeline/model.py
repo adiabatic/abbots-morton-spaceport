@@ -328,3 +328,11 @@ def marker_glyph_name(rune_name: str, active: frozenset[str] | Sequence[str]) ->
 def locked_glyph_name(raw_name: str) -> str:
     """The ZWNJ chokepoint twin's display name for a raw input glyph (bare rune or marker twin)."""
     return f"{raw_name}.noentry"
+
+
+SS10_TWIN_SUFFIX = ".ss10"
+
+
+def ss10_twin_name(raw_name: str) -> str:
+    """The ss10 isolated-input twin's display name for a letter's raw cmap glyph: drawn identically to the bare glyph but carrying no curs anchors and no cmap entry, and absent from every formation, marker, chokepoint, and settlement input, so substituting it before formation isolates the letter from the whole join pipeline — no ligature forms, nothing settles, and each letter keeps its own cluster."""
+    return f"{raw_name}{SS10_TWIN_SUFFIX}"

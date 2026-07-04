@@ -1,6 +1,6 @@
 """GSUB emission in the prototype-proven section 7 shape (M1-PLAN section 5, Group 3).
 
-Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): formation (unconditional type-4 over the registry's ligature sequences) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only — then, post-settlement, the ss10 overlay (cell → isolated cell) and the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path).
+Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (unconditional type-4 over the registry's ligature sequences) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
 
 Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` (tuples of glyph labels or None), `outcome`, `joint`, `provenance`. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
@@ -266,10 +266,10 @@ def emit_gsub(
     spec: ResolvedSpec,
     tables_by_config: Mapping,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
-    isolated_cells: Mapping[str, CellId] | None = None,
+    ss10_twins: Mapping[str, str] | None = None,
     namer_dot: tuple[str, str] | None = ("periodcentered", "periodcentered.lowered"),
 ) -> GsubPlan:
-    """`glyphs` and `isolated_cells` (rune name → the cell its isolated form lands in) feed the ss10 overlay and the namer-dot follower class; both stages are skipped with a comment when the inputs are absent (a recorded M1-PLAN section 5 signature extension — the plan's two-argument form cannot reach the glyph inventory)."""
+    """`glyphs` feeds the settlement outcomes and the namer-dot follower class; `ss10_twins` (raw cmap glyph name → anchor-free `.ss10` twin name) feeds the ss10 pre-empt lookup; each stage is skipped with a comment when its input is absent (a recorded M1-PLAN section 5 signature extension — the plan's two-argument form cannot reach the glyph inventory)."""
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs = _marker_lookups(spec)
@@ -293,6 +293,15 @@ def emit_gsub(
     parts.append(f"@m1_entry_locked = [{' '.join(locked_members)}];")
     parts.append("")
 
+    if ss10_twins:
+        preempt_lines = [
+            f"    sub {raw_name} by {twin_name};" for raw_name, twin_name in sorted(ss10_twins.items())
+        ]
+        parts.append(
+            "lookup m1_ss10_isolated_input {\n" + "\n".join(preempt_lines) + "\n} m1_ss10_isolated_input;"
+        )
+        parts.append("")
+
     formation_lines = []
     for rune_name, rune in spec.runes.items():
         if rune.sequence:
@@ -314,9 +323,10 @@ def emit_gsub(
     if namer_dot is not None and names_by_cell:
         dot_glyph, lowered_glyph = namer_dot
         shorts = spec.registry.predicate_classes.get("shorts", frozenset())
-        followers = sorted(
-            {record_name for cell, record_name in names_by_cell.items() if cell.rune in shorts}
-        )
+        follower_names = {record_name for cell, record_name in names_by_cell.items() if cell.rune in shorts}
+        if ss10_twins:
+            follower_names.update(twin for raw_name, twin in ss10_twins.items() if raw_name in shorts)
+        followers = sorted(follower_names)
         if followers:
             namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
             namer_lines.append(
@@ -340,29 +350,18 @@ def emit_gsub(
     for feature in sorted(feature_lookup_names):
         parts.append(f"\nfeature {feature} {{\n    lookup {feature_lookup_names[feature]};\n}} {feature};")
 
-    if glyphs and isolated_cells:
-        overlay_lines: list[str] = []
-        for cell, record in sorted(glyphs.items(), key=lambda item: item[1].name):
-            if cell.rune not in isolated_cells:
-                continue
-            isolated_name = names_by_cell.get(isolated_cells[cell.rune])
-            if isolated_name is None or record.name == isolated_name:
-                continue
-            overlay_lines.append(f"    sub {record.name} by {isolated_name};")
-        if overlay_lines:
-            parts.append(
-                "\nfeature ss10 {\n    lookup m1_ss10_isolated {\n"
-                + "\n".join("    " + line for line in overlay_lines)
-                + "\n    } m1_ss10_isolated;\n} ss10;"
-            )
+    if ss10_twins:
+        parts.append("\nfeature ss10 {\n    lookup m1_ss10_isolated_input;\n} ss10;")
     else:
-        parts.append("\n# ss10 overlay skipped: no glyph inventory / isolated-cell map supplied.")
+        parts.append("\n# ss10 pre-empt skipped: no ss10 twin inventory supplied.")
 
     fea = "\n".join(parts) + "\n"
 
     named_glyphs: set[str] = set(live_members) | set(locked_members) | set(marker_glyphs)
     named_glyphs.update(names_by_cell.values())
     named_glyphs.update(spec.runes)
+    if ss10_twins:
+        named_glyphs.update(ss10_twins.values())
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
     allowed_ignores = (
         frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()

@@ -142,20 +142,34 @@ class TestEmitGsub:
                 glyphs=glyphs,
             )
 
-    def test_ss10_overlay_maps_cells_to_isolated(self, spec, glyphs):
-        isolated = {
-            "qsIt": CellId("qsIt", "bar", None, None, ()),
-            "qsMay": CellId("qsMay", "loop", None, "x-height", ()),
-        }
+    def test_ss10_preempt_defined_before_formation(self, spec, glyphs):
+        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
         plan = emit_gsub.emit_gsub(
-            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, isolated_cells=isolated
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
         )
         fea = plan.fea_text
-        assert "feature ss10 {" in fea
-        names = {cell: record.name for cell, record in glyphs.items()}
-        entered_may = names[CellId("qsMay", "loop", "baseline", "x-height", ())]
-        bare_may = names[CellId("qsMay", "loop", None, "x-height", ())]
-        assert f"sub {entered_may} by {bare_may};" in fea
+        assert fea.index("lookup m1_ss10_isolated_input {") < fea.index("lookup m1_formation {")
+        preempt = fea.split("lookup m1_ss10_isolated_input {")[1].split("} m1_ss10_isolated_input;")[0]
+        for raw_name, twin_name in twins.items():
+            assert f"sub {raw_name} by {twin_name};" in preempt
+        assert "feature ss10 {\n    lookup m1_ss10_isolated_input;\n} ss10;" in fea
+
+    def test_ss10_twins_stay_out_of_the_join_pipeline(self, spec, glyphs):
+        twins = {"qsIt": "qsIt.ss10", "qsMay": "qsMay.ss10", "qsTea": "qsTea.ss10", "qsOy": "qsOy.ss10"}
+        plan = emit_gsub.emit_gsub(
+            spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs, ss10_twins=twins
+        )
+        fea = plan.fea_text
+        assert "m1_ss10_unligate" not in fea
+        assert "lookup m1_ss10_isolated {" not in fea
+        assert "qsTea_qsOy.ss10" not in fea  # ligature runes never appear in a cmap buffer, so no twin
+        formation = fea.split("lookup m1_formation {")[1].split("} m1_formation;")[0]
+        assert ".ss10" not in formation
+        assert ".ss10" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
+        settle_block = fea.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        assert ".ss10" not in settle_block
+        followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
+        assert "qsIt.ss10" in followers  # the namer dot still lowers before a Short letter under ss10
 
     def test_namer_dot_stage_targets_short_cells(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)

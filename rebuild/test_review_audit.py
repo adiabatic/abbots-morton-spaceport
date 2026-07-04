@@ -101,7 +101,7 @@ def test_real_audit_dedupes_to_measured_counts(workload):
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
     exemplar_keys = {key for entry in workload.ledger for key in entry.exemplar_keys}
-    assert len(exemplar_keys) == 21
+    assert len(exemplar_keys) == 23
     covered = {(row.config, row.codepoints) for unit in workload.units if unit.exemplar for row in unit.rows}
     assert exemplar_keys <= covered
 
