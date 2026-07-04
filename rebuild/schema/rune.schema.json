@@ -172,11 +172,11 @@
       "additionalProperties": false,
       "required": ["entry", "exit", "bitmap"],
       "properties": {
-        "entry": {"$ref": "#/$defs/cellSide"},
-        "exit": {"$ref": "#/$defs/cellSide"},
-        "bitmap": {"$ref": "#/$defs/motionName"},
-        "entry_x": {"type": "integer"},
-        "exit_x": {"type": "integer"}
+        "entry": {"$ref": "#/$defs/cellSide", "description": "The entry-side state this cell is for: the height a predecessor joined at, or `none` when nothing joined there."},
+        "exit": {"$ref": "#/$defs/cellSide", "description": "The exit-side state this cell is for: the height this letter joins onward at, `none` for no exit, or a height plus `-withdrawn` for an exit that was declined mid-word and pulled its ink back."},
+        "bitmap": {"$ref": "#/$defs/motionName", "description": "The bitmap this cell renders — one of this stance's own `bitmaps`.\n\nAs with `joined` and `withdrawal`, only those names resolve: not the base `bitmap`, and not the rune's `mono`. An explicit row here also settles the tie when the entry's `joined` and an exit's `withdrawal` name different bitmaps — the build stops and asks you to pick by writing this row."},
+        "entry_x": {"type": "integer", "description": "Puts this cell's entry anchor in a different column — set it when the cell's bitmap has its entry-side ink somewhere other than where the row's `x` (or `joined_x`) says.\n\nNo rune uses it yet."},
+        "exit_x": {"type": "integer", "description": "Puts this cell's exit anchor in a different column — set it when the cell's bitmap has its exit-side ink somewhere other than where the row's `x` says.\n\nExample: ·Utter's `reaches-way-back` cell reaches further right, so its exit anchor moves out to `exit_x: 6`."}
       }
     },
     "unlock": {

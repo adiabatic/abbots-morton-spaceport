@@ -96,6 +96,8 @@ The R1–R39 decision log — the per-decision call-and-why behind every hover �
 
 - **R47 — the `pairing` leaves (resolves the deferred source-order fork).** The fork re-asked with drafts came back the other way from the recorded lean: the `entry`/`exit` leaves get their own one-line hovers rather than riding the `pairings` container, per R30's every-leaf-shows-something precedent — strengthened by the shared `$def` also surfacing under an `unlocks` row's `pairing:`, where the container text is not the hover you get. Each is a single sentence naming its side and the `none` case. → schema (`pairing.entry`, `pairing.exit`). Next: `cellBinding`'s five bare leaves.
 
+- **R48 — the `cellBinding` leaves.** All five bare leaves (`entry`/`exit`/`bitmap`/`entry_x`/`exit_x`) got hovers in one set; the owner took the fuller variant. `entry`/`exit` are one-liners naming their side's state (the `-withdrawn` explanation rides `exit`); `bitmap` carries the R36 own-`bitmaps` scope plus the verified tiebreak note (an explicit row settles a `joined`-vs-`withdrawal` disagreement the build otherwise errors on); `entry_x` notes no rune uses it yet; `exit_x` closes on ·Utter's `reaches-way-back` cell (`exit_x: 6`). D5 breaks applied after the first sentence of the multi-sentence hovers. This also resolves the R36 `bitmaps`-scope follow-up's cell-grain half. → schema (`cellBinding.entry`, `.exit`, `.bitmap`, `.entry_x`, `.exit_x`).
+
 ### Open (leans to react to)
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
