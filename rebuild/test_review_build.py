@@ -68,20 +68,20 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 16067, "rows": 81199, "batches": 14}
+    assert manifest["totals"] == {"units": 15349, "rows": 81199, "batches": 14}
     assert len(manifest["classes"]) == 22
     assert manifest["mode"] == "m1-audit"
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload: 10,172 machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), 5,895 non-identical units, and — after the boundary-echo no-verdict exemption removes its 1,875 non-identical units — 4,020 units of human workload."""
+    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: 9,574 machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), 5,775 non-identical units, and — after the boundary-echo no-verdict exemption removes its 1,827 non-identical units — 3,948 units of human workload."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
-    assert machine["units"] == 10172
-    assert manifest["totals"]["units"] - machine["units"] == 5895
+    assert machine["units"] == 9574
+    assert manifest["totals"]["units"] - machine["units"] == 5775
     assert machine["by_class"] == {
-        "boundary-echo": 4496,
-        "dangling-anchor-dropped": 4233,
+        "boundary-echo": 4203,
+        "dangling-anchor-dropped": 3928,
         "bare-name-live-join": 1443,
     }
     assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
@@ -90,8 +90,8 @@ def test_machine_approved_histogram_pins_the_census(built):
     for meta in manifest["classes"]:
         expected = machine["by_class"].get(meta["id"], 0)
         assert meta["machine_approved_count"] == expected, meta["id"]
-    assert by_id["boundary-echo"]["unit_count"] == 6371
-    assert by_id["dangling-anchor-dropped"]["unit_count"] == 4249
+    assert by_id["boundary-echo"]["unit_count"] == 6030
+    assert by_id["dangling-anchor-dropped"]["unit_count"] == 3944
     assert by_id["bare-name-live-join"]["unit_count"] == 1471
     assert by_id["boundary-echo"]["no_verdict"] is True
     assert all(meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] != "boundary-echo")
@@ -99,13 +99,13 @@ def test_machine_approved_histogram_pins_the_census(built):
 
 
 def test_secondary_seam_census_pins_the_real_data(built):
-    """The secondary-seam resolution census over the M1-batch-2 workload: 1,677 units carry visible markers; 386 seams link to the shorter unit where the same behavior is the primary judgment, 1,541 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) so they carry home null and are judged in place, and 375 resolve to an ink-identical home and are suppressed as invisible."""
+    """The secondary-seam resolution census over the M1-batch-2 workload, after the ink-duplicate merge: 1,615 units carry visible markers; 380 seams link to the shorter unit where the same behavior is the primary judgment, 1,478 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) so they carry home null and are judged in place, and 341 resolve to an ink-identical home and are suppressed as invisible."""
     out_dir, manifest = built
     assert manifest["secondary_seams"] == {
-        "units_with_markers": 1677,
-        "seams_homed": 386,
-        "seams_homeless": 1541,
-        "seams_suppressed_invisible": 375,
+        "units_with_markers": 1615,
+        "seams_homed": 380,
+        "seams_homeless": 1478,
+        "seams_suppressed_invisible": 341,
     }
 
     units_by_id = {}
@@ -138,7 +138,7 @@ def test_secondary_seam_census_pins_the_real_data(built):
             ), f"{unit['id']}: home {home['id']} is not a substring"
             assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
             assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
-    assert (units_with, homed, homeless) == (1677, 386, 1541)
+    assert (units_with, homed, homeless) == (1615, 380, 1478)
 
 
 def test_known_secondary_seam_homes_at_the_shorter_primary(built):
@@ -175,7 +175,7 @@ def test_batches_cover_the_human_workload_only(built):
                 human_batches.append((unit["id"], unit["batch"]))
     # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
     human_batches.sort(key=lambda pair: int(pair[0][2:]))
-    assert len(human_batches) == 4020
+    assert len(human_batches) == 3948
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
@@ -192,6 +192,21 @@ def test_every_built_unit_has_one_render_group_and_a_summary(built):
             assert unit["render_groups"][0]["configs"] == unit["configs"], unit["id"]
             assert unit["summary"].startswith("New: "), unit["id"]
             assert "decided by" in unit["summary"] or "no policy record" in unit["summary"], unit["id"]
+
+
+def test_ink_duplicate_siblings_fold_in_the_built_output(built):
+    """The worked example of the ink-duplicate merge: the old font's ss04 lookups rename word-initial ·It in ·It·Day·Tea·No (E670:E653:E652:E666) without moving any ink, which used to split the window into a default-configs unit and an ss04-only sibling asking the identical visual question twice. The build folds them: one unit, every non-ss10 config, one render group, no config badge."""
+    out_dir, manifest = built
+    matches = []
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            if unit["codepoints"] == "E670:E653:E652:E666":
+                matches.append(unit)
+    assert len(matches) == 1
+    (unit,) = matches
+    assert unit["configs"] == ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"]
+    assert unit["render_groups"] == [{"configs": unit["configs"]}]
+    assert unit["config_note"] is None
 
 
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
@@ -213,13 +228,14 @@ def test_config_note_distribution_over_the_built_output(built):
         for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
             histogram[unit["config_note"]] = histogram.get(unit["config_note"], 0) + 1
     assert histogram == {
-        None: 9439,
-        "only when ss04 is off": 1071,
-        "only when ss04 is on": 1149,
+        None: 10104,
+        "only when ss04 is off": 406,
+        "only when ss04 is on": 462,
         "only when ss03 is on": 634,
-        "only when ss03 is off": 601,
-        "only under: default, ss02, ss05": 36,
-        "only under ss10": 3137,
+        "only when ss03 is off": 620,
+        "only under: default, ss02, ss05": 14,
+        "only under: default, ss02, ss04, ss05, ss10": 3,
+        "only under ss10": 3106,
     }
 
 
@@ -462,14 +478,14 @@ def test_export_round_trip(built, tmp_path):
     assert counts["neither"] == 1
     assert counts["skip"] == 1
     assert counts["skipped_no_verdict"] == 1
-    assert counts["units_total"] == 16067
-    assert counts["human_units_total"] == 4020
+    assert counts["units_total"] == 15349
+    assert counts["human_units_total"] == 3948
 
     machine = triage["machine_approved"]
-    assert machine["count"] == 10172
+    assert machine["count"] == 9574
     assert machine["by_class"] == {
-        "boundary-echo": 4496,
-        "dangling-anchor-dropped": 4233,
+        "boundary-echo": 4203,
+        "dangling-anchor-dropped": 3928,
         "bare-name-live-join": 1443,
     }
     assert machine["method"]
@@ -483,7 +499,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
         else:
             expanded.append(int(token[2:]))
-    assert len(expanded) == 10172
+    assert len(expanded) == 9574
     assert {f"u-{number:04d}" for number in expanded} == {
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }

@@ -11,6 +11,7 @@ from rebuild.review.audit import (
     load_audit,
     load_ledger,
     load_workload,
+    merge_ink_duplicate_units,
     parse_codepoints,
     render_groups_for_rows,
 )
@@ -179,3 +180,72 @@ def test_configs_within_a_unit_are_in_acceptance_order(workload):
 
 def test_parse_codepoints():
     assert parse_codepoints("200C:E652:E679") == (0x200C, 0xE652, 0xE679)
+
+
+def test_ink_duplicate_siblings_fold_to_one_unit():
+    """The name-grain dedupe key splits one visual question in two when a config merely relabels a glyph (the old font's ss04 rename of word-initial ·It). With an ink signature reporting every render of the window identical, the siblings fold: the earliest-config unit survives with the union of configs, rows, kinds, and per-config classes, a single render group, and contiguous renumbered ids."""
+    rows = [
+        AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
+        AuditRow("ss02", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
+        AuditRow("ss04", "E650:E665", ("seam",), "UNMATCHED", ("qsPea.ss04", "qsMay.en-y0"), ("b",)),
+        AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("qsPea", "qsPea"), ("c",)),
+    ]
+    units = build_units(rows, load_ledger(LEDGER_PATH), dict(LETTERS))
+    assert len(units) == 3
+    stats = merge_ink_duplicate_units(units, lambda text, config: text)
+    assert stats == {"windows_folded": 1, "units_folded": 1, "kept_split_matched_classes": 0}
+    assert len(units) == 2
+    assert [unit.unit_id for unit in units] == ["u-0000", "u-0001"]
+    merged = next(unit for unit in units if unit.codepoints == "E650:E665")
+    assert merged.configs == ("default", "ss02", "ss04")
+    assert merged.baseline == ("qsPea", "qsMay.en-y0")
+    assert merged.kinds == ("cell", "seam")
+    assert merged.render_groups == (merged.configs,)
+    assert merged.config_classes == {"default": "UNMATCHED", "ss02": "UNMATCHED", "ss04": "UNMATCHED"}
+
+
+def test_ink_duplicate_fold_respects_matched_classes_and_exemptions():
+    """A fold that would put two distinct matched ledger classes on one unit is skipped (different names legitimately hit different ledger predicates), while a matched class folding with an UNMATCHED sibling resolves UNMATCHED-wins and recomputes the no-verdict flag from the exemption set."""
+    conflicting = build_units(
+        [
+            AuditRow("default", "E650:E665", ("cell",), "class-a", ("a",), ("b",)),
+            AuditRow("ss04", "E650:E665", ("cell",), "class-b", ("a2",), ("b",)),
+        ],
+        load_ledger(LEDGER_PATH),
+        dict(LETTERS),
+    )
+    stats = merge_ink_duplicate_units(conflicting, lambda text, config: text)
+    assert stats["kept_split_matched_classes"] == 1
+    assert len(conflicting) == 2
+
+    mixed = build_units(
+        [
+            AuditRow("default", "E650:E665", ("cell",), "boundary-echo", ("a",), ("b",)),
+            AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
+        ],
+        load_ledger(LEDGER_PATH),
+        dict(LETTERS),
+    )
+    for unit in mixed:
+        unit.no_verdict = unit.class_id == "boundary-echo"
+    merge_ink_duplicate_units(mixed, lambda text, config: text, exempt_classes={"boundary-echo"})
+    (merged,) = mixed
+    assert merged.class_id == "UNMATCHED"
+    assert merged.no_verdict is False
+    assert merged.config_classes == {"default": "boundary-echo", "ss04": "UNMATCHED"}
+
+
+def test_units_whose_configs_render_differently_never_fold():
+    """A unit only folds when every config on both sides yields one ink signature; per-config signatures leave everything standing."""
+    units = build_units(
+        [
+            AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
+            AuditRow("ss02", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
+            AuditRow("ss04", "E650:E665", ("cell",), "UNMATCHED", ("a2",), ("b",)),
+        ],
+        load_ledger(LEDGER_PATH),
+        dict(LETTERS),
+    )
+    stats = merge_ink_duplicate_units(units, lambda text, config: (text, config))
+    assert stats == {"windows_folded": 0, "units_folded": 0, "kept_split_matched_classes": 0}
+    assert len(units) == 2
