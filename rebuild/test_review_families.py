@@ -1,4 +1,4 @@
-"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in a family, summing to the audit's 1,182), with the stylistic-set-only windows deferred and the named default families matching the measured census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
+"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in a family, summing to the audit's 1,579), with the stylistic-set-only windows deferred and the named default families matching the measured census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
 
 import warnings
 from pathlib import Path
@@ -21,14 +21,13 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 MEASURED_CENSUS = {
     "no-chain-gains": 108,
     "tea-it-xheight": 33,
-    "oy-it-baseline": 17,
+    "oy-it-baseline": 16,
     "may-utter-gains": 82,
-    "seam-loss-withdrawal": 374,
-    "extension-non-summing": 89,
-    "unmatched-misc": 114,
-    "deferred-ss04": 218,
-    "deferred-ss10": 69,
-    "deferred-ss03": 78,
+    "seam-loss-withdrawal": 370,
+    "extension-non-summing": 529,
+    "unmatched-misc": 128,
+    "deferred-ss04": 223,
+    "deferred-ss03": 90,
 }
 
 
@@ -151,7 +150,7 @@ def test_partition_is_total_and_matches_the_measured_census(assigned):
     census: dict[str, int] = {}
     for family in assigned:
         census[family] = census.get(family, 0) + 1
-    assert sum(census.values()) == 1182, "every UNMATCHED window must land in exactly one family"
+    assert sum(census.values()) == 1579, "every UNMATCHED window must land in exactly one family"
     assert census == MEASURED_CENSUS
 
 
