@@ -48,7 +48,9 @@
           <p>
             Generated review surface for the rebuild treaty diff. Regenerate with
             <code id="build-command"></code> and serve with <code id="serve-command"></code> (port 7294,
-            alongside <code>make serve</code> on 7293). Verdicts live only in this tab until you export them.
+            alongside <code>make serve</code> on 7293). Verdicts autosave to
+            <code>verdicts-autosave.json</code> at the repo root after every change and are restored on
+            reload; download an export when you want a durable master.
           </p>
           <p id="manifest-meta"></p>
         </details>
