@@ -78,13 +78,14 @@ policy:
     exit: baseline
     when: {left: {is: boundary}, right: {family: qsNo}}
     why: “un-”, as a prefix, should not use the alternate ·Utter. It says so in The Manual, on page 21.
-  - stance: mono
-    exit: x-height
-    when: {self: {entry: none}, right: {family: qsMay}}
   prefer:
   - cell: {exit: none}
     over: {exit: x-height}
     when: {right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}
+  - cell: {exit: baseline}
+    over: {exit: x-height}
+    when: {self: {entry: none}, right: {family: qsMay}}
+    why: A bare ·Utter before ·May keeps the alternate baseline join; the mono x-height reach into a pulled-back ·May wins only when it buys a better join, as before ·May·May where the grounded ·May carries the chain on at the baseline.
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
