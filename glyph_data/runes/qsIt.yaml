@@ -63,10 +63,7 @@ policy:
   - entry: baseline
     when: {left: {family: qsIt}}
     why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
-  - stance: bar
-    exit: x-height
-    when: {right: {family: qsDay}}
-    why: ·It reaches ·Day only at the baseline, into the half ·Day; the x-height join into the full ·Day's entry is the forbidden same-height pass-through.
+  - {stance: bar, exit: x-height, when: {right: {family: [qsDay, qsDay_qsUtter]}}}
   - {exit: x-height, when: {self: {entry: none}, right: {family: [qsZoo, qsYe]}}}
   - {exit: x-height, when: {self: {entry: none}, left: {family: qsOwe}}}
   - {exit: x-height, when: {self: {entry: live}, left: {family: [qsJay, qsYe, qsIt, qsEat]}}}
@@ -78,7 +75,7 @@ policy:
     when:
       self: {entry: none}
       left: {family: [qsBay, qsDay, qsGay, qsShe]}
-      right: {except: [family: qsDay, family: qsUtter]}
+      right: {except: [family: qsDay, family: qsDay_qsUtter, family: qsUtter]}
   - stance: bar
     exit: baseline
     when:
