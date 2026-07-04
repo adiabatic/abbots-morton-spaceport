@@ -183,6 +183,12 @@
   why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
 - signature: contact:qsPea.full.ex-y0:qsUtter.mono.en-y0:y1
   why: ·Pea·Utter joins at the baseline today (baseline E650:E67A, seam y0); ·Pea's right downstroke abuts ·Utter's left downstroke at y1.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The ss03 x-height-entered full ·Tea joins ·Utter at the baseline exactly like the bare full bar blessed below; the y5 entry does not change the bar's baseline neighborhood, so the same ·Tea-bar-abuts-·Utter's-left-downstroke contact at y1 recurs on the entered sibling.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The ss03 x-height-entered full ·Tea joins ·Utter at the baseline exactly like the bare full bar blessed below; the y5 entry does not change the bar's baseline neighborhood, so the same ·Tea-bar-abuts-·Utter's-left-downstroke contact at y1 recurs on the entered sibling.
+- signature: contact:qsTea.full.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+  why: The ss03 x-height-entered full ·Tea joins ·Utter at the baseline exactly like the bare full bar blessed below; the y5 entry does not change the bar's baseline neighborhood, so the same ·Tea-bar-abuts-·Utter's-left-downstroke contact at y1 recurs on the entered sibling.
 - signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
   why: ·Tea·Utter joins at the baseline today (baseline E652:E67A, seam y0, qsTea.ex-y0); the ·Tea bar abuts ·Utter's left downstroke at y1.
 - signature: contact:qsTea.full.ex-y0.locked:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1

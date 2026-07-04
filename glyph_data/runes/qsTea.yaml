@@ -4,6 +4,7 @@ ductus:
   full: |
     - Written as a single vertical stroke from the top line straight down to the baseline.
     - Or the same stroke, written from the baseline straight up to the top line.
+    - Under ss03, when the previous letter's stroke arrives at the x-height and the next letter joins at the baseline, the bar is still drawn full-height: the incoming stroke goes up to the top, then doubles back down to the baseline to serve the next letter's join.
   half: |
     As the full way, but the stroke covers only the span from the top line down to the x-height.
 mono:
@@ -41,6 +42,13 @@ stances:
       - {pairing: {entry: baseline, exit: baseline}, feature: ss05, when: {left: {family: qsEt}}}
       - {entry: x-height, feature: ss02, when: {left: {family: qsI}}}
       - {entry: x-height, feature: ss03, when: {left: {family: qsFee, joined_at: x-height}}}
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family: [qsDay_qsUtter, qsMay, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot]
+            joined_at: x-height
+          right: {class: can-enter-at-baseline}
       require: []
   half:
     way: half
