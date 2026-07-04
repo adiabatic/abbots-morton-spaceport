@@ -118,8 +118,8 @@ policy:
         - {family: qsFee}
         - {family: qsYe}
         - {family: qsMay}
+        - {family: qsNo}
         - {family: qsUtter}
-    why: Entered at y6, ·Pea hands x-height-capable followers to the half way; only these five keep the full baseline exit.
   prefer: []
   extend:
   - stance: full
