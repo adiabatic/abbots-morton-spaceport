@@ -1,4 +1,4 @@
-"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in a family, summing to the audit's 1,579), with the stylistic-set-only windows deferred and the named default families matching the measured census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
+"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in exactly one family, the census summing to the audit total pinned in rebuild/review-census-pins.json), with the stylistic-set-only windows deferred and the named default families matching that pinned census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
 
 import warnings
 from pathlib import Path
@@ -9,6 +9,7 @@ import pytest
 from rebuild.review import families
 from rebuild.review.audit import _config_index, load_audit, parse_codepoints, render_groups_for_rows
 from rebuild.review.audit import Unit, group_for
+from rebuild.review.census import family_assignments, family_census, load_pins
 from rebuild.review.enrich import LETTERS, Enricher, load_spec
 from rebuild.review.families import FAMILY_ORDER, FAMILY_WHY, assign_family
 
@@ -18,17 +19,7 @@ SUBSETS = REPO_ROOT / "rebuild" / "out" / "m1"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
-MEASURED_CENSUS = {
-    "no-chain-gains": 108,
-    "tea-it-xheight": 33,
-    "oy-it-baseline": 16,
-    "may-utter-gains": 82,
-    "seam-loss-withdrawal": 370,
-    "extension-non-summing": 529,
-    "unmatched-misc": 128,
-    "deferred-ss04": 223,
-    "deferred-ss03": 90,
-}
+PINS = load_pins()
 
 
 def _enriched(before, after, cells, config_classes):
@@ -116,42 +107,13 @@ def test_stylistic_set_only_windows_defer():
 
 @pytest.fixture(scope="module")
 def assigned():
-    rows = load_audit(AUDIT_PATH)
-    by_triple: dict[tuple, list] = {}
-    for row in rows:
-        by_triple.setdefault((row.codepoints, row.baseline, row.new), []).append(row)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        spec = load_spec(REPO_ROOT)
-    enricher = Enricher(spec, SUBSETS, AFTER_FONT, repo_root=REPO_ROOT, before_font=BEFORE_FONT)
-    out: list[str] = []
-    for (codepoints, baseline, new), members in by_triple.items():
-        if not any(member.matched_entry == "UNMATCHED" for member in members):
-            continue
-        config_classes = {member.config: member.matched_entry for member in members}
-        ordered = tuple(sorted(members, key=lambda member: _config_index(member.config)))
-        unit = Unit(
-            codepoints=codepoints,
-            baseline=baseline,
-            new=new,
-            class_id="UNMATCHED",
-            rows=ordered,
-            configs=tuple(member.config for member in ordered),
-            kinds=tuple(sorted({kind for member in members for kind in member.kinds})),
-            group=group_for(parse_codepoints(codepoints), dict(LETTERS)),
-            render_groups=render_groups_for_rows(ordered),
-            config_classes=config_classes,
-        )
-        out.append(assign_family(enricher.enrich(unit)))
-    return out
+    return family_assignments(REPO_ROOT)
 
 
 def test_partition_is_total_and_matches_the_measured_census(assigned):
-    census: dict[str, int] = {}
-    for family in assigned:
-        census[family] = census.get(family, 0) + 1
-    assert sum(census.values()) == 1579, "every UNMATCHED window must land in exactly one family"
-    assert census == MEASURED_CENSUS
+    census = family_census(assigned)
+    assert sum(census.values()) == PINS["families"]["total"], "every UNMATCHED window must land in exactly one family"
+    assert census == PINS["families"]["census"]
 
 
 def test_every_assigned_family_is_ordered_and_documented(assigned):

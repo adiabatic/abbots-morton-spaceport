@@ -1,10 +1,11 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram pins 9,525 machine-approved units over the M1-batch-2 workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning; of the 7,059 non-identical units, the boundary-echo no-verdict exemption leaves 4,756 as human workload. The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the M1-batch-2 workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the boundary-echo no-verdict exemption leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build."""
 
 from pathlib import Path
 
 import pytest
 
-from rebuild.review.audit import assign_batches, load_workload
+from rebuild.review.audit import load_workload
+from rebuild.review.census import ink_histogram, load_pins
 from rebuild.review.enrich import LETTERS
 from rebuild.review.ink import InkComparator, features_for, kern_neutral
 from rebuild.validation.shaping import Shaper
@@ -15,11 +16,7 @@ LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
-MACHINE_BY_CLASS = {
-    "boundary-echo": 4251,
-    "dangling-anchor-dropped": 3959,
-    "bare-name-live-join": 1315,
-}
+PINS = load_pins()
 
 
 @pytest.fixture(scope="module")
@@ -77,22 +74,17 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload at the name-grain (pre-merge) dedupe: 9,525 of 16,584 units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning. Of the 7,059 non-identical units, the 2,303 boundary-echo ones are exempt under the ratified boundary rule (no_verdict), leaving 4,756 units of human workload in 16 batches. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
-    machine_by_class: dict[str, int] = {}
-    for unit in workload.units:
-        if comparator.ink_identical(_text(unit), unit.configs):
-            unit.ink_identical = True
-            machine_by_class[unit.class_id] = machine_by_class.get(unit.class_id, 0) + 1
-    assert sum(machine_by_class.values()) == 9525
-    assert len(workload.units) - sum(machine_by_class.values()) == 7059
-    assert machine_by_class == MACHINE_BY_CLASS
+    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the boundary-echo share of the non-identical units is exempt under the ratified boundary rule (no_verdict), leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
+    pins = PINS["ink"]
+    stats = ink_histogram(workload, comparator)
+    assert stats["machine_total"] == pins["machine_total"]
+    assert stats["non_identical"] == pins["non_identical"]
+    assert stats["by_class"] == pins["by_class"]
     assert not any(unit.class_id == "UNMATCHED" and unit.ink_identical for unit in workload.units)
 
-    batches = assign_batches(workload.units)
-    assert batches == 16
-    exempt = [unit for unit in workload.units if unit.no_verdict and not unit.ink_identical]
-    assert len(exempt) == 2303
+    assert stats["batches"] == pins["batches"]
+    assert stats["boundary_echo_exempt"] == pins["boundary_echo_exempt"]
+    assert stats["human_units"] == pins["human_units"]
     human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
-    assert len(human) == 4756
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
