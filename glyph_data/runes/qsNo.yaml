@@ -56,7 +56,7 @@ policy:
   order: [loop, flipped]
   refuse: []
   prefer:
-  - {stance: flipped, when: {left: {family: qsIt}}}
+  - {stance: flipped, when: {left: {family: qsIt, joined_at: baseline}}}
   - cell: {exit: x-height}
     over: {exit: baseline}
     when: {left: {except: [family: qsIt]}, right: {family: [qsDay, qsNo, qsIt, qsOy]}}

@@ -85,7 +85,10 @@ policy:
   - stance: bar
     exit: baseline
     when: {self: {entry: live}, left: {family: qsDay, stance: half}, right: {family: qsUtter}}
-  prefer: []
+  prefer:
+  - cell: {exit: none}
+    over: {exit: x-height}
+    when: {left: {family: qsOy, joined_at: baseline}, right: {family: qsNo}}
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
   - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
