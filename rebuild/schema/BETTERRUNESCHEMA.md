@@ -76,9 +76,11 @@ The R1–R39 decision log — the per-decision call-and-why behind every hover �
 
 - **R41 — `surface.cells` replacement example (R40's first judgment call).** The owner took the two-example treatment (the R24 pattern) with a `\n\n` between them: ·Pea's half joined at the x-height on both sides swapping in `half-dips-both-sides` (the plain override, matching the half ductus prose), then ·Utter's `alternate` entered at the x-height with its baseline exit withdrawn swapping in `reaches-way-back-withdrawn` (the `-withdrawn` demonstration q14 asked for, carried forward from the retired ·May cell). → schema (`surface.cells`).
 
+- **R42 — `exitRow.withdrawal` replacement example.** The owner took the status-plus-cross-reference variant: ·Pea's `safe` stays, then the plain status ("No rune names a bitmap here today — every declared withdrawal is `safe`") with the pointer to where the one real declined-exit redraw lives — ·Utter's `reaches-way-back-withdrawn` riding a `-withdrawn` cell. Verified against surface.py (the withdrawal binding fires when the exit's base ink must come off; a `-withdrawn` cell overrides it). → schema (`exitRow.withdrawal`).
+
 ### Open (leans to react to)
 
-- **Stale-example judgment calls (R40's second half).** Still pending: `exitRow.withdrawal`, `exitRow.toward`, `rightCondition.then`, and `contractRecord` (its `bind` example); plus the minor `when`/`from` quote drift. One question each. _Lean: qsUtter's ·Tea `then` prefer for `then`; state plainly on `withdrawal`/`contract` that the named-bitmap / `bind` forms currently have no live user._
+- **Stale-example judgment calls (R40's second half).** Still pending: `exitRow.toward`, `rightCondition.then`, and `contractRecord` (its `bind` example); plus the minor `when`/`from` quote drift. One question each. _Lean: qsUtter's ·Tea `then` prefer for `then`; state plainly on `contract` that `bind` currently has no live user._
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
