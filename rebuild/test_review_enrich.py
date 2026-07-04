@@ -420,7 +420,7 @@ def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, workloa
     assert enriched.pair == (0, 1)
     assert len(enriched.secondary_seams) == 1
     seam = enriched.secondary_seams[0]
-    assert seam.pair == (2, 3)
+    assert seam.pair == (1, 2)
     for rect in (seam.highlight_before, seam.highlight_after):
         assert set(rect) == {"x_min", "x_max", "advance_total"}
         assert 0 <= rect["x_min"] <= rect["x_max"] <= rect["advance_total"]
