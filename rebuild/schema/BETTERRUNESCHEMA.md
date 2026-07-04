@@ -90,9 +90,11 @@ The R1–R39 decision log — the per-decision call-and-why behind every hover �
 
 - **R44 — `rightCondition.then` replacement example.** The ·It self-join ban emptied qsIt's `prefer`, killing R31's ·X·It·It·May example; the corpus's one live `then` is qsUtter's ·Tea prefer, so it took over. Owner took the with-the-why variant: the record quoted, then the reason ·Utter yields — a ·Tea joined at the x-height can't join onward (its half stub's pairings forbid it; verified against qsTea's `pairings` and its default-config entries), so ·Utter stands down and leaves ·Tea free for the follower (·Utter·Tea·Day). R31's workshopped body paragraphs untouched. → schema (`rightCondition.then`).
 
+- **R45 — `contractRecord` D5 restructure.** The dead ·May `bind` example (qsMay's `contract` is `[]`; no rune uses `bind` or `trim` at all now) forced a touch, and the owner took the full D5 restructure over the minimal patch: summary sentence, the three pull-backs in one mechanics paragraph, the never-sums rule on its own line, then the live ·No `by: 1` example (with ·Utter's `by: 2` in passing) and the plain status that only `by` has users today. Also fixed in passing: "sibling bitmap" → "one of this stance's own `bitmaps`" (the R36/R38 scope wording), and "`bind: <stance>`" → `bind` names a bitmap. → schema (`contractRecord`).
+
 ### Open (leans to react to)
 
-- **Stale-example judgment calls (R40's second half).** Still pending: `contractRecord` (its `bind` example); plus the minor `when`/`from` quote drift. One question each. _Lean: state plainly on `contract` that `bind` currently has no live user._
+- **Stale-example judgment calls (R40's second half).** Still pending: the minor `when`/`from` quote drift (the `when` example quotes ·Pea's y6 refuse without its `except`; the `from` example omits `qsDay_qsUtter`). _Lean: patch both quotes to match the data, one question covering the pair._
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
