@@ -7,6 +7,7 @@
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
+- Never write a `why:` explanation yourself in the rune files under `glyph_data/runes/`. `why:` is the user's recorded rationale for a design decision, in the user's voice. Putting these explanations elsewhere in rebuild-specific log files is OK, though.
 - When a request mentions a letter by name (e.g., “after ·Pea”, “before ·Tea”) and that family has multiple variants (half/full, alt, en-y6, ex-y0, etc.), don’t silently default to a bare `{family: qsX}` selector. Before editing, look up the family in `glyph_data/quikscript.yaml`, enumerate its variants (and the relevant axis — half vs. full, exit Y, traits, etc.), and present them as a clarifying question so the user can pick the intended subset without needing the YAML in front of them.
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
