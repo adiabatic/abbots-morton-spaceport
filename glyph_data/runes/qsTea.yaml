@@ -42,11 +42,12 @@ stances:
       - {pairing: {entry: baseline, exit: baseline}, feature: ss05, when: {left: {family: qsEt}}}
       - {entry: x-height, feature: ss02, when: {left: {family: qsI}}}
       - {entry: x-height, feature: ss03, when: {left: {family: qsFee, joined_at: x-height}}}
+      - {entry: x-height, feature: ss03, when: {left: {family: qsMay, joined_at: x-height}}}
       - entry: x-height
         feature: ss03
         when:
           left:
-            family: [qsDay_qsUtter, qsMay, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot]
+            family: [qsDay_qsUtter, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot]
             joined_at: x-height
           right: {class: can-enter-at-baseline}
       require: []
