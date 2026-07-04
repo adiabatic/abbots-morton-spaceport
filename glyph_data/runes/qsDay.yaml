@@ -69,12 +69,15 @@ policy:
     over: {exit: baseline}
     when:
       self: {entry: none}
-      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsMay, qsIt, qsUtter]}}
+      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when: {right: {family: qsTea, then: {family: qsMay}}}
   - cell: {exit: none}
     over: {exit: baseline}
     when:
       left: {family: qsTea, joined_at: baseline}
-      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsMay, qsIt, qsUtter]}}
+      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]}}
   - cell: {exit: none}
     over: {exit: baseline}
     when:

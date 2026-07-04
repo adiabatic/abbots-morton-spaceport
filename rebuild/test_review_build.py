@@ -68,20 +68,20 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 15349, "rows": 81199, "batches": 14, "echo_groups": 1710}
+    assert manifest["totals"] == {"units": 15349, "rows": 81199, "batches": 14, "echo_groups": 1709}
     assert len(manifest["classes"]) == 22
     assert manifest["mode"] == "m1-audit"
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: 9,574 machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), 5,775 non-identical units, and — after the boundary-echo no-verdict exemption removes its 1,827 non-identical units — 3,948 units of human workload."""
+    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: 9,581 machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), 5,768 non-identical units, and — after the boundary-echo no-verdict exemption removes its 1,827 non-identical units — 3,941 units of human workload."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
-    assert machine["units"] == 9574
-    assert manifest["totals"]["units"] - machine["units"] == 5775
+    assert machine["units"] == 9581
+    assert manifest["totals"]["units"] - machine["units"] == 5768
     assert machine["by_class"] == {
         "boundary-echo": 4203,
-        "dangling-anchor-dropped": 3928,
+        "dangling-anchor-dropped": 3935,
         "bare-name-live-join": 1443,
     }
     assert isinstance(machine["rows"], int) and 0 < machine["rows"] < manifest["totals"]["rows"]
@@ -91,7 +91,7 @@ def test_machine_approved_histogram_pins_the_census(built):
         expected = machine["by_class"].get(meta["id"], 0)
         assert meta["machine_approved_count"] == expected, meta["id"]
     assert by_id["boundary-echo"]["unit_count"] == 6030
-    assert by_id["dangling-anchor-dropped"]["unit_count"] == 3944
+    assert by_id["dangling-anchor-dropped"]["unit_count"] == 3951
     assert by_id["bare-name-live-join"]["unit_count"] == 1471
     assert by_id["boundary-echo"]["no_verdict"] is True
     assert all(meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] != "boundary-echo")
@@ -99,13 +99,13 @@ def test_machine_approved_histogram_pins_the_census(built):
 
 
 def test_secondary_seam_census_pins_the_real_data(built):
-    """The secondary-seam resolution census over the M1-batch-2 workload, after the ink-duplicate merge: 1,615 units carry visible markers; 380 seams link to the shorter unit where the same behavior is the primary judgment, 1,478 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) so they carry home null and are judged in place, and 341 resolve to an ink-identical home and are suppressed as invisible."""
+    """The secondary-seam resolution census over the M1-batch-2 workload, after the ink-duplicate merge: 1,608 units carry visible markers; 380 seams link to the shorter unit where the same behavior is the primary judgment, 1,471 are genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) so they carry home null and are judged in place, and 336 resolve to an ink-identical home and are suppressed as invisible."""
     out_dir, manifest = built
     assert manifest["secondary_seams"] == {
-        "units_with_markers": 1615,
+        "units_with_markers": 1608,
         "seams_homed": 380,
-        "seams_homeless": 1478,
-        "seams_suppressed_invisible": 341,
+        "seams_homeless": 1471,
+        "seams_suppressed_invisible": 336,
     }
 
     units_by_id = {}
@@ -138,7 +138,7 @@ def test_secondary_seam_census_pins_the_real_data(built):
             ), f"{unit['id']}: home {home['id']} is not a substring"
             assert home["pair"] is not None, f"{unit['id']}: home {home['id']} has no primary pair"
             assert home["ink_identical"] is False, f"{unit['id']}: home {home['id']} is machine-approved"
-    assert (units_with, homed, homeless) == (1615, 380, 1478)
+    assert (units_with, homed, homeless) == (1608, 380, 1471)
 
 
 def test_known_secondary_seam_homes_at_the_shorter_primary(built):
@@ -175,7 +175,7 @@ def test_batches_cover_the_human_workload_only(built):
                 human_batches.append((unit["id"], unit["batch"]))
     # Sort by numeric id: with >9,999 units the ids are mixed-width (u-9999, u-10000), so a lexical sort would interleave them and break the contiguous-batch check.
     human_batches.sort(key=lambda pair: int(pair[0][2:]))
-    assert len(human_batches) == 3948
+    assert len(human_batches) == 3941
     assert [batch for _unit_id, batch in human_batches] == [
         index // 300 for index in range(len(human_batches))
     ]
@@ -223,7 +223,7 @@ def test_echo_groups_partition_the_human_workload(built):
             by_echo.setdefault(unit["echo"], []).append(unit)
             if unit["codepoints"] == "E670:E653:E652:E666":
                 example = unit
-    assert len(by_echo) == manifest["totals"]["echo_groups"] == 1710
+    assert len(by_echo) == manifest["totals"]["echo_groups"] == 1709
     for members in by_echo.values():
         assert len({member["class"] for member in members}) == 1
         assert len({tuple(member["configs"]) for member in members}) == 1
@@ -504,13 +504,13 @@ def test_export_round_trip(built, tmp_path):
     assert counts["skip"] == 1
     assert counts["skipped_no_verdict"] == 1
     assert counts["units_total"] == 15349
-    assert counts["human_units_total"] == 3948
+    assert counts["human_units_total"] == 3941
 
     machine = triage["machine_approved"]
-    assert machine["count"] == 9574
+    assert machine["count"] == 9581
     assert machine["by_class"] == {
         "boundary-echo": 4203,
-        "dangling-anchor-dropped": 3928,
+        "dangling-anchor-dropped": 3935,
         "bare-name-live-join": 1443,
     }
     assert machine["method"]
@@ -524,7 +524,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.extend(range(int(start[2:]), int(end[2:]) + 1))
         else:
             expanded.append(int(token[2:]))
-    assert len(expanded) == 9574
+    assert len(expanded) == 9581
     assert {f"u-{number:04d}" for number in expanded} == {
         unit_id for unit_id, unit in units.items() if unit["ink_identical"]
     }
