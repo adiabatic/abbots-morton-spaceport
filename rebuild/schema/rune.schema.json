@@ -184,11 +184,11 @@
       "additionalProperties": false,
       "required": ["feature"],
       "properties": {
-        "feature": {"$ref": "#/$defs/featureTag"},
-        "entry": {"$ref": "#/$defs/height"},
-        "exit": {"$ref": "#/$defs/height"},
-        "pairing": {"$ref": "#/$defs/pairing"},
-        "when": {"$ref": "#/$defs/when"}
+        "feature": {"$ref": "#/$defs/featureTag", "description": "The stylistic set (`ssNN`) that switches this unlock on — the grant applies only while a user has that set enabled."},
+        "entry": {"$ref": "#/$defs/height", "description": "Grants an extra entry height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "exit": {"$ref": "#/$defs/height", "description": "Grants an extra exit height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "pairing": {"$ref": "#/$defs/pairing", "description": "Grants an extra entry+exit combination while the feature is on — a pair `pairings` would otherwise forbid. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "when": {"$ref": "#/$defs/when", "description": "Narrows the grant to a context — the usual `when` rules apply (settled left, raw right). Without it, the unlock holds wherever the feature is on."}
       },
       "oneOf": [
         {"required": ["entry"], "allOf": [{"not": {"required": ["exit"]}}, {"not": {"required": ["pairing"]}}]},
