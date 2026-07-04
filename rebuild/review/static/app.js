@@ -609,7 +609,7 @@ function updateProgress() {
     `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} ≡${counts.identical} ∅${counts.neither} →${counts.skip})`;
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
-  nudge.textContent = `${store.unexported.size} unexported`;
+  nudge.textContent = `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`;
   updateGroupCounts();
   updateClassCounts();
 }
@@ -763,7 +763,8 @@ function applyVerdict(unitId, verdict) {
   }
   syncRowVerdict(unitId);
   updateProgress();
-  if (store.unexported.size > 0 && store.unexported.size % 50 === 0) {
+  scheduleAutosave();
+  if (!autosaveHealthy() && store.unexported.size > 0 && store.unexported.size % 50 === 0) {
     toast(`${store.unexported.size} verdicts not yet exported — consider downloading verdicts.json`);
   }
   return wasUnverdicted;
@@ -976,6 +977,7 @@ function approveGroupOf(unitId) {
   const applied = groupApprove(store, ids);
   for (const id of applied) syncRowVerdict(id);
   updateProgress();
+  scheduleAutosave();
   toast(`Approved ${applied.length} remaining in ${unit.group}`);
   advanceFrom(unitId);
 }
@@ -988,6 +990,7 @@ function undoLast() {
   }
   for (const unitId of result.units) syncRowVerdict(unitId);
   updateProgress();
+  scheduleAutosave();
   setStateReplace({ unit: result.cursor });
   toast(`Undid ${result.units.length === 1 ? result.cursor : `${result.units.length} verdicts`}`);
 }
@@ -1020,6 +1023,68 @@ function copyToClipboard(text, button) {
 
 function exportPayload() {
   return JSON.stringify(assembleExport(store, manifest.generated_at), null, 2);
+}
+
+const AUTOSAVE_DEBOUNCE_MS = 800;
+let autosaveTimer = null;
+let autosaveWorks = false;
+let autosaveFailed = false;
+
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(flushAutosave, AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function flushAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  try {
+    const response = await fetch('autosave', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: exportPayload(),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    autosaveWorks = true;
+    autosaveFailed = false;
+  } catch (error) {
+    console.warn('autosave failed', error);
+    if (!autosaveFailed) toast('Autosave failed — download verdicts.json to be safe');
+    autosaveFailed = true;
+  }
+  updateProgress();
+}
+
+function autosaveHealthy() {
+  return autosaveWorks && !autosaveFailed;
+}
+
+async function restoreAutosave() {
+  let data = null;
+  try {
+    const response = await fetch('autosave');
+    if (response.status === 404) {
+      autosaveWorks = true;
+      return;
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    data = await response.json();
+  } catch (error) {
+    console.warn('autosave restore failed', error);
+    return;
+  }
+  autosaveWorks = true;
+  const result = importVerdicts(store, data, manifest.generated_at);
+  if (!result.ok) {
+    if (result.mismatch) {
+      toast(
+        `Found an autosave from a different surface build (${data.verdicts.length} verdicts) — not restored; it'll be stashed aside on your next verdict`,
+      );
+    }
+    return;
+  }
+  markExported(store);
+  if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
 }
 
 function verdictsFilename(now = new Date()) {
@@ -1065,6 +1130,7 @@ function runImport(text) {
   }
   for (const unitId of result.units) syncRowVerdict(unitId);
   updateProgress();
+  scheduleAutosave();
   toast(`Imported: ${result.added} added, ${result.replaced} replaced, ${result.keptNewer} kept newer`);
   document.getElementById('import').close();
 }
@@ -1259,6 +1325,7 @@ function wireEvents() {
         recordVerdict(store, unitId, null);
         syncRowVerdict(unitId);
         updateProgress();
+        scheduleAutosave();
         toast(`Cleared ${unitId}`);
       }
     } else if (action === 'undo') {
@@ -1330,6 +1397,7 @@ function wireEvents() {
       recordVerdict(store, row.dataset.unit, null);
       syncRowVerdict(row.dataset.unit);
       updateProgress();
+      scheduleAutosave();
       return;
     }
     const copy = event.target.closest('.copy-unit');
@@ -1357,7 +1425,10 @@ function wireEvents() {
     const note = event.target.closest('.note');
     if (!note) return;
     const row = note.closest('.row');
-    if (updateNote(store, row.dataset.unit, note.value)) updateProgress();
+    if (updateNote(store, row.dataset.unit, note.value)) {
+      updateProgress();
+      scheduleAutosave();
+    }
   });
 
   document.getElementById('class-list').addEventListener('click', (event) => {
@@ -1450,8 +1521,16 @@ function wireEvents() {
 
   window.addEventListener('beforeunload', (event) => {
     if (store.unexported.size === 0) return;
+    if (autosaveHealthy()) return;
     event.preventDefault();
     event.returnValue = '';
+  });
+
+  window.addEventListener('pagehide', () => {
+    if (autosaveTimer === null) return;
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    navigator.sendBeacon('autosave', new Blob([exportPayload()], { type: 'application/json' }));
   });
 }
 
@@ -1476,4 +1555,5 @@ function renderChrome() {
 renderChrome();
 renderSidebar();
 wireEvents();
+await restoreAutosave();
 applyHashState();
