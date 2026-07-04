@@ -88,9 +88,11 @@ The R1–R39 decision log — the per-decision call-and-why behind every hover �
 
 - **R43 — `exitRow.toward` rewrite (the first D5-shaped hover).** The stale ·Utter.alt example forced a touch, so the whole hover took the new shape: a one-sentence summary, a blank line, the raw-right catch in its own paragraph ("can only match who it is" replacing R19's "static identity"), then both live ·Pea examples in separate paragraphs — the y6 family form (`toward: [family: qsPea]`, the ·Pea·Pea chain) and the x-height class-with-exceptions form. Owner took the both-examples variant. → schema (`exitRow.toward`).
 
+- **R44 — `rightCondition.then` replacement example.** The ·It self-join ban emptied qsIt's `prefer`, killing R31's ·X·It·It·May example; the corpus's one live `then` is qsUtter's ·Tea prefer, so it took over. Owner took the with-the-why variant: the record quoted, then the reason ·Utter yields — a ·Tea joined at the x-height can't join onward (its half stub's pairings forbid it; verified against qsTea's `pairings` and its default-config entries), so ·Utter stands down and leaves ·Tea free for the follower (·Utter·Tea·Day). R31's workshopped body paragraphs untouched. → schema (`rightCondition.then`).
+
 ### Open (leans to react to)
 
-- **Stale-example judgment calls (R40's second half).** Still pending: `rightCondition.then` and `contractRecord` (its `bind` example); plus the minor `when`/`from` quote drift. One question each. _Lean: qsUtter's ·Tea `then` prefer for `then`; state plainly on `contract` that `bind` currently has no live user._
+- **Stale-example judgment calls (R40's second half).** Still pending: `contractRecord` (its `bind` example); plus the minor `when`/`from` quote drift. One question each. _Lean: state plainly on `contract` that `bind` currently has no live user._
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
