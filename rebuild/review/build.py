@@ -275,6 +275,20 @@ def _write_json(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=1, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
+def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
+    """Delete units/*.json left over from ledger classes the manifest no longer references. Runs only after the manifest is written, so a mid-build crash leaves today's behavior (orphans survive) rather than a manifest pointing at a deleted shard. Touches only *.json directly under units/ — subdirectories, non-JSON files, fonts, static assets, and manifest.json are never considered."""
+    units_dir = Path(out_dir) / "units"
+    if not units_dir.is_dir():
+        return []
+    keep = {Path(meta["shard"]).name for meta in manifest["classes"]}
+    removed: list[str] = []
+    for shard in units_dir.glob("*.json"):
+        if shard.is_file() and shard.name not in keep:
+            shard.unlink()
+            removed.append(shard.name)
+    return sorted(removed)
+
+
 def build_m1(
     out_dir: Path = DEFAULT_OUT,
     audit_path: Path = M1_AUDIT,
@@ -386,6 +400,9 @@ def build_m1(
         "serve_command": SERVE_COMMAND,
     }
     _write_json(out_dir / "manifest.json", manifest)
+    pruned = _prune_orphan_shards(out_dir, manifest)
+    if pruned:
+        print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
     if enricher.mismatches:
         print(
@@ -630,6 +647,9 @@ def build_table_diff(
         "serve_command": SERVE_COMMAND,
     }
     _write_json(out_dir / "manifest.json", manifest)
+    pruned = _prune_orphan_shards(out_dir, manifest)
+    if pruned:
+        print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
     errors = check_output_dir(out_dir)
     if errors:

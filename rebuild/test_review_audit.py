@@ -15,11 +15,14 @@ from rebuild.review.audit import (
     parse_codepoints,
     render_groups_for_rows,
 )
+from rebuild.review.census import load_pins
 from rebuild.review.enrich import LETTERS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+
+PINS = load_pins()
 
 FIXTURE_AUDIT = """config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew
 default\tE650:E665\tcell\tdangling-anchor-dropped\tqsPea|qsMay.en-y0\tqsPea/full/None/baseline/|qsMay/loop/baseline/None/
@@ -94,9 +97,9 @@ def test_every_real_unit_has_exactly_one_render_group(workload):
 
 
 def test_real_audit_dedupes_to_measured_counts(workload):
-    assert workload.row_count == 81867
-    assert len(workload.units) == 16584
-    assert sum(len(unit.rows) for unit in workload.units) == 81867
+    assert workload.row_count == PINS["audit"]["row_count"]
+    assert len(workload.units) == PINS["audit"]["units"]
+    assert sum(len(unit.rows) for unit in workload.units) == PINS["audit"]["row_count"]
 
 
 def test_every_ledger_exemplar_resolves_to_a_unit(workload):
