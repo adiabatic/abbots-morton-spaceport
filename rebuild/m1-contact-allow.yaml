@@ -85,6 +85,12 @@
   why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
 - signature: contact:qsIt.bar.ex-y0:qsUtter.mono.en-y0:y1
   why: ·It·Utter joins at the baseline today (baseline E670:E67A, seam y0, qsIt.ex-y0.before-utter); ·It's bar abuts ·Utter's left downstroke one row above the seam.
+- signature: contact:qsIt.bar.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+  why: The x-height-entered twin of the blessed bare ·It·Utter corner — the 2026-07-04 blessing pass prescribed dropping the entered ·It's ex-ext-1 pixel before ·Utter, so the entered bar now meets ·Utter's left downstroke exactly as the bare one always has.
+- signature: contact:qsIt.bar.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+  why: The x-height-entered twin of the blessed bare ·It·Utter corner — the 2026-07-04 blessing pass prescribed dropping the entered ·It's ex-ext-1 pixel before ·Utter, so the entered bar now meets ·Utter's left downstroke exactly as the bare one always has.
+- signature: contact:qsIt.bar.en-y5.ex-y0:qsUtter.mono.en-y0:y1
+  why: The x-height-entered twin of the blessed bare ·It·Utter corner — the 2026-07-04 blessing pass prescribed dropping the entered ·It's ex-ext-1 pixel before ·Utter, so the entered bar now meets ·Utter's left downstroke exactly as the bare one always has.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
   why: ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
