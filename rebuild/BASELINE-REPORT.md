@@ -47,7 +47,7 @@ The most instructive examples, each re-confirmed by hand with raw uharfbuzz (no 
 - **·He before ZWNJ**: position-only — ·He's advance drops from 200 to 50 because a kern rule targets the literal `uni200C` glyph.
 - **·Day·Utter under ss10**: the ligature loses its `.half.en-y0.ex-y5` form after a space, breaking to the bare components.
 
-A fixed-seed 27-row even-stride sample (`tmp/eyeball_triage.py`) was re-shaped with a fresh `hb.Font` and `TTFont` glyph order: 27 confirmed, 0 refuted — these are real current-font divergences, not classifier artifacts. The ss10 outlier (17,506 / 36 / 106,080 / 0) reflects its join-suppressing nature: fewer joins, fewer stances, fewer chances to diverge.
+A fixed-seed 27-row even-stride sample (`rebuild/tools/eyeball_triage.py`) was re-shaped with a fresh `hb.Font` and `TTFont` glyph order: 27 confirmed, 0 refuted — these are real current-font divergences, not classifier artifacts. The ss10 outlier (17,506 / 36 / 106,080 / 0) reflects its join-suppressing nature: fewer joins, fewer stances, fewer chances to diverge.
 
 What happens to these during migration: in the new model, "post-ZWNJ behaves word-initial" is true by definition (§3.4), so all ~3.8M `.noentry`-after-ZWNJ rows and the boundary-guard asymmetries will _change behavior_ at cutover. Per §13.1 that is the designed outcome — each divergence is already a recorded triage row with the old and new outcomes side by side, so the change surfaces in the §11 review surface for an explicit verdict instead of slipping through as a silent change.
 

@@ -14,7 +14,7 @@ What changed:
 
 Result: the new engine now joins pairs the old font left unjoined — ·Utter·No and ·No·No at the x-height, ·No·Tea flipping to join at the baseline, etc. Oracle **2,535 → 4,169 unmatched**, all within the five touched families (zero collateral). The review surface was rebuilt (15,645 units; family census now `no-chain-gains` 160, `tea-it-xheight` 39, `oy-it-baseline` 21, `may-utter-gains` 86, `seam-loss-withdrawal` 142, `extension-non-summing` 30, `unmatched-misc` 115, `deferred-ss04` 252, `deferred-ss10` 76, `deferred-ss03` 107). The census tests were re-baselined and the obsolete `test_a_may_exit_withdrawal_unit_is_visibly_different` deleted. `make test` green (6,753); rebuild suite 388 passed / 4 failed (the same pre-existing `test_spec_load`×3 + `test_surface`×1, confirmed red on clean HEAD).
 
-In-progress verdicts survived: the 147 verdicts in `verdicts-10.53.42AM.json` were remapped by content identity (`codepoints` + before/after render) onto the new `u-NNNN` ids → `verdicts-10.53.42AM.remapped.json` (120 carried, 27 dropped — exactly the pulled-back windows this change rewrote, 0 collisions). The remap tool is `tmp/remap_verdicts.py`; import the remapped file to resume.
+In-progress verdicts survived: the 147 verdicts in `verdicts-10.53.42AM.json` were remapped by content identity (`codepoints` + before/after render) onto the new `u-NNNN` ids → `verdicts-10.53.42AM.remapped.json` (120 carried, 27 dropped — exactly the pulled-back windows this change rewrote, 0 collisions). The remap tool is `rebuild/tools/remap_verdicts.py`; import the remapped file to resume.
 
 This supersedes methodology learning #5 below for these letters: the withdrawal binding is no longer the right model for their non-vertical exits — the terminal stays drawn (blessed dangle), and mid-word declines no longer pull back.
 
@@ -76,7 +76,7 @@ Resolved this session:
 
 Two structural notes carried forward: the **·No flipped-exit / ·Utter chain-flip family is the same depth-2 / cross-side inexpressibility** as the parked round-2 extension-suppression milestone (a flat `toward` list can't say "·No joins ·Tea only when ·Tea has no live forward join"), and **ss04 Group A** is exactly the design question M1-REPORT §11.3 deferred to this migration.
 
-Triage evidence: per-rune findings under `tmp/findings/*.md`; the probe `tmp/probe.py` (`PYTHONPATH=. uv run python tmp/probe.py <cps>`); current unmatched dump `tmp/unmatched_after_fixes.json`.
+Triage evidence: per-rune findings under `rebuild/evidence/findings/*.md`; the probe `rebuild/tools/probe.py` (`PYTHONPATH=. uv run python rebuild/tools/probe.py <cps>`); current unmatched dump `rebuild/evidence/unmatched_after_fixes.json`.
 
 ### Still-pending wiring — KNOWN-FAILING, not regressions
 

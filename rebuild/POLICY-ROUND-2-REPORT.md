@@ -4,9 +4,9 @@ One-line verdict: the 29 round-2 rejects are all one phenomenon — ·May's `en-
 
 ## Inputs
 
-- Verdicts: `verdicts-08.19.24PM.json` (repo root, gitignored) — 539 verdicts: 440 approve, 59 either, 29 reject, 3 neither, 8 identical, 0 skip. Re-exported clean to `tmp/review-triage-round2.yaml` (pins 440, policy_edits 29, any_of 59, neither 3, identical 8; rows covered 2604).
+- Verdicts: `verdicts-08.19.24PM.json` (repo root, gitignored) — 539 verdicts: 440 approve, 59 either, 29 reject, 3 neither, 8 identical, 0 skip. Re-exported clean to `rebuild/evidence/review-triage-round2.yaml` (pins 440, policy_edits 29, any_of 59, neither 3, identical 8; rows covered 2604).
 - Baseline HEAD: `15a33d3`. Old Senior Sans OTF byte-identity gate SHA-256 `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35`.
-- Pre-edit control audit: `tmp/round2-control-audit.tsv` (15,525 divergent rows, oracle 0 unmatched / 0 multi-matched), reproduced byte-for-byte by the scratch-build harness `tmp/scratch_build.py`.
+- Pre-edit control audit: `rebuild/evidence/round2-control-audit.tsv` (15,525 divergent rows, oracle 0 unmatched / 0 multi-matched), reproduced byte-for-byte by the scratch-build harness `rebuild/tools/scratch_build.py`.
 
 ### Three pre-round decisions, all resolved before this round
 
@@ -30,7 +30,7 @@ The round-1 "contradiction" (rejects on ·Pea·May·Tea against approvals of the
 
 ## The exhaustive lever hunt: no closed-vocabulary revert exists
 
-To test whether the firm rejects can be honored in the frozen `when:` policy vocabulary, every candidate record was build-tested in isolation. The harness `tmp/scratch_build.py` builds the M1 pipeline against a scratch copy of `glyph_data/runes/` into a scratch out-dir and runs the full oracle; it was validated to reproduce `tmp/round2-control-audit.tsv` byte-for-byte. **25 candidate records across 5 independent lever families were scratch-built. Zero cleared the strict success bar** (target reject reverts to old ink, oracle 0 unmatched / 0 defects, zero collateral on any non-target window).
+To test whether the firm rejects can be honored in the frozen `when:` policy vocabulary, every candidate record was build-tested in isolation. The harness `rebuild/tools/scratch_build.py` builds the M1 pipeline against a scratch copy of `glyph_data/runes/` into a scratch out-dir and runs the full oracle; it was validated to reproduce `rebuild/evidence/round2-control-audit.tsv` byte-for-byte. **25 candidate records across 5 independent lever families were scratch-built. Zero cleared the strict success bar** (target reject reverts to old ink, oracle 0 unmatched / 0 defects, zero collateral on any non-target window).
 
 | Lever family | Candidates | Best outcome |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ The alternative the user may instead choose is to keep the composed extension ev
 
 ## Acceptance gates
 
-- Oracle: 0 unmatched / 0 multi-matched, 15,525 divergent rows; `divergence-audit.tsv` byte-identical to `tmp/round2-control-audit.tsv` (no shaping change).
+- Oracle: 0 unmatched / 0 multi-matched, 15,525 divergent rows; `divergence-audit.tsv` byte-identical to `rebuild/evidence/round2-control-audit.tsv` (no shaping change).
 - Defect gates (§9, E-): green.
 - All 440 approved pins, 59 either windows, 3 neither, 8 identical: unchanged (no edit can move them).
 - Old Senior Sans OTF: byte-identical to `3211a7a7…` (round 2 edits only `rebuild/` text and the report; nothing feeds the old pipeline).

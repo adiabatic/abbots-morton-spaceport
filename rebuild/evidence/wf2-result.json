@@ -1,0 +1,491 @@
+{
+  "families": [
+    "may-right-scoped-suppress",
+    "may-extend-narrowing-and-nonsumming",
+    "predecessor-exit-levers-seam1",
+    "it-side-levers-seam2",
+    "ligature-and-same-seam"
+  ],
+  "results": [
+    {
+      "candidates": [
+        {
+          "label": "A-contract-right (entry-side baseline contract, right=qsTea+ss03+self.exit:live)",
+          "file": "tmp/scratch/LEVH-may-right-scoped-suppress/A-contract-right/runes/qsMay.yaml",
+          "record_yaml": "contract:\n- stance: loop\n  entry: baseline\n  by: 1\n  when: {self: {exit: live}, right: {family: qsTea}, feature: ss03}\n  why: Drop the baseline entry extension when May also extends its x-height exit toward a following half-Tea (the summed case), so the seam reverts to old ink.",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "may-right-scoped-suppress (contract)",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "defect_errors": 5,
+          "oracle_unmatched": 51,
+          "collateral_windows_changed": [
+            "405 audit rows changed",
+            "E-CONTACT defects on qsMay/qsOy seams"
+          ],
+          "evidence": "SEAM 1 NEW = qsMay/loop/baseline/x-height/en-ext-1+en-con-1+ex-ext-1 — the en-ext-1 token is STILL present; the contract only ADDED en-con-1. Confirms round-1's 'entry-side extend and contract do not net at name grain': _adjustment_tokens('en', extend, contract) emits both tokens; a matched extend is never None-d by a contract. defect_errors=5 (E-CONTACT), unmatched=51."
+        },
+        {
+          "label": "B-narrow-extend-self-exit-none (narrow extend[3] when:{...,self:{exit:none}})",
+          "file": "tmp/scratch/LEVH-may-right-scoped-suppress/B-refuse-baseline-right/runes/qsMay.yaml",
+          "record_yaml": "extend:\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}, self: {exit: none}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "may-right-scoped-suppress (self.exit narrowing of extend[3])",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": true,
+          "defect_errors": 0,
+          "oracle_unmatched": 938,
+          "collateral_windows_changed": [
+            "854 dangling-anchor-dropped (approved) -> UNMATCHED",
+            "66 ss03-chain-join-gains (the 40 ss03-chain X-May-Tea approvals) -> UNMATCHED",
+            "63 zwnj-word-initial-unification (approved) -> UNMATCHED",
+            "21 same-seam-extension-non-summing (approved) -> UNMATCHED",
+            "66 halves-entry-extension-restored, 3 pea-chain-regularized",
+            "2278 audit rows changed total"
+          ],
+          "evidence": "SEAM 1 NEW = qsMay/loop/baseline/x-height/ex-ext-1 — en-ext-1 DROPPED, ex-ext-1 kept = byte-exact OLD ink (criterion a MET). But self.exit cannot isolate the half-Tea summed case: EVERY May joining from baseline with ANY live x-height exit (Pea-May-Pea, Tea-May-It, ...) loses en-ext-1 and flips to UNMATCHED. unmatched=938. Guards u-0393 and Oy-It-May-Tea survive only incidentally (their May has exit:None). SEAM 2 untouched (May exit:None there) so it still carries en-ext-1."
+        },
+        {
+          "label": "C-refuse-baseline-entry (refuse loop entry:baseline, right=qsTea+ss03+self.exit:live)",
+          "file": "tmp/scratch/LEVH-may-right-scoped-suppress/C-extend-right-self/runes/qsMay.yaml",
+          "record_yaml": "refuse:\n- {stance: loop, entry: baseline, when: {self: {exit: live}, right: {family: qsTea}, feature: ss03}, why: Test lever — refuse May's baseline entry when it also extends its x-height exit toward a following half-Tea under ss03.}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "may-right-scoped-suppress (refuse entry)",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "defect_errors": 0,
+          "oracle_unmatched": 84,
+          "collateral_windows_changed": [
+            "405 audit rows changed",
+            "SEAM 1 itself goes UNMATCHED (join collapses)"
+          ],
+          "evidence": "Refusing the baseline entry kills the bilateral Pea-May join entirely: SEAM 1 NEW = qsMay/loop/baseline/None/en-ext-1+ex-bind-pulled-back (Tea reverts to full, May exit withdraws) and the row is UNMATCHED — not OLD ink (OLD keeps the half-Tea join with ex-ext-1). unmatched=84. A refuse cannot surgically drop a token; it removes the whole cell."
+        },
+        {
+          "label": "D-competing-extend-exact-seam1 (more-specific extend matching exactly SEAM 1)",
+          "file": "tmp/scratch/LEVH-may-right-scoped-suppress/D-extend-right-tea-ss03/runes/qsMay.yaml",
+          "record_yaml": "extend:\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}, self: {exit: live}, right: {family: qsTea}, feature: ss03}}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "may-right-scoped-suppress (competing more-specific extend)",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "collateral_windows_changed": [],
+          "evidence": "Builds byte-identical to control (defect_errors=0, unmatched=0, 0 audit rows changed) — the new record out-ranks extend[3] on the exact SEAM-1 window. But SEAM 1 NEW is UNCHANGED: still en-ext-1+ex-ext-1. Any extend has by>=1 (schema) and _adjustment_tokens emits en-ext-1 whenever the chosen extend matches, so a competing extend can only RE-emit the token, never drop it. This is the clean proof that no by-bearing right/self-scoped extend can revert the seam."
+        }
+      ],
+      "conclusion": "No closed-vocabulary lever in the may-right-scoped-suppress family clears all three success criteria; round 1's 'no clean revert' conclusion stands, now with build evidence. The structural reason is a two-part trap rooted in the token grammar (rebuild/pipeline/settle.py _commit lines 944-961 and _adjustment_tokens lines 777-791): (1) The en-ext-1 token is emitted whenever an entry-side `extend` record matches; the ONLY thing that ever None-s a matched extend is the hard-coded same-seam non-summing rule (line 956: left.settled.extension>0), which keys off the LEFT predecessor's exit extension, not May's own right/self context. extendRecord requires by>=1 and contract tokens coexist with (never cancel) extend tokens — proven by Candidate A (en-ext-1+en-con-1 both present, 51 unmatched, the round-1 'do not net at name grain' result) and Candidate D (a more-specific competing extend matching EXACTLY the SEAM-1 window builds 0-collateral/0-unmatched but re-emits en-ext-1 unchanged). A refuse (Candidate C) removes the whole cell rather than a token, collapsing the join (84 unmatched, not old ink). (2) The only condition that actually drops en-ext-1 is narrowing extend[3] off May's own live exit (Candidate B, self:{exit:none}): it DOES revert SEAM 1 to byte-exact OLD ink, but the self.exit axis cannot distinguish 'May exits toward half-Tea (the ss03 summed reject)' from 'May exits toward any letter at x-height (hundreds of approved windows)' — so it detonates 938 unmatched across the dangling-anchor-dropped (854), ss03-chain-join-gains (66, including the 40 X-May-Tea approvals), zwnj (63), and same-seam-non-summing (21) approved classes. There is no closed when:-axis (left/right/self/word/feature, none with a `then` on left/self and no negation) that picks out exactly the summed half-Tea exit case. Separately, SEAM 2 (E679:E670:E665) is categorically unreachable by this entire RIGHT/self-scoped family: May has exit:None there, so no self.exit/right-exit condition can ever fire on it — its en-ext-1 comes purely from the left-baseline trigger. The phenomenon needs feature-scoped engine work (a non-summing rule that also fires when the follower's OWN exit carries the seam pixel, i.e. extending same-seam non-summing to the self-exit side), not an authored policy record."
+    },
+    {
+      "candidates": [
+        {
+          "label": "dropPea: remove qsPea from qsMay.policy.extend[3] left.family list",
+          "file": "tmp/scratch/LEVH-may-extend-narrowing-and-nonsumming/dropPea/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "may-extend-narrowing-and-nonsumming",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "default E650:E665 (Pea-May word-initial, INTENDED dangling-anchor-dropped) -> UNMATCHED",
+            "the whole zwnj-word-initial-unification Pea-May class",
+            "may-exit-withdrawal-generalized Pea-May rows",
+            "same-seam-extension-non-summing Pea-left rows",
+            "1456 audit rows changed total"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 1190,
+          "evidence": "SEAM-1 reverts to old ink: 'qsMay/loop/baseline/x-height/ex-ext-1' (en-ext-1 dropped, ex-ext-1 kept) == OLD 'qsMay.en-y0.ex-y5.ex-ext-1'. But oracle unmatched=1190; e.g. '> default 0020:0020:E650:E665 ... UNMATCHED ... qsMay/loop/baseline/None/' where OLD/baseline carries en-ext-1 (dangling-anchor-dropped, intended). The closed left.family axis cannot separate the rejected composed Pea-May-Tea(ss03) cell from the intended bare Pea-May join; both project left=qsPea/baseline."
+        },
+        {
+          "label": "dropIt: remove qsIt from qsMay.policy.extend[3] left.family list",
+          "file": "tmp/scratch/LEVH-may-extend-narrowing-and-nonsumming/dropIt/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsTea_qsOy, qsYe, qsHe], joined_at: baseline}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "may-extend-narrowing-and-nonsumming",
+          "target_rejects": [
+            "default E679:E670:E665 (SEAM 2)"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "default E670:E665 (It-May word-initial, APPROVED guard, one of the 93 extend[3] approvals) -> UNMATCHED",
+            "default E670:E670:E665 (It-It-May, APPROVED guard) -> UNMATCHED",
+            "every It-baseline-left May en-ext-1 window across all configs",
+            "791 oracle unmatched"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 791,
+          "evidence": "SEAM-2 reverts to old ink: 'qsMay/loop/baseline/None/' (en-ext-1 dropped) == OLD 'qsMay.en-y0.ex-y5'. But the two explicitly-named hard-guard windows break: '> default E670:E665 ... UNMATCHED ... qsMay/loop/baseline/None/' and '> default E670:E670:E665 ... UNMATCHED' (both OLD/baseline carry en-ext-1, approved). SEAM-2 differs from the approved It-May only at 2-back (qsOy/qsTea_qsOy); leftCondition has no 'then'/nesting, so the discriminator is not expressible."
+        },
+        {
+          "label": "peaExitExt (non-summing route): add a Pea full-baseline exit-extend toward May+Tea under ss03 so left.settled.extension>0 suppresses May's entry-extend",
+          "file": "tmp/scratch/LEVH-may-extend-narrowing-and-nonsumming/peaExitExt/runes/qsPea.yaml",
+          "record_yaml": "- {stance: full, exit: baseline, by: 1, when: {right: {family: qsMay, then: {family: qsTea}}, feature: ss03}}",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "may-extend-narrowing-and-nonsumming",
+          "target_rejects": [
+            "ss03 E650:E665:E652 (SEAM 1)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "all ss03 Pea-May-Tea windows -> UNMATCHED (Pea now carries an ex-ext-1 the old font never had)",
+            "48 audit rows changed",
+            "3 E-CONTACT defects at y=7 from the extended Pea exit"
+          ],
+          "defect_errors": 3,
+          "oracle_unmatched": 42,
+          "evidence": "The same-seam non-summing suppression (settle.py:956) DID fire: May became 'qsMay/loop/baseline/x-height/ex-ext-1' (en-ext-1 gone). But the suppression requires moving the extension pixel onto the predecessor, so NEW Pea = 'qsPea/full/None/baseline/ex-ext-1' while OLD Pea = 'qsPea' (no extension) -> row UNMATCHED, not a faithful revert. Plus 3 gate-failing E-CONTACT defects: 'qsPea.full.en-y6.ex-y0.ex-ext-1: off-anchor ink contact at y=7'. The old ink had NEITHER en-ext-1 on May NOR ex-ext-1 on Pea; non-summing can only relocate the pixel, never delete it."
+        }
+      ],
+      "conclusion": "No closed-vocabulary lever in this family meets all three success criteria; round-1's NO-clean-revert claim is confirmed, and the structural reason is now pinned with build evidence for both representative targets. (1) The harness is faithful: the unmodified-runes build reproduces tmp/round2-control-audit.tsv byte-for-byte (unmatched=0, defect_errors=[], 15525 divergent rows). (2) SEAM 2 (Oy-It-May) is byte-identical at name grain to the APPROVED It-May / It-It-May guards in every readable axis (left=qsIt/bar/baseline, self entry live, right=END); the only difference is the predecessor-of-predecessor (qsOy / qsTea_qsOy). The schema's leftCondition has no 'then' and no nesting (only family/class/stance/joined_at/stroke/is/except), so 'two-back is entered' is unrepresentable. dropIt reverts SEAM 2 to old ink but flips the two named hard-guard windows (E670:E665, E670:E670:E665) and 791 rows to UNMATCHED. (3) SEAM 1 (ss03 Pea-May-Tea) is the COMPOSED en-ext-1+ex-ext-1 cell; it is byte-identical to the 40 ss03-chain X-May-Tea APPROVALS except for May's immediate-left family (qsPea for rejects vs qsIt/qsTea for approvals). extend[3]'s when is left-only, so the only separating lever is left.family=qsPea — but stripping qsPea also kills en-ext-1 from the INTENDED bare Pea-May word-initial join and ~1300 other approved/intended Pea-left rows (dropPea: 1190 unmatched, 1456 rows changed). (4) The non-summing route (peaExitExt) mechanically fires the settle.py:956 suppression, but only by relocating the connector pixel onto the predecessor's exit — an ink change the old font never made (Pea gains ex-ext-1 it lacked) — which leaves the target UNMATCHED, changes 48 rows, and trips 3 E-CONTACT gate defects. The old ink had no extension pixel on EITHER side of that seam, and the closed vocabulary can only move the pixel, never delete it under the composed condition. The phenomenon is genuinely engine-work-only: it requires either a two-back left predicate (SEAM 2) or a right-conditioned suppression of an entry-side extension at the composed cell (SEAM 1), neither of which exists in the current closed when: vocabulary."
+    },
+    {
+      "candidates": [
+        {
+          "label": "c1: drop qsPea from extend[3] left-family list",
+          "file": "glyph_data/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "predecessor-exit-levers-seam1 (qsMay left-family narrowing)",
+          "target_rejects": [
+            "ss03 E650:E665:E652",
+            "ss03 0020:E650:E665:E652"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "~1456 windows: every Pea-left baseline-join into May loses en-ext-1, incl. u-0393 guard (ss03 E650:E665:E652:E652) and all default Pea-May-* approvals"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 1190,
+          "evidence": "oracle unmatched=1190, pass=False; diff vs control = 2912 changed lines. SEAM-1 reverts (qsMay/loop/baseline/x-height/ex-ext-1) but the bare left-family removal also strips en-ext-1 from u-0393 and every Pea-May approval the old font drew WITH en-ext-1.",
+          "record_yaml_note": ""
+        },
+        {
+          "label": "c2: add self:{exit:none} to extend[3]",
+          "file": "glyph_data/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}, self: {exit: none}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "predecessor-exit-levers-seam1 (self.exit axis)",
+          "target_rejects": [
+            "ss03 E650:E665:E652"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "~900 live-exit windows for ALL six left families (qsTea/qsIt/qsYe/qsHe/qsTea_qsOy too): u-0468 (ss03 E652:E665:E652) and the 40 ss03-chain X-May-Tea approvals lose en-ext-1 because they all have a live x-height May exit"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 938,
+          "evidence": "oracle unmatched=938, pass=False; diff=2278 lines. self:{exit:none} keeps en-ext-1 only when May withdraws, but the live-exit ss03 chains (u-0468 + 40 approvals) are exactly the guards that carry en-ext-1+ex-ext-1, so it shears them off."
+        },
+        {
+          "label": "c3: qsPea refuse full baseline exit into May under ss03 (naive join-kill)",
+          "file": "glyph_data/runes/qsPea.yaml",
+          "record_yaml": "- {stance: full, exit: baseline, when: {right: {family: qsMay}, feature: ss03}, why: 'SEAM-1 probe drop the Pea baseline exit into May under ss03.'}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "predecessor-exit-levers-seam1 (qsPea exit refusal)",
+          "target_rejects": [
+            "ss03 E650:E665:E652"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "all ss03 Pea-May seams: the Pea->May baseline join is destroyed (May entry becomes None: qsMay/loop/None/x-height), which is NOT the old ink (old keeps qsMay.en-y0)"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 567,
+          "evidence": "oracle unmatched=567, pass=False. SEAM-1 NEW = qsPea/full/None/None/|qsMay/loop/None/x-height/ex-ext-1 — the join is killed, not reverted; old ink has qsMay.en-y0 (entered). Confirms the task's warning that {exit:none}-style predecessor refusals kill the join and yield UNMATCHED."
+        },
+        {
+          "label": "c4: split extend[3]; qsPea-left rule gated on self:{exit:none}",
+          "file": "glyph_data/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}}}\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: qsPea, joined_at: baseline}, self: {exit: none}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "predecessor-exit-levers-seam1 (qsPea-left scoped to withdrawn exit)",
+          "target_rejects": [
+            "ss03 E650:E665:E652"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "402 windows: u-0393 (ss03 E650:E665:E652:E652) is PRESERVED, but every other live-exit Pea-May window (Pea-May-Pea, Pea-May-It, Pea-May-Oy, etc.) loses en-ext-1 the old font kept (e.g. default E650:E665:E650 old=...en-ext-1.ex-ext-1)"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 336,
+          "evidence": "oracle unmatched=336, pass=False; diff=804 lines (308 dangling-anchor-dropped + 42 halves + others). u-0393 correctly kept en-ext-1 (May exit None), proving self:{exit:none} separates withdrawn from live; but ALL live-exit Pea-May followers (not just Tea) lose it. default E650:E665:E650 old baseline kept en-ext-1, c4 drops it -> over-reach + oracle break."
+        },
+        {
+          "label": "c5: qsPea extend baseline exit into May under ss03 (trigger same-seam non-summing)",
+          "file": "glyph_data/runes/qsPea.yaml",
+          "record_yaml": "- {stance: full, exit: baseline, by: 1, when: {right: {family: qsMay}, feature: ss03}, why: 'SEAM-1 probe extend Pea baseline exit so same-seam non-summing suppresses May en-ext-1.'}",
+          "built": false,
+          "verdict": "schema-invalid",
+          "lever_family": "predecessor-exit-levers-seam1 (qsPea exit extension -> suppression)",
+          "target_rejects": [
+            "ss03 E650:E665:E652"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "Hard build failure: rebuild.pipeline.emit_gsub.EmitError: feature fold conflict at (qsPea, ...qsMay...): qsPea.full.en-y5.ex-y0 vs qsPea.full.en-y5.ex-y0.ex-ext-1 — the marker encoding cannot express this. The only en-ext-1 suppressor (same-seam non-summing, settle.py:956) REQUIRES the predecessor to carry visible ex-ext-1 ink, which (a) changes Pea away from old ink and (b) cannot even compile here."
+        },
+        {
+          "label": "c6: split extend[3] enumerating all non-Tea right followers + boundary + (Pea,Tea,exit:none) keep-rules; only (Pea, right=Tea, live exit)=SEAM-1 left uncovered",
+          "file": "glyph_data/runes/qsMay.yaml",
+          "record_yaml": "- {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsTea, qsTea_qsOy, qsYe, qsHe, qsIt], joined_at: baseline}}}\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: qsPea, joined_at: baseline}, right: {is: boundary}}}\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: qsPea, joined_at: baseline}, right: {family: [qsPea, qsBay, qsDay, qsKey, qsGay, qsThaw, qsThey, qsFee, qsVie, qsSee, qsZoo, qsShe, qsJai, qsCheer, qsJay, qsYe, qsWay, qsHe, qsWhy, qsIng, qsMay, qsNo, qsLow, qsRoe, qsLoch, qsLlan, qsExcite, qsExam, qsIt, qsEat, qsEt, qsEight, qsAt, qsI, qsAh, qsAwe, qsOx, qsOy, qsUtter, qsOut, qsOwe, qsFoot, qsOoze]}}}\n- {stance: loop, entry: baseline, by: 1, when: {left: {family: qsPea, joined_at: baseline}, right: {family: qsTea}, self: {exit: none}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "predecessor-exit-levers-seam1 (qsMay left=Pea narrowed by right-follower + self.exit)",
+          "target_rejects": [
+            "ss03 E650:E665:E652",
+            "ss03 0020:E650:E665:E652 (u-0385)",
+            "ss03 E650:E665:E652:0020 (u-0389)",
+            "ss03 E650:E665:E652:E650 (u-0392)",
+            "ss03 E652:E650:E665:E652 (u-0397)"
+          ],
+          "target_reverted_to_old_ink": true,
+          "collateral_windows_changed": [
+            "E650:E650:E665:E652 (Pea-Pea-May-Tea, APPROVED, pea-chain-regularized) — reviewer approved its en-ext-1 ink; c6 drops it and cannot carve it out",
+            "E650:E665:E652:E679 (Pea-May-(Tea_Oy), NEITHER verdict, may-exit-withdrawal-generalized)",
+            "E650:E665:E652 (bare Pea-May-Tea, approve/machine, not one of the 29 reject codepoints) — c6 reverts it"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "BEST CANDIDATE. oracle: defect_errors=[], unmatched=0, multi_matched=0, pass=True (ledger-clean). 13 of 16 changed codepoint-windows are the SEAM-1 rejects, all reverting to old ink (en-ext-1 dropped -> qsMay/loop/baseline/x-height/ex-ext-1, byte-equal to old qsMay.en-y0.ex-y5.ex-ext-1). FAILS (c): the APPROVED window ss03 E650:E650:E665:E652 also changes — old baseline there = qsMay.ex-ext-1 (no en-ext-1) but reviewer APPROVED the new en-ext-1 ink, and c6 strips it. Root wall: May's predecessor is qsPea/full/.../baseline (stroke vertical) in BOTH the bare SEAM-1 reject AND Pea-Pea-May-Tea; they differ only in the predecessor's OWN entry (None vs y6), and the closed leftCondition vocabulary (family/class/stance/joined_at/stroke/is) has no axis for the predecessor's own entry state. joined_at reads the predecessor->May seam (baseline in both), not the predecessor's left seam."
+        }
+      ],
+      "conclusion": "No closed-vocabulary lever in the predecessor-exit-levers-seam1 family meets all three strict success criteria; round-1's negative for SEAM-1 holds, and I can now name the exact structural axis that blocks it. Build evidence (6 candidates, 5 built): c6 is the strongest result ever found for this seam — it is the FIRST lever that both reverts the SEAM-1 reject targets to old ink (criterion a) AND keeps the oracle perfectly clean (criterion b: defect_errors=[], unmatched=0, pass=True), touching only 16 codepoint-windows where round-1's counter-records produced 6+ UNMATCHED rows. But it FAILS criterion (c) on a single irreducible window: the reviewer-APPROVED ss03 E650:E650:E665:E652 (·Pea·Pea·May·Tea) loses the en-ext-1 ink the reviewer approved. That window cannot be carved out because May's immediate-left predecessor is identical in BOTH cases — qsPea, full stance, baseline exit, vertical stroke, joined_at=baseline to May — and they diverge ONLY in the predecessor's OWN entry (unentered in the bare reject vs entered-at-y6 from a prior ·Pea in the chain). The closed leftCondition vocabulary exposes family/class/stance/joined_at/stroke/is/except but has NO axis for 'the predecessor's own entry state'; joined_at reads the predecessor→May seam, not the predecessor's left seam. This is the SEAM-1 mirror of the exact wall round-1 documented for SEAM-2 ('the predecessor's predecessor is entered is not expressible in the closed when: vocabulary'). c1/c2/c4 confirm the family fails by over-reach (936–1190 UNMATCHED); c3 confirms predecessor-exit refusals kill the Pea→May join (no-revert, 567 UNMATCHED); c5 confirms the only en-ext-1 suppressor (same-seam non-summing) both changes Pea away from old ink AND hits a hard emit_gsub feature-fold EmitError. The decisive, ledger-clean negative therefore strengthens the engine-work conclusion: dropping ·May's en-ext-1 on the SEAM-1 rejects without disturbing the approved ·Pea·Pea·May·Tea sibling requires a depth-2 left-context predicate (predecessor's own entry) that the frozen closed when: vocabulary cannot express — it needs feature/engine work, not a rune-policy lever."
+    },
+    {
+      "candidates": [
+        {
+          "label": "C1: qsIt exit-baseline extend by 1, when {left: qsOy, right: qsMay}",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c1/qsIt.yaml",
+          "record_yaml": "policy.extend:\n  - {stance: bar, exit: baseline, by: 1, when: {left: {family: qsOy}, right: {family: qsMay}}}",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665 (and 0020/00B7/200C/Exxx prefixes + ss02..ss05 configs)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "E679:E670:E665:E652 (APPROVED guard sibling) gained It ex-ext-1",
+            "E679:E670:E665:E665 regrouping window changed"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 98,
+          "evidence": "NEW becomes qsOy/loop/None/None/|qsIt/bar/None/baseline/ex-ext-1|qsMay/loop/baseline/None/  vs OLD qsOy|qsIt.ex-y0|qsMay.en-y0.ex-y5. May en-ext-1 IS suppressed (same-seam non-summing fired because left.settled.extension>0), but the +1px relocated onto It's exit (ex-ext-1) where OLD has none, so the connector ink is wrong -> UNMATCHED. Guard sibling E679:E670:E665:E652 also changed (It gained ex-ext-1) because a bare {left:qsOy,right:qsMay} key cannot distinguish reject from sibling — It's local context is identical in both."
+        },
+        {
+          "label": "C2: same as C1 but then-scoped, when {left: qsOy, right: {qsMay, then: boundary}}",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c2/qsIt.yaml",
+          "record_yaml": "policy.extend:\n  - {stance: bar, exit: baseline, by: 1, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}}",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665 (77 target-family rows across prefixes/configs)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 77,
+          "evidence": "The then: {is: boundary} lookahead CLEANLY separates the reject from the APPROVED sibling E679:E670:E665:E652 (right2=qsTea): the guard sibling is now byte-unchanged, and all 77 changed rows are the bare Oy-It-May target family with ZERO non-target collateral. BUT the target is still UNMATCHED: NEW = qsIt/bar/None/baseline/ex-ext-1|qsMay/loop/baseline/None/ — May en-ext-1 dropped but the +1px relocated to It's exit; OLD has no extension on either side. Same-seam suppression can only MOVE the pixel, never remove it. Proves separation is expressible but the revert is not reachable."
+        },
+        {
+          "label": "C3: qsIt refuse exit-baseline, when {left: qsOy, right: qsMay}",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c3/qsIt.yaml",
+          "record_yaml": "policy.refuse:\n  - stance: bar\n    exit: baseline\n    when: {left: {family: qsOy}, right: {family: qsMay}}\n    why: Scratch lever C3 — refuse the Oy-It baseline exit toward May.",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "E679:E670:E665:E652 (APPROVED guard sibling) — join restructured: Oy->It now joins at baseline, May unentered"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "Refuse kills the It->May join entirely: NEW = qsOy/loop/None/baseline/|qsIt/bar/baseline/None/|qsMay/loop/None/None/ (Oy now exits baseline INTO It, May has no entry). OLD KEEPS the It->May baseline join (qsIt.ex-y0|qsMay.en-y0), so this is completely different ink. refuse's when uses rightConditionNoThen (no then:), so it CANNOT separate the guard sibling — E679:E670:E665:E652 was also restructured. 224 rows changed."
+        },
+        {
+          "label": "C4: qsIt yielding prefer exit:none over exit:baseline, then-scoped to word-final May",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c4/qsIt.yaml",
+          "record_yaml": "policy.prefer:\n  - {cell: {exit: none}, over: {exit: baseline}, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}, why: 'Scratch lever C4 ...'}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "0 rows changed — the yielding prefer never fires: declining the It->May baseline exit loses a join, and join-count maximization keeps the join. The target is untouched (still en-ext-1). No revert."
+        },
+        {
+          "label": "C5: qsIt ABSOLUTE prefer exit:none over exit:baseline, then-scoped to word-final May",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c5/qsIt.yaml",
+          "record_yaml": "policy.prefer:\n  - {cell: {exit: none}, over: {exit: baseline}, mode: absolute, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}, why: 'Scratch lever C5 ...'}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665 (77 target-family rows)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 77,
+          "evidence": "Absolute prefer forces the decline: NEW = qsOy/loop/None/None/|qsIt/bar/None/None/|qsMay/loop/None/None/ — the It->May join is destroyed (It no exit, May no entry). OLD keeps the join (qsIt.ex-y0|qsMay.en-y0), so wrong ink -> UNMATCHED. then-scope works cleanly (guard sibling E679:E670:E665:E652 unchanged, zero non-target collateral), but killing the join is not reverting the extension."
+        },
+        {
+          "label": "C6: qsIt contract exit-baseline by 1, then-scoped to word-final May",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c6/qsIt.yaml",
+          "record_yaml": "policy.contract:\n  - {stance: bar, exit: baseline, by: 1, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}, why: 'Scratch lever C6 ...'}",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 2,
+          "oracle_unmatched": 0,
+          "evidence": "Contract produces hard defects: E-ANCHOR anchor:qsIt.bar.ex-y0.ex-con-1:exit (exit anchor x=0 but rightmost ink +1 at y=0 absent) and E-UNREALIZED seam_gap at y=0 (a side has no ink at the seam row). Pulling It's exit IN by 1 strands the It->May seam — unrealizable. Does not trigger May same-seam suppression (suppression keys on extension>0; contract makes it negative)."
+        },
+        {
+          "label": "C7: paired exit-extend +1 AND exit-contract +1 on It, both then-scoped (net-zero arithmetic)",
+          "file": "tmp/scratch/LEVH-it-side-levers-seam2/runes-c7/qsIt.yaml",
+          "record_yaml": "policy.extend:\n  - {stance: bar, exit: baseline, by: 1, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}}\npolicy.contract:\n  - {stance: bar, exit: baseline, by: 1, when: {left: {family: qsOy}, right: {family: qsMay, then: {is: boundary}}}, why: 'Scratch lever C7 ...'}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "it-side-levers-seam2",
+          "target_rejects": [
+            "default E679:E670:E665 (77 target-family rows)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "NEW = qsOy/loop/None/None/|qsIt/bar/None/baseline/ex-ext-1+ex-con-1|qsMay/loop/baseline/None/en-ext-1. Worst of all: (1) May STILL carries en-ext-1 — the same-seam suppression did NOT fire because net extension = +1-1 = 0, so left.settled.extension>0 is False, so the contract cancels the very trigger that would suppress May; (2) It's cell identity gained BOTH ex-ext-1 and ex-con-1 tokens (vs OLD bare qsIt.ex-y0). The pixel-arithmetic nets to zero on It but the adjustment tokens persist in the cell name, and May is unchanged. Guard sibling untouched (then-scope OK), zero non-target collateral, but the target is not reverted at all."
+        }
+      ],
+      "conclusion": "NO clean closed-vocabulary it-side lever for SEAM 2 exists. All 7 build-tested candidates fail the strict criterion, and they fail for one shared STRUCTURAL reason rooted in the pipeline, not in scoping. The OLD ink for the reject E679:E670:E665 is `qsOy | qsIt.ex-y0 | qsMay.en-y0.ex-y5` — the It->May baseline join PRESENT with ZERO connector extension on either side. May's en-ext-1 is computed solely by qsMay.policy.extend (settle._pick_adjustment reads `rune.policy.extend` where rune is the glyph being settled = May); a qsIt record is NEVER consulted when selecting May's entry adjustment. The ONLY indirect channel a qsIt record has on May's en-ext-1 is the same-seam non-summing suppression (settle.py L956-960), which keys on `left.settled.extension > 0`. That trigger requires It to carry its OWN exit extension, which relocates the +1px onto It's exit (C1/C2: NEW = It ex-ext-1, May none) — never the OLD 'join present, zero extension' state. Trying to cancel It's relocated pixel with a paired contract (C7) makes net extension 0, which silently un-triggers the suppression, so May keeps en-ext-1 AND It carries ex-ext-1+ex-con-1 tokens — strictly worse. The other arm — destroying/declining the join via refuse (C3) or absolute prefer-exit-none (C5) — removes the It->May join entirely, which OLD ink keeps. Yielding prefer (C4) never fires because declining loses a join. Contract-only (C6) strands the seam into a hard E-ANCHOR/E-UNREALIZED defect. SECONDARY finding (positive, but insufficient): the schema's right-side `then:` lookahead (rightCondition has `then`; leftCondition does not) DOES cleanly separate the reject E679:E670:E665 from the ink-identical APPROVED sibling E679:E670:E665:E652 — C2/C5/C7 with `then: {is: boundary}` changed only the 77 bare-target rows with the guard sibling byte-unchanged and zero non-target collateral. So the regrouping residual's 'the predecessor's predecessor is entered' obstacle from m1-divergences.yaml is actually expressible here via right2 lookahead — but separability buys nothing, because no expressible DEMAND on the It cell can land May at 'baseline join, no extension'. This confirms and strengthens round 1: the en-ext-1 lives on May's entry side keyed on May's own predecessor; the closed when:-vocabulary cannot net it away from the It side. Dropping it requires feature-scoped engine work (e.g., teaching same-seam non-summing or May's extend[3] to recognize the regrouped 'predecessor-of-predecessor entered' case without minting a connector pixel on either glyph), not a policy record."
+    },
+    {
+      "candidates": [
+        {
+          "label": "candA-teaoy-extend (qsTea_qsOy exit extend, ss03+right:qsMay, for u-0398)",
+          "file": "tmp/scratch/LEVH-ligature-and-same-seam/candA-teaoy-extend/runes/qsTea_qsOy.yaml",
+          "record_yaml": "policy:\n  extend:\n  - {stance: bar-into-loop, exit: baseline, by: 1, when: {right: {family: qsMay}, feature: ss03}}",
+          "built": false,
+          "verdict": "schema-invalid",
+          "lever_family": "ligature-and-same-seam",
+          "target_rejects": [
+            "u-0398 ss03 E652:E679:E665:E652"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 0,
+          "evidence": "EmitError: feature fold conflict at ('qsTea_qsOy', None, ('qsMay',), None): qsTea_qsOy.bar-into-loop.ex-y0 vs qsTea_qsOy.bar-into-loop.ex-y0.ex-ext-1 — the marker encoding cannot express this. Schema-valid YAML but the GSUB emitter cannot feature-split a ligature exit-extension toward an unscoped (no `then`) May; build aborts."
+        },
+        {
+          "label": "candA2-teaoy-extend-allfeat (qsTea_qsOy exit extend, right:qsMay, all features)",
+          "file": "tmp/scratch/LEVH-ligature-and-same-seam/candA2-teaoy-extend-allfeat/runes/qsTea_qsOy.yaml",
+          "record_yaml": "policy:\n  extend:\n  - {stance: bar-into-loop, exit: baseline, by: 1, when: {right: {family: qsMay}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "ligature-and-same-seam",
+          "target_rejects": [
+            "u-0398 (all features) E652:E679:E665:E652"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "every ·Tea·Oy·May window across all features and boundaries (default/ss02/ss03/ss04/ss05/combos, space/namer-dot/zwnj/Pea/etc. prefixes) — 364 audit diff lines"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 94,
+          "evidence": "oracle pass:false unmatched:94. Target NEW becomes `qsTea_qsOy...baseline/ex-ext-1 | qsMay...baseline/None/` (en-ext-1 dropped via same-seam non-summing) but OLD ink is `qsTea_qsOy...baseline/(none) | qsMay...en-ext-1` — the connector pixel relocated onto the ligature, so the cell is a THIRD distinct ink → UNMATCHED, not old ink. Plus the approved non-ss03 u-0398 rows (may-exit-withdrawal-generalized) and every ·Tea·Oy·May elsewhere flip."
+        },
+        {
+          "label": "candB-it-exit-extend-rightmay (qsIt exit extend, self:none + right:qsMay, for SEAM-2 Oy-It-May)",
+          "file": "tmp/scratch/LEVH-ligature-and-same-seam/candB-it-exit-extend-rightmay/runes/qsIt.yaml",
+          "record_yaml": "policy:\n  extend:\n  - {stance: bar, exit: baseline, by: 1, when: {self: {entry: none}, right: {family: qsMay}}}",
+          "built": true,
+          "verdict": "reverts-but-collateral",
+          "lever_family": "ligature-and-same-seam",
+          "target_rejects": [
+            "SEAM-2 E679:E670:E665 (all features)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "CRITICAL GUARD E679:E670:E665:E652 (Oy-It-May-Tea, approved) flips — It gains ex-ext-1 on the ink-identical prefix; plus every unentered-It-into-May window — 2211 audit diff lines"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 896,
+          "evidence": "oracle pass:false unmatched:896. SEAM-2 NEW = `qsIt...baseline/ex-ext-1 | qsMay...baseline/None/` (en-ext-1 dropped) ≠ OLD `qsIt...baseline/(none) | qsMay...en-ext-1` → UNMATCHED. The guard E679:E670:E665:E652 row reclassifies halves-entry-extension-restored→may-exit-withdrawal-generalized with It carrying ex-ext-1: the closed qsIt when: vocabulary on the immediate-May condition cannot distinguish the approved Oy-It-May-Tea prefix from the reject Oy-It-May, exactly the warned guard break."
+        },
+        {
+          "label": "candC-may-exit-contract-itmay (qsMay exit contract keyed {right: qsIt, then: qsMay} — the assignment's named lever)",
+          "file": "tmp/scratch/LEVH-ligature-and-same-seam/candC-may-exit-contract-itmay/runes/qsMay.yaml",
+          "record_yaml": "policy:\n  contract:\n  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsIt, then: {family: qsMay}}}}",
+          "built": true,
+          "verdict": "no-revert",
+          "lever_family": "ligature-and-same-seam",
+          "target_rejects": [],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [
+            "only same-seam-extension-non-summing APPROVED windows ...E665:E670:E665... (default/ss0x/combos, space/namer-dot/zwnj/Pea/Tea/May/It/Oy prefixes) — 235 audit diff lines, zero reject windows touched"
+          ],
+          "defect_errors": 0,
+          "oracle_unmatched": 3,
+          "evidence": "oracle pass:false unmatched:3. NO halves-entry-extension-restored (reject) row appears in the diff — confirmed grep of reject rows for any ...E665:E670:E665... pattern returns EMPTY, so a {right: qsIt, then: qsMay} qsMay record can ONLY reach approved windows. The contract emits `ex-con-1` ALONGSIDE the existing `ex-ext-1` (token `en-ext-1+ex-ext-1+ex-con-1`), proving extend/contract do not net at name grain even on the exit side."
+        },
+        {
+          "label": "candD-teaoy-then-scoped (qsTea_qsOy exit extend, ss03 + right:{qsMay, then: qsTea} — narrowest u-0398 attempt)",
+          "file": "tmp/scratch/LEVH-ligature-and-same-seam/candD-teaoy-then-scoped/runes/qsTea_qsOy.yaml",
+          "record_yaml": "policy:\n  extend:\n  - {stance: bar-into-loop, exit: baseline, by: 1, when: {right: {family: qsMay, then: {family: qsTea}}, feature: ss03}}",
+          "built": true,
+          "verdict": "reverts-but-breaks-oracle",
+          "lever_family": "ligature-and-same-seam",
+          "target_rejects": [
+            "u-0398 ss03 E652:E679:E665:E652 (and ss02+ss03, ss02+ss03+ss05 — the 3 reject-class rows of this window)"
+          ],
+          "target_reverted_to_old_ink": false,
+          "collateral_windows_changed": [],
+          "defect_errors": 0,
+          "oracle_unmatched": 3,
+          "evidence": "oracle pass:false unmatched:3, total diff = 6 lines = exactly the 3 target ss03-bearing u-0398 rows (ZERO collateral on any other window). But each target NEW = `qsTea_qsOy/bar-into-loop/None/baseline/ex-ext-1 | qsMay/loop/baseline/x-height/ex-ext-1 (no en-ext-1) | qsTea.half` whereas OLD = `qsTea_qsOy...baseline/(none) | qsMay...en-ext-1+ex-ext-1 | qsTea.half`. The en-ext-1 drops cleanly with no collateral, but the connector pixel RELOCATES onto the ligature (ex-ext-1) — a third ink matching neither old nor new → UNMATCHED. Closest possible candidate; proves criterion (a) is structurally unreachable."
+        }
+      ],
+      "conclusion": "NO clean closed-vocabulary lever exists in the ligature-and-same-seam family; the round-1 negative is reaffirmed with build evidence, and the structural reason is now pinned precisely. The only mechanism in the closed `when:` vocabulary that removes qsMay's entry-side `en-ext-1` token (without editing the firing record extend[3], which would hit the 93 approvals + 40 ss03-chain guards) is the same-seam non-summing suppression at settle.py:956, which fires only when the immediate-left predecessor's EXIT already carries an extension (`left.settled.extension > 0`). Triggering that always ADDS a `+1px` extension onto the predecessor (ligature or It), relocating the connector pixel rather than deleting it. But every TARGET reject's OLD ink has an UNextended predecessor, so the resulting cell (`predecessor+ex-ext-1 | May without en-ext-1`) is a THIRD distinct ink that matches neither old nor new and the oracle reports UNMATCHED — criterion (a) [byte-equal to OLD ink] is structurally unreachable for every reject in this family. This was demonstrated three independent ways: candA/A2/D (predecessor = qsTea_qsOy, u-0398) and candB (predecessor = qsIt, SEAM-2 Oy-It-May). candD is the decisive proof: it achieves ZERO collateral (only the 3 intended u-0398 ss03 rows move) yet still fails because the en-ext-1 cannot vanish — it merely migrates to the ligature's exit. Separately, candC proves the assignment's named qsMay `{right: qsIt, then: qsMay}` rightward lever can never satisfy (a) at all: a grep of the 160 reject rows for any `...E665:E670:E665...` (May-followed-by-It-then-May) pattern returns empty, so that condition reaches ONLY the approved same-seam-extension-non-summing windows; firing it there merely stacks `ex-con-1` next to the existing `ex-ext-1` (no netting at name grain) and breaks 235 approved rows. Token-level confirmation throughout: extend and contract are independent token streams (settle.py:782-790) that never cancel each other in the cell NAME the oracle matches — netting happens only in the numeric `extension` field on the exit side (lines 970-973) — so no entry-side contract/extend pairing can erase `en-ext-1`. The phenomenon is therefore engine-shaped: a feature-scoped pipeline change to suppress the composed entry extension (the open question already logged in m1-divergences.yaml halves-entry-extension-restored), not any record expressible in the closed rune vocabulary."
+    }
+  ]
+}
