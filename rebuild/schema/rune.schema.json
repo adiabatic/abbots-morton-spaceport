@@ -215,14 +215,14 @@
       }
     },
     "refuseRecord": {
-      "description": "A veto: it strikes a join candidate out of contention before settlement chooses. Target it with `stance` and/or an `entry`/`exit` height to forbid only that specific join — that stance, joining at that height; with none of those it kills every joining candidate, forcing this letter to sit unjoined when the `when` matches. The `when` can read the settled left neighbor but only the raw right one. Example: ·It refuses its x-height exit into the full ·Day's entry — `{stance: bar, exit: x-height, when: {right: {family: qsDay}}, why: …}` — so ·It·Day joins low instead of through the forbidden same-height pass-through.",
+      "description": "Refuses a join: when its `when` matches, the join this record names is off the table, and the build joins the letters some other way or not at all.\n\nNarrow the target with `stance` and/or an `entry`/`exit` height to refuse only that one join — that stance, joining at that height. Name none of them and every join is refused: the letter sits unjoined whenever the `when` matches.\n\nThe `when` can read the settled left neighbor but only the raw right one.\n\nExample: ·It refuses its x-height exit into the full ·Day's entry — `{stance: bar, exit: x-height, when: {right: {family: qsDay}}, why: …}` — so ·It·Day joins low instead of through the forbidden same-height pass-through.",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],
       "properties": {
-        "stance": {"$ref": "#/$defs/motionName"},
-        "entry": {"$ref": "#/$defs/height"},
-        "exit": {"$ref": "#/$defs/height"},
+        "stance": {"$ref": "#/$defs/motionName", "description": "Limits the refusal to this stance."},
+        "entry": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that enter at this height."},
+        "exit": {"$ref": "#/$defs/height", "description": "Limits the refusal to joins that exit at this height."},
         "when": {"$ref": "#/$defs/whenWindowDecidable"},
         "why": {"type": "string", "description": "An optional note saying why this join is forbidden. It shows up in the build's elimination diagnostics but changes no shaping."}
       }
