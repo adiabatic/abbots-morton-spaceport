@@ -11,7 +11,7 @@ make review-build                                     # regenerate rebuild/out/r
 make review-serve                                     # serve it on http://localhost:7294/
 uv run python -m rebuild.review.build                 # the same build, spelled out
 uv run python -m rebuild.review.serve                 # the same server, spelled out
-uv run python -m rebuild.review.export tmp/verdicts.json --out tmp/review-triage.yaml
+uv run python -m rebuild.review.export tmp/verdicts.json --out rebuild/evidence/review-triage.yaml
 ```
 
 The Makefile targets are `review-build` / `review-serve` because plain `review` was already taken by the scoped-anchor-selector review page.
@@ -69,7 +69,7 @@ Every row carries an always-visible one-line summary under the renderings — wh
 
 ### What to do with each exported artifact
 
-Run the export CLI on the downloaded file; the resulting `tmp/review-triage.yaml` has five sections:
+Run the export CLI on the downloaded file; the resulting `rebuild/evidence/review-triage.yaml` has five sections:
 
 - **`pins`** (from approvals): whole-word `data-expect` strings, each already validated for syntax (the repo's real `parse_expect`) and semantics against the after-font. Copy each into its `suggested_home` (e.g. `site/the-manual.html`) as a `data-expect` / `data-expect-noncanonically` attribute — this is the opinions-become-pins loop from §10 item 5. `duplicate_of` flags pins already covered.
 - **`policy_edits`** (from rejections): one-line `policy.prefer[+]` / `policy.refuse[+]` / `policy.contract[+]` records naming the target rune file, an appendable keypath, the deciding provenance records, and the decided stage. These are _drafts_, never auto-applied: review each, paste into the named `glyph_data/runes/*.yaml`, and rebuild. Units with `no_mechanical_draft` have no expressible one-line counter-lever — start from `names_provenance` and the unit's explain panel by hand.

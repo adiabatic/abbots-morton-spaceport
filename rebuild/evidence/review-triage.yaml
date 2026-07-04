@@ -1,0 +1,422 @@
+review:
+  mode: m1-audit
+  source:
+    audit: rebuild/out/m1/divergence-audit.tsv
+    ledger: rebuild/m1-divergences.yaml
+  manifest_generated_at: '2026-06-11T02:32:24Z'
+  exported_at: '2026-06-11T02:51:30Z'
+  counts:
+    approve: 32
+    reject: 0
+    either: 0
+    neither: 1
+    skip: 6
+    units_total: 2411
+    human_units_total: 725
+    rows_covered: 146
+machine_approved:
+  count: 1686
+  rows_covered: 11621
+  by_class:
+    zwnj-word-initial-unification: 213
+    dangling-anchor-dropped: 1334
+    bare-name-live-join: 139
+  method: Shaped with uharfbuzz in both shipped fonts (kerning disabled — the rebuild has no kern feature until its own milestone, so the old font's kerning is comparison noise) under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared — the placed ink is identical under every config, so only glyph names differ.
+  unit_ids:
+  - u-0000..u-0212
+  - u-0938..u-2410
+pins:
+- unit: u-0213
+  codepoints: E650:200C:E652:E679
+  text_entities: '&#xE650;&#x200C;&#xE652;&#xE679;'
+  expect: ·Pea | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0214
+  codepoints: E650:200C:E652:E679
+  text_entities: '&#xE650;&#x200C;&#xE652;&#xE679;'
+  expect: ·Pea | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0216
+  codepoints: E652:200C:E652:E679
+  text_entities: '&#xE652;&#x200C;&#xE652;&#xE679;'
+  expect: ·Tea | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0217
+  codepoints: E652:200C:E652:E679
+  text_entities: '&#xE652;&#x200C;&#xE652;&#xE679;'
+  expect: ·Tea | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0218
+  codepoints: E652:E665:E652:E679
+  text_entities: '&#xE652;&#xE665;&#xE652;&#xE679;'
+  expect: ·Tea ~b~ ·May | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '03'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0219
+  codepoints: 200C:E652:E679
+  text_entities: '&#x200C;&#xE652;&#xE679;'
+  expect: ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0220
+  codepoints: 200C:E652:E679
+  text_entities: '&#x200C;&#xE652;&#xE679;'
+  expect: ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0221
+  codepoints: 0020:200C:E652:E679
+  text_entities: '&#x0020;&#x200C;&#xE652;&#xE679;'
+  expect: ◊space | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0222
+  codepoints: 0020:200C:E652:E679
+  text_entities: '&#x0020;&#x200C;&#xE652;&#xE679;'
+  expect: ◊space | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0226
+  codepoints: 200C:200C:E652:E679
+  text_entities: '&#x200C;&#x200C;&#xE652;&#xE679;'
+  expect: ◊ZWNJ | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0227
+  codepoints: 200C:E652:E679:0020
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x0020;'
+  expect: ◊ZWNJ | ·Tea+Oy | ◊space
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0228
+  codepoints: 200C:E652:E679:0020
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x0020;'
+  expect: ◊ZWNJ | ·Tea+Oy | ◊space
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0229
+  codepoints: 200C:E652:E679:00B7
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x00B7;'
+  expect: ◊ZWNJ | ·Tea+Oy | \·
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0230
+  codepoints: 200C:E652:E679:00B7
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x00B7;'
+  expect: ◊ZWNJ | ·Tea+Oy | \·
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0231
+  codepoints: 200C:E652:E679:200C
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x200C;'
+  expect: ◊ZWNJ | ·Tea+Oy | ◊ZWNJ
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0232
+  codepoints: 200C:E652:E679:200C
+  text_entities: '&#x200C;&#xE652;&#xE679;&#x200C;'
+  expect: ◊ZWNJ | ·Tea+Oy | ◊ZWNJ
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0233
+  codepoints: 200C:E652:E679:E650
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE650;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·Pea
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0234
+  codepoints: 200C:E652:E679:E650
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE650;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·Pea
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0235
+  codepoints: 200C:E652:E679:E652
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE652;'
+  expect: ◊ZWNJ | ·Tea+Oy ~b~ ·Tea
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0236
+  codepoints: 200C:E652:E679:E652
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE652;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·Tea
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0237
+  codepoints: 200C:E652:E679:E665
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE665;'
+  expect: ◊ZWNJ | ·Tea+Oy ~b~ ·May
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0239
+  codepoints: 200C:E652:E679:E670
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE670;'
+  expect: ◊ZWNJ | ·Tea+Oy ~b~ ·It
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0240
+  codepoints: 200C:E652:E679:E670
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE670;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·It
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0241
+  codepoints: 200C:E652:E679:E679
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE679;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0242
+  codepoints: 200C:E652:E679:E679
+  text_entities: '&#x200C;&#xE652;&#xE679;&#xE679;'
+  expect: ◊ZWNJ | ·Tea+Oy | ·Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0247
+  codepoints: E665:200C:E652:E679
+  text_entities: '&#xE665;&#x200C;&#xE652;&#xE679;'
+  expect: ·May | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0248
+  codepoints: E665:200C:E652:E679
+  text_entities: '&#xE665;&#x200C;&#xE652;&#xE679;'
+  expect: ·May | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '03'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0249
+  codepoints: E665:200C:E652:E679
+  text_entities: '&#xE665;&#x200C;&#xE652;&#xE679;'
+  expect: ·May | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0259
+  codepoints: E670:200C:E652:E679
+  text_entities: '&#xE670;&#x200C;&#xE652;&#xE679;'
+  expect: ·It | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0260
+  codepoints: E670:200C:E652:E679
+  text_entities: '&#xE670;&#x200C;&#xE652;&#xE679;'
+  expect: ·It | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0262
+  codepoints: E679:200C:E652:E679
+  text_entities: '&#xE679;&#x200C;&#xE652;&#xE679;'
+  expect: ·Oy | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: null
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+- unit: u-0263
+  codepoints: E679:200C:E652:E679
+  text_entities: '&#xE679;&#x200C;&#xE652;&#xE679;'
+  expect: ·Oy | ◊ZWNJ | ·Tea+Oy
+  attribute: data-expect-noncanonically
+  stylistic_set: '10'
+  validated:
+    syntax: pass
+    semantics_after_font: pass
+  suggested_home: site/the-manual.html
+  duplicate_of: null
+  note: ''
+policy_edits: []
+any_of: []
+neither:
+- unit: u-0215
+  codepoints: E650:E665:E652:E679
+  notation: ·Pea·May·Tea·Oy
+  note: ''
+  names_provenance:
+  - glyph_data/runes/qsPea.yaml:stances.half.surface.exits.y6
+  - glyph_data/runes/qsMay.yaml:policy.extend[3]

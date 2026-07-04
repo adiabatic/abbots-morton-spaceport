@@ -48,7 +48,7 @@ Both font copies get their source path and sha256 recorded in `manifest.json` (t
 | Build in table-diff mode   | `uv run python -m rebuild.review.build --mode table-diff --baseline <dir> --new <dir> --before-font <otf> --after-font <otf>`          |
 | Snapshot an accepted state | `uv run python -m rebuild.review.build snapshot --tables rebuild/out/m1 --font rebuild/out/m1/M1.otf --to rebuild/out/review-baseline` |
 | Serve on 7294              | `uv run python -m rebuild.review.serve`                                                                                                |
-| Export the triage document | `uv run python -m rebuild.review.export <verdicts.json> --out tmp/review-triage.yaml`                                                  |
+| Export the triage document | `uv run python -m rebuild.review.export <verdicts.json> --out rebuild/evidence/review-triage.yaml`                                     |
 
 Build and serve are separate commands (the server is long-running); `serve.py` prints the build command when the served directory is missing or stale. The two servers coexist: 7293 keeps serving `site/`, 7294 serves the review app, both via livereload's tornado `NoCacheStaticHandler` clone with `Cache-Control: no-store` (stale cached OTFs silently invalidate visual judgments). `spec_load` emits two known harmless `SpecWarning`s — the build treats them as expected, not errors.
 
@@ -137,7 +137,7 @@ View state lives in `location.hash` as `URLSearchParams`, tables.html-style (`pa
 All three drafts are precomputed per unit by `drafts.py` at generation time and shipped in the shard JSON; the browser only selects them. The authoritative export is two-stage:
 
 1. **The page** exports `verdicts.json` (download/copy) — the canonical, re-importable work product.
-2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml`) joins verdicts to units, re-validates every selected draft, and writes **one triage YAML with five sections** for human placement. Nothing is auto-applied to the corpus or the rune files.
+2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out rebuild/evidence/review-triage.yaml`) joins verdicts to units, re-validates every selected draft, and writes **one triage YAML with five sections** for human placement. Nothing is auto-applied to the corpus or the rune files.
 
 ### 4.1 `verdicts.json`
 
