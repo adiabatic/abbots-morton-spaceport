@@ -26,6 +26,7 @@ from rebuild.pipeline.model import (
     feature_config_token,
     marker_glyph_name,
     relevant_marker_features,
+    ss10_twin_name,
 )
 from rebuild.validation.rowmodel import CONFIGS, Row, iter_rows
 
@@ -364,12 +365,12 @@ def isolated_overlay_active(spec: ResolvedSpec, features: frozenset[str]) -> boo
 
 
 def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
-    """The expected rendering under an `overlay: isolated` taste set: settlement is unchanged, but every letter cell renders as its rune's raw cmap glyph (the isolated drawing, which carries no curs anchors), so every seam is visually a break — exactly today's ss10."""
+    """The expected rendering under an `overlay: isolated` taste set: settlement is unchanged, but every letter cell renders as its rune's anchor-free `.ss10` twin (drawn identically to the raw cmap glyph), so every seam is visually a break. A ligature-rune cell expands to its components' twins in sequence order — the 2026-07-04 ratification that join suppression also means ligation suppression, realized since SS10-FORM by the pre-empt lookup substituting the twins before formation, so no ligature ever forms and each letter keeps its own cluster."""
     names: list[str] = []
     for item in settled:
         cell = getattr(item, "cell", None)
         if cell is not None and isinstance(cell, CellId) and cell.rune in spec.runes:
-            names.append(cell.rune)
+            names.extend(ss10_twin_name(name) for name in spec.runes[cell.rune].sequence or (cell.rune,))
         else:
             names.extend(settled_names(spec, [item]))
     return names
@@ -641,6 +642,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # The ratified boundary-equals-word-boundary rule (design section 3.4, extended to space 2026-07-03): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by run_boundary_equivalence — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
         return "boundary-echo"
     if "ligation" in phenomena:
+        # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows).
+        if row.config == "ss10" and ("E653:E67A" in row.codepoints or "E652:E679" in row.codepoints):
+            return "ss10-ligature-suppressed"
         if "E652:E679" in row.codepoints and ("200C" in row.codepoints or "ss03" in row.config):
             return "marker-staging-ligature-formation"
         # The qsDay_qsUtter ligature forms unconditionally in the old font too (bare E653:E67A renders as the ligature in every config), so only the post-marker windows diverge: the old pipeline renames the lead to .noentry / leaks a bare name after a ZWNJ or the namer dot, and never forms the ligature there. Same staging phenomenon as ·Tea·Oy.
@@ -706,6 +710,7 @@ def _class_predicate(class_id: str) -> Callable[[DivergentRow], bool]:
 
 for _class_id in (
     "boundary-echo",
+    "ss10-ligature-suppressed",
     "marker-staging-ligature-formation",
     "regrouping-floor-drift",
     "zwnj-word-initial-seam-moved",
@@ -927,19 +932,22 @@ def _compare_row(
 ) -> DivergentRow | None:
     settled = settle_module.settle(spec, list(row.codepoints), features)
     if isolated_overlay_active(spec, features):
-        # The overlay renders the raw cmap glyph at every letter position; in cell terms that is the anchor-free boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break.
-        settled = [
-            (
-                Settled(
-                    cell=CellId(item.cell.rune, spec.runes[item.cell.rune].default_stance, None, None, ()),
-                    seam=None,
-                    extension=0,
-                )
-                if isinstance(getattr(item, "cell", None), CellId) and item.cell.rune in spec.runes
-                else item
-            )
-            for item in settled
-        ]
+        # The overlay renders the anchor-free isolated drawing at every letter position; in cell terms that is the boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer), so a window whose pair formed in the old font diverges at ligation grain.
+        expanded: list = []
+        for item in settled:
+            cell = getattr(item, "cell", None)
+            if isinstance(cell, CellId) and cell.rune in spec.runes:
+                for rune_name in spec.runes[cell.rune].sequence or (cell.rune,):
+                    expanded.append(
+                        Settled(
+                            cell=CellId(rune_name, spec.runes[rune_name].default_stance, None, None, ()),
+                            seam=None,
+                            extension=0,
+                        )
+                    )
+            else:
+                expanded.append(item)
+        settled = expanded
     new_cells: list[str] = []
     new_seams: list[str] = []
     for index, item in enumerate(settled):

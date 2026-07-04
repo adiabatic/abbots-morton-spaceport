@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsMay E665, qsIt E670, qsOy E679, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsMay E665, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -51,6 +51,8 @@ E652 E679 E652            # Tea+Oy Tea
 E652 E679 E665            # Tea+Oy May
 E652 E679 E652 E679       # Tea+Oy Tea+Oy
 E652 200C E679            # Tea ZWNJ Oy (formation severed)
+E653 E67A                 # Day Utter (ligature forms; splits to bare Day Utter under ss10)
+E650 E653 E67A E652       # Pea Day+Utter Tea (ligature mid-window; all bare under ss10)
 E665 E679                 # May Oy (x-height join into the opened loop)
 E650 E679                 # Pea Oy
 E679 E670                 # Oy It

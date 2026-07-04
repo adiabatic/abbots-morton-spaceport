@@ -2,7 +2,7 @@
 
 Stages: load_default_spec -> per-configuration decision/treaty tables (partition + E-STRANDED asserted, TSVs written) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos -> build_mini_font with the budget gate.
 
-The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors (under the ss10 overlay every position renders bare, and today's ss10 shows every seam as a break); marker and chokepoint twins reuse the bare drawing.
+The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
 Run as: uv run python -m rebuild.pipeline.run_m1
 """
@@ -33,6 +33,7 @@ from rebuild.pipeline.model import (
     ResolvedSpec,
     locked_glyph_name,
     relevant_marker_features,
+    ss10_twin_name,
 )
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
@@ -75,18 +76,22 @@ def mint_cell_glyphs(spec: ResolvedSpec, tables: Mapping[str, tuple]) -> dict[Ce
 
 def mint_raw_glyphs(
     spec: ResolvedSpec,
-) -> tuple[dict[CellId, GlyphRecord], dict[CellId, GlyphRecord], dict[str, CellId]]:
-    """Returns (bare cmap glyphs, marker + chokepoint twins, the isolated-cells map for the ss10 overlay). Raw glyphs are keyed under the synthetic stance so they never collide with a reachable settled cell that happens to be the isolated cell."""
+) -> tuple[dict[CellId, GlyphRecord], dict[CellId, GlyphRecord], dict[str, str]]:
+    """Returns (bare cmap glyphs, marker + chokepoint + ss10 twins, the raw-name → ss10-twin-name map for the ss10 pre-empt lookup). Raw glyphs are keyed under the synthetic stance so they never collide with a reachable settled cell that happens to be the isolated cell. Only codepoint-bearing letter runes get ss10 twins: ligature runes never appear in a cmap buffer, and boundary tokens are not runes."""
     bare: dict[CellId, GlyphRecord] = {}
     twins: dict[CellId, GlyphRecord] = {}
-    isolated_cells: dict[str, CellId] = {}
+    ss10_twins: dict[str, str] = {}
     for rune_name, rune in spec.runes.items():
         isolated = geometry.isolated_cell(spec, rune_name)
         record = geometry.realize(spec, surface.resolve_cell(spec, isolated), name=rune_name)
         stripped = replace(record, entry=None, exit=None, entry_curs_only=None, safety_checks=())
         key = CellId(rune_name, RAW_STANCE, None, None, ())
         bare[key] = stripped
-        isolated_cells[rune_name] = key
+
+        if not rune.sequence and rune.codepoint is not None:
+            twin_name = ss10_twin_name(rune_name)
+            twins[CellId(rune_name, RAW_STANCE, None, None, ("ss10",))] = replace(stripped, name=twin_name)
+            ss10_twins[rune_name] = twin_name
 
         live_names = [rune_name]
         for marker_name in emit_gsub.marker_states(rune_name, relevant_marker_features(rune)):
@@ -98,7 +103,7 @@ def mint_raw_glyphs(
                 twins[CellId(rune_name, RAW_STANCE, None, None, ("locked", raw_name))] = replace(
                     stripped, name=twin_name
                 )
-    return bare, twins, isolated_cells
+    return bare, twins, ss10_twins
 
 
 def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
@@ -120,7 +125,7 @@ def run(out_dir: Path = OUT_DIR) -> dict:
     tables = build_tables(spec, out_dir)
 
     cell_glyphs = mint_cell_glyphs(spec, tables)
-    bare, twins, isolated_cells = mint_raw_glyphs(spec)
+    bare, twins, ss10_twins = mint_raw_glyphs(spec)
     dots = namer_dot_glyphs()
 
     allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
@@ -131,9 +136,7 @@ def run(out_dir: Path = OUT_DIR) -> dict:
             defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
         )
 
-    gsub_plan = emit_gsub.emit_gsub(
-        spec, tables, glyphs={**cell_glyphs, **bare}, isolated_cells=isolated_cells
-    )
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
 

@@ -176,18 +176,19 @@ def parse_entry_extension(adjustments: tuple[str, ...]) -> int:
 
 
 def overlay_settled(spec: ResolvedSpec, settled: list[Settled]) -> list[Settled]:
-    """The conform.py overlay transformation for `overlay: isolated` taste sets (ss10): every letter cell renders as its rune's anchor-free default-stance cell and every seam is visually a break."""
+    """The conform.py overlay transformation for `overlay: isolated` taste sets (ss10): every letter cell renders as its rune's anchor-free default-stance cell and every seam is visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer, so every letter stands alone)."""
     out: list[Settled] = []
     for item in settled:
         cell = item.cell
         if isinstance(cell, CellId) and cell.rune in spec.runes and cell.stance != "boundary":
-            out.append(
-                Settled(
-                    cell=CellId(cell.rune, spec.runes[cell.rune].default_stance, None, None, ()),
-                    seam=None,
-                    extension=0,
+            for rune_name in spec.runes[cell.rune].sequence or (cell.rune,):
+                out.append(
+                    Settled(
+                        cell=CellId(rune_name, spec.runes[rune_name].default_stance, None, None, ()),
+                        seam=None,
+                        extension=0,
+                    )
                 )
-            )
         else:
             out.append(Settled(cell=cell, seam=None, extension=0))
     return out
@@ -347,7 +348,9 @@ class Enricher:
                 f"{config} {unit.codepoints}: derived cells {derived_cells} != audit {unit.new}"
             )
 
-        after_spans = self.formed_spans(values)
+        after_spans = (
+            [(index, index + 1) for index in range(len(values))] if overlay else self.formed_spans(values)
+        )
         after_seams = tuple(
             self.seam_token(settled[index].seam, overlay) for index in range(len(settled) - 1)
         )

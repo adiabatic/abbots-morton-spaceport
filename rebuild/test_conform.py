@@ -64,6 +64,21 @@ class TestNormalization:
         item.cell = cell
         assert conform.settled_names(spec, [item], {cell: "qsMay"}) == ["qsMay"]
 
+    def test_isolated_overlay_names_render_ss10_twins(self, spec):
+        class Letter:
+            cell = CellId("qsIt", "bar", "x-height", "baseline", ())
+            seam = None
+
+        class Ligature:
+            cell = CellId("qsTea_qsOy", "bar-into-loop", None, "baseline", ())
+            seam = None
+
+        class Boundary:
+            glyph_name = "uni200C"
+
+        names = conform.isolated_overlay_names(spec, [Letter(), Ligature(), Boundary()])
+        assert names == ["qsIt.ss10", "qsTea.ss10", "qsOy.ss10", "uni200C"]
+
 
 PEA, TEA, MAY, IT, OY = chr(0xE650), chr(0xE652), chr(0xE665), chr(0xE670), chr(0xE679)
 ZWNJ = chr(0x200C)
@@ -343,3 +358,24 @@ class TestClassifierRouting:
             )
             assert conform.PREDICATES["ss10_isolation_completed"](row) is False, boundary
             assert conform.classify_divergence(row) == "boundary-echo", boundary
+
+    def test_ss10_ligation_routes_to_ligature_suppressed(self):
+        for pair in ("E653:E67A", "E652:E679"):
+            row = self._row("ss10", ("ligation",), codepoints=f"E650:{pair}")
+            assert conform.classify_divergence(row) == "ss10-ligature-suppressed", pair
+
+    def test_ss10_namer_dot_ligation_outranks_marker_staging(self):
+        row = self._row("ss10", ("ligation",), codepoints="00B7:E653:E67A")
+        assert conform.classify_divergence(row) == "ss10-ligature-suppressed"
+
+    def test_ss10_ligation_boundary_rows_stay_on_the_blanket(self):
+        row = self._row("ss10", ("ligation",), codepoints="200C:E653:E67A")
+        assert conform.classify_divergence(row) == "boundary-echo"
+
+    def test_ss10_ligation_without_a_formable_pair_matches_nothing(self):
+        row = self._row("ss10", ("ligation",), codepoints="E650:E665:E652")
+        assert conform.classify_divergence(row) is None
+
+    def test_non_ss10_ligation_keeps_marker_staging(self):
+        row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
+        assert conform.classify_divergence(row) == "marker-staging-ligature-formation"

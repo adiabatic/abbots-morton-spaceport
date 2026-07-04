@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from rebuild.pipeline.conform import load_alias_map
-from rebuild.pipeline.model import CellId
+from rebuild.pipeline.model import SS10_TWIN_SUFFIX, CellId
 from rebuild.pipeline.settle import is_boundary_settled
 from rebuild.pipeline.spec_load import _SchemaChecker
 from rebuild.review.enrich import (
@@ -266,7 +266,11 @@ class Drafter:
         except ValueError as error:
             return f"fail: unparseable: {error}"
         row = row_for(self.after_shaper, self.after_classifier, text, kern_neutral(features))
-        row = replace(row, glyphs=tuple("space" if g == "uni200C" else g for g in row.glyphs))
+        # Under ss10 the pre-empt lookup renders every letter as its anchor-free `.ss10` twin with per-letter clusters (the seams were already classified on the twins, which carry no anchors, so every gap reads as a break); the expect checker knows letters by their bare cmap names, so strip the twin suffix alongside the uni200C-to-space convention.
+        row = replace(
+            row,
+            glyphs=tuple("space" if g == "uni200C" else g.removesuffix(SS10_TWIN_SUFFIX) for g in row.glyphs),
+        )
         report = ReplayReport()
         errors: list[str] = []
         for interp_tokens, interp_connections in ts._expand_maybe_ligatures(list(tokens), list(connections)):

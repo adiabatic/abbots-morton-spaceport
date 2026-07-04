@@ -39,7 +39,7 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
     tables = run_m1.build_tables(spec, out_dir)
 
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
-    bare, twins, isolated_cells = run_m1.mint_raw_glyphs(spec)
+    bare, twins, ss10_twins = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
 
     allow = frozenset(
@@ -52,9 +52,7 @@ def build_and_oracle(runes_dir: Path, out_dir: Path) -> dict:
             defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
         )
 
-    gsub_plan = emit_gsub.emit_gsub(
-        spec, tables, glyphs={**cell_glyphs, **bare}, isolated_cells=isolated_cells
-    )
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     all_glyphs = {**cell_glyphs, **bare, **twins, **dots}
