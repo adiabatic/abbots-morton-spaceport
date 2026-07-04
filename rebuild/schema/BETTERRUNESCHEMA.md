@@ -94,6 +94,8 @@ The R1–R39 decision log — the per-decision call-and-why behind every hover �
 
 - **R46 — the `when`/`from` quote drift, patched mechanically (closes R40).** Two fact-patches, no question needed: the `when` example's quote of ·Pea's y6 refuse gains the `except: […]` the real record carries, and the `from` example names all three of the entry's guests (·May, ·Utter, and the ·Day·Utter ligature). With this the R40 example-honesty sweep is fully discharged — every worked example in the schema again matches the live rune data.
 
+- **R47 — the `pairing` leaves (resolves the deferred source-order fork).** The fork re-asked with drafts came back the other way from the recorded lean: the `entry`/`exit` leaves get their own one-line hovers rather than riding the `pairings` container, per R30's every-leaf-shows-something precedent — strengthened by the shared `$def` also surfacing under an `unlocks` row's `pairing:`, where the container text is not the hover you get. Each is a single sentence naming its side and the `none` case. → schema (`pairing.entry`, `pairing.exit`). Next: `cellBinding`'s five bare leaves.
+
 ### Open (leans to react to)
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
