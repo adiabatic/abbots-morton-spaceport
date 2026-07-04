@@ -1,4 +1,4 @@
-"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units — deterministic, total (every window lands in a family, summing to the audit's 1,149), with the stylistic-set-only windows deferred and the named default families matching the measured census."""
+"""Tests for the round-3 verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units — deterministic, total (every window lands in a family, summing to the audit's 1,163), with the stylistic-set-only windows deferred and the named default families matching the measured census."""
 
 import warnings
 from pathlib import Path
@@ -23,12 +23,12 @@ MEASURED_CENSUS = {
     "tea-it-xheight": 33,
     "oy-it-baseline": 17,
     "may-utter-gains": 70,
-    "seam-loss-withdrawal": 373,
+    "seam-loss-withdrawal": 374,
     "extension-non-summing": 89,
     "unmatched-misc": 114,
     "deferred-ss04": 212,
     "deferred-ss10": 69,
-    "deferred-ss03": 64,
+    "deferred-ss03": 77,
 }
 
 
@@ -151,7 +151,7 @@ def test_partition_is_total_and_matches_the_measured_census(assigned):
     census: dict[str, int] = {}
     for family in assigned:
         census[family] = census.get(family, 0) + 1
-    assert sum(census.values()) == 1149, "every UNMATCHED window must land in exactly one family"
+    assert sum(census.values()) == 1163, "every UNMATCHED window must land in exactly one family"
     assert census == MEASURED_CENSUS
 
 
