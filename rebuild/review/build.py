@@ -187,6 +187,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "batch": unit.batch,
         "ink_identical": unit.ink_identical,
         "no_verdict": unit.no_verdict,
+        "echo": unit.echo,
         "class": unit.class_id,
         "group": unit.group,
         "codepoints": unit.codepoints,
@@ -294,9 +295,12 @@ def build_m1(
     merge_ink_duplicate_units(workload.units, comparator.signature, exempt_classes)
     present = {unit.class_id for unit in workload.units}
     workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
+    config_diffs: dict[str, tuple] = {}
     for unit in workload.units:
         text = "".join(chr(value) for value in unit.codepoint_values)
-        unit.ink_identical = comparator.ink_identical(text, unit.configs)
+        diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
+        unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+        config_diffs[unit.unit_id] = diffs
     total_batches = assign_batches(workload.units, batch_size)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -312,6 +316,19 @@ def build_m1(
         if unit.class_id == UNMATCHED_CLASS:
             unit.family_id = assign_family(enriched_by_id[unit.unit_id])
             unit.class_id = unit.family_id
+
+    # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
+    echo_ids: dict[tuple, str] = {}
+    for unit in workload.units:
+        if unit.batch is None:
+            continue
+        enriched = enriched_by_id[unit.unit_id]
+        pair = None
+        if enriched.pair_codepoints:
+            values = unit.codepoint_values
+            pair = (values[enriched.pair_codepoints[0]], values[enriched.pair_codepoints[1]])
+        key = (unit.configs, pair, unit.class_id, config_diffs[unit.unit_id])
+        unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
 
     classes = workload.classes_present + synthesize_family_classes(
         workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
@@ -356,7 +373,12 @@ def build_m1(
         "configs": list(ACCEPTANCE_CONFIGS),
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
-        "totals": {"units": len(workload.units), "rows": workload.row_count, "batches": total_batches},
+        "totals": {
+            "units": len(workload.units),
+            "rows": workload.row_count,
+            "batches": total_batches,
+            "echo_groups": len(echo_ids),
+        },
         "machine_approved": _machine_approved_meta(machine_units),
         "secondary_seams": seam_census,
         "classes": classes_meta,
@@ -444,6 +466,7 @@ def _table_diff_unit_json(
         "batch": batch,
         "ink_identical": ink_identical,
         "no_verdict": False,
+        "echo": None,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
         "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
@@ -639,6 +662,8 @@ def check_manifest(manifest: dict) -> list[str]:
     if isinstance(totals, dict):
         for key in ("units", "rows", "batches"):
             need(isinstance(totals.get(key), int), f"totals.{key} must be an integer")
+        if manifest.get("mode") == "m1-audit":
+            need(isinstance(totals.get("echo_groups"), int), "totals.echo_groups must be an integer")
     machine = manifest.get("machine_approved")
     need(isinstance(machine, dict), "machine_approved must be a mapping")
     if isinstance(machine, dict):
@@ -718,6 +743,17 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         need(unit.get("batch") is None, "ink-identical and no-verdict units must carry batch null")
     else:
         need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
+    need("echo" in unit, "echo must be present")
+    echo = unit.get("echo")
+    need(
+        echo is None or (isinstance(echo, str) and echo.startswith("e-")),
+        "echo must be null or an e-NNNN group id",
+    )
+    if mode == "m1-audit":
+        if isinstance(unit.get("batch"), int):
+            need(isinstance(echo, str), "human-workload units must carry an echo group id")
+        else:
+            need(echo is None, "units outside the human workload must carry echo null")
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")

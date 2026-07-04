@@ -56,6 +56,23 @@ export function needsNoVerdict(unit) {
   return Boolean(unit.ink_identical || unit.no_verdict);
 }
 
+export function echoChip(unit, memberIds) {
+  if (!unit.echo || !Array.isArray(memberIds) || memberIds.length < 2) return null;
+  return {
+    label: `echo ×${memberIds.length}`,
+    href: `#units=${memberIds.join(',')}`,
+    title:
+      `The before→after change here is pixel-identical in ${memberIds.length} ${unit.class} windows with the same judged pair and configs — ` +
+      'the surrounding letters differ but the change is the same picture. A verdict on any of them fills the unverdicted rest ' +
+      '(each can still be overridden or cleared individually). Click to view the whole echo group stacked.',
+  };
+}
+
+export function echoFillTargets(unit, memberIds, hasVerdict) {
+  if (!unit || !unit.echo || !Array.isArray(memberIds)) return [];
+  return memberIds.filter((id) => id !== unit.id && !hasVerdict(id));
+}
+
 export function familiesOfGroup(group) {
   return group ? group.split(':') : [];
 }

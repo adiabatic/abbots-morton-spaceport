@@ -20,6 +20,30 @@ export function recordVerdict(store, unitId, verdict, { note = '', at = new Date
   return store.records.get(unitId) ?? null;
 }
 
+export function recordVerdictWithEchoes(
+  store,
+  unitId,
+  verdict,
+  echoIds = [],
+  { note = '', at = new Date().toISOString() } = {},
+) {
+  if (!VERDICT_KINDS.includes(verdict)) throw new Error(`unknown verdict: ${verdict}`);
+  const entries = [{ unit: unitId, prev: store.records.get(unitId) ?? null }];
+  store.records.set(unitId, { unit: unitId, verdict, note, at });
+  store.unexported.add(unitId);
+  for (const id of echoIds) {
+    if (id === unitId || store.records.has(id)) continue;
+    entries.push({ unit: id, prev: null });
+    store.records.set(id, { unit: id, verdict, note, at });
+    store.unexported.add(id);
+  }
+  if (entries.length === 1) store.undoStack.push({ type: 'verdict', unit: unitId, prev: entries[0].prev });
+  else store.undoStack.push({ type: 'group', entries });
+  const applied = [];
+  for (const entry of entries) applied.push(entry.unit);
+  return applied;
+}
+
 export function updateNote(store, unitId, note) {
   const record = store.records.get(unitId);
   if (!record || record.note === note) return false;

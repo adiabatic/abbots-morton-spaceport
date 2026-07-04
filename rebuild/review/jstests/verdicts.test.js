@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createStore,
   recordVerdict,
+  recordVerdictWithEchoes,
   updateNote,
   groupApprove,
   undo,
@@ -75,6 +76,46 @@ test('groupApprove with nothing to do pushes no undo action', () => {
   recordVerdict(store, 'u-0001', 'approve');
   assert.deepEqual(groupApprove(store, ['u-0001']), []);
   assert.equal(store.undoStack.length, 1);
+});
+
+test('recordVerdictWithEchoes fills unverdicted echo siblings as one undo step', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0003', 'reject', { at: 't0' });
+  const applied = recordVerdictWithEchoes(store, 'u-0001', 'approve', ['u-0002', 'u-0003', 'u-0001'], {
+    note: 'same change',
+    at: 't1',
+  });
+  assert.deepEqual(applied, ['u-0001', 'u-0002']);
+  assert.deepEqual(store.records.get('u-0002'), { unit: 'u-0002', verdict: 'approve', note: 'same change', at: 't1' });
+  assert.equal(store.records.get('u-0003').verdict, 'reject');
+  const result = undo(store);
+  assert.deepEqual(result.units, ['u-0001', 'u-0002']);
+  assert.equal(result.cursor, 'u-0001');
+  assert.equal(store.records.has('u-0001'), false);
+  assert.equal(store.records.has('u-0002'), false);
+  assert.equal(store.records.get('u-0003').verdict, 'reject');
+});
+
+test('recordVerdictWithEchoes without echoes behaves exactly like recordVerdict', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'approve', { at: 't1' });
+  const applied = recordVerdictWithEchoes(store, 'u-0001', 'reject', [], { at: 't2' });
+  assert.deepEqual(applied, ['u-0001']);
+  const result = undo(store);
+  assert.deepEqual(result, { units: ['u-0001'], cursor: 'u-0001' });
+  assert.equal(store.records.get('u-0001').verdict, 'approve');
+  assert.throws(() => recordVerdictWithEchoes(store, 'u-0001', 'maybe', []));
+});
+
+test('an echo-filled record is individually overridable and clearable without touching its siblings', () => {
+  const store = createStore();
+  recordVerdictWithEchoes(store, 'u-0001', 'approve', ['u-0002'], { at: 't1' });
+  recordVerdict(store, 'u-0002', 'reject', { at: 't2' });
+  assert.equal(store.records.get('u-0001').verdict, 'approve');
+  assert.equal(store.records.get('u-0002').verdict, 'reject');
+  recordVerdict(store, 'u-0002', null);
+  assert.equal(store.records.has('u-0002'), false);
+  assert.equal(store.records.get('u-0001').verdict, 'approve');
 });
 
 test('updateNote edits the live record and marks it unexported', () => {

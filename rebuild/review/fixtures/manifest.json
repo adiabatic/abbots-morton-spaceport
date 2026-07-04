@@ -37,7 +37,8 @@
  "totals": {
   "units": 6,
   "rows": 25,
-  "batches": 1
+  "batches": 1,
+  "echo_groups": 4
  },
  "machine_approved": {
   "units": 1,

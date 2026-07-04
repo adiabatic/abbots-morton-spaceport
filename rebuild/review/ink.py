@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 
 from fontTools.pens.recordingPen import DecomposingRecordingPen
@@ -82,3 +83,34 @@ class InkComparator:
         """The rendered-outcome identity of one text under one config: the (before pieces, after pieces) pair. Two rows whose signatures are equal put exactly the same ink in the same places in both fonts, so they present the same visual question no matter how their glyph names differ."""
         features = features_for(config)
         return (self.ink_pieces("before", text, features), self.ink_pieces("after", text, features))
+
+    def config_diff(self, text: str, config: str) -> tuple:
+        """The before→after ink delta under one config: (pieces only the before font draws, pieces only the after font draws), jointly translated so the delta's leftmost point sits at x=0. Both empty means ink-identical. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — even though the surrounding letters differ."""
+        features = features_for(config)
+        before = Counter(self.ink_pieces("before", text, features))
+        after = Counter(self.ink_pieces("after", text, features))
+        before_only = list((before - after).elements())
+        after_only = list((after - before).elements())
+        xs = [
+            point[0]
+            for piece in before_only + after_only
+            for _operator, points in piece
+            for point in points
+            if point is not None
+        ]
+        if not xs:
+            return ((), ())
+        x0 = min(xs)
+
+        def normalize(pieces):
+            return tuple(
+                sorted(
+                    tuple(
+                        (operator, tuple(point if point is None else (point[0] - x0, point[1]) for point in points))
+                        for operator, points in piece
+                    )
+                    for piece in pieces
+                )
+            )
+
+        return (normalize(before_only), normalize(after_only))

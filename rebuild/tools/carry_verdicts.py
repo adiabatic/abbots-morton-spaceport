@@ -17,8 +17,8 @@ SOURCES = [
     (ROOT / "tmp/review-baseline", ROOT / "verdicts-11.33.00PM.json", None),
     (ROOT / "tmp/review-preview-bd1", ROOT / "verdicts-12.04.13AM.json", "2026-07-03"),
 ]
-# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; everything adjudicable it describes is already covered by the window plus both fonts' glyphs, cells, and seams.
-PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams"}
+# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers, and echo is an order-derived group id absent from older surfaces; everything adjudicable either describes is already covered by the window plus both fonts' glyphs, cells, and seams.
+PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams", "echo"}
 
 
 def ensure_surface(root):

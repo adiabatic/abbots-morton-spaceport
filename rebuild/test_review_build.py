@@ -68,7 +68,7 @@ def test_fixture_units_exercise_the_contract_branches():
 def test_full_build_passes_the_contract_checker(built):
     out_dir, manifest = built
     assert check_output_dir(out_dir) == []
-    assert manifest["totals"] == {"units": 15349, "rows": 81199, "batches": 14}
+    assert manifest["totals"] == {"units": 15349, "rows": 81199, "batches": 14, "echo_groups": 1710}
     assert len(manifest["classes"]) == 22
     assert manifest["mode"] == "m1-audit"
 
@@ -207,6 +207,31 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
     assert unit["configs"] == ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"]
     assert unit["render_groups"] == [{"configs": unit["configs"]}]
     assert unit["config_note"] is None
+
+
+def test_echo_groups_partition_the_human_workload(built):
+    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example is the ·Day·Tea·No regrouping, whose windows (·Pea/·Tea/·Day/·May/·No/·It/·Oy/·Utter-led plus the bare and namer-dot forms) share one group."""
+    out_dir, manifest = built
+    by_echo = {}
+    example = None
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            if unit["batch"] is None:
+                assert unit["echo"] is None, unit["id"]
+                continue
+            assert isinstance(unit["echo"], str) and unit["echo"].startswith("e-"), unit["id"]
+            by_echo.setdefault(unit["echo"], []).append(unit)
+            if unit["codepoints"] == "E670:E653:E652:E666":
+                example = unit
+    assert len(by_echo) == manifest["totals"]["echo_groups"] == 1710
+    for members in by_echo.values():
+        assert len({member["class"] for member in members}) == 1
+        assert len({tuple(member["configs"]) for member in members}) == 1
+    assert example is not None
+    siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
+    assert "E653:E652:E666" in siblings
+    assert "E679:E653:E652:E666" in siblings
+    assert len(siblings) == 10
 
 
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
