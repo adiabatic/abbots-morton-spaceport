@@ -17,7 +17,7 @@ The plan for slotting accessible documentation into `rune.schema.json` (the sche
 
 - We may freely assume fluency in the project’s own vocabulary — ·Letter names, `qsName` families, _stance_, _ductus_, _ink_, _trait_, _half_/_alt_, _anchor_, _seam_. We do **not** re-teach font internals the owner already knows.
 - We **do** explain the schema-specific machinery the owner does _not_ carry in their head (what an `unlock` does, what `withdrawal: safe` promises, what `ok`/`split` on an `extend` mean, etc.).
-- **Banned prose noun: “drawing”** (R39). It reads as an undefined term; say `bitmap` or use a plain verb instead. The `drawing` `$def` name and its `$ref`s stay (structural, not prose); verbs like “redraws”/”draws” are fine.
+- **Banned prose noun: “drawing”** (R39). It reads as an undefined term; say `bitmap` or use a plain verb instead. The `drawing` `$def` name and its `$ref`s stay (structural, not prose); verbs like “redraws”/“draws” are fine.
 - **Austere reference goes up front; the “why” must be right there too — not buried.** The owner is explicitly unwilling to dig into `model.py` docstrings or the M1 plan to recover intent. So the “why” lives where the eyes already are, not one hop away.
 
 Concretely, each `description` string is **two beats in one string**: a terse lead that says what the thing _is_ (the austere reference), immediately followed by the _why/how_ in the same string so both surface together. No separate explanation document the owner would have to go open. Diátaxis purity yields to convenience here because there is exactly one reader and they value “handy” over “clean.”
