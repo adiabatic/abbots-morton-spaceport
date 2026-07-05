@@ -360,12 +360,13 @@
       }
     },
     "whenWindowDecidable": {
+      "description": "The surroundings this record needs before it fires.\n\nList any of `left`, `right`, `self`, `word`, `feature`; the record fires only if all of them match.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
         "left": {"$ref": "#/$defs/leftCondition"},
-        "right": {"$ref": "#/$defs/rightConditionNoThen"},
+        "right": {"description": "What the letter to the right must be for this record to fire.\n\nList any of `family`, `class`, `stroke`, `is`, `except`.\n\n`then` cannot be used here because it looks one letter beyond its right neighbor.", "$ref": "#/$defs/rightConditionNoThen"},
         "self": {"$ref": "#/$defs/selfCondition"},
         "word": {"enum": ["initial", "medial", "final", "isolated"]},
         "feature": {"$ref": "#/$defs/featureTag"}
@@ -396,7 +397,7 @@
         "stroke": {"$ref": "#/$defs/strokeOrientation"},
         "is": {"$ref": "#/$defs/boundaryValue"},
         "except": {"description": "Drops neighbors from the match. A neighbor listed here is skipped even when the condition's other keys fit. On its own it's a plain negation — `left: {except: [family: qsIt]}` matches any left neighbor but ·It.", "type": "array", "items": {"$ref": "#/$defs/staticCondition"}, "minItems": 1},
-        "then": {"description": "Lets one join's decision account for the join just beyond it: it looks past the immediate right neighbor to the letter after that.\n\nOnly `prefer` may use it. `prefer` just breaks ties between surviving stances, so a wider look is harmless; `refuse` and `require` are vetoes that judge only the join in front of them, never the letter beyond.\n\nInside `then`, only the raw right axes apply (`family`, `class`, `stroke`, `is`, `except`), and it can't nest — the peek stops at that second letter.\n\nExample: ·Utter's `prefer` picks `{exit: none}` over `{exit: x-height}` under `{right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}` — a ·Tea joined at the x-height can't join onward, so when one of those four follows, ·Utter stands down and leaves ·Tea free to join them instead (·Utter·Tea·Day).", "$ref": "#/$defs/rightConditionNoThen"}
+        "then": {"description": "Lets one join's decision account for the join just beyond it: it looks past the immediate right neighbor to the letter after that.\n\nOnly `prefer` may use it. `prefer` just breaks ties between surviving stances, so a wider look is harmless; `refuse` and `require` judge only the join in front of them, never the letter beyond.\n\nInside `then`, only the raw right axes apply (`family`, `class`, `stroke`, `is`, `except`), and it can't nest — the peek stops at that second letter.\n\nExample: ·Utter's `prefer` picks `{exit: none}` over `{exit: x-height}` under `{right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}` — a ·Tea joined at the x-height can't join onward, so when one of those four follows, ·Utter stands down and leaves ·Tea free to join them instead (·Utter·Tea·Day).", "$ref": "#/$defs/rightConditionNoThen"}
       }
     },
     "rightConditionNoThen": {
