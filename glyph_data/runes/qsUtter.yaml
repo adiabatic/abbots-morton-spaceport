@@ -63,7 +63,7 @@ stances:
           x: 0
           stroke: horizontal
           joined: reaches-way-back
-          from: [{family: [qsMay, qsFee], joined_at: x-height}]
+          from: [{family: [qsMay, qsFee, qsNo, qsUtter], joined_at: x-height}]
       exits: {baseline: {x: 5, stroke: horizontal}}
       cells:
       - {entry: x-height, exit: baseline, bitmap: reaches-way-back, exit_x: 6}
