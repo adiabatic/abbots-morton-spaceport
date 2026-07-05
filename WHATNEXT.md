@@ -81,4 +81,4 @@ Closed (`rebuild/POLICY-ROUND-2-REPORT.md`). Two tracked files changed — `rebu
 
 ## Keeping this file honest
 
-This is a living document. Update it in the same change whenever you finish a migration batch, resolve a fork in the road, surface new deferred work, or close out a milestone report under `rebuild/`. `AGENTS.md` points here.
+This is a punch list of what's _left_ — not a changelog of what happened. When work lands, edit the current-state description in place and delete the status it supersedes; never append a dated `Update (…)` paragraph. What got done — with what counts, and under which commits — is already in the git log, so this file records only the live frontier: the open forks, the next batch, and the consciously-parked follow-ups. When a landed change leaves a genuinely-open residue, record the residue as a forward bullet, not the change that produced it. The broader workflow rules — no after-the-fact reports, bounded progress files, evidence that outlives its decision — live in `AGENTS.md`'s "Note-taking and the rebuild logs" section; `AGENTS.md` points back here.

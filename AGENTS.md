@@ -2,12 +2,22 @@
 
 ## Roadmap and open decisions
 
-- @WHATNEXT.md is the forward-looking punch list — what ought to happen next, and the open forks in the road. Read it when you need that context, and keep it up to date as work lands.
+- @WHATNEXT.md is the forward-looking punch list — what ought to happen next, and the open forks in the road. Read it when you need that context. When work lands, keep it current by editing the live state in place and deleting what it supersedes — WHATNEXT records the live frontier, never a running log of what happened (see its “Keeping this file honest” block, and the note-taking rules below).
+
+## Note-taking and the rebuild logs
+
+The rebuild tends to generate far more notes than a forward-working agent ever reads. The governing principle: **git already holds the history, so a checked-in note earns its place only by recording the live frontier, a durable design fact, or the user’s rationale — never a play-by-play of what already landed.**
+
+- **Milestones get a forward PLAN, not an after-the-fact REPORT.** A `*-PLAN.md` under `rebuild/` is a design spec and stays. When a milestone lands, its record is the commit history plus the runes’ `why:` fields — don’t write a standalone `*-REPORT.md` that re-narrates counts, gate tallies, and edits git already preserves. A durable design fact that emerges during the work belongs in the PLAN or in `doc/rebuild-design.md`, not a report.
+- **An in-flight batch keeps at most one scratch progress file, and it stays bounded.** It may hold only: what’s committed (one line each, keyed by commit), what’s parked and why, recorded design overrides, the verification recipe, and the resume commands. It must not accumulate a per-change verification paragraph — exact row/window counts, per-config diffs, gate-pass tallies — because that detail lives in the commit the change landed under. Delete the progress file when its batch closes, first lifting any surviving forward-pointer into WHATNEXT.
+- **Reconnaissance is scratch.** Pre-work fact-finding that grounds a PLAN is consumed once; after the PLAN exists it belongs in git history, not a checked-in `recon/` file that outlives the decision it informed.
+- **Checked-in evidence lives only as long as its decision is open.** Once a triage/audit/lever-hunt conclusion lands in the runes or a ledger and commits, delete the evidence dump — git preserves it. Keep evidence only when it is the proof pile for a _still-open_ fork (today: the round-2 lever hunt) or a live build input (the archived surfaces `carry_verdicts.py` reads).
+- **When a note has drifted into a changelog, collapse it to present tense.** Dated `Update (…)` / `(2026-…)` stamps inside a note are the tell; rewrite the current state in place rather than appending another dated correction.
 
 ## General
 
 - Always ask clarifying questions when there are multiple valid ways to do something.
-- Never write a `why:` explanation yourself in the rune files under `glyph_data/runes/`. `why:` is the user's recorded rationale for a design decision, in the user's voice. Putting these explanations elsewhere in rebuild-specific log files is OK, though.
+- Never write a `why:` explanation yourself in the rune files under `glyph_data/runes/`. `why:` is the user's recorded rationale for a design decision, in the user's voice. It is also the durable home for that rationale: log and progress files may point at a `why:`, but must not re-narrate it — don’t copy a design rationale into a rebuild log, where it only drifts from the rune.
 - When a request mentions a letter by name (e.g., “after ·Pea”, “before ·Tea”) and that family has multiple variants (half/full, alt, en-y6, ex-y0, etc.), don’t silently default to a bare `{family: qsX}` selector. Before editing, look up the family in `glyph_data/quikscript.yaml`, enumerate its variants (and the relevant axis — half vs. full, exit Y, traits, etc.), and present them as a clarifying question so the user can pick the intended subset without needing the YAML in front of them.
 - After any glyph or code changes, run `make test` to make sure nothing is broken.
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
