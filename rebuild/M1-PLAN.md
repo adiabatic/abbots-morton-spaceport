@@ -2,7 +2,7 @@
 
 Decisions for milestone M1, made on the evidence in `rebuild/recon/m1-families.md` (Recon A), `rebuild/recon/m1-integration.md` (Recon B), `prototype/PLAN.md` + `prototype/REPORT.md`, and `rebuild/BASELINE-REPORT.md`. The design doc (`doc/rebuild-design.md`) is binding throughout; section references below are to it unless marked otherwise. Two prototype follow-ups are binding constraints on this plan: the outcome-partition property is a hard build invariant (REPORT follow-up 1), and Extension promotion is a watched yellow flag in the budget gate (follow-up 2).
 
-Hard rules restated: all new code under `rebuild/`; the old pipeline stays byte-identical (Senior Sans OTF SHA-256 `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35`); Python via `uv run` only; broad test runs always `-n auto --dist worksteal`; nothing committed or staged; American English; “isolation”/”isolated” never abbreviated; no hard-wrapped comments or docstrings; YAML formatting per the repo CLAUDE.md.
+Hard rules restated: all new code under `rebuild/`; the old pipeline stays byte-identical (Senior Sans OTF SHA-256 `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35`); Python via `uv run` only; broad test runs always `-n auto --dist worksteal`; nothing committed or staged; American English; “isolation”/“isolated” never abbreviated; no hard-wrapped comments or docstrings; YAML formatting per the repo CLAUDE.md.
 
 ## 1. Locations
 
@@ -430,7 +430,7 @@ Per the repo CLAUDE.md conventions: the canonical ductus lives at the family lev
 
 Per rune:
 
-- **qsPea** — ways `full` and `half` only. Today’s third and fourth “dipping” ways are §4 bindings (same pen motion, join-conditioned attachment ink), so their prose folds into the two ways’ descriptions — including finally finishing the trailed-off “As in the half way, but “ sentence as part of the half way’s joined-on-both-sides prose. They must not become ways, or ductus parity would demand stances for them. Entire entry DRAFT.
+- **qsPea** — ways `full` and `half` only. Today’s third and fourth “dipping” ways are §4 bindings (same pen motion, join-conditioned attachment ink), so their prose folds into the two ways’ descriptions — including finally finishing the trailed-off “As in the half way, but ” sentence as part of the half way’s joined-on-both-sides prose. They must not become ways, or ductus parity would demand stances for them. Entire entry DRAFT.
 - **qsTea** — no ductus exists today (the hard migration gate). Draft ways `full` (the tall bar, written top-to-bottom or bottom-to-top — two bullets of one way, by analogy with ·It and pending author confirmation) and `half` (the stroke stopped at the x-height). Entire entry DRAFT.
 - **qsIt** — one way; bullet 1 (“Either written from top to bottom or bottom to top.”) carries verbatim; bullets 2–4 are join constraints and move to `pairings: only:` + the ss04 unlocks, with the relocation noted in the report. If the prose is byte-identical, no DRAFT flag on the way itself; the structural move is still listed for sign-off.
 - **qsMay** — ways `loop` (today’s prose with the “Then” capitalization fixed → DRAFT), `grounded-loop` (new draft for the real, reachable `exits_at_baseline` drawing → DRAFT), and `counterclockwise: {unrealized: true}` (named by core-idea.md line 141; honestly enumerated, undrawn).
