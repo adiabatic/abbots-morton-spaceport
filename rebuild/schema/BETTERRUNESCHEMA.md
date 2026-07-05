@@ -323,3 +323,7 @@ From here the walk follows the owner's source-order rule (set 2026-06-19): docum
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline ("names = the motion, not the neighbors"); history kept terse._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
+
+## Health note
+
+Three `rebuild/test_spec_load.py` failures (`test_group_resolution`, `test_predicate_class_membership`, `test_loads_all_six_runes`) are pre-existing M1-batch debt — a rune-set mismatch between the test fixtures and the in-progress migrated data, where `qsPea` shows up as an "extra item". They are orthogonal to this description-only work; do not chase them here. Note that `make test` does not cover `rebuild/`, so schema-loading tests must be run directly (`uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal`).
