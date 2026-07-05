@@ -146,10 +146,6 @@ policy:
   - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   - {stance: loop, exit: x-height, by: 1, when: {self: {entry: live}}}
   - stance: loop
-    entry: baseline
-    by: 1
-    when: {left: {family: [qsPea, qsTea_qsOy, qsYe, qsHe], joined_at: baseline}}
-  - stance: loop
     entry: x-height
     by: 1
     when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}

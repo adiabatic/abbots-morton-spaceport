@@ -2,21 +2,6 @@
 
 The living punch list for the Abbots Morton Spaceport rebuild — the forward-looking companion to the per-milestone plans under `rebuild/`. It records what ought to happen next, the open forks in the road, and the deferred work we have consciously parked. Keep it current: see “Keeping this file honest” at the bottom.
 
-## Open forks in the road
-
-### Fork: the round-2 extension rejects — engine work or accept the drift
-
-Round 2 found that all 29 reviewer rejects are a single phenomenon — ·May’s `en-ext-1` baseline-entry extension — and an exhaustive, build-tested lever hunt (25 candidate records across 5 independent lever families, every one scratch-built against a harness proven byte-identical to the oracle; zero cleared the bar) proved that **no closed-vocabulary policy record can honor them**. The wall is a depth-2 left-context predicate the frozen `when:` grammar cannot express (the predecessor’s own entry state for the ss03 “pea-may” windows; the predecessor’s predecessor for the “it-may” windows), compounded by a token grammar in which `en-ext-1` is un-droppable by any `extend` (always re-emits it), `contract` (coexists without netting), or `refuse` (collapses the whole join).
-
-The two paths:
-
-- **Engine work** — extend the same-seam non-summing rule so it also fires on ·May’s _own_ summed exit (the ss03 “pea-may” case), and add a depth-2 left-context predicate (the “it-may” case). Touches `rebuild/pipeline/settle.py`, the rune schema, and tests. The 29 rejects then become honorable. Tracked below as the extension-suppression milestone.
-- **Accept the drift** — keep the composed extension everywhere and retire the 29 rejects as taste-accepted divergence.
-
-**Current lean (2026-06-12): accept the drift and postpone the engine work**, on the expectation that a more capable model will make the engine change cheaper and safer to attempt later. The drift is fully documented and recoverable: the 27 + 2 windows are recorded as engine-limited residue in the two reviewed ledger entries (`halves-entry-extension-restored`, `same-seam-extension-non-summing` in `rebuild/m1-divergences.yaml`), the proof and structural analysis live in those two ledger entries. The lever-hunt evidence is the workflow at `rebuild/evidence/lever-hunt-wf.js` and its result `rebuild/evidence/wf2-result.json`; the build harness that produced it is `rebuild/tools/scratch_build.py` (parameterized `load_spec(runes_dir, ...)` build into a scratch out-dir).
-
-To revisit: re-read those two `rebuild/m1-divergences.yaml` ledger entries and the lever-hunt workflow (`rebuild/evidence/lever-hunt-wf.js`), then decide engine-vs-drift. If engine, the work is the extension-suppression milestone below.
-
 ## The main thread — M1 rune migration
 
 **Current state: the verdict-application phases are committed; the immediate work is finishing the blessing adjudication.** Phase 5 and the SS03-MAYTEA full-·Tea-bar follow-up are committed, and their commit-time artifact cycles have run. That cycle is now mechanized as one command — `make artifact-cycle ARGS='--verdicts <master>.json'`, driven by `rebuild/tools/artifact_cycle.py`. **~1,337 units remain to verdict** on the current review surface (manifest `2026-07-04T20:22:20Z`). Resume by importing `verdicts-carried-final2.json` into the served surface — serve it with `uv run python -m rebuild.review.serve` on port 7294 — and adjudicate the remaining units, with the ssNN buckets still deferred.
@@ -25,7 +10,7 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 ## Deferred and tracked follow-ups
 
-- **Extension-suppression engine milestone** — the round-2 fork’s engine path: a feature-scoped settlement change (self-exit non-summing + a depth-2 left-context predicate). Parked pending the fork decision above.
+- **Reclassify the ·May baseline-entry divergences (surface regen)** — removing qsMay’s baseline-entry `en-ext-1` extend record makes ·May’s baseline entry never extend — the shorter form the reviewer wanted, which settles the round-2 “pea-may”/“it-may” rejects without any engine work. Because the shipped font carried that pixel in ordinary words, the new ink now also departs from it wherever it appeared (default-config ·Pea·May and ·Tea·Oy·May, plus the summed forms before ·No/·Day) — a deliberate taste divergence. Re-run the artifact cycle to reconcile the ledger and surface: re-tally `halves-entry-extension-restored` and `same-seam-extension-non-summing` (the composed-extension residue is gone), add an intended-divergence entry for the deliberately-dropped shipped extension, and delete the now-spent round-2 lever-hunt evidence (`rebuild/evidence/lever-hunt-wf.js` + `wf2-result.json` and its `rebuild/evidence/README.md` bullet) since the fork it proved is closed.
 - **Ink-comparator widening** — there are now 8 `identical` verdicts sitting on pixel-identical dangling-exit windows (round 1 had 3: u-0401, u-0414, u-0415). This is the evidence pile for widening the ink comparator so dangling-exit-only deltas auto-classify as machine-approved instead of landing in the human review queue.
 - **Unresolved design flags** — the inexpressible `reaches_up_and_way_over` resolved-extension scope on qsMay’s x-height entry (needs either a design extension or proof the partners’ own extend records cover it when qsAh/qsUtter migrate), and the ss05/ss04 row-grain refusal coverage notes. Re-check at the qsEt/qsDay/qsLow/qsUtter migration.
 - **qsZoo Manual-pin flag** — when qsZoo migrates, the Manual pin `·Tea ~b~ ·May.en-ext-1 ~x~ ·Zoo` will trip the no-waiver Manual-pin gate; re-transcribe the pin or fix the runes at that point.
