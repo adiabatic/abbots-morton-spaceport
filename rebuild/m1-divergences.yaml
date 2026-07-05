@@ -31,7 +31,7 @@
   exemplars:
     - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.bar-into-loop.locked"}
   why: |
-    Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals ratify the intent (the four "·May should use the loop stance" skip-notes are superseded by the user's final taste — ·May already settles on the loop stance with the pulled-back exit bind). The boundary-echo blanket (above) now takes the post-ZWNJ flavor; this entry keeps the ss03 and post-namer-dot rows.
+    Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals ratify the intent (the four "·May should use the loop stance" skip-notes are superseded by the user's final taste — ·May settles on the loop stance with its full exit terminal, no pull-back). The boundary-echo blanket (above) now takes the post-ZWNJ flavor; this entry keeps the ss03 and post-namer-dot rows.
 
 - id: zwnj-follower-exit-restored
   status: reviewed-approved
