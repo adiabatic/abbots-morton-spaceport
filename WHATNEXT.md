@@ -31,12 +31,8 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 - **Unresolved design flags** — the inexpressible `reaches_up_and_way_over` resolved-extension scope on qsMay’s x-height entry (needs either a design extension or proof the partners’ own extend records cover it when qsAh/qsUtter migrate), and the ss05/ss04 row-grain refusal coverage notes. Re-check at the qsEt/qsDay/qsLow/qsUtter migration.
 - **qsZoo Manual-pin flag** — when qsZoo migrates, the Manual pin `·Tea ~b~ ·May.en-ext-1 ~x~ ·Zoo` will trip the no-waiver Manual-pin gate; re-transcribe the pin or fix the runes at that point.
 - **Dormant `contract:` records** — the `contract:` policy records on qsNo/qsUtter/qsTea/qsMay never fired in this batch’s corpus; re-adjudicate them when qsJai/qsZoo/qsJay/qsFee migrate and can actually exercise them.
-- **qsTea `full` ductus wording** — the third `full` ductus bullet in `qsTea.yaml` says “when the next letter joins ·Tea at the baseline”; it arguably should say “can join,” since the bare capability gate also draws the full bar before non-joining followers.
 - **Dead emitted rules under ss10** — SS10-FORM left `conform_summary`’s `uncovered_rules` at 26 (up from 6): dead emitted rules, not a behavior bug — a candidate for an emitter dead-rule-pruning cleanup.
 - **·Utter.alt x-height entry — open residues.** Two residues left for a fresh decision: the u-6554 ·No·Utter·May·{Day,No} windows don’t move (the ·No-decision tie needs a separate qsNo lever), and word-final / before-·Pea pairs stay unjoined (the alternate stance’s `require: [exit]` keeps the alt selectable only when it continues into a follower).
-- **ss03 full-size ·Tea when a baseline-joiner follows — LANDED** (committed `a60d780`; FT1 in `rebuild/VERDICT-APPLICATION-PROGRESS.md`) — under ss03 an x-height exiter joins ·Tea, which takes its full-size bar (exiting at the baseline) when a baseline-joiner follows and the half stub otherwise.
-- **·Pea·Pea chains into ·No.alt — LANDED** (2026-07-04, PPN1 in `rebuild/VERDICT-APPLICATION-PROGRESS.md` Phase 5) — the y6-entered second ·Pea now continues into alternate ·No at the baseline.
-- **An ·Utter.alt that accepts an x-height entry — LANDED** (2026-07-04, UALT1 in `rebuild/VERDICT-APPLICATION-PROGRESS.md` Phase 5) — ·Utter·Utter·X, ·No·Utter·Tea, and the ·X·Utter·No·Utter chains now reach the backwards-reaching alt at the x-height.
 
 ## Keeping this file honest
 
