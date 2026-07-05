@@ -9,7 +9,11 @@ Run as: uv run python -m rebuild.pipeline.run_m1
 
 from __future__ import annotations
 
+import argparse
 import json
+import multiprocessing
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
 from typing import Mapping
@@ -42,13 +46,48 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 PUNCTUATION_YAML = REPO_ROOT / "glyph_data" / "punctuation.yaml"
 CONTACT_ALLOW_YAML = REPO_ROOT / "rebuild" / "m1-contact-allow.yaml"
+ALIAS_YAML = REPO_ROOT / "rebuild" / "m1-aliases.yaml"
+DIVERGENCES_YAML = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
+KERN_SIDECAR_YAML = REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
 
 RAW_STANCE = "cmap"
 
 
-def build_tables(spec: ResolvedSpec, out_dir: Path | None = None) -> dict[str, tuple]:
+def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
+    workers = min(jobs, len(conform.ACCEPTANCE_CONFIGS))
+    return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+
+
+def _build_tables_worker(spec: ResolvedSpec, config: str) -> tuple[str, object, object]:
+    features = conform.features_for_config(config)
+    decision, treaty = table_module.build_tables(spec, features)
+    decision.assert_outcome_partition()
+    decision.assert_e_stranded()
+    return config, decision, treaty
+
+
+def build_tables(spec: ResolvedSpec, out_dir: Path | None = None, jobs: int = 1) -> dict[str, tuple]:
     tables: dict[str, tuple] = {}
+    if jobs > 1:
+        collected: dict[str, tuple] = {}
+        with _spawn_pool(jobs) as pool:
+            futures = {
+                pool.submit(_build_tables_worker, spec, config): config
+                for config in conform.ACCEPTANCE_CONFIGS
+            }
+            for future in as_completed(futures):
+                config, decision, treaty = future.result()
+                collected[config] = (decision, treaty)
+                print(f"[t] build_tables[{config}] done", flush=True)
+        for config in conform.ACCEPTANCE_CONFIGS:
+            decision, treaty = collected[config]
+            if out_dir is not None:
+                decision.write_tsv(out_dir / f"settlement-{config}.tsv")
+                treaty.write_tsv(out_dir / f"treaties-{config}.tsv")
+            tables[config] = (decision, treaty)
+        return tables
     for config in conform.ACCEPTANCE_CONFIGS:
+        start = time.perf_counter()
         features = conform.features_for_config(config)
         decision, treaty = table_module.build_tables(spec, features)
         decision.assert_outcome_partition()
@@ -57,6 +96,7 @@ def build_tables(spec: ResolvedSpec, out_dir: Path | None = None) -> dict[str, t
             decision.write_tsv(out_dir / f"settlement-{config}.tsv")
             treaty.write_tsv(out_dir / f"treaties-{config}.tsv")
         tables[config] = (decision, treaty)
+        print(f"[t] build_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
     return tables
 
 
@@ -119,15 +159,24 @@ def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
     return records
 
 
-def run(out_dir: Path = OUT_DIR) -> dict:
+def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
-    spec = load_default_spec()
-    tables = build_tables(spec, out_dir)
+    start = time.perf_counter()
+    if spec is None:
+        spec = load_default_spec()
+    print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
+    start = time.perf_counter()
+    tables = build_tables(spec, out_dir, jobs=jobs)
+    print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
+
+    start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     bare, twins, ss10_twins = mint_raw_glyphs(spec)
     dots = namer_dot_glyphs()
+    print(f"[t] glyph_minting {time.perf_counter() - start:.1f}s", flush=True)
 
+    start = time.perf_counter()
     allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
     anchor_issues = surface.check_anchor_conventions(spec)
     defect_report = defects.run_gates(spec, tables, cell_glyphs, allow=allow)
@@ -135,13 +184,18 @@ def run(out_dir: Path = OUT_DIR) -> dict:
         defect_report.errors.append(
             defects.Defect("E-ANCHOR", f"convention:{issue.path}", f"{issue.file}: {issue.message}")
         )
+    print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
 
+    start = time.perf_counter()
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_twins=ss10_twins)
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **twins}, spec=spec)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
+    print(f"[t] emit_gsub_gpos {time.perf_counter() - start:.1f}s", flush=True)
 
+    start = time.perf_counter()
     all_glyphs = {**cell_glyphs, **bare, **twins, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
+    print(f"[t] compile_font {time.perf_counter() - start:.1f}s", flush=True)
     (out_dir / "M1.generated.fea").write_text(fea)
 
     summary = {
@@ -184,11 +238,28 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
     return summary
 
 
-def run_boundary_gate(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
-    spec = load_default_spec()
-    report = conform.run_boundary_equivalence(
-        out_dir / "M1.otf", spec, max_length=max_length, out_dir=out_dir
-    )
+def run_boundary_gate(
+    out_dir: Path = OUT_DIR, max_length: int = 5, spec: ResolvedSpec | None = None, jobs: int = 1
+) -> dict:
+    if spec is None:
+        spec = load_default_spec()
+    if jobs > 1:
+        collected: dict[str, conform.BoundaryConfigResult] = {}
+        with _spawn_pool(jobs) as pool:
+            futures = {
+                pool.submit(conform.boundary_config_worker, spec, out_dir / "M1.otf", config, max_length): config
+                for config in conform.ACCEPTANCE_CONFIGS
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                collected[result.config] = result
+        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
+        report = conform.merge_boundary_results(out_dir / "M1.otf", ordered)
+        report.write(out_dir / "boundary_equivalence_summary.json")
+    else:
+        report = conform.run_boundary_equivalence(
+            out_dir / "M1.otf", spec, max_length=max_length, out_dir=out_dir
+        )
     summary = {
         "sequences": report.sequences,
         "shaping_runs": report.shaping_runs,
@@ -202,27 +273,56 @@ def run_boundary_gate(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
     return summary
 
 
-def run_manual_pin_gate(out_dir: Path = OUT_DIR) -> dict:
-    spec = load_default_spec()
+def run_manual_pin_gate(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None) -> dict:
+    if spec is None:
+        spec = load_default_spec()
     report = manual_pins.run_gate(out_dir / "M1.otf", spec)
     summary = manual_pins.summarize(report)
     (out_dir / "manual_pins_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
 
-def run_oracle(out_dir: Path = OUT_DIR) -> dict:
-    spec = load_default_spec()
+def run_oracle(
+    out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1, hoist: bool = True
+) -> dict:
+    if spec is None:
+        spec = load_default_spec()
     for config in ("ss06", "ss07", "ss06+ss07"):
         conform.assert_subset_identity(out_dir, config)
-    report = conform.compare_against_baseline(
-        spec,
-        out_dir,
-        REPO_ROOT / "rebuild" / "m1-aliases.yaml",
-        REPO_ROOT / "rebuild" / "m1-divergences.yaml",
-        out_dir=out_dir,
-        font_path=out_dir / "M1.otf",
-        kern_sidecar_path=REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml",
-    )
+    if jobs > 1:
+        collected: dict[str, conform.OracleConfigResult] = {}
+        with _spawn_pool(jobs) as pool:
+            futures = {
+                pool.submit(
+                    conform.oracle_config_worker,
+                    spec,
+                    out_dir,
+                    ALIAS_YAML,
+                    DIVERGENCES_YAML,
+                    config,
+                    out_dir / "M1.otf",
+                    KERN_SIDECAR_YAML,
+                ): config
+                for config in conform.ACCEPTANCE_CONFIGS
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                collected[result.config] = result
+        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
+        report, audit_lines = conform.merge_oracle_results(ordered)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "divergence-audit.tsv").write_text("\n".join(audit_lines) + "\n")
+    else:
+        report = conform.compare_against_baseline(
+            spec,
+            out_dir,
+            ALIAS_YAML,
+            DIVERGENCES_YAML,
+            out_dir=out_dir,
+            font_path=out_dir / "M1.otf",
+            kern_sidecar_path=KERN_SIDECAR_YAML,
+            hoist=hoist,
+        )
     summary = {
         "rows_compared": report.rows_compared,
         "divergent_rows": report.divergent_rows,
@@ -243,20 +343,41 @@ def run_oracle(out_dir: Path = OUT_DIR) -> dict:
     return summary
 
 
-def main() -> None:
-    summary = run()
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Run the M1 integration pipeline and its Phase-2 gates."
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="worker budget for build_tables and the oracle/boundary shards; 1 = serial",
+    )
+    args = parser.parse_args(argv)
+    jobs = args.jobs if args.jobs and args.jobs > 1 else 1
+
+    spec = load_default_spec()
+    start = time.perf_counter()
+    summary = run(spec=spec, jobs=jobs)
+    print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(summary, indent=2))
     if summary["defect_errors"]:
         raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
-    boundary_gate = run_boundary_gate()
+    start = time.perf_counter()
+    boundary_gate = run_boundary_gate(spec=spec, jobs=jobs)
+    print(f"[t] run_boundary_gate {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(boundary_gate, indent=2))
     if not boundary_gate["pass"]:
         raise SystemExit("boundary-equals-text-edge gate failed; see boundary_equivalence_summary.json")
-    pin_gate = run_manual_pin_gate()
+    start = time.perf_counter()
+    pin_gate = run_manual_pin_gate(spec=spec)
+    print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(pin_gate, indent=2))
     if not pin_gate["pass"]:
         raise SystemExit("Manual-pin gate failed; see manual_pins_summary.json")
-    oracle = run_oracle()
+    start = time.perf_counter()
+    oracle = run_oracle(spec=spec, jobs=jobs)
+    print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
     print(json.dumps(oracle, indent=2))
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")

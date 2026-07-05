@@ -4,6 +4,8 @@ It mechanizes the sequence documented in rebuild/VERDICT-APPLICATION-PROGRESS.md
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot.
+
 Run as: uv run python rebuild/tools/artifact_cycle.py --verdicts verdicts-X.json
 """
 
@@ -11,10 +13,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import socket
 import subprocess
 import sys
+import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +32,10 @@ CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
+
+POOL_POLICIES = ("queue", "overlap")
+REBUILD_POOL_POLICY_DEFAULT = "queue"
+_GATE_POOL_WORKERS = 4
 
 M1_SUMMARY_FILES = {
     "pipeline": M1_OUT / "pipeline_summary.json",
@@ -103,6 +113,7 @@ class Step:
     name: str
     argv: list[str] | None
     note: str = ""
+    lane: str = ""
 
 
 @dataclass
@@ -114,6 +125,10 @@ class Plan:
     verdicts: Path | None
     update_pins: bool
     skip_gates: bool
+    pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
+    job_budget: int = 1
+    review_out: Path | None = None
+    census_surface: Path = REVIEW_OUT
     steps: list[Step] = field(default_factory=list)
 
 
@@ -121,6 +136,12 @@ def jstest_argv() -> list[str]:
     """The JS suite argv. The *.test.js glob form is required — node v26 rejects the bare-directory form with 'Cannot find module' — and the glob is expanded in Python, never handed to a shell."""
     files = sorted(str(path.relative_to(ROOT)) for path in JSTEST_DIR.glob("*.test.js"))
     return ["node", "--test", *files]
+
+
+def stage_job_budget(*, skip_gates: bool, ncores: int | None = None) -> int:
+    """The --jobs budget the driver hands run_m1 and surface-build. Under a gated cycle a 12-way `make test` owns the box from t=0, so the build stages stay serial (1); only --skip-gates frees the cores for them to fan out."""
+    n = ncores or (os.cpu_count() or 1)
+    return n if skip_gates else 1
 
 
 def build_plan(
@@ -133,12 +154,18 @@ def build_plan(
     skip_gates: bool,
     first_run: bool,
     short_id: str,
+    pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
+    review_out: Path | None = None,
+    ncores: int | None = None,
 ) -> Plan:
     resolved_snapshot = snapshot_dir if snapshot_dir is not None else ROOT / "tmp" / f"review-pre-{short_id}"
     do_carry = not no_carry and not first_run
     resolved_carry_out: Path | None = None
     if do_carry:
         resolved_carry_out = carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
+
+    job_budget = stage_job_budget(skip_gates=skip_gates, ncores=ncores)
+    census_surface = review_out if review_out is not None else REVIEW_OUT
 
     plan = Plan(
         short_id=short_id,
@@ -148,59 +175,72 @@ def build_plan(
         verdicts=verdicts,
         update_pins=update_pins,
         skip_gates=skip_gates,
+        pool_policy=pool_policy,
+        job_budget=job_budget,
+        review_out=review_out,
+        census_surface=census_surface,
     )
 
     if first_run:
-        plan.steps.append(Step("snapshot", None, "SKIPPED (first run: no existing surface to snapshot)"))
+        plan.steps.append(Step("snapshot", None, "SKIPPED (first run: no existing surface to snapshot)", lane="build"))
     else:
-        plan.steps.append(Step("snapshot", None, f"copytree {REVIEW_OUT} -> {resolved_snapshot}"))
+        plan.steps.append(Step("snapshot", None, f"copytree {REVIEW_OUT} -> {resolved_snapshot}", lane="build"))
 
-    plan.steps.append(Step("run_m1", ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]))
-    plan.steps.append(Step("surface-build", ["uv", "run", "python", "-m", "rebuild.review.build"]))
+    run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+    if job_budget > 1:
+        run_m1_argv += ["--jobs", str(job_budget)]
+    plan.steps.append(Step("run_m1", run_m1_argv, lane="build"))
+
+    surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
+    if job_budget > 1:
+        surface_argv += ["--jobs", str(job_budget)]
+    if review_out is not None:
+        surface_argv += ["--out", str(review_out)]
+    plan.steps.append(Step("surface-build", surface_argv, lane="build"))
 
     if do_carry:
         assert resolved_carry_out is not None
-        plan.steps.append(
-            Step(
-                "carry",
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    str(CARRY_TOOL),
-                    "--source",
-                    str(resolved_snapshot),
-                    str(verdicts),
-                    "--out",
-                    str(resolved_carry_out),
-                ],
-            )
-        )
+        carry_argv = [
+            "uv",
+            "run",
+            "python",
+            str(CARRY_TOOL),
+            "--source",
+            str(resolved_snapshot),
+            str(verdicts),
+            "--out",
+            str(resolved_carry_out),
+        ]
+        if review_out is not None:
+            carry_argv += ["--current-surface", str(review_out)]
+        plan.steps.append(Step("carry", carry_argv, lane="build"))
     elif first_run:
-        plan.steps.append(Step("carry", None, "SKIPPED (first run)"))
+        plan.steps.append(Step("carry", None, "SKIPPED (first run)", lane="build"))
     else:
-        plan.steps.append(Step("carry", None, "SKIPPED (--no-carry)"))
+        plan.steps.append(Step("carry", None, "SKIPPED (--no-carry)", lane="build"))
 
     census_mode = "--update" if update_pins else "--check"
     plan.steps.append(
         Step(
             "census",
-            ["uv", "run", "python", "-m", "rebuild.review.census", census_mode, "--surface", str(REVIEW_OUT)],
+            ["uv", "run", "python", "-m", "rebuild.review.census", census_mode, "--surface", str(census_surface)],
             "then `git diff -- rebuild/review-census-pins.json`, printed in full" if update_pins else "staleness reported informationally",
+            lane="build",
         )
     )
 
     if skip_gates:
         plan.steps.append(Step("gates", None, "SKIPPED (--skip-gates)"))
     else:
-        plan.steps.append(Step("gate:js", jstest_argv()))
+        plan.steps.append(Step("gate:js", jstest_argv(), lane="t0"))
         plan.steps.append(
             Step(
                 "gate:rebuild",
                 ["uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE"],
+                lane="rebuild",
             )
         )
-        plan.steps.append(Step("gate:make-test", ["make", "test"]))
+        plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
     return plan
 
@@ -228,6 +268,28 @@ def server_listening(port: int = REVIEW_PORT) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+def _render_concurrency(plan: Plan) -> list[str]:
+    if plan.skip_gates:
+        return [
+            "",
+            "  Concurrency (--skip-gates):",
+            f"    Lane build only; no gates; --jobs budget: {plan.job_budget}",
+        ]
+    lines = [
+        "",
+        f"  Concurrency (pool policy: {plan.pool_policy}):",
+        "    Lane t0   [from t=0, background]  : gate:js, gate:make-test",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> census",
+        "    Lane rebuild                     : starts when run_m1's four JSONs pass;",
+    ]
+    if plan.pool_policy == "overlap":
+        lines.append("                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)")
+    else:
+        lines.append("                                       QUEUED behind gate:make-test  (queue policy)")
+    lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  (a 12-way `make test` owns the cores)")
+    return lines
+
+
 def render_plan(plan: Plan) -> str:
     lines = ["Artifact-cycle plan (resolved, nothing executed):", ""]
     lines.append(f"  git short id : {plan.short_id}")
@@ -235,6 +297,10 @@ def render_plan(plan: Plan) -> str:
     lines.append(f"  snapshot dir : {plan.snapshot_dir}")
     lines.append(f"  verdicts     : {plan.verdicts if plan.verdicts is not None else '(none)'}")
     lines.append(f"  carry output : {plan.carry_out if plan.carry_out is not None else '(no carry)'}")
+    if plan.review_out is not None:
+        lines.append(
+            f"  rehearsal    : surface writes redirected to {plan.review_out}; the live surface at rebuild/out/review is never written."
+        )
     lines.append("")
     lines.append("  Steps:")
     for index, step in enumerate(plan.steps, start=1):
@@ -244,6 +310,7 @@ def render_plan(plan: Plan) -> str:
                 lines.append(f"       ({step.note})")
         else:
             lines.append(f"    {index}. {step.name}: {step.note}")
+    lines.extend(_render_concurrency(plan))
     return "\n".join(lines)
 
 
@@ -264,25 +331,147 @@ class CycleReport:
     gate_js: str = "not run"
     gate_rebuild: str = "not run"
     gate_make_test: str = "not run"
+    interrupted: bool = False
 
 
 def _load_summary(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def _stream(argv: list[str]) -> int:
-    print(f"\n$ {' '.join(argv)}", flush=True)
-    return subprocess.run(argv, cwd=ROOT).returncode
+def _cmd_label(argv: list[str]) -> str:
+    parts = [token for token in argv if token not in {"uv", "run", "python", "python3"}]
+    if parts and parts[0] == "-m":
+        parts = parts[1:]
+    return " ".join(parts[:3])
 
 
-def _capture(argv: list[str]) -> subprocess.CompletedProcess:
-    print(f"\n$ {' '.join(argv)}", flush=True)
-    result = subprocess.run(argv, cwd=ROOT, capture_output=True, text=True)
+class _Emitter:
+    """Whole-line-atomic, lock-serialized stdout. Every write in the concurrent region routes through here so overlapping children never splice mid-line; cross-line interleave is expected and disambiguated by the [name] prefix."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    def emit(self, text: str) -> None:
+        with self._lock:
+            sys.stdout.write(text + "\n")
+            sys.stdout.flush()
+
+    def emit_block(self, lines: list[str]) -> None:
+        with self._lock:
+            for line in lines:
+                sys.stdout.write(line + "\n")
+            sys.stdout.flush()
+
+
+class _ChildRegistry:
+    """Thread-safe set of live subprocesses, so a KeyboardInterrupt can reap every child (no orphaned pytest army survives)."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._children: set[subprocess.Popen] = set()
+        self._closed = False
+        self.killed_count = 0
+
+    @property
+    def closed(self) -> bool:
+        with self._lock:
+            return self._closed
+
+    def add(self, proc: subprocess.Popen) -> bool:
+        """Track a live child. Returns False once terminate_all has torn the registry down, so a worker that unblocks after a KeyboardInterrupt (the queue-mode rebuild task parked on make_fut is the case) never leaves a fresh subprocess untracked — the caller reaps it instead of spawning an orphaned pytest army."""
+        with self._lock:
+            if self._closed:
+                return False
+            self._children.add(proc)
+            return True
+
+    def remove(self, proc: subprocess.Popen) -> None:
+        with self._lock:
+            self._children.discard(proc)
+
+    def terminate_all(self) -> None:
+        with self._lock:
+            self._closed = True
+            children = list(self._children)
+            self._children.clear()
+        for proc in children:
+            if proc.poll() is None:
+                proc.terminate()
+        for proc in children:
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            self.killed_count += 1
+
+
+@dataclass
+class _StepResult:
+    name: str
+    returncode: int
+    stdout: str
+    stderr: str
+    elapsed: float
+
+
+def _terminate_child(proc: subprocess.Popen) -> None:
+    """Terminate one child promptly (SIGTERM, 3s grace, then SIGKILL) and drain its pipes. Used only for the narrow race where the registry is torn down between a Popen and its registry.add."""
+    if proc.poll() is None:
+        proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is not None:
+            pipe.close()
+
+
+def _run_step(name: str, argv: list[str], *, emit: _Emitter, registry: _ChildRegistry, stream: bool) -> _StepResult:
+    if registry.closed:
+        return _StepResult(name, 130, "", "", 0.0)
+    emit.emit(f"\n$ {' '.join(argv)}")
+    start = time.perf_counter()
+    proc = subprocess.Popen(argv, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=1)
+    if not registry.add(proc):
+        _terminate_child(proc)
+        return _StepResult(name, 130, "", "", 0.0)
+    out_buf: list[str] = []
+    err_buf: list[str] = []
+
+    def pump(pipe, buf: list[str]) -> None:
+        for line in pipe:
+            line = line.rstrip("\r\n")
+            buf.append(line)
+            if stream:
+                emit.emit(f"[{name}] {line}")
+        pipe.close()
+
+    threads = [
+        threading.Thread(target=pump, args=(proc.stdout, out_buf)),
+        threading.Thread(target=pump, args=(proc.stderr, err_buf)),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    returncode = proc.wait()
+    registry.remove(proc)
+    elapsed = time.perf_counter() - start
+    emit.emit(f"[t] {_cmd_label(argv)} {elapsed:.1f}s")
+    return _StepResult(name, returncode, "\n".join(out_buf), "\n".join(err_buf), elapsed)
+
+
+def _dump_captured(emit: _Emitter, result: _StepResult) -> None:
+    lines: list[str] = []
     if result.stdout:
-        sys.stdout.write(result.stdout)
+        lines.extend(result.stdout.splitlines())
     if result.stderr:
-        sys.stderr.write(result.stderr)
-    return result
+        lines.extend(result.stderr.splitlines())
+    if lines:
+        emit.emit_block(lines)
 
 
 def _parse_surface_build(stderr: str) -> tuple[int, int, int] | None:
@@ -299,45 +488,260 @@ def _parse_surface_build(stderr: str) -> tuple[int, int, int] | None:
     return None
 
 
-def _run_gates(report: CycleReport, update_pins: bool) -> list[str]:
-    failures: list[str] = []
+@dataclass
+class _RebuildOutcome:
+    status: str
+    failures: list[str]
+    hard_ids: list[str]
 
-    js = _stream(jstest_argv())
-    report.gate_js = "green" if js == 0 else f"FAILED (exit {js})"
-    if js != 0:
-        failures.append("JS suite failed")
 
-    rebuild = _capture(
-        ["uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE"]
-    )
-    lines = rebuild.stdout.splitlines()
+def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome:
+    lines = result.stdout.splitlines()
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
-    buckets = {"baseline": [], "census-hint": [], "hard": []}
+    buckets: dict[str, list[str]] = {"baseline": [], "census-hint": [], "hard": []}
     for test_id in failed_ids:
         buckets[classify_rebuild_failure(test_id, update_pins)].append(test_id)
     buckets["hard"].extend(error_ids)
-    if rebuild.returncode != 0 and not failed_ids and not error_ids:
-        buckets["hard"].append(f"pytest exited {rebuild.returncode} with no parsed FAILED/ERROR lines")
+    if result.returncode != 0 and not failed_ids and not error_ids:
+        buckets["hard"].append(f"pytest exited {result.returncode} with no parsed FAILED/ERROR lines")
+    failures: list[str] = []
     if buckets["hard"]:
-        report.gate_rebuild = f"FAILED ({len(buckets['hard'])} unexplained)"
+        status = f"FAILED ({len(buckets['hard'])} unexplained)"
         failures.append(f"rebuild suite: {len(buckets['hard'])} unexplained failure(s)")
-        for test_id in buckets["hard"]:
-            print(f"  hard rebuild failure: {test_id}")
     else:
         parts = []
         if buckets["baseline"]:
             parts.append(f"{len(buckets['baseline'])} documented baseline")
         if buckets["census-hint"]:
             parts.append(f"{len(buckets['census-hint'])} stale census pins? (re-run with --update-pins)")
-        report.gate_rebuild = "green" if not parts else "green (" + ", ".join(parts) + ")"
+        status = "green" if not parts else "green (" + ", ".join(parts) + ")"
+    return _RebuildOutcome(status=status, failures=failures, hard_ids=list(buckets["hard"]))
 
-    make_test = _stream(["make", "test"])
-    report.gate_make_test = "green" if make_test == 0 else f"FAILED (exit {make_test})"
-    if make_test != 0:
-        failures.append("make test failed")
 
-    return failures
+def _do_run_m1(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, budget: int) -> GateOutcome | None:
+    for path in M1_SUMMARY_FILES.values():
+        path.unlink(missing_ok=True)
+    argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+    if budget > 1:
+        argv += ["--jobs", str(budget)]
+    spawn("run_m1", argv, emit=emit, registry=registry, stream=True)
+    missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
+    if missing:
+        for name in missing:
+            emit.emit(
+                f"run_m1 gate failure: missing {name} summary ({M1_SUMMARY_FILES[name]}) — run_m1 did not complete"
+            )
+        return None
+    summaries = {name: _load_summary(path) for name, path in M1_SUMMARY_FILES.items()}
+    gate = evaluate_run_m1_gate(
+        summaries["pipeline"], summaries["boundary"], summaries["manual_pins"], summaries["oracle"]
+    )
+    report.unmatched = gate.unmatched
+    report.multi_matched = gate.multi_matched
+    report.boundary_pass = bool(summaries["boundary"].get("pass"))
+    report.pins_pass = bool(summaries["manual_pins"].get("pass"))
+    return gate
+
+
+def _run_m1_reasons(gate: GateOutcome | None) -> list[str]:
+    if gate is None:
+        return ["run_m1 did not write all four summary files"]
+    return list(gate.failures)
+
+
+def _do_surface_build(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, review_out: Path | None, budget: int
+) -> bool:
+    argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
+    if budget > 1:
+        argv += ["--jobs", str(budget)]
+    if review_out is not None:
+        argv += ["--out", str(review_out)]
+    result = spawn("surface-build", argv, emit=emit, registry=registry, stream=True)
+    parsed = _parse_surface_build(result.stderr) if result.returncode == 0 else None
+    if result.returncode != 0 or parsed is None:
+        emit.emit("ERROR: review.build did not complete cleanly (no 'Wrote ... (N units, R rows, B batches)' line).")
+        return False
+    report.surface_units, report.surface_rows, report.surface_batches = parsed
+    surface_dir = review_out if review_out is not None else REVIEW_OUT
+    manifest = json.loads((surface_dir / "manifest.json").read_text())
+    report.echo_groups = manifest.get("totals", {}).get("echo_groups")
+    return True
+
+
+def _do_carry(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+    argv = [
+        "uv",
+        "run",
+        "python",
+        str(CARRY_TOOL),
+        "--source",
+        str(plan.snapshot_dir),
+        str(plan.verdicts),
+        "--out",
+        str(plan.carry_out),
+    ]
+    if plan.review_out is not None:
+        argv += ["--current-surface", str(plan.review_out)]
+    result = spawn("carry", argv, emit=emit, registry=registry, stream=False)
+    _dump_captured(emit, result)
+    report.carry_out = plan.carry_out
+    for line in result.stdout.splitlines():
+        if any(word in line for word in ("carried", "kinds", "queue", "fallback")):
+            report.carry_lines.append(line.strip())
+    return result.returncode == 0
+
+
+def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool, surface: Path) -> str:
+    if update_pins:
+        census = spawn(
+            "census",
+            ["uv", "run", "python", "-m", "rebuild.review.census", "--update", "--surface", str(surface)],
+            emit=emit,
+            registry=registry,
+            stream=False,
+        )
+        _dump_captured(emit, census)
+        diff = spawn(
+            "git-diff",
+            ["git", "diff", "--", "rebuild/review-census-pins.json"],
+            emit=emit,
+            registry=registry,
+            stream=False,
+        )
+        _dump_captured(emit, diff)
+        if census.returncode != 0:
+            return "update FAILED"
+        if diff.stdout.strip():
+            return "updated (diff shown above — review every moved number)"
+        return "updated (no change)"
+    census = spawn(
+        "census",
+        ["uv", "run", "python", "-m", "rebuild.review.census", "--check", "--surface", str(surface)],
+        emit=emit,
+        registry=registry,
+        stream=False,
+    )
+    _dump_captured(emit, census)
+    if census.returncode == 0:
+        return "clean"
+    return "STALE (informational — re-run with --update-pins or edit by hand)"
+
+
+def _gate_js_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
+    return spawn("gate:js", jstest_argv(), emit=emit, registry=registry, stream=False)
+
+
+def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
+    return spawn("gate:make-test", ["make", "test"], emit=emit, registry=registry, stream=True)
+
+
+def _gate_rebuild_task(
+    pool_policy: str, make_fut: Future | None, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool
+) -> _RebuildOutcome:
+    if pool_policy == "queue" and make_fut is not None:
+        try:
+            make_fut.result()
+        except Exception:
+            pass
+    result = spawn(
+        "gate:rebuild",
+        ["uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE"],
+        emit=emit,
+        registry=registry,
+        stream=False,
+    )
+    return _classify_rebuild(result, update_pins)
+
+
+def _gate_result(fut: Future, name: str, failures: list[str]):
+    try:
+        return fut.result()
+    except Exception as exc:
+        failures.append(f"{name} raised: {exc!r}")
+        return None
+
+
+def _join_gates(
+    report: CycleReport,
+    failures: list[str],
+    js_fut: Future | None,
+    rebuild_fut: Future | None,
+    make_fut: Future | None,
+    update_pins: bool,
+    emit: _Emitter,
+) -> None:
+    if js_fut is not None:
+        js = _gate_result(js_fut, "gate:js", failures)
+        if js is None:
+            report.gate_js = "FAILED (exception)"
+        else:
+            report.gate_js = "green" if js.returncode == 0 else f"FAILED (exit {js.returncode})"
+            if js.returncode != 0:
+                failures.append("JS suite failed")
+    if rebuild_fut is not None:
+        outcome = _gate_result(rebuild_fut, "gate:rebuild", failures)
+        if outcome is None:
+            report.gate_rebuild = "FAILED (exception)"
+        else:
+            report.gate_rebuild = outcome.status
+            for test_id in outcome.hard_ids:
+                emit.emit(f"  hard rebuild failure: {test_id}")
+            failures.extend(outcome.failures)
+    if make_fut is not None:
+        make = _gate_result(make_fut, "gate:make-test", failures)
+        if make is None:
+            report.gate_make_test = "FAILED (exception)"
+        else:
+            report.gate_make_test = "green" if make.returncode == 0 else f"FAILED (exit {make.returncode})"
+            if make.returncode != 0:
+                failures.append("make test failed")
+
+
+def _run_cycle(plan: Plan, report: CycleReport, emit: _Emitter, registry: _ChildRegistry, spawn=_run_step) -> int:
+    pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
+    failures: list[str] = []
+    try:
+        js_fut = None if plan.skip_gates else pool.submit(_gate_js_task, spawn, emit, registry)
+        make_fut = None if plan.skip_gates else pool.submit(_gate_make_test_task, spawn, emit, registry)
+        rebuild_fut: Future | None = None
+
+        gate = _do_run_m1(report, spawn=spawn, emit=emit, registry=registry, budget=plan.job_budget)
+        if gate is None or not gate.ok:
+            failures.extend(_run_m1_reasons(gate))
+            report.gate_rebuild = "not run (run_m1 gate failed)"
+            _join_gates(report, failures, js_fut, None, make_fut, plan.update_pins, emit)
+            return _finish(report, failures)
+
+        if not plan.skip_gates:
+            rebuild_fut = pool.submit(
+                _gate_rebuild_task, plan.pool_policy, make_fut, spawn, emit, registry, plan.update_pins
+            )
+
+        if not _do_surface_build(
+            report, spawn=spawn, emit=emit, registry=registry, review_out=plan.review_out, budget=plan.job_budget
+        ):
+            failures.append("surface rebuild failed")
+            _join_gates(report, failures, js_fut, rebuild_fut, make_fut, plan.update_pins, emit)
+            return _finish(report, failures)
+
+        if plan.carry_out is not None:
+            if not _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
+                failures.append("carry_verdicts failed")
+        report.census_status = _do_census(
+            spawn=spawn, emit=emit, registry=registry, update_pins=plan.update_pins, surface=plan.census_surface
+        )
+
+        _join_gates(report, failures, js_fut, rebuild_fut, make_fut, plan.update_pins, emit)
+        return _finish(report, failures)
+    except KeyboardInterrupt:
+        registry.terminate_all()
+        pool.shutdown(wait=False, cancel_futures=True)
+        report.interrupted = True
+        return _finish_interrupted(report, failures, registry.killed_count)
+    finally:
+        pool.shutdown(wait=True)
 
 
 def _print_summary(report: CycleReport) -> None:
@@ -370,6 +774,11 @@ def _print_summary(report: CycleReport) -> None:
 
 
 def _preflight(args: argparse.Namespace) -> bool:
+    if args.review_out is not None:
+        print(
+            f"Rehearsal mode: surface writes redirected to {args.review_out}; the live surface at rebuild/out/review is never written."
+        )
+        return True
     if not server_listening():
         return True
     if args.yes:
@@ -390,6 +799,7 @@ def _preflight(args: argparse.Namespace) -> bool:
     print("  1. in the review app, export or confirm the autosave of your verdicts")
     print("  2. stop the review server")
     print("  3. re-run this command (or pass --yes to override at your own risk)")
+    print("  (or pass --review-out <dir> to rehearse without touching the live surface)")
     print("=" * 68)
     return False
 
@@ -404,6 +814,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot-dir", type=Path, help="where to snapshot the current surface (default: tmp/review-pre-<short hash>)")
     parser.add_argument("--update-pins", action="store_true", help="re-baseline the census pins and print their git diff (default: check only, report staleness)")
     parser.add_argument("--skip-gates", action="store_true", help="skip the three post-build gates (JS suite, rebuild suite, make test)")
+    parser.add_argument("--rebuild-pool", choices=POOL_POLICIES, default=REBUILD_POOL_POLICY_DEFAULT, help="how gate:rebuild shares cores with make test: 'queue' (one 12-way pool at a time, default) or 'overlap' (co-resident)")
+    parser.add_argument("--review-out", type=Path, default=None, help="rehearsal mode: redirect the surface write to this dir so the cycle can run while the live server is up")
     parser.add_argument("--yes", action="store_true", help="override the running-review-server refusal")
     parser.add_argument("--dry-run", action="store_true", help="print the resolved step plan and exit without executing anything")
     args = parser.parse_args(argv)
@@ -423,6 +835,8 @@ def main(argv: list[str] | None = None) -> int:
             skip_gates=args.skip_gates,
             first_run=first_run,
             short_id=resolve_short_id(),
+            pool_policy=args.rebuild_pool,
+            review_out=args.review_out,
         )
         print(render_plan(plan))
         return 0
@@ -442,10 +856,11 @@ def main(argv: list[str] | None = None) -> int:
         skip_gates=args.skip_gates,
         first_run=first_run,
         short_id=resolve_short_id(),
+        pool_policy=args.rebuild_pool,
+        review_out=args.review_out,
     )
 
     report = CycleReport()
-    failures: list[str] = []
 
     if not first_run:
         if plan.snapshot_dir.exists():
@@ -456,85 +871,9 @@ def main(argv: list[str] | None = None) -> int:
         report.snapshot_dir = plan.snapshot_dir
         print(f"Snapshotted {REVIEW_OUT} -> {plan.snapshot_dir}")
 
-    for path in M1_SUMMARY_FILES.values():
-        path.unlink(missing_ok=True)
-    _stream(["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"])
-    missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
-    if missing:
-        for name in missing:
-            print(f"run_m1 gate failure: missing {name} summary ({M1_SUMMARY_FILES[name]}) — run_m1 did not complete")
-        failures.append(f"run_m1 did not write {len(missing)} summary file(s): {', '.join(missing)}")
-        return _finish(report, failures)
-    summaries = {name: _load_summary(path) for name, path in M1_SUMMARY_FILES.items()}
-    gate = evaluate_run_m1_gate(
-        summaries["pipeline"], summaries["boundary"], summaries["manual_pins"], summaries["oracle"]
-    )
-    report.unmatched = gate.unmatched
-    report.multi_matched = gate.multi_matched
-    report.boundary_pass = bool(summaries["boundary"].get("pass"))
-    report.pins_pass = bool(summaries["manual_pins"].get("pass"))
-    if not gate.ok:
-        for reason in gate.failures:
-            print(f"run_m1 gate failure: {reason}")
-        failures.extend(gate.failures)
-        return _finish(report, failures)
-
-    build = _capture(["uv", "run", "python", "-m", "rebuild.review.build"])
-    parsed = _parse_surface_build(build.stderr) if build.returncode == 0 else None
-    if build.returncode != 0 or parsed is None:
-        print("ERROR: review.build did not complete cleanly (no 'Wrote ... (N units, R rows, B batches)' line).")
-        failures.append("surface rebuild failed")
-        return _finish(report, failures)
-    report.surface_units, report.surface_rows, report.surface_batches = parsed
-    manifest = json.loads((REVIEW_OUT / "manifest.json").read_text())
-    report.echo_groups = manifest.get("totals", {}).get("echo_groups")
-
-    if plan.carry_out is not None:
-        carry = _capture(
-            [
-                "uv",
-                "run",
-                "python",
-                str(CARRY_TOOL),
-                "--source",
-                str(plan.snapshot_dir),
-                str(args.verdicts),
-                "--out",
-                str(plan.carry_out),
-            ]
-        )
-        report.carry_out = plan.carry_out
-        for line in carry.stdout.splitlines():
-            if any(word in line for word in ("carried", "kinds", "queue", "fallback")):
-                report.carry_lines.append(line.strip())
-        if carry.returncode != 0:
-            failures.append("carry_verdicts failed")
-
-    report.census_status = _run_census(args.update_pins)
-
-    if not args.skip_gates:
-        failures.extend(_run_gates(report, args.update_pins))
-
-    return _finish(report, failures)
-
-
-def _run_census(update_pins: bool) -> str:
-    if update_pins:
-        census = _capture(
-            ["uv", "run", "python", "-m", "rebuild.review.census", "--update", "--surface", str(REVIEW_OUT)]
-        )
-        diff = _capture(["git", "diff", "--", "rebuild/review-census-pins.json"])
-        if census.returncode != 0:
-            return "update FAILED"
-        if diff.stdout.strip():
-            return "updated (diff shown above — review every moved number)"
-        return "updated (no change)"
-    census = _capture(
-        ["uv", "run", "python", "-m", "rebuild.review.census", "--check", "--surface", str(REVIEW_OUT)]
-    )
-    if census.returncode == 0:
-        return "clean"
-    return "STALE (informational — re-run with --update-pins or edit by hand)"
+    emit = _Emitter()
+    registry = _ChildRegistry()
+    return _run_cycle(plan, report, emit, registry)
 
 
 def _finish(report: CycleReport, failures: list[str]) -> int:
@@ -546,6 +885,12 @@ def _finish(report: CycleReport, failures: list[str]) -> int:
         return 1
     print("\nCycle complete.")
     return 0
+
+
+def _finish_interrupted(report: CycleReport, failures: list[str], killed_count: int) -> int:
+    _print_summary(report)
+    print(f"\nCYCLE INTERRUPTED (SIGINT): terminated {killed_count} child process(es).")
+    return 130
 
 
 if __name__ == "__main__":
