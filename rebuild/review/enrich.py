@@ -574,8 +574,41 @@ def _secondary_pairs(
     return tuple(sorted(pairs))
 
 
+@dataclass(frozen=True)
+class SeamHomeUnit:
+    """The slim, picklable projection of an EnrichedUnit that `resolve_secondary_homes` reads — every field its home search touches, and none of the heavy ones (no ExplainReport, no highlights). Surface workers return these to the parent so the global secondary-home reduce runs there without round-tripping the full enriched units."""
+
+    unit_id: str
+    codepoint_values: tuple[int, ...]
+    ink_identical: bool
+    pair: tuple[int, int] | None
+    after_spans: tuple[tuple[int, int], ...]
+    after_cells: tuple[str, ...]
+    after_seams: tuple[str, ...]
+    before_spans: tuple[tuple[int, int], ...]
+    before_glyphs: tuple[str, ...]
+    before_seams: tuple[str, ...]
+    seam_pairs: tuple[tuple[int, int], ...]
+
+
+def seam_home_projection(enriched: EnrichedUnit) -> SeamHomeUnit:
+    return SeamHomeUnit(
+        unit_id=enriched.unit.unit_id,
+        codepoint_values=enriched.unit.codepoint_values,
+        ink_identical=enriched.unit.ink_identical,
+        pair=enriched.pair,
+        after_spans=enriched.after_spans,
+        after_cells=enriched.after_cells,
+        after_seams=enriched.after_seams,
+        before_spans=enriched.before_spans,
+        before_glyphs=enriched.before_glyphs,
+        before_seams=enriched.before_seams,
+        seam_pairs=tuple(seam.pair for seam in enriched.secondary_seams),
+    )
+
+
 def _seam_outcomes_match(
-    item: EnrichedUnit, left: int, right: int, candidate: EnrichedUnit, offset: int
+    item: SeamHomeUnit, left: int, right: int, candidate: SeamHomeUnit, offset: int
 ) -> bool:
     """Whether `candidate`, occurring at codepoint `offset` inside `item`, has the same before AND after outcomes at the seam (item's after cells `left`/`right`) — identical covering spans after offset adjustment, identical glyph/cell identities, identical seam tokens — and judges that seam as its own primary pair."""
     span_left = item.after_spans[left]
@@ -614,57 +647,81 @@ def _seam_outcomes_match(
 
 
 def _find_home(
-    item: EnrichedUnit,
-    seam: SecondarySeam,
-    by_codepoints: dict[tuple[int, ...], list[EnrichedUnit]],
-) -> EnrichedUnit | None:
+    item: SeamHomeUnit,
+    pair: tuple[int, int],
+    by_codepoints: dict[tuple[int, ...], list[SeamHomeUnit]],
+) -> SeamHomeUnit | None:
     """The seam's home: the shortest unit in the universe whose codepoint string is a substring of `item`'s containing the seam's two cells, with matching before/after outcomes at the seam and that seam as its primary pair. Shortest substring length wins; ties break to the lowest unit id. None when no unit qualifies."""
-    values = item.unit.codepoint_values
-    left, right = seam.pair
+    values = item.codepoint_values
+    left, right = pair
     minimum = item.after_spans[right][1] - item.after_spans[left][0]
     for length in range(minimum, len(values) + 1):
-        matches: list[EnrichedUnit] = []
+        matches: list[SeamHomeUnit] = []
         first_offset = max(0, item.after_spans[right][1] - length)
         last_offset = min(item.after_spans[left][0], len(values) - length)
         for offset in range(first_offset, last_offset + 1):
             window = values[offset : offset + length]
             for candidate in by_codepoints.get(window, ()):
-                if candidate.unit.unit_id == item.unit.unit_id:
+                if candidate.unit_id == item.unit_id:
                     continue
                 if _seam_outcomes_match(item, left, right, candidate, offset):
                     matches.append(candidate)
         if matches:
-            return min(matches, key=lambda match: match.unit.unit_id)
+            return min(matches, key=lambda match: match.unit_id)
     return None
 
 
-def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
-    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
-    by_codepoints: dict[tuple[int, ...], list[EnrichedUnit]] = {}
-    for item in enriched_units:
-        by_codepoints.setdefault(item.unit.codepoint_values, []).append(item)
+def resolve_home_assignments(
+    projections: list[SeamHomeUnit],
+) -> tuple[dict[str, list[tuple[str | None, bool]]], dict[str, int]]:
+    """The global secondary-home reduce over slim projections: for every unit, resolve each secondary seam to (home unit id or None, suppressed) in the seam's order, and tally the census. A seam whose home is ink-identical is suppressed (an invisible name-grain rename, no marker); a seam with no home keeps home None and stays visible so it is never silently unmarked. Pure over the projections — no EnrichedUnit is touched — so it runs in the parent from what the workers returned."""
+    by_codepoints: dict[tuple[int, ...], list[SeamHomeUnit]] = {}
+    for item in projections:
+        by_codepoints.setdefault(item.codepoint_values, []).append(item)
     census = {
         "units_with_markers": 0,
         "seams_homed": 0,
         "seams_homeless": 0,
         "seams_suppressed_invisible": 0,
     }
-    for item in enriched_units:
+    assignments: dict[str, list[tuple[str | None, bool]]] = {}
+    for item in projections:
         visible = 0
-        for seam in item.secondary_seams:
-            home = _find_home(item, seam, by_codepoints)
+        seam_assign: list[tuple[str | None, bool]] = []
+        for pair in item.seam_pairs:
+            home = _find_home(item, pair, by_codepoints)
             if home is None:
                 census["seams_homeless"] += 1
                 visible += 1
-            elif home.unit.ink_identical:
-                seam.suppressed = True
+                seam_assign.append((None, False))
+            elif home.ink_identical:
                 census["seams_suppressed_invisible"] += 1
+                seam_assign.append((None, True))
             else:
-                seam.home = home.unit.unit_id
                 census["seams_homed"] += 1
                 visible += 1
+                seam_assign.append((home.unit_id, False))
+        assignments[item.unit_id] = seam_assign
         if visible:
             census["units_with_markers"] += 1
+    return assignments, census
+
+
+def apply_home_assignments(
+    enriched_units: list[EnrichedUnit], assignments: dict[str, list[tuple[str | None, bool]]]
+) -> None:
+    """Write a `resolve_home_assignments` result back onto each unit's secondary seams in place."""
+    for item in enriched_units:
+        for seam, (home, suppressed) in zip(item.secondary_seams, assignments[item.unit.unit_id]):
+            seam.home = home
+            seam.suppressed = suppressed
+
+
+def resolve_secondary_homes(enriched_units: list[EnrichedUnit]) -> dict[str, int]:
+    """Resolve every secondary seam's home unit across the whole universe, mutating the seams in place, and return the census. A seam whose home is ink-identical is suppressed (the divergence is an invisible name-grain rename, so no marker is emitted); a seam with no home keeps `home: None` and is still emitted so it is never silently unmarked."""
+    projections = [seam_home_projection(item) for item in enriched_units]
+    assignments, census = resolve_home_assignments(projections)
+    apply_home_assignments(enriched_units, assignments)
     return census
 
 

@@ -77,6 +77,12 @@ def main():
         help="a prior surface directory and the verdicts file recorded against it; repeatable; defaults to the historical round-3 sources",
     )
     parser.add_argument("--out", default=str(OUT), help="output verdicts file (default: %(default)s)")
+    parser.add_argument(
+        "--current-surface",
+        type=pathlib.Path,
+        default=CURRENT_SURFACE,
+        help="the freshly built surface to carry onto (default: the live review surface)",
+    )
     args = parser.parse_args()
     sources = (
         [(pathlib.Path(directory), pathlib.Path(verdicts), None) for directory, verdicts in args.source]
@@ -103,8 +109,8 @@ def main():
             used += 1
         print(f"{verdict_file.name}: {used} verdicts resolved against {surface_root.name}")
 
-    manifest = json.loads((CURRENT_SURFACE / "manifest.json").read_text())
-    current = load_surface(CURRENT_SURFACE)
+    manifest = json.loads((args.current_surface / "manifest.json").read_text())
+    current = load_surface(args.current_surface)
     human = [u for u in current if u.get("batch") is not None and not u.get("no_verdict")]
 
     keys_seen = collections.Counter(content_key(u) for u in current)
@@ -139,7 +145,7 @@ def main():
         if key not in current_keys and record["verdict"] != "skip"
     ]
     if stranded and unhit:
-        current_comparator = surface_comparator(CURRENT_SURFACE)
+        current_comparator = surface_comparator(args.current_surface)
         prior_comparators = {name: surface_comparator(root) for name, root in surface_roots.items()}
         stranded_by_ink = collections.defaultdict(list)
         for record, source, unit in stranded:

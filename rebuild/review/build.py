@@ -12,10 +12,14 @@ import argparse
 import datetime
 import hashlib
 import json
+import multiprocessing
 import shutil
 import subprocess
 import sys
+import time
+import traceback
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.review import families, tablediff
@@ -36,10 +40,13 @@ from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
     Enricher,
+    SeamHomeUnit,
     load_spec,
     notation,
     notation_tokens,
+    resolve_home_assignments,
     resolve_secondary_homes,
+    seam_home_projection,
     text_entities,
 )
 
@@ -289,70 +296,212 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
     return sorted(removed)
 
 
-def build_m1(
-    out_dir: Path = DEFAULT_OUT,
-    audit_path: Path = M1_AUDIT,
-    ledger_path: Path = M1_LEDGER,
-    subset_dir: Path = M1_SUBSETS,
-    before_font: Path = SITE_BEFORE_FONT,
-    after_font: Path = M1_AFTER_FONT,
-    repo_root: Path = REPO_ROOT,
-    batch_size: int = BATCH_SIZE,
-    static_dir: Path = STATIC_DIR,
+@dataclass(frozen=True)
+class _UnitProjection:
+    """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read, and never the EnrichedUnit (its ~61 KB ExplainReport stays alive worker-side for phase 2)."""
+
+    unit_id: str
+    ink_identical: bool
+    config_diffs: tuple
+    family: str
+    pair_codepoints: tuple[int, int] | None
+    seam_home: SeamHomeUnit
+
+
+def _surface_worker(conn, init: dict) -> None:
+    """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained ExplainReports."""
+    try:
+        comparator = InkComparator(init["before_font"], init["after_font"])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = load_spec(init["repo_root"])
+        enricher = Enricher(
+            spec,
+            init["subset_dir"],
+            init["after_font"],
+            repo_root=init["repo_root"],
+            before_font=init["before_font"],
+        )
+        drafter = Drafter(init["after_font"], repo_root=init["repo_root"])
+        retained: dict[str, EnrichedUnit] = {}
+        while True:
+            message = conn.recv()
+            if message[0] == "stop":
+                return
+            if message[0] == "phase1":
+                results: list[_UnitProjection] = []
+                for unit in message[1]:
+                    text = "".join(chr(value) for value in unit.codepoint_values)
+                    diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
+                    unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+                    enriched = enricher.enrich(unit)
+                    retained[unit.unit_id] = enriched
+                    family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
+                    results.append(
+                        _UnitProjection(
+                            unit_id=unit.unit_id,
+                            ink_identical=unit.ink_identical,
+                            config_diffs=diffs,
+                            family=family,
+                            pair_codepoints=enriched.pair_codepoints,
+                            seam_home=seam_home_projection(enriched),
+                        )
+                    )
+                conn.send(("ok", results, list(enricher.mismatches)))
+            elif message[0] == "phase2":
+                fragments: dict[str, dict] = {}
+                for unit_id, (batch, echo, class_id, seam_assign) in message[1].items():
+                    enriched = retained[unit_id]
+                    enriched.unit.batch = batch
+                    enriched.unit.echo = echo
+                    enriched.unit.class_id = class_id
+                    for seam, (home, suppressed) in zip(enriched.secondary_seams, seam_assign):
+                        seam.home = home
+                        seam.suppressed = suppressed
+                    fragments[unit_id] = unit_to_json(enriched, drafter)
+                conn.send(("ok", fragments))
+    except Exception:
+        try:
+            conn.send(("error", traceback.format_exc()))
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+
+def _partition(items: list, parts: int) -> list[list]:
+    """Contiguous, near-even slices of `items` in order — the first `len % parts` slices carry one extra so ids stay in triage order across the whole partition."""
+    size, extra = divmod(len(items), parts)
+    slices: list[list] = []
+    start = 0
+    for index in range(parts):
+        length = size + (1 if index < extra else 0)
+        slices.append(items[start : start + length])
+        start += length
+    return slices
+
+
+def _run_parallel(
+    workload,
+    jobs: int,
+    batch_size: int,
+    subset_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    repo_root: Path,
+):
+    """The two-phase fan-out of the three per-unit passes across persistent spawn workers, returning exactly what `_write_surface` needs. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution) serial; the workers hold the EnrichedUnits and emit the shard JSON."""
+    units = workload.units
+    nworkers = max(1, min(jobs, len(units)))
+    slices = _partition(units, nworkers)
+    init = {
+        "before_font": before_font,
+        "after_font": after_font,
+        "subset_dir": subset_dir,
+        "repo_root": repo_root,
+    }
+    ctx = multiprocessing.get_context("spawn")
+    procs = []
+    conns = []
+    for _ in range(nworkers):
+        parent_conn, child_conn = ctx.Pipe()
+        proc = ctx.Process(target=_surface_worker, args=(child_conn, init))
+        proc.start()
+        child_conn.close()
+        procs.append(proc)
+        conns.append(parent_conn)
+
+    try:
+        for conn, chunk in zip(conns, slices):
+            conn.send(("phase1", chunk))
+        result_by_id: dict[str, _UnitProjection] = {}
+        projections: list[SeamHomeUnit] = []
+        mismatches: list[str] = []
+        for conn in conns:
+            reply = conn.recv()
+            if reply[0] == "error":
+                raise RuntimeError("surface worker failed in phase 1:\n" + reply[1])
+            for projection in reply[1]:
+                result_by_id[projection.unit_id] = projection
+                projections.append(projection.seam_home)
+            mismatches.extend(reply[2])
+
+        for unit in units:
+            unit.ink_identical = result_by_id[unit.unit_id].ink_identical
+        total_batches = assign_batches(units, batch_size)
+        for unit in units:
+            if unit.class_id == UNMATCHED_CLASS:
+                unit.family_id = result_by_id[unit.unit_id].family
+                unit.class_id = unit.family_id
+        echo_ids: dict[tuple, str] = {}
+        for unit in units:
+            if unit.batch is None:
+                continue
+            pair_codepoints = result_by_id[unit.unit_id].pair_codepoints
+            pair = None
+            if pair_codepoints:
+                values = unit.codepoint_values
+                pair = (values[pair_codepoints[0]], values[pair_codepoints[1]])
+            key = (unit.configs, pair, unit.class_id, result_by_id[unit.unit_id].config_diffs)
+            unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
+
+        classes = workload.classes_present + synthesize_family_classes(
+            units, families.FAMILY_ORDER, families.FAMILY_WHY
+        )
+        by_class = workload.units_by_class()
+        assignments, seam_census = resolve_home_assignments(projections)
+
+        for conn, chunk in zip(conns, slices):
+            payload = {
+                unit.unit_id: (unit.batch, unit.echo, unit.class_id, assignments[unit.unit_id])
+                for unit in chunk
+            }
+            conn.send(("phase2", payload))
+        fragments: dict[str, dict] = {}
+        for conn in conns:
+            reply = conn.recv()
+            if reply[0] == "error":
+                raise RuntimeError("surface worker failed in phase 2:\n" + reply[1])
+            fragments.update(reply[1])
+
+        for conn in conns:
+            conn.send(("stop",))
+        return fragments, seam_census, len(echo_ids), total_batches, classes, by_class, mismatches
+    finally:
+        for conn in conns:
+            try:
+                conn.close()
+            except OSError:
+                pass
+        for proc in procs:
+            proc.join(timeout=5)
+            if proc.is_alive():
+                proc.terminate()
+
+
+def _write_surface(
+    out_dir: Path,
+    workload,
+    classes: list,
+    by_class: dict,
+    fragments: dict,
+    seam_census: dict,
+    echo_count: int,
+    total_batches: int,
+    batch_size: int,
+    audit_path: Path,
+    ledger_path: Path,
+    before_font: Path,
+    after_font: Path,
+    repo_root: Path,
+    static_dir: Path,
+    mismatches: list,
 ) -> dict:
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    workload = load_workload(audit_path, ledger_path, dict(LETTERS))
-    comparator = InkComparator(before_font, after_font)
-    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
-    merge_ink_duplicate_units(workload.units, comparator.signature, exempt_classes)
-    present = {unit.class_id for unit in workload.units}
-    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
-    config_diffs: dict[str, tuple] = {}
-    for unit in workload.units:
-        text = "".join(chr(value) for value in unit.codepoint_values)
-        diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-        unit.ink_identical = all(diff == ((), ()) for diff in diffs)
-        config_diffs[unit.unit_id] = diffs
-    total_batches = assign_batches(workload.units, batch_size)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        spec = load_spec(repo_root)
-    enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root, before_font=before_font)
-    drafter = Drafter(after_font, repo_root=repo_root)
-
-    # Enrich every unit once. UNMATCHED units were never enriched before (they had no ledger class and so never reached the old per-class loop); this single flat pass both produces their shard fields and yields the before/after seams the verdict-family grouper reads.
-    enriched_by_id = {unit.unit_id: enricher.enrich(unit) for unit in workload.units}
-
-    # Promote each UNMATCHED unit's verdict family to its class so the existing per-class loop shards it under that family.
-    for unit in workload.units:
-        if unit.class_id == UNMATCHED_CLASS:
-            unit.family_id = assign_family(enriched_by_id[unit.unit_id])
-            unit.class_id = unit.family_id
-
-    # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
-    echo_ids: dict[tuple, str] = {}
-    for unit in workload.units:
-        if unit.batch is None:
-            continue
-        enriched = enriched_by_id[unit.unit_id]
-        pair = None
-        if enriched.pair_codepoints:
-            values = unit.codepoint_values
-            pair = (values[enriched.pair_codepoints[0]], values[enriched.pair_codepoints[1]])
-        key = (unit.configs, pair, unit.class_id, config_diffs[unit.unit_id])
-        unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
-
-    classes = workload.classes_present + synthesize_family_classes(
-        workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
-    )
-    by_class = workload.units_by_class()
-    seam_census = resolve_secondary_homes(list(enriched_by_id.values()))
+    """Reassemble the per-unit JSON fragments into shards (per class, triage order), copy fonts, and write the manifest with its parent-once `generated_at`/`repo_head` stamps. Shared by the serial and parallel paths so both produce byte-identical output."""
     classes_meta: list[dict] = []
     for entry in classes:
         units = by_class[entry.id]
-        shard = [unit_to_json(enriched_by_id[unit.unit_id], drafter) for unit in units]
+        shard = [fragments[unit.unit_id] for unit in units]
         _write_json(out_dir / "units" / f"{entry.id}.json", shard)
         classes_meta.append(
             {
@@ -391,7 +540,7 @@ def build_m1(
             "units": len(workload.units),
             "rows": workload.row_count,
             "batches": total_batches,
-            "echo_groups": len(echo_ids),
+            "echo_groups": echo_count,
         },
         "machine_approved": _machine_approved_meta(machine_units),
         "secondary_seams": seam_census,
@@ -404,15 +553,125 @@ def build_m1(
     if pruned:
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
     copy_static(out_dir, static_dir)
-    if enricher.mismatches:
+    if mismatches:
         print(
-            f"warning: {len(enricher.mismatches)} units where re-settled cells diverge from the audit "
-            f"(first: {enricher.mismatches[0]})",
+            f"warning: {len(mismatches)} units where re-settled cells diverge from the audit "
+            f"(first: {mismatches[0]})",
             file=sys.stderr,
         )
     errors = check_output_dir(out_dir)
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:20]))
+    return manifest
+
+
+def build_m1(
+    out_dir: Path = DEFAULT_OUT,
+    audit_path: Path = M1_AUDIT,
+    ledger_path: Path = M1_LEDGER,
+    subset_dir: Path = M1_SUBSETS,
+    before_font: Path = SITE_BEFORE_FONT,
+    after_font: Path = M1_AFTER_FONT,
+    repo_root: Path = REPO_ROOT,
+    batch_size: int = BATCH_SIZE,
+    static_dir: Path = STATIC_DIR,
+    jobs: int = 1,
+) -> dict:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    phase = time.perf_counter()
+    workload = load_workload(audit_path, ledger_path, dict(LETTERS))
+    comparator = InkComparator(before_font, after_font)
+    exempt_classes = {entry.id for entry in workload.ledger if entry.no_verdict}
+    merge_ink_duplicate_units(workload.units, comparator.signature, exempt_classes)
+    present = {unit.class_id for unit in workload.units}
+    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
+    print(f"[t] review.build load {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+
+    if jobs > 1:
+        phase = time.perf_counter()
+        fragments, seam_census, echo_count, total_batches, classes, by_class, mismatches = _run_parallel(
+            workload, jobs, batch_size, subset_dir, before_font, after_font, repo_root
+        )
+        print(
+            f"[t] review.build parallel(jobs={jobs}) {time.perf_counter() - phase:.1f}s",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        config_diffs: dict[str, tuple] = {}
+        for unit in workload.units:
+            text = "".join(chr(value) for value in unit.codepoint_values)
+            diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
+            unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+            config_diffs[unit.unit_id] = diffs
+        total_batches = assign_batches(workload.units, batch_size)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            spec = load_spec(repo_root)
+        enricher = Enricher(spec, subset_dir, after_font, repo_root=repo_root, before_font=before_font)
+        drafter = Drafter(after_font, repo_root=repo_root)
+
+        # Enrich every unit once. UNMATCHED units were never enriched before (they had no ledger class and so never reached the old per-class loop); this single flat pass both produces their shard fields and yields the before/after seams the verdict-family grouper reads.
+        phase = time.perf_counter()
+        enriched_by_id = {unit.unit_id: enricher.enrich(unit) for unit in workload.units}
+        print(f"[t] review.build enrich_loop {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
+
+        # Promote each UNMATCHED unit's verdict family to its class so the existing per-class loop shards it under that family.
+        phase = time.perf_counter()
+        for unit in workload.units:
+            if unit.class_id == UNMATCHED_CLASS:
+                unit.family_id = assign_family(enriched_by_id[unit.unit_id])
+                unit.class_id = unit.family_id
+
+        # Echo groups: human units whose judged pair, class, config set, and per-config ink deltas all agree show the same change in different surroundings, so one verdict answers all of them. Keyed after family promotion so the class component is final; ids are assigned in triage order.
+        echo_ids: dict[tuple, str] = {}
+        for unit in workload.units:
+            if unit.batch is None:
+                continue
+            enriched = enriched_by_id[unit.unit_id]
+            pair = None
+            if enriched.pair_codepoints:
+                values = unit.codepoint_values
+                pair = (values[enriched.pair_codepoints[0]], values[enriched.pair_codepoints[1]])
+            key = (unit.configs, pair, unit.class_id, config_diffs[unit.unit_id])
+            unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
+
+        classes = workload.classes_present + synthesize_family_classes(
+            workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
+        )
+        by_class = workload.units_by_class()
+        seam_census = resolve_secondary_homes(list(enriched_by_id.values()))
+        fragments = {
+            unit.unit_id: unit_to_json(enriched_by_id[unit.unit_id], drafter) for unit in workload.units
+        }
+        echo_count = len(echo_ids)
+        mismatches = enricher.mismatches
+        print(
+            f"[t] review.build group+shards {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True
+        )
+
+    phase = time.perf_counter()
+    manifest = _write_surface(
+        out_dir,
+        workload,
+        classes,
+        by_class,
+        fragments,
+        seam_census,
+        echo_count,
+        total_batches,
+        batch_size,
+        audit_path,
+        ledger_path,
+        before_font,
+        after_font,
+        repo_root,
+        static_dir,
+        mismatches,
+    )
+    print(f"[t] review.build manifest+check {time.perf_counter() - phase:.1f}s", file=sys.stderr, flush=True)
     return manifest
 
 
@@ -1129,6 +1388,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--new", dest="new_dir", type=Path, help="new tables directory (table-diff mode)")
     parser.add_argument("--before-font", type=Path, default=SITE_BEFORE_FONT)
     parser.add_argument("--after-font", type=Path, default=M1_AFTER_FONT)
+    parser.add_argument(
+        "--jobs", type=int, default=1, help="per-unit worker budget for the surface build; 1 = serial"
+    )
     args = parser.parse_args(argv)
 
     if args.mode == "table-diff":
@@ -1148,6 +1410,7 @@ def main(argv: list[str] | None = None) -> None:
             before_font=args.before_font,
             after_font=args.after_font,
             batch_size=args.batch_size,
+            jobs=args.jobs if args.jobs and args.jobs > 1 else 1,
         )
     totals = manifest["totals"]
     print(

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import itertools
 import json
+import sys
+import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
@@ -442,6 +444,9 @@ def run_boundary_equivalence(
     splitters = splitting_boundary_chars(spec)
     report = ConformReport(font=str(font_path))
     features_by_config = {config: features_for_config(config) for config in configs}
+    secs_by_config = {config: 0.0 for config in features_by_config}
+    runs_by_config = {config: 0 for config in features_by_config}
+    started = time.perf_counter()
     for length in range(1, max_length + 1):
         for combo in itertools.product(alphabet, repeat=length):
             text = "".join(combo)
@@ -449,12 +454,78 @@ def run_boundary_equivalence(
                 continue
             report.sequences += 1
             for config, features in features_by_config.items():
+                config_started = time.perf_counter()
                 shaped = shaper.shape(text, features)
                 report.shaping_runs += 1
+                runs_by_config[config] += 1
                 check_zwnj_structure(text, config, shaper, shaped, report.divergences)
                 check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
+                secs_by_config[config] += time.perf_counter() - config_started
+    for config in features_by_config:
+        print(
+            f"[t] boundary {config} {secs_by_config[config]:.2f}s shaping_runs={runs_by_config[config]}",
+            file=sys.stderr,
+            flush=True,
+        )
+    print(
+        f"[t] boundary total {time.perf_counter() - started:.2f}s sequences={report.sequences} shaping_runs={report.shaping_runs}",
+        file=sys.stderr,
+        flush=True,
+    )
     if out_dir is not None:
         report.write(Path(out_dir) / "boundary_equivalence_summary.json")
+    return report
+
+
+@dataclass
+class BoundaryConfigResult:
+    config: str
+    sequences: int = 0
+    shaping_runs: int = 0
+    divergences: list[Divergence] = field(default_factory=list)
+
+
+def _boundary_config(
+    shaper: Shaper,
+    config: str,
+    features: frozenset[str],
+    alphabet: tuple[str, ...],
+    splitters: frozenset[str],
+    max_length: int,
+) -> BoundaryConfigResult:
+    result = BoundaryConfigResult(config=config)
+    for length in range(1, max_length + 1):
+        for combo in itertools.product(alphabet, repeat=length):
+            text = "".join(combo)
+            if not (set(text) & splitters):
+                continue
+            result.sequences += 1
+            shaped = shaper.shape(text, features)
+            result.shaping_runs += 1
+            check_zwnj_structure(text, config, shaper, shaped, result.divergences)
+            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
+    return result
+
+
+def boundary_config_worker(
+    spec: ResolvedSpec, font_path: Path, config: str, max_length: int = 5
+) -> BoundaryConfigResult:
+    shaper = Shaper(Path(font_path))
+    alphabet = spec_alphabet(spec)
+    splitters = splitting_boundary_chars(spec)
+    features = features_for_config(config)
+    return _boundary_config(shaper, config, features, alphabet, splitters, max_length)
+
+
+def merge_boundary_results(
+    font_path: Path, results: Iterable[BoundaryConfigResult]
+) -> ConformReport:
+    report = ConformReport(font=str(font_path))
+    results = list(results)
+    report.sequences = results[0].sequences if results else 0
+    for result in results:
+        report.shaping_runs += result.shaping_runs
+        report.divergences.extend(result.divergences)
     return report
 
 
@@ -825,6 +896,158 @@ def _position_drift(
     return (tuple(drifts), kern_attributable)
 
 
+ORACLE_AUDIT_HEADER = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"
+
+
+@dataclass
+class OracleConfigResult:
+    config: str
+    rows_compared: int = 0
+    divergent_rows: int = 0
+    positions_compared: int = 0
+    positions_excluded: int = 0
+    counts_by_entry: dict[str, int] = field(default_factory=dict)
+    unmatched: list[DivergentRow] = field(default_factory=list)
+    multi_matched: list[tuple[DivergentRow, tuple[str, ...]]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    audit_lines: list[str] = field(default_factory=list)
+
+
+def _compare_config(
+    spec: ResolvedSpec,
+    settle_module,
+    subset_tables_dir: Path,
+    config: str,
+    features: frozenset[str],
+    aliases,
+    ledger,
+    ink_identical_ids,
+    shaper: "Shaper | None",
+    kern: "KernEvaluator | None",
+    engine,
+) -> OracleConfigResult:
+    result = OracleConfigResult(config=config)
+    table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
+    if not table_path.exists():
+        result.notes.append(f"{config}: subset table missing at {table_path}")
+        return result
+    config_started = time.perf_counter()
+    for row in iter_rows(table_path):
+        result.rows_compared += 1
+        divergent = _compare_row(spec, settle_module, aliases, config, features, row, engine=engine)
+        matches = _match_ledger(ledger, divergent) if divergent is not None else []
+        if shaper is not None:
+            topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
+            class_claims_ink_identity = divergent is None or (
+                len(matches) == 1 and matches[0] in ink_identical_ids
+            )
+            if topology_clean and class_claims_ink_identity:
+                drift = _position_drift(shaper, kern, features, row)
+                result.positions_compared += 1
+                if drift is not None:
+                    drift_notes, kern_attributable = drift
+                    phenomena = ("position-kern-attributable",) if kern_attributable else ()
+                    prior_ink_match = matches[0] if len(matches) == 1 else None
+                    if divergent is None:
+                        divergent = DivergentRow(
+                            config=config,
+                            codepoints=":".join(f"{cp:04X}" for cp in row.codepoints),
+                            kinds=("position",),
+                            position=-1,
+                            baseline_glyphs=tuple(row.glyphs),
+                            baseline_seams=tuple(row.seams),
+                            new_cells=tuple(glyph for glyph in drift_notes),
+                            new_seams=(),
+                            phenomena=phenomena + ("position-drift",),
+                        )
+                    else:
+                        divergent = replace(
+                            divergent,
+                            kinds=divergent.kinds + ("position",),
+                            phenomena=divergent.phenomena + phenomena + ("position-drift",),
+                        )
+                    rematch = _match_ledger(ledger, divergent)
+                    # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
+                    if not rematch and kern_attributable and prior_ink_match is not None:
+                        matches = [prior_ink_match]
+                    else:
+                        matches = rematch
+            else:
+                result.positions_excluded += 1
+        if divergent is None:
+            continue
+        result.divergent_rows += 1
+        if len(matches) == 1:
+            entry_id = matches[0]
+            result.counts_by_entry[entry_id] = result.counts_by_entry.get(entry_id, 0) + 1
+        elif not matches:
+            result.unmatched.append(divergent)
+        else:
+            result.multi_matched.append((divergent, tuple(matches)))
+        result.audit_lines.append(
+            "\t".join(
+                (
+                    config,
+                    divergent.codepoints,
+                    ",".join(divergent.kinds),
+                    (
+                        matches[0]
+                        if len(matches) == 1
+                        else ("UNMATCHED" if not matches else "+".join(matches))
+                    ),
+                    "|".join(divergent.baseline_glyphs),
+                    "|".join(divergent.new_cells),
+                )
+            )
+        )
+    print(
+        f"[t] oracle {config} {time.perf_counter() - config_started:.2f}s rows={result.rows_compared} positions={result.positions_compared}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return result
+
+
+def oracle_config_worker(
+    spec: ResolvedSpec,
+    subset_tables_dir: Path,
+    alias_path: Path,
+    ledger_path: Path,
+    config: str,
+    font_path: Path | None,
+    kern_sidecar_path: Path | None,
+) -> OracleConfigResult:
+    from rebuild.pipeline import settle as settle_module
+
+    aliases = load_alias_map(alias_path)
+    ledger = yaml.safe_load(Path(ledger_path).read_text()) or []
+    ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
+    shaper = Shaper(Path(font_path)) if font_path is not None else None
+    kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
+    features = features_for_config(config)
+    engine = settle_module.Engine(spec, features)
+    return _compare_config(
+        spec, settle_module, subset_tables_dir, config, features, aliases, ledger, ink_identical_ids, shaper, kern, engine
+    )
+
+
+def merge_oracle_results(results: Iterable[OracleConfigResult]) -> tuple[BaselineReport, list[str]]:
+    report = BaselineReport()
+    audit_lines = [ORACLE_AUDIT_HEADER]
+    for result in results:
+        report.rows_compared += result.rows_compared
+        report.divergent_rows += result.divergent_rows
+        report.positions_compared += result.positions_compared
+        report.positions_excluded += result.positions_excluded
+        for entry_id, count in result.counts_by_entry.items():
+            report.counts_by_entry[entry_id] = report.counts_by_entry.get(entry_id, 0) + count
+        report.unmatched.extend(result.unmatched)
+        report.multi_matched.extend(result.multi_matched)
+        report.notes.extend(result.notes)
+        audit_lines.extend(result.audit_lines)
+    return report, audit_lines
+
+
 def compare_against_baseline(
     spec: ResolvedSpec,
     subset_tables_dir: Path,
@@ -834,6 +1057,7 @@ def compare_against_baseline(
     out_dir: Path | None = None,
     font_path: Path | None = None,
     kern_sidecar_path: Path | None = None,
+    hoist: bool = True,
 ) -> BaselineReport:
     from rebuild.pipeline import settle as settle_module
 
@@ -842,84 +1066,24 @@ def compare_against_baseline(
     ink_identical_ids = {entry.get("id") for entry in ledger if entry.get("ink_identical")}
     shaper = Shaper(Path(font_path)) if font_path is not None else None
     kern = KernEvaluator(Path(kern_sidecar_path)) if kern_sidecar_path is not None else None
-    report = BaselineReport()
-    audit_lines = ["config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew"]
+    started = time.perf_counter()
 
+    results: list[OracleConfigResult] = []
     for config in configs:
-        table_path = Path(subset_tables_dir) / f"baseline-{config}.subset.tsv.gz"
-        if not table_path.exists():
-            report.notes.append(f"{config}: subset table missing at {table_path}")
-            continue
         features = features_for_config(config)
-        for row in iter_rows(table_path):
-            report.rows_compared += 1
-            divergent = _compare_row(spec, settle_module, aliases, config, features, row)
-            matches = _match_ledger(ledger, divergent) if divergent is not None else []
-            if shaper is not None:
-                topology_clean = divergent is None or not ({"ligation", "seam"} & set(divergent.kinds))
-                class_claims_ink_identity = divergent is None or (
-                    len(matches) == 1 and matches[0] in ink_identical_ids
-                )
-                if topology_clean and class_claims_ink_identity:
-                    drift = _position_drift(shaper, kern, features, row)
-                    report.positions_compared += 1
-                    if drift is not None:
-                        drift_notes, kern_attributable = drift
-                        phenomena = ("position-kern-attributable",) if kern_attributable else ()
-                        prior_ink_match = matches[0] if len(matches) == 1 else None
-                        if divergent is None:
-                            divergent = DivergentRow(
-                                config=config,
-                                codepoints=":".join(f"{cp:04X}" for cp in row.codepoints),
-                                kinds=("position",),
-                                position=-1,
-                                baseline_glyphs=tuple(row.glyphs),
-                                baseline_seams=tuple(row.seams),
-                                new_cells=tuple(glyph for glyph in drift_notes),
-                                new_seams=(),
-                                phenomena=phenomena + ("position-drift",),
-                            )
-                        else:
-                            divergent = replace(
-                                divergent,
-                                kinds=divergent.kinds + ("position",),
-                                phenomena=divergent.phenomena + phenomena + ("position-drift",),
-                            )
-                        rematch = _match_ledger(ledger, divergent)
-                        # A kern-attributable position residue is out of scope (the kern channel), so it never demotes a cell-grain row that already matched a single ink-identical class — that row's ink-identity claim survives the kern bookkeeping. A non-kern-attributable drift is a genuine ink shift and is allowed to override the prior match (so the position channel can chase it to ground).
-                        if not rematch and kern_attributable and prior_ink_match is not None:
-                            matches = [prior_ink_match]
-                        else:
-                            matches = rematch
-                else:
-                    report.positions_excluded += 1
-            if divergent is None:
-                continue
-            report.divergent_rows += 1
-            if len(matches) == 1:
-                entry_id = matches[0]
-                report.counts_by_entry[entry_id] = report.counts_by_entry.get(entry_id, 0) + 1
-            elif not matches:
-                report.unmatched.append(divergent)
-            else:
-                report.multi_matched.append((divergent, tuple(matches)))
-            audit_lines.append(
-                "\t".join(
-                    (
-                        config,
-                        divergent.codepoints,
-                        ",".join(divergent.kinds),
-                        (
-                            matches[0]
-                            if len(matches) == 1
-                            else ("UNMATCHED" if not matches else "+".join(matches))
-                        ),
-                        "|".join(divergent.baseline_glyphs),
-                        "|".join(divergent.new_cells),
-                    )
-                )
+        engine = settle_module.Engine(spec, features) if hoist else None
+        results.append(
+            _compare_config(
+                spec, settle_module, subset_tables_dir, config, features, aliases, ledger, ink_identical_ids, shaper, kern, engine
             )
+        )
+    report, audit_lines = merge_oracle_results(results)
 
+    print(
+        f"[t] oracle total {time.perf_counter() - started:.2f}s rows_compared={report.rows_compared} positions_compared={report.positions_compared}",
+        file=sys.stderr,
+        flush=True,
+    )
     if out_dir is not None:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
@@ -928,9 +1092,12 @@ def compare_against_baseline(
 
 
 def _compare_row(
-    spec, settle_module, aliases, config: str, features: frozenset[str], row: Row
+    spec, settle_module, aliases, config: str, features: frozenset[str], row: Row, engine=None
 ) -> DivergentRow | None:
-    settled = settle_module.settle(spec, list(row.codepoints), features)
+    if engine is not None:
+        settled = settle_module.settle_with_engine(engine, list(row.codepoints))
+    else:
+        settled = settle_module.settle(spec, list(row.codepoints), features)
     if isolated_overlay_active(spec, features):
         # The overlay renders the anchor-free isolated drawing at every letter position; in cell terms that is the boundary cell of the default stance (the alias map's bare-name denotation), with every seam visually a break. A ligature-rune cell expands to one such cell per component (the ss10 pre-empt keeps the ligature from ever forming in the buffer), so a window whose pair formed in the old font diverges at ligation grain.
         expanded: list = []
