@@ -6,7 +6,7 @@ The living checkpoint for turning the round-3 review verdicts into rune-data edi
 
 ## Source of truth
 
-- **Verdicts:** `verdicts-11.33.00PM.json` (format `ams-review-verdicts/1`, manifest `2026-06-29T04:45:25Z`, 4,828 unique-unit verdicts: 4,146 approve / 332 reject / 318 neither / 20 either / 12 identical). The manifest it pins matches the live `rebuild/out/review/manifest.json`.
+- **Verdicts:** `verdicts-carried-final2.json` (format `ams-review-verdicts/1`, manifest `2026-07-04T20:22:20Z`, 3,345 unique-unit verdicts: 3,175 approve / 84 reject / 8 neither / 78 either). The manifest it pins matches the live `rebuild/out/review/manifest.json`.
 - **Units:** `rebuild/out/review/units/*.json` — each unit (`u-NNNN`) carries `class`, `notation`, before/after cells + seams + `extensions`, the `explain` settle trace, and a `drafts.policy` suggestion (target rune file, keypath, a concrete record). The drafts mostly frame everything as `prefer`/`refuse`, so the **review class** is the reliable signal for what a window is about, not the draft keypath.
 
 ### Verdicts are evidence, not gospel
