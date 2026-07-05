@@ -6,8 +6,6 @@ ignores:
   - "node_modules/**"
   - ".uv-cache/**"
   - "tmp/**"
-  - "rebuild/evidence/findings/**"
-  - "rebuild/evidence/jitter-candidates.md"
 
 config:
   line-length: false
