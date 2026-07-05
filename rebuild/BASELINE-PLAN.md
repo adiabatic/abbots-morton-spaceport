@@ -1,6 +1,6 @@
 # Baseline extraction plan (§13.1)
 
-This plan governs Phase 3 (implementation) and Phase 4 (extraction runs) of the §13.1 baseline: shape the depth-2 basis through the current built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), black-box, and record every window's resolved outcome as a diff-stable table under `rebuild/out/`. The table is the migration oracle and the review surface's first real workload. Grounding documents: `doc/rebuild-design.md` §3.4, §6.1, §8, §10, §13.1, and `rebuild/recon/baseline-recon.md` (all file:line references below that are not given explicitly are in the recon).
+This plan governs Phase 3 (implementation) and Phase 4 (extraction runs) of the §13.1 baseline: shape the depth-2 basis through the current built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), black-box, and record every window’s resolved outcome as a diff-stable table under `rebuild/out/`. The table is the migration oracle and the review surface’s first real workload. Grounding documents: `doc/rebuild-design.md` §3.4, §6.1, §8, §10, §13.1, and `rebuild/recon/baseline-recon.md` (all file:line references below that are not given explicitly are in the recon).
 
 Fixed provenance for every run under this plan:
 
@@ -15,11 +15,11 @@ Fixed provenance for every run under this plan:
 
 ### Alphabet
 
-47 symbols, exactly the recon's census:
+47 symbols, exactly the recon’s census:
 
 - The 44 Quikscript runes, U+E650–U+E66C and U+E670–U+E67E (`doc/glyph-names.md`; the angle parens U+E66E/E66F are punctuation and excluded).
 - `space` (U+0020) and ZWNJ (U+200C), the run-splitting boundary tokens.
-- The namer dot, `periodcentered` (U+00B7). It is load-bearing both as a conditioned-on symbol (`qsExcite.exit_baseline_before_vertical` guards on it where ·Utter does not — the exact §3.4 distinction) and as a conditioning-dependent symbol (its own `periodcentered.lowered` form depends on the following rune's height class and on word position). Per §3.4 it is a registered boundary token that does not split runs, so it belongs in the alphabet proper, not just at run edges.
+- The namer dot, `periodcentered` (U+00B7). It is load-bearing both as a conditioned-on symbol (`qsExcite.exit_baseline_before_vertical` guards on it where ·Utter does not — the exact §3.4 distinction) and as a conditioning-dependent symbol (its own `periodcentered.lowered` form depends on the following rune’s height class and on word position). Per §3.4 it is a registered boundary token that does not split runs, so it belongs in the alphabet proper, not just at run edges.
 
 ### Input set
 
@@ -39,13 +39,13 @@ Across the 11 configurations of §5: **54,843,360 rows**.
 
 ### Why this realizes the §6.1 windows
 
-The settlement model's window is `[resolved-left, self, raw-right, raw-right²]`. Black-box, resolved-left state cannot be injected — it is induced by the string prefix. Length-4 strings give every `self` at position 2 a full window: resolved-left induced by a length-1 prefix (every state reachable in one step from a run edge), plus both raw-right symbols. Positions 1 of every string realize every run-initial window (`resolved-left = edge`) with full raw-right context. Strings containing space/ZWNJ in interior positions realize the word-final and word-initial windows mid-string (e.g. `qsMay space qsTea qsKey` realizes word-final ·May and word-initial ·Tea-with-lookahead in one row). Every position of every string is recorded (cluster-aligned), so deeper positions contribute windows too, with correspondingly truncated raw-right context.
+The settlement model’s window is `[resolved-left, self, raw-right, raw-right²]`. Black-box, resolved-left state cannot be injected — it is induced by the string prefix. Length-4 strings give every `self` at position 2 a full window: resolved-left induced by a length-1 prefix (every state reachable in one step from a run edge), plus both raw-right symbols. Positions 1 of every string realize every run-initial window (`resolved-left = edge`) with full raw-right context. Strings containing space/ZWNJ in interior positions realize the word-final and word-initial windows mid-string (e.g. `qsMay space qsTea qsKey` realizes word-final ·May and word-initial ·Tea-with-lookahead in one row). Every position of every string is recorded (cluster-aligned), so deeper positions contribute windows too, with correspondingly truncated raw-right context.
 
 ### What depth-2 cannot capture, accepted by design
 
-- **Deeper-left-induced resolved states with full lookahead.** A resolved-left state that only arises after two or more settled joins (position ≥ 3) appears in this basis only with 0–1 symbols of raw-right context; giving it both lookahead symbols would need length-5+ strings. §10's per-transition conformance gate is the designed closure: it derives a shortest example sequence per decision-table transition, including sequences longer than 5 runes that no fixed-depth sweep can reach. That gate, not this baseline, owns completeness.
-- **Longer-range emergent effects** (the archive's documented depth-5-only regressions, §15.11). Same disposition.
-- **Window-keyed dedup is rejected.** A "smarter" basis that keys rows by window rather than by string would have to assume the very locality (context-freeness beyond the window, boundary-token equivalence to run edges) that this baseline exists to measure; the §6 equivalence triage and §4 split-buffer cross-check are checks on those assumptions, so the input set must not presuppose them. Full enumeration is cheap enough (§2) that no dedup is warranted.
+- **Deeper-left-induced resolved states with full lookahead.** A resolved-left state that only arises after two or more settled joins (position ≥ 3) appears in this basis only with 0–1 symbols of raw-right context; giving it both lookahead symbols would need length-5+ strings. §10’s per-transition conformance gate is the designed closure: it derives a shortest example sequence per decision-table transition, including sequences longer than 5 runes that no fixed-depth sweep can reach. That gate, not this baseline, owns completeness.
+- **Longer-range emergent effects** (the archive’s documented depth-5-only regressions, §15.11). Same disposition.
+- **Window-keyed dedup is rejected.** A “smarter” basis that keys rows by window rather than by string would have to assume the very locality (context-freeness beyond the window, boundary-token equivalence to run edges) that this baseline exists to measure; the §6 equivalence triage and §4 split-buffer cross-check are checks on those assumptions, so the input set must not presuppose them. Full enumeration is cheap enough (§2) that no dedup is warranted.
 
 ## 2. Runtime and size strategy
 
@@ -83,14 +83,14 @@ Columns:
 | `seams`      | One token per input seam (input positions k, k+1 for k = 0 … len−2), comma-joined: `lig` if both positions fall in the same cluster (the seam was consumed by ligation); otherwise the §4 classification of the flanking output-glyph pair — `y0`, `y5`, `y6`, `y8` for joined at that pixel height, `break` for no join. If the height intersection ever has more than one element, all heights are emitted sorted and `+`-joined (e.g. `y0+y5`) and the run fails a sanity assertion for investigation; none is expected. |
 | `positions`  | Per output glyph `x_offset,y_offset,x_advance` (font units), pipe-joined, e.g. `0,0,350\|0,250,250`. This captures cursive-attachment offsets and advances, sufficient to later detect extension-amount changes (which also surface as `ex-ext-N` name changes), kern changes, and attachment drift, without committing to any interpretation of them. `y_advance` is omitted (always 0 for this font; an extractor assertion enforces that).                                                                               |
 
-Row order: by string length ascending, then by the codepoint tuple ascending — deterministic, definable without reference to any separator's collation. No floating-point anywhere; every value is an integer or a name. Diff stability per §8: same font + same tool version ⇒ byte-identical uncompressed output.
+Row order: by string length ascending, then by the codepoint tuple ascending — deterministic, definable without reference to any separator’s collation. No floating-point anywhere; every value is an integer or a name. Diff stability per §8: same font + same tool version ⇒ byte-identical uncompressed output.
 
 ## 4. Seam classification
 
-The classifier is the recon item-1 procedure, anchor-Y intersection read black-box from the built font's GPOS:
+The classifier is the recon item-1 procedure, anchor-Y intersection read black-box from the built font’s GPOS:
 
-1. At extractor start-up, walk the font's GPOS `curs` feature to its cursive-attachment (LookupType 3) lookups — discovered by feature reference, never hardcoded lookup indices. Recon verified there are exactly four, one per join height, with anchor Y at 0/250/300/400 font units = pixel y 0/5/6/8 (font units ÷ 50). For each lookup, record the per-height sets {glyphs with an ExitAnchor} and {glyphs with an EntryAnchor}; assert each lookup's anchors are uniform in Y-per-height semantics (every non-NULL anchor in the y-h lookup sits at h × 50).
-2. For an adjacent output-glyph pair (left, right) not in the same cluster: joined at height h iff the left glyph has an ExitAnchor and the right glyph has an EntryAnchor in the same height-h lookup; `break` iff no lookup pairs them. This is exactly equivalent to the test suite's anchor-Y intersection (`test/test_shaping.py:530-579`, `_pair_join_ys`); per-height lookups are why cross-height attachment is structurally impossible.
+1. At extractor start-up, walk the font’s GPOS `curs` feature to its cursive-attachment (LookupType 3) lookups — discovered by feature reference, never hardcoded lookup indices. Recon verified there are exactly four, one per join height, with anchor Y at 0/250/300/400 font units = pixel y 0/5/6/8 (font units ÷ 50). For each lookup, record the per-height sets {glyphs with an ExitAnchor} and {glyphs with an EntryAnchor}; assert each lookup’s anchors are uniform in Y-per-height semantics (every non-NULL anchor in the y-h lookup sits at h × 50).
+2. For an adjacent output-glyph pair (left, right) not in the same cluster: joined at height h iff the left glyph has an ExitAnchor and the right glyph has an EntryAnchor in the same height-h lookup; `break` iff no lookup pairs them. This is exactly equivalent to the test suite’s anchor-Y intersection (`test/test_shaping.py:530-579`, `_pair_join_ys`); per-height lookups are why cross-height attachment is structurally impossible.
 3. Same-cluster pairs do not exist as output seams; the input seam is `lig`.
 
 Ink-gap arithmetic (`test/test_join_ink.py`) is deliberately **not** part of the baseline columns — it is a defect detector that belongs to the §9 `E-UNREALIZED` gate, not an outcome fact.
@@ -104,7 +104,7 @@ For each sampled break seam, shape the string split at the seam and compare the 
 
 ## 5. Configurations
 
-Eleven, per §10 tier 3 ("each set alone, every configuration the Manual's pins use, and at least one declared multi-set combination") and the recon's feature census (ss02–ss07, ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual's configurations):
+Eleven, per §10 tier 3 (“each set alone, every configuration the Manual’s pins use, and at least one declared multi-set combination”) and the recon’s feature census (ss02–ss07, ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual’s configurations):
 
 | #   | Config token     | Feature dict     | Why                                                                                                                                    |
 | --- | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -113,14 +113,14 @@ Eleven, per §10 tier 3 ("each set alone, every configuration the Manual's pins 
 | 3   | `ss03`           | ss03             | Single set; Manual pin at line 4118.                                                                                                   |
 | 4   | `ss04`           | ss04             | Single set; Manual pin at line 3471.                                                                                                   |
 | 5   | `ss05`           | ss05             | Single set; Manual pin at line 3537.                                                                                                   |
-| 6   | `ss06`           | ss06             | Single set; gapped ·Owe (the Manual's ss06 div is CSS-visual only — no shaped pin exists, so the baseline is its first shaped record). |
+| 6   | `ss06`           | ss06             | Single set; gapped ·Owe (the Manual’s ss06 div is CSS-visual only — no shaped pin exists, so the baseline is its first shaped record). |
 | 7   | `ss07`           | ss07             | Single set; Manual pin at line 1623.                                                                                                   |
 | 8   | `ss10`           | ss10             | Single set; Manual inner-span pin at line 3969.                                                                                        |
 | 9   | `ss02+ss03`      | ss02, ss03       | Declared multi-set combination: both gate qsTea entry stances, so interaction is plausible.                                            |
 | 10  | `ss06+ss07`      | ss06, ss07       | Declared multi-set combination: both reshape qsOwe.                                                                                    |
-| 11  | `ss02+ss03+ss05` | ss02, ss03, ss05 | The §7 conformance-matrix example ("e.g. ss02+ss03+ss05 on ·Tea"); all three touch qsTea's capability matrix.                          |
+| 11  | `ss02+ss03+ss05` | ss02, ss03, ss05 | The §7 conformance-matrix example (“e.g. ss02+ss03+ss05 on ·Tea”); all three touch qsTea’s capability matrix.                          |
 
-No combination is declared in the corpus today; rows 9–11 are this plan's declarations, recorded here so the future conformance gate inherits them. Cost of the three extras is ≈90 s of shaping — negligible.
+No combination is declared in the corpus today; rows 9–11 are this plan’s declarations, recorded here so the future conformance gate inherits them. Cost of the three extras is ≈90 s of shaping — negligible.
 
 ## 6. The equivalence triage
 
@@ -137,25 +137,25 @@ Four checks, run for **every configuration** over every basis string `w`:
 
 The namer dot does **not** split runs (§3.4), so no namer-dot-vs-edge equivalence is asserted — namer-dot contexts are ordinary basis rows. The `w`-side of every comparison is the already-extracted baseline row (no re-shaping), so the cost is one extra shape per check per eligible string: ≈4 × 4.77M ≈ 19M shapes per configuration, ≈3.5 min single-threaded, ≈25 s on 10 workers.
 
-A divergence is any difference in the `w` portion's glyph names, cluster structure, or seam classifications (positions are compared but position-only differences are flagged separately, since an attachment shift without a glyph change is a different severity). Divergences are appended to `rebuild/out/equivalence-triage.tsv`, sorted like the baseline, one row per (config, check, string):
+A divergence is any difference in the `w` portion’s glyph names, cluster structure, or seam classifications (positions are compared but position-only differences are flagged separately, since an attachment shift without a glyph change is a different severity). Divergences are appended to `rebuild/out/equivalence-triage.tsv`, sorted like the baseline, one row per (config, check, string):
 
 ```text
 config  check  codepoints  baseline_glyphs  boundary_glyphs  first_divergent_position  baseline_seams  boundary_seams  divergence_kind
 ```
 
-`divergence_kind` ∈ {`glyph`, `seam`, `position-only`}. These are **triage rows, not errors** — expected hot spots are the `.noentry` universe behind ZWNJ, qsExcite's boundary guards, and the namer dot's lowered form (which counts space, ZWNJ, and run edge all as word-initial, so it should agree — disagreement there would be news). The summary records per-check, per-config divergence counts so the migration's "true by definition in the new model" claim has a measured before-picture.
+`divergence_kind` ∈ {`glyph`, `seam`, `position-only`}. These are **triage rows, not errors** — expected hot spots are the `.noentry` universe behind ZWNJ, qsExcite’s boundary guards, and the namer dot’s lowered form (which counts space, ZWNJ, and run edge all as word-initial, so it should agree — disagreement there would be news). The summary records per-check, per-config divergence counts so the migration’s “true by definition in the new model” claim has a measured before-picture.
 
 ## 7. Validation
 
-Two layers, both must pass before Phase 4's outputs are trusted.
+Two layers, both must pass before Phase 4’s outputs are trusted.
 
 ### Corpus pin replay
 
 Collect every data-expect run from the three corpora (`site/index.html`, `site/the-manual.html`, `site/extra-senior-words.html`) using the existing collector and parser imported read-only from `test/test_shaping.py` / `conftest.py` (recon item 4: `parse_expect`, `_DataExpectCollector`, `run_shaping_test_runs` are import-safe). For every senior-variant run whose input sequence consists solely of basis-alphabet symbols (44 runes, space, ZWNJ, namer dot — runs containing other Latin literals are out of scope and skipped, with a count reported):
 
-- Shape the run's full sequence through the **extractor's own library path** (same shaper, same classifier, same configuration dict derived from the run's `data-stylistic-set`) and assert the pin's per-seam expectations: join-at-height tokens (`~x~`/`~b~`/`~t~`/`~6~` = y5/y0/y8/y6), bare-adjacency joins (height unasserted, classification must be a join), `|`/`|?|` breaks (classification must be `break`), and `+`/`+?`/`+|` ligation per the parser's interpretation expansion. Any disagreement is an **extractor bug until proven otherwise** — the pins are ground truth the existing suite already enforces against this exact font.
+- Shape the run’s full sequence through the **extractor’s own library path** (same shaper, same classifier, same configuration dict derived from the run’s `data-stylistic-set`) and assert the pin’s per-seam expectations: join-at-height tokens (`~x~`/`~b~`/`~t~`/`~6~` = y5/y0/y8/y6), bare-adjacency joins (height unasserted, classification must be a join), `|`/`|?|` breaks (classification must be `break`), and `+`/`+?`/`+|` ligation per the parser’s interpretation expansion. Any disagreement is an **extractor bug until proven otherwise** — the pins are ground truth the existing suite already enforces against this exact font.
 - For runs of length ≤ 4, additionally assert the baseline table row for that exact string and configuration matches the live shaping byte-for-byte (glyphs, clusters, seams, positions) — this pins the serialization path, not just the shaping path.
-- For runs of length > 4, also look up each embedded length-4 window's baseline row and report (not fail) any seam-classification difference between the long-context shaping and the window row, labeled as depth-2-horizon findings; these quantify §1's accepted incompleteness rather than indicting the extractor.
+- For runs of length > 4, also look up each embedded length-4 window’s baseline row and report (not fail) any seam-classification difference between the long-context shaping and the window row, labeled as depth-2-horizon findings; these quantify §1’s accepted incompleteness rather than indicting the extractor.
 
 The replay result (pins checked / skipped / disagreements) is recorded in `SUMMARY.md`; the disagreement count must be zero to proceed.
 
@@ -171,7 +171,7 @@ The replay result (pins checked / skipped / disagreements) is recorded in `SUMMA
 - Equivalence checker: the `w`-portion comparison logic on synthetic cases (identical ⇒ no row; injected difference ⇒ row with correct `divergence_kind`).
 - Split-buffer sampler: fixed-seed sample is stable across runs.
 
-No test pins an outcome we have not already verified from the corpus or the recon — the baseline's job is to record current behavior, not to assert what it should be.
+No test pins an outcome we have not already verified from the corpus or the recon — the baseline’s job is to record current behavior, not to assert what it should be.
 
 ## 8. Module and file layout
 
