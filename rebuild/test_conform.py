@@ -176,6 +176,8 @@ class TestAliasAndLedger:
             (("exit-added",), "bare-name-live-join"),
             (("+en-ext-1", "exit-dropped"), "halves-entry-extension-restored"),
             (("-en-ext-1:same-seam",), "same-seam-extension-non-summing"),
+            (("-en-ext-1:qsMay", "exit-dropped"), "may-baseline-entry-extension-dropped"),
+            (("-en-ext-1:qsDay",), None),
             (("+ex-bind-pulled-back", "exit-dropped"), "may-exit-withdrawal-generalized"),
             (("seam-gain:qsIt", "exit-added"), "entered-it-baseline-join-gain"),
             (("seam-gain:qsPea", "entry-dropped"), "pea-chain-regularized"),

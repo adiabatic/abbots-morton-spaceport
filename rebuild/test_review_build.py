@@ -306,7 +306,7 @@ def test_built_classes_keep_ledger_order_then_families(built):
         if meta["status"] == "unmatched":
             assert meta["why"] == families.FAMILY_WHY[meta["id"]]
         else:
-            assert meta["why"] == by_id[meta["id"]]["why"].strip()
+            assert meta["why"] == by_id[meta["id"]].get("why", "").strip()
 
 
 def test_font_copies_match_recorded_sha256(built):

@@ -750,6 +750,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "halves-entry-extension-restored"
     if "-en-ext-1:same-seam" in phenomena:
         return "same-seam-extension-non-summing"
+    if "-en-ext-1:qsMay" in phenomena:
+        return "may-baseline-entry-extension-dropped"
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return "may-exit-withdrawal-generalized"
     if "+locked" in phenomena or "old-noentry" in phenomena:
@@ -792,6 +794,7 @@ for _class_id in (
     "pea-chain-regularized",
     "halves-entry-extension-restored",
     "same-seam-extension-non-summing",
+    "may-baseline-entry-extension-dropped",
     "may-exit-withdrawal-generalized",
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",
@@ -1200,10 +1203,12 @@ def _cell_deltas(alias: CellId, cell: CellId, old_glyphs, index: int) -> set[str
     for token in new_tokens - old_tokens:
         out.add(f"+{token}")
     for token in old_tokens - new_tokens:
-        if token == "en-ext-1" and index > 0 and "ex-ext-1" in old_glyphs[index - 1]:
+        if token != "en-ext-1":
+            out.add(f"-{token}")
+        elif index > 0 and "ex-ext-1" in old_glyphs[index - 1]:
             out.add("-en-ext-1:same-seam")
         else:
-            out.add(f"-{token}")
+            out.add(f"-en-ext-1:{cell.rune}")
     if ".noentry" in old_glyphs[index]:
         out.add("old-noentry")
     return out

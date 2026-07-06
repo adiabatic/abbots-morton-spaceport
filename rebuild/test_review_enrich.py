@@ -150,18 +150,14 @@ def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
-    # The round-1 verdict pass deleted qsIt's halves entry-extension record, so the old flagship ·Tea·It unit re-converged; the class's surviving exemplar is the ss03 phenomenon-1b window where ·May composes en-ext-1 + ex-ext-1.
-    unit = units_by_key[("E650:E665:E652", "ss03")]
+    # Removing qsMay's baseline-entry extension record reconverged the old ss03 ·Pea·May·Tea exemplar out of this class; the surviving exemplar is ·Day·Utter·May, where ·May's x-height entry extends by one after the qsDay_qsUtter x-height exit (the halves-that-exit-at-x-height record).
+    unit = units_by_key[("E653:E67A:E665", "default")]
     enriched = enricher.enrich(unit)
-    assert enriched.before_glyphs == (
-        "qsPea",
-        "qsMay.en-y0.ex-y5.ex-ext-1",
-        "qsTea.half.en-y5.after-xheight-exit",
-    )
-    assert enriched.before_seams == ("y0", "y5")
-    assert enriched.after_seams == ("y0", "y5")
-    assert enriched.after_extensions == (1, 1)
-    assert enriched.diff_positions == (0, 1, 2)
+    assert enriched.before_glyphs == ("qsDay_qsUtter", "qsMay.en-y5")
+    assert enriched.before_seams == ("y5",)
+    assert enriched.after_seams == ("y5",)
+    assert enriched.after_extensions == (1,)
+    assert enriched.diff_positions == (0, 1)
     assert enriched.pair == (0, 1)
     assert "glyph_data/runes/qsMay.yaml:policy.extend" in " ".join(enriched.provenance)
 
