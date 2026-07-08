@@ -11,6 +11,7 @@ Long-running scripts for the M1 rebuild that the reports under `rebuild/` and `W
 | `seam_loss_probe.py` / `seam_loss_diff.py` | Group-scoped probes for the seam-loss-withdrawal triage                                                                                      |
 | `t7_audit_diff.py`                         | A/B diff of two scratch-build divergence audits (the Group C verification)                                                                   |
 | `jitter_audit.py`                          | Flags likely-misclick minority verdicts inside otherwise-unanimous families                                                                  |
+| `review_docket.py`                         | Clusters blank human units across echo groups (the echo key minus the judged pair) and renders docket.html for class-grain adjudication      |
 | `auto_classify_ss10.py`                    | The ss10 no-ligature auto-approval pass (2026-06-28)                                                                                         |
 | `remap_verdicts.py`                        | Content-keyed verdict remap across a surface rebuild (the pulled-back removal)                                                               |
 | `eyeball_triage.py`                        | Fixed-seed sample re-shaping check from the baseline report                                                                                  |
