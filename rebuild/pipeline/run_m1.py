@@ -228,6 +228,8 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
         "divergences": len(report.divergences),
         "uncovered_rules": report.uncovered_rules,
         "uncovered_transitions": report.uncovered_transitions,
+        "topped_up_rules": report.topped_up_rules,
+        "topped_up_sequences": report.topped_up_sequences,
         "pass": report.passed,
         "notes": report.notes,
     }
@@ -247,7 +249,9 @@ def run_boundary_gate(
         collected: dict[str, conform.BoundaryConfigResult] = {}
         with _spawn_pool(jobs) as pool:
             futures = {
-                pool.submit(conform.boundary_config_worker, spec, out_dir / "M1.otf", config, max_length): config
+                pool.submit(
+                    conform.boundary_config_worker, spec, out_dir / "M1.otf", config, max_length
+                ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
             for future in as_completed(futures):
@@ -344,9 +348,7 @@ def run_oracle(
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="Run the M1 integration pipeline and its Phase-2 gates."
-    )
+    parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
         "--jobs",
         type=int,

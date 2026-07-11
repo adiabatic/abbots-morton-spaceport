@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz vs the settlement function, and the settlement function vs the section 13.1 baseline oracle.
 
-`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). The section 10 tier-3 per-transition gate rides on the same sweep: at M1 scale the exhaustive enumeration covers every decision-table transition whose shortest window fits in five tokens — ZWNJ-interleaved variants included, because ZWNJ is in the enumerated alphabet — and any transition left uncovered is reported with a BFS-derived shortest example sequence, shaped, and diffed as a top-up. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition.
+`run_conformance` promotes prototype/conform.py: the Shaper (MONOTONE_CHARACTERS cluster level; names via TTFont, never HarfBuzz's truncating API), the exhaustive length-1..5 enumeration per acceptance configuration, the ZWNJ structural checks (zero advance, no ink), split-buffer equivalence, gap-0 pen positions, and rule coverage (every emitted settlement rule fired). Coverage past the enumeration horizon is completed by generated witnesses: a settlement rule or decision-table transition the exhaustive sweep never exercises gets a shortest realizing string BFS-derived from the decision table's own windows (`_shortest_window_prefixes`), and that string is shaped and diffed as a top-up like any swept sequence — a rule only counts covered once it actually fires against the settled stream, so the table is a guide, never evidence. `uncovered_rules` / `uncovered_transitions` therefore count only rules and transitions with no verifiable witness at any length, which is dead code in the emitted FEA (a generator defect), not a horizon artifact. The worked example that forced this design: `sub qsNo.loop qsMay' qsMay qsMay` needs six tokens (·Day·Tea·No·May·May·May — ·Day takes ·Tea's baseline entry, the baseline-entered ·Tea is exitless, so ·No stays bare before ·May), one past the five-token sweep. The font-vs-settle diff takes no ledger: any divergence is a compiler defect by definition.
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
@@ -56,6 +56,7 @@ class ConformReport:
     divergences: list[Divergence] = field(default_factory=list)
     uncovered_rules: int = 0
     uncovered_transitions: int = 0
+    topped_up_rules: int = 0
     topped_up_sequences: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -78,6 +79,7 @@ class ConformReport:
                     "divergences_by_kind": by_kind,
                     "uncovered_rules": self.uncovered_rules,
                     "uncovered_transitions": self.uncovered_transitions,
+                    "topped_up_rules": self.topped_up_rules,
                     "topped_up_sequences": self.topped_up_sequences,
                     "pass": self.passed,
                     "notes": self.notes,
@@ -517,9 +519,7 @@ def boundary_config_worker(
     return _boundary_config(shaper, config, features, alphabet, splitters, max_length)
 
 
-def merge_boundary_results(
-    font_path: Path, results: Iterable[BoundaryConfigResult]
-) -> ConformReport:
+def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResult]) -> ConformReport:
     report = ConformReport(font=str(font_path))
     results = list(results)
     report.sequences = results[0].sequences if results else 0
@@ -529,85 +529,8 @@ def merge_boundary_results(
     return report
 
 
-def run_conformance(
-    font_path: Path,
-    spec: ResolvedSpec,
-    configs: Iterable[str] = ACCEPTANCE_CONFIGS,
-    glyphs: Mapping[CellId, GlyphRecord] | None = None,
-    max_length: int = 5,
-    out_dir: Path | None = None,
-) -> ConformReport:
-    from rebuild.pipeline import settle as settle_module
-    from rebuild.pipeline import table as table_module
-
-    shaper = Shaper(Path(font_path))
-    alphabet = spec_alphabet(spec)
-    glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
-    glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
-    anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
-
-    report = ConformReport(font=str(font_path))
-    modes: set[str] = set()
-
-    tables = {}
-    rules_hit: dict[str, set[int]] = {}
-    for config in configs:
-        features = features_for_config(config)
-        tables[config] = table_module.build_tables(spec, features)
-        rules_hit[config] = set()
-
-    sequences = [
-        "".join(combo)
-        for length in range(1, max_length + 1)
-        for combo in itertools.product(alphabet, repeat=length)
-    ]
-    report.sequences = len(sequences)
-
-    splitters = splitting_boundary_chars(spec)
-    for text in sequences:
-        codepoints = [ord(ch) for ch in text]
-        for config in configs:
-            features = features_for_config(config)
-            shaped = shaper.shape(text, features)
-            report.shaping_runs += 1
-            check_zwnj_structure(text, config, shaper, shaped, report.divergences)
-            if set(text) & splitters:
-                check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
-            settled = settle_module.settle(spec, codepoints, features)
-            expected_cells = settled_names(spec, settled, glyph_names)
-            if isolated_overlay_active(spec, features):
-                expected = isolated_overlay_names(spec, settled)
-            else:
-                expected = expected_cells
-            check_oracle(text, config, shaped, expected, report.divergences, modes)
-            if anchors_of is not None:
-                check_join_gaps(text, config, shaper, shaped, anchors_of, report.divergences)
-            _record_rule_hits(spec, text, features, expected_cells, tables[config], rules_hit[config])
-
-    uncovered_total = 0
-    for config in configs:
-        decision = tables[config][0] if isinstance(tables[config], (tuple, list)) else tables[config]
-        rules = list(getattr(decision, "rules", ()))
-        uncovered = [index for index in range(len(rules)) if index not in rules_hit[config]]
-        uncovered_total += len(uncovered)
-        if uncovered:
-            report.notes.append(f"{config}: {len(uncovered)} settlement rules never exercised by the sweep")
-    report.uncovered_rules = uncovered_total
-    report.notes.extend(sorted(modes))
-    if out_dir is not None:
-        report.write(Path(out_dir) / "conform_summary.json")
-    return report
-
-
-def _record_rule_hits(spec, text, features, expected, tables, hit: set[int]) -> None:
-    from rebuild.pipeline.emit_gsub import _raw_rename_map, _renamed
-
-    decision = tables[0] if isinstance(tables, (tuple, list)) else tables
-    renames = _raw_rename_map(spec, frozenset(features))
-    rules = [_renamed(rule, renames) for rule in getattr(decision, "rules", ())]
-    rules_by_input: dict[str, list[tuple[int, object]]] = {}
-    for index, rule in enumerate(rules):
-        rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
+def _matched_windows(spec, text, features, expected, rules_by_input):
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to."""
     try:
         labels = raw_labels(spec, text, features)
     except ValueError:
@@ -633,6 +556,7 @@ def _record_rule_hits(spec, text, features, expected, tables, hit: set[int]) -> 
             if right1 in boundaries or right1 == edge
             else (labels[index + 2] if index + 2 < len(labels) else edge)
         )
+        matched = None
         for rule_index, rule in rules_by_input.get(label, ()):
             if rule.backtrack is not None and left not in rule.backtrack:
                 continue
@@ -640,8 +564,301 @@ def _record_rule_hits(spec, text, features, expected, tables, hit: set[int]) -> 
                 continue
             if rule.look2 is not None and right2 not in rule.look2:
                 continue
-            hit.add(rule_index)
+            matched = rule_index
             break
+        yield index, (label, left, right1, right2), matched
+
+
+def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, object]]]:
+    from rebuild.pipeline.emit_gsub import _raw_rename_map, _renamed
+
+    renames = _raw_rename_map(spec, frozenset(features))
+    rules_by_input: dict[str, list[tuple[int, object]]] = {}
+    for index, rule in enumerate(getattr(decision, "rules", ())):
+        renamed = _renamed(rule, renames)
+        rules_by_input.setdefault(renamed.input_glyph, []).append((index, renamed))
+    return rules_by_input
+
+
+def _label_family(label: str) -> str:
+    return label.split(".")[0]
+
+
+def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
+    """Render a witness token stream (rune family, ligature-rune, or boundary-label tokens) back to codepoints; ligature runes expand to their component sequence, so raw_labels' greedy formation re-folds them to the intended labels."""
+    boundary_codepoints = {
+        {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}[name]: token.codepoint
+        for name, token in spec.registry.boundary_tokens.items()
+    }
+    chars: list[str] = []
+    for token in tokens:
+        if token in boundary_codepoints:
+            chars.append(chr(boundary_codepoints[token]))
+            continue
+        rune = spec.runes[token]
+        for part in rune.sequence or (token,):
+            chars.append(chr(spec.runes[part].codepoint))
+    return "".join(chars)
+
+
+def _shortest_window_prefixes(decision) -> dict[tuple[str, str, str | None], tuple[str, ...]]:
+    """BFS the decision table's own windows, mirroring the table builder's worklist at label grain: for each (left label, input label, constrained-right1 label or None-for-boundary-seeds) item, the shortest token prefix that realizes it. The prefix holds the tokens BEFORE the input slot — empty for edge-left items, the boundary token for boundary-left items."""
+    from collections import deque
+
+    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, BOUNDARYISH
+
+    boundary_prefixes: dict[str, tuple[str, ...]] = {
+        label: () if kind == "edge" else (label,) for kind, label in BOUNDARY_LEFT_LABELS.items()
+    }
+    rows_by_item: dict[tuple[str, str], list] = {}
+    for row in decision.transitions:
+        rows_by_item.setdefault((row.left, row.input_glyph), []).append(row)
+    prefixes: dict[tuple[str, str, str | None], tuple[str, ...]] = {}
+    queue: deque[tuple[str, str, str | None]] = deque()
+    for left, input_label in sorted(rows_by_item):
+        if left in boundary_prefixes:
+            item = (left, input_label, None)
+            prefixes[item] = boundary_prefixes[left]
+            queue.append(item)
+    while queue:
+        item = queue.popleft()
+        left, input_label, constraint = item
+        extended = prefixes[item] + (_label_family(input_label),)
+        for row in rows_by_item.get((left, input_label), ()):
+            if constraint is not None and row.right1 != constraint:
+                continue
+            if row.right1 in BOUNDARYISH:
+                continue
+            successor = (row.outcome, row.right1, row.right2)
+            if successor in prefixes:
+                continue
+            prefixes[successor] = extended
+            queue.append(successor)
+    return prefixes
+
+
+def _window_witness_tokens(prefixes, row) -> tuple[str, ...] | None:
+    """Assemble the token stream that realizes one transition row's window: the BFS prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge)."""
+    from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
+
+    boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
+    prefix = prefixes.get((row.left, row.input_glyph, row.right1))
+    if prefix is None:
+        prefix = prefixes.get((row.left, row.input_glyph, None))
+    if prefix is None:
+        return None
+    tokens = list(prefix) + [_label_family(row.input_glyph)]
+    if row.right1 == EDGE_LABEL:
+        return tuple(tokens)
+    if row.right1 in boundary_labels:
+        return tuple(tokens + [row.right1])
+    tokens.append(_label_family(row.right1))
+    if row.right2 in (EDGE_LABEL, NA_LABEL):
+        return tuple(tokens)
+    if row.right2 in boundary_labels:
+        return tuple(tokens + [row.right2])
+    return tuple(tokens + [_label_family(row.right2)])
+
+
+def _first_match_rows(decision) -> dict[int, list]:
+    """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'."""
+    rules_by_input: dict[str, list[tuple[int, object]]] = {}
+    for index, rule in enumerate(decision.rules):
+        rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
+    rows_by_rule: dict[int, list] = {}
+    for row in decision.transitions:
+        for index, rule in rules_by_input.get(row.input_glyph, ()):
+            if rule.backtrack is not None and row.left not in rule.backtrack:
+                continue
+            if rule.look1 is not None and row.right1 not in rule.look1:
+                continue
+            if rule.look2 is not None and row.right2 not in rule.look2:
+                continue
+            rows_by_rule.setdefault(index, []).append(row)
+            break
+    return rows_by_rule
+
+
+def _candidate_witness_tokens(prefixes, rows, limit: int = 6) -> list[tuple[str, ...]]:
+    candidates = {tokens for row in rows if (tokens := _window_witness_tokens(prefixes, row)) is not None}
+    return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
+
+
+def rule_signature(rule) -> str:
+    slots = ", ".join(
+        f"{name}={list(value) if value is not None else 'any'}"
+        for name, value in (("backtrack", rule.backtrack), ("look1", rule.look1), ("look2", rule.look2))
+    )
+    return f"{rule.input_glyph} [{slots}] -> {rule.outcome}"
+
+
+@dataclass
+class WitnessReport:
+    config: str
+    rules: int
+    witnessed: dict[int, str] = field(default_factory=dict)
+    unwitnessed: list[int] = field(default_factory=list)
+
+
+def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessReport:
+    """The font-free half of rule coverage: for every settlement rule, derive a shortest realizing string from the table's windows and verify against settle() that the rule actually first-matches somewhere in it. A rule left unwitnessed has no realizing string the table can construct — dead code in the emitted FEA — so this doubles as the always-on generator-defect alarm (rebuild/test_rule_witnesses.py) while run_conformance shapes the same witnesses against the real binary."""
+    from rebuild.pipeline import settle as settle_module
+    from rebuild.pipeline.settle import cell_label
+
+    if glyph_names is None:
+        glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
+    rules_by_input = _renamed_rules_by_input(spec, features, decision)
+    prefixes = _shortest_window_prefixes(decision)
+    rows_by_rule = _first_match_rows(decision)
+    report = WitnessReport(config=decision.config, rules=len(decision.rules))
+    for index in range(len(decision.rules)):
+        witness = None
+        for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
+            text = _token_text(spec, tokens)
+            settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
+            expected = settled_names(spec, settled, glyph_names)
+            if any(
+                matched == index
+                for _pos, _window, matched in _matched_windows(spec, text, features, expected, rules_by_input)
+            ):
+                witness = text
+                break
+        if witness is None:
+            report.unwitnessed.append(index)
+        else:
+            report.witnessed[index] = witness
+    return report
+
+
+def run_conformance(
+    font_path: Path,
+    spec: ResolvedSpec,
+    configs: Iterable[str] = ACCEPTANCE_CONFIGS,
+    glyphs: Mapping[CellId, GlyphRecord] | None = None,
+    max_length: int = 5,
+    out_dir: Path | None = None,
+) -> ConformReport:
+    from rebuild.pipeline import settle as settle_module
+    from rebuild.pipeline import table as table_module
+    from rebuild.pipeline.emit_gsub import _raw_rename_map
+
+    shaper = Shaper(Path(font_path))
+    alphabet = spec_alphabet(spec)
+    glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
+    glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
+    anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+
+    report = ConformReport(font=str(font_path))
+    modes: set[str] = set()
+
+    configs = list(configs)
+    tables = {}
+    decisions = {}
+    rules_hit: dict[str, set[int]] = {}
+    realized: dict[str, set[tuple[str, str, str, str]]] = {}
+    rules_by_input_by_config: dict[str, dict[str, list[tuple[int, object]]]] = {}
+    renames_by_config: dict[str, dict[str, str]] = {}
+    for config in configs:
+        features = features_for_config(config)
+        tables[config] = table_module.build_tables(spec, features)
+        decision = tables[config][0] if isinstance(tables[config], (tuple, list)) else tables[config]
+        decisions[config] = decision
+        rules_hit[config] = set()
+        realized[config] = set()
+        renames_by_config[config] = _raw_rename_map(spec, frozenset(features))
+        rules_by_input_by_config[config] = _renamed_rules_by_input(spec, features, decision)
+
+    splitters = splitting_boundary_chars(spec)
+
+    def sweep_text(text: str, config: str) -> None:
+        features = features_for_config(config)
+        shaped = shaper.shape(text, features)
+        report.shaping_runs += 1
+        check_zwnj_structure(text, config, shaper, shaped, report.divergences)
+        if set(text) & splitters:
+            check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
+        settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
+        expected_cells = settled_names(spec, settled, glyph_names)
+        if isolated_overlay_active(spec, features):
+            expected = isolated_overlay_names(spec, settled)
+        else:
+            expected = expected_cells
+        check_oracle(text, config, shaped, expected, report.divergences, modes)
+        if anchors_of is not None:
+            check_join_gaps(text, config, shaper, shaped, anchors_of, report.divergences)
+        for _position, window, matched in _matched_windows(
+            spec, text, features, expected_cells, rules_by_input_by_config[config]
+        ):
+            realized[config].add(window)
+            if matched is not None:
+                rules_hit[config].add(matched)
+
+    sequences = [
+        "".join(combo)
+        for length in range(1, max_length + 1)
+        for combo in itertools.product(alphabet, repeat=length)
+    ]
+    report.sequences = len(sequences)
+    for text in sequences:
+        for config in configs:
+            sweep_text(text, config)
+
+    for config in configs:
+        decision = decisions[config]
+        renames = renames_by_config[config]
+        prefixes = _shortest_window_prefixes(decision)
+        rows_by_rule = _first_match_rows(decision)
+
+        swept = [index for index in range(len(decision.rules)) if index not in rules_hit[config]]
+        witnessed: dict[int, str] = {}
+        for index in swept:
+            for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
+                text = _token_text(spec, tokens)
+                sweep_text(text, config)
+                report.topped_up_sequences += 1
+                if index in rules_hit[config]:
+                    witnessed[index] = text
+                    break
+        report.topped_up_rules += len(witnessed)
+        for index, text in sorted(witnessed.items()):
+            codepoints = ":".join(f"{ord(ch):04X}" for ch in text)
+            report.notes.append(
+                f"{config}: rule beyond the length-{max_length} sweep, witnessed by {codepoints}: {rule_signature(decision.rules[index])}"
+            )
+        dead = [index for index in swept if index not in rules_hit[config]]
+        report.uncovered_rules += len(dead)
+        for index in dead:
+            report.notes.append(
+                f"{config}: settlement rule has no verifiable witness (dead code in the emitted FEA): {rule_signature(decision.rules[index])}"
+            )
+
+        def renamed_key(row) -> tuple[str, str, str, str]:
+            return (
+                renames.get(row.input_glyph, row.input_glyph),
+                row.left,
+                renames.get(row.right1, row.right1),
+                renames.get(row.right2, row.right2),
+            )
+
+        for row in decision.transitions:
+            if renamed_key(row) in realized[config]:
+                continue
+            tokens = _window_witness_tokens(prefixes, row)
+            if tokens is None:
+                continue
+            sweep_text(_token_text(spec, tokens), config)
+            report.topped_up_sequences += 1
+        unrealized = [row for row in decision.transitions if renamed_key(row) not in realized[config]]
+        report.uncovered_transitions += len(unrealized)
+        if unrealized:
+            report.notes.append(
+                f"{config}: {len(unrealized)} decision-table transitions never realized; first: {unrealized[0].key}"
+            )
+
+    report.notes.extend(sorted(modes))
+    if out_dir is not None:
+        report.write(Path(out_dir) / "conform_summary.json")
+    return report
 
 
 @dataclass
@@ -1030,7 +1247,17 @@ def oracle_config_worker(
     features = features_for_config(config)
     engine = settle_module.Engine(spec, features)
     return _compare_config(
-        spec, settle_module, subset_tables_dir, config, features, aliases, ledger, ink_identical_ids, shaper, kern, engine
+        spec,
+        settle_module,
+        subset_tables_dir,
+        config,
+        features,
+        aliases,
+        ledger,
+        ink_identical_ids,
+        shaper,
+        kern,
+        engine,
     )
 
 
@@ -1077,7 +1304,17 @@ def compare_against_baseline(
         engine = settle_module.Engine(spec, features) if hoist else None
         results.append(
             _compare_config(
-                spec, settle_module, subset_tables_dir, config, features, aliases, ledger, ink_identical_ids, shaper, kern, engine
+                spec,
+                settle_module,
+                subset_tables_dir,
+                config,
+                features,
+                aliases,
+                ledger,
+                ink_identical_ids,
+                shaper,
+                kern,
+                engine,
             )
         )
     report, audit_lines = merge_oracle_results(results)
