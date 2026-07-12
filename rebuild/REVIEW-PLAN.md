@@ -345,4 +345,4 @@ As in §4.1 — produced by B’s `verdicts.js`, consumed by A’s `export.py`; 
 2. A: `audit.py` → `enrich.py` → `drafts.py` → `build.py`/`serve.py`/`export.py`; B: rendering, verdict state machine, keyboard, URL state, export/import UI.
 3. A: `tablediff.py` + snapshot (independent of B).
 4. Integration: real build, both servers up, a manual batch triaged end-to-end, `export.py` over a real `verdicts.json`.
-5. Gates (§6), then `rebuild/REVIEW-REPORT.md`.
+5. Gates (§6), then `rebuild/review/README.md`.
