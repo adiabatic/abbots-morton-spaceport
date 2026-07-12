@@ -215,13 +215,34 @@ def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1
     return summary
 
 
-def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5) -> dict:
+def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int = 1) -> dict:
     spec = load_default_spec()
-    tables = build_tables(spec)
+    tables = build_tables(spec, jobs=jobs)
     cell_glyphs = mint_cell_glyphs(spec, tables)
-    report = conform.run_conformance(
-        out_dir / "M1.otf", spec, glyphs=cell_glyphs, max_length=max_length, out_dir=out_dir
-    )
+    if jobs > 1:
+        collected: dict[str, conform.ConformanceConfigResult] = {}
+        with _spawn_pool(jobs) as pool:
+            futures = {
+                pool.submit(
+                    conform.conformance_config_worker,
+                    spec,
+                    out_dir / "M1.otf",
+                    config,
+                    max_length,
+                    cell_glyphs,
+                ): config
+                for config in conform.ACCEPTANCE_CONFIGS
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                collected[result.config] = result
+        ordered = [collected[config] for config in conform.ACCEPTANCE_CONFIGS]
+        report = conform.merge_conformance_results(out_dir / "M1.otf", ordered)
+        report.write(out_dir / "conform_summary.json")
+    else:
+        report = conform.run_conformance(
+            out_dir / "M1.otf", spec, glyphs=cell_glyphs, max_length=max_length, out_dir=out_dir
+        )
     summary = {
         "sequences": report.sequences,
         "shaping_runs": report.shaping_runs,
@@ -353,10 +374,30 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=1,
-        help="worker budget for build_tables and the oracle/boundary shards; 1 = serial",
+        help="worker budget for build_tables and the oracle/boundary/conformance shards; 1 = serial",
+    )
+    parser.add_argument(
+        "--conform-only",
+        action="store_true",
+        help="run only the font-vs-settle conformance sweep against the existing M1.otf and exit nonzero unless it passes",
+    )
+    parser.add_argument(
+        "--conform-horizon",
+        type=int,
+        default=5,
+        help="exhaustive sweep length for --conform-only; witnesses complete rule/transition coverage beyond it",
     )
     args = parser.parse_args(argv)
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
+
+    if args.conform_only:
+        start = time.perf_counter()
+        conformance = run_font_conformance(max_length=args.conform_horizon, jobs=jobs)
+        print(f"[t] run_font_conformance {time.perf_counter() - start:.1f}s", flush=True)
+        print(json.dumps(conformance, indent=2))
+        if not conformance["pass"]:
+            raise SystemExit("font conformance failed; see conform_summary.json")
+        return
 
     spec = load_default_spec()
     start = time.perf_counter()

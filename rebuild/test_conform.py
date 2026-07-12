@@ -381,3 +381,69 @@ class TestClassifierRouting:
     def test_non_ss10_ligation_keeps_marker_staging(self):
         row = self._row("ss03", ("ligation",), codepoints="E665:E652:E679")
         assert conform.classify_divergence(row) == "marker-staging-ligature-formation"
+
+
+class TestConformanceMerge:
+    def _result(self, config, **overrides):
+        kw = dict(
+            config=config,
+            sequences=100,
+            shaping_runs=100,
+            divergences=[],
+            uncovered_rules=0,
+            uncovered_transitions=0,
+            topped_up_rules=0,
+            topped_up_sequences=0,
+            notes=[],
+            modes=[],
+        )
+        kw.update(overrides)
+        return conform.ConformanceConfigResult(**kw)
+
+    def test_sequences_come_from_the_first_result_and_counters_sum(self):
+        merged = conform.merge_conformance_results(
+            "M1.otf",
+            [
+                self._result("default", shaping_runs=120, topped_up_rules=2, topped_up_sequences=20),
+                self._result("ss02", shaping_runs=110, uncovered_rules=1, uncovered_transitions=3),
+            ],
+        )
+        assert merged.sequences == 100
+        assert merged.shaping_runs == 230
+        assert merged.topped_up_rules == 2
+        assert merged.topped_up_sequences == 20
+        assert merged.uncovered_rules == 1
+        assert merged.uncovered_transitions == 3
+        assert merged.passed is False
+
+    def test_divergences_and_notes_concatenate_in_caller_order(self):
+        divergence = conform.Divergence(
+            text="", config="ss02", position=0, expected="qsPea", got="qsPea.alt", kind="oracle"
+        )
+        merged = conform.merge_conformance_results(
+            "M1.otf",
+            [
+                self._result("default", notes=["default: first"]),
+                self._result("ss02", notes=["ss02: second"], divergences=[divergence]),
+            ],
+        )
+        assert merged.notes == ["default: first", "ss02: second"]
+        assert merged.divergences == [divergence]
+        assert merged.passed is False
+
+    def test_modes_union_sorted_after_the_config_notes(self):
+        merged = conform.merge_conformance_results(
+            "M1.otf",
+            [
+                self._result("default", notes=["default: note"], modes=["mode-b"]),
+                self._result("ss02", modes=["mode-a", "mode-b"]),
+            ],
+        )
+        assert merged.notes == ["default: note", "mode-a", "mode-b"]
+        assert merged.passed is True
+
+    def test_empty_results_merge_to_an_empty_pass(self):
+        merged = conform.merge_conformance_results("M1.otf", [])
+        assert merged.sequences == 0
+        assert merged.shaping_runs == 0
+        assert merged.passed is True

@@ -1,4 +1,5 @@
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -66,6 +67,45 @@ def test_gate_unmatched_alone_is_not_a_failure():
     s["oracle"] = {"unmatched": 999999, "multi_matched": 0}
     outcome = ac.evaluate_run_m1_gate(s["pipeline"], s["boundary"], s["manual_pins"], s["oracle"])
     assert outcome.ok
+
+
+def test_conform_gate_passes_on_clean_summary():
+    status, failures = ac.evaluate_conform_gate(
+        {"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True}
+    )
+    assert status == "green"
+    assert failures == []
+
+
+def test_conform_gate_fails_on_divergences():
+    status, failures = ac.evaluate_conform_gate(
+        {"divergences": 3, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": False}
+    )
+    assert status == "FAILED"
+    assert failures == ["conform gate: 3 font-vs-settle divergence(s)"]
+
+
+def test_conform_gate_fails_on_dead_rules_and_transitions():
+    status, failures = ac.evaluate_conform_gate(
+        {"divergences": 0, "uncovered_rules": 2, "uncovered_transitions": 5, "pass": False}
+    )
+    assert status == "FAILED"
+    assert failures == [
+        "conform gate: 2 dead settlement rule(s)",
+        "conform gate: 5 dead decision-table transition(s)",
+    ]
+
+
+def test_conform_gate_fails_on_missing_summary():
+    status, failures = ac.evaluate_conform_gate(None)
+    assert status == "FAILED (no conform_summary.json)"
+    assert failures == ["conform gate: run_m1 --conform-only wrote no summary"]
+
+
+def test_conform_gate_fails_on_bare_false_pass():
+    status, failures = ac.evaluate_conform_gate({"pass": False})
+    assert status == "FAILED"
+    assert failures == ["conform gate: pass is false"]
 
 
 def test_classify_baseline():
@@ -139,6 +179,37 @@ def test_dry_run_plan_default():
     assert by_name["gate:make-test"].argv == ["make", "test"]
     assert by_name["gate:js"].argv[:2] == ["node", "--test"]
     assert all(name.endswith(".test.js") for name in by_name["gate:js"].argv[2:])
+    assert by_name["gate:conform"].argv[:6] == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.pipeline.run_m1",
+        "--conform-only",
+    ]
+
+
+def test_dry_run_plan_conform_jobs_cap():
+    plan = _plan(ncores=12)
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:conform"].argv[-2:] == ["--jobs", "8"]
+    assert plan.conform_jobs == 8
+
+    small = _plan(ncores=4)
+    small_by_name = {step.name: step for step in small.steps}
+    assert small_by_name["gate:conform"].argv[-2:] == ["--jobs", "4"]
+
+    single = _plan(ncores=1)
+    single_by_name = {step.name: step for step in single.steps}
+    assert single_by_name["gate:conform"].argv[-1] == "--conform-only"
+
+
+def test_dry_run_plan_skip_conform():
+    plan = _plan(skip_conform=True)
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:conform"].argv is None
+    assert by_name["gate:conform"].note == "SKIPPED (--skip-conform)"
+    assert by_name["gate:rebuild"].argv is not None
 
 
 def test_dry_run_plan_no_carry_and_update_pins():
@@ -189,6 +260,7 @@ def test_dry_run_plan_skip_gates():
     names = {step.name for step in plan.steps}
     assert "gate:js" not in names
     assert "gate:rebuild" not in names
+    assert "gate:conform" not in names
 
 
 def test_render_plan_is_stringable():
@@ -269,6 +341,10 @@ def _rebuild_green(pool_policy, make_fut, spawn, emit, registry, update_pins):
     return ac._RebuildOutcome("green", [], [])
 
 
+def _conform_green(pool_policy, rebuild_fut, spawn, emit, registry, argv):
+    return "green", []
+
+
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
     monkeypatch.setattr(ac, "_do_carry", _carry_ok)
@@ -300,6 +376,7 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan()
@@ -338,6 +415,7 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="overlap")
@@ -369,6 +447,7 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
 
     assert not called["rebuild"]
     assert report.gate_rebuild == "not run (run_m1 gate failed)"
+    assert report.gate_conform == "not run (run_m1 gate failed)"
     assert rc == 1
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
@@ -392,6 +471,7 @@ def test_pool_queue_serializes_rebuild_after_make_test(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="queue")
@@ -433,6 +513,7 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
     _patch_build_chain(monkeypatch)
 
     plan = _plan(pool_policy="overlap")
@@ -450,6 +531,53 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
 
     assert record["rebuild_start"] < record["make_finish"]
     assert record["rebuild_start"] >= record["run_m1_finish"]
+
+
+def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
+    record = {}
+    release_rebuild = threading.Event()
+    rebuild_running = threading.Event()
+
+    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+        rebuild_running.set()
+        release_rebuild.wait()
+        record["rebuild_finish"] = time.monotonic()
+        return ac._RebuildOutcome("green", [], [])
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if name == "gate:conform":
+            record["conform_start"] = time.monotonic()
+            record["conform_argv"] = argv
+        return _step(name, 0)
+
+    summary_path = tmp_path / "conform_summary.json"
+    summary_path.write_text(
+        json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
+    )
+    monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(pool_policy="queue")
+    report = ac.CycleReport()
+    box = {}
+    t = threading.Thread(
+        target=lambda: box.__setitem__(
+            "rc", ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+        )
+    )
+    t.start()
+    rebuild_running.wait()
+    release_rebuild.set()
+    t.join()
+
+    assert record["conform_start"] >= record["rebuild_finish"]
+    assert record["conform_argv"][:6] == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--conform-only"]
+    assert report.gate_conform == "green"
+    assert box["rc"] == 0
 
 
 def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
@@ -490,6 +618,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_gate_js_task", fake_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
     report = ac.CycleReport()
@@ -514,6 +643,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
     assert report.gate_rebuild == "green (1 documented baseline)"
+    assert report.gate_conform == "green"
     out = capsys.readouterr().out
     assert out.count("ARTIFACT CYCLE SUMMARY") == 1
     assert "15903" in out
@@ -582,7 +712,7 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     failures = []
     with ThreadPoolExecutor(max_workers=1) as pool:
         fut = pool.submit(lambda: outcome)
-        ac._join_gates(report, failures, None, fut, None, False, emit)
+        ac._join_gates(report, failures, None, fut, None, None, False, emit)
     assert report.gate_rebuild == "FAILED (2 unexplained)"
 
     out = capsys.readouterr().out
@@ -604,6 +734,7 @@ def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
     report = ac.CycleReport()
@@ -625,6 +756,7 @@ def test_gate_task_exception_still_prints_one_summary(monkeypatch, capsys):
     monkeypatch.setattr(ac, "_gate_js_task", raising_js)
     monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
     monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
     report = ac.CycleReport()
@@ -647,6 +779,7 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
     _patch_build_chain(monkeypatch)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
     monkeypatch.setattr(ac, "_gate_make_test_task", raising_make)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
 
     plan = _plan()
     report = ac.CycleReport()
@@ -674,6 +807,7 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
 
     assert report.gate_make_test == "green"
     assert report.gate_rebuild == "not run (run_m1 gate failed)"
+    assert report.gate_conform == "not run (run_m1 gate failed)"
     assert rc == 1
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
@@ -748,6 +882,8 @@ def test_dry_run_renders_concurrency():
     assert "Lane t0" in text
     assert "Lane build" in text
     assert "Lane rebuild" in text
+    assert "Lane conform" in text
+    assert "QUEUED behind gate:rebuild" in text
     assert "--jobs budget        : 1" in text
 
     by_name = {step.name: step for step in plan.steps}

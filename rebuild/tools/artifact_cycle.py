@@ -1,10 +1,10 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the sequence documented in rebuild/VERDICT-APPLICATION-PROGRESS.md: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, re-baseline the census pins, and run the three gates — always printing a summary table at the end, even on failure.
+It mechanizes the sequence documented in rebuild/VERDICT-APPLICATION-PROGRESS.md: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and queues behind gate:rebuild, so its per-config process pool only spins up once the box is free.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py --verdicts verdicts-X.json
 """
@@ -35,7 +35,8 @@ REVIEW_PORT = 7294
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "queue"
-_GATE_POOL_WORKERS = 4
+_GATE_POOL_WORKERS = 5
+_CONFORM_JOBS_CAP = 8
 
 M1_SUMMARY_FILES = {
     "pipeline": M1_OUT / "pipeline_summary.json",
@@ -43,6 +44,7 @@ M1_SUMMARY_FILES = {
     "manual_pins": M1_OUT / "manual_pins_summary.json",
     "oracle": M1_OUT / "oracle_summary.json",
 }
+CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
 BASELINE_REBUILD_FAILURES = frozenset(
     {
@@ -97,6 +99,31 @@ def evaluate_run_m1_gate(pipeline: dict, boundary: dict, manual_pins: dict, orac
     )
 
 
+def evaluate_conform_gate(summary: dict | None) -> tuple[str, list[str]]:
+    """Judge gate:conform from conform_summary.json's contents (None = the subprocess never wrote one). `pass` is the verdict; the detail lines name what broke — shaping divergences are compiler defects by definition, and nonzero uncovered counts mean dead generated rules or transitions."""
+    if summary is None:
+        return "FAILED (no conform_summary.json)", ["conform gate: run_m1 --conform-only wrote no summary"]
+    failures: list[str] = []
+    if summary.get("divergences"):
+        failures.append(f"conform gate: {summary['divergences']} font-vs-settle divergence(s)")
+    if summary.get("uncovered_rules"):
+        failures.append(f"conform gate: {summary['uncovered_rules']} dead settlement rule(s)")
+    if summary.get("uncovered_transitions"):
+        failures.append(f"conform gate: {summary['uncovered_transitions']} dead decision-table transition(s)")
+    if not summary.get("pass") and not failures:
+        failures.append("conform gate: pass is false")
+    if failures:
+        return "FAILED", failures
+    return "green", []
+
+
+def conform_gate_argv(jobs: int) -> list[str]:
+    argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--conform-only"]
+    if jobs > 1:
+        argv += ["--jobs", str(jobs)]
+    return argv
+
+
 def classify_rebuild_failure(test_id: str, update_pins: bool) -> str:
     """Bucket a failing rebuild-suite test id: 'baseline' (the four documented batch-1 spec pins, always expected), 'census-hint' (a census-pinned review test, expected to go stale after a rune change until --update-pins), or 'hard' (anything unexplained — fails the cycle)."""
     if test_id in BASELINE_REBUILD_FAILURES:
@@ -125,8 +152,10 @@ class Plan:
     verdicts: Path | None
     update_pins: bool
     skip_gates: bool
+    skip_conform: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     job_budget: int = 1
+    conform_jobs: int = 1
     review_out: Path | None = None
     census_surface: Path = REVIEW_OUT
     steps: list[Step] = field(default_factory=list)
@@ -154,6 +183,7 @@ def build_plan(
     skip_gates: bool,
     first_run: bool,
     short_id: str,
+    skip_conform: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
     ncores: int | None = None,
@@ -165,6 +195,7 @@ def build_plan(
         resolved_carry_out = carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
 
     job_budget = stage_job_budget(skip_gates=skip_gates, ncores=ncores)
+    conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
     census_surface = review_out if review_out is not None else REVIEW_OUT
 
     plan = Plan(
@@ -175,8 +206,10 @@ def build_plan(
         verdicts=verdicts,
         update_pins=update_pins,
         skip_gates=skip_gates,
+        skip_conform=skip_conform,
         pool_policy=pool_policy,
         job_budget=job_budget,
+        conform_jobs=conform_jobs,
         review_out=review_out,
         census_surface=census_surface,
     )
@@ -240,6 +273,10 @@ def build_plan(
                 lane="rebuild",
             )
         )
+        if skip_conform:
+            plan.steps.append(Step("gate:conform", None, "SKIPPED (--skip-conform)", lane="conform"))
+        else:
+            plan.steps.append(Step("gate:conform", conform_gate_argv(conform_jobs), lane="conform"))
         plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
     return plan
@@ -286,6 +323,12 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append("                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)")
     else:
         lines.append("                                       QUEUED behind gate:make-test  (queue policy)")
+    if plan.skip_conform:
+        lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
+    elif plan.pool_policy == "overlap":
+        lines.append(f"    Lane conform                     : starts when run_m1's four JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})")
+    else:
+        lines.append(f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:rebuild (--jobs {plan.conform_jobs})")
     lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  (a 12-way `make test` owns the cores)")
     return lines
 
@@ -330,6 +373,7 @@ class CycleReport:
     census_status: str = "not run"
     gate_js: str = "not run"
     gate_rebuild: str = "not run"
+    gate_conform: str = "not run"
     gate_make_test: str = "not run"
     interrupted: bool = False
 
@@ -522,6 +566,7 @@ def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome
 def _do_run_m1(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, budget: int) -> GateOutcome | None:
     for path in M1_SUMMARY_FILES.values():
         path.unlink(missing_ok=True)
+    CONFORM_SUMMARY.unlink(missing_ok=True)
     argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
     if budget > 1:
         argv += ["--jobs", str(budget)]
@@ -637,6 +682,29 @@ def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _St
     return spawn("gate:make-test", ["make", "test"], emit=emit, registry=registry, stream=True)
 
 
+def _gate_conform_task(
+    pool_policy: str, rebuild_fut: Future | None, spawn, emit: _Emitter, registry: _ChildRegistry, argv: list[str]
+) -> tuple[str, list[str]]:
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:rebuild — the tail of the make-test -> rebuild chain — so its per-config process pool only spins up once both pytest pools have drained. The stale conform_summary.json was unlinked before run_m1 started, so the verdict here can only come from this cycle's subprocess."""
+    if pool_policy == "queue" and rebuild_fut is not None:
+        try:
+            rebuild_fut.result()
+        except Exception:
+            pass
+    result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
+    summary = None
+    if CONFORM_SUMMARY.exists():
+        try:
+            summary = json.loads(CONFORM_SUMMARY.read_text())
+        except ValueError:
+            summary = None
+    status, failures = evaluate_conform_gate(summary)
+    if result.returncode != 0 and not failures:
+        status = f"FAILED (exit {result.returncode})"
+        failures = [f"conform gate: exited {result.returncode} despite a passing summary"]
+    return status, failures
+
+
 def _gate_rebuild_task(
     pool_policy: str, make_fut: Future | None, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool
 ) -> _RebuildOutcome:
@@ -668,6 +736,7 @@ def _join_gates(
     failures: list[str],
     js_fut: Future | None,
     rebuild_fut: Future | None,
+    conform_fut: Future | None,
     make_fut: Future | None,
     update_pins: bool,
     emit: _Emitter,
@@ -689,6 +758,14 @@ def _join_gates(
             for test_id in outcome.hard_ids:
                 emit.emit(f"  hard rebuild failure: {test_id}")
             failures.extend(outcome.failures)
+    if conform_fut is not None:
+        conform = _gate_result(conform_fut, "gate:conform", failures)
+        if conform is None:
+            report.gate_conform = "FAILED (exception)"
+        else:
+            status, conform_failures = conform
+            report.gate_conform = status
+            failures.extend(conform_failures)
     if make_fut is not None:
         make = _gate_result(make_fut, "gate:make-test", failures)
         if make is None:
@@ -706,24 +783,39 @@ def _run_cycle(plan: Plan, report: CycleReport, emit: _Emitter, registry: _Child
         js_fut = None if plan.skip_gates else pool.submit(_gate_js_task, spawn, emit, registry)
         make_fut = None if plan.skip_gates else pool.submit(_gate_make_test_task, spawn, emit, registry)
         rebuild_fut: Future | None = None
+        conform_fut: Future | None = None
+        if not plan.skip_gates and plan.skip_conform:
+            report.gate_conform = "skipped (--skip-conform)"
 
         gate = _do_run_m1(report, spawn=spawn, emit=emit, registry=registry, budget=plan.job_budget)
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
             report.gate_rebuild = "not run (run_m1 gate failed)"
-            _join_gates(report, failures, js_fut, None, make_fut, plan.update_pins, emit)
+            if not plan.skip_gates and not plan.skip_conform:
+                report.gate_conform = "not run (run_m1 gate failed)"
+            _join_gates(report, failures, js_fut, None, None, make_fut, plan.update_pins, emit)
             return _finish(report, failures)
 
         if not plan.skip_gates:
             rebuild_fut = pool.submit(
                 _gate_rebuild_task, plan.pool_policy, make_fut, spawn, emit, registry, plan.update_pins
             )
+            if not plan.skip_conform:
+                conform_fut = pool.submit(
+                    _gate_conform_task,
+                    plan.pool_policy,
+                    rebuild_fut,
+                    spawn,
+                    emit,
+                    registry,
+                    conform_gate_argv(plan.conform_jobs),
+                )
 
         if not _do_surface_build(
             report, spawn=spawn, emit=emit, registry=registry, review_out=plan.review_out, budget=plan.job_budget
         ):
             failures.append("surface rebuild failed")
-            _join_gates(report, failures, js_fut, rebuild_fut, make_fut, plan.update_pins, emit)
+            _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
             return _finish(report, failures)
 
         if plan.carry_out is not None:
@@ -733,7 +825,7 @@ def _run_cycle(plan: Plan, report: CycleReport, emit: _Emitter, registry: _Child
             spawn=spawn, emit=emit, registry=registry, update_pins=plan.update_pins, surface=plan.census_surface
         )
 
-        _join_gates(report, failures, js_fut, rebuild_fut, make_fut, plan.update_pins, emit)
+        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
         return _finish(report, failures)
     except KeyboardInterrupt:
         registry.terminate_all()
@@ -766,10 +858,12 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  census pins        : {report.census_status}")
     print(f"  gate: JS suite     : {report.gate_js}")
     print(f"  gate: rebuild      : {report.gate_rebuild}")
+    print(f"  gate: conform      : {report.gate_conform}")
     print(f"  gate: make test    : {report.gate_make_test}")
     print("  run_m1 summaries   :")
     for path in M1_SUMMARY_FILES.values():
         print(f"      {path}")
+    print(f"      {CONFORM_SUMMARY}")
     print("=" * 68)
 
 
@@ -813,7 +907,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--carry-out", type=Path, help="carried-forward output path (default: verdicts-carried-<short hash>.json at the repo root)")
     parser.add_argument("--snapshot-dir", type=Path, help="where to snapshot the current surface (default: tmp/review-pre-<short hash>)")
     parser.add_argument("--update-pins", action="store_true", help="re-baseline the census pins and print their git diff (default: check only, report staleness)")
-    parser.add_argument("--skip-gates", action="store_true", help="skip the three post-build gates (JS suite, rebuild suite, make test)")
+    parser.add_argument("--skip-gates", action="store_true", help="skip the four post-build gates (JS suite, rebuild suite, conformance sweep, make test)")
+    parser.add_argument("--skip-conform", action="store_true", help="skip gate:conform (the exhaustive font-vs-settle sweep) while keeping the other gates")
     parser.add_argument("--rebuild-pool", choices=POOL_POLICIES, default=REBUILD_POOL_POLICY_DEFAULT, help="how gate:rebuild shares cores with make test: 'queue' (one 12-way pool at a time, default) or 'overlap' (co-resident)")
     parser.add_argument("--review-out", type=Path, default=None, help="rehearsal mode: redirect the surface write to this dir so the cycle can run while the live server is up")
     parser.add_argument("--yes", action="store_true", help="override the running-review-server refusal")
@@ -835,6 +930,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_gates=args.skip_gates,
             first_run=first_run,
             short_id=resolve_short_id(),
+            skip_conform=args.skip_conform,
             pool_policy=args.rebuild_pool,
             review_out=args.review_out,
         )
@@ -856,6 +952,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_gates=args.skip_gates,
         first_run=first_run,
         short_id=resolve_short_id(),
+        skip_conform=args.skip_conform,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
     )

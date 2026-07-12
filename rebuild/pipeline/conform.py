@@ -738,126 +738,175 @@ def run_conformance(
     max_length: int = 5,
     out_dir: Path | None = None,
 ) -> ConformReport:
+    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead."""
+    shaper = Shaper(Path(font_path))
+    alphabet = spec_alphabet(spec)
+    splitters = splitting_boundary_chars(spec)
+    glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
+    glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
+    anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+    results = [
+        _conformance_config(shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length)
+        for config in configs
+    ]
+    report = merge_conformance_results(Path(font_path), results)
+    if out_dir is not None:
+        report.write(Path(out_dir) / "conform_summary.json")
+    return report
+
+
+@dataclass
+class ConformanceConfigResult:
+    config: str
+    sequences: int = 0
+    shaping_runs: int = 0
+    divergences: list[Divergence] = field(default_factory=list)
+    uncovered_rules: int = 0
+    uncovered_transitions: int = 0
+    topped_up_rules: int = 0
+    topped_up_sequences: int = 0
+    notes: list[str] = field(default_factory=list)
+    modes: list[str] = field(default_factory=list)
+
+
+def _conformance_config(
+    shaper: Shaper,
+    spec: ResolvedSpec,
+    config: str,
+    alphabet: tuple[str, ...],
+    splitters: frozenset[str],
+    glyph_names: Mapping[CellId, str],
+    anchors_of: Callable[[str], dict | None] | None,
+    max_length: int,
+) -> ConformanceConfigResult:
+    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline import table as table_module
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
-    shaper = Shaper(Path(font_path))
-    alphabet = spec_alphabet(spec)
-    glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
-    glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
-    anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+    features = features_for_config(config)
+    built = table_module.build_tables(spec, features)
+    decision = built[0] if isinstance(built, (tuple, list)) else built
+    renames = _raw_rename_map(spec, frozenset(features))
+    rules_by_input = _renamed_rules_by_input(spec, features, decision)
 
-    report = ConformReport(font=str(font_path))
+    result = ConformanceConfigResult(config=config)
     modes: set[str] = set()
+    rules_hit: set[int] = set()
+    realized: set[tuple[str, str, str, str]] = set()
 
-    configs = list(configs)
-    tables = {}
-    decisions = {}
-    rules_hit: dict[str, set[int]] = {}
-    realized: dict[str, set[tuple[str, str, str, str]]] = {}
-    rules_by_input_by_config: dict[str, dict[str, list[tuple[int, object]]]] = {}
-    renames_by_config: dict[str, dict[str, str]] = {}
-    for config in configs:
-        features = features_for_config(config)
-        tables[config] = table_module.build_tables(spec, features)
-        decision = tables[config][0] if isinstance(tables[config], (tuple, list)) else tables[config]
-        decisions[config] = decision
-        rules_hit[config] = set()
-        realized[config] = set()
-        renames_by_config[config] = _raw_rename_map(spec, frozenset(features))
-        rules_by_input_by_config[config] = _renamed_rules_by_input(spec, features, decision)
-
-    splitters = splitting_boundary_chars(spec)
-
-    def sweep_text(text: str, config: str) -> None:
-        features = features_for_config(config)
+    def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)
-        report.shaping_runs += 1
-        check_zwnj_structure(text, config, shaper, shaped, report.divergences)
+        result.shaping_runs += 1
+        check_zwnj_structure(text, config, shaper, shaped, result.divergences)
         if set(text) & splitters:
-            check_split_buffer(text, config, features, shaper, shaped, report.divergences, splitters)
+            check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
         settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
         expected_cells = settled_names(spec, settled, glyph_names)
         if isolated_overlay_active(spec, features):
             expected = isolated_overlay_names(spec, settled)
         else:
             expected = expected_cells
-        check_oracle(text, config, shaped, expected, report.divergences, modes)
+        check_oracle(text, config, shaped, expected, result.divergences, modes)
         if anchors_of is not None:
-            check_join_gaps(text, config, shaper, shaped, anchors_of, report.divergences)
-        for _position, window, matched in _matched_windows(
-            spec, text, features, expected_cells, rules_by_input_by_config[config]
-        ):
-            realized[config].add(window)
+            check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
+        for _position, window, matched in _matched_windows(spec, text, features, expected_cells, rules_by_input):
+            realized.add(window)
             if matched is not None:
-                rules_hit[config].add(matched)
+                rules_hit.add(matched)
 
-    sequences = [
-        "".join(combo)
-        for length in range(1, max_length + 1)
-        for combo in itertools.product(alphabet, repeat=length)
-    ]
-    report.sequences = len(sequences)
-    for text in sequences:
-        for config in configs:
-            sweep_text(text, config)
+    for length in range(1, max_length + 1):
+        for combo in itertools.product(alphabet, repeat=length):
+            result.sequences += 1
+            sweep_text("".join(combo))
 
-    for config in configs:
-        decision = decisions[config]
-        renames = renames_by_config[config]
-        prefixes = _shortest_window_prefixes(decision)
-        rows_by_rule = _first_match_rows(decision)
+    prefixes = _shortest_window_prefixes(decision)
+    rows_by_rule = _first_match_rows(decision)
 
-        swept = [index for index in range(len(decision.rules)) if index not in rules_hit[config]]
-        witnessed: dict[int, str] = {}
-        for index in swept:
-            for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
-                text = _token_text(spec, tokens)
-                sweep_text(text, config)
-                report.topped_up_sequences += 1
-                if index in rules_hit[config]:
-                    witnessed[index] = text
-                    break
-        report.topped_up_rules += len(witnessed)
-        for index, text in sorted(witnessed.items()):
-            codepoints = ":".join(f"{ord(ch):04X}" for ch in text)
-            report.notes.append(
-                f"{config}: rule beyond the length-{max_length} sweep, witnessed by {codepoints}: {rule_signature(decision.rules[index])}"
-            )
-        dead = [index for index in swept if index not in rules_hit[config]]
-        report.uncovered_rules += len(dead)
-        for index in dead:
-            report.notes.append(
-                f"{config}: settlement rule has no verifiable witness (dead code in the emitted FEA): {rule_signature(decision.rules[index])}"
-            )
+    swept = [index for index in range(len(decision.rules)) if index not in rules_hit]
+    witnessed: dict[int, str] = {}
+    for index in swept:
+        for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
+            text = _token_text(spec, tokens)
+            sweep_text(text)
+            result.topped_up_sequences += 1
+            if index in rules_hit:
+                witnessed[index] = text
+                break
+    result.topped_up_rules = len(witnessed)
+    for index, text in sorted(witnessed.items()):
+        codepoints = ":".join(f"{ord(ch):04X}" for ch in text)
+        result.notes.append(
+            f"{config}: rule beyond the length-{max_length} sweep, witnessed by {codepoints}: {rule_signature(decision.rules[index])}"
+        )
+    dead = [index for index in swept if index not in rules_hit]
+    result.uncovered_rules = len(dead)
+    for index in dead:
+        result.notes.append(
+            f"{config}: settlement rule has no verifiable witness (dead code in the emitted FEA): {rule_signature(decision.rules[index])}"
+        )
 
-        def renamed_key(row) -> tuple[str, str, str, str]:
-            return (
-                renames.get(row.input_glyph, row.input_glyph),
-                row.left,
-                renames.get(row.right1, row.right1),
-                renames.get(row.right2, row.right2),
-            )
+    def renamed_key(row) -> tuple[str, str, str, str]:
+        return (
+            renames.get(row.input_glyph, row.input_glyph),
+            row.left,
+            renames.get(row.right1, row.right1),
+            renames.get(row.right2, row.right2),
+        )
 
-        for row in decision.transitions:
-            if renamed_key(row) in realized[config]:
-                continue
-            tokens = _window_witness_tokens(prefixes, row)
-            if tokens is None:
-                continue
-            sweep_text(_token_text(spec, tokens), config)
-            report.topped_up_sequences += 1
-        unrealized = [row for row in decision.transitions if renamed_key(row) not in realized[config]]
-        report.uncovered_transitions += len(unrealized)
-        if unrealized:
-            report.notes.append(
-                f"{config}: {len(unrealized)} decision-table transitions never realized; first: {unrealized[0].key}"
-            )
+    for row in decision.transitions:
+        if renamed_key(row) in realized:
+            continue
+        tokens = _window_witness_tokens(prefixes, row)
+        if tokens is None:
+            continue
+        sweep_text(_token_text(spec, tokens))
+        result.topped_up_sequences += 1
+    unrealized = [row for row in decision.transitions if renamed_key(row) not in realized]
+    result.uncovered_transitions = len(unrealized)
+    if unrealized:
+        result.notes.append(
+            f"{config}: {len(unrealized)} decision-table transitions never realized; first: {unrealized[0].key}"
+        )
 
+    result.modes = sorted(modes)
+    return result
+
+
+def conformance_config_worker(
+    spec: ResolvedSpec,
+    font_path: Path,
+    config: str,
+    max_length: int = 5,
+    glyphs: Mapping[CellId, GlyphRecord] | None = None,
+) -> ConformanceConfigResult:
+    shaper = Shaper(Path(font_path))
+    alphabet = spec_alphabet(spec)
+    splitters = splitting_boundary_chars(spec)
+    glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
+    glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
+    anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+    return _conformance_config(shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length)
+
+
+def merge_conformance_results(
+    font_path: Path, results: Iterable[ConformanceConfigResult]
+) -> ConformReport:
+    """Fold per-config results into one ConformReport. `sequences` comes from the first result — every config sweeps the identical sequence set — while the counters sum and the divergences/notes concatenate in the caller's config order; the oracle modes are unioned and appended sorted, matching what the interleaved serial loop used to produce."""
+    report = ConformReport(font=str(font_path))
+    results = list(results)
+    report.sequences = results[0].sequences if results else 0
+    modes: set[str] = set()
+    for result in results:
+        report.shaping_runs += result.shaping_runs
+        report.divergences.extend(result.divergences)
+        report.uncovered_rules += result.uncovered_rules
+        report.uncovered_transitions += result.uncovered_transitions
+        report.topped_up_rules += result.topped_up_rules
+        report.topped_up_sequences += result.topped_up_sequences
+        report.notes.extend(result.notes)
+        modes.update(result.modes)
     report.notes.extend(sorted(modes))
-    if out_dir is not None:
-        report.write(Path(out_dir) / "conform_summary.json")
     return report
 
 
