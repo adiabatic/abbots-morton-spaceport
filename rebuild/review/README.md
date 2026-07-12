@@ -1,4 +1,4 @@
-# Treaty-diff review surface — final report
+# Treaty-diff review surface
 
 ## TL;DR
 
