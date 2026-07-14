@@ -1,6 +1,6 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the sequence documented in rebuild/VERDICT-APPLICATION-PROGRESS.md: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
