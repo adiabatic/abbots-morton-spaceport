@@ -9,7 +9,9 @@ Two window pools:
 Usage:
     uv run python rebuild/tools/seam_loss_probe.py <runes_dir> --group A|B|C|D [--collateral fam1,fam2,...]
 
-Seams are probed under the DEFAULT config (frozenset()) — the config the round-3 families adjudicate on. The full-rebuild recipe (VERDICT-APPLICATION-PROGRESS.md) remains the commit-time arbiter across all configs.
+Seams are probed under the DEFAULT config (frozenset()) — the config the round-3 families adjudicate on. The full rebuild (`make artifact-cycle`, driven by rebuild/tools/artifact_cycle.py) remains the commit-time arbiter across all configs.
+
+Superseded for collateral verification: prefer rebuild/tools/seam_loss_diff.py, which re-settles both sides live — the unit-shard `after` seams this probe compares are config-shadowed and produce phantom regressions.
 """
 
 from __future__ import annotations
