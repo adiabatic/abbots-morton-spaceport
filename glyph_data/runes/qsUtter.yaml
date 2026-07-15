@@ -89,10 +89,6 @@ policy:
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  - stance: alternate
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   contract: [{stance: mono, exit: x-height, by: 2, when: {right: {family: qsJai}}}]
   resolve: []
   groups: {}

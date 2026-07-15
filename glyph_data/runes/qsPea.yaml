@@ -121,15 +121,7 @@ policy:
         - {family: qsNo}
         - {family: qsUtter}
   prefer: []
-  extend:
-  - stance: full
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
-  - stance: half
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
+  extend: []
   contract: []
   resolve: []
   groups: {}

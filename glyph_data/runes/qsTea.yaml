@@ -107,10 +107,6 @@ policy:
     by: 1
     when: {left: {family: [qsKey, qsJay, qsEight], joined_at: baseline}}
   - {stance: full, exit: baseline, by: 1, when: {right: {family: qsI}}}
-  - stance: half
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   - {stance: half, exit: x-height, by: 1, when: {right: {family: qsI}}}
   contract:
   - {stance: half, exit: x-height, by: 1, when: {right: {family: qsZoo}}}

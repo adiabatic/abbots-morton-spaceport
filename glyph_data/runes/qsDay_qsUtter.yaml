@@ -51,10 +51,6 @@ policy:
   refuse: []
   prefer: []
   extend:
-  - stance: full
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   - {stance: full, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   - stance: half
     entry: baseline
