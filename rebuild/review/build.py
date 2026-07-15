@@ -35,7 +35,7 @@ from rebuild.review.audit import (
 )
 from rebuild.review.drafts import Drafter
 from rebuild.review.families import assign_family
-from rebuild.review.ink import VERIFICATION_METHOD, InkComparator
+from rebuild.review.ink import JUNIOR_VERIFICATION_METHOD, VERIFICATION_METHOD, InkComparator, JuniorOracle
 from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
@@ -63,6 +63,7 @@ M1_LEDGER = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 M1_SUBSETS = REPO_ROOT / "rebuild" / "out" / "m1"
 M1_AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 SITE_BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+SITE_JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 
 _FALLBACK_INDEX = """<!DOCTYPE html>
 <html lang="en">
@@ -169,18 +170,31 @@ def _config_class_note(unit) -> str | None:
     return f"{blessed_phrase}; {novel_phrase}"
 
 
-def _machine_approved_meta(machine_units) -> dict:
-    """The manifest's machine_approved record: the ink-identical total, the audit rows those units cover, the verification method one-liner, and the per-class unit counts (classes with zero machine-approved units are omitted)."""
+def _machine_approved_meta(machine_units, junior_font: Path, repo_root: Path) -> dict:
+    """The manifest's machine_approved record: the totals across both machine channels (ink-identical and junior-equivalent), the audit rows those units cover, the per-class unit counts (classes with zero machine-approved units are omitted), and one sub-record per channel carrying its own counts and verification method one-liner. The junior channel also records which Junior font testified, since that font is an oracle input the fonts block doesn't cover (it is never rendered by the app)."""
     by_class: dict[str, int] = {}
+    channels = {
+        "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
+        "junior_equivalent": {
+            "units": 0,
+            "rows": 0,
+            "method": JUNIOR_VERIFICATION_METHOD,
+            "junior_font": {"source": _relative(junior_font, repo_root), "sha256": _sha256(junior_font)},
+        },
+    }
     rows = 0
     for unit in machine_units:
         by_class[unit.class_id] = by_class.get(unit.class_id, 0) + 1
         rows += len(unit.rows)
+        channel = channels["ink_identical" if unit.ink_identical else "junior_equivalent"]
+        channel["units"] += 1
+        channel["rows"] += len(unit.rows)
     return {
         "units": len(machine_units),
         "rows": rows,
         "method": VERIFICATION_METHOD,
         "by_class": by_class,
+        "channels": channels,
     }
 
 
@@ -193,6 +207,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "id": unit.unit_id,
         "batch": unit.batch,
         "ink_identical": unit.ink_identical,
+        "junior_equivalent": unit.junior_equivalent,
         "no_verdict": unit.no_verdict,
         "echo": unit.echo,
         "class": unit.class_id,
@@ -302,6 +317,7 @@ class _UnitProjection:
 
     unit_id: str
     ink_identical: bool
+    junior_equivalent: bool
     config_diffs: tuple
     family: str
     pair_codepoints: tuple[int, int] | None
@@ -312,6 +328,7 @@ def _surface_worker(conn, init: dict) -> None:
     """A persistent, stateful surface worker (spawn-only: uharfbuzz/fontTools C objects are not fork-safe, and drafts._import_test_shaping mutates a module-global singleton). Phase 1 computes config_diff + enrich over its slice and retains each EnrichedUnit in-process; phase 2 injects the parent's global fields and emits the shard JSON from the retained ExplainReports."""
     try:
         comparator = InkComparator(init["before_font"], init["after_font"])
+        oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             spec = load_spec(init["repo_root"])
@@ -334,6 +351,7 @@ def _surface_worker(conn, init: dict) -> None:
                     text = "".join(chr(value) for value in unit.codepoint_values)
                     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
                     unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+                    unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
                     enriched = enricher.enrich(unit)
                     retained[unit.unit_id] = enriched
                     family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
@@ -341,6 +359,7 @@ def _surface_worker(conn, init: dict) -> None:
                         _UnitProjection(
                             unit_id=unit.unit_id,
                             ink_identical=unit.ink_identical,
+                            junior_equivalent=unit.junior_equivalent,
                             config_diffs=diffs,
                             family=family,
                             pair_codepoints=enriched.pair_codepoints,
@@ -388,6 +407,7 @@ def _run_parallel(
     subset_dir: Path,
     before_font: Path,
     after_font: Path,
+    junior_font: Path,
     repo_root: Path,
 ):
     """The two-phase fan-out of the three per-unit passes across persistent spawn workers, returning exactly what `_write_surface` needs. The parent keeps the frozen ids/triage order and every order-sensitive reduce (batches, family promotion, echo numbering, secondary-home resolution) serial; the workers hold the EnrichedUnits and emit the shard JSON."""
@@ -397,6 +417,7 @@ def _run_parallel(
     init = {
         "before_font": before_font,
         "after_font": after_font,
+        "junior_font": junior_font,
         "subset_dir": subset_dir,
         "repo_root": repo_root,
     }
@@ -428,6 +449,7 @@ def _run_parallel(
 
         for unit in units:
             unit.ink_identical = result_by_id[unit.unit_id].ink_identical
+            unit.junior_equivalent = result_by_id[unit.unit_id].junior_equivalent
         total_batches = assign_batches(units, batch_size)
         for unit in units:
             if unit.class_id == UNMATCHED_CLASS:
@@ -493,6 +515,7 @@ def _write_surface(
     ledger_path: Path,
     before_font: Path,
     after_font: Path,
+    junior_font: Path,
     repo_root: Path,
     static_dir: Path,
     mismatches: list,
@@ -512,7 +535,7 @@ def _write_surface(
                 "why": entry.why,
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
-                "machine_approved_count": sum(1 for unit in units if unit.ink_identical),
+                "machine_approved_count": sum(1 for unit in units if unit.ink_identical or unit.junior_equivalent),
                 "shard": f"units/{entry.id}.json",
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
@@ -522,7 +545,7 @@ def _write_surface(
         "before": _copy_font(before_font, out_dir, "before.otf", "AMS Review Before", repo_root),
         "after": _copy_font(after_font, out_dir, "after.otf", "AMS Review After", repo_root),
     }
-    machine_units = [unit for unit in workload.units if unit.ink_identical]
+    machine_units = [unit for unit in workload.units if unit.ink_identical or unit.junior_equivalent]
     manifest = {
         "format": MANIFEST_FORMAT,
         "mode": "m1-audit",
@@ -542,7 +565,7 @@ def _write_surface(
             "batches": total_batches,
             "echo_groups": echo_count,
         },
-        "machine_approved": _machine_approved_meta(machine_units),
+        "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
         "secondary_seams": seam_census,
         "classes": classes_meta,
         "build_command": BUILD_COMMAND,
@@ -572,6 +595,7 @@ def build_m1(
     subset_dir: Path = M1_SUBSETS,
     before_font: Path = SITE_BEFORE_FONT,
     after_font: Path = M1_AFTER_FONT,
+    junior_font: Path = SITE_JUNIOR_FONT,
     repo_root: Path = REPO_ROOT,
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
@@ -592,7 +616,7 @@ def build_m1(
     if jobs > 1:
         phase = time.perf_counter()
         fragments, seam_census, echo_count, total_batches, classes, by_class, mismatches = _run_parallel(
-            workload, jobs, batch_size, subset_dir, before_font, after_font, repo_root
+            workload, jobs, batch_size, subset_dir, before_font, after_font, junior_font, repo_root
         )
         print(
             f"[t] review.build parallel(jobs={jobs}) {time.perf_counter() - phase:.1f}s",
@@ -600,11 +624,13 @@ def build_m1(
             flush=True,
         )
     else:
+        oracle = JuniorOracle(junior_font, before_font, after_font)
         config_diffs: dict[str, tuple] = {}
         for unit in workload.units:
             text = "".join(chr(value) for value in unit.codepoint_values)
             diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
             unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+            unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
             config_diffs[unit.unit_id] = diffs
         total_batches = assign_batches(workload.units, batch_size)
         with warnings.catch_warnings():
@@ -667,6 +693,7 @@ def build_m1(
         ledger_path,
         before_font,
         after_font,
+        junior_font,
         repo_root,
         static_dir,
         mismatches,
@@ -741,6 +768,7 @@ def _table_diff_unit_json(
         "id": unit_id,
         "batch": batch,
         "ink_identical": ink_identical,
+        "junior_equivalent": False,
         "no_verdict": False,
         "echo": None,
         "class": entry.bucket,
@@ -962,6 +990,33 @@ def check_manifest(manifest: dict) -> list[str]:
                 sum(by_class.values()) == machine["units"],
                 "machine_approved.by_class must sum to machine_approved.units",
             )
+        channels = machine.get("channels")
+        if channels is not None:
+            need(
+                isinstance(channels, dict) and set(channels) == {"ink_identical", "junior_equivalent"},
+                "machine_approved.channels must map the two machine channels",
+            )
+            if isinstance(channels, dict):
+                for channel, record in channels.items():
+                    if not isinstance(record, dict):
+                        need(False, f"machine_approved.channels.{channel} must be a mapping")
+                        continue
+                    for key in ("units", "rows"):
+                        need(
+                            isinstance(record.get(key), int),
+                            f"machine_approved.channels.{channel}.{key} must be an integer",
+                        )
+                    need(
+                        isinstance(record.get("method"), str) and record.get("method"),
+                        f"machine_approved.channels.{channel}.method must be a nonempty string",
+                    )
+                if all(isinstance(record, dict) for record in channels.values()) and isinstance(
+                    machine.get("units"), int
+                ):
+                    need(
+                        sum(record.get("units", 0) for record in channels.values()) == machine["units"],
+                        "machine_approved.channels must sum to machine_approved.units",
+                    )
     seam_census = manifest.get("secondary_seams")
     if seam_census is not None:
         need(
@@ -1017,9 +1072,14 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
 
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
     need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
+    need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
-    if unit.get("ink_identical") is True or unit.get("no_verdict") is True:
-        need(unit.get("batch") is None, "ink-identical and no-verdict units must carry batch null")
+    if (
+        unit.get("ink_identical") is True
+        or unit.get("junior_equivalent") is True
+        or unit.get("no_verdict") is True
+    ):
+        need(unit.get("batch") is None, "machine-approved and no-verdict units must carry batch null")
     else:
         need(isinstance(unit.get("batch"), int), "batch must be an integer on human-workload units")
     need("echo" in unit, "echo must be present")
@@ -1297,7 +1357,7 @@ def check_output_dir(out_dir: Path) -> list[str]:
                     f"unit {unit.get('id')}: no_verdict {unit.get('no_verdict')} in a class "
                     f"whose no_verdict is {meta.get('no_verdict')}"
                 )
-            if unit.get("ink_identical") is True:
+            if unit.get("ink_identical") is True or unit.get("junior_equivalent") is True:
                 machine_count += 1
             elif (
                 mode == "m1-audit"
@@ -1317,7 +1377,7 @@ def check_output_dir(out_dir: Path) -> list[str]:
                         seam_homes.append((unit.get("id"), seam["home"]))
         if machine_count != meta.get("machine_approved_count"):
             errors.append(
-                f"class {meta.get('id')}: {machine_count} ink-identical units, "
+                f"class {meta.get('id')}: {machine_count} machine-approved units, "
                 f"manifest says {meta.get('machine_approved_count')}"
             )
         if machine_count:
@@ -1333,10 +1393,10 @@ def check_output_dir(out_dir: Path) -> list[str]:
     if sum(seen_machine_by_class.values()) != machine.get("units"):
         errors.append(
             f"machine_approved.units {machine.get('units')} != "
-            f"{sum(seen_machine_by_class.values())} ink-identical shard units"
+            f"{sum(seen_machine_by_class.values())} machine-approved shard units"
         )
     if seen_machine_by_class != {key: value for key, value in (machine.get("by_class") or {}).items()}:
-        errors.append("machine_approved.by_class does not match the shards' ink-identical counts")
+        errors.append("machine_approved.by_class does not match the shards' machine-approved counts")
     for unit_id, home in seam_homes:
         if home == unit_id:
             errors.append(f"unit {unit_id}: a secondary seam names itself as home")
@@ -1388,6 +1448,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--new", dest="new_dir", type=Path, help="new tables directory (table-diff mode)")
     parser.add_argument("--before-font", type=Path, default=SITE_BEFORE_FONT)
     parser.add_argument("--after-font", type=Path, default=M1_AFTER_FONT)
+    parser.add_argument("--junior-font", type=Path, default=SITE_JUNIOR_FONT)
     parser.add_argument(
         "--jobs", type=int, default=1, help="per-unit worker budget for the surface build; 1 = serial"
     )
@@ -1409,6 +1470,7 @@ def main(argv: list[str] | None = None) -> None:
             args.out,
             before_font=args.before_font,
             after_font=args.after_font,
+            junior_font=args.junior_font,
             batch_size=args.batch_size,
             jobs=args.jobs if args.jobs and args.jobs > 1 else 1,
         )

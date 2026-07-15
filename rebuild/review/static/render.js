@@ -82,7 +82,7 @@ export function onlyHereSeamSpans(unit) {
 }
 
 export function needsNoVerdict(unit) {
-  return Boolean(unit.ink_identical || unit.no_verdict);
+  return Boolean(unit.ink_identical || unit.junior_equivalent || unit.no_verdict);
 }
 
 export function echoChip(unit, memberIds) {

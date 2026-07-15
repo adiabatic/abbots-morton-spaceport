@@ -70,6 +70,9 @@ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 const MACHINE_BADGE = 'ink-identical — machine approved';
 const MACHINE_TITLE =
   'Both fonts render this unit identically under every config in its set; no human input is meaningful.';
+const JUNIOR_BADGE = 'junior-equivalent — machine approved';
+const JUNIOR_TITLE =
+  "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
 const NO_VERDICT_BADGE = 'no verdict needed';
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
@@ -288,7 +291,7 @@ function buildCodepointsCode(unit) {
 
 function buildRow(unit) {
   const exempt = needsNoVerdict(unit);
-  const exemptTitle = unit.ink_identical ? MACHINE_TITLE : NO_VERDICT_TITLE;
+  const exemptTitle = unit.ink_identical ? MACHINE_TITLE : unit.junior_equivalent ? JUNIOR_TITLE : NO_VERDICT_TITLE;
   const row = el('article', exempt ? 'row machine' : 'row');
   row.id = `unit-${unit.id}`;
   row.dataset.unit = unit.id;
@@ -311,6 +314,10 @@ function buildRow(unit) {
   if (unit.ink_identical) {
     const badge = el('span', 'machine-badge', MACHINE_BADGE);
     badge.title = MACHINE_TITLE;
+    meta.append(badge);
+  } else if (unit.junior_equivalent) {
+    const badge = el('span', 'machine-badge', JUNIOR_BADGE);
+    badge.title = JUNIOR_TITLE;
     meta.append(badge);
   } else if (unit.no_verdict) {
     const badge = el('span', 'machine-badge', NO_VERDICT_BADGE);
@@ -510,7 +517,11 @@ function renderMachineSection(container, machine) {
   for (const [classId, classUnits] of byClass) {
     const fold = el('details', 'group machine-group');
     fold.dataset.machineClass = classId;
-    const badge = classUnits.every((unit) => unit.ink_identical) ? MACHINE_BADGE : NO_VERDICT_BADGE;
+    const badge = classUnits.every((unit) => unit.ink_identical)
+      ? MACHINE_BADGE
+      : classUnits.every((unit) => unit.ink_identical || unit.junior_equivalent)
+        ? JUNIOR_BADGE
+        : NO_VERDICT_BADGE;
     const summary = el('summary');
     summary.append(el('span', 'group-name', classId));
     summary.append(el('span', 'group-counts', `${classUnits.length} units — ${badge}`));
@@ -1279,7 +1290,12 @@ function renderSearchResults(query) {
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
     row.append(el('span', 'search-class', unit.class));
-    const where = unit.ink_identical ? 'machine' : unit.no_verdict ? 'no verdict' : `batch ${unit.batch}`;
+    const where =
+      unit.ink_identical || unit.junior_equivalent
+        ? 'machine'
+        : unit.no_verdict
+          ? 'no verdict'
+          : `batch ${unit.batch}`;
     row.append(el('span', 'search-where', where));
     results.append(row);
   }

@@ -1,78 +1,92 @@
+"""Emit machine verdicts for the blank ss10-only units on the live review surface, judged by the Junior-equivalence oracle (rebuild.review.ink.JuniorOracle): a unit divergent only under ss10 is approved when the rebuild's ss10 rendering places exactly the ink the shipped Junior font places for the same string, once Junior's uniform one-pixel-per-letter tracking is removed. The oracle testifies against the served font copies (rebuild/out/review/fonts/), so it judges exactly what the surface shows. Units that fail the oracle are left blank and listed for human eyes. From the next surface rebuild onward, review.build applies the same oracle at build time (units carry `junior_equivalent` and leave the human workload), so this emitter only matters for surfaces built before that channel existed.
+
+Usage:
+    uv run python rebuild/tools/auto_classify_ss10.py                    # skip units already verdicted in verdicts-autosave.json
+    uv run python rebuild/tools/auto_classify_ss10.py <verdicts.json>    # skip units already verdicted in the given export
+    Import the emitted verdicts-ss10-junior.json through the app's import control.
+"""
+
+import argparse
 import json
-from collections import Counter
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
-UNITS_PATH = REPO / "rebuild/out/review/units/ss10-isolation-completed.json"
-VERDICTS_PATH = REPO / "verdicts-06.29.03PM.json"
-MANIFEST_PATH = REPO / "rebuild/out/review/manifest.json"
-OUTPUT_PATH = REPO / "verdicts-ss10-auto.json"
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from rebuild.review.ink import JuniorOracle
+
+REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
+JUNIOR_FONT = ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
+
+NOTE = (
+    "auto: divergent only under ss10; the rebuild's ss10 rendering is ink-identical to Junior's "
+    "isolated rendering (minus Junior's one-pixel letter tracking)"
+)
 
 
-def now_iso():
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def main():
-    units = json.loads(UNITS_PATH.read_text())
-    by_id = {u["id"]: u for u in units}
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "verdicts",
+        nargs="?",
+        default=str(ROOT / "verdicts-autosave.json"),
+        help="the verdicts file whose units are already adjudicated (default: verdicts-autosave.json)",
+    )
+    parser.add_argument("--out", type=Path, default=ROOT / "verdicts-ss10-junior.json")
+    args = parser.parse_args(argv)
 
-    verdicts_doc = json.loads(VERDICTS_PATH.read_text())
-    already_verdicted = {v["unit"] for v in verdicts_doc["verdicts"]}
-    verdicts_manifest_generated_at = verdicts_doc["manifest_generated_at"]
+    manifest = json.loads((REVIEW_OUT / "manifest.json").read_text())
+    verdicts_doc = json.loads(Path(args.verdicts).read_text())
+    if verdicts_doc.get("manifest_generated_at") != manifest["generated_at"]:
+        print(
+            f"{args.verdicts} is stamped {verdicts_doc.get('manifest_generated_at')!r} but the surface "
+            f"is {manifest['generated_at']!r} — unit ids do not join across manifests; refusing to emit.",
+            file=sys.stderr,
+        )
+        return 1
+    already_verdicted = {record["unit"] for record in verdicts_doc["verdicts"]}
 
-    manifest_doc = json.loads(MANIFEST_PATH.read_text())
-    manifest_generated_at = manifest_doc["generated_at"]
-
-    if verdicts_manifest_generated_at != manifest_generated_at:
-        print("!!! LOUD WARNING: manifest_generated_at MISMATCH !!!")
-        print(f"  verdicts file manifest_generated_at: {verdicts_manifest_generated_at!r}")
-        print(f"  manifest.json generated_at:          {manifest_generated_at!r}")
+    oracle = JuniorOracle(JUNIOR_FONT, REVIEW_OUT / "fonts" / "before.otf", REVIEW_OUT / "fonts" / "after.otf")
 
     records = []
-    skipped = []
-    for uid, unit in by_id.items():
-        if uid in already_verdicted:
-            continue
+    refused = []
+    verdicted_count = 0
+    for meta in manifest["classes"]:
+        for unit in json.loads((REVIEW_OUT / meta["shard"]).read_text()):
+            if unit["batch"] is None or unit["configs"] != ["ss10"]:
+                continue
+            if unit["id"] in already_verdicted:
+                verdicted_count += 1
+                continue
+            text = "".join(chr(int(codepoint, 16)) for codepoint in unit["codepoints"].split(":"))
+            if oracle.approves(tuple(unit["configs"]), text):
+                records.append({"unit": unit["id"], "verdict": "approve", "note": NOTE, "at": now_iso()})
+            else:
+                refused.append(f"{unit['id']} ({unit['notation']})")
 
-        cells = unit["after"]["cells"]
-        ligature_runes = []
-        for cell in cells:
-            rune = cell.split("/", 1)[0]
-            if "_" in rune:
-                ligature_runes.append(rune)
-
-        if not ligature_runes:
-            note = "auto: clean ss10 isolation (no ligature)"
-        elif all(r == "qsTea_qsOy" for r in ligature_runes):
-            note = "auto: ss10 isolation, ·Tea·Oy ligature off the judged seam"
-        else:
-            skipped.append(uid)
-            continue
-
-        records.append({"unit": uid, "verdict": "approve", "note": note, "at": now_iso()})
-
-    records.sort(key=lambda r: r["unit"])
-    skipped.sort()
-
+    records.sort(key=lambda record: record["unit"])
     output = {
         "format": "ams-review-verdicts/1",
-        "manifest_generated_at": verdicts_manifest_generated_at,
+        "manifest_generated_at": manifest["generated_at"],
         "exported_at": now_iso(),
         "verdicts": records,
     }
-    OUTPUT_PATH.write_text(json.dumps(output, indent=2) + "\n")
+    args.out.write_text(json.dumps(output, indent=2) + "\n")
 
-    for rec in records:
-        assert rec["unit"] not in already_verdicted
-
-    print(f"emitted: {len(records)}")
-    print(f"skipped ({len(skipped)}): {skipped}")
-    print("counts by note:")
-    for note, count in sorted(Counter(r["note"] for r in records).items()):
-        print(f"  {count}  {note}")
+    print(f"emitted {len(records)} approve verdict(s) to {args.out}")
+    print(f"skipped {verdicted_count} already-verdicted ss10-only unit(s)")
+    if refused:
+        print(f"refused {len(refused)} unit(s) — the ss10 rendering is not Junior's; judge these by hand:")
+        for line in refused:
+            print(f"  {line}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

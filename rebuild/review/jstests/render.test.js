@@ -240,8 +240,9 @@ test('ink-identical units are hidden unless the machine toggle is on', () => {
   assert.ok(on.machine.length >= 1);
 });
 
-test('needsNoVerdict covers both exemption kinds', () => {
+test('needsNoVerdict covers all three exemption kinds', () => {
   assert.equal(needsNoVerdict({ ink_identical: true, no_verdict: false }), true);
+  assert.equal(needsNoVerdict({ ink_identical: false, junior_equivalent: true, no_verdict: false }), true);
   assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: true }), true);
   assert.equal(needsNoVerdict({ ink_identical: false, no_verdict: false }), false);
   assert.equal(needsNoVerdict({ ink_identical: false }), false, 'a legacy unit without the field stays human');

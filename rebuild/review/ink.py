@@ -22,6 +22,14 @@ VERIFICATION_METHOD = (
     "identical under every config, so only glyph names differ."
 )
 
+JUNIOR_VERIFICATION_METHOD = (
+    "Divergent only under ss10 (suppress all joins), where the ratified spec is fully isolated letters; "
+    "shaped with uharfbuzz in the rebuild under ss10 and in the shipped Junior font (the canonical "
+    "isolated rendering) with no features, kern-neutral on both sides; outlines decomposed, placed, and "
+    "compared after removing Junior's uniform one-pixel-per-letter tracking (verified against the shipped "
+    "Senior at construction) — the rebuild draws every letter exactly as Junior draws it in isolation."
+)
+
 
 def features_for(config: str | None) -> dict[str, bool]:
     """The hb feature dict for a config token: empty for default, one True entry per `+`-joined stylistic-set tag otherwise (matching rebuild.validation.rowmodel.CONFIGS for every acceptance config, and generalizing to table-diff configs)."""
@@ -84,6 +92,20 @@ class InkComparator:
         features = features_for(config)
         return (self.ink_pieces("before", text, features), self.ink_pieces("after", text, features))
 
+    def junior_pieces(self, text: str, tracking: int) -> tuple:
+        """The before side's placed ink with a uniform letter tracking removed: like ink_pieces with no features, but each Quikscript glyph advances the pen by its advance minus `tracking`, so the pieces land where a tracking-free rendering would put them. Only meaningful when the before side is the Junior font; see JuniorOracle."""
+        shaper = self._sides["before"][0]
+        result = shaper.shape(text, kern_neutral({}))
+        pieces = []
+        pen_x = 0
+        for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
+            value = self._outline("before", name)
+            if value:
+                pieces.append(_translate(value, pen_x + x_offset, y_offset))
+            pen_x += x_advance - (tracking if name.startswith("qs") else 0)
+        pieces.sort()
+        return tuple(pieces)
+
     def config_diff(self, text: str, config: str) -> tuple:
         """The before→after ink delta under one config: (pieces only the before font draws, pieces only the after font draws), jointly translated so the delta's leftmost point sits at x=0. Both empty means ink-identical. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — even though the surrounding letters differ."""
         features = features_for(config)
@@ -114,3 +136,29 @@ class InkComparator:
             )
 
         return (normalize(before_only), normalize(after_only))
+
+
+class JuniorOracle:
+    """The second machine-approval channel, alongside ink identity: a unit divergent only under ss10 is approvable when the rebuild's ss10 rendering places exactly the ink the shipped Junior font places for the same string, once Junior's letter tracking is removed. Junior carries the same isolated letterforms as Senior plus one pixel of extra advance on every Quikscript glyph; the constructor verifies that premise against the shipped Senior and derives the tracking from it, refusing to run if the fonts ever drift from it. A pass means the rebuild draws every letter fully isolated — the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml) — so approval is mechanical regardless of what the old font did."""
+
+    def __init__(self, junior_font: Path | str, before_font: Path | str, after_font: Path | str) -> None:
+        junior_metrics = TTFont(str(junior_font))["hmtx"].metrics
+        before_metrics = TTFont(str(before_font))["hmtx"].metrics
+        shared = set(junior_metrics) & set(before_metrics)
+        deltas = {name: junior_metrics[name][0] - before_metrics[name][0] for name in shared}
+        letter_deltas = {delta for name, delta in deltas.items() if name.startswith("qs")}
+        other_deltas = {delta for name, delta in deltas.items() if not name.startswith("qs")}
+        if len(letter_deltas) != 1 or other_deltas - {0}:
+            raise ValueError(
+                "the Junior tracking premise does not hold: Quikscript advance deltas "
+                f"{sorted(letter_deltas)} (expected exactly one value), non-Quikscript deltas "
+                f"{sorted(other_deltas - {0})} (expected none)"
+            )
+        self.tracking = next(iter(letter_deltas))
+        self._comparator = InkComparator(junior_font, after_font)
+
+    def approves(self, configs, text: str) -> bool:
+        if tuple(configs) != ("ss10",):
+            return False
+        junior = self._comparator.junior_pieces(text, self.tracking)
+        return junior == self._comparator.ink_pieces("after", text, features_for("ss10"))

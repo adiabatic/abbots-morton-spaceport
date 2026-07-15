@@ -7,13 +7,14 @@ import pytest
 from rebuild.review.audit import load_workload
 from rebuild.review.census import ink_histogram, load_pins
 from rebuild.review.enrich import LETTERS
-from rebuild.review.ink import InkComparator, features_for, kern_neutral
+from rebuild.review.ink import InkComparator, JuniorOracle, features_for, kern_neutral
 from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 AUDIT_PATH = REPO_ROOT / "rebuild" / "out" / "m1" / "divergence-audit.tsv"
 LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 AFTER_FONT = REPO_ROOT / "rebuild" / "out" / "m1" / "M1.otf"
 
 PINS = load_pins()
@@ -88,3 +89,33 @@ def test_full_histogram_reproduces_the_census(workload, comparator):
     human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
     assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
     assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
+
+
+@pytest.fixture(scope="module")
+def oracle():
+    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, AFTER_FONT)
+
+
+def test_junior_tracking_premise_holds(oracle):
+    """The oracle's founding premise, verified at construction and pinned here: Junior carries the same isolated letterforms as Senior plus exactly one pixel (50 units at upem 550) of extra advance on every Quikscript glyph, and no advance difference anywhere else."""
+    assert oracle.tracking == 50
+
+
+def test_junior_oracle_approves_a_suppressed_ligature_unit(oracle):
+    """u-14056's text (·No·Day·Utter·Utter, divergent only under ss10 because the old font still formed the ·Day·Utter ligature there): the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
+    text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
+    assert oracle.approves(("ss10",), text) is True
+
+
+def test_junior_oracle_only_judges_ss10_only_units(oracle):
+    """The oracle's ruling covers exactly the units whose entire divergence is under ss10; a unit also divergent under any other config still needs its other legs judged, so the oracle abstains regardless of the ink."""
+    text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
+    assert oracle.approves(("default",), text) is False
+    assert oracle.approves(("default", "ss10"), text) is False
+    assert oracle.approves((), text) is False
+
+
+def test_junior_oracle_refuses_the_lowered_namer_dot(oracle):
+    """The known counterexample from the current surface (the five `· ◊ZWNJ ·X·Y` boundary windows): Junior renders the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle correctly leaves the unit for human eyes."""
+    text = "".join(chr(value) for value in (0x00B7, 0x200C, 0xE666, 0xE653))
+    assert oracle.approves(("ss10",), text) is False

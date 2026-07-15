@@ -46,6 +46,18 @@
   "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared.",
   "by_class": {
    "fixture-intended": 1
+  },
+  "channels": {
+   "ink_identical": {
+    "units": 1,
+    "rows": 3,
+    "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared."
+   },
+   "junior_equivalent": {
+    "units": 0,
+    "rows": 0,
+    "method": "Divergent only under ss10 and placed-ink-identical to the fixture Junior rendering with its letter tracking removed."
+   }
   }
  },
  "classes": [

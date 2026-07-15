@@ -143,15 +143,25 @@ def test_unit_ids_are_sequential_and_batches_unassigned_until_ink_is_known(workl
 def test_assign_batches_slices_the_human_workload_and_nulls_machine_units(workload):
     for index, unit in enumerate(workload.units):
         unit.ink_identical = index % 3 == 0
+        unit.junior_equivalent = index % 3 == 1 and index % 5 == 0
     try:
         total = assign_batches(workload.units, batch_size=300)
-        human = [unit for unit in workload.units if not unit.ink_identical and not unit.no_verdict]
+        human = [
+            unit
+            for unit in workload.units
+            if not unit.ink_identical and not unit.junior_equivalent and not unit.no_verdict
+        ]
         assert [unit.batch for unit in human] == [index // 300 for index in range(len(human))]
-        assert all(unit.batch is None for unit in workload.units if unit.ink_identical or unit.no_verdict)
+        assert all(
+            unit.batch is None
+            for unit in workload.units
+            if unit.ink_identical or unit.junior_equivalent or unit.no_verdict
+        )
         assert total == (len(human) + 299) // 300
     finally:
         for unit in workload.units:
             unit.ink_identical = False
+            unit.junior_equivalent = False
             unit.batch = None
 
 
