@@ -12,9 +12,13 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 ### Doable anytime
 
-Nothing has to land first — the lever is live on any cycle, so act whenever it’s worth it.
+Nothing gates these — act on any cycle, whenever it’s worth it. (None open right now.)
 
-- **Conform-gate horizon** — `gate:conform` (the exhaustive font-vs-settle sweep, `run_m1 --conform-only`, sharded per config) now runs in every artifact cycle at the length-5 horizon, queued behind the pytest gates; `--skip-conform` opts a cycle out. The sweep grows with the fifth power of the alphabet (~50 s sharded at today’s 8 migrated letters, ~15 min by ~17, hours beyond that), so when a migration batch makes this gate the cycle’s long pole, drop the cycle driver’s `--conform-horizon` below 5 (it passes through to `run_m1 --conform-only`) — witness top-ups keep rule and transition coverage exact at any horizon; only off-corpus diff density shrinks.
+### Do when a gate takes too long
+
+Not gated on a named event — these come due when a cycle step gets slow enough that acting pays off.
+
+- **Conform-gate horizon** — `gate:conform`, the exhaustive font-vs-settle sweep, runs every cycle at horizon 5 (`--conform-horizon` on the cycle driver, passed through to `run_m1 --conform-only`; `--skip-conform` opts out). The sweep grows with the fifth power of the alphabet (~50 s sharded at today’s 8 migrated letters, ~15 min by ~17, hours beyond), so when a migration batch makes this gate the cycle’s long pole, drop `--conform-horizon` below 5 — witness top-ups keep rule and transition coverage exact at any horizon; only off-corpus diff density shrinks.
 
 ### Waiting on a specific migration or milestone
 
