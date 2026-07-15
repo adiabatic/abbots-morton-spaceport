@@ -8,6 +8,9 @@ import {
   markOffset,
   secondarySeamsOf,
   seamChip,
+  cellCodepointSpans,
+  onlyHereSeamSpans,
+  tokenMarkRuns,
   needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
@@ -369,6 +372,74 @@ test('seamChip labels a homed seam with the home unit id and a home-less seam wi
   assert.equal(homeless.home, null);
   assert.equal(homeless.label, 'only here');
   assert.match(homeless.title, /no shorter home/);
+});
+
+test('cellCodepointSpans gives each cell one codepoint position and a formed ligature two', () => {
+  assert.deepEqual(
+    cellCodepointSpans(['uni200C', 'qsTea_qsOy/bar-into-loop/None/None/+locked', 'qsUtter/mono/None/None/']),
+    [[0, 0], [1, 2], [3, 3]],
+  );
+});
+
+const onlyHereUnit = {
+  ink_identical: false,
+  pair: { left: 0, right: 1 },
+  pair_codepoints: [0, 1],
+  after: {
+    cells: ['qsNo/loop/None/x-height/', 'qsIt/bar/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
+  },
+  secondary_seams: [
+    { pair: { left: 1, right: 2 }, home: null },
+    { pair: { left: 2, right: 3 }, home: 'u-0001' },
+  ],
+};
+
+test('onlyHereSeamSpans maps home-less seams to codepoint spans and skips homed ones', () => {
+  assert.deepEqual(onlyHereSeamSpans(onlyHereUnit), [[1, 2]]);
+});
+
+test('onlyHereSeamSpans shifts spans across a formed ligature', () => {
+  const unit = {
+    ...onlyHereUnit,
+    pair_codepoints: [0, 2],
+    after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/bar/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
+    secondary_seams: [{ pair: { left: 1, right: 2 }, home: null }],
+  };
+  assert.deepEqual(onlyHereSeamSpans(unit), [[2, 3]]);
+});
+
+test('onlyHereSeamSpans yields nothing for machine-approved units, missing cells, no pair, or a derivation that disagrees with the build', () => {
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, ink_identical: true }), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, after: {} }), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair: null }), []);
+  assert.deepEqual(onlyHereSeamSpans({ ...onlyHereUnit, pair_codepoints: [0, 2] }), []);
+});
+
+test('the only-here fixture unit underlines its seam tokens', () => {
+  const unit = shardB.find((entry) => entry.id === 'u-0006');
+  assert.deepEqual(onlyHereSeamSpans(unit), [[1, 2]]);
+});
+
+test('tokenMarkRuns marks pair and seam stretches, sharing a separator only between two tokens under the same mark', () => {
+  const runs = tokenMarkRuns(['E666', 'E670', 'E665', 'E652'], ['', ':', ':', ':'], [0, 1], [[1, 2]]);
+  assert.deepEqual(runs, [
+    { text: 'E666:', pair: true, seam: false },
+    { text: 'E670', pair: true, seam: true },
+    { text: ':E665', pair: false, seam: true },
+    { text: ':E652', pair: false, seam: false },
+  ]);
+  assert.equal(runs.map((run) => run.text).join(''), 'E666:E670:E665:E652');
+});
+
+test('tokenMarkRuns without seam spans reproduces the single pair-mark split', () => {
+  assert.deepEqual(tokenMarkRuns(['·No', '·It', '·May', '·Tea'], ['', '', '', ''], [0, 1], []), [
+    { text: '·No·It', pair: true, seam: false },
+    { text: '·May·Tea', pair: false, seam: false },
+  ]);
+  assert.deepEqual(tokenMarkRuns(['◊ZWNJ', '·Tea', '·Oy'], ['', ' ', ''], [1, 2], []), [
+    { text: '◊ZWNJ ', pair: false, seam: false },
+    { text: '·Tea·Oy', pair: true, seam: false },
+  ]);
 });
 
 test('fixture units satisfy the contract fields the frontend relies on', () => {

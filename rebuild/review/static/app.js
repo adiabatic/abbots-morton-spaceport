@@ -18,6 +18,8 @@ import {
   markOffset,
   secondarySeamsOf,
   seamChip,
+  onlyHereSeamSpans,
+  tokenMarkRuns,
   echoChip,
   echoFillTargets,
   needsNoVerdict,
@@ -237,20 +239,28 @@ function buildSample(unit, side, featureSettings) {
   return cell;
 }
 
-function appendMarkedTokens(node, tokens, separators, span) {
-  // The pair-mark span covers the pair's tokens and the separators between them; the separator before the first marked token stays outside.
-  const pieces = { before: '', inside: '', after: '' };
-  for (const [index, token] of tokens.entries()) {
-    if (index < span[0]) pieces.before += separators[index] + token;
-    else if (index === span[0]) {
-      pieces.before += separators[index];
-      pieces.inside += token;
-    } else if (index <= span[1]) pieces.inside += separators[index] + token;
-    else pieces.after += separators[index] + token;
+const SEAM_MARK_TITLE =
+  'This dashed underline is the secondary divergent seam judged only in this unit — the text-line twin of the sample band’s “only here” chip.';
+
+function appendMarkedTokens(node, tokens, separators, unit) {
+  for (const run of tokenMarkRuns(tokens, separators, unit.pair_codepoints, onlyHereSeamSpans(unit))) {
+    if (!run.pair && !run.seam) {
+      node.append(document.createTextNode(run.text));
+      continue;
+    }
+    let mark = null;
+    if (run.seam) {
+      mark = el('span', 'seam-mark', run.text);
+      mark.title = SEAM_MARK_TITLE;
+    }
+    if (run.pair) {
+      const pair = el('span', 'pair-mark');
+      if (mark) pair.append(mark);
+      else pair.textContent = run.text;
+      mark = pair;
+    }
+    node.append(mark);
   }
-  if (pieces.before) node.append(document.createTextNode(pieces.before));
-  node.append(el('span', 'pair-mark', pieces.inside));
-  if (pieces.after) node.append(document.createTextNode(pieces.after));
 }
 
 function buildNotationLine(unit) {
@@ -260,7 +270,7 @@ function buildNotationLine(unit) {
     line.textContent = unit.notation;
     return line;
   }
-  appendMarkedTokens(line, tokens, tokenSeparators(tokens), unit.pair_codepoints);
+  appendMarkedTokens(line, tokens, tokenSeparators(tokens), unit);
   return line;
 }
 
@@ -272,7 +282,7 @@ function buildCodepointsCode(unit) {
   }
   const tokens = unit.codepoints.split(':');
   const separators = tokens.map((_token, index) => (index === 0 ? '' : ':'));
-  appendMarkedTokens(code, tokens, separators, unit.pair_codepoints);
+  appendMarkedTokens(code, tokens, separators, unit);
   return code;
 }
 

@@ -52,6 +52,35 @@ export function seamChip(seam) {
   };
 }
 
+export function cellCodepointSpans(cells) {
+  // Mirrors the build's after-span walk behind pair_codepoints: a settled cell covers one codepoint position, except a formed ligature (the qsX_qsY underscore in its rune segment), which covers two.
+  const spans = [];
+  let position = 0;
+  for (const cell of cells) {
+    const width = cell.split('/')[0].includes('_') ? 2 : 1;
+    spans.push([position, position + width - 1]);
+    position += width;
+  }
+  return spans;
+}
+
+export function onlyHereSeamSpans(unit) {
+  // Cross-checked against the build's pair_codepoints: on any disagreement the text lines degrade to unmarked rather than underlining the wrong letters.
+  const cells = unit.after?.cells;
+  if (!Array.isArray(cells) || !unit.pair || !unit.pair_codepoints) return [];
+  const spans = cellCodepointSpans(cells);
+  const derived = [spans[unit.pair.left]?.[0], spans[unit.pair.right]?.[1]];
+  if (derived[0] !== unit.pair_codepoints[0] || derived[1] !== unit.pair_codepoints[1]) return [];
+  const result = [];
+  for (const seam of secondarySeamsOf(unit)) {
+    if (seam.home !== null) continue;
+    const left = spans[seam.pair.left];
+    const right = spans[seam.pair.right];
+    if (left && right) result.push([left[0], right[1]]);
+  }
+  return result;
+}
+
 export function needsNoVerdict(unit) {
   return Boolean(unit.ink_identical || unit.no_verdict);
 }
@@ -215,4 +244,28 @@ export function tokenSeparators(tokens) {
     previousWasLetter = letter;
   }
   return separators;
+}
+
+export function tokenMarkRuns(tokens, separators, pairSpan, seamSpans) {
+  // A separator carries a mark only when both its neighbors do, so the separator before the first marked token stays outside the mark; adjacent pieces under the same marks merge into one run.
+  const marksAt = (index) => ({
+    pair: Boolean(pairSpan) && index >= pairSpan[0] && index <= pairSpan[1],
+    seam: seamSpans.some((span) => index >= span[0] && index <= span[1]),
+  });
+  const runs = [];
+  const push = (text, pair, seam) => {
+    if (!text) return;
+    const last = runs.at(-1);
+    if (last && last.pair === pair && last.seam === seam) last.text += text;
+    else runs.push({ text, pair, seam });
+  };
+  for (const [index, token] of tokens.entries()) {
+    const marks = marksAt(index);
+    if (index > 0) {
+      const previous = marksAt(index - 1);
+      push(separators[index], marks.pair && previous.pair, marks.seam && previous.seam);
+    }
+    push(token, marks.pair, marks.seam);
+  }
+  return runs;
 }
