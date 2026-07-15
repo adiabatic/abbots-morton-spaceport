@@ -128,9 +128,15 @@ def test_group_resolution(spec):
     assert groups["utter-pass-through-vetoes"] == frozenset({"qsDay", "qsZoo", "qsShe", "qsYe", "qsOwe"})
 
 
-def test_group_qualifier_warning():
+def test_group_qualifier_warning(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          groups:
+            qualified-vetoes:
+              union: [{family: qsDay, trait: half}, family: qsMay]
+        """)
     with pytest.warns(SpecWarning, match="family grain"):
-        load_default_spec()
+        load_tmp_spec(tmp_path, {"qsIt": text})
 
 
 def test_provenance_and_record_parsing(spec):
@@ -165,11 +171,11 @@ def test_scope_condition_parsing(spec):
 
 def test_unlock_parsing(spec):
     unlocks = spec.runes["qsIt"].stances["bar"].surface.unlocks
-    assert len(unlocks) == 4
-    assert all(unlock.feature == "ss04" for unlock in unlocks)
-    assert all(unlock.pairing.entry == "baseline" and unlock.pairing.exit == "baseline" for unlock in unlocks)
-    assert unlocks[0].when.left == Condition(family=("qsDay",))
-    assert unlocks[3].when.left.except_[0].klass == ("utter-pass-through-vetoes",)
+    assert len(unlocks) == 1
+    (unlock,) = unlocks
+    assert unlock.feature == "ss04"
+    assert unlock.pairing.entry == "baseline" and unlock.pairing.exit == "baseline"
+    assert unlock.when is None
 
 
 def test_forbidden_stance_id(tmp_path):

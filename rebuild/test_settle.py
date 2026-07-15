@@ -122,9 +122,9 @@ ROWS = (
     ("qsIt zwnj qsTea qsOy", (), ("qsIt.bar", "uni200C", "qsTea_qsOy.bar-into-loop")),
     # The namer dot does not split runs but has no join surface, so adjacency breaks naturally and nothing locks after it.
     ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.bar")),
-    # ss02/ss04/ss05 triggers are out of the M1 alphabet: identical to default over these windows.
+    # ss02/ss05 triggers are out of the M1 alphabet: identical to default over these windows.
     ("qsMay qsTea", ("ss02",), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
-    # AUTHORED-DATA FINDING: the qsIt baseline-exit refusal toward [qsTea, qsRoe, qsIt] is self-scoped to unentered cells, so an entered qsIt joins a following qsIt at the baseline (today's font breaks here); identical under ss04 because every ss04 unlock partner is out of the alphabet.
+    # AUTHORED-DATA FINDING: the qsIt baseline-exit refusal toward [qsTea, qsRoe, qsIt] is self-scoped to unentered cells, so an entered qsIt joins a following qsIt at the baseline (today's font breaks here); identical under ss04 because the middle ·It settles with an x-height entry, so the baseline-baseline pass-through grant never engages in this window.
     ("qsTea qsIt qsIt", (), ("qsTea.half.ex-y5", "qsIt.bar.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.bar.en-y0")),
     (
         "qsTea qsIt qsIt",

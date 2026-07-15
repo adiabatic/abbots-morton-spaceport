@@ -40,8 +40,9 @@ def test_qsit_ss04_unlock_grants_pass_through(spec):
     assert with_ss04 - default == {("bar", "baseline", "baseline")}
     tagged = dict(surface.enumerate_cells_with_unlocks(spec, "qsIt", frozenset({"ss04"})))
     granted = tagged[CellId("qsIt", "bar", "baseline", "baseline", ())]
-    assert len(granted) == 4
-    assert all(unlock.feature == "ss04" for unlock in granted)
+    assert len(granted) == 1
+    assert granted[0].feature == "ss04"
+    assert granted[0].when is None
 
 
 def test_qstea_cells_per_configuration(spec):
@@ -156,7 +157,7 @@ def test_unlock_only_cells_resolve_with_their_record(spec):
         "ss03",
     ]
     assert surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "x-height", "baseline", ())) == ()
-    assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "baseline", "baseline", ()))) == 4
+    assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "baseline", "baseline", ()))) == 1
 
 
 def test_unknown_cell_rejected(spec):

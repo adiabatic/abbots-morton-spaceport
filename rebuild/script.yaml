@@ -7,7 +7,7 @@ boundary_tokens:
 features:
   ss02: {kind: capability, description: "·Tea x-height entry after ·I"}
   ss03: {kind: capability, description: "x-height exiters reach ·Tea (full-size bar when a baseline-join follows, else the half stub)"}
-  ss04: {kind: capability, description: "·It same-height baseline pass-through"}
+  ss04: {kind: capability, description: "·It joins at the baseline on both sides at once, any neighbor"}
   ss05: {kind: capability, description: "·Tea both-baseline after ·Et"}
   ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
   interactions: [[ss02, ss03], [ss02, ss03, ss05]]
