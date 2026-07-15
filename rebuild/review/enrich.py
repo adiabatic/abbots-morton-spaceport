@@ -1,4 +1,4 @@
-"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): rune-name notation, old seams from the §13.1 baseline subsets, the settle/explain precompute (new seams, extensions, eliminations, render text), divergent-position computation against the alias map, and highlight x-ranges in font units from real kern-neutral shaping of both fonts (the baseline subset rows were extracted with the old font's kerning on, so highlight pens come from live `kern: False` shaping instead — matching the app's `font-kerning: none` rendering)."""
+"""Unit enrichment for the review surface (rebuild/REVIEW-PLAN.md §2.2): rune-name notation, old seams from the §13.1 baseline subsets, the settle/explain precompute (new seams, extensions, eliminations, render text), divergent-position computation against the alias map (with the judged pair and secondary seams anchored on the ink-visible positions only, so annotation-grain renames ride along), and highlight x-ranges in font units from real kern-neutral shaping of both fonts (the baseline subset rows were extracted with the old font's kerning on, so highlight pens come from live `kern: False` shaping instead — matching the app's `font-kerning: none` rendering)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from rebuild.pipeline.explain import ExplainReport, explain
 from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import form_ligatures, is_boundary_settled, tokens_from_codepoints
 from rebuild.review.audit import Unit
-from rebuild.review.ink import kern_neutral
+from rebuild.review.ink import OutlineCache, kern_neutral, translate_outline
 from rebuild.validation.rowmodel import Row, iter_rows
 from rebuild.validation.shaping import SENIOR_FONT, Shaper
 
@@ -295,6 +295,7 @@ class Enricher:
         self.subset_dir = Path(subset_dir)
         self.after_shaper = Shaper(after_font)
         self.before_shaper = Shaper(before_font)
+        self._outlines = {"before": OutlineCache(before_font), "after": OutlineCache(after_font)}
         self.aliases = load_alias_map(alias_path or repo_root / "rebuild" / "m1-aliases.yaml")
         self._subset_rows: dict[str, dict[str, Row]] = {}
         self.mismatches: list[str] = []
@@ -371,7 +372,6 @@ class Enricher:
 
         diff_cp, divergent_gaps = self._diff_codepoints(values, row, before_spans, settled, after_spans)
         diff_positions = tuple(sorted({_covering(after_spans, cp) for cp in diff_cp}))
-        pair = self._pick_pair(divergent_gaps, diff_positions, after_seams, len(settled))
 
         hb_features = kern_neutral(dict.fromkeys(features, True))
         shaped = self.after_shaper.shape("".join(chr(value) for value in values), hb_features)
@@ -384,6 +384,19 @@ class Enricher:
                 f"{config} {unit.codepoints}: kern-neutral before glyphs {before_shaped.names} != subset row {tuple(row.glyphs)}"
             )
         before_pens = _pen_positions(before_shaped.positions)
+
+        ink_positions = self._ink_visible_positions(
+            diff_positions,
+            after_spans,
+            shaped,
+            after_cluster_spans,
+            after_pens,
+            before_shaped,
+            _spans_from_clusters(before_shaped.clusters, len(values)),
+            before_pens,
+        )
+        anchor_positions = ink_positions if (ink_positions or divergent_gaps) else diff_positions
+        pair = self._pick_pair(divergent_gaps, anchor_positions, after_seams, len(settled))
 
         pair_codepoints = (after_spans[pair[0]][0], after_spans[pair[1]][1] - 1) if pair is not None else None
         if pair is None and not diff_positions:
@@ -405,7 +418,7 @@ class Enricher:
         secondary_seams: list[SecondarySeam] = []
         if pair is not None and not unit.ink_identical:
             for left, right in _secondary_pairs(
-                pair, divergent_gaps, diff_positions, after_seams, len(settled)
+                pair, divergent_gaps, anchor_positions, after_seams, len(settled)
             ):
                 seam_start = after_spans[left][0]
                 seam_end = after_spans[right][1] - 1
@@ -442,7 +455,7 @@ class Enricher:
             before_glyphs=tuple(row.glyphs),
             before_spans=before_spans,
             before_seams=before_seams,
-            diff_positions=diff_positions,
+            diff_positions=ink_positions or diff_positions,
             pair=pair,
             report=report,
             provenance=provenance,
@@ -515,21 +528,66 @@ class Enricher:
     def _after_seam_at(self, settled: list[Settled], index: int) -> str:
         return self.seam_token(settled[index].seam, False) if settled[index].seam is not None else "break"
 
+    def _segment_pieces(self, side: str, shaped, pens: list[int], spans, cp_start: int, cp_end: int) -> tuple:
+        """The placed ink of one font's shaped glyphs covering codepoints [cp_start, cp_end), jointly translated so the segment's leftmost ink sits at x=0 (the config_diff normalization). Anchoring on the ink rather than on a pen position matters twice over: the two fonts compose the same absolute placement through different advance/offset mechanics, and divergent ink elsewhere in the window moves the absolute pens apart without touching this segment's drawing."""
+        placed = []
+        for index, (start, end) in enumerate(spans):
+            if start < cp_end and cp_start < end:
+                x_offset, y_offset, _advance = shaped.positions[index]
+                value = self._outlines[side].outline(shaped.names[index])
+                if value:
+                    placed.append((value, pens[index] + x_offset, y_offset))
+        xs = [
+            dx + point[0]
+            for value, dx, _dy in placed
+            for _operator, points in value
+            for point in points
+            if point is not None
+        ]
+        if not xs:
+            return ()
+        x0 = min(xs)
+        return tuple(sorted(translate_outline(value, dx - x0, dy) for value, dx, dy in placed))
+
+    def _ink_visible_positions(
+        self,
+        diff_positions: tuple[int, ...],
+        after_spans: list[tuple[int, int]],
+        shaped,
+        after_cluster_spans: list[tuple[int, int]],
+        after_pens: list[int],
+        before_shaped,
+        before_cluster_spans: list[tuple[int, int]],
+        before_pens: list[int],
+    ) -> tuple[int, ...]:
+        """The divergent positions whose divergence is visible in ink: the glyphs covering the position's codepoint span place different outlines in the two fonts. A position whose segments match diverges only on the annotation grain — a rename like bare qsNo vs qsNo/loop/None/x-height/, where the base drawing already carries the live join — and rides along in diff_positions without anchoring the judged pair or spawning a secondary seam."""
+        visible = []
+        for position in diff_positions:
+            cp_start, cp_end = after_spans[position]
+            before = self._segment_pieces(
+                "before", before_shaped, before_pens, before_cluster_spans, cp_start, cp_end
+            )
+            after = self._segment_pieces("after", shaped, after_pens, after_cluster_spans, cp_start, cp_end)
+            if before != after:
+                visible.append(position)
+        return tuple(visible)
+
     @staticmethod
     def _pick_pair(
         divergent_gaps: list[tuple[int, int]],
-        diff_positions: tuple[int, ...],
+        anchor_positions: tuple[int, ...],
         after_seams: tuple[str, ...],
         cell_count: int,
     ) -> tuple[int, int] | None:
+        """The unit's judged pair over the anchor-worthy divergences: the first divergent gap, else the first adjacent run of anchor positions, else the join-direction fallback around a lone position. The caller passes the ink-visible divergent positions when any exist (falling back to all divergent positions only when the unit is a pure rename with no divergent gap), so annotation-grain renames never drag the pair off the ink."""
         if divergent_gaps:
             return divergent_gaps[0]
-        if not diff_positions or cell_count < 2:
+        if not anchor_positions or cell_count < 2:
             return None
-        for left, right in zip(diff_positions, diff_positions[1:]):
+        for left, right in zip(anchor_positions, anchor_positions[1:]):
             if right == left + 1:
                 return (left, right)
-        position = diff_positions[0]
+        position = anchor_positions[0]
         joins_right = position + 1 < cell_count and after_seams[position] != "break"
         joins_left = position > 0 and after_seams[position - 1] != "break"
         if joins_right or (position + 1 < cell_count and not joins_left):
@@ -540,11 +598,11 @@ class Enricher:
 def _secondary_pairs(
     primary: tuple[int, int],
     divergent_gaps: list[tuple[int, int]],
-    diff_positions: tuple[int, ...],
+    anchor_positions: tuple[int, ...],
     after_seams: tuple[str, ...],
     cell_count: int,
 ) -> tuple[tuple[int, int], ...]:
-    """Every divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a derived neighbor seam for each divergent position not already covered by the primary or a gap (mirroring `_pick_pair`'s adjacency-then-join-direction fallback)."""
+    """Every anchor-worthy divergent adjacency beyond the primary pair, in left-index order: the remaining divergent gaps, plus a derived neighbor seam for each anchor position not already covered by the primary or a gap (mirroring `_pick_pair`'s adjacency-then-join-direction fallback). The caller passes the same ink-visible anchor set `_pick_pair` judged, so annotation-grain renames never spawn a marker of their own."""
     pairs: list[tuple[int, int]] = []
 
     def add(candidate: tuple[int, int]) -> None:
@@ -556,7 +614,7 @@ def _secondary_pairs(
     covered = {primary[0], primary[1]}
     for left, right in divergent_gaps:
         covered.update((left, right))
-    remaining = [position for position in diff_positions if position not in covered]
+    remaining = [position for position in anchor_positions if position not in covered]
     index = 0
     while index < len(remaining):
         position = remaining[index]
@@ -738,7 +796,7 @@ def _summarize(
     report: ExplainReport,
     provenance: tuple[str, ...],
 ) -> str:
-    """The always-visible one-line prose summary: what the new pipeline chose at the primary divergence and the single deciding record, e.g. "New: ·May joins ·It at the baseline (the old pipeline broke there) — decided by qsMay.yaml policy.extend[3] (join-count rank)."."""
+    """The always-visible one-line prose summary: what the new pipeline chose at the primary divergence and the single deciding record, e.g. "New: ·May joins ·It at the baseline (the old pipeline broke there) — decided by qsMay.yaml policy.extend[3] (join-count rank).". The caller passes the ink-visible divergent positions when any exist, so the summarized position is the one the judged pair anchors on, not an annotation-grain rename earlier in the window."""
     position = None
     for index in diff_positions:
         if index < len(report.positions) and not is_boundary_settled(report.positions[index].trace.settled):

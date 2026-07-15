@@ -162,6 +162,26 @@ def test_known_halves_extension_unit(enricher, units_by_key):
     assert "glyph_data/runes/qsMay.yaml:policy.extend" in " ".join(enriched.provenance)
 
 
+def test_annotation_grain_renames_do_not_anchor_the_pair(enricher, units_by_key):
+    # ·It·Utter·It·May: the bare-name ·Utter rename at position 1 keeps the identical drawing (name grain only), while the real ink — the non-summing extension drop — sits at the ·It·May junction. The pair anchors on the ink-visible positions, the rename rides along in diff_positions without a secondary seam of its own, and the summary describes the anchored position rather than the rename.
+    unit = units_by_key[("E670:E67A:E670:E665", "default")]
+    enriched = enricher.enrich(unit)
+    assert enriched.before_glyphs[1] == "qsUtter"
+    assert enriched.diff_positions == (1, 2, 3)
+    assert enriched.pair == (2, 3)
+    assert enriched.secondary_seams == ()
+    assert enriched.summary.startswith("New: ·It ")
+
+
+def test_pure_rename_unit_keeps_its_anchor(enricher, units_by_key):
+    # A dangling-anchor drop whose ink is identical everywhere (·It·It's benign ex-y5): no position is ink-visible, so pair picking falls back to the full divergent-position set instead of leaving the unit without a judged pair.
+    unit = units_by_key[("E670:E670", "default")]
+    enriched = enricher.enrich(unit)
+    assert enriched.before_glyphs == ("qsIt.ex-y5", "qsIt")
+    assert enriched.diff_positions == (0,)
+    assert enriched.pair == (0, 1)
+
+
 def test_zwnj_unit_carries_boundary_mark(enricher, units_by_key):
     unit = units_by_key[("200C:E652:E679", "default")]
     enriched = enricher.enrich(unit)
@@ -411,7 +431,8 @@ def test_secondary_seam_without_any_home_is_emitted_with_home_none():
 
 
 def test_enrich_emits_secondary_seams_with_primary_style_rects(enricher, workload):
-    unit = next(item for item in workload.units if item.codepoints == "E650:E650:E670:E670")
+    # ·May·No·No: both junctions are ink-visible, so the trailing ·No·No seam gets a marker beyond the primary ·May·No pair. (The former exemplar, ·Pea·Pea·It·It, stopped emitting one when secondary coverage moved to the ink-visible grain — its trailing positions are outline-identical renames.)
+    unit = next(item for item in workload.units if item.codepoints == "E665:E666:E666")
     enriched = enricher.enrich(unit)
     assert enriched.pair == (0, 1)
     assert len(enriched.secondary_seams) == 1

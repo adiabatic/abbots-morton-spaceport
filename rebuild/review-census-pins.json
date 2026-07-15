@@ -1,14 +1,14 @@
 {
   "_surface": {
-    "generated_at": "2026-07-15T05:39:35Z",
-    "repo_head": "8c63f1a"
+    "generated_at": "2026-07-15T08:04:02Z",
+    "repo_head": "e3bb258"
   },
   "manifest": {
     "totals": {
       "units": 15903,
       "rows": 81894,
       "batches": 9,
-      "echo_groups": 1211
+      "echo_groups": 964
     },
     "classes_count": 23,
     "machine_approved": {
@@ -28,10 +28,10 @@
       "bare-name-live-join": 1330
     },
     "secondary_seams": {
-      "units_with_markers": 2332,
-      "seams_homed": 607,
-      "seams_homeless": 2056,
-      "seams_suppressed_invisible": 376
+      "units_with_markers": 1404,
+      "seams_homed": 448,
+      "seams_homeless": 1077,
+      "seams_suppressed_invisible": 0
     }
   },
   "built": {

@@ -43,39 +43,50 @@ def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
     return {**(features or {}), "kern": False}
 
 
-def _translate(value: tuple, dx: int, dy: int) -> tuple:
+def translate_outline(value: tuple, dx: int, dy: int) -> tuple:
     return tuple(
         (operator, tuple(point if point is None else (point[0] + dx, point[1] + dy) for point in points))
         for operator, points in value
     )
 
 
+class OutlineCache:
+    """One font's decomposed glyph outlines, recorded lazily and cached by glyph name; `placed` translates an outline to a pen position, returning () for an inkless glyph so callers can skip markers uniformly."""
+
+    def __init__(self, font_path: Path | str) -> None:
+        self._glyph_set = TTFont(str(font_path)).getGlyphSet()
+        self._cache: dict[str, tuple] = {}
+
+    def outline(self, name: str) -> tuple:
+        if name not in self._cache:
+            pen = DecomposingRecordingPen(self._glyph_set)
+            self._glyph_set[name].draw(pen)
+            self._cache[name] = tuple((operator, tuple(points)) for operator, points in pen.value)
+        return self._cache[name]
+
+    def placed(self, name: str, dx: int, dy: int) -> tuple:
+        value = self.outline(name)
+        return translate_outline(value, dx, dy) if value else ()
+
+
 class InkComparator:
-    """Holds one Shaper, one glyph set, and one outline cache per font; `ink_identical` is a deterministic boolean over (text, configs)."""
+    """Holds one Shaper and one OutlineCache per font; `ink_identical` is a deterministic boolean over (text, configs)."""
 
     def __init__(self, before_font: Path | str, after_font: Path | str) -> None:
-        self._sides: dict[str, tuple[Shaper, object, dict[str, tuple]]] = {}
+        self._sides: dict[str, tuple[Shaper, OutlineCache]] = {}
         for side, path in (("before", before_font), ("after", after_font)):
-            self._sides[side] = (Shaper(path), TTFont(str(path)).getGlyphSet(), {})
-
-    def _outline(self, side: str, name: str) -> tuple:
-        _shaper, glyph_set, cache = self._sides[side]
-        if name not in cache:
-            pen = DecomposingRecordingPen(glyph_set)
-            glyph_set[name].draw(pen)
-            cache[name] = tuple((operator, tuple(points)) for operator, points in pen.value)
-        return cache[name]
+            self._sides[side] = (Shaper(path), OutlineCache(path))
 
     def ink_pieces(self, side: str, text: str, features: dict[str, bool]) -> tuple:
         """The placed outlines of one shaped run, sorted: one piece per glyph that carries ink, translated to its pen position. Inkless glyphs (space, ZWNJ, empty markers) contribute no piece. Shaping is always kern-neutral."""
-        shaper = self._sides[side][0]
+        shaper, outlines = self._sides[side]
         result = shaper.shape(text, kern_neutral(features))
         pieces = []
         pen_x = 0
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            value = self._outline(side, name)
-            if value:
-                pieces.append(_translate(value, pen_x + x_offset, y_offset))
+            placed = outlines.placed(name, pen_x + x_offset, y_offset)
+            if placed:
+                pieces.append(placed)
             pen_x += x_advance
         pieces.sort()
         return tuple(pieces)
@@ -94,14 +105,14 @@ class InkComparator:
 
     def junior_pieces(self, text: str, tracking: int) -> tuple:
         """The before side's placed ink with a uniform letter tracking removed: like ink_pieces with no features, but each Quikscript glyph advances the pen by its advance minus `tracking`, so the pieces land where a tracking-free rendering would put them. Only meaningful when the before side is the Junior font; see JuniorOracle."""
-        shaper = self._sides["before"][0]
+        shaper, outlines = self._sides["before"]
         result = shaper.shape(text, kern_neutral({}))
         pieces = []
         pen_x = 0
         for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            value = self._outline("before", name)
-            if value:
-                pieces.append(_translate(value, pen_x + x_offset, y_offset))
+            placed = outlines.placed(name, pen_x + x_offset, y_offset)
+            if placed:
+                pieces.append(placed)
             pen_x += x_advance - (tracking if name.startswith("qs") else 0)
         pieces.sort()
         return tuple(pieces)
@@ -128,7 +139,10 @@ class InkComparator:
             return tuple(
                 sorted(
                     tuple(
-                        (operator, tuple(point if point is None else (point[0] - x0, point[1]) for point in points))
+                        (
+                            operator,
+                            tuple(point if point is None else (point[0] - x0, point[1]) for point in points),
+                        )
                         for operator, points in piece
                     )
                     for piece in pieces
