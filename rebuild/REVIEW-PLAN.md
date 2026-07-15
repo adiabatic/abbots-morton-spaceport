@@ -1,6 +1,6 @@
 # Review surface plan (design §11, first workload: the M1 migration baseline diff)
 
-Plan for the treaty-diff review app. Inputs: `rebuild/recon/review-page.md`, `rebuild/recon/review-data.md`, design §11 + §8 + §10.5 + §6.3, and the binding user decisions (output under a new `rebuild/out/review/`, served on port 7294, nothing outside `rebuild/` + `tmp/` touched, no Makefile changes, never commit).
+Plan for the treaty-diff review app. Inputs: `rebuild/recon/review-page.md` and `rebuild/recon/review-data.md` (both since deleted — git history only), design §11 + §8 + §10.5 + §6.3, and the binding user decisions (output under a new `rebuild/out/review/`, served on port 7294, nothing outside `rebuild/` + `tmp/` touched, no Makefile changes, never commit).
 
 ## 1. Architecture
 
