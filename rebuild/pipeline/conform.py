@@ -1018,6 +1018,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "same-seam-extension-non-summing"
     if "-en-ext-1:qsMay" in phenomena:
         return "may-baseline-entry-extension-dropped"
+    if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
+        return "day-baseline-entry-extension-dropped"
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
         return "may-exit-withdrawal-generalized"
     if "+locked" in phenomena or "old-noentry" in phenomena:
@@ -1061,6 +1063,7 @@ for _class_id in (
     "halves-entry-extension-restored",
     "same-seam-extension-non-summing",
     "may-baseline-entry-extension-dropped",
+    "day-baseline-entry-extension-dropped",
     "may-exit-withdrawal-generalized",
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",

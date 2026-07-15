@@ -132,6 +132,16 @@
   exemplars:
     - {config: default, codepoints: "E650:E665", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1", new: "qsPea.full.ex-y0|qsMay.loop.en-y0 (no en-ext-1)"}
 
+- id: day-baseline-entry-extension-dropped
+  status: intended
+  match: {predicate: day_baseline_entry_extension_dropped, configs: all}
+  count: 127
+  exemplars:
+    - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/bar-into-loop/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/bar-into-loop/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
+  why: |
+    The old font stretched half-·Day's (and half ·Day·Utter's) baseline entry by one pixel after the ·Tea·Oy ligature; the runes' baseline extend records are scoped to bare qsTea/qsYe, the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. Adjudicated 2026-07-15 with qsDay's own family from side-by-side renders of both forks: the widen alternative (qsTea_qsOy added to both extend scopes) was scratch-built and proven to restore old ink on exactly these windows with zero collateral, and declined — the drop is intended. The 19 human verdicts covering the phenomenon — all approvals from 2026-06-29, carried through every surface since, spanning the plain-·Day and ·Day·Utter flavors and the word-final rider — had already judged the tighter join right; this entry gives them their ledger home. Word-final members (exit also dropped) previously rode dangling-anchor-dropped, whose ink-identical claim they violated by this one pixel.
+
 - id: dangling-anchor-dropped
   status: intended
   match: {predicate: dangling_anchor_dropped, configs: all}
