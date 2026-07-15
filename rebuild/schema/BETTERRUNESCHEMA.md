@@ -70,9 +70,9 @@ The one real problem that split was solving — cross-cutting concepts (the rune
 
 ## Walk status
 
-qsPea walk + when-grammar region + the leaf sets: **done through R50** — the full qsPea document-order walk (rows 1–29), the settled Phase-2 when-grammar decisions (`policy`, `when`, `leftCondition`, the condition leaves, `rightCondition.then`, `when.word` — R27–R32), the R40–R46 example-honesty sweep (every worked example re-trued against the live runes), and the R47–R50 leaf sets (the `pairing` leaves, the five `cellBinding` leaves, the five `unlock` leaves, and the `refuse` targeting keys plus a dejargonized `refuseRecord`) are locked; the hover text lives in `rune.schema.json`.
+qsPea walk + when-grammar region + the leaf sets: **done through R50** — the full qsPea document-order walk (rows 1–29), the settled Phase-2 when-grammar decisions (`policy`, `when`, `leftCondition`, the condition leaves, `rightCondition.then`, `when.word` — R27–R32), the R40–R46 example-honesty sweep (every worked example re-trued against the live runes), and the R47–R50 leaf sets (the `pairing` leaves, the five `cellBinding` leaves, the five `unlock` leaves, and the `refuse` targeting keys plus a dejargonized `refuseRecord`) are locked, as is the `whenWindowDecidable` container hover with its `right` one-liner (and a veto-register cleanup riding along in `then`); the hover text lives in `rune.schema.json`.
 
-Still to draft (code-only — no owner decision; draft from the code and let the owner react): `when.feature`, `rightCondition` / `rightConditionNoThen`, `selfCondition`, `whenWindowDecidable` (its `word` should mirror the settled `when.word` wording), `staticCondition`, `groupDefinition`, and the scalar `$defs` (`familyName`, `familyOrList`, `boundaryValue`, the heights, stroke).
+Still to draft (code-only — no owner decision; draft from the code and let the owner react): `when.feature`, `rightCondition` / `rightConditionNoThen`, `selfCondition`, `whenWindowDecidable`’s `left` / `self` / `word` / `feature` (its `word` should mirror the settled `when.word` wording), `staticCondition`, `groupDefinition`, and the scalar `$defs` (`familyName`, `familyOrList`, `boundaryValue`, the heights, stroke).
 
 Still open (owner decision needed): the `motionName` reserved-token rule (q22) and migration bridging (q24) — both carried in “Open (leans to react to)” below.
 
@@ -80,7 +80,7 @@ Still open (owner decision needed): the `motionName` reserved-token rule (q22) a
 
 From here the walk follows the owner’s source-order rule (set 2026-06-19): document the next **bare** field that actually appears in a live rune YAML, in document order across any of the files, rather than picking by the abstract Phase-2 row codes. The **Walk status** above still maps the territory; this pass just reorders which leaf comes next, and biases toward leaves the owner will actually hover while authoring. Root document order is `rune` → `codepoint`/`sequence` → `ductus` → `notes` → `mono` → `stances` → `policy`; the first four were already done, so `notes` was next.
 
-**In flight: the `whenWindowDecidable` round.** A D6 draft for the container’s hover and its `right` (plus a veto-register cleanup riding along in `then`) is staged in the working tree, unlanded. After it: the remaining when-grammar containers and scalars per **Walk status**, then the open leans below.
+No round is in flight. Next up: the remaining when-grammar containers and scalars per **Walk status**, then the open leans below.
 
 The R1–R50 decision log — the per-decision call-and-why behind every hover — is retired here. The hover **text** it produced lives on each key in `rune.schema.json`; recover the reasoning from that file’s `git log`.
 

@@ -8,6 +8,5 @@ One hover per round (or one coherent set of sibling one-liners). The draft is st
 
 ## What is next
 
-- **Land the open `whenWindowDecidable` round** — a D6 draft for the container’s hover and its `right` (plus a veto-register cleanup riding along in `then`) is in flight.
+- **The remaining bare when-grammar territory** — `whenWindowDecidable`’s `left` / `self` / `word` / `feature` (the container’s hover and its `right` one-liner are committed; `word` should mirror the settled `when.word` wording), `when.feature`, `rightCondition` / `rightConditionNoThen`, `selfCondition`, `staticCondition`, `groupDefinition`, and the scalar `$defs`; then the open leans (q22 reserved-token history, q24 migration bridging, the `bitmaps` `$def` scope note) recorded in the tracker.
 - **The D5 retrofit** — most of the ~50 committed hovers predate the lead-summary + `\n\n` shape and read denser than the owner wants; restructure each whenever it’s touched anyway, not as a big-bang pass.
-- **The remaining bare when-grammar territory** — `when.feature`, `rightCondition` / `rightConditionNoThen`, `selfCondition`, `staticCondition`, `groupDefinition`, and the scalar `$defs`; then the open leans (q22 reserved-token history, q24 migration bridging, the `bitmaps` `$def` scope note) recorded in the tracker.
