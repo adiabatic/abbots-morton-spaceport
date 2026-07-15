@@ -1018,6 +1018,8 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "same-seam-extension-non-summing"
     if "-en-ext-1:qsMay" in phenomena:
         return "may-baseline-entry-extension-dropped"
+    if "-en-ext-1:qsNo" in phenomena:
+        return "no-xheight-entry-extension-dropped"
     if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
@@ -1063,6 +1065,7 @@ for _class_id in (
     "halves-entry-extension-restored",
     "same-seam-extension-non-summing",
     "may-baseline-entry-extension-dropped",
+    "no-xheight-entry-extension-dropped",
     "day-baseline-entry-extension-dropped",
     "may-exit-withdrawal-generalized",
     "zwnj-word-initial-unification",
@@ -1076,6 +1079,27 @@ for _class_id in (
 def _kern_channel_out_of_scope(row: DivergentRow) -> bool:
     """Position-only rows whose drifted slot the comparison marked kern-attributable (the old pair carries a nonzero sidecar kern, or the drift sits on a ZWNJ adjacency). Everything else position-shaped stays unmatched and fails — non-kern position drift is chased to ground, never absorbed here."""
     return row.kinds == ("position",) and "position-kern-attributable" in row.phenomena
+
+
+# Cell-grain tokens that ride the ink-identical name-grain classes; anything outside this set on a seam-loosened candidate means real ink moved elsewhere in the row, so the row stays unmatched and fails.
+_NAME_GRAIN_TOKENS = frozenset(
+    {"stance", "entry-added", "entry-moved", "entry-dropped", "exit-added", "exit-moved", "exit-dropped"}
+)
+
+
+@predicate("may_ligature_seam_loosened")
+def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
+    """The adjudicated ·Day·Utter→·May x-height seam: the old font tucks ·May's x-height entry one pixel into the ligature's exit, the new model seats it at the anchor-aligned column and draws no connector, and the looser seat is the intended design (the may-ligature-seam-loosened ledger entry carries the adjudication). Matches non-kern position drift on rows whose old names carry that exact pair and whose cell-grain residue (if any) is pure name grain."""
+    if "position-drift" not in row.phenomena or "position-kern-attributable" in row.phenomena:
+        return False
+    cell_grain = {item for item in row.phenomena if not item.startswith("position")}
+    if not cell_grain <= _NAME_GRAIN_TOKENS:
+        return False
+    glyphs = row.baseline_glyphs
+    return any(
+        glyphs[index].startswith("qsDay_qsUtter") and glyphs[index + 1].startswith("qsMay.en-y5")
+        for index in range(len(glyphs) - 1)
+    )
 
 
 # The runes this M1 batch added whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.

@@ -84,10 +84,6 @@ policy:
       left: {family: [qsIt, qsUtter]}
       right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsUtter]}}
   extend:
-  - stance: full
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
   - stance: half
     entry: baseline
     by: 1

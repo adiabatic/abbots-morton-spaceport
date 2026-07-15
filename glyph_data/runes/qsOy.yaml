@@ -63,11 +63,7 @@ policy:
     over: {exit: baseline}
     when: {right: {family: [qsTea, qsIt]}}
     why: 'Round-1 verdict, 37 windows: when the groupings tie, ·Oy leaves its baseline exit unrealized so the follower pair joins instead — "I think I would rather prefer ·Tea·It to join" (u-0280); "The old way seems nicer to write out by hand" (the rest). Yielding, so a strict-gain ·Oy·Tea/·Oy·It join is kept.'
-  extend:
-  - stance: loop
-    entry: x-height
-    by: 1
-    when: {left: {class: halves-that-exit-at-x-height, joined_at: x-height}}
+  extend: []
   contract: []
   resolve: []
   groups: {}
