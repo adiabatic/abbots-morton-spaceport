@@ -10,10 +10,19 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 ## Deferred and tracked follow-ups
 
+### Doable anytime
+
+Nothing has to land first — the lever is live on any cycle, so act whenever it’s worth it.
+
+- **Conform-gate horizon** — `gate:conform` (the exhaustive font-vs-settle sweep, `run_m1 --conform-only`, sharded per config) now runs in every artifact cycle at the length-5 horizon, queued behind the pytest gates; `--skip-conform` opts a cycle out. The sweep grows with the fifth power of the alphabet (~50 s sharded at today’s 8 migrated letters, ~15 min by ~17, hours beyond that), so when a migration batch makes this gate the cycle’s long pole, drop the cycle driver’s `--conform-horizon` below 5 (it passes through to `run_m1 --conform-only`) — witness top-ups keep rule and transition coverage exact at any horizon; only off-corpus diff density shrinks.
+
+### Waiting on a specific migration or milestone
+
+Each is blocked until a named event lands — a particular rune’s migration, or the batch-2 close — and can’t meaningfully start before then.
+
 - **Unresolved design flags** — the inexpressible `reaches_up_and_way_over` resolved-extension scope on qsMay’s x-height entry (needs either a design extension or proof the partners’ own extend records cover it when qsAh/qsUtter migrate), and the ss05/ss04 row-grain refusal coverage notes. Re-check at the qsEt/qsDay/qsLow/qsUtter migration.
 - **qsZoo Manual-pin flag** — when qsZoo migrates, the Manual pin `·Tea ~b~ ·May.en-ext-1 ~x~ ·Zoo` will trip the no-waiver Manual-pin gate; re-transcribe the pin or fix the runes at that point.
 - **Dormant `contract:` records** — the `contract:` policy records on qsNo/qsUtter/qsTea/qsMay never fired in this batch’s corpus; re-adjudicate them when qsJai/qsZoo/qsJay/qsFee migrate and can actually exercise them.
-- **Conform-gate horizon** — `gate:conform` (the exhaustive font-vs-settle sweep, `run_m1 --conform-only`, sharded per config) now runs in every artifact cycle at the length-5 horizon, queued behind the pytest gates; `--skip-conform` opts a cycle out. The sweep grows with the fifth power of the alphabet (~50 s sharded at today’s 8 migrated letters, ~15 min by ~17, hours beyond that), so when a migration batch makes this gate the cycle’s long pole, drop the cycle driver’s `--conform-horizon` below 5 (it passes through to `run_m1 --conform-only`) — witness top-ups keep rule and transition coverage exact at any horizon; only off-corpus diff density shrinks.
 - **Batch-1 spec-pin re-baseline** — the rebuild suite fails exactly 4 tests on a clean HEAD by design: `test_surface.py::test_real_cell_bindings_all_match` and `test_spec_load.py`’s `test_loads_all_six_runes` / `test_predicate_class_membership` / `test_group_resolution` pin the M1-batch-1 spec shape (six runes, batch-1 predicate classes), and the artifact-cycle driver subtracts them as its expected `baseline` bucket. Re-baseline them when the batch-2 migration formally closes, and retire the driver’s baseline bucket at the same time. Distinguish real regressions in any rebuild-suite run by diffing the failure set against these four (plus the artifact-pinned census/Manual-pin tests, which go stale after any rune edit until `run_m1` + `review.build` re-run).
 
 ## Keeping this file honest
