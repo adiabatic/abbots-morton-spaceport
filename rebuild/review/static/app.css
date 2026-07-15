@@ -556,6 +556,16 @@ details.group {
       text-underline-offset: 0.18em;
     }
 
+    /* Likewise for a home-less secondary seam ("only here" — the seam is judged in this unit): the .secondary-band dashed amber as a second, deeper underline, sitting clear of the pair-mark line where the two overlap. */
+    .seam-mark {
+      text-decoration-line: underline;
+      text-decoration-style: dashed;
+      text-decoration-color: light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
+      text-decoration-thickness: 2px;
+      text-decoration-skip-ink: none;
+      text-underline-offset: 0.5em;
+    }
+
     .codepoints {
       display: flex;
       align-items: center;
