@@ -204,6 +204,18 @@ def test_dry_run_plan_conform_jobs_cap():
     assert single_by_name["gate:conform"].argv[-1] == "--conform-only"
 
 
+def test_dry_run_plan_conform_horizon():
+    plan = _plan(conform_horizon=4)
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:conform"].argv[-2:] == ["--conform-horizon", "4"]
+    assert plan.conform_horizon == 4
+
+    default = _plan()
+    default_by_name = {step.name: step for step in default.steps}
+    assert "--conform-horizon" not in default_by_name["gate:conform"].argv
+    assert default.conform_horizon == ac.CONFORM_HORIZON_DEFAULT
+
+
 def test_dry_run_plan_skip_conform():
     plan = _plan(skip_conform=True)
     by_name = {step.name: step for step in plan.steps}
@@ -575,7 +587,14 @@ def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
     t.join()
 
     assert record["conform_start"] >= record["rebuild_finish"]
-    assert record["conform_argv"][:6] == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--conform-only"]
+    assert record["conform_argv"][:6] == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.pipeline.run_m1",
+        "--conform-only",
+    ]
     assert report.gate_conform == "green"
     assert box["rc"] == 0
 
