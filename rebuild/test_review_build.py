@@ -172,7 +172,7 @@ def test_batches_cover_the_human_workload_only(built):
     for meta in manifest["classes"]:
         shard = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
         for unit in shard:
-            if unit["ink_identical"] or unit["no_verdict"]:
+            if unit["ink_identical"] or unit["junior_equivalent"] or unit["no_verdict"]:
                 assert unit["batch"] is None, unit["id"]
             else:
                 human_batches.append((unit["id"], unit["batch"]))
@@ -526,7 +526,9 @@ def test_export_round_trip(built, tmp_path):
     assert machine["by_class"] == PINS["manifest"]["machine_approved"]["by_class"]
     assert machine["method"]
     assert machine["rows_covered"] == sum(
-        len(unit["configs"]) for unit in units.values() if unit["ink_identical"]
+        len(unit["configs"])
+        for unit in units.values()
+        if unit["ink_identical"] or unit["junior_equivalent"]
     )
     expanded = []
     for token in machine["unit_ids"]:
@@ -537,7 +539,9 @@ def test_export_round_trip(built, tmp_path):
             expanded.append(int(token[2:]))
     assert len(expanded) == PINS["manifest"]["machine_approved"]["units"]
     assert {f"u-{number:04d}" for number in expanded} == {
-        unit_id for unit_id, unit in units.items() if unit["ink_identical"]
+        unit_id
+        for unit_id, unit in units.items()
+        if unit["ink_identical"] or unit["junior_equivalent"]
     }
     assert counts["rows_covered"] == sum(
         len(units[uid]["configs"])

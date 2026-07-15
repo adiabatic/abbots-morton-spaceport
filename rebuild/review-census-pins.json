@@ -1,22 +1,25 @@
 {
   "_surface": {
-    "generated_at": "2026-07-06T00:56:38Z",
-    "repo_head": "b99f726"
+    "generated_at": "2026-07-15T05:39:35Z",
+    "repo_head": "8c63f1a"
   },
   "manifest": {
     "totals": {
       "units": 15903,
       "rows": 81894,
-      "batches": 17,
-      "echo_groups": 2202
+      "batches": 9,
+      "echo_groups": 1211
     },
     "classes_count": 23,
     "machine_approved": {
-      "units": 8431,
+      "units": 12007,
       "by_class": {
-        "boundary-echo": 3811,
+        "boundary-echo": 4960,
         "dangling-anchor-dropped": 3378,
-        "bare-name-live-join": 1242
+        "bare-name-live-join": 1242,
+        "ss10-isolation-completed": 1722,
+        "ss10-ligature-suppressed": 520,
+        "kern-channel-out-of-scope": 185
       }
     },
     "class_unit_count": {
@@ -32,7 +35,7 @@
     }
   },
   "built": {
-    "human_units": 5035,
+    "human_units": 2608,
     "config_note_distribution": [
       [
         null,

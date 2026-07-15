@@ -79,8 +79,8 @@ def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
 
 
 def machine_approved_section(manifest: dict, units: dict[str, dict]) -> dict:
-    """The triage YAML's machine_approved record: machine-verdicted (ink-identical) units are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
-    machine = [unit for unit in units.values() if unit.get("ink_identical")]
+    """The triage YAML's machine_approved record: machine-verdicted units (ink-identical or junior-equivalent) are reported as counts, per-class counts, the verification method, and compact unit-id ranges — never as drafted pins, which remain a human-verdict artifact."""
+    machine = [unit for unit in units.values() if unit.get("ink_identical") or unit.get("junior_equivalent")]
     by_class: dict[str, int] = {}
     for unit in machine:
         by_class[unit["class"]] = by_class.get(unit["class"], 0) + 1
@@ -239,7 +239,11 @@ def build_triage(manifest: dict, units: dict[str, dict], verdicts: dict) -> dict
             **counts,
             "units_total": len(units),
             "human_units_total": sum(
-                1 for unit in units.values() if not unit.get("ink_identical") and not unit.get("no_verdict")
+                1
+                for unit in units.values()
+                if not unit.get("ink_identical")
+                and not unit.get("junior_equivalent")
+                and not unit.get("no_verdict")
             ),
             "skipped_no_verdict": len(exempt),
             "rows_covered": covered,

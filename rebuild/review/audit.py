@@ -51,6 +51,7 @@ class Unit:
     batch: int | None = None
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
+    junior_equivalent: bool = False
     no_verdict: bool = False
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""
@@ -267,10 +268,10 @@ def merge_ink_duplicate_units(units: list[Unit], ink_sig, exempt_classes: set[st
 
 
 def assign_batches(units: list[Unit], batch_size: int = BATCH_SIZE) -> int:
-    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while ink-identical units (machine-approved) and units of no-verdict ledger classes carry batch None — neither is ever paged to a human. Returns the batch count."""
+    """Batches cover the human workload only: the remaining units get fixed slices of batch_size in triage order, while machine-approved units (ink-identical or junior-equivalent) and units of no-verdict ledger classes carry batch None — none is ever paged to a human. Returns the batch count."""
     index = 0
     for unit in units:
-        if unit.ink_identical or unit.no_verdict:
+        if unit.ink_identical or unit.junior_equivalent or unit.no_verdict:
             unit.batch = None
         else:
             unit.batch = index // batch_size
