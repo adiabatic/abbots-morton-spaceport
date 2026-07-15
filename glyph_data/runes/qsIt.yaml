@@ -26,7 +26,7 @@ stances:
         baseline: {x: 1, stroke: vertical, withdrawal: safe}
         x-height: {x: 1, stroke: vertical, withdrawal: safe}
       pairings:
-        # The ductus's old join-constraint bullets, relocated: joined at one height, ·It joins onward only at the other; same-height pass-through exists only behind the ss04 unlocks below.
+        # The ductus's old join-constraint bullets, relocated: joined at one height, ·It joins onward only at the other; same-height pass-through exists only behind the ss04 unlock below.
         only:
         - {entry: x-height, exit: baseline}
         - {entry: x-height, exit: none}
@@ -36,26 +36,7 @@ stances:
         - {entry: none, exit: baseline}
         - {entry: none, exit: none}
       cells: []
-      # The except carve-outs carry the old ss04 stances' inherited not_after/not_before lists; the before-·Day row drops the old `entry_y: 5` narrowing on its trigger as pre-lookup trivia (the settled follower is the half ·Day).
-      unlocks:
-      - pairing: {entry: baseline, exit: baseline}
-        feature: ss04
-        when: {left: {family: qsDay}, right: {except: [family: qsDay]}}
-      - pairing: {entry: baseline, exit: baseline}
-        feature: ss04
-        when:
-          left: {except: [family: qsJay, family: qsYe, family: qsIt, family: qsEat]}
-          right: {family: qsLow, class: can-enter-at-baseline}
-      - pairing: {entry: baseline, exit: baseline}
-        feature: ss04
-        when:
-          left: {except: [family: qsJay, family: qsYe, family: qsIt, family: qsEat]}
-          right: {family: qsDay}
-      - pairing: {entry: baseline, exit: baseline}
-        feature: ss04
-        when:
-          left: {except: [class: utter-pass-through-vetoes]}
-          right: {family: qsUtter, class: can-enter-at-baseline}
+      unlocks: [{pairing: {entry: baseline, exit: baseline}, feature: ss04}]
       require: []
 policy:
   refuse:
@@ -104,6 +85,4 @@ policy:
   - {stance: bar, exit: x-height, by: 1, when: {right: {family: [qsZoo, qsJai, qsCheer, qsOwe]}}}
   contract: []
   resolve: []
-  groups:
-    utter-pass-through-vetoes:
-      union: [{family: qsZoo, trait: half}, family: qsShe, family: qsYe, family: qsOwe]
+  groups: {}
