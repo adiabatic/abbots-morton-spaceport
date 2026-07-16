@@ -3,7 +3,6 @@ import collections
 import json
 import pathlib
 import sys
-import tarfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -12,22 +11,8 @@ from rebuild.review.ink import InkComparator  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
-SURFACE_ARCHIVES = ROOT / "rebuild/evidence/surfaces"
-SOURCES = [
-    (ROOT / "tmp/review-baseline", ROOT / "verdicts-11.33.00PM.json", None),
-    (ROOT / "tmp/review-preview-bd1", ROOT / "verdicts-12.04.13AM.json", "2026-07-03"),
-]
 # secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers, and echo is an order-derived group id absent from older surfaces; everything adjudicable either describes is already covered by the window plus both fonts' glyphs, cells, and seams.
 PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams", "echo"}
-
-
-def ensure_surface(root):
-    if not root.is_dir():
-        archive = SURFACE_ARCHIVES / f"{root.name}.tar.gz"
-        root.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(archive) as tf:
-            tf.extractall(root.parent, filter="data")
-    return root
 
 
 def load_surface(root):
@@ -73,8 +58,9 @@ def main():
         "--source",
         nargs=2,
         action="append",
+        required=True,
         metavar=("SURFACE_DIR", "VERDICTS_JSON"),
-        help="a prior surface directory and the verdicts file recorded against it; repeatable; defaults to the historical round-3 sources",
+        help="a prior surface directory and the verdicts file recorded against it; repeatable",
     )
     parser.add_argument("--out", default=str(OUT), help="output verdicts file (default: %(default)s)")
     parser.add_argument(
@@ -84,22 +70,15 @@ def main():
         help="the freshly built surface to carry onto (default: the live review surface)",
     )
     args = parser.parse_args()
-    sources = (
-        [(pathlib.Path(directory), pathlib.Path(verdicts), None) for directory, verdicts in args.source]
-        if args.source
-        else SOURCES
-    )
+    sources = [(pathlib.Path(directory), pathlib.Path(verdicts)) for directory, verdicts in args.source]
 
     prior = {}
     surface_roots = {}
-    for surface_root, verdict_file, at_floor in sources:
-        root = ensure_surface(surface_root)
+    for root, verdict_file in sources:
         surface_roots[root.name] = root
         units_by_id = {u["id"]: u for u in load_surface(root)}
         used = 0
         for unit_id, record in latest_verdicts(verdict_file).items():
-            if at_floor is not None and record["at"] < at_floor:
-                continue
             unit = units_by_id.get(unit_id)
             if unit is None:
                 continue
@@ -107,7 +86,7 @@ def main():
             if key not in prior or record["at"] > prior[key][0]["at"]:
                 prior[key] = (record, root.name, unit)
             used += 1
-        print(f"{verdict_file.name}: {used} verdicts resolved against {surface_root.name}")
+        print(f"{verdict_file.name}: {used} verdicts resolved against {root.name}")
 
     manifest = json.loads((args.current_surface / "manifest.json").read_text())
     current = load_surface(args.current_surface)

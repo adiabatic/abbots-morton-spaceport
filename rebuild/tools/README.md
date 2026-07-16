@@ -6,7 +6,6 @@ Long-running scripts for the M1 rebuild that the reports under `rebuild/` and `W
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `carry_verdicts.py`                        | Re-resolves prior verdict exports against the surfaces they were recorded on and carries render-identical units onto the live review surface |
 | `scratch_build.py`                         | Parameterized `load_spec(runes_dir, ...)` build into a scratch out-dir, for A/B oracle experiments without touching `glyph_data/runes/`      |
-| `regroup_diff.py`                          | Target/guard verification harness for candidate rune edits (Phase 2/3 of the verdict application)                                            |
 | `probe.py`                                 | Probe one codepoint window: old-font baseline vs new settlement, all configs                                                                 |
 | `seam_loss_probe.py` / `seam_loss_diff.py` | Group-scoped probes for the seam-loss-withdrawal triage                                                                                      |
 | `t7_audit_diff.py`                         | A/B diff of two scratch-build divergence audits (the Group C verification)                                                                   |
