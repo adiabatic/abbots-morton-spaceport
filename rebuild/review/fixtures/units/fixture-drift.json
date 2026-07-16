@@ -49,7 +49,7 @@
   "after": {
    "cells": [
     "namer-dot/boundary/None/None/",
-    "qsOy/loop/None/baseline/",
+    "qsOy/hapax/None/baseline/",
     "qsTea/full/baseline/None/"
    ],
    "seams": [
@@ -111,7 +111,7 @@
     "home": "u-0005"
    }
   ],
-  "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.loop.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
+  "explain": "sequence 00B7:E679:E652   config default\nsettled: periodcentered qsOy.hapax.ex-y0 qsTea.full.en-y0\n\nposition 1: qsOy\n  decided by: join-count",
   "summary": "New: \u00b7 \u00b7Oy\u00b7Tea settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -190,7 +190,7 @@
   },
   "after": {
    "cells": [
-    "qsTea_qsOy/bar-into-loop/None/None/"
+    "qsTea_qsOy/hapax/None/None/"
    ],
    "seams": [],
    "extensions": []
@@ -213,7 +213,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.bar-into-loop\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
+  "explain": "sequence E652:E679   config ss03\nsettled: qsTea_qsOy.hapax\n\nposition 0: qsTea_qsOy\n  decided by: only-candidate",
   "summary": "New: \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -229,7 +229,7 @@
    "policy": {
     "file": "glyph_data/runes/qsTea_qsOy.yaml",
     "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: bar-into-loop, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
+    "suggested_record": "{stance: hapax, when: {word: isolated}, why: 'Reviewer rejected the M1 outcome for E652:E679 (\u00b7Tea\u00b7Oy)'}",
     "names_provenance": [],
     "decided_stage": "only-candidate",
     "schema_valid": true,

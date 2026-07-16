@@ -20,7 +20,7 @@
   ink_identical: true
   count: 0
   exemplars:
-    - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.bar.locked|qsIt.bar"}
+    - {config: default, codepoints: "200C:E670:E670", baseline: "space|qsIt.ex-y5|qsIt", new: "uni200C|qsIt.hapax.locked|qsIt.hapax"}
   why: |
     Post-ZWNJ is definitionally word-initial in the new model (design section 3.4): the authored .noentry shadow universe is deleted and the chokepoint mints generated locked twins instead, so every post-ZWNJ position diverges at name grain (old `<x>.noentry` or a contextually leaked bare name, new `<cell>.locked`). Seams agree; the locked twin's drawing equals the old shadow glyph's. Since the boundary-echo blanket (above) now takes every ZWNJ row first, this entry keeps only the namer-dot remainder of the shadow-universe deletion — the old pipeline minted the same `.noentry` shadows after the namer dot (id kept for the documentation trail).
 
@@ -29,7 +29,7 @@
   match: {predicate: marker_staging_ligature_formation, configs: all}
   count: 187
   exemplars:
-    - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.bar-into-loop.locked"}
+    - {config: default, codepoints: "200C:E652:E679", baseline: "space|qsTea.noentry|qsOy (unformed)", new: "uni200C|qsTea_qsOy.hapax.locked"}
   why: |
     Formation is unconditional and staged before the markers and the chokepoint (the prototype's proven stage order), so ·Tea·Oy forms even immediately after ZWNJ and under every stylistic set; today's pipeline renames the lead first and the ligature never forms there. Prototype divergence 5 / M1-PLAN expected class 6. Round-1 verdict: 32 approvals ratify the intent (the four "·May should use the loop stance" skip-notes are superseded by the user's final taste — ·May settles on the loop stance with its full exit terminal, no pull-back). The boundary-echo blanket (above) now takes the post-ZWNJ flavor; this entry keeps the ss03 and post-namer-dot rows.
 
@@ -38,7 +38,7 @@
   match: {predicate: zwnj_follower_exit_restored, configs: all}
   count: 0
   exemplars:
-    - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.bar.en-y5 (y0 join gained)"}
+    - {config: default, codepoints: "200C:E665:E665:E670", baseline: "space|qsMay.noentry|qsMay.ex-ext-1|qsIt.en-y5.ex-y0 (break after the locked May)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-y5.ex-ext-1|qsIt.hapax.en-y5 (y0 join gained)"}
   why: |
     Today's qsMay.noentry shadow stance carries no exit anchor, so a post-ZWNJ ·May cannot join rightward at all; the chokepoint twin severs only the entry (the ZWNJ break is the left seam), so the follower's own right-side joins are restored. Design section 3.4: ZWNJ splits the run, it does not mute the word-initial letter's surface. Round-1 verdict: 6 approvals; u-0267's window additionally lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (the gained join survives). Since the boundary-echo blanket (above) now takes every ZWNJ row first, this entry keeps only the namer-dot flavor, if any — the old font's post-dot shadows also mute right-side joins (id kept for the documentation trail).
 
@@ -56,7 +56,7 @@
   match: {predicate: pre_ligature_cleanup_regularized, configs: all}
   count: 38
   exemplars:
-    - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.bar.en-y5|qsTea_qsOy (y5 join kept)"}
+    - {config: default, codepoints: "E652:E670:E652:E679", baseline: "qsTea|qsIt|qsTea_qsOy (Tea.It break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5|qsTea_qsOy (y5 join kept)"}
   why: |
     Today's calt_post_liga_left_cleanup_pred reverts the pre-predecessor's join whenever the predecessor withdraws before the entryless ligature, over-reaching onto seams the withdrawal never touched (the never-ported demote/cleanup mechanism, recon section 13.4). Settlement withdraws exactly the one declined exit; the unrelated join one position left survives. Round-1 verdict: 6 approvals; u-0272's kept join lost the rejected en-ext-1 pixel when qsIt's halves entry-extension record was deleted (exemplar refreshed accordingly).
 
@@ -67,7 +67,7 @@
   exemplars:
     - {config: default, codepoints: "E650:E665:E650:E650", baseline: "qsPea|qsMay.en-y0.ex-y5.en-ext-1|qsPea.half.en-y6.ex-y6|qsPea.en-y6 (y0,break,y6)", new: "qsPea.full.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsPea.full.en-y5|qsPea.full (y0,y5,break)"}
     - {config: default, codepoints: "200C:E665:E665:E665", baseline: "space|qsMay.noentry|qsMay.ex-y0|qsMay.en-y0.ex-y5 (break,y0 on the second pair)", new: "uni200C|qsMay.grounded-loop.ex-y0.locked|qsMay.loop.en-y0.ex-bind-pulled-back|qsMay.loop (y0 on the first pair)"}
-    - {config: default, codepoints: "E679:E652:E670:E670", baseline: "qsOy|qsTea.en-y0|qsIt.ex-y5|qsIt (y0,break,break)", new: "qsOy.loop|qsTea.half.ex-y5|qsIt.bar.en-y5.ex-y0.ex-ext-1|qsIt.bar.en-y0 (break,y5,y0 — two joins for one)"}
+    - {config: default, codepoints: "E679:E652:E670:E670", baseline: "qsOy|qsTea.en-y0|qsIt.ex-y5|qsIt (y0,break,break)", new: "qsOy.hapax|qsTea.half.ex-y5|qsIt.hapax.en-y5.ex-y0.ex-ext-1|qsIt.hapax.en-y0 (break,y5,y0 — two joins for one)"}
   why: |
     The deterministic ranking (optimistic third term, then order:, then the structural floor) regroups chains today's greedy cascade pairs differently — the same number of joins on a different seam, section 15.4 do-not-care drift. Round-1 verdict: 43 rejects ("The old way seems nicer to write out by hand"; u-0280 "I think I would rather prefer ·Tea·It to join"), reverted by the yielding prefers on qsOy, qsTea_qsOy (the ligature twin), qsIt (the ·It·It-before-·May decline), and qsMay (the greedy ·May·May pairing). The surviving rows are the documented residue: u-0277 (·Pea·May·Pea·Pea, 7 rows, no ·Oy/·It·It/·May·May seam, unverdicted), u-0857 (post-ZWNJ ·May·May·May, 7 rows, now regrouping to the first pair like its space-boundary sibling), and the four formerly machine-approved ·Oy windows (20 rows: ·Oy·Tea·It·It, ·Oy·It·May·Tea, ·Oy·It·May·May, ·Oy·Tea·May·Tea) where the qsOy decline trades the word-initial ·Oy join for the follower joins the user said they prefer — all awaiting fresh verdicts on the regenerated review surface.
 
@@ -77,7 +77,7 @@
   count: 696
   exemplars:
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
-    - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.bar.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
+    - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.hapax.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E67A:E652:E67A", baseline: "qsUtter.ex-ext-1|qsTea.half.en-y5.after-xheight-exit|qsUtter (y5,break)", new: "qsUtter.mono.ex-y5.ex-ext-1|qsTea.full.en-y5.ex-y0|qsUtter.mono.en-y0 (y5,y0)"}
   why: |
     Under ss03 the window join-count maximization buys chains today's one-pair-at-a-time cascade cannot see. Two shapes, one mechanism: ·Tea·May·Tea and ·May·May·Tea gain the second join on the ·May·Tea side (prototype deviation 3 / M1-PLAN expected class 7), and ·It·May·Tea gains the first join — today ·May wears the entryless after-xheight-exit stance toward the half-·Tea, so the unentered ·It cannot reach it; settlement's ·May cell carries both anchors (en-y0 and the extended ex-y5), so the ·It·May baseline join lands alongside the kept ·May·Tea join. 36 of the 120 original rows are the ·It·May·Tea shape (12 per ss03-bearing configuration). Round-1 verdict: 40 approvals; u-0356's post-ZWNJ ·Tea·It join keeps its gain but its connector returned to the unextended width when qsIt's halves entry-extension record was deleted.
@@ -89,7 +89,7 @@
   match: {predicate: entered_it_baseline_join_gain, configs: all}
   count: 0
   exemplars:
-    - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.bar.en-y5.ex-y0.ex-ext-1|qsIt.bar.en-y0 (y5,y0)"}
+    - {config: default, codepoints: "E652:E670:E670", baseline: "qsTea.half.ex-y5|qsIt.en-y5.ex-y0|qsIt (y5,break)", new: "qsTea.half.ex-y5|qsIt.hapax.en-y5.ex-y0.ex-ext-1|qsIt.hapax.en-y0 (y5,y0)"}
   why: |
     The old YAML places the not_before [qsTea, qsIt, qsRoe] baseline-exit refusal on the unentered stance only (quikscript.yaml entry_nowhere_exit_baseline; the entered en-y5/ex-y0 stance carries no such refusal), so the authored self-scoped refusal is faithful and an entered ·It legally joins a following ·It/·Tea at the baseline. Today's break is a cascade artifact, not authored law; the extended exit (ex-ext-1, the entered-exit extension) keeps the two verticals two columns apart, so the why of the refusal (one extra-thick stroke) does not apply. Off-anchor contact gate clean over these cells. Every member row's gained seam has an entered ·It on its left (the classifier routes unentered-·It gains — the ss03 ·It·May·Tea chains — to ss03-chain-join-gains instead, and an unentered-·It gain outside ss03 matches nothing and fails). Round-1 verdict: 33 approvals; the two skips u-0397/u-0399 ("I like the extra join but the extension between ·Tea and ·It shouldn't change because ·It joins to something else next") are discharged by the round-1 deletion of qsIt's halves entry-extension record — the gained joins survive and the ·Tea·It seam is back at baseline width (exemplar refreshed: the en-ext-1 is gone).
 
@@ -100,7 +100,7 @@
   match: {predicate: pea_chain_regularized, configs: all}
   count: 101
   exemplars:
-    - {config: default, codepoints: "E650:E650:E670", baseline: "qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0 (break,y5)", new: "qsPea.half.ex-y6|qsPea.half.en-y6.ex-y5|qsIt.bar.en-y5 (y6,y5)"}
+    - {config: default, codepoints: "E650:E650:E670", baseline: "qsPea|qsPea.half.ex-y5.ex-dips|qsIt.en-y5.ex-y0 (break,y5)", new: "qsPea.half.ex-y6|qsPea.half.en-y6.ex-y5|qsIt.hapax.en-y5 (y6,y5)"}
   why: |
     Today's cascade drops the ·Pea·Pea y6 join whenever the second ·Pea also joins rightward (the recon section 6.3 cascade-residue family, in-alphabet flavor); settlement keeps both joins because capability and refusals permit them and join count is maximized. A strict join gain on baseline-verified capability. Round-1 verdict: 15 approvals.
 
@@ -138,8 +138,8 @@
   match: {predicate: day_baseline_entry_extension_dropped, configs: all}
   count: 127
   exemplars:
-    - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/bar-into-loop/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
-    - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/bar-into-loop/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E653", baseline: "qsTea_qsOy|qsDay.half.en-y0.ex-y0.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsDay/half/baseline/None/ (no en-ext-1)"}
+    - {config: default, codepoints: "E652:E679:E653:E67A", baseline: "qsTea_qsOy|qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1", new: "qsTea_qsOy/hapax/None/baseline/|qsDay_qsUtter/half/baseline/None/ (no en-ext-1)"}
   why: |
     The old font stretched half-·Day's (and half ·Day·Utter's) baseline entry by one pixel after the ·Tea·Oy ligature; the runes' baseline extend records are scoped to bare qsTea/qsYe, the ligature is neither, so the rebuild draws the same baseline join one pixel tighter. Adjudicated 2026-07-15 with qsDay's own family from side-by-side renders of both forks: the widen alternative (qsTea_qsOy added to both extend scopes) was scratch-built and proven to restore old ink on exactly these windows with zero collateral, and declined — the drop is intended. The 19 human verdicts covering the phenomenon — all approvals from 2026-06-29, carried through every surface since, spanning the plain-·Day and ·Day·Utter flavors and the word-final rider — had already judged the tighter join right; this entry gives them their ledger home. Word-final members (exit also dropped) previously rode dangling-anchor-dropped, whose ink-identical claim they violated by this one pixel.
 
@@ -166,7 +166,7 @@
   ink_identical: true
   count: 10586
   exemplars:
-    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.bar|qsIt.bar"}
+    - {config: default, codepoints: "E670:E670", baseline: "qsIt.ex-y5|qsIt", new: "qsIt.hapax|qsIt.hapax"}
     - {config: default, codepoints: "E650:E650", baseline: "qsPea.half.en-y6.ex-y6|qsPea.en-y6 (left entry name at word start)", new: "qsPea.half.ex-y6|qsPea.full.en-y6"}
   why: |
     Today's compiled names keep anchors that never realize — a dangling exit before a non-acceptor (It·It's benign ex-y5) or an entry name at word start. Settlement's cells carry only committed anchors (E-STRANDED/lookahead closure; M1-PLAN expected class 3). The withdrawals involved are `safe`, so the ink is identical; name grain only.
@@ -177,7 +177,7 @@
   ink_identical: true
   count: 914
   exemplars:
-    - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.loop.ex-y0|qsTea.full.en-y0"}
+    - {config: default, codepoints: "E679:E652", baseline: "qsOy|qsTea.en-y0 (y0 join on the bare glyph)", new: "qsOy.hapax.ex-y0|qsTea.full.en-y0"}
   why: |
     When the base drawing already carries the live anchor, today's pipeline leaves the bare cmap glyph in place and joins on it; the new table always rewrites to the settled cell glyph (cell labels are never the bare name). Drawing and seam identical; name grain only. Also covers the ss10 overlay, where the new font renders the raw cmap glyph at every position while the alias for the old bare name is the anchor-free boundary cell.
 
@@ -197,7 +197,7 @@
   count: 520
   exemplars:
     - {config: ss10, codepoints: "E653:E67A", baseline: "qsDay_qsUtter (the ligature glyph)", new: "qsDay/full/None/None/|qsUtter/mono/None/None/ (two bare letters)"}
-    - {config: ss10, codepoints: "E652:E679:E67A", baseline: "qsTea_qsOy|qsUtter (ligature, joined)", new: "qsTea/full/None/None/|qsOy/loop/None/None/|qsUtter/mono/None/None/ (all bare)"}
+    - {config: ss10, codepoints: "E652:E679:E67A", baseline: "qsTea_qsOy|qsUtter (ligature, joined)", new: "qsTea/full/None/None/|qsOy/hapax/None/None/|qsUtter/mono/None/None/ (all bare)"}
   why: |
     The 2026-07-04 ratification from the blessing pass's ~160 verdict notes ("Under ss10 these must be fully isolated; old font joins them, new font ligates them — both wrong", "ss10 join suppression also means don't ligate"): under the isolated overlay a ligature-forming pair renders as its components' anchor-free letter twins, so every letter stands alone. Formation stays unconditional for every other configuration, but under ss10 it never fires at all: the pre-empt lookup (emit_gsub's m1_ss10_isolated_input, defined before m1_formation so its LookupList index is lower) substitutes every letter's raw cmap glyph by its `.ss10` twin first, and the twins appear in no formation sequence, marker line, chokepoint class, or settlement input — no ligature ever exists in an ss10 buffer and each letter keeps its own cluster. The old font forms qsDay_qsUtter and qsTea_qsOy under ss10 and keeps drawing their seams, so every ss10 window containing a formable E653:E67A or E652:E679 adjacency diverges at ligation grain — the old row carries the ligature glyph, the new rendering has one more glyph per formed pair. The classifier routes these ahead of marker-staging-ligature-formation (whose 00B7 arm would otherwise absorb the namer-dot ss10 windows) and only for config ss10 with a formable pair in the window; an ss10 ligation divergence without such a pair stays unmatched and fails rather than be absorbed. Boundary windows (space/ZWNJ) stay on the boundary-echo blanket, which outranks every cell/seam/ligation-grain class. Like the sibling ss10-isolation-completed class, these units machine-approve through the Junior-equivalence oracle (rebuild.review.ink.JuniorOracle) when the rebuild's ss10 rendering matches the shipped Junior font's isolated pixels with Junior's tracking removed; on the 2026-07-04 surface the oracle agreed with all 2,391 recorded human approvals of ss10-only units and refused only the five lowered-namer-dot boundary windows.
 

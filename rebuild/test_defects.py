@@ -83,7 +83,7 @@ class TestDangle:
         assert any(d.code == "E-DANGLE" for d in report.errors)
 
     def test_safe_withdrawal_passes(self, spec):
-        cell, record = _realize(spec, "qsIt", "bar", None, None, safety_checks=(("exit", "baseline"),))
+        cell, record = _realize(spec, "qsIt", "hapax", None, None, safety_checks=(("exit", "baseline"),))
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
         assert not [d for d in report.errors if d.code == "E-DANGLE"]
 
@@ -101,13 +101,13 @@ class TestDangle:
 
 class TestAnchorConvention:
     def test_convention_drift_is_an_error(self, spec):
-        cell = CellId("qsIt", "bar", None, "baseline", ())
+        cell = CellId("qsIt", "hapax", None, "baseline", ())
         record = GlyphRecord(name="qsIt.bad", bitmap=("#",) * 6, y_offset=0, exit=(2, 0))
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
         assert any(d.code == "E-ANCHOR" for d in report.errors)
 
     def test_exempt_side_is_skipped(self, spec):
-        cell = CellId("qsIt", "bar", None, "baseline", ("ex-trim-1",))
+        cell = CellId("qsIt", "hapax", None, "baseline", ("ex-trim-1",))
         record = GlyphRecord(
             name="qsIt.trimmed", bitmap=("#",) * 6, y_offset=0, exit=(2, 0), convention_exempt=("exit",)
         )
@@ -122,7 +122,7 @@ class TestAnchorConvention:
 
 class TestUnrealized:
     def test_gap_zero_join_passes(self, spec):
-        left_cell, left = _realize(spec, "qsIt", "bar", None, "baseline")
+        left_cell, left = _realize(spec, "qsIt", "hapax", None, "baseline")
         right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
         rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
         report = defects.run_gates(
@@ -131,7 +131,7 @@ class TestUnrealized:
         assert not [d for d in report.errors if d.code == "E-UNREALIZED"]
 
     def test_nonzero_gap_fails(self, spec):
-        left_cell = CellId("qsIt", "bar", None, "baseline", ())
+        left_cell = CellId("qsIt", "hapax", None, "baseline", ())
         left = GlyphRecord(
             name="qsIt.gappy",
             bitmap=("#", "#", "#", "#", "#", "# "),
@@ -150,7 +150,7 @@ class TestUnrealized:
 class TestExtensionBand:
     def test_extension_within_band_passes(self, spec):
         left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-1"])
-        right_cell, right = _realize(spec, "qsIt", "bar", "x-height", "baseline")
+        right_cell, right = _realize(spec, "qsIt", "hapax", "x-height", "baseline")
         rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="x-height", extension=1)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
@@ -160,7 +160,7 @@ class TestExtensionBand:
 
     def test_extension_beyond_every_band_flags(self, spec):
         left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-2"])
-        right_cell, right = _realize(spec, "qsIt", "bar", "x-height", "baseline", ["en-ext-1"])
+        right_cell, right = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["en-ext-1"])
         rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="x-height", extension=3)]
         report = defects.run_gates(
             spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
@@ -168,8 +168,8 @@ class TestExtensionBand:
         assert any(d.code == "E-EXTENSION-BAND" for d in report.flags)
 
     def test_extension_with_no_authored_record_fails(self, spec):
-        left_cell, left = _realize(spec, "qsTea_qsOy", "bar-into-loop", None, "baseline", ["ex-ext-1"])
-        right_cell, right = _realize(spec, "qsOy", "loop", None, None)
+        left_cell, left = _realize(spec, "qsTea_qsOy", "hapax", None, "baseline", ["ex-ext-1"])
+        right_cell, right = _realize(spec, "qsOy", "hapax", None, None)
         rows = [FakeTreatyRow(left=left_cell, right=right_cell, join="baseline", extension=1)]
         glyphs = {left_cell: left, right_cell: right}
         right_entry = GlyphRecord(name=right.name, bitmap=right.bitmap, y_offset=right.y_offset, entry=(0, 0))
@@ -180,7 +180,7 @@ class TestExtensionBand:
 
 class TestContact:
     def test_overlapping_ink_fails(self, spec):
-        left_cell = CellId("qsIt", "bar", None, "baseline", ())
+        left_cell = CellId("qsIt", "hapax", None, "baseline", ())
         right_cell = CellId("qsMay", "loop", "baseline", None, ())
         left = GlyphRecord(name="l", bitmap=("##",), y_offset=0, exit=(1, 0), convention_exempt=("exit",))
         right = GlyphRecord(name="r", bitmap=("##",), y_offset=0, entry=(0, 0), convention_exempt=("entry",))

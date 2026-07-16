@@ -377,7 +377,7 @@ test('seamChip labels a homed seam with the home unit id and a home-less seam wi
 
 test('cellCodepointSpans gives each cell one codepoint position and a formed ligature two', () => {
   assert.deepEqual(
-    cellCodepointSpans(['uni200C', 'qsTea_qsOy/bar-into-loop/None/None/+locked', 'qsUtter/mono/None/None/']),
+    cellCodepointSpans(['uni200C', 'qsTea_qsOy/hapax/None/None/+locked', 'qsUtter/mono/None/None/']),
     [[0, 0], [1, 2], [3, 3]],
   );
 });
@@ -387,7 +387,7 @@ const onlyHereUnit = {
   pair: { left: 0, right: 1 },
   pair_codepoints: [0, 1],
   after: {
-    cells: ['qsNo/loop/None/x-height/', 'qsIt/bar/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
+    cells: ['qsNo/loop/None/x-height/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/', 'qsTea/full/None/None/'],
   },
   secondary_seams: [
     { pair: { left: 1, right: 2 }, home: null },
@@ -403,7 +403,7 @@ test('onlyHereSeamSpans shifts spans across a formed ligature', () => {
   const unit = {
     ...onlyHereUnit,
     pair_codepoints: [0, 2],
-    after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/bar/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
+    after: { cells: ['qsTea_qsOy/full/None/None/', 'qsIt/hapax/x-height/baseline/', 'qsMay/loop/baseline/None/'] },
     secondary_seams: [{ pair: { left: 1, right: 2 }, home: null }],
   };
   assert.deepEqual(onlyHereSeamSpans(unit), [[2, 3]]);

@@ -47,7 +47,7 @@
   "after": {
    "cells": [
     "zwnj/boundary/None/None/",
-    "qsTea_qsOy/bar-into-loop/None/None/"
+    "qsTea_qsOy/hapax/None/None/"
    ],
    "seams": [
     "break"
@@ -86,7 +86,7 @@
     "x": 0
    }
   ],
-  "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.bar-into-loop\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
+  "explain": "sequence 200C:E652:E679   config ss03\nsettled: uni200C qsTea_qsOy.hapax\n\nposition 1: qsTea_qsOy\n  decided by: only-candidate",
   "summary": "New: \u25caZWNJ \u00b7Tea\u00b7Oy settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -102,7 +102,7 @@
    "policy": {
     "file": "glyph_data/runes/qsTea_qsOy.yaml",
     "keypath": "policy.refuse[+]",
-    "suggested_record": "{stance: bar-into-loop, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)'}",
+    "suggested_record": "{stance: hapax, when: {left: {is: zwnj}}, why: 'Reviewer rejected the M1 outcome for 200C:E652:E679 (\u25caZWNJ \u00b7Tea\u00b7Oy)'}",
     "names_provenance": [],
     "decided_stage": "only-candidate",
     "schema_valid": true,
@@ -174,8 +174,8 @@
   },
   "after": {
    "cells": [
-    "qsIt/bar/None/None/",
-    "qsIt/bar/None/None/"
+    "qsIt/hapax/None/None/",
+    "qsIt/hapax/None/None/"
    ],
    "seams": [
     "break"
@@ -209,7 +209,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E670:E670   config default\nsettled: qsIt.bar qsIt.bar\n\nposition 0: qsIt\n  decided by: floor",
+  "explain": "sequence E670:E670   config default\nsettled: qsIt.hapax qsIt.hapax\n\nposition 0: qsIt\n  decided by: floor",
   "summary": "New: \u00b7It\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [],
   "drafts": {
@@ -295,7 +295,7 @@
   "after": {
    "cells": [
     "qsTea/half/None/x-height/",
-    "qsIt/bar/x-height/None/en-ext-1"
+    "qsIt/hapax/x-height/None/en-ext-1"
    ],
    "seams": [
     "y5"
@@ -328,7 +328,7 @@
    }
   },
   "boundary_marks": [],
-  "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.bar.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
+  "explain": "sequence E652:E670   config default\nsettled: qsTea.half.ex-y5 qsIt.hapax.en-y5.en-ext-1\n\nposition 1: qsIt\n  decided by: join-count\n  note: glyph_data/runes/qsIt.yaml:policy.extend[0]",
   "summary": "New: \u00b7Tea\u00b7It settles differently from the baseline \u2014 decided by fixture data (open the explain panel for the candidate table).",
   "provenance": [
    "glyph_data/runes/qsIt.yaml:policy.extend[0]"

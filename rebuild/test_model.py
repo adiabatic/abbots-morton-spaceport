@@ -16,8 +16,8 @@ from rebuild.pipeline.model import (
 
 class TestIdentity:
     def test_cell_ids_are_hashable_value_objects(self):
-        a = CellId("qsIt", "bar", "x-height", "baseline", ("ex-ext-1",))
-        b = CellId("qsIt", "bar", "x-height", "baseline", ("ex-ext-1",))
+        a = CellId("qsIt", "hapax", "x-height", "baseline", ("ex-ext-1",))
+        b = CellId("qsIt", "hapax", "x-height", "baseline", ("ex-ext-1",))
         assert a == b
         assert hash(a) == hash(b)
         assert len({a, b}) == 1
@@ -65,6 +65,6 @@ class TestFixtureSpec:
 
     def test_bitmaps_match_the_authored_rune_files(self):
         spec = mini_spec()
-        assert spec.runes["qsIt"].stances["bar"].bitmap.rows == ("#",) * 6
+        assert spec.runes["qsIt"].stances["hapax"].bitmap.rows == ("#",) * 6
         assert spec.runes["qsMay"].stances["loop"].bitmap.rows[0] == "   ##"
         assert spec.runes["qsPea"].stances["half"].bitmaps["half-dips-both-sides"].rows[3] == "#  #"

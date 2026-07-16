@@ -24,22 +24,22 @@ def cells_as_tuples(spec, rune, features=frozenset()):
 
 def test_qsit_default_cells(spec):
     assert cells_as_tuples(spec, "qsIt") == {
-        ("bar", "x-height", "baseline"),
-        ("bar", "x-height", None),
-        ("bar", "baseline", "x-height"),
-        ("bar", "baseline", None),
-        ("bar", None, "x-height"),
-        ("bar", None, "baseline"),
-        ("bar", None, None),
+        ("hapax", "x-height", "baseline"),
+        ("hapax", "x-height", None),
+        ("hapax", "baseline", "x-height"),
+        ("hapax", "baseline", None),
+        ("hapax", None, "x-height"),
+        ("hapax", None, "baseline"),
+        ("hapax", None, None),
     }
 
 
 def test_qsit_ss04_unlock_grants_pass_through(spec):
     default = cells_as_tuples(spec, "qsIt")
     with_ss04 = cells_as_tuples(spec, "qsIt", frozenset({"ss04"}))
-    assert with_ss04 - default == {("bar", "baseline", "baseline")}
+    assert with_ss04 - default == {("hapax", "baseline", "baseline")}
     tagged = dict(surface.enumerate_cells_with_unlocks(spec, "qsIt", frozenset({"ss04"})))
-    granted = tagged[CellId("qsIt", "bar", "baseline", "baseline", ())]
+    granted = tagged[CellId("qsIt", "hapax", "baseline", "baseline", ())]
     assert len(granted) == 1
     assert granted[0].feature == "ss04"
     assert granted[0].when is None
@@ -80,8 +80,8 @@ def test_qsmay_and_ligature_cells(spec):
         ("grounded-loop", None, None),
     }
     assert cells_as_tuples(spec, "qsTea_qsOy") == {
-        ("bar-into-loop", None, "baseline"),
-        ("bar-into-loop", None, None),
+        ("hapax", None, "baseline"),
+        ("hapax", None, None),
     }
 
 
@@ -102,7 +102,7 @@ def test_resolve_explicit_cell_bindings(spec):
     plan = surface.resolve_cell(spec, CellId("qsPea", "half", "x-height", "x-height", ()))
     assert plan.bitmap == "half-dips-both-sides"
     assert (plan.entry_x, plan.exit_x) == (0, 4)
-    plan = surface.resolve_cell(spec, CellId("qsOy", "loop", "x-height", "baseline", ()))
+    plan = surface.resolve_cell(spec, CellId("qsOy", "hapax", "x-height", "baseline", ()))
     assert plan.bitmap == "open-on-the-left"
     assert (plan.entry_x, plan.exit_x) == (0, 5)
 
@@ -121,7 +121,7 @@ def test_resolve_side_bindings_and_overrides(spec):
 
 
 def test_resolve_withdrawal_safe_obligations(spec):
-    plan = surface.resolve_cell(spec, CellId("qsIt", "bar", "x-height", None, ()))
+    plan = surface.resolve_cell(spec, CellId("qsIt", "hapax", "x-height", None, ()))
     assert plan.bitmap is None
     assert plan.safety_checks == (("exit", "baseline"), ("exit", "x-height"))
     plan = surface.resolve_cell(spec, CellId("qsMay", "grounded-loop", "x-height", None, ()))
@@ -156,16 +156,16 @@ def test_unlock_only_cells_resolve_with_their_record(spec):
         "ss03",
         "ss03",
     ]
-    assert surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "x-height", "baseline", ())) == ()
-    assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "baseline", "baseline", ()))) == 1
+    assert surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "x-height", "baseline", ())) == ()
+    assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "baseline", "baseline", ()))) == 1
 
 
 def test_unknown_cell_rejected(spec):
     with pytest.raises(SpecError, match="never offers"):
-        surface.resolve_cell(spec, CellId("qsIt", "bar", "top", None, ()))
+        surface.resolve_cell(spec, CellId("qsIt", "hapax", "top", None, ()))
     with pytest.raises(SpecError, match="no feature configuration"):
-        surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "x-height", "x-height", ()))
-    assert surface.unlocks_for_cell(spec, CellId("qsIt", "bar", "x-height", "baseline", ("locked",))) == ()
+        surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "x-height", "x-height", ()))
+    assert surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "x-height", "baseline", ("locked",))) == ()
 
 
 def test_effective_rows_synthesize_unlock_anchors(spec):
@@ -183,7 +183,7 @@ DISAGREEING_RUNE = textwrap.dedent("""\
       loop: |
         A loop.
     stances:
-      loop:
+      hapax:
         way: loop
         bitmap: ["##", "##", "##", "##", "##", "##"]
         bitmaps:
@@ -201,11 +201,11 @@ DISAGREEING_RUNE = textwrap.dedent("""\
 def test_side_binding_disagreement_is_a_build_error(tmp_path):
     spec = load_tmp_spec(tmp_path, {"qsMay": DISAGREEING_RUNE})
     with pytest.raises(SpecError) as caught:
-        surface.resolve_cell(spec, CellId("qsMay", "loop", "x-height", "x-height", ()))
+        surface.resolve_cell(spec, CellId("qsMay", "hapax", "x-height", "x-height", ()))
     message = str(caught.value)
     assert "disagreeing side bindings" in message
     assert "entry-form" in message and "exit-form" in message
-    assert "CellId(rune='qsMay', stance='loop', entry='x-height', exit='x-height'" in message
+    assert "CellId(rune='qsMay', stance='hapax', entry='x-height', exit='x-height'" in message
 
 
 def test_explicit_cells_row_settles_the_disagreement(tmp_path):
@@ -214,7 +214,7 @@ def test_explicit_cells_row_settles_the_disagreement(tmp_path):
         "      cells:\n      - {entry: x-height, exit: x-height, bitmap: entry-form}\n      exits:",
     )
     spec = load_tmp_spec(tmp_path, {"qsMay": text})
-    plan = surface.resolve_cell(spec, CellId("qsMay", "loop", "x-height", "x-height", ()))
+    plan = surface.resolve_cell(spec, CellId("qsMay", "hapax", "x-height", "x-height", ()))
     assert plan.bitmap == "entry-form"
 
 
@@ -230,7 +230,7 @@ def test_anchor_convention_drift_is_flagged(tmp_path):
           bar: |
             A vertical stroke.
         stances:
-          bar:
+          hapax:
             way: bar
             bitmap: [" #", " #", " #", " #", " #", " #"]
             surface:

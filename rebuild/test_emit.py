@@ -36,15 +36,15 @@ def spec():
 @pytest.fixture(scope="module")
 def glyphs(spec):
     cells = [
-        CellId("qsIt", "bar", None, None, ()),
-        CellId("qsIt", "bar", None, "baseline", ()),
-        CellId("qsIt", "bar", "x-height", "baseline", ()),
+        CellId("qsIt", "hapax", None, None, ()),
+        CellId("qsIt", "hapax", None, "baseline", ()),
+        CellId("qsIt", "hapax", "x-height", "baseline", ()),
         CellId("qsTea", "full", None, None, ()),
         CellId("qsTea", "half", None, "x-height", ()),
         CellId("qsMay", "loop", None, "x-height", ()),
         CellId("qsMay", "loop", "baseline", "x-height", ()),
-        CellId("qsOy", "loop", None, None, ()),
-        CellId("qsTea_qsOy", "bar-into-loop", None, "baseline", ()),
+        CellId("qsOy", "hapax", None, None, ()),
+        CellId("qsTea_qsOy", "hapax", None, "baseline", ()),
         CellId("qsTea", "full", None, None, ("locked",)),
         CellId("qsPea", "full", "y6", None, ()),
     ]
@@ -59,7 +59,7 @@ def glyphs(spec):
 
 def _rules(spec, glyphs):
     names = {cell: record.name for cell, record in glyphs.items()}
-    it_ex = names[CellId("qsIt", "bar", None, "baseline", ())]
+    it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
     may_en = names[CellId("qsMay", "loop", "baseline", "x-height", ())]
     tea_half = names[CellId("qsTea", "half", None, "x-height", ())]
     return [
@@ -132,7 +132,7 @@ class TestEmitGsub:
 
     def test_fold_conflict_raises(self, spec, glyphs):
         names = {cell: record.name for cell, record in glyphs.items()}
-        it_ex = names[CellId("qsIt", "bar", None, "baseline", ())]
+        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
         a = FakeRule("qsIt", None, ("qsMay",), None, it_ex, provenance=())
         b = FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=())
         with pytest.raises(emit_gsub.EmitError):
@@ -196,7 +196,7 @@ class TestEmitGpos:
 
     def test_cross_height_cells_get_null_anchors(self, spec, glyphs):
         curs = emit_gpos.emit_gpos(glyphs, spec=spec)
-        record = glyphs[CellId("qsIt", "bar", "x-height", "baseline", ())]
+        record = glyphs[CellId("qsIt", "hapax", "x-height", "baseline", ())]
         y0 = curs.split("lookup m1_cursive_y0 {")[1].split("}")[0]
         y5 = curs.split("lookup m1_cursive_y5 {")[1].split("}")[0]
         assert f"pos cursive {record.name} <anchor NULL> <anchor 100 0>;" in y0

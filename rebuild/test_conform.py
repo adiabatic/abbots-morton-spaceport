@@ -66,11 +66,11 @@ class TestNormalization:
 
     def test_isolated_overlay_names_render_ss10_twins(self, spec):
         class Letter:
-            cell = CellId("qsIt", "bar", "x-height", "baseline", ())
+            cell = CellId("qsIt", "hapax", "x-height", "baseline", ())
             seam = None
 
         class Ligature:
-            cell = CellId("qsTea_qsOy", "bar-into-loop", None, "baseline", ())
+            cell = CellId("qsTea_qsOy", "hapax", None, "baseline", ())
             seam = None
 
         class Boundary:
@@ -110,13 +110,13 @@ class TestAliasAndLedger:
         path.write_text(
             "qsIt.en-y5.ex-y0:\n"
             "  rune: qsIt\n"
-            "  stance: bar\n"
+            "  stance: hapax\n"
             "  entry: x-height\n"
             "  exit: baseline\n"
             "uni200C: boundary\n"
         )
         aliases = conform.load_alias_map(path)
-        assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "bar", "x-height", "baseline", ())
+        assert aliases["qsIt.en-y5.ex-y0"] == CellId("qsIt", "hapax", "x-height", "baseline", ())
         assert aliases["uni200C"] == "boundary"
 
     def test_ledger_matching_is_exactly_one(self):
@@ -127,7 +127,7 @@ class TestAliasAndLedger:
             position=1,
             baseline_glyphs=("space", "qsTea.noentry", "qsIt"),
             baseline_seams=("break", "break"),
-            new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/bar/None/None/"),
+            new_cells=("uni200C", "qsTea/full/None/None/locked", "qsIt/hapax/None/None/"),
             new_seams=("break", "break"),
             phenomena=("+locked", "old-noentry"),
         )
@@ -153,7 +153,7 @@ class TestAliasAndLedger:
             position=1,
             baseline_glyphs=("periodcentered", "qsTea.noentry", "qsIt"),
             baseline_seams=("break", "break"),
-            new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/bar/None/None/"),
+            new_cells=("periodcentered", "qsTea/full/None/None/", "qsIt/hapax/None/None/"),
             new_seams=("break", "break"),
             phenomena=("old-noentry",),
         )
@@ -167,7 +167,7 @@ class TestAliasAndLedger:
             position=0,
             baseline_glyphs=("qsIt.ex-y5", "qsIt"),
             baseline_seams=("break",),
-            new_cells=("qsIt/bar/None/None/", "qsIt/bar/None/None/"),
+            new_cells=("qsIt/hapax/None/None/", "qsIt/hapax/None/None/"),
             new_seams=("break",),
         )
         cases = [
@@ -201,7 +201,7 @@ class TestAliasAndLedger:
             position=1,
             baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
             baseline_seams=("break", "break"),
-            new_cells=("uni200C", "qsIt/bar/None/None/locked", "qsIt/bar/None/None/"),
+            new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
             new_seams=("break", "break"),
         )
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:

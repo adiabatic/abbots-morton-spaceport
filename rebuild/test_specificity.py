@@ -17,7 +17,7 @@ SPEC = fixtures.mini_spec()
 
 
 def extend(by=1, **when_kwargs) -> PolicyRecord:
-    return PolicyRecord(kind="extend", stance="bar", exit="baseline", by=by, when=When(**when_kwargs))
+    return PolicyRecord(kind="extend", stance="hapax", exit="baseline", by=by, when=When(**when_kwargs))
 
 
 class TestAxisExpansion:
@@ -99,7 +99,7 @@ class TestPickMostSpecific:
         # Synthetic analog of the named qsJay case: the single-family contract outranks the broad list-authored extend by membership — today's documented idiom as a theorem (design section 6.2).
         broad_extend = extend(by=1, left=Condition(family=("qsPea", "qsTea", "qsMay", "qsIt")))
         narrow_contract = PolicyRecord(
-            kind="contract", stance="bar", exit="baseline", by=1, when=When(left=Condition(family=("qsTea",)))
+            kind="contract", stance="hapax", exit="baseline", by=1, when=When(left=Condition(family=("qsTea",)))
         )
         assert outranks(SPEC, narrow_contract, broad_extend) is Ordering.A_OUTRANKS
 

@@ -204,7 +204,7 @@ def test_single_cell_unit_has_null_pair(enricher):
         ("ligation",),
         "synthetic",
         ("qsTea_qsOy",),
-        ("qsTea_qsOy/bar-into-loop/None/None/",),
+        ("qsTea_qsOy/hapax/None/None/",),
     )
     unit = Unit(
         codepoints=row.codepoints,

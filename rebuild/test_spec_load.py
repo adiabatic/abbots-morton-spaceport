@@ -31,7 +31,7 @@ MINIMAL_RUNE = textwrap.dedent("""\
       bar: |
         A vertical stroke.
     stances:
-      bar:
+      hapax:
         way: bar
         bitmap:
         - "#"
@@ -170,7 +170,7 @@ def test_scope_condition_parsing(spec):
 
 
 def test_unlock_parsing(spec):
-    unlocks = spec.runes["qsIt"].stances["bar"].surface.unlocks
+    unlocks = spec.runes["qsIt"].stances["hapax"].surface.unlocks
     assert len(unlocks) == 1
     (unlock,) = unlocks
     assert unlock.feature == "ss04"
@@ -179,7 +179,7 @@ def test_unlock_parsing(spec):
 
 
 def test_forbidden_stance_id(tmp_path):
-    text = MINIMAL_RUNE.replace("bar", "before-day")
+    text = MINIMAL_RUNE.replace("hapax", "before-day")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("pen motions" in issue.message for issue in error.issues)
     assert any("stances.before-day" in issue.path for issue in error.issues)
@@ -256,7 +256,7 @@ def test_absolute_prefer_requires_why(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           prefer:
-          - {stance: bar, mode: absolute, when: {left: {family: qsDay}}}
+          - {stance: hapax, mode: absolute, when: {left: {family: qsDay}}}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("'why'" in issue.message for issue in error.issues)
@@ -349,7 +349,7 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
           loop: |
             A loop.
         stances:
-          loop:
+          hapax:
             way: loop
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
@@ -364,7 +364,7 @@ def test_resolve_records_rejected(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           resolve:
-          - {pick: {stance: bar}, why: Recorded tie-break.}
+          - {pick: {stance: hapax}, why: Recorded tie-break.}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("resolve records" in issue.message for issue in error.issues)
@@ -378,12 +378,12 @@ def test_rune_name_must_match_file_stem(tmp_path):
 BROKEN_DOCUMENTS = (
     MINIMAL_RUNE.replace("rune: qsIt\n", ""),
     MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: 0xE670\nsequence: [qsIt, qsDay]"),
-    MINIMAL_RUNE.replace("bar", "before-day"),
+    MINIMAL_RUNE.replace("hapax", "before-day"),
     MINIMAL_RUNE.replace("{x: 0}", "{x: 0, anchor: 3}"),
     MINIMAL_RUNE + "policy:\n  refuse:\n  - {exit: baseline, when: {left2: {family: qsDay}}}\n",
     MINIMAL_RUNE
     + "policy:\n  refuse:\n  - {exit: baseline, when: {right: {family: qsDay, then: {family: qsMay}}}}\n",
-    MINIMAL_RUNE + "policy:\n  prefer:\n  - {stance: bar, mode: absolute, when: {word: final}}\n",
+    MINIMAL_RUNE + "policy:\n  prefer:\n  - {stance: hapax, mode: absolute, when: {word: final}}\n",
 )
 
 
