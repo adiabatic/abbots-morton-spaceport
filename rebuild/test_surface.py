@@ -180,11 +180,11 @@ DISAGREEING_RUNE = textwrap.dedent("""\
     rune: qsMay
     codepoint: 0xE665
     ductus:
-      loop: |
+      hapax: |
         A loop.
     stances:
       hapax:
-        way: loop
+        way: hapax
         bitmap: ["##", "##", "##", "##", "##", "##"]
         bitmaps:
           entry-form: {bitmap: ["# ", "# ", "# ", "# ", "# ", "##"]}
@@ -227,11 +227,11 @@ def test_anchor_convention_drift_is_flagged(tmp_path):
         rune: qsIt
         codepoint: 0xE670
         ductus:
-          bar: |
+          hapax: |
             A vertical stroke.
         stances:
           hapax:
-            way: bar
+            way: hapax
             bitmap: [" #", " #", " #", " #", " #", " #"]
             surface:
               entries:

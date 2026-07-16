@@ -43,9 +43,9 @@ DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
 
 FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0-9])")
 
-SINGLE_STANCE_SENTINEL = "hapax"
+HAPAX_SENTINEL = "hapax"
 
-_NAMING_RULE = "stance IDs and way names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance 'hapax' (a reserved sentinel; the pen motion still lives in 'way')"
+_NAMING_RULE = "stance IDs and way names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole way 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
 
 
@@ -491,6 +491,7 @@ class _Linter:
         """Lints safe on any document shape — run even when the schema layer already rejected the file, so the readable design-rule messages always accompany the mechanical ones."""
         self._lint_identifiers()
         self._lint_single_stance_sentinel()
+        self._lint_single_way_sentinel()
         self._lint_ductus_parity()
         self._lint_refuse_window_rule()
 
@@ -529,15 +530,29 @@ class _Linter:
 
     def _lint_single_stance_sentinel(self) -> None:
         keys = list(self._stances())
-        if len(keys) == 1 and keys[0] != SINGLE_STANCE_SENTINEL:
+        if len(keys) == 1 and keys[0] != HAPAX_SENTINEL:
             self.context.error(
                 f"stances.{keys[0]}",
-                f"single-stance rune must name its sole stance {SINGLE_STANCE_SENTINEL!r} (reserved sentinel for one-stance runes; the pen motion lives in 'way'), not {keys[0]!r}",
+                f"single-stance rune must name its sole stance {HAPAX_SENTINEL!r} (reserved sentinel for one-stance runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
             )
-        elif len(keys) > 1 and SINGLE_STANCE_SENTINEL in keys:
+        elif len(keys) > 1 and HAPAX_SENTINEL in keys:
             self.context.error(
-                f"stances.{SINGLE_STANCE_SENTINEL}",
-                f"{SINGLE_STANCE_SENTINEL!r} is reserved for the sole stance of a single-stance rune; a rune with multiple stances may not use it",
+                f"stances.{HAPAX_SENTINEL}",
+                f"{HAPAX_SENTINEL!r} is reserved for the sole stance of a single-stance rune; a rune with multiple stances may not use it",
+            )
+
+    def _lint_single_way_sentinel(self) -> None:
+        ductus = self.raw.get("ductus")
+        keys = list(ductus) if isinstance(ductus, dict) else []
+        if len(keys) == 1 and keys[0] != HAPAX_SENTINEL:
+            self.context.error(
+                f"ductus.{keys[0]}",
+                f"single-way ductus must name its sole way {HAPAX_SENTINEL!r} (reserved sentinel for one-way runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+            )
+        elif len(keys) > 1 and HAPAX_SENTINEL in keys:
+            self.context.error(
+                f"ductus.{HAPAX_SENTINEL}",
+                f"{HAPAX_SENTINEL!r} is reserved for the sole way of a single-way ductus; a rune with multiple ways may not use it",
             )
 
     def _lint_refuse_window_rule(self) -> None:
