@@ -78,7 +78,7 @@ def test_full_build_passes_the_contract_checker(built):
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the boundary-echo no-verdict exemption — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
+    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
     manifest_pins = PINS["manifest"]
@@ -96,9 +96,13 @@ def test_machine_approved_histogram_pins_the_census(built):
         assert meta["machine_approved_count"] == expected, meta["id"]
     for class_id, count in manifest_pins["class_unit_count"].items():
         assert by_id[class_id]["unit_count"] == count, class_id
-    assert by_id["boundary-echo"]["no_verdict"] is True
-    assert all(meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] != "boundary-echo")
-    assert by_id["boundary-echo"]["batches"] == []
+    no_verdict_classes = {"boundary-echo", "no-xheight-entry-extension-dropped", "may-ligature-seam-loosened"}
+    for class_id in no_verdict_classes:
+        assert by_id[class_id]["no_verdict"] is True, class_id
+        assert by_id[class_id]["batches"] == [], class_id
+    assert all(
+        meta["no_verdict"] is False for meta in manifest["classes"] if meta["id"] not in no_verdict_classes
+    )
 
 
 def test_secondary_seam_census_pins_the_real_data(built):

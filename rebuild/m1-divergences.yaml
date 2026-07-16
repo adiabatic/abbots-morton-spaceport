@@ -145,6 +145,7 @@
 
 - id: no-xheight-entry-extension-dropped
   status: intended
+  no_verdict: true
   match: {predicate: no_xheight_entry_extension_dropped, configs: all}
   count: 952
   exemplars:
@@ -153,6 +154,7 @@
 
 - id: may-ligature-seam-loosened
   status: intended
+  no_verdict: true
   match: {predicate: may_ligature_seam_loosened, configs: all}
   count: 109
   exemplars:
