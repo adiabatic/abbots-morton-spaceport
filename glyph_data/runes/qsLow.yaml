@@ -1,0 +1,41 @@
+rune: qsLow
+codepoint: 0xE667
+ductus:
+  hapax: |
+    Begun at the left along the baseline, the stroke runs rightward and rises, curls back up and to the left, then doubles back to climb up and to the right, finishing with a short vertical rise that stops at the x-height.
+mono:
+  bitmap:
+  - "    #"  #
+  - "    #"
+  - "   # "
+  - " ##  "
+  - "   # "
+  - "###  "  #
+stances:
+  hapax:
+    way: hapax
+    traits: []
+    bitmap:
+    - "    #"  #
+    - "    #"
+    - "   # "
+    - " ##  "
+    - "   # "
+    - "###  "  #
+    surface:
+      entries: {baseline: {x: 0, stroke: horizontal}}
+      exits: {x-height: {x: 5, stroke: vertical}}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order: [hapax]
+  refuse: []
+  prefer: []
+  extend:
+  - {stance: hapax, entry: baseline, by: 1, when: {left: {family: qsSee, joined_at: baseline}}}
+  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: qsFee}}}
+  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  contract: [{stance: hapax, exit: x-height, by: 1, when: {right: {family: qsJai}}}]
+  resolve: []
+  groups: {}
