@@ -178,8 +178,8 @@ def _it() -> Rune:
     return Rune(
         name="qsIt",
         codepoint=0xE670,
-        ductus={"bar": "- Either written from top to bottom or bottom to top."},
-        stances={"hapax": Stance("hapax", way="bar", bitmap=_IT_BAR, surface=surface)},
+        ductus={"hapax": "- Either written from top to bottom or bottom to top."},
+        stances={"hapax": Stance("hapax", way="hapax", bitmap=_IT_BAR, surface=surface)},
         policy=policy,
     )
 
@@ -579,7 +579,7 @@ def _may() -> Rune:
 def _oy() -> Rune:
     loop = Stance(
         "hapax",
-        way="loop",
+        way="hapax",
         bitmap=_OY_LOOP,
         bitmaps={"open-on-the-left": _OY_OPEN_LEFT},
         surface=Surface(
@@ -607,7 +607,7 @@ def _oy() -> Rune:
     return Rune(
         name="qsOy",
         codepoint=0xE679,
-        ductus={"loop": "draft"},
+        ductus={"hapax": "draft"},
         stances={"hapax": loop},
         policy=Policy(order=("hapax",)),
     )
@@ -616,7 +616,7 @@ def _oy() -> Rune:
 def _tea_oy() -> Rune:
     stance = Stance(
         "hapax",
-        way="bar-into-loop",
+        way="hapax",
         bitmap=_TEA_OY,
         surface=Surface(
             entries={},
@@ -626,7 +626,7 @@ def _tea_oy() -> Rune:
     return Rune(
         name="qsTea_qsOy",
         sequence=("qsTea", "qsOy"),
-        ductus={"bar-into-loop": "draft"},
+        ductus={"hapax": "draft"},
         stances={"hapax": stance},
         policy=Policy(order=("hapax",)),
     )

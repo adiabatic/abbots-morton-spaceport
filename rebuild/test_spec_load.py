@@ -28,11 +28,11 @@ MINIMAL_RUNE = textwrap.dedent("""\
     rune: qsIt
     codepoint: 0xE670
     ductus:
-      bar: |
+      hapax: |
         A vertical stroke.
     stances:
       hapax:
-        way: bar
+        way: hapax
         bitmap:
         - "#"
         - "#"
@@ -95,7 +95,7 @@ def test_loads_all_six_runes(spec):
 def test_ductus_shapes(spec):
     may = spec.runes["qsMay"].ductus
     assert "clockwise" in may["loop"]
-    assert spec.runes["qsIt"].ductus["bar"].strip() == "- Either written from top to bottom or bottom to top."
+    assert spec.runes["qsIt"].ductus["hapax"].strip() == "- Either written from top to bottom or bottom to top."
 
 
 def test_registry_contents(spec):
@@ -185,8 +185,104 @@ def test_forbidden_stance_id(tmp_path):
     assert any("stances.before-day" in issue.path for issue in error.issues)
 
 
+def test_lone_stance_must_be_hapax(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          hapax: |
+            A vertical stroke.
+        stances:
+          bar:
+            way: hapax
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("single-stance rune must name its sole stance 'hapax'" in issue.message for issue in error.issues)
+    assert any("stances.bar" in issue.path for issue in error.issues)
+
+
+def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          full: |
+            A vertical stroke.
+          grounded: |
+            Another vertical stroke.
+        stances:
+          full:
+            way: full
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+          hapax:
+            way: grounded
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("reserved for the sole stance" in issue.message for issue in error.issues)
+    assert any("stances.hapax" in issue.path for issue in error.issues)
+
+
+def test_lone_way_must_be_hapax(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          bar: |
+            A vertical stroke.
+        stances:
+          hapax:
+            way: bar
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("single-way ductus must name its sole way 'hapax'" in issue.message for issue in error.issues)
+    assert any("ductus.bar" in issue.path for issue in error.issues)
+
+
+def test_hapax_way_reserved_for_single_way_ductus(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          full: |
+            A vertical stroke.
+          hapax: |
+            Another vertical stroke.
+        stances:
+          full:
+            way: full
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+          grounded:
+            way: hapax
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, withdrawal: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("reserved for the sole way" in issue.message for issue in error.issues)
+    assert any("ductus.hapax" in issue.path for issue in error.issues)
+
+
 def test_dangling_way(tmp_path):
-    text = MINIMAL_RUNE.replace("way: bar", "way: pole")
+    text = MINIMAL_RUNE.replace("way: hapax", "way: pole")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("not in the ductus" in issue.message for issue in error.issues)
 
@@ -323,7 +419,7 @@ def test_ambiguous_extend_target(tmp_path):
 
 
 def test_errors_carry_lines_and_collect(tmp_path):
-    text = MINIMAL_RUNE.replace("way: bar", "way: pole") + textwrap.dedent("""\
+    text = MINIMAL_RUNE.replace("way: hapax", "way: pole") + textwrap.dedent("""\
         policy:
           refuse:
           - {exit: baseline, when: {right: {family: qsBogus}}}
@@ -346,11 +442,11 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
         rune: qsMay
         codepoint: 0xE665
         ductus:
-          loop: |
+          hapax: |
             A loop.
         stances:
           hapax:
-            way: loop
+            way: hapax
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:

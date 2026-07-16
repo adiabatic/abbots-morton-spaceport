@@ -11,7 +11,7 @@
     "codepoint": {"type": "integer", "minimum": 0, "description": "The Unicode code point for this rune's raw glyph. One per rune, mutually exclusive with `sequence` (ligatures use that instead). Example: ·Pea is `codepoint: 0xE650`."},
     "sequence": {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 2, "description": "Ligature runes only (instead of `codepoint`): the component families this single glyph stands in for, in order. Example: `sequence: [qsTea, qsOy]` — the ·Tea·Oy ligature `qsTea_qsOy`."},
     "ductus": {
-      "description": "How each way is drawn, in prose, keyed by the way's pen-motion id — documentation for readers, never read by the build for geometry. Example: ·Pea declares `full` and `half`.",
+      "description": "How each way is drawn, in prose, keyed by the way's pen-motion id — documentation for readers, never read by the build for geometry. Example: ·Pea declares `full` and `half`. A ductus with exactly one way names that sole way `hapax`, the reserved sentinel for one-way runes.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
@@ -20,7 +20,7 @@
     "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
     "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference `bitmap` of this letter, with an optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
-      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes, with the pen motion still recorded in `way`.",
+      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes; that rune's single `ductus` way is likewise named `hapax`, with the pen-motion label kept only in the ductus prose.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
