@@ -62,7 +62,7 @@ policy: { ... }              # §3.3
 
 ### 3.1 Stances and ductus parity
 
-A stance is one genuine way the hand writes the rune: a `way:` reference into the ductus, exactly one hand-drawn base bitmap, and a complete join surface. Stance IDs name the pen motion (`loop`, `half`, `flipped`, `grounded-loop`), never a neighbor, boundary, or feature — the linter rejects IDs matching `(before|after|noentry|noexit|nonjoining|ss[0-9])`.
+A stance is one genuine way the hand writes the rune: a `way:` reference into the ductus, exactly one hand-drawn base bitmap, and a complete join surface. Stance IDs name the pen motion (`loop`, `half`, `flipped`, `grounded-loop`), never a neighbor, boundary, or feature — the linter rejects IDs matching `(before|after|noentry|noexit|nonjoining|ss[0-9])`. A rune with exactly one stance is the sole exception: its stance is named `hapax` (a reserved sentinel meaning “occurs exactly once”), with the pen motion recorded in `way:` as usual, and the linter enforces this — a lone stance under any other name, or `hapax` appearing in a rune with more than one stance, is a spec defect.
 
 ```yaml
 stances:

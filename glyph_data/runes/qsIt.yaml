@@ -10,7 +10,7 @@ mono:
   - "  #  "
   - "  #  "  #
 stances:
-  bar:
+  hapax:
     way: bar
     traits: []
     bitmap:
@@ -44,11 +44,11 @@ policy:
   - entry: baseline
     when: {left: {family: qsIt}}
     why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
-  - {stance: bar, exit: x-height, when: {right: {family: [qsDay, qsDay_qsUtter]}}}
+  - {stance: hapax, exit: x-height, when: {right: {family: [qsDay, qsDay_qsUtter]}}}
   - {exit: x-height, when: {self: {entry: none}, right: {family: [qsZoo, qsYe]}}}
   - {exit: x-height, when: {self: {entry: none}, left: {family: qsOwe}}}
   - {exit: x-height, when: {self: {entry: live}, left: {family: [qsJay, qsYe, qsIt, qsEat]}}}
-  - stance: bar
+  - stance: hapax
     exit: baseline
     when: {self: {entry: none}, right: {family: [qsTea, qsRoe, qsIt]}}
     why: Two adjacent verticals joined at the baseline render as one extra-thick stroke.
@@ -57,13 +57,13 @@ policy:
       self: {entry: none}
       left: {family: [qsBay, qsDay, qsGay, qsShe]}
       right: {except: [family: qsDay, family: qsDay_qsUtter, family: qsUtter]}
-  - stance: bar
+  - stance: hapax
     exit: baseline
     when:
       self: {entry: none}
       left: {family: [qsZoo, qsShe, qsEat, qsOwe]}
       right: {family: qsUtter}
-  - stance: bar
+  - stance: hapax
     exit: baseline
     when: {self: {entry: live}, left: {family: qsDay, stance: half}, right: {family: qsUtter}}
   prefer:
@@ -72,17 +72,17 @@ policy:
     when: {left: {family: qsOy, joined_at: baseline}, right: {family: qsNo}}
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
-  - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
-  - stance: bar
+  - {stance: hapax, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
+  - stance: hapax
     exit: baseline
     by: 1
     when:
       self: {entry: live}
       left: {joined_at: x-height}
       right: {except: [family: qsDay, family: qsDay_qsUtter, family: qsMay, family: qsUtter]}
-  - {stance: bar, exit: baseline, by: 1, when: {self: {entry: none}, right: {family: qsI}}}
-  - {stance: bar, exit: baseline, by: 1, when: {right: {family: [qsJai, qsCheer, qsOwe]}}}
-  - {stance: bar, exit: x-height, by: 1, when: {right: {family: [qsZoo, qsJai, qsCheer, qsOwe]}}}
+  - {stance: hapax, exit: baseline, by: 1, when: {self: {entry: none}, right: {family: qsI}}}
+  - {stance: hapax, exit: baseline, by: 1, when: {right: {family: [qsJai, qsCheer, qsOwe]}}}
+  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: [qsZoo, qsJai, qsCheer, qsOwe]}}}
   contract: []
   resolve: []
   groups: {}

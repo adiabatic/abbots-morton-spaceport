@@ -20,7 +20,7 @@
     "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
     "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference `bitmap` of this letter, with an optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
-      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name.",
+      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes, with the pen motion still recorded in `way`.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
@@ -215,7 +215,7 @@
       }
     },
     "refuseRecord": {
-      "description": "Refuses a join: when its `when` matches, the join this record names is off the table, and the build joins the letters some other way or not at all.\n\nNarrow the target with `stance` and/or an `entry`/`exit` height to refuse only that one join — that stance, joining at that height. Name none of them and every join is refused: the letter sits unjoined whenever the `when` matches.\n\nThe `when` can read the settled left neighbor but only the raw right one.\n\nExample: ·It refuses its x-height exit into the full ·Day's entry — `{stance: bar, exit: x-height, when: {right: {family: qsDay}}, why: …}` — so ·It·Day joins low instead of through the forbidden same-height pass-through.",
+      "description": "Refuses a join: when its `when` matches, the join this record names is off the table, and the build joins the letters some other way or not at all.\n\nNarrow the target with `stance` and/or an `entry`/`exit` height to refuse only that one join — that stance, joining at that height. Name none of them and every join is refused: the letter sits unjoined whenever the `when` matches.\n\nThe `when` can read the settled left neighbor but only the raw right one.\n\nExample: ·It refuses its x-height exit into the full ·Day's entry — `{stance: hapax, exit: x-height, when: {right: {family: qsDay}}, why: …}` — so ·It·Day joins low instead of through the forbidden same-height pass-through.",
       "type": "object",
       "additionalProperties": false,
       "required": ["when"],

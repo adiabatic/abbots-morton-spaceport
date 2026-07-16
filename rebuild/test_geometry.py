@@ -32,11 +32,11 @@ class TestParseAdjustment:
 
 class TestDisplayName:
     def test_bare_default_stance(self, spec):
-        assert geometry.display_name(spec, CellId("qsIt", "bar", None, None, ())) == "qsIt"
+        assert geometry.display_name(spec, CellId("qsIt", "hapax", None, None, ())) == "qsIt"
 
     def test_isolated_cell_keeps_the_base_drawing_exit(self, spec):
         assert geometry.isolated_cell(spec, "qsMay") == CellId("qsMay", "loop", None, "x-height", ())
-        assert geometry.isolated_cell(spec, "qsIt") == CellId("qsIt", "bar", None, None, ())
+        assert geometry.isolated_cell(spec, "qsIt") == CellId("qsIt", "hapax", None, None, ())
         assert geometry.display_name(spec, CellId("qsMay", "loop", None, "x-height", ())) == "qsMay"
 
     def test_withdrawn_exit_gets_a_distinct_marker(self, spec):
@@ -46,7 +46,7 @@ class TestDisplayName:
         )
 
     def test_anchors_render_as_y_values(self, spec):
-        name = geometry.display_name(spec, CellId("qsIt", "bar", "x-height", "baseline", ()))
+        name = geometry.display_name(spec, CellId("qsIt", "hapax", "x-height", "baseline", ()))
         assert name == "qsIt.en-y5.ex-y0"
 
     def test_non_default_stance_is_named(self, spec):
@@ -172,7 +172,7 @@ class TestExtensions:
         assert record.exit == (7, 5)
 
     def test_it_exit_extension(self, spec):
-        record = _realize(spec, "qsIt", "bar", "x-height", "baseline", ["ex-ext-1"])
+        record = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["ex-ext-1"])
         assert record.bitmap == ("# ", "# ", "# ", "# ", "# ", "##")
         assert record.exit == (2, 0)
 
@@ -182,7 +182,7 @@ class TestExtensions:
         assert record.exit == (4, 5)
 
     def test_trim_blanks_ink_but_keeps_anchor(self, spec):
-        record = _realize(spec, "qsIt", "bar", "x-height", "baseline", ["en-trim-1"])
+        record = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["en-trim-1"])
         assert record.bitmap[0] == " "
         assert record.entry == (0, 5)
         assert "entry" in record.convention_exempt
@@ -193,19 +193,19 @@ class TestExtensions:
         assert record.entry == (2, 5)
 
     def test_locked_drops_the_entry(self, spec):
-        record = _realize(spec, "qsIt", "bar", "x-height", "baseline", ["locked"])
+        record = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["locked"])
         assert record.entry is None
         assert record.exit == (1, 0)
 
 
 class TestSeamGap:
     def test_it_into_may_baseline_gap_zero(self, spec):
-        left = _realize(spec, "qsIt", "bar", None, "baseline")
+        left = _realize(spec, "qsIt", "hapax", None, "baseline")
         right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
         assert geometry.seam_gap(left, right, "baseline") == 0
 
     def test_extended_seam_still_gap_zero(self, spec):
-        left = _realize(spec, "qsIt", "bar", "x-height", "baseline", ["ex-ext-1"])
+        left = _realize(spec, "qsIt", "hapax", "x-height", "baseline", ["ex-ext-1"])
         right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
         assert geometry.seam_gap(left, right, "baseline") == 0
 
@@ -227,7 +227,7 @@ class TestSeamGap:
 
 class TestWithdrawalSafety:
     def test_bar_exit_is_safe(self, spec):
-        record = _realize(spec, "qsIt", "bar", None, None)
+        record = _realize(spec, "qsIt", "hapax", None, None)
         assert geometry.verify_withdrawal_safe(record, "exit", "baseline")
         assert geometry.verify_withdrawal_safe(record, "exit", "x-height")
 

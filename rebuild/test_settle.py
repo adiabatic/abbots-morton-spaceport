@@ -50,15 +50,15 @@ def run(sequence: str, features=()) -> tuple[str, ...]:
 
 
 ROWS = (
-    ("qsIt", (), ("qsIt.bar",)),
+    ("qsIt", (), ("qsIt.hapax",)),
     ("qsTea", (), ("qsTea.full",)),
     ("qsMay", (), ("qsMay.loop",)),
     ("qsPea", (), ("qsPea.full",)),
-    ("qsOy", (), ("qsOy.loop",)),
+    ("qsOy", (), ("qsOy.hapax",)),
     # The half-·Tea x-height seam; qsIt's faithful-from-YAML entry extension fires (M1-PLAN section 5 authoring note: the gates and the ledger arbitrate, not the spec).
-    ("qsTea qsIt", (), ("qsTea.half.ex-y5", "qsIt.bar.en-y5.en-ext-1")),
-    ("qsIt qsMay", (), ("qsIt.bar.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.bar.en-y5")),
+    ("qsTea qsIt", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1")),
+    ("qsIt qsMay", (), ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
+    ("qsMay qsIt", (), ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5")),
     ("qsMay qsMay", (), ("qsMay.grounded-loop.ex-y0", "qsMay.loop.en-y0")),
     ("qsTea qsMay", (), ("qsTea.full.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
     # Phase 5 authoring fix: qsTea joined the grounded-exit refusal list (today's font breaks May.Tea while May.May joins, and the off-anchor contact gate rejected the loop top touching the bar), so the mid-word non-join renders pulled back.
@@ -69,67 +69,67 @@ ROWS = (
     (
         "qsTea qsMay qsIt",
         (),
-        ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.bar.en-y5"),
+        ("qsTea.full.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
     ),
     # Same-seam non-summing: the middle qsIt's extended exit suppresses the follower qsMay's entry extension.
     (
         "qsMay qsIt qsMay",
         (),
-        ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.bar.en-y5.ex-y0.ex-ext-1", "qsMay.loop.en-y0"),
+        ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5.ex-y0.ex-ext-1", "qsMay.loop.en-y0"),
     ),
-    ("qsIt qsMay qsIt", (), ("qsIt.bar.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.bar.en-y5")),
+    ("qsIt qsMay qsIt", (), ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5")),
     # The entered middle qsIt withdraws its exit before a follower that refuses its baseline entry after qsIt; withdrawal: safe leaves the plain exit-none cell.
-    ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.bar.en-y5.en-ext-1", "qsTea.full")),
-    ("qsIt qsTea", (), ("qsIt.bar", "qsTea.full")),
+    ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1", "qsTea.full")),
+    ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
     ("qsTea qsTea", (), ("qsTea.full", "qsTea.full")),
-    ("qsIt qsIt", (), ("qsIt.bar", "qsIt.bar")),
+    ("qsIt qsIt", (), ("qsIt.hapax", "qsIt.hapax")),
     # qsPea joins followers through the half way's x-height dip; the halves-class entry extension excepts qsPea, so qsIt takes no en-ext here.
-    ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.bar.en-y5")),
+    ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.hapax.en-y5")),
     # The y6 chain keeps all four heights live.
     ("qsPea qsPea", (), ("qsPea.half.ex-y6", "qsPea.full.en-y6")),
-    ("qsPea qsPea qsIt", (), ("qsPea.half.ex-y6", "qsPea.half.en-y6.ex-y5", "qsIt.bar.en-y5")),
+    ("qsPea qsPea qsIt", (), ("qsPea.half.ex-y6", "qsPea.half.en-y6.ex-y5", "qsIt.hapax.en-y5")),
     ("qsMay qsPea", (), ("qsMay.loop.ex-y5", "qsPea.full.en-y5")),
     # The both-dipped half cell: entered at the x-height and exiting at the x-height in one explicit cells: composition.
-    ("qsMay qsPea qsIt", (), ("qsMay.loop.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.bar.en-y5")),
-    ("qsPea qsOy", (), ("qsPea.full", "qsOy.loop")),
-    ("qsMay qsOy", (), ("qsMay.loop.ex-y5", "qsOy.loop.en-y5")),
-    ("qsMay qsOy qsIt", (), ("qsMay.loop.ex-y5", "qsOy.loop.en-y5.ex-y0", "qsIt.bar.en-y0")),
-    ("qsOy qsIt", (), ("qsOy.loop.ex-y0", "qsIt.bar.en-y0")),
-    ("qsOy qsTea", (), ("qsOy.loop.ex-y0", "qsTea.full.en-y0")),
-    ("qsIt qsOy", (), ("qsIt.bar", "qsOy.loop")),
+    ("qsMay qsPea qsIt", (), ("qsMay.loop.ex-y5", "qsPea.half.en-y5.ex-y5", "qsIt.hapax.en-y5")),
+    ("qsPea qsOy", (), ("qsPea.full", "qsOy.hapax")),
+    ("qsMay qsOy", (), ("qsMay.loop.ex-y5", "qsOy.hapax.en-y5")),
+    ("qsMay qsOy qsIt", (), ("qsMay.loop.ex-y5", "qsOy.hapax.en-y5.ex-y0", "qsIt.hapax.en-y0")),
+    ("qsOy qsIt", (), ("qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
+    ("qsOy qsTea", (), ("qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
+    ("qsIt qsOy", (), ("qsIt.hapax", "qsOy.hapax")),
     # Formation runs first, unconditionally; the entryless ligature severs left joins (predecessor withdrawal is cell semantics on the predecessor's side).
-    ("qsTea qsOy", (), ("qsTea_qsOy.bar-into-loop",)),
-    ("qsTea qsOy qsIt", (), ("qsTea_qsOy.bar-into-loop.ex-y0", "qsIt.bar.en-y0")),
-    ("qsTea qsOy qsTea", (), ("qsTea_qsOy.bar-into-loop.ex-y0", "qsTea.full.en-y0")),
+    ("qsTea qsOy", (), ("qsTea_qsOy.hapax",)),
+    ("qsTea qsOy qsIt", (), ("qsTea_qsOy.hapax.ex-y0", "qsIt.hapax.en-y0")),
+    ("qsTea qsOy qsTea", (), ("qsTea_qsOy.hapax.ex-y0", "qsTea.full.en-y0")),
     # Phase 5 authoring fix: qsTea_qsOy restored to qsMay's baseline entry-extension trigger list (the old pipeline's ligature expansion included it, and the baseline proves today's en-ext-1).
-    ("qsTea qsOy qsMay", (), ("qsTea_qsOy.bar-into-loop.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
-    ("qsIt qsTea qsOy", (), ("qsIt.bar", "qsTea_qsOy.bar-into-loop")),
+    ("qsTea qsOy qsMay", (), ("qsTea_qsOy.hapax.ex-y0", "qsMay.loop.en-y0.en-ext-1")),
+    ("qsIt qsTea qsOy", (), ("qsIt.hapax", "qsTea_qsOy.hapax")),
     # AUTHORED-DATA FINDING (generalized stranded-exit-withdrawal): qsMay's declined exit mid-word renders with the pulled-back withdrawal binding, carried in the cell identity.
-    ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.bar-into-loop")),
-    ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.bar-into-loop", "qsTea_qsOy.bar-into-loop")),
+    ("qsMay qsTea qsOy", (), ("qsMay.loop.ex-bind-pulled-back", "qsTea_qsOy.hapax")),
+    ("qsTea qsOy qsTea qsOy", (), ("qsTea_qsOy.hapax", "qsTea_qsOy.hapax")),
     (
         "qsMay qsTea qsIt",
         (),
-        ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.bar.en-y5.en-ext-1"),
+        ("qsMay.loop.ex-bind-pulled-back", "qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1"),
     ),
     # ZWNJ splits the run; entry-bearing letters after it settle as locked twins with the entry severed.
-    ("qsIt zwnj qsTea", (), ("qsIt.bar", "uni200C", "qsTea.full.locked")),
-    ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.bar.en-y5.en-ext-1")),
+    ("qsIt zwnj qsTea", (), ("qsIt.hapax", "uni200C", "qsTea.full.locked")),
+    ("zwnj qsTea qsIt", (), ("uni200C", "qsTea.half.ex-y5.locked", "qsIt.hapax.en-y5.en-ext-1")),
     ("zwnj qsMay qsTea", ("ss03",), ("uni200C", "qsMay.loop.ex-y5.locked.ex-ext-1", "qsTea.half.en-y5")),
     # The ss03 cross-ZWNJ leak, fixed structurally: no join across the break.
     ("qsMay zwnj qsTea", ("ss03",), ("qsMay.loop", "uni200C", "qsTea.full.locked")),
     ("qsMay space qsTea", ("ss03",), ("qsMay.loop", "space", "qsTea.full")),
-    ("qsIt zwnj qsTea qsOy", (), ("qsIt.bar", "uni200C", "qsTea_qsOy.bar-into-loop")),
+    ("qsIt zwnj qsTea qsOy", (), ("qsIt.hapax", "uni200C", "qsTea_qsOy.hapax")),
     # The namer dot does not split runs but has no join surface, so adjacency breaks naturally and nothing locks after it.
-    ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.bar")),
+    ("qsMay namer-dot qsIt", (), ("qsMay.loop", "periodcentered", "qsIt.hapax")),
     # ss02/ss05 triggers are out of the M1 alphabet: identical to default over these windows.
     ("qsMay qsTea", ("ss02",), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # AUTHORED-DATA FINDING: the qsIt baseline-exit refusal toward [qsTea, qsRoe, qsIt] is self-scoped to unentered cells, so an entered qsIt joins a following qsIt at the baseline (today's font breaks here); identical under ss04 because the middle ·It settles with an x-height entry, so the baseline-baseline pass-through grant never engages in this window.
-    ("qsTea qsIt qsIt", (), ("qsTea.half.ex-y5", "qsIt.bar.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.bar.en-y0")),
+    ("qsTea qsIt qsIt", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0")),
     (
         "qsTea qsIt qsIt",
         ("ss04",),
-        ("qsTea.half.ex-y5", "qsIt.bar.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.bar.en-y0"),
+        ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0"),
     ),
 )
 

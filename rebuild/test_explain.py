@@ -16,7 +16,7 @@ def test_report_settles_and_renders_candidates():
     report = explain(SPEC, parse_sequence(SPEC, "qsMay:qsIt:qsMay"), frozenset())
     text = report.render()
     assert "qsMay.loop.ex-y5.ex-ext-1" in text
-    assert "qsIt.bar.en-y5.ex-y0.ex-ext-1" in text
+    assert "qsIt.hapax.en-y5.ex-y0.ex-ext-1" in text
     assert "join-count" in text
     assert "decided by:" in text
 

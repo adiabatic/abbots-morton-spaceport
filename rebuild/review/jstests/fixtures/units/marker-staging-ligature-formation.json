@@ -47,7 +47,7 @@
   "after": {
    "cells": [
     "uni200C",
-    "qsTea_qsOy/bar-into-loop/None/None/+locked"
+    "qsTea_qsOy/hapax/None/None/+locked"
    ],
    "seams": [
     "break",
@@ -169,7 +169,7 @@
   "after": {
    "cells": [
     "space",
-    "qsTea_qsOy/bar-into-loop/None/None/+locked"
+    "qsTea_qsOy/hapax/None/None/+locked"
    ],
    "seams": [
     "break",

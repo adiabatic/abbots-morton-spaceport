@@ -314,7 +314,7 @@ Types: all counts are integers; `batches` lists the zero-based global batch indi
   "kinds": ["ligation"],
   "exemplar": true,
   "before": {"glyphs": ["space", "qsTea_qsOy"], "seams": ["break", "lig"]},
-  "after": {"cells": ["uni200C", "qsTea_qsOy/bar-into-loop/None/None/+locked"], "seams": ["break", "lig"], "extensions": [0, 0]},
+  "after": {"cells": ["uni200C", "qsTea_qsOy/hapax/None/None/+locked"], "seams": ["break", "lig"], "extensions": [0, 0]},
   "diff_positions": [0],
   "pair": {"left": 0, "right": 1},
   "highlight": {
