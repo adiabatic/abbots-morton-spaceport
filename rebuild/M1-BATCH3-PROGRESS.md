@@ -4,30 +4,32 @@ Scratch progress file for the in-flight qsLow migration; delete at batch close, 
 
 ## Committed
 
-Nothing committed yet; the whole batch sits in the working tree awaiting review.
+- 878709b Add ·Low
+
+The ·Day·Utter·Low fork resolution (§5.7 late formation + the qsUtter §5.9 follower prefer, with the pipeline, schema, test, and doc changes it carries) sits in the working tree awaiting review.
 
 ## Parked
 
-- **·Day·Utter·Low late-formation fork** — the one Manual-pin disagreement (`·Day | ·Utter.alt ·Low`, site/the-manual.html:1721) and its 133 oracle windows. The old font never forms qsDay_qsUtter before ·Low (·Utter pre-flips to alt to reach ·Low at the baseline); the new model forms ligatures unconditionally. Options: implement §5.7 late formation, or re-transcribe the pin. Recorded as the open fork in WHATNEXT.md; blocks `run_m1`’s pin gate and therefore the artifact cycle.
-- **Fresh qsLow verdict rows** — ~2,064 taste-call rows joining the existing batch-2 verdict families (Pea·No regrouping with ·Low appended, alt-·Utter join gains, the ratified ·It exit-extension carve-out before ·Day, ss03 chain gains). They await the next review sitting like the 6,564 batch-2 leftovers; none is a qsLow authoring defect.
+- **Verdict rows for the next sitting** — 10,653 unmatched oracle rows, all verdict-gated taste: the 6,564 batch-2 leftovers, the fresh qsLow families (Pea·No regrouping with ·Low appended, alt-·Utter join gains, the ratified ·It exit-extension carve-out before ·Day, ss03 chain gains), and the ·Utter-bearing rows the fork resolution moved — 237 old formation-fork rows now match the shipped font, and the additions are alt-·Utter tie-flips (bare ·Utter carrying its baseline exit at ties the old font left to `order:`) plus unformed-chain gains where formation now yields. None is a qsLow authoring defect.
+- **`why:` for qsUtter.policy.prefer[2]** — the §5.9 follower one-liner (`{cell: {exit: baseline}, over: {entry: baseline}}`) is a design decision whose rationale is the user’s to record; the `why:` text is pending.
 - **Ductus sign-off** — qsLow’s drafted `hapax` way carries `# DRAFT — pending author sign-off` (the letter had no ductus prose in `glyph_data/quikscript.yaml`).
 
 ## Design overrides
 
-None. The rune transcribes today’s YAML faithfully (four derive rules, two anchors); its qsSee/qsFee/qsJai records load as deferred-partner.
+- **§5.7 late formation is built** (was: designed but unbuilt). Formation yields per window iff the unformed trailing component could realize a seam toward the follower and the formed ligature could realize none, under every capability configuration — derived from join surfaces, no per-ligature data. Emitted as the `m1_formation_guarded` chaining-context lookup with generated `ignore sub` rows (a sanctioned exemption alongside the namer-dot guard). Design doc §5.7, the §7 formation row, and honest-criticism item 8 are updated in place.
+- **qsUtter gains the §5.9 follower prefer** — not a transcription of an old-YAML record; it re-expresses the old engine’s pre-flip behavior (alt engaged toward baseline-only-reachable followers) as the designed cell-grain one-liner. A `when:`-scoped variant was tried and is structurally rejected: any axis constraint makes it cross (not nest) with `policy.prefer[0]` and settlement raises E-AMBIGUOUS, so the unconditioned §5.9 shape is the only conflict-free form. The rune schema now permits when-less prefer records for exactly this idiom.
 
 ## Verification recipe
 
 - `uv run pytest rebuild/test_spec_load.py rebuild/test_surface.py -n auto --dist worksteal` — expect exactly the four documented baseline failures.
-- `uv run python -m rebuild.pipeline.baseline_subset` — regenerate the 12-symbol subset tables (needed once after the alphabet widening; 22,620 rows per config).
-- `uv run python -m rebuild.pipeline.run_m1 --jobs 8` — defect/boundary gates pass; stops at the Manual-pin gate on the parked fork above.
-- Oracle direct (bypasses the pin-gate stop): `uv run python -c "from rebuild.pipeline import run_m1; run_m1.run_oracle(spec=run_m1.load_default_spec(), jobs=8)"` — expect `multi_matched: 0`, `unmatched: 8761`.
-- `uv run python -m rebuild.pipeline.run_m1 --conform-only --jobs 8` — passes (271,452 sequences, 0 divergences).
-- `make test` and `uv run pytest rebuild/ -n auto --dist worksteal`; then `make all` + `shasum -a 256 site/AbbotsMortonSpaceportSansSenior-Regular.otf` == `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35`.
+- `uv run python -m rebuild.pipeline.run_m1 --jobs 8` — defect/boundary/Manual-pin gates pass (pin gate 29/29); exits nonzero at the oracle stage on the verdict-gated rows, expected until the sitting lands verdicts.
+- Oracle direct: `uv run python -c "from rebuild.pipeline import run_m1; run_m1.run_oracle(spec=run_m1.load_default_spec(), jobs=8)"` — expect `multi_matched: 0`, `unmatched: 10653`.
+- `uv run python -m rebuild.pipeline.run_m1 --conform-only --jobs 8` — passes (271,452 sequences, 0 divergences, 0 uncovered rules/transitions).
+- `make test` and `uv run pytest rebuild/ -n auto --dist worksteal`; the shipped legacy pipeline is untouched by the rebuild work.
 
 ## Resume
 
-1. Decide the late-formation fork (WHATNEXT.md “Open fork”).
-2. Re-run `run_m1 --jobs 8` to green, then the artifact cycle: `uv run python rebuild/tools/artifact_cycle.py --verdicts rebuild/evidence/verdicts-carried-7d6cc45.json --update-pins --jobs 8`.
-3. Review sitting over the fresh qsLow units (import the carried master, then `make review-serve`).
+1. Review + commit the fork-resolution working tree; record the qsUtter `why:`.
+2. Artifact cycle: `uv run python rebuild/tools/artifact_cycle.py --verdicts rebuild/evidence/verdicts-carried-7d6cc45.json --update-pins --jobs 8`.
+3. Review sitting over the qsLow + fork-resolution units (import the carried master, then `make review-serve`).
 4. Sign off qsLow’s ductus (grep `# DRAFT`).

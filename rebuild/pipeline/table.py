@@ -1,6 +1,6 @@
 """Decision-table and treaty-table builders (M1-PLAN section 5, Group 2), promoted from prototype/table.py per the Recon B promotion map.
 
-`build_tables(spec, features)` tabulates the settlement kernel over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible (an adjacent ligature pair surviving unformed) are excluded. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
+`build_tables(spec, features)` tabulates the settlement kernel over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible are excluded — but a ligature pair survives unformed exactly where the section 5.7 late-formation guard fires, so pair windows are enumerated under precisely the guard-firing follower contexts (`_survivable_formation_windows`): the lead's window is admitted per guard-firing right2, and the trail's window inherits the matching allowed-right2 set through the worklist, keeping the fixpoint exact. The mirror facet holds for formed-ligature tokens at any slot: a ligature input's window, and any window with a ligature at right1, is admitted only where that ligature's own guard does NOT fire over the raw tokens its post-formation neighbors stand for (`liga_formed_before`), existentially over the beyond-window slot. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
 
 Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, two-lookahead-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
 
@@ -217,6 +217,44 @@ def _formation_pairs(spec: ResolvedSpec) -> frozenset[tuple[str, str]]:
     return frozenset(pairs)
 
 
+def _survivable_formation_windows(
+    spec: ResolvedSpec, right_letters: list[RightToken], right_boundaries: list[RightToken]
+) -> dict[tuple[str, str], dict[str, frozenset[RightToken] | None]]:
+    """The section 5.7 late-formation guard translated into the table's post-formation label space: for each formation (lead, trail) pair, the right2 options under which the pair survives unformed, each mapped to the allowed right2 tokens of the trail's own subsequent window (None = unrestricted, the case where the follower is itself a formed ligature that swallowed both guard slots). The guard reads raw slots, so a ligature label at either slot is queried through its raw components."""
+    from rebuild.pipeline import settle as settle_module
+
+    def raw_of(token: RightToken) -> RightToken:
+        if token.kind != "letter":
+            return token
+        sequence = spec.runes[token.rune].sequence
+        return RightToken("letter", sequence[0]) if sequence else token
+
+    out: dict[tuple[str, str], dict[str, frozenset[RightToken] | None]] = {}
+    for name, rune in spec.runes.items():
+        if not rune.sequence:
+            continue
+        pair = (rune.sequence[-2], rune.sequence[-1])
+        follower_map: dict[str, frozenset[RightToken] | None] = {}
+        for follower in right_letters:
+            follower_sequence = spec.runes[follower.rune].sequence
+            if follower_sequence:
+                lead_token = RightToken("letter", follower_sequence[-2])
+                trail_token = RightToken("letter", follower_sequence[-1])
+                if settle_module.formation_blocked(spec, name, lead_token, trail_token):
+                    follower_map[follower.rune] = None
+                continue
+            allowed = frozenset(
+                option
+                for option in right_boundaries + right_letters
+                if settle_module.formation_blocked(spec, name, follower, raw_of(option))
+            )
+            if allowed:
+                follower_map[follower.rune] = allowed
+        if follower_map:
+            out[pair] = follower_map
+    return out
+
+
 def _entry_extension(settled: Settled) -> int:
     total = 0
     for token in settled.cell.adjustments:
@@ -242,20 +280,49 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
             return token.rune
         return BOUNDARY_LEFT_LABELS[token.kind]
 
+    survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
+
+    from rebuild.pipeline import settle as settle_module
+
+    liga_sequences = {name: rune.sequence for name, rune in spec.runes.items() if rune.sequence}
+    raw_second_options = right_boundaries + [t for t in right_letters if t.rune not in liga_sequences]
+
+    def liga_formed_before(name: str, next1: RightToken, next2: RightToken | None) -> bool:
+        """Whether a formed `name` ligature can immediately precede (next1, next2) in a post-formation stream: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over the raw options."""
+        if next1.kind != "letter":
+            return True
+        sequence = liga_sequences.get(next1.rune)
+        if sequence:
+            first: RightToken = RightToken("letter", sequence[0])
+            second: RightToken | None = RightToken("letter", sequence[1])
+        else:
+            first = next1
+            if next2 is None:
+                second = None
+            elif next2.kind == "letter" and (next2_sequence := liga_sequences.get(next2.rune)):
+                second = RightToken("letter", next2_sequence[0])
+            else:
+                second = next2
+        if second is not None:
+            return not settle_module.formation_blocked(spec, name, first, second)
+        return any(
+            not settle_module.formation_blocked(spec, name, first, option) for option in raw_second_options
+        )
+
     transitions: dict[tuple[str, str, str, str], Transition] = {}
     seen: set[tuple] = set()
-    # A worklist item is (left state, input rune, right1 constraint): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds).
-    worklist: list[tuple[LeftContext, str, RightToken | None]] = []
+    # A worklist item is (left state, input rune, right1 constraint, right2 allowed-set): a settled left state is reachable only alongside the right1 that was the producing window's right2 (an entry refusal or unlock conditioned on the follower makes other combinations contradictory — the left would never have committed there), so the fixpoint is exact, not merely sound. None = all right1 options (the boundary-left seeds). The right2 allowed-set carries the late-formation guard's second slot onto a surviving pair's trail window; None = unrestricted.
+    worklist: list[tuple[LeftContext, str, RightToken | None, frozenset[RightToken] | None]] = []
     for kind in ("edge", "space", "zwnj", "namer-dot"):
         for name in letters:
-            worklist.append((LeftContext(kind), name, None))
+            worklist.append((LeftContext(kind), name, None, None))
 
     while worklist:
-        left, rune_name, right1_constraint = worklist.pop()
+        left, rune_name, right1_constraint, right2_allowed = worklist.pop()
         left_key = (left.kind, left.settled)
-        if (left_key, rune_name, right1_constraint) in seen:
+        if (left_key, rune_name, right1_constraint, right2_allowed) in seen:
             continue
-        seen.add((left_key, rune_name, right1_constraint))
+        seen.add((left_key, rune_name, right1_constraint, right2_allowed))
         locked = left.kind == "zwnj" and is_entry_bearing(spec, rune_name)
         input_label = locked_glyph_name(rune_name) if locked else rune_name
         left_label = (
@@ -266,14 +333,31 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
             [right1_constraint] if right1_constraint is not None else right_boundaries + right_letters
         )
         for right1 in right1_options:
+            follower_map = None
             if right1.kind == "letter" and (rune_name, right1.rune) in formation_pairs:
-                continue
+                follower_map = survivable.get((rune_name, right1.rune))
+                if follower_map is None:
+                    continue
             if right1.kind == "letter":
                 right2_options = [
                     r
                     for r in right_boundaries + right_letters
-                    if not (r.kind == "letter" and (right1.rune, r.rune) in formation_pairs)
+                    if not (
+                        r.kind == "letter"
+                        and (right1.rune, r.rune) in formation_pairs
+                        and (right1.rune, r.rune) not in survivable
+                    )
                 ]
+                if follower_map is not None:
+                    right2_options = [
+                        r for r in right2_options if r.kind == "letter" and r.rune in follower_map
+                    ]
+                if right2_allowed is not None:
+                    right2_options = [r for r in right2_options if r in right2_allowed]
+                if rune_name in liga_sequences:
+                    right2_options = [r for r in right2_options if liga_formed_before(rune_name, right1, r)]
+                if right1.rune in liga_sequences:
+                    right2_options = [r for r in right2_options if liga_formed_before(right1.rune, r, None)]
             else:
                 right2_options = [EDGE]
             for right2 in right2_options:
@@ -297,7 +381,10 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                     )
                 transitions[row.key] = row
                 if right1.kind == "letter":
-                    worklist.append((LeftContext("letter", trace.settled), right1.rune, right2))
+                    successor_allowed = follower_map.get(right2.rune) if follower_map is not None else None
+                    worklist.append(
+                        (LeftContext("letter", trace.settled), right1.rune, right2, successor_allowed)
+                    )
 
     rows = _flag_prospect_joints(sorted(transitions.values(), key=lambda t: t.key))
 

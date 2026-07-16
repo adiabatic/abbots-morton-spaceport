@@ -1,6 +1,6 @@
 """The section 6.1 settlement function over a ResolvedSpec (doc/rebuild-design.md), promoted from prototype/settle.py per the Recon B promotion map.
 
-Per run (boundary to boundary), after unconditional type-4 formation, left to right: at each position the unit being ranked is the pair candidate (cell of rune i, seam state toward i+1). The kernel implements entry binding with the bilateral-commitment rule and the E-STRANDED raise, the refusal-aware lookahead closure (mutuality is definitional: an exit with no refusal-aware acceptor is never a candidate), refusals from both seam runes at all three grains with except carve-outs, and the strictly lexicographic ranking: absolute prefers (most-specific first) -> window join-count with the deliberately optimistic third term -> yielding prefers -> the runes' declared order: -> the structural floor (lower seam height, row declaration order, none last) -> the weak lead preference (unreachable in practice because the floor is total; kept as the documented final stage). Extensions and contracts apply per (seam, side) by section 6.2 most-specific-wins and never sum on one side; a follower's entry extension is suppressed when the predecessor's exit already carries the seam's pixels (the same-seam non-summing rule, prototype divergence 3).
+Per run (boundary to boundary), after guarded type-4 formation (the section 5.7 late-formation guard: a ligature yields per window when leaving its components unformed would realize a seam toward the follower that the formed ligature cannot realize under any capability configuration), left to right: at each position the unit being ranked is the pair candidate (cell of rune i, seam state toward i+1). The kernel implements entry binding with the bilateral-commitment rule and the E-STRANDED raise, the refusal-aware lookahead closure (mutuality is definitional: an exit with no refusal-aware acceptor is never a candidate), refusals from both seam runes at all three grains with except carve-outs, and the strictly lexicographic ranking: absolute prefers (most-specific first) -> window join-count with the deliberately optimistic third term -> yielding prefers -> the runes' declared order: -> the structural floor (lower seam height, row declaration order, none last) -> the weak lead preference (unreachable in practice because the floor is total; kept as the documented final stage). Extensions and contracts apply per (seam, side) by section 6.2 most-specific-wins and never sum on one side; a follower's entry extension is suppressed when the predecessor's exit already carries the seam's pixels (the same-seam non-summing rule, prototype divergence 3).
 
 Boundary semantics: space and ZWNJ split runs and derive word position; the namer dot does not split runs but is addressable as `is: namer-dot` and, having no join surface, breaks adjacency naturally. Post-ZWNJ letters with a live entry surface settle as locked twins (the `locked` adjustment) with the entry side severed — post-ZWNJ behaves word-initial by definition.
 
@@ -11,8 +11,10 @@ Withdrawal is candidate semantics, not a fixup: a join that does not realize mid
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from rebuild.pipeline import specificity
 from rebuild.pipeline.model import (
@@ -984,6 +986,75 @@ class Engine:
         return Settled(cell=cell, seam=winner.seam, extension=extension)
 
 
+# --- late formation (design section 5.7) ----------------------------------------------------
+
+# Guard state per spec, shared across every Engine so the conform sweep's per-text engines reuse the verdicts. Entries hold the spec strongly, so an id can never be reused while its entry lives; the small LRU cap keeps test runs (which load many specs) bounded.
+_GUARD_STATES: OrderedDict[int, tuple[ResolvedSpec, dict]] = OrderedDict()
+_GUARD_STATES_CAP = 8
+
+
+def _guard_state(spec: ResolvedSpec) -> dict:
+    entry = _GUARD_STATES.get(id(spec))
+    if entry is not None and entry[0] is spec:
+        _GUARD_STATES.move_to_end(id(spec))
+        return entry[1]
+    capability_features = sorted(
+        {
+            unlock.feature
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        }
+    )
+    engines = tuple(
+        Engine(spec, frozenset(combo))
+        for size in range(len(capability_features) + 1)
+        for combo in combinations(capability_features, size)
+    )
+    state = {"engines": engines, "verdicts": {}}
+    _GUARD_STATES[id(spec)] = (spec, state)
+    while len(_GUARD_STATES) > _GUARD_STATES_CAP:
+        _GUARD_STATES.popitem(last=False)
+    return state
+
+
+def _blocked_under(engine: Engine, liga_name: str, right1: RightToken, right2: RightToken) -> bool:
+    rune = engine.spec.runes[liga_name]
+    lead, trail = rune.sequence[-2], rune.sequence[-1]
+    virtual = LeftContext(
+        "letter",
+        Settled(
+            cell=CellId(
+                rune=lead,
+                stance=engine.spec.runes[lead].default_stance,
+                entry=None,
+                exit=None,
+                adjustments=(),
+            ),
+            seam=None,
+            extension=0,
+        ),
+    )
+    if not any(c.seam is not None for c in engine.candidates(virtual, trail, right1, right2)):
+        return False
+    return not any(
+        c.seam is not None for c in engine.candidates(LeftContext("edge"), liga_name, right1, right2)
+    )
+
+
+def formation_blocked(spec: ResolvedSpec, liga_name: str, right1: RightToken, right2: RightToken) -> bool:
+    """The section 5.7 late-formation guard: the ligature yields to its components in this window iff the trailing component, left unformed, could realize a seam toward the follower while the formed ligature could realize none — refusal-aware at candidacy grain, with the trail's left approximated by the lead's default stance (unjoined) and the ligature's by the run edge. The verdict is quantified over the powerset of capability-unlock features and fires only when every configuration agrees, because the emitted formation lookup stages before the ss marker substitutions and is therefore config-blind by design. `right1`/`right2` are the raw tokens after the ligature's sequence — the same slots the emitted lookup reads — so the guard never depends on state formation cannot see."""
+    if right1.kind != "letter":
+        return False
+    state = _guard_state(spec)
+    key = (liga_name, right1, right2)
+    verdict = state["verdicts"].get(key)
+    if verdict is None:
+        verdict = all(_blocked_under(engine, liga_name, right1, right2) for engine in state["engines"])
+        state["verdicts"][key] = verdict
+    return verdict
+
+
 # --- tokenization, formation, the fold ----------------------------------------------------
 
 
@@ -1008,7 +1079,7 @@ def tokens_from_codepoints(spec: ResolvedSpec, codepoints: Sequence[int]) -> lis
 
 
 def form_ligatures(spec: ResolvedSpec, tokens: list[RightToken]) -> list[RightToken]:
-    """Unconditional type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included (design section 5.7)."""
+    """Type-4 formation over the modeled ligature runes, greedy left to right, longest sequence first — staged before everything else, markers included, each match yielding to the section 5.7 late-formation guard over the two raw tokens past the sequence (design section 5.7)."""
     sequences = sorted(
         ((rune.sequence, name) for name, rune in spec.runes.items() if rune.sequence),
         key=lambda item: -len(item[0]),
@@ -1024,6 +1095,10 @@ def form_ligatures(spec: ResolvedSpec, tokens: list[RightToken]) -> list[RightTo
                     tokens[i + k].kind == "letter" and tokens[i + k].rune == part
                     for k, part in enumerate(sequence)
                 ):
+                    right1 = tokens[end] if end < len(tokens) else EDGE
+                    right2 = tokens[end + 1] if end + 1 < len(tokens) else EDGE
+                    if formation_blocked(spec, name, right1, right2):
+                        continue
                     match = (name, len(sequence))
                     break
         if match is not None:

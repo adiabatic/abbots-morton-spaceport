@@ -381,7 +381,7 @@ def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
 
 
 def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[str]:
-    """The raw GSUB pipeline replay: formation, marker fold, ZWNJ chokepoint — the labels the settlement lookup sees."""
+    """The raw GSUB pipeline replay: formation (delegated to settle.form_ligatures, so the section 5.7 late-formation guard applies here exactly as in the kernel and the emitted lookup), marker fold, ZWNJ chokepoint — the labels the settlement lookup sees."""
     by_codepoint = {
         info.codepoint: name for name, info in spec.registry.families.items() if info.codepoint is not None
     }
@@ -395,19 +395,19 @@ def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[
             tokens.append(by_codepoint[cp])
         else:
             raise ValueError(f"U+{cp:04X} outside the spec alphabet")
-    formation = {
-        rune.sequence: name for name, rune in spec.runes.items() if rune.sequence and len(rune.sequence) == 2
+    from rebuild.pipeline import settle as settle_module
+
+    boundary_tokens = {
+        "<space>": settle_module.SPACE,
+        "<zwnj>": settle_module.ZWNJ,
+        "<namer-dot>": settle_module.NAMER_DOT,
     }
-    formed: list[str] = []
-    index = 0
-    while index < len(tokens):
-        pair = (tokens[index], tokens[index + 1]) if index + 1 < len(tokens) else None
-        if pair in formation:
-            formed.append(formation[pair])
-            index += 2
-        else:
-            formed.append(tokens[index])
-            index += 1
+    boundary_names = {"space": "<space>", "zwnj": "<zwnj>", "namer-dot": "<namer-dot>"}
+    right_tokens = [boundary_tokens.get(token, settle_module.RightToken("letter", token)) for token in tokens]
+    formed = [
+        boundary_names[token.kind] if token.kind != "letter" else token.rune
+        for token in settle_module.form_ligatures(spec, right_tokens)
+    ]
     labels: list[str] = []
     for position, token in enumerate(formed):
         if token == "<space>":
@@ -637,8 +637,31 @@ def _shortest_window_prefixes(decision) -> dict[tuple[str, str, str | None], tup
     return prefixes
 
 
-def _window_witness_tokens(prefixes, row) -> tuple[str, ...] | None:
-    """Assemble the token stream that realizes one transition row's window: the BFS prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge)."""
+def _refolds_intact(spec, tokens) -> bool:
+    """Whether a witness token stream survives the raw replay unchanged: expand ligature tokens to components, re-run guarded formation, and demand the original stream back. A prefix ligature can be un-formed (its guard slots are the witness's own following tokens) and an adjacent pair can re-form — either way the stream no longer realizes the intended window."""
+    from rebuild.pipeline import settle as settle_module
+
+    boundary_by_label = {
+        "space": settle_module.SPACE,
+        "uni200C": settle_module.ZWNJ,
+        "periodcentered": settle_module.NAMER_DOT,
+    }
+    label_by_kind = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
+    stream: list = []
+    for token in tokens:
+        if token in boundary_by_label:
+            stream.append(boundary_by_label[token])
+            continue
+        for part in spec.runes[token].sequence or (token,):
+            stream.append(settle_module.RightToken("letter", part))
+    formed = settle_module.form_ligatures(spec, stream)
+    labels = [label_by_kind[t.kind] if t.kind != "letter" else t.rune for t in formed]
+    return labels == list(tokens)
+
+
+def _window_witness_tokens(spec, prefixes, row) -> tuple[str, ...] | None:
+    """Assemble the token stream that realizes one transition row's window: the BFS prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge). A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. Every assembled stream is then checked to survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to a realizable row."""
+    from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
 
     boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
@@ -649,15 +672,66 @@ def _window_witness_tokens(prefixes, row) -> tuple[str, ...] | None:
         return None
     tokens = list(prefix) + [_label_family(row.input_glyph)]
     if row.right1 == EDGE_LABEL:
-        return tuple(tokens)
-    if row.right1 in boundary_labels:
-        return tuple(tokens + [row.right1])
-    tokens.append(_label_family(row.right1))
-    if row.right2 in (EDGE_LABEL, NA_LABEL):
-        return tuple(tokens)
-    if row.right2 in boundary_labels:
-        return tuple(tokens + [row.right2])
-    return tuple(tokens + [_label_family(row.right2)])
+        pass
+    elif row.right1 in boundary_labels:
+        tokens.append(row.right1)
+    else:
+        tokens.append(_label_family(row.right1))
+        if row.right2 in (EDGE_LABEL, NA_LABEL):
+            pass
+        elif row.right2 in boundary_labels:
+            tokens.append(row.right2)
+        else:
+            tokens.append(_label_family(row.right2))
+            pairs = {
+                (rune.sequence[-2], rune.sequence[-1]): name
+                for name, rune in spec.runes.items()
+                if rune.sequence
+            }
+            liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
+            if liga is not None:
+                follower = settle_module.RightToken("letter", _label_family(row.right2))
+                if not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
+                    second = next(
+                        (
+                            name
+                            for name in sorted(spec.runes)
+                            if not spec.runes[name].sequence
+                            and (_label_family(row.right2), name) not in pairs
+                            and settle_module.formation_blocked(
+                                spec, liga, follower, settle_module.RightToken("letter", name)
+                            )
+                        ),
+                        None,
+                    )
+                    if second is None:
+                        return None
+                    tokens.append(second)
+            liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
+            if liga_at_lookahead is not None and not settle_module.formation_blocked(
+                spec, liga_at_lookahead, settle_module.EDGE, settle_module.EDGE
+            ):
+                follower = next(
+                    (
+                        name
+                        for name in sorted(spec.runes)
+                        if not spec.runes[name].sequence
+                        and (_label_family(row.right2), name) not in pairs
+                        and settle_module.formation_blocked(
+                            spec,
+                            liga_at_lookahead,
+                            settle_module.RightToken("letter", name),
+                            settle_module.EDGE,
+                        )
+                    ),
+                    None,
+                )
+                if follower is None:
+                    return None
+                tokens.append(follower)
+    if not _refolds_intact(spec, tokens):
+        return None
+    return tuple(tokens)
 
 
 def _first_match_rows(decision) -> dict[int, list]:
@@ -679,8 +753,10 @@ def _first_match_rows(decision) -> dict[int, list]:
     return rows_by_rule
 
 
-def _candidate_witness_tokens(prefixes, rows, limit: int = 6) -> list[tuple[str, ...]]:
-    candidates = {tokens for row in rows if (tokens := _window_witness_tokens(prefixes, row)) is not None}
+def _candidate_witness_tokens(spec, prefixes, rows, limit: int = 6) -> list[tuple[str, ...]]:
+    candidates = {
+        tokens for row in rows if (tokens := _window_witness_tokens(spec, prefixes, row)) is not None
+    }
     return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
 
 
@@ -713,7 +789,7 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
         witness = None
-        for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
+        for tokens in _candidate_witness_tokens(spec, prefixes, rows_by_rule.get(index, ())):
             text = _token_text(spec, tokens)
             settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
             expected = settled_names(spec, settled, glyph_names)
@@ -828,7 +904,7 @@ def _conformance_config(
     swept = [index for index in range(len(decision.rules)) if index not in rules_hit]
     witnessed: dict[int, str] = {}
     for index in swept:
-        for tokens in _candidate_witness_tokens(prefixes, rows_by_rule.get(index, ())):
+        for tokens in _candidate_witness_tokens(spec, prefixes, rows_by_rule.get(index, ())):
             text = _token_text(spec, tokens)
             sweep_text(text)
             result.topped_up_sequences += 1
@@ -859,7 +935,7 @@ def _conformance_config(
     for row in decision.transitions:
         if renamed_key(row) in realized:
             continue
-        tokens = _window_witness_tokens(prefixes, row)
+        tokens = _window_witness_tokens(spec, prefixes, row)
         if tokens is None:
             continue
         sweep_text(_token_text(spec, tokens))
