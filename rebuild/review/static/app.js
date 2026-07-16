@@ -30,9 +30,16 @@ import {
   humanClassCount,
   humanTotal,
   noVerdictTotal,
+  NO_VERDICT_BADGE,
+  formatCount,
+  surfaceLine,
+  machineLine,
+  noVerdictLine,
+  classCountsLine,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
+  classesInBatch,
   copyPreamble,
   tokenSeparators,
   searchUnits,
@@ -73,7 +80,6 @@ const MACHINE_TITLE =
 const JUNIOR_BADGE = 'junior-equivalent — machine approved';
 const JUNIOR_TITLE =
   "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
-const NO_VERDICT_BADGE = 'no verdict needed';
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
 
@@ -638,19 +644,38 @@ function updateGroupCounts() {
 }
 
 function updateProgress() {
+  const counts = verdictCounts(store);
+  document.getElementById('overall-progress').textContent =
+    `Overall: ${formatCount(store.records.size)}/${formatCount(humanTotal(manifest))} ` +
+    `(✓${formatCount(counts.approve)} ✗${formatCount(counts.reject)} ≈${formatCount(counts.either)} ` +
+    `≡${formatCount(counts.identical)} ∅${formatCount(counts.neither)} →${formatCount(counts.skip)})`;
+  updateClassProgress();
   let batchVerdicted = 0;
   for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
   document.getElementById('batch-progress').textContent =
     `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
-  const counts = verdictCounts(store);
-  document.getElementById('overall-progress').textContent =
-    `Overall: ${store.records.size}/${humanTotal(manifest)} ` +
-    `(✓${counts.approve} ✗${counts.reject} ≈${counts.either} ≡${counts.identical} ∅${counts.neither} →${counts.skip})`;
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
   nudge.textContent = `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`;
   updateGroupCounts();
   updateClassCounts();
+}
+
+function updateClassProgress() {
+  const line = document.getElementById('class-progress');
+  const cls = state.class ? manifest.classes.find((entry) => entry.id === state.class) : null;
+  const human = cls ? humanClassCount(cls) : 0;
+  if (!cls || human === 0 || !shardCache.has(cls.id)) {
+    line.hidden = true;
+    return;
+  }
+  let verdicted = 0;
+  for (const [unitId, unit] of unitsById) {
+    if (unit.class === cls.id && store.records.has(unitId)) verdicted += 1;
+  }
+  line.textContent = `Class ${cls.id}: ${formatCount(verdicted)}/${formatCount(human)}`;
+  line.title = cls.why ?? '';
+  line.hidden = false;
 }
 
 function updateTitle() {
@@ -683,25 +708,32 @@ function renderSidebar() {
 function updateClassCounts() {
   for (const button of document.querySelectorAll('.class-button')) {
     const cls = manifest.classes.find((entry) => entry.id === button.dataset.class);
-    if (cls.no_verdict) {
-      button.querySelector('.class-counts').textContent =
-        `${cls.unit_count} units — ${NO_VERDICT_BADGE} · ${cls.row_count} rows`;
-      button.setAttribute('aria-pressed', String(state.class === cls.id));
-      continue;
-    }
-    let verdicted = 0;
-    let known = false;
-    if (shardCache.has(cls.id)) {
-      known = true;
+    let verdicted = null;
+    if (!cls.no_verdict && shardCache.has(cls.id)) {
+      verdicted = 0;
       for (const [unitId, unit] of unitsById) {
         if (unit.class === cls.id && store.records.has(unitId)) verdicted += 1;
       }
     }
-    const human = humanClassCount(cls);
-    const progress = known ? `${verdicted}/${human}` : `${human} units`;
-    const machine = cls.machine_approved_count ? ` · ${cls.machine_approved_count} machine` : '';
-    button.querySelector('.class-counts').textContent = `${progress} · ${cls.row_count} rows${machine}`;
+    button.querySelector('.class-counts').textContent = classCountsLine(cls, verdicted);
     button.setAttribute('aria-pressed', String(state.class === cls.id));
+  }
+}
+
+function updateSidebarHighlights() {
+  const cursorId = cursorUnitId() ?? state.unit;
+  const currentClass = cursorId ? (unitsById.get(cursorId)?.class ?? null) : null;
+  let batchClasses;
+  if (state.units) {
+    batchClasses = new Set();
+    for (const unit of visibleUnits) batchClasses.add(unit.class);
+    for (const unit of machineUnits) batchClasses.add(unit.class);
+  } else {
+    batchClasses = classesInBatch(manifest, state.batch);
+  }
+  for (const button of document.querySelectorAll('.class-button')) {
+    button.classList.toggle('has-cursor', button.dataset.class === currentClass);
+    button.classList.toggle('in-batch', batchClasses.has(button.dataset.class));
   }
 }
 
@@ -777,6 +809,7 @@ async function applyHashState() {
   updateTitle();
   updateBatchNav();
   updateClassCounts();
+  updateSidebarHighlights();
 }
 
 let toastTimer = null;
@@ -1626,15 +1659,32 @@ function renderChrome() {
   document.getElementById('serve-command').textContent = manifest.serve_command ?? '';
   const machine = manifest.machine_approved;
   const exempt = noVerdictTotal(manifest);
+  const surface = document.getElementById('surface-total');
+  surface.textContent = surfaceLine(manifest);
+  surface.title =
+    `${formatCount(manifest.totals.units)} units = ${formatCount(machine?.units ?? 0)} machine-approved + ` +
+    `${formatCount(exempt)} in no-verdict classes + ${formatCount(humanTotal(manifest))} for human review, ` +
+    `covering ${formatCount(manifest.totals.rows)} rows in ${manifest.classes.length} classes.`;
   document.getElementById('manifest-meta').textContent =
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
-    `${humanTotal(manifest)} human-workload units in ${manifest.totals.batches} batches, plus ` +
-    `${machine?.units ?? 0} machine-approved${exempt ? ` and ${exempt} in no-verdict classes` : ''}, ` +
-    `covering ${manifest.totals.rows} rows.`;
-  const line = document.getElementById('machine-approved-line');
-  if (machine && machine.units > 0) {
-    line.textContent = `${machine.units} ink-identical units machine-approved`;
+    `${formatCount(manifest.totals.units)} units on the surface — ` +
+    `${formatCount(machine?.units ?? 0)} machine-approved` +
+    `${exempt ? `, ${formatCount(exempt)} in no-verdict classes` : ''}, and ` +
+    `${formatCount(humanTotal(manifest))} human-workload in ${manifest.totals.batches} batches — ` +
+    `covering ${formatCount(manifest.totals.rows)} rows.`;
+  const machineText = machineLine(manifest);
+  if (machineText) {
+    const line = document.getElementById('machine-approved-line');
+    line.textContent = machineText;
     line.title = machine.method ?? '';
+    line.hidden = false;
+  }
+  const exemptText = noVerdictLine(manifest);
+  if (exemptText) {
+    const line = document.getElementById('no-verdict-line');
+    line.textContent = exemptText;
+    line.title =
+      'Units in a no-verdict ledger class are adjudicated wholesale by a ratified rule and never need individual verdicts; hover the class in the sidebar for its rationale.';
     line.hidden = false;
   }
 }
