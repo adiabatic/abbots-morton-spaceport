@@ -1,10 +1,10 @@
 """GSUB emission in the prototype-proven section 7 shape (M1-PLAN section 5, Group 3).
 
-Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (unconditional type-4 over the registry's ligature sequences) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
+Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come straight from `settle.formation_blocked`, config-blind by that function's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
 
 Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` (tuples of glyph labels or None), `outcome`, `joint`, `provenance`. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
-Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard, today's proven shape, is the one sanctioned exemption and is absent from the M1 mini-font anyway, which has no mid-word guard glyphs).
+Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard and the generated late-formation guard rows are the sanctioned exemptions — both are formation/boundary machinery, not selection semantics).
 """
 
 from __future__ import annotations
@@ -92,6 +92,67 @@ def _marker_lookups(spec: ResolvedSpec) -> tuple[dict[str, list[str]], dict[str,
                 target = marker_glyph_name(rune_name, state | {feature})
                 lines.append(f"    sub {source} by {target};")
     return per_feature, marker_glyphs
+
+
+def _formation_lines(spec: ResolvedSpec, registry: _ClassRegistry) -> tuple[list[str], list[str], list[str]]:
+    """Formation lines split by the section 5.7 late-formation guard: (guarded chaining-context lookup lines, plain type-4 lookup lines, the generated `ignore sub` statements for the invariant exemption). Guard verdicts come from `settle.formation_blocked` over the two raw slots past the sequence — the same function the kernel and the table builder consult, so model, table, and font agree by construction. A blocked follower whose second-slot verdicts cover every letter and every boundary gets a one-slot ignore; a follower blocked only under specific second slots gets a two-slot ignore over a letter class (a boundary or text-edge second slot then falls through to the forming fallback, matching its False verdict). ZWNJ-explicit forming rows precede the ignores because HarfBuzz skips default-ignorables in contextual matching — without them a guard class could match across a skipped ZWNJ that the model treats as a boundary."""
+    from rebuild.pipeline import settle as settle_module
+    from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, RightToken
+
+    letters = sorted(name for name, rune in spec.runes.items() if not rune.sequence)
+    boundary_tokens = (EDGE, SPACE, ZWNJ, NAMER_DOT)
+    guarded_lines: list[str] = []
+    plain_lines: list[str] = []
+    ignores: list[str] = []
+    for name, rune in spec.runes.items():
+        if not rune.sequence:
+            continue
+        full_followers: list[str] = []
+        partial_followers: list[tuple[str, tuple[str, ...]]] = []
+        for follower in letters:
+            follower_token = RightToken("letter", follower)
+            blocked_letters = tuple(
+                sorted(
+                    second
+                    for second in letters
+                    if settle_module.formation_blocked(
+                        spec, name, follower_token, RightToken("letter", second)
+                    )
+                )
+            )
+            blocked_boundaries = [
+                settle_module.formation_blocked(spec, name, follower_token, boundary)
+                for boundary in boundary_tokens
+            ]
+            if not blocked_letters and not any(blocked_boundaries):
+                continue
+            if len(blocked_letters) == len(letters) and all(blocked_boundaries):
+                full_followers.append(follower)
+            elif any(blocked_boundaries):
+                raise EmitError(
+                    f"late-formation guard for {name} before {follower} blocks at a boundary second slot without blocking everywhere — inexpressible in the pre-marker formation lookup"
+                )
+            else:
+                partial_followers.append((follower, blocked_letters))
+        if not full_followers and not partial_followers:
+            plain_lines.append(f"    sub {' '.join(rune.sequence)} by {name};")
+            continue
+        marked_input = " ".join(f"{part}'" for part in rune.sequence)
+        guarded_lines.append(f"    sub {marked_input} uni200C by {name};")
+        for follower, _blocked in partial_followers:
+            guarded_lines.append(f"    sub {marked_input} {follower} uni200C by {name};")
+        if full_followers:
+            ref = registry.ref(tuple(full_followers), f"m1_form_guard_{_fea_safe(name)}")
+            line = f"ignore sub {marked_input} {ref};"
+            guarded_lines.append(f"    {line}")
+            ignores.append(line)
+        for follower, blocked in partial_followers:
+            ref = registry.ref(blocked, f"m1_form_guard_{_fea_safe(name)}_{_fea_safe(follower)}")
+            line = f"ignore sub {marked_input} {follower} {ref};"
+            guarded_lines.append(f"    {line}")
+            ignores.append(line)
+        guarded_lines.append(f"    sub {marked_input} by {name};")
+    return guarded_lines, plain_lines, ignores
 
 
 def _entry_live_members(spec: ResolvedSpec) -> list[str]:
@@ -274,6 +335,7 @@ def emit_gsub(
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs = _marker_lookups(spec)
     marker_names = frozenset(marker_glyphs) | frozenset(locked_glyph_name(name) for name in marker_glyphs)
+    formation_guarded, formation_plain, formation_ignores = _formation_lines(spec, registry)
     settle_lines, rule_count = _settle_lines(rules, registry, marker_names)
 
     live_members = _entry_live_members(spec)
@@ -302,11 +364,13 @@ def emit_gsub(
         )
         parts.append("")
 
-    formation_lines = []
-    for rune_name, rune in spec.runes.items():
-        if rune.sequence:
-            formation_lines.append(f"    sub {' '.join(rune.sequence)} by {rune_name};")
-    parts.append("lookup m1_formation {\n" + "\n".join(formation_lines) + "\n} m1_formation;")
+    if formation_guarded:
+        parts.append(
+            "lookup m1_formation_guarded {\n" + "\n".join(formation_guarded) + "\n} m1_formation_guarded;"
+        )
+        parts.append("")
+    if formation_plain or not formation_guarded:
+        parts.append("lookup m1_formation {\n" + "\n".join(formation_plain) + "\n} m1_formation;")
 
     feature_lookup_names: dict[str, str] = {}
     for feature in sorted(per_feature_markers):
@@ -340,7 +404,12 @@ def emit_gsub(
         parts.append("")
         parts.extend(namer_lines)
 
-    calt_lookups = ["m1_formation", "m1_zwnj", "m1_settle"]
+    calt_lookups = []
+    if formation_guarded:
+        calt_lookups.append("m1_formation_guarded")
+    if formation_plain or not formation_guarded:
+        calt_lookups.append("m1_formation")
+    calt_lookups.extend(["m1_zwnj", "m1_settle"])
     if namer_lines:
         calt_lookups.append("m1_namer_dot_word_start")
     parts.append(
@@ -365,7 +434,7 @@ def emit_gsub(
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
     allowed_ignores = (
         frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
-    )
+    ) | frozenset(formation_ignores)
     _assert_invariants(rules, frozenset(named_glyphs), fea, locked_set, allowed_ignores)
 
     return GsubPlan(

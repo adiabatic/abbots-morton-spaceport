@@ -214,3 +214,40 @@ class TestEmitGpos:
         for y in (0, 5, 8):
             block = curs.split(f"lookup m1_cursive_y{y} {{")[1].split("}")[0]
             assert f"pos cursive {record.name} <anchor NULL> <anchor NULL>;" in block
+
+
+class TestLateFormationGuardLines:
+    """The section 5.7 guard's FEA realization over the real loaded rune YAML (the mini fixture spec has no guarded ligature, so its formation lookup keeps the plain type-4 shape asserted above)."""
+
+    @pytest.fixture(scope="class")
+    def real_spec(self):
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return load_default_spec()
+
+    def test_guarded_ligature_moves_to_its_own_contextual_lookup(self, real_spec):
+        registry = emit_gsub._ClassRegistry()
+        guarded, plain, ignores = emit_gsub._formation_lines(real_spec, registry)
+        assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
+        assert all("qsDay" not in line for line in plain)
+        assert "    ignore sub qsDay' qsUtter' qsLow;" in guarded
+        assert "    sub qsDay' qsUtter' by qsDay_qsUtter;" in guarded
+        assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(
+            "    ignore sub qsDay' qsUtter' qsLow;"
+        )
+        assert guarded[-1] == "    sub qsDay' qsUtter' by qsDay_qsUtter;"
+        assert "ignore sub qsDay' qsUtter' qsLow;" in ignores
+
+    def test_partial_second_slot_guard_gets_a_two_slot_ignore(self, real_spec):
+        registry = emit_gsub._ClassRegistry()
+        guarded, _plain, _ignores = emit_gsub._formation_lines(real_spec, registry)
+        two_slot = [line for line in guarded if line.startswith("    ignore sub qsDay' qsUtter' qsUtter ")]
+        assert len(two_slot) == 1
+        class_name = two_slot[0].split()[-1].rstrip(";")
+        definition = next(line for line in registry.definitions if line.startswith(class_name + " "))
+        assert definition == f"{class_name} = [qsDay qsIt qsLow qsMay qsNo qsTea];"
+        assert "    sub qsDay' qsUtter' qsUtter uni200C by qsDay_qsUtter;" in guarded

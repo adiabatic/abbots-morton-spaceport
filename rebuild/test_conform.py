@@ -451,3 +451,26 @@ class TestConformanceMerge:
         assert merged.sequences == 0
         assert merged.shaping_runs == 0
         assert merged.passed is True
+
+
+class TestRawLabelsLateFormation:
+    """raw_labels delegates formation to settle.form_ligatures, so the section 5.7 guard shapes the replayed labels exactly as it shapes the kernel's stream (the mini fixture spec above has no guarded ligature)."""
+
+    @pytest.fixture(scope="class")
+    def real_spec(self):
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return load_default_spec()
+
+    def test_guard_keeps_the_pair_unformed_before_low(self, real_spec):
+        day, utter, low = chr(0xE653), chr(0xE67A), chr(0xE667)
+        assert conform.raw_labels(real_spec, day + utter + low, frozenset()) == [
+            "qsDay",
+            "qsUtter",
+            "qsLow",
+        ]
+        assert conform.raw_labels(real_spec, day + utter, frozenset()) == ["qsDay_qsUtter"]

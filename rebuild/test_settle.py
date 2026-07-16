@@ -354,3 +354,50 @@ def test_round1_greedy_may_chain_pairing(real_spec, length, expected):
         cell_label(real_spec, settled.cell) for settled in settle(real_spec, [may] * length, frozenset())
     )
     assert labels == expected
+
+
+# The section 5.7 late-formation guard over the real loaded rune YAML. The Manual pin `·Day | ·Utter.alt ·Low` (site/the-manual.html) is the live counterexample to unconditional formation: the ligature exits only at the x-height, ·Low enters only at the baseline, and the unformed alternate ·Utter carries the baseline seam the ligature would destroy. The guard yields formation exactly there, and qsUtter.policy.prefer[2] (the section 5.9 follower one-liner) makes ·Day withhold its exit so the alternate is free to reach.
+
+
+def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
+    codepoints = [real_spec.registry.families[name].codepoint for name in names.split()]
+    return tuple(
+        cell_label(real_spec, settled.cell)
+        for settled in settle(real_spec, codepoints, frozenset(features))
+    )
+
+
+def test_late_formation_yields_before_low(real_spec):
+    assert _real_labels(real_spec, "qsDay qsUtter qsLow") == (
+        "qsDay.full",
+        "qsUtter.alternate.ex-y0",
+        "qsLow.hapax.en-y0",
+    )
+
+
+def test_formation_survives_where_the_ligature_serves_the_follower(real_spec):
+    assert _real_labels(real_spec, "qsDay qsUtter") == ("qsDay_qsUtter.full",)
+    assert _real_labels(real_spec, "qsDay qsUtter qsMay") == (
+        "qsDay_qsUtter.full.ex-y5",
+        "qsMay.loop.en-y5",
+    )
+    assert _real_labels(real_spec, "qsDay qsUtter qsTea") == ("qsDay_qsUtter.full", "qsTea.full")
+    assert _real_labels(real_spec, "qsDay qsUtter qsTea", features=("ss03",)) == (
+        "qsDay_qsUtter.full.ex-y5.ex-ext-1",
+        "qsTea.half.en-y5",
+    )
+
+
+def test_formation_blocked_verdicts_are_config_blind(real_spec):
+    from rebuild.pipeline.settle import formation_blocked
+
+    low = RightToken("letter", "qsLow")
+    tea = RightToken("letter", "qsTea")
+    utter = RightToken("letter", "qsUtter")
+    assert formation_blocked(real_spec, "qsDay_qsUtter", low, EDGE)
+    assert formation_blocked(real_spec, "qsDay_qsUtter", low, tea)
+    assert not formation_blocked(real_spec, "qsDay_qsUtter", tea, EDGE)
+    assert not formation_blocked(real_spec, "qsDay_qsUtter", utter, EDGE)
+    assert formation_blocked(real_spec, "qsDay_qsUtter", utter, tea)
+    for follower in list(real_spec.runes):
+        assert not formation_blocked(real_spec, "qsTea_qsOy", RightToken("letter", follower), EDGE)
