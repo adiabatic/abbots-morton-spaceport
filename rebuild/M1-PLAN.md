@@ -135,7 +135,7 @@ policy:
     - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}    # the ss03-gated reach
     - {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsYe, qsHe, qsIt], joined_at: baseline}}}
       # qsIt's flagship self: condition (replaces extend_exit_when_entered):
-      #   {stance: bar, exit: baseline, by: 1, when: {self: {entry: live}}}
+      #   {stance: hapax, exit: baseline, by: 1, when: {self: {entry: live}}}
       # target (stance, side, height) is mandatory; same-side records never sum; most specific wins (§6.2)
   contract:
     - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee, joined_at: x-height}}, why: ·Fee's long reach-over absorbs the baseline stub; the redraw spans rows, so it is a bound shape, not arithmetic.}
