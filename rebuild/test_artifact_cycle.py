@@ -738,6 +738,17 @@ def test_gate_rebuild_stays_captured_and_parses_failures(capsys):
     assert not any(line.startswith("[gate:rebuild]") for line in out.splitlines())
 
 
+def test_classify_rebuild_reads_colored_pytest_output():
+    """Under FORCE_COLOR (as set by the agent harness) pytest wraps its FAILED lines in ANSI escapes; the classifier must still recognize the documented baseline instead of reporting an unexplained failure."""
+    colored = "\n".join(
+        f"\x1b[31mFAILED\x1b[0m {file}::\x1b[1m{name}\x1b[0m - x"
+        for file, _, name in (test_id.partition("::") for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
+    )
+    outcome = ac._classify_rebuild(_step(rc=1, stdout=colored), update_pins=False)
+    assert outcome.hard_ids == []
+    assert outcome.status == f"green ({len(ac.BASELINE_REBUILD_FAILURES)} documented baseline)"
+
+
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
     def fake_surface(report, *, spawn, emit, registry, review_out, budget):
         report.surface_units = 100

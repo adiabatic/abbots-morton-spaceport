@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -592,8 +593,12 @@ class _RebuildOutcome:
     hard_ids: list[str]
 
 
+_ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
 def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome:
-    lines = result.stdout.splitlines()
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict. pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure."""
+    lines = [_ANSI_SGR.sub("", line) for line in result.stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
     buckets: dict[str, list[str]] = {"baseline": [], "census-hint": [], "hard": []}
