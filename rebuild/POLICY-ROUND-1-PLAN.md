@@ -15,7 +15,7 @@ Delete the record `{stance: bar, entry: x-height, by: 1, when: {left: {class: ha
 ```yaml
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
-  - {stance: bar, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
+  - {stance: hapax, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
 ```
 
 Delete rather than narrow, per recon A section 1.3: (i) within the M1 alphabet a narrowed record is byte-identical to deletion; (ii) the only out-of-alphabet trigger is half-·He, where the shipped font also never draws the extension (probed), so deletion is what ground truth says and narrowing would preserve a dead letter; (iii) the note rejects the realized ink as such, not one trigger of it. This is the revert-the-authoring-decision shape, preferred over any additive counter-record — the contract counter-record was built and disproven (entry-side extend and contract do not net at name grain; 6 UNMATCHED oracle rows; fires inside 31 approved `ss03-chain-join-gains` windows).
