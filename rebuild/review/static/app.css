@@ -289,6 +289,22 @@ summary:focus-visible {
     padding: 0.45rem 0.6rem;
     line-height: 1.3;
 
+    /* Two where-am-I rings echoing the main pane's .row.cursor outline, independent of the aria-pressed filter border: a lighter-shade outline on every class with units in the current batch (or worklist), and the full cursor blue on the class holding the cursor unit. The focus-visible re-assertion keeps the keyboard focus ring from being swallowed, since only one outline can render. */
+    &.in-batch {
+      outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+      outline-offset: -2px;
+    }
+
+    &.has-cursor {
+      outline: 3px solid var(--accent);
+      outline-offset: -3px;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
     &[aria-pressed="true"] {
       border-color: var(--accent);
       box-shadow: inset 3px 0 0 var(--accent);

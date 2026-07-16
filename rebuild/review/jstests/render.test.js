@@ -19,9 +19,16 @@ import {
   humanClassCount,
   humanTotal,
   noVerdictTotal,
+  formatCount,
+  machineChannels,
+  surfaceLine,
+  machineLine,
+  noVerdictLine,
+  classCountsLine,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
+  classesInBatch,
   copyPreamble,
   isLetterToken,
   tokenSeparators,
@@ -285,6 +292,59 @@ test('a no-verdict class contributes nothing to the human workload and everythin
   assert.equal(noVerdictTotal(synthetic), 1879);
 });
 
+test('formatCount groups thousands', () => {
+  assert.equal(formatCount(0), '0');
+  assert.equal(formatCount(300), '300');
+  assert.equal(formatCount(2562), '2,562');
+  assert.equal(formatCount(15960), '15,960');
+});
+
+test('machineChannels splits the machine-approved total and treats a channel-less manifest as all ink-identical', () => {
+  assert.deepEqual(machineChannels(manifest), { units: 1, inkIdentical: 1, juniorEquivalent: 0 });
+  const channelled = {
+    machine_approved: {
+      units: 11926,
+      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.deepEqual(machineChannels(channelled), { units: 11926, inkIdentical: 8350, juniorEquivalent: 3576 });
+  assert.deepEqual(machineChannels({}), { units: 0, inkIdentical: 0, juniorEquivalent: 0 });
+});
+
+test('the header strip lines run big to small: surface total, machine channels, no-verdict exemptions', () => {
+  assert.equal(surfaceLine(manifest), 'Surface: 6 units');
+  assert.equal(machineLine(manifest), '1 ink-identical machine-approved');
+  assert.equal(noVerdictLine(manifest), null);
+  const channelled = {
+    totals: { units: 15960 },
+    machine_approved: {
+      units: 11926,
+      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+    },
+    classes: [{ id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 }],
+  };
+  assert.equal(surfaceLine(channelled), 'Surface: 15,960 units');
+  assert.equal(
+    machineLine(channelled),
+    '11,926 machine-approved (8,350 ink-identical + 3,576 junior-equivalent)',
+  );
+  assert.equal(noVerdictLine(channelled), '1,316 in no-verdict classes');
+  assert.equal(machineLine({ machine_approved: { units: 0 } }), null);
+});
+
+test('classCountsLine orders each sidebar entry big to small: units, machine, human progress, rows', () => {
+  const mixed = { no_verdict: false, unit_count: 3361, machine_approved_count: 3344, row_count: 22075 };
+  assert.equal(classCountsLine(mixed, null), '3,361 units · 3,344 machine · 17 to review · 22,075 rows');
+  assert.equal(classCountsLine(mixed, 12), '3,361 units · 3,344 machine · 12/17 · 22,075 rows');
+  const plain = { no_verdict: false, unit_count: 166, machine_approved_count: 0, row_count: 1048 };
+  assert.equal(classCountsLine(plain, null), '166 units · 166 to review · 1,048 rows');
+  assert.equal(classCountsLine(plain, 0), '166 units · 0/166 · 1,048 rows');
+  const allMachine = { no_verdict: false, unit_count: 1722, machine_approved_count: 1722, row_count: 1722 };
+  assert.equal(classCountsLine(allMachine, null), '1,722 units · 1,722 machine · 1,722 rows');
+  const exempt = { no_verdict: true, unit_count: 6256, machine_approved_count: 4940, row_count: 34477 };
+  assert.equal(classCountsLine(exempt, null), '6,256 units — no verdict needed · 34,477 rows');
+});
+
 test('nextUnverdictedIndex advances, wraps, and reports exhaustion', () => {
   const ids = ['a', 'b', 'c', 'd'];
   const verdicted = new Set(['a', 'c']);
@@ -309,6 +369,20 @@ test('availableBatches respects a class filter', () => {
   assert.deepEqual(availableBatches(manifest, 'dangling-anchor-dropped'), [0, 1]);
   assert.deepEqual(availableBatches(manifest, 'marker-staging-ligature-formation'), [0]);
   assert.deepEqual(availableBatches(manifest, 'nonexistent'), []);
+});
+
+test('classesInBatch names the classes with units in a batch, batchless classes riding with batch 0', () => {
+  assert.deepEqual(
+    [...classesInBatch(manifest, 0)].sort(),
+    ['dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+  );
+  assert.deepEqual([...classesInBatch(manifest, 1)], ['dangling-anchor-dropped']);
+  const withExempt = { classes: [...manifest.classes, { id: 'boundary-echo', batches: [], no_verdict: true }] };
+  assert.deepEqual(
+    [...classesInBatch(withExempt, 0)].sort(),
+    ['boundary-echo', 'dangling-anchor-dropped', 'marker-staging-ligature-formation'],
+  );
+  assert.deepEqual([...classesInBatch(withExempt, 1)], ['dangling-anchor-dropped']);
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {

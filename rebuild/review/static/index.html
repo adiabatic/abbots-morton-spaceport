@@ -10,9 +10,12 @@
     <header class="progress-strip">
       <h1>AMS review</h1>
       <p class="position" role="status">
-        <span id="batch-progress">Loading…</span>
-        <span id="overall-progress"></span>
+        <span id="surface-total">Loading…</span>
         <span id="machine-approved-line" hidden></span>
+        <span id="no-verdict-line" hidden></span>
+        <span id="overall-progress"></span>
+        <span id="class-progress" hidden></span>
+        <span id="batch-progress"></span>
         <span id="unexported-nudge" hidden></span>
       </p>
       <div class="search">
@@ -81,7 +84,7 @@
               </select>
             </label>
             <button type="button" id="clear-filters">Clear filters</button>
-            <label class="machine-toggle" title="Units needing no verdict are hidden by default: ink-identical units were machine-approved, and units in a no-verdict ledger class (like boundary-echo) are adjudicated wholesale by a ratified rule.">
+            <label class="machine-toggle" title="Units needing no verdict are hidden by default: ink-identical and junior-equivalent units were machine-approved, and units in a no-verdict ledger class (like boundary-echo) are adjudicated wholesale by a ratified rule.">
               <input type="checkbox" id="show-machine" />
               Show no-verdict units
             </label>
@@ -123,7 +126,7 @@
       </table>
       <p>Verdicting a unit that has no verdict yet advances to the next unverdicted unit; re-verdicting a unit that already has a verdict updates it in place and keeps the cursor put, so you can revise without losing your spot. The “First unverdicted” button up top jumps to the first unverdicted unit anywhere on the surface — scanning every batch in order across every class, switching batch (and clearing the class filter if needed) to land on it.</p>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit shows a small badge (“only when ss03 is on”, “only under ss10”, …) only when its config set is informative — hover it for the full list. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
-      <p>Units whose ink is pixel-identical in both fonts under every config were machine-approved at build time, and units in a no-verdict ledger class (like boundary-echo, whose windows the ratified boundary rule adjudicates wholesale) never need individual verdicts; both kinds are hidden by default. The “Show no-verdict units” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
+      <p>Units whose ink is pixel-identical in both fonts under every config (or, for ss10-only divergences, pixel-identical to the Junior font’s isolated rendering) were machine-approved at build time, and units in a no-verdict ledger class (like boundary-echo, whose windows the ratified boundary rule adjudicates wholesale) never need individual verdicts; both kinds are hidden by default. The “Show no-verdict units” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
       <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the rebuild has no kerning until its own later milestone, so the old font’s kern feature would be pure comparison noise. Kern differences get their own review when that milestone lands.</p>
       <p>Unmarked regions render identically in both fonts (or differ only invisibly, at name grain); a dim dashed band marks a secondary divergent seam that is judged at its linked home unit — click the band’s chip to jump there (“only here” means the seam has no shorter home and is judged in this unit).</p>
       <p>An “echo ×N” chip means the unit’s before→after change is pixel-identical in N windows of the same class with the same judged pair — the surrounding letters differ but the change is the same picture, so it is one question. A verdict (other than skip) on any member fills the unverdicted rest, with the toast confirming the count and <kbd>u</kbd> undoing the whole fill; already-verdicted members are never overwritten, and each member can still be overridden or cleared individually. Click the chip to view the whole echo group stacked as a worklist.</p>

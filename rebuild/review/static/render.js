@@ -161,6 +161,58 @@ export function noVerdictTotal(manifest) {
   return total;
 }
 
+export const NO_VERDICT_BADGE = 'no verdict needed';
+
+export function formatCount(value) {
+  return value.toLocaleString('en-US');
+}
+
+export function machineChannels(manifest) {
+  const machine = manifest.machine_approved ?? {};
+  const channels = machine.channels ?? {};
+  return {
+    units: machine.units ?? 0,
+    inkIdentical: channels.ink_identical?.units ?? machine.units ?? 0,
+    juniorEquivalent: channels.junior_equivalent?.units ?? 0,
+  };
+}
+
+export function surfaceLine(manifest) {
+  return `Surface: ${formatCount(manifest.totals.units)} units`;
+}
+
+export function machineLine(manifest) {
+  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  if (units === 0) return null;
+  if (juniorEquivalent === 0) return `${formatCount(units)} ink-identical machine-approved`;
+  return (
+    `${formatCount(units)} machine-approved ` +
+    `(${formatCount(inkIdentical)} ink-identical + ${formatCount(juniorEquivalent)} junior-equivalent)`
+  );
+}
+
+export function noVerdictLine(manifest) {
+  const exempt = noVerdictTotal(manifest);
+  return exempt > 0 ? `${formatCount(exempt)} in no-verdict classes` : null;
+}
+
+export function classCountsLine(cls, verdicted = null) {
+  const parts = [`${formatCount(cls.unit_count)} units${cls.no_verdict ? ` — ${NO_VERDICT_BADGE}` : ''}`];
+  if (!cls.no_verdict) {
+    if (cls.machine_approved_count) parts.push(`${formatCount(cls.machine_approved_count)} machine`);
+    const human = humanClassCount(cls);
+    if (human > 0) {
+      parts.push(
+        verdicted === null
+          ? `${formatCount(human)} to review`
+          : `${formatCount(verdicted)}/${formatCount(human)}`,
+      );
+    }
+  }
+  parts.push(`${formatCount(cls.row_count)} rows`);
+  return parts.join(' · ');
+}
+
 export function nextUnverdictedIndex(unitIds, fromIndex, hasVerdict) {
   const total = unitIds.length;
   for (let step = 1; step <= total; step += 1) {
@@ -186,6 +238,15 @@ export function availableBatches(manifest, classId) {
   const batches = [];
   for (let index = 0; index < manifest.totals.batches; index += 1) batches.push(index);
   return batches;
+}
+
+export function classesInBatch(manifest, batch) {
+  // Mirrors unitsForView's class selection: batchless classes (all machine-approved or no-verdict) ride along with batch 0.
+  const ids = new Set();
+  for (const cls of manifest.classes) {
+    if (cls.batches.includes(batch) || (cls.batches.length === 0 && batch === 0)) ids.add(cls.id);
+  }
+  return ids;
 }
 
 export function copyPreamble(unit) {
