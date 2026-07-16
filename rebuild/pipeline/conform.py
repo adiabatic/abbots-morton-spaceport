@@ -810,7 +810,9 @@ def _conformance_config(
         check_oracle(text, config, shaped, expected, result.divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
-        for _position, window, matched in _matched_windows(spec, text, features, expected_cells, rules_by_input):
+        for _position, window, matched in _matched_windows(
+            spec, text, features, expected_cells, rules_by_input
+        ):
             realized.add(window)
             if matched is not None:
                 rules_hit.add(matched)
@@ -889,9 +891,7 @@ def conformance_config_worker(
     return _conformance_config(shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length)
 
 
-def merge_conformance_results(
-    font_path: Path, results: Iterable[ConformanceConfigResult]
-) -> ConformReport:
+def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:
     """Fold per-config results into one ConformReport. `sequences` comes from the first result — every config sweeps the identical sequence set — while the counters sum and the divergences/notes concatenate in the caller's config order; the oracle modes are unioned and appended sorted, matching what the interleaved serial loop used to produce."""
     report = ConformReport(font=str(font_path))
     results = list(results)
@@ -1103,12 +1103,12 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 
 
 # The runes this M1 batch added whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
-SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsDay", "qsNo", "qsUtter", "qsDay_qsUtter"})
+SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter"})
 
 
 @predicate("ss10_isolation_completed")
 def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
+    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter (and predates qsLow the same way — its anchors ride the base cmap glyph, so the old overlay keeps its joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         return False
     if row.config != "ss10" or "seam" not in row.kinds:

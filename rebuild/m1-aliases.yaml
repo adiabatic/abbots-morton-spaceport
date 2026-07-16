@@ -47,12 +47,17 @@ qsNo.alt.en-y0.ex-y0.after-it-and-vie: {rune: qsNo, stance: flipped, entry: base
 qsNo.alt.en-y0.ex-y0.noentry: {rune: qsNo, stance: flipped, exit: baseline, adjustments: [locked]}
 qsNo.en-ext-1: {rune: qsNo, stance: loop, entry: x-height, adjustments: [en-ext-1]}
 qsNo.noentry: {rune: qsNo, stance: loop, adjustments: [locked]}
+qsLow: {rune: qsLow, stance: hapax}
+qsLow.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
+qsLow.noentry: {rune: qsLow, stance: hapax, adjustments: [locked]}
+qsLow.noentry.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsIt: {rune: qsIt, stance: hapax}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height}
 qsIt.en-y5.ex-y0: {rune: qsIt, stance: hapax, entry: x-height, exit: baseline}
 qsIt.en-y5.ex-y0.ex-ext-1: {rune: qsIt, stance: hapax, entry: x-height, exit: baseline, adjustments: [ex-ext-1]}
 qsIt.en-y0.ex-y0.after-day: {rune: qsIt, stance: hapax, entry: baseline, exit: baseline}
 qsIt.en-y0.ex-y0.before-day: {rune: qsIt, stance: hapax, entry: baseline, exit: baseline}
+qsIt.en-y0.ex-y0.before-low: {rune: qsIt, stance: hapax, entry: baseline, exit: baseline}
 qsIt.en-y0.ex-y0.before-utter: {rune: qsIt, stance: hapax, entry: baseline, exit: baseline}
 qsIt.ex-y0: {rune: qsIt, stance: hapax, exit: baseline}
 qsIt.ex-y0.before-day.after-no-baseline-join: {rune: qsIt, stance: hapax, exit: baseline}

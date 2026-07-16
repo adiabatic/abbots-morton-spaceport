@@ -202,6 +202,32 @@
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
   why: ·Tea·Oy ligature into ·It joins at the baseline today (baseline row E652:E679:E670, seam y0); the ligature's ·Oy tail against ·It's bar — the blessed ·Tea·Oy·It corner, with ·It now carrying its baseline exit in the ss04 pass-through.
 
+# ·Low's x-height exit against a descending x-height entry: ·Low·Day, ·Low·Day·Utter, and ·Low·It all join at the x-height today (baseline rows E667:E653, E667:E653:E67A, E667:E670, seam y5), and ·Low's riser at y4 sits one column left of the follower's descending stroke — the same corner today's font draws. One signature per ·Low variant (bare exit, entered, ZWNJ-locked) and follower variant (exiting/extended twins, which do not move the entry column); the drawing at the corner is identical throughout.
+- signature: contact:qsLow.hapax.ex-y5:qsDay.full.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5:qsDay.full.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay.full.en-y5:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay.full.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsDay.full.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsDay.full.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5:qsDay_qsUtter.full.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+- signature: contact:qsLow.hapax.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsDay_qsUtter.full.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y4
+- signature: contact:qsLow.hapax.ex-y5:qsIt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsIt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsIt.hapax.en-y5.ex-y0.ex-ext-1:y4
+
 # Declined-exit terminals for ·Utter, ·No, ·Day, ·Day·Utter, and ·May (E-DANGLE, design doc section 9 "declined side has reaching ink and no withdrawal binding"). The legacy shipped font draws each of these letters' exit terminal unconditionally — isolated, word-final, and before a non-joining follower alike — and never carried a pulled-back retraction (no such shape exists in quikscript.yaml). The rebuild rune briefly added an exit-side `withdrawal: pulled-back` that retracted the terminal on every decline; removing it restores the old letterform. The reaching pixel does not continue vertically, so it cannot earn the automatic `withdrawal: safe` proof; these blessings record that the terminal is intentional letterform ink, not a stranded connector. One signature per stance/entry/lock/extend variant the gate inspects separately; all are the same one-pixel terminal.
 - signature: dangle:qsUtter.mono:exit:x-height
   why: ·Utter's mono x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
