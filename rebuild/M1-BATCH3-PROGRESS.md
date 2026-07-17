@@ -7,13 +7,15 @@ Scratch progress file for the in-flight qsLow migration; delete at batch close, 
 - 878709b Add ·Low
 - 2f18041 Don’t prefer ·Day+Utter so hard that you don’t get ·Day·Utter.alt·Low like The Manual uses
 
-The artifact cycle has re-run at 2f18041 (all gates green); its fallout — the re-pinned census, the subset-table row-count re-baseline, and the carried-master swap to `rebuild/evidence/verdicts-carried-2f18041.json` — sits in the working tree awaiting commit.
+The artifact cycle has re-run at 2f18041 (all gates green); its fallout — the re-pinned census, the subset-table row-count re-baseline, and the carried-master swap to `rebuild/evidence/verdicts-carried-2f18041.json` — landed in d9d07ea.
 
 ## Parked
 
 - **Verdict rows for the next sitting** — 10,653 unmatched oracle rows, all verdict-gated taste: the 6,564 batch-2 leftovers, the fresh qsLow families (Pea·No regrouping with ·Low appended, alt-·Utter join gains, the ratified ·It exit-extension carve-out before ·Day, ss03 chain gains), and the ·Utter-bearing rows the fork resolution moved — 237 old formation-fork rows now match the shipped font, and the additions are alt-·Utter tie-flips (bare ·Utter carrying its baseline exit at ties the old font left to `order:`) plus unformed-chain gains where formation now yields. None is a qsLow authoring defect.
 - **`why:` for qsUtter.policy.prefer[2]** — the §5.9 follower one-liner (`{cell: {exit: baseline}, over: {entry: baseline}}`) is a design decision whose rationale is the user’s to record; the `why:` text is pending.
 - **Ductus sign-off** — qsLow’s drafted `hapax` motion carries `# DRAFT — pending author sign-off` (the letter had no ductus prose in `glyph_data/quikscript.yaml`).
+- **u-9095 ·Low·Oy·Tea·Oy standing approval** — the verdict note says auto-approve “no matter what happens around ·Low·Oy”; carrying only preserves verdicts across unchanged renders, so at batch close this needs a durable home (census pin or similar).
+- **e-0061’s split history** — the sitting’s 21 fresh rejects (“the old way seems nicer to write out by hand”) vs 6 imported eithers + 1 approve; left standing pending the echo-group viewer (WHATNEXT, doable anytime).
 
 ## Design overrides
 
@@ -30,6 +32,6 @@ The artifact cycle has re-run at 2f18041 (all gates green); its fallout — the 
 
 ## Resume
 
-1. Commit the artifact-cycle fallout; record the qsUtter `why:`.
-2. Review sitting: `make review-serve`, import `rebuild/evidence/verdicts-carried-2f18041.json`, then `verdicts-echo-fill.json`, then work `http://localhost:7294/docket.html` (re-bake with `uv run python rebuild/tools/review_docket.py rebuild/evidence/verdicts-carried-2f18041.json` if the surface changes).
+1. Record the qsUtter `why:`.
+2. Finish the sitting: `make review-serve` (already running if port 7294 answers); the autosave already holds the carried master, the echo fill, and the early sitting’s 93 verdicts. Import `verdicts-flip-utter-alt-swap.json`, then `verdicts-bulk-utter-alt-swap-blanks.json` (undo path: `tmp/verdicts-undo-before-corrections.json`), then work `http://localhost:7294/docket.html` (re-bake with `uv run python rebuild/tools/review_docket.py <frontier> --recommendations tmp/docket-recs.json`).
 3. Sign off qsLow’s ductus (grep `# DRAFT`).
