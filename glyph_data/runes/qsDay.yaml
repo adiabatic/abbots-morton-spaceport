@@ -72,7 +72,7 @@ policy:
       right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]}}
   - cell: {exit: none}
     over: {exit: baseline}
-    when: {right: {family: qsTea, then: {family: qsMay}}}
+    when: {right: {family: qsTea, then: {family: [qsMay, qsLow]}}}
   - cell: {exit: none}
     over: {exit: baseline}
     when:
