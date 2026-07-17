@@ -120,9 +120,14 @@ summary:focus-visible {
   .position {
     margin: 0;
     display: flex;
-    gap: 1.25rem;
     font-size: 14px;
     color: light-dark(#444, #ccc);
+
+    > span + span:not([hidden])::before,
+    .stamp::after {
+      content: '·';
+      margin-inline: 2ch;
+    }
 
     #unexported-nudge {
       color: var(--hot);
@@ -775,14 +780,14 @@ details.group {
     .verdict-buttons {
       position: relative;
       display: grid;
-      grid-template-columns: repeat(4, max-content);
+      width: max-content;
+      grid-template-columns: repeat(4, 1fr);
       justify-content: start;
       gap: 0.3rem;
 
       .clear-verdict {
         grid-row: 1;
         grid-column: 4;
-        justify-self: start;
         font-size: 12px;
         padding: 0.1rem 0.45rem;
         color: var(--muted);

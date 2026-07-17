@@ -701,8 +701,8 @@ function updateProgress() {
   const counts = verdictCounts(store);
   document.getElementById('overall-progress').textContent =
     `Overall: ${formatCount(store.records.size)}/${formatCount(humanTotal(manifest))} ` +
-    `(✓${formatCount(counts.approve)} ✗${formatCount(counts.reject)} ≈${formatCount(counts.either)} ` +
-    `≡${formatCount(counts.identical)} ∅${formatCount(counts.neither)} →${formatCount(counts.skip)})`;
+    `(→${formatCount(counts.skip)} ✗${formatCount(counts.reject)} ≡${formatCount(counts.identical)} ` +
+    `≈${formatCount(counts.either)} ∅${formatCount(counts.neither)} ✓${formatCount(counts.approve)})`;
   updateClassProgress();
   if (state.view === 'docket') {
     // renderDocket owns the batch-progress line in the docket view; a store mutation here (undo, import, autosave restore) just re-derives the queue.
@@ -2139,7 +2139,14 @@ function renderChrome() {
   const machine = manifest.machine_approved;
   const exempt = noVerdictTotal(manifest);
   const surface = document.getElementById('surface-total');
-  surface.textContent = surfaceLine(manifest);
+  surface.textContent = '';
+  if (manifest.generated_at) {
+    const stamp = document.createElement('span');
+    stamp.className = 'stamp';
+    stamp.textContent = manifest.generated_at;
+    surface.append(stamp);
+  }
+  surface.append(surfaceLine(manifest));
   surface.title =
     `${formatCount(manifest.totals.units)} units = ${formatCount(machine?.units ?? 0)} machine-approved + ` +
     `${formatCount(exempt)} in no-verdict classes + ${formatCount(humanTotal(manifest))} for human review, ` +
