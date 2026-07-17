@@ -13,7 +13,7 @@ The artifact cycle has re-run at 2f18041 (all gates green); its fallout — the 
 
 - **Verdict rows for the next sitting** — 10,653 unmatched oracle rows, all verdict-gated taste: the 6,564 batch-2 leftovers, the fresh qsLow families (Pea·No regrouping with ·Low appended, alt-·Utter join gains, the ratified ·It exit-extension carve-out before ·Day, ss03 chain gains), and the ·Utter-bearing rows the fork resolution moved — 237 old formation-fork rows now match the shipped font, and the additions are alt-·Utter tie-flips (bare ·Utter carrying its baseline exit at ties the old font left to `order:`) plus unformed-chain gains where formation now yields. None is a qsLow authoring defect.
 - **`why:` for qsUtter.policy.prefer[2]** — the §5.9 follower one-liner (`{cell: {exit: baseline}, over: {entry: baseline}}`) is a design decision whose rationale is the user’s to record; the `why:` text is pending.
-- **Ductus sign-off** — qsLow’s drafted `hapax` way carries `# DRAFT — pending author sign-off` (the letter had no ductus prose in `glyph_data/quikscript.yaml`).
+- **Ductus sign-off** — qsLow’s drafted `hapax` motion carries `# DRAFT — pending author sign-off` (the letter had no ductus prose in `glyph_data/quikscript.yaml`).
 
 ## Design overrides
 

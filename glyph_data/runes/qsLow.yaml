@@ -13,7 +13,7 @@ mono:
   - "###  "  #
 stances:
   hapax:
-    way: hapax
+    motion: hapax
     traits: []
     bitmap:
     - "    #"  #

@@ -4,7 +4,7 @@ ductus:
   full: |
     Begin at the left, slightly above the x-height; occasionally, another letter will join at the entry, and when the previous letter exits at the x-height, the left upward stroke begins at the x-height instead, dipping down to receive the join. Rise to the top and rightwards in a clockwise curve. Then pull straight down on the right toward the baseline. It may connect to the next letter at the baseline.
   half: |
-    As in the full way, but the downstroke stops at the x-height, or just above it, where it connects to the next letter. When the next letter joins at the x-height, the right downstroke dips down to the x-height to meet it; when letters join at the x-height on both sides, both ends of the stroke dip down to the x-height.
+    As in the full motion, but the downstroke stops at the x-height, or just above it, where it connects to the next letter. When the next letter joins at the x-height, the right downstroke dips down to the x-height to meet it; when letters join at the x-height on both sides, both ends of the stroke dip down to the x-height.
 mono:
   bitmap:
   - " ### "
@@ -18,7 +18,7 @@ mono:
   - "    #"  #
 stances:
   full:
-    way: full
+    motion: full
     traits: []
     bitmap:
     - " ## "
@@ -48,7 +48,7 @@ stances:
       unlocks: []
       require: []
   half:
-    way: half
+    motion: half
     traits: [half]
     bitmap:
     - " ## "
@@ -105,7 +105,7 @@ policy:
     when:
       right:
         family: [qsZoo, qsCheer, qsJay, qsRoe, qsLlan, qsIt, qsEt, qsEight, qsAwe, qsOx, qsFoot]
-    why: These join ·Pea through the half way's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.
+    why: These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.
   - stance: full
     exit: baseline
     when:

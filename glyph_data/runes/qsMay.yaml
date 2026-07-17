@@ -19,7 +19,7 @@ mono:
   y_offset: -3
 stances:
   loop:
-    way: loop
+    motion: loop
     traits: []
     bitmap:
     - "   ##"  #
@@ -71,7 +71,7 @@ stances:
       unlocks: []
       require: []
   grounded-loop:
-    way: grounded-loop
+    motion: grounded-loop
     traits: []
     bitmap:
     - "  ##"  #

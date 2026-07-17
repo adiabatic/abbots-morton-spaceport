@@ -155,7 +155,7 @@ class Bitmap:
 @dataclass(frozen=True)
 class Stance:
     name: str
-    way: str
+    motion: str
     traits: tuple[str, ...] = ()
     bitmap: Bitmap = field(default_factory=lambda: Bitmap(()))
     bitmaps: Mapping[str, Bitmap] = field(default_factory=dict)
@@ -199,7 +199,7 @@ class Rune:
     name: str
     codepoint: int | None = None
     sequence: tuple[str, ...] | None = None  # ligature runes declare this instead of a codepoint
-    ductus: Mapping[str, str] = field(default_factory=dict)  # way name -> hand-drawing prose
+    ductus: Mapping[str, str] = field(default_factory=dict)  # motion name -> hand-drawing prose
     notes: str | None = None
     mono: Bitmap | None = None
     stances: Mapping[str, Stance] = field(default_factory=dict)

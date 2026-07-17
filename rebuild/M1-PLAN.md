@@ -58,7 +58,7 @@ A composite skeleton showing every §3 construct the five runes need. No single 
 ```yaml
 rune: qsMay
 codepoint: 0xE665                  # ligature files declare `sequence: [qsTea, qsOy]` instead, no codepoint
-ductus:                            # closed enumeration of ways; every stance names one; see §8 of this plan
+ductus:                            # closed enumeration of motions; every stance names one; see §8 of this plan
   loop: |                          # DRAFT — pending author sign-off
     Written clockwise, starting from the leftmost pixel at the baseline. It continues right, loops around underneath the baseline, and then exits at the x-height on the right.
   grounded-loop: |                 # DRAFT — pending author sign-off
@@ -70,7 +70,7 @@ notes: |
 mono: {bitmap: ["..."], y_offset: -3}    # mono-only drawing, carried for the mono font; no anchors
 stances:
   loop:
-    way: loop                      # build error if missing or dangling
+    motion: loop                   # build error if missing or dangling
     traits: []                     # [half] / [alt] survive for data-expect compatibility (qsPea.half, qsTea.half)
     bitmap:                        # the isolated drawing; deep letter: 9 rows, y_offset -3
     - "  ### "
@@ -113,7 +113,7 @@ stances:
           # qsIt carries four ss04 rows: {pairing: {entry: baseline, exit: baseline}, feature: ss04, when: {left: {family: qsDay}}} etc.
       require: []                  # none of the five runes needs join-born stances (·Fee's case)
   grounded-loop:
-    way: grounded-loop
+    motion: grounded-loop
     bitmap: ["..."]
     y_offset: -3
     bitmaps:
@@ -186,7 +186,7 @@ Files: `rebuild/schema/rune.schema.json`, `rebuild/schema/script.schema.json` (d
 
 - **The closed `when:` vocabulary** — `$defs.when` with exactly `left`, `right`, `self`, `word`, `feature`, `additionalProperties: false` at every level. `left` admits `family`, `class`, `stance`, `joined_at`, `stroke`, `is`, `except`; `right` admits `family`, `class`, `stroke`, `is`, `except`, `then` — where `then` is the static side-condition shape **without** `then` (one hop, no recursion). `self` admits `{entry: live|none, exit: live|none}`. `word` is the enum `initial|medial|final|isolated`. An eighth axis is structurally unwritable.
 - **The refuse/require `right.then` prohibition** — `refuse` and `require` records reference `$defs/when_window_decidable`, whose `right` definition has no `then` property. `spec_load` re-checks it in Python so the error message can cite the design rule (window decidability one position left, §3.3).
-- **The stance-ID lint** — stance keys (and `way` names) use `propertyNames: {not: {pattern: "(before|after|noentry|noexit|nonjoining|ss[0-9])"}}`, duplicated as a Python lint in `spec_load` with a readable message. Generated display names are exempt by construction: authored data has no field that holds one.
+- **The stance-ID lint** — stance keys (and `motion` names) use `propertyNames: {not: {pattern: "(before|after|noentry|noexit|nonjoining|ss[0-9])"}}`, duplicated as a Python lint in `spec_load` with a readable message. Generated display names are exempt by construction: authored data has no field that holds one.
 - **Structural shapes** — `pairings` is `{never: [...]}` and/or `{only: [...]}` of `{entry, exit}` pairs over registered heights ∪ `none`; `cells:` rows require `bitmap:` (the explicit binding is the point) with optional `entry_x`/`exit_x`; `unlocks` rows require `feature:` and exactly one of `entry:`/`exit:`/`pairing:`, with an optional narrowing `when:`; `extend`/`contract` require side + height (`stance:` required by Python lint whenever more than one stance offers that side and height — refuse-to-guess); `why:` is schema-required on every `resolve` and on every `prefer` with `mode: absolute` (an `if/then`); `ductus` values are either a string or `{unrealized: true}`.
 - What the schema cannot express stays in `spec_load` Python: ductus parity, the cells resolution order (explicit `cells:` binding > side bindings > base bitmap; two side bindings disagreeing on a reachable cell with no explicit row is a build error naming the cell), extensional specificity, dead policy, predicate-class derivability (no hand-membered cross-rune lists), and the duplicate-rune-local-group linter.
 
@@ -227,7 +227,7 @@ class ResolvedSpec:                            # spec_load's output; the input t
 # spec_load.py
 def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> ResolvedSpec: ...
     # jsonschema validation per file; then Python lints: stance-ID regex, ductus parity (every stance names a
-    # way, every non-unrealized way has a stance), refuse/require right.then rejection, family references
+    # motion, every non-unrealized motion has a stance), refuse/require right.then rejection, family references
     # resolved against the registry, predicate-class expression evaluation, duplicate rune-local-group flag.
     # Raises SpecError(file, path, message); collects all errors before raising.
 
@@ -420,20 +420,20 @@ All must be green for M1 completion; each is a command or an assertion in `rebui
 7. **Outcome-partition invariant + budget gate** — `assert_outcome_partition()` on every config’s table; budget gate fails on per-rule format-3 fallback past the headroom floor and yellow-flags any Extension promotion in `budget.json`.
 8. **Oracle conformance** (§6 above) — every subset baseline row matches or maps to exactly one ledger entry, across the 8 acceptance configurations, with the ss06/ss07 identity assertion.
 9. **Font conformance** — exhaustive length-1–5 HarfBuzz sweep vs `settle` exact (no ledger), per-transition shortest-example gate with ZWNJ-interleaved variants, RuleCoverage total, split-buffer equivalence, gap-0 pen positions, ZWNJ structural checks; CoreText smoke green over the extended sequence set.
-10. **Ductus parity + draft flags** — every stance names a way; every drafted way carries `# DRAFT — pending author sign-off`; the sign-off worklist is the rune files’ `# DRAFT` markers themselves, enumerated by grep.
+10. **Ductus parity + draft flags** — every stance names a motion; every drafted motion carries `# DRAFT — pending author sign-off`; the sign-off worklist is the rune files’ `# DRAFT` markers themselves, enumerated by grep.
 11. **Formatting** — `make prettier` AND `uv run --with black black -q rebuild/`; `markdownlint-cli2` clean over new `.md`.
 12. **Repo hygiene** — `git status` shows only additive untracked files under `rebuild/`, `glyph_data/runes/`, and `tmp/`; nothing staged; no existing pipeline file modified.
 
 ## 8. Ductus drafting protocol
 
-Per the repo CLAUDE.md conventions: the canonical ductus lives at the family level (here: the rune file’s top-level `ductus:` map); variant-level ductus only for genuinely different pen motions; multiple valid drawing orders are `-` bullets within one way; join constraints are never ductus (they are `pairings`/`unlocks` data). Drafting sources, in order: today’s YAML ductus entries, the bitmaps, the Manual’s general Writing section (no per-letter stroke prose exists — Recon A §4), and `doc/core-idea.md`. The flag rule: **any way whose prose is not carried byte-for-byte from today’s YAML carries a trailing `# DRAFT — pending author sign-off` comment on its key line**, and the sign-off list is the rune files themselves — grep for `# DRAFT`; there is no separate report. Typo fixes (“recieve”, the mid-sentence capital “Then”) count as edits and therefore as drafts.
+Per the repo CLAUDE.md conventions: the canonical ductus lives at the family level (here: the rune file’s top-level `ductus:` map); variant-level ductus only for genuinely different pen motions; multiple valid drawing orders are `-` bullets within one motion; join constraints are never ductus (they are `pairings`/`unlocks` data). Drafting sources, in order: today’s YAML ductus entries, the bitmaps, the Manual’s general Writing section (no per-letter stroke prose exists — Recon A §4), and `doc/core-idea.md`. The flag rule: **any motion whose prose is not carried byte-for-byte from today’s YAML carries a trailing `# DRAFT — pending author sign-off` comment on its key line**, and the sign-off list is the rune files themselves — grep for `# DRAFT`; there is no separate report. Typo fixes (“recieve”, the mid-sentence capital “Then”) count as edits and therefore as drafts.
 
 Per rune:
 
-- **qsPea** — ways `full` and `half` only. Today’s third and fourth “dipping” ways are §4 bindings (same pen motion, join-conditioned attachment ink), so their prose folds into the two ways’ descriptions — including finally finishing the trailed-off “As in the half way, but ” sentence as part of the half way’s joined-on-both-sides prose. They must not become ways, or ductus parity would demand stances for them. Entire entry DRAFT.
-- **qsTea** — no ductus exists today (the hard migration gate). Draft ways `full` (the tall bar, written top-to-bottom or bottom-to-top — two bullets of one way, by analogy with ·It and pending author confirmation) and `half` (the stroke stopped at the x-height). Entire entry DRAFT.
-- **qsIt** — one way; bullet 1 (“Either written from top to bottom or bottom to top.”) carries verbatim; bullets 2–4 are join constraints and move to `pairings: only:` + the ss04 unlocks. If the prose is byte-identical, no DRAFT flag on the way itself; the structural move is still flagged for sign-off.
-- **qsMay** — ways `loop` (today’s prose with the “Then” capitalization fixed → DRAFT), `grounded-loop` (new draft for the real, reachable `exits_at_baseline` drawing → DRAFT), and `counterclockwise: {unrealized: true}` (named by core-idea.md line 141; honestly enumerated, undrawn).
+- **qsPea** — motions `full` and `half` only. Today’s third and fourth “dipping” motions are §4 bindings (same pen motion, join-conditioned attachment ink), so their prose folds into the two motions’ descriptions — including finally finishing the trailed-off “As in the half way, but ” sentence as part of the half motion’s joined-on-both-sides prose. They must not become motions, or ductus parity would demand stances for them. Entire entry DRAFT.
+- **qsTea** — no ductus exists today (the hard migration gate). Draft motions `full` (the tall bar, written top-to-bottom or bottom-to-top — two bullets of one motion, by analogy with ·It and pending author confirmation) and `half` (the stroke stopped at the x-height). Entire entry DRAFT.
+- **qsIt** — one motion; bullet 1 (“Either written from top to bottom or bottom to top.”) carries verbatim; bullets 2–4 are join constraints and move to `pairings: only:` + the ss04 unlocks. If the prose is byte-identical, no DRAFT flag on the motion itself; the structural move is still flagged for sign-off.
+- **qsMay** — motions `loop` (today’s prose with the “Then” capitalization fixed → DRAFT), `grounded-loop` (new draft for the real, reachable `exits_at_baseline` drawing → DRAFT), and `counterclockwise: {unrealized: true}` (named by core-idea.md line 141; honestly enumerated, undrawn).
 - **qsOy** — check `glyph_data/quikscript.yaml` for an existing entry at Phase 3; draft one if absent (the small loop letter; the Manual’s clean-pen note about small loops is context, not stroke prose). Likely entirely DRAFT.
 - **qsTea_qsOy** — ligature runes carry their own ductus (§5.7); draft one (the ·Tea bar flowing into the ·Oy loop) → DRAFT.
 

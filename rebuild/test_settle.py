@@ -83,7 +83,7 @@ ROWS = (
     ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
     ("qsTea qsTea", (), ("qsTea.full", "qsTea.full")),
     ("qsIt qsIt", (), ("qsIt.hapax", "qsIt.hapax")),
-    # qsPea joins followers through the half way's x-height dip; the halves-class entry extension excepts qsPea, so qsIt takes no en-ext here.
+    # qsPea joins followers through the half motion's x-height dip; the halves-class entry extension excepts qsPea, so qsIt takes no en-ext here.
     ("qsPea qsIt", (), ("qsPea.half.ex-y5", "qsIt.hapax.en-y5")),
     # The y6 chain keeps all four heights live.
     ("qsPea qsPea", (), ("qsPea.half.ex-y6", "qsPea.full.en-y6")),
@@ -193,12 +193,12 @@ def _synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
         stances={
             "stroke": Stance(
                 "stroke",
-                way="stroke",
+                motion="stroke",
                 surface=Surface(
                     exits={"x-height": SurfaceRow("x-height", x=1, withdrawal="safe")},
                 ),
             ),
-            "flourish": Stance("flourish", way="stroke"),
+            "flourish": Stance("flourish", motion="stroke"),
         },
         policy=Policy(order=("stroke", "flourish"), prefer=tuple(prefer_a)),
     )
@@ -209,7 +209,7 @@ def _synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
         stances={
             "hook": Stance(
                 "hook",
-                way="hook",
+                motion="hook",
                 surface=Surface(
                     entries={"x-height": SurfaceRow("x-height", x=0)},
                     exits={"baseline": SurfaceRow("baseline", x=1, withdrawal="safe")},
@@ -226,7 +226,7 @@ def _synthetic_spec(prefer_a=(), prefer_b=(), contract_b=()) -> ResolvedSpec:
         stances={
             "base": Stance(
                 "base",
-                way="base",
+                motion="base",
                 surface=Surface(entries={"baseline": SurfaceRow("baseline", x=0)}),
             ),
         },

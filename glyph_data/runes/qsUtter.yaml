@@ -15,7 +15,7 @@ mono:
   - "#    "  #
 stances:
   mono:
-    way: mono
+    motion: mono
     traits: []
     bitmap:
     - "   ##"  #
@@ -31,7 +31,7 @@ stances:
       unlocks: []
       require: []
   alternate:
-    way: alternate
+    motion: alternate
     traits: [alt]
     bitmap:
     - "  ## "  #

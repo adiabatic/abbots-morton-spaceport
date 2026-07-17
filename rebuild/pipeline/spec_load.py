@@ -45,7 +45,7 @@ FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0
 
 HAPAX_SENTINEL = "hapax"
 
-_NAMING_RULE = "stance IDs and way names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole way 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
+_NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole motion 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
 
 
@@ -491,7 +491,7 @@ class _Linter:
         """Lints safe on any document shape — run even when the schema layer already rejected the file, so the readable design-rule messages always accompany the mechanical ones."""
         self._lint_identifiers()
         self._lint_single_stance_sentinel()
-        self._lint_single_way_sentinel()
+        self._lint_single_motion_sentinel()
         self._lint_ductus_parity()
         self._lint_refuse_window_rule()
 
@@ -514,18 +514,18 @@ class _Linter:
                     f"stances.{stance_name}",
                     f"stance ID {stance_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
                 )
-            way = stance_raw.get("way")
-            if isinstance(way, str) and FORBIDDEN_ID_PATTERN.search(way):
+            motion = stance_raw.get("motion")
+            if isinstance(motion, str) and FORBIDDEN_ID_PATTERN.search(motion):
                 self.context.error(
-                    f"stances.{stance_name}.way",
-                    f"way name {way!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
+                    f"stances.{stance_name}.motion",
+                    f"motion name {motion!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
                 )
         ductus = self.raw.get("ductus")
-        for way_name in ductus if isinstance(ductus, dict) else ():
-            if FORBIDDEN_ID_PATTERN.search(str(way_name)):
+        for motion_name in ductus if isinstance(ductus, dict) else ():
+            if FORBIDDEN_ID_PATTERN.search(str(motion_name)):
                 self.context.error(
-                    f"ductus.{way_name}",
-                    f"way name {way_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
+                    f"ductus.{motion_name}",
+                    f"motion name {motion_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
                 )
 
     def _lint_single_stance_sentinel(self) -> None:
@@ -541,18 +541,18 @@ class _Linter:
                 f"{HAPAX_SENTINEL!r} is reserved for the sole stance of a single-stance rune; a rune with multiple stances may not use it",
             )
 
-    def _lint_single_way_sentinel(self) -> None:
+    def _lint_single_motion_sentinel(self) -> None:
         ductus = self.raw.get("ductus")
         keys = list(ductus) if isinstance(ductus, dict) else []
         if len(keys) == 1 and keys[0] != HAPAX_SENTINEL:
             self.context.error(
                 f"ductus.{keys[0]}",
-                f"single-way ductus must name its sole way {HAPAX_SENTINEL!r} (reserved sentinel for one-way runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+                f"single-motion ductus must name its sole motion {HAPAX_SENTINEL!r} (reserved sentinel for one-motion runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
             )
         elif len(keys) > 1 and HAPAX_SENTINEL in keys:
             self.context.error(
                 f"ductus.{HAPAX_SENTINEL}",
-                f"{HAPAX_SENTINEL!r} is reserved for the sole way of a single-way ductus; a rune with multiple ways may not use it",
+                f"{HAPAX_SENTINEL!r} is reserved for the sole motion of a single-motion ductus; a rune with multiple motions may not use it",
             )
 
     def _lint_refuse_window_rule(self) -> None:
@@ -573,17 +573,17 @@ class _Linter:
         realized = set(ductus)
         used: set[str] = set()
         for stance_name, stance_raw in self._stances().items():
-            way = stance_raw.get("way")
-            used.add(way)
-            if way not in ductus:
+            motion = stance_raw.get("motion")
+            used.add(motion)
+            if motion not in ductus:
                 self.context.error(
-                    f"stances.{stance_name}.way",
-                    f"stance {stance_name!r} names way {way!r}, which is not in the ductus",
+                    f"stances.{stance_name}.motion",
+                    f"stance {stance_name!r} names motion {motion!r}, which is not in the ductus",
                 )
-        for way in sorted(realized - used):
+        for motion in sorted(realized - used):
             self.context.error(
-                f"ductus.{way}",
-                f"way {way!r} is realized in the ductus but no stance names it (ductus parity, doc/rebuild-design.md section 3.1)",
+                f"ductus.{motion}",
+                f"motion {motion!r} is realized in the ductus but no stance names it (ductus parity, doc/rebuild-design.md section 3.1)",
             )
 
     def _lint_registry_consistency(self) -> None:
@@ -877,7 +877,7 @@ def _build_rune(context: _FileContext, classes: dict[str, frozenset[str]]) -> Ru
         base_path = f"stances.{stance_name}"
         stances[stance_name] = Stance(
             name=stance_name,
-            way=stance_raw["way"],
+            motion=stance_raw["motion"],
             traits=tuple(stance_raw.get("traits") or ()),
             bitmap=Bitmap(rows=tuple(stance_raw["bitmap"]), y_offset=stance_raw.get("y_offset", 0)),
             bitmaps={name: _bitmap(drawing) for name, drawing in (stance_raw.get("bitmaps") or {}).items()},

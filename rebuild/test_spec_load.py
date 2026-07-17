@@ -32,7 +32,7 @@ MINIMAL_RUNE = textwrap.dedent("""\
         A vertical stroke.
     stances:
       hapax:
-        way: hapax
+        motion: hapax
         bitmap:
         - "#"
         - "#"
@@ -194,7 +194,7 @@ def test_lone_stance_must_be_hapax(tmp_path):
             A vertical stroke.
         stances:
           bar:
-            way: hapax
+            motion: hapax
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
@@ -216,13 +216,13 @@ def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
             Another vertical stroke.
         stances:
           full:
-            way: full
+            motion: full
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, withdrawal: safe}
           hapax:
-            way: grounded
+            motion: grounded
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
@@ -233,7 +233,7 @@ def test_hapax_stance_reserved_for_single_stance_rune(tmp_path):
     assert any("stances.hapax" in issue.path for issue in error.issues)
 
 
-def test_lone_way_must_be_hapax(tmp_path):
+def test_lone_motion_must_be_hapax(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
@@ -242,18 +242,18 @@ def test_lone_way_must_be_hapax(tmp_path):
             A vertical stroke.
         stances:
           hapax:
-            way: bar
+            motion: bar
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, withdrawal: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("single-way ductus must name its sole way 'hapax'" in issue.message for issue in error.issues)
+    assert any("single-motion ductus must name its sole motion 'hapax'" in issue.message for issue in error.issues)
     assert any("ductus.bar" in issue.path for issue in error.issues)
 
 
-def test_hapax_way_reserved_for_single_way_ductus(tmp_path):
+def test_hapax_motion_reserved_for_single_motion_ductus(tmp_path):
     text = textwrap.dedent("""\
         rune: qsIt
         codepoint: 0xE670
@@ -264,30 +264,30 @@ def test_hapax_way_reserved_for_single_way_ductus(tmp_path):
             Another vertical stroke.
         stances:
           full:
-            way: full
+            motion: full
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, withdrawal: safe}
           grounded:
-            way: hapax
+            motion: hapax
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, withdrawal: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("reserved for the sole way" in issue.message for issue in error.issues)
+    assert any("reserved for the sole motion" in issue.message for issue in error.issues)
     assert any("ductus.hapax" in issue.path for issue in error.issues)
 
 
-def test_dangling_way(tmp_path):
-    text = MINIMAL_RUNE.replace("way: hapax", "way: pole")
+def test_dangling_motion(tmp_path):
+    text = MINIMAL_RUNE.replace("motion: hapax", "motion: pole")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("not in the ductus" in issue.message for issue in error.issues)
 
 
-def test_realized_way_without_stance(tmp_path):
+def test_realized_motion_without_stance(tmp_path):
     text = MINIMAL_RUNE.replace("ductus:\n", "ductus:\n  pole: |\n    Another stroke.\n")
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any("ductus parity" in issue.message for issue in error.issues)
@@ -399,13 +399,13 @@ def test_ambiguous_extend_target(tmp_path):
             Another vertical stroke.
         stances:
           bar:
-            way: bar
+            motion: bar
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
                 baseline: {x: 1, withdrawal: safe}
           pole:
-            way: pole
+            motion: pole
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
@@ -419,7 +419,7 @@ def test_ambiguous_extend_target(tmp_path):
 
 
 def test_errors_carry_lines_and_collect(tmp_path):
-    text = MINIMAL_RUNE.replace("way: hapax", "way: pole") + textwrap.dedent("""\
+    text = MINIMAL_RUNE.replace("motion: hapax", "motion: pole") + textwrap.dedent("""\
         policy:
           refuse:
           - {exit: baseline, when: {right: {family: qsBogus}}}
@@ -446,7 +446,7 @@ def test_duplicate_groups_flagged_across_files(tmp_path):
             A loop.
         stances:
           hapax:
-            way: hapax
+            motion: hapax
             bitmap: ["#", "#", "#", "#", "#", "#"]
             surface:
               exits:
