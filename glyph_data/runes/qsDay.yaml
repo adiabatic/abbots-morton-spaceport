@@ -4,7 +4,7 @@ ductus:
   full: |
     A single stroke straight down the left from the x-height through the baseline, then a hook out of the foot kicking up and to the right toward the baseline, where it may connect to the next letter.
   half: |
-    As the full way, but only the foot hook is drawn: begun at the baseline on the left, dropping into the descender and kicking back up to the right.
+    As the full motion, but only the foot hook is drawn: begun at the baseline on the left, dropping into the descender and kicking back up to the right.
 mono:
   bitmap:
   - "#    "  #
@@ -19,7 +19,7 @@ mono:
   y_offset: -3
 stances:
   full:
-    way: full
+    motion: full
     traits: []
     bitmap:
     - "#   "  #
@@ -39,7 +39,7 @@ stances:
       unlocks: []
       require: []
   half:
-    way: half
+    motion: half
     traits: [half]
     bitmap:
     - "    "  #

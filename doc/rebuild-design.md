@@ -47,7 +47,7 @@ Two-place locality holds with no third place: to understand a pair, open the two
 ```yaml
 rune: qsMay
 codepoint: 0xE665            # ligatures declare `sequence: [qsOut, qsTea]` instead
-ductus:                      # the closed enumeration of ways; gates the stance set
+ductus:                      # the closed enumeration of motions; gates the stance set
   loop: |
     Written clockwise from the leftmost pixel at the baseline, looping under the baseline, ending at the x-height on the right.
   grounded-loop: |
@@ -62,12 +62,12 @@ policy: { ... }              # §3.3
 
 ### 3.1 Stances and ductus parity
 
-A stance is one genuine way the hand writes the rune: a `way:` reference into the ductus, exactly one hand-drawn base bitmap, and a complete join surface. Stance IDs name the pen motion (`loop`, `half`, `flipped`, `grounded-loop`), never a neighbor, boundary, or feature — the linter rejects IDs matching `(before|after|noentry|noexit|nonjoining|ss[0-9])`. A rune with exactly one stance is the sole exception: its stance and its one ductus way are both named `hapax` (a reserved sentinel meaning “occurs exactly once”), the `way:` pointing at that lone `hapax` key; the pen-motion label (`loop`, `bar`, …) survives only in the ductus prose. The linter enforces both — a lone stance under any other name, a single-way ductus under any other key, or `hapax` appearing among two or more stances or two or more ways, is a spec defect.
+A stance is one genuine motion the hand makes to write the rune: a `motion:` reference into the ductus, exactly one hand-drawn base bitmap, and a complete join surface. Stance IDs name the pen motion (`loop`, `half`, `flipped`, `grounded-loop`), never a neighbor, boundary, or feature — the linter rejects IDs matching `(before|after|noentry|noexit|nonjoining|ss[0-9])`. A rune with exactly one stance is the sole exception: its stance and its one ductus motion are both named `hapax` (a reserved sentinel meaning “occurs exactly once”), the `motion:` pointing at that lone `hapax` key; the pen-motion label (`loop`, `bar`, …) survives only in the ductus prose. The linter enforces both — a lone stance under any other name, a single-motion ductus under any other key, or `hapax` appearing among two or more stances or two or more motions, is a spec defect.
 
 ```yaml
 stances:
   loop:
-    way: loop                # build error if missing or dangling; every non-unrealized way must have a stance
+    motion: loop             # build error if missing or dangling; every non-unrealized motion must have a stance
     traits: [ ]              # `half` / `alt` survive for data-expect compatibility
     bitmap:                  # the isolated drawing; double-quoted rows, trailing # markers at y=5 and y=0, as today
     - "   ##"  #
@@ -86,7 +86,7 @@ stances:
     surface: { ... }
 ```
 
-**Ductus parity** is the closed-set property made mechanical: every stance names a way, every realized way has a stance, and `unrealized: true` keeps an enumerated-but-undrawn way visible until its bitmap exists. A rune cannot be authored in this format until its ductus is written. Note an honest deviation from core-idea, recorded in §15: core-idea says “finish writing all of it before starting the rewrite,” and this design deliberately resequences that global front-load into a per-rune gate — the dependency is enforced mechanically at the granularity where it binds (a rune’s migration blocks on its own ductus), because unenforced front-loaded prose is exactly what produced today’s rotten entries (qsPea’s ductus trails off mid-sentence; qsMay’s omits the counterclockwise way core-idea itself names). This resequencing needs the author’s sign-off.
+**Ductus parity** is the closed-set property made mechanical: every stance names a motion, every realized motion has a stance, and `unrealized: true` keeps an enumerated-but-undrawn motion visible until its bitmap exists. A rune cannot be authored in this format until its ductus is written. Note an honest deviation from core-idea, recorded in §15: core-idea says “finish writing all of it before starting the rewrite,” and this design deliberately resequences that global front-load into a per-rune gate — the dependency is enforced mechanically at the granularity where it binds (a rune’s migration blocks on its own ductus), because unenforced front-loaded prose is exactly what produced today’s rotten entries (qsPea’s ductus trails off mid-sentence; qsMay’s omits the counterclockwise motion core-idea itself names). This resequencing needs the author’s sign-off.
 
 ### 3.2 The surface
 
@@ -191,12 +191,12 @@ The direction asymmetry is the depth bound, by construction: `left` may referenc
 
 ## 4. The stance-vs-accretion line
 
-Core-idea names this the hinge of the whole rebuild. The line, crisply: **a stance is a way the hand writes the rune; everything that varies with the neighbors instead of with the hand belongs to the surface, the parametric layer, or policy.** Four checks enforce it structurally:
+Core-idea names this the hinge of the whole rebuild. The line, crisply: **a stance is a motion the hand makes to write the rune; everything that varies with the neighbors instead of with the hand belongs to the surface, the parametric layer, or policy.** Four checks enforce it structurally:
 
-1. **Ductus parity** — every stance realizes a named way; every realized way has a stance. You cannot mint a stance without first writing down the way of writing it claims to be.
+1. **Ductus parity** — every stance realizes a named motion; every realized motion has a stance. You cannot mint a stance without first writing down the motion it claims to be.
 2. **One unique hand-drawn bitmap** — the comparison runs anchor-normalized over _all_ of a rune’s hand-drawn bitmaps, `bitmaps:` siblings included: two drawings whose ink differs only by connector/stub pixels at declared attachment rows are a build error naming the mechanism that already expresses the difference (“this is a surface row / an extension / a stub”), which keeps the bound-shape channel from going free-form.
 3. **Context-free identity** — stance IDs and data contain no neighbor, boundary, or feature reference (linted); triggering context lives in policy records that _reference_ the stance.
-4. **Complete in itself** — the surface states everything the stance can do; reading the stance answers “what can this way of writing do?” with no residue outside the rune’s own policy block.
+4. **Complete in itself** — the surface states everything the stance can do; reading the stance answers “what can this motion do?” with no residue outside the rune’s own policy block.
 
 For migration triage, the five-step decision procedure (from the reform design) is the rubric for any existing record: differs only in which neighbors summon it → a `prefer`/`refuse`/row scope; differs only in which anchors are live → a cell; ink differs only as join-localized consequence of an anchor being live or declined → a `stub`/`joined`/`withdrawal`/`cells:` binding; ink differs as reach toward one specific neighbor → an `extend` (parametric, or `bind:`-bound when the redraw exceeds connector arithmetic); otherwise the pen moves differently → a stance, named after the motion. The step-3/step-5 discriminator is ductus: a join-summoned redraw of the same motion is a binding; a different motion (·Fee’s reversed loop) is a stance.
 
@@ -208,14 +208,14 @@ Because the soft channels are where accretion could re-grow, the derived view su
 
 All geometry below is today’s real data. (The four candidate designs each work all twelve of core-idea’s hard cases in their own syntax; these are the synthesized format’s load-bearing ones.)
 
-### 5.1 ·May: ways of writing, and surrender with one authored line
+### 5.1 ·May: motions, and surrender with one authored line
 
-·May is two realized ways (`loop` rising to the x-height; `grounded-loop` resting on the baseline) plus an `unrealized: counterclockwise` ledger entry. The real geometry, expressed exactly:
+·May is two realized motions (`loop` rising to the x-height; `grounded-loop` resting on the baseline) plus an `unrealized: counterclockwise` ledger entry. The real geometry, expressed exactly:
 
 ```yaml
 stances:
   loop:
-    way: loop
+    motion: loop
     bitmap: [...]                          # today's mono drawing
     bitmaps:
       pulled-back: {bitmap: [...]}         # today's pulled_back_a_bit_for_entry_at_short_height — one pixel off at y=5
@@ -231,7 +231,7 @@ stances:
       cells:
         - {entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}   # entry-live + exit-declined compose to one drawing
   grounded-loop:
-    way: grounded-loop
+    motion: grounded-loop
     bitmap: [...]                          # today's exits_at_baseline
     bitmaps:
       pulled-back-grounded: {bitmap: [...]}    # today's pulled_back…and_exits_at_baseline
@@ -243,7 +243,7 @@ policy:
     - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee, joined_at: x-height}}, why: ·Fee's long reach-over absorbs the baseline stubbie; the redraw spans rows, so it is a bound shape, not arithmetic.}
 ```
 
-The connector pixel at column 4 of the y=5 row is kept when the exit joins (it is the connecting stroke) and removed when the exit is declined mid-word — so it is the `withdrawal: pulled-back` binding, _not_ a stub blanked on join, and `withdrawal: safe` would rightly fail `E-DANGLE` verification here. In `·May·They+Utter` — where the ligature refuses entries after ·May — settlement sees before committing anything that the seam offers no entry, so ·May lands in its (baseline-entry, exit-withdrawn) or (none, exit-withdrawn) cell, rendered with the bound form. Today’s two authored `ex-noentry` stances, the `_exit_noentry_fallback` scorer, and the post-liga left-cleanup pass are all replaced by cell semantics plus one `withdrawal:` binding; the four hand-drawn ·May variants of one way all survive as bindings of one stance, and nothing is named after a context.
+The connector pixel at column 4 of the y=5 row is kept when the exit joins (it is the connecting stroke) and removed when the exit is declined mid-word — so it is the `withdrawal: pulled-back` binding, _not_ a stub blanked on join, and `withdrawal: safe` would rightly fail `E-DANGLE` verification here. In `·May·They+Utter` — where the ligature refuses entries after ·May — settlement sees before committing anything that the seam offers no entry, so ·May lands in its (baseline-entry, exit-withdrawn) or (none, exit-withdrawn) cell, rendered with the bound form. Today’s two authored `ex-noentry` stances, the `_exit_noentry_fallback` scorer, and the post-liga left-cleanup pass are all replaced by cell semantics plus one `withdrawal:` binding; the four hand-drawn ·May variants of one motion all survive as bindings of one stance, and nothing is named after a context.
 
 ### 5.2 ·No after ·It/·Vie: the canonical accretion stance, dissolved
 
@@ -267,7 +267,7 @@ One rune-level line on the lead: `refuse: [{when: {right: {family: qsThaw}}, why
 
 ### 5.7 ·Out+Tea, the ·Excite·Tea·Oy guard, and ligature formation
 
-`qsOut_qsTea` is a rune (`sequence: [qsOut, qsTea]`) with its own ductus, stances, and (empty) surface; `qsTea_qsOy` has an exit and no entries. Because formation runs before stance selection, ·Excite’s widened baseline-exit way (whose row carries `require`-like scoping toward baseline enterers) sees the entryless ligature as its right neighbor, has no serviceable candidate, and resolves to a plain cell — keeping whatever left join it already made. The `_PENDING_BK_ENTRY_GUARDS` table and the `qsExcite.*.before-vertical` stance family fall out of “a declared join must physically realize” applied _before_ commitment.
+`qsOut_qsTea` is a rune (`sequence: [qsOut, qsTea]`) with its own ductus, stances, and (empty) surface; `qsTea_qsOy` has an exit and no entries. Because formation runs before stance selection, ·Excite’s widened baseline-exit motion (whose row carries `require`-like scoping toward baseline enterers) sees the entryless ligature as its right neighbor, has no serviceable candidate, and resolves to a plain cell — keeping whatever left join it already made. The `_PENDING_BK_ENTRY_GUARDS` table and the `qsExcite.*.before-vertical` stance family fall out of “a declared join must physically realize” applied _before_ commitment.
 
 Formation semantics, stated precisely after verification and revised when the qsLow migration produced the live counterexample (·Day·Utter·Low — the Manual pin `·Day | ·Utter.alt ·Low`, where the ligature exits only at the x-height, ·Low enters only at the baseline, and forming would destroy the seam the unformed alternate ·Utter carries): in the model, **formation is a settlement decision** like any other — a _guarded_ one. A ligature yields to its components per window exactly when the trailing component, left unformed, could realize a seam toward the follower that the formed ligature could realize under no capability configuration (`settle.formation_blocked`: refusal-aware at candidacy grain, quantified over the powerset of unlock features because formation stages before the ss markers and is therefore config-blind by design; its two slots are the raw tokens after the sequence — the same slots the emitted lookup reads — so the guard never depends on state formation cannot see). The decision happens before forming — never an un-form-and-repair pass, which the architecture forbids — and it is the shipped font’s mid-pipeline variant-keyed shape restated as a derivation: today’s `calt_liga` re-captures ·Utter’s `reaches-way-back` and `before-may` flips into `qsDay_qsUtter` but not the plain baseline-reaching alt, which is precisely “form unless the unformed trail reaches a follower the ligature cannot serve.” Because the guard derives entirely from the runes’ join surfaces, a newly migrated letter that only the unformed rendering can reach extends the guard automatically — The Manual stays satisfied by default, with no per-ligature data. Left-side seams stay exempt on purpose: formation may still cost the predecessor its join (`qsTea_qsOy`, above), exactly as the shipped font proves. Compiled shape: a ligature the guard ever blocks moves to a chaining-context lookup (`m1_formation_guarded`, first in `calt`) whose generated `ignore sub` rows carry the guard over one or two raw lookahead slots, ZWNJ-explicit forming rows ordered ahead of them; unguarded ligatures keep the plain type-4 lookup. Verdicts the staging cannot express — one that differs across capability configurations, or one that blocks at a boundary second slot without blocking everywhere — are hard emitter errors, and that is where the design bends next.
 
@@ -401,7 +401,7 @@ Sides are structured refs — rune, optional stance, optional cell pattern (`en:
 Gated per rune on ductus, oracled by black-box extraction, deleted-with-proof for the patch layers.
 
 1. **Baseline extraction (build this first).** Shape the depth-2 basis through the _current_ font and record every window’s resolved outcome as a baseline table. Pure black-box shaping — zero old-pipeline archaeology — and it is simultaneously the migration oracle (“done” = the new table matches except where a reviewed row says otherwise) and the review surface’s first real workload. The intended-equivalence assertions (post-ZWNJ ≡ word-initial, §3.4) are checked against this baseline so divergences surface as triage rows.
-2. **Ductus, per rune.** A rune cannot be expressed in the new format until its ways are written (`way:` is mandatory), so the 54 missing ductus entries are written rune by rune as migration reaches them, with `unrealized: true` keeping honesty cheap. The census’s per-family bitmap/stance inventories are the worklist; every existing bitmap must land under some way (as a stance’s base or a bound sibling) or be retired.
+2. **Ductus, per rune.** A rune cannot be expressed in the new format until its motions are written (`motion:` is mandatory), so the 54 missing ductus entries are written rune by rune as migration reaches them, with `unrealized: true` keeping honesty cheap. The census’s per-family bitmap/stance inventories are the worklist; every existing bitmap must land under some motion (as a stance’s base or a bound sibling) or be retired.
 3. **Mechanical conversion (scripted, most records).** The census labels drive the converter: ANCHOR stances → surface rows and cells; SUPPRESS → refusals; CONTEXT → prefers, row scopes, or nothing at all (attempted as _nothing_ first — most should be emergent); SS → unlocks with their contexts intact; EXT → extend records (parametric or `bind:`-bound); `derive` directives → extend/contract records with mandatory targets. **Allowlist polarity is preserved mechanically**: every old positive `select.before`/`after` gate on an exit/entry stance becomes a `toward:`/`from:` row scope, one-to-one — without this step, join-count would flip every absent-from-allowlist pair (·Roe·It and its hundreds of siblings) from unjoined to joined, a systematic inversion, not incidental drift. Context sets → predicate classes (geometric) or rune-local groups (private); kerning keys via an alias table (`qsNo.alt → qsNo.flipped`); bitmaps, anchors, traits, ligature sequences, and the corpus HTML verbatim.
 4. **Deleted on evidence, not faith.** The 172 override rows, `_PENDING_BK_ENTRY_GUARDS`, and the guard/demote/reflip passes are never converted; the baseline table proves their behaviors are preserved (or surfaces the divergence for triage, where each becomes an explicit refuse/prefer/resolve with a written reason — the “every line explainable” upgrade those rows never had).
 5. **Arbitration triage.** The first full build will throw a batch of `E-INCOMPARABLE`/`E-AMBIGUOUS` where today’s outcome rests on modifier-count and emission-order accidents. The tool proposes the resolve that reproduces the baseline row with provenance `migrated: matches pre-rebuild behavior`; the author bulk-accepts and re-judges at leisure — recorded law beats silent accident. The migrated-resolve count is a visible §4 watchdog number the subsumption linter is expected to drain as case-groups emerge.
@@ -439,7 +439,7 @@ Roughly 4.5–5k new lines replacing ~15k of pipeline Python, the seven-script l
 7. **Stylistic-set composition is sampled, not proven.** The model defines behavior for all combinations (unlock rows compose by union); conformance verifies each set alone, declared interactions, the Manual’s configurations, and one multi-set combination; the registry documents which combinations are verified. Undeclared combinations ship best-effort, documented — not a build error (the font is user-facing), not silent.
 8. **Resolved-context ligature formation is live and built.** The qsLow migration produced the example the original verification had not found (·Day·Utter·Low), and the §5.7 late-formation guard now decides formation per window from the runes’ join surfaces, config-blind and derived rather than authored. The remaining bend points are enforced as hard emitter errors: a guard verdict that differs across capability configurations, or one that blocks at a boundary second slot without blocking everywhere, cannot be expressed in the pre-marker formation staging.
 9. **The orientation vocabulary is coarse** (`horizontal|vertical|diagonal`), and its values are author judgments with no ground truth but the eye; wrong values produce confident wrong flags. Bitmap-gradient suggestions can help seed it.
-10. **The ductus gate is resequenced from core-idea’s stated want.** Core-idea says finish all ductus before the rewrite; this design gates per rune instead (§3.1), trading the global front-load for mechanical enforcement at the binding granularity. Residual risk: ways with neither bitmap nor prose are caught by neither sequencing, and writing the hardest enumerations under conversion pressure may bias toward bitmap-shaped prose. This is an explicit deviation from a recorded author decision, pending sign-off.
+10. **The ductus gate is resequenced from core-idea’s stated want.** Core-idea says finish all ductus before the rewrite; this design gates per rune instead (§3.1), trading the global front-load for mechanical enforcement at the binding granularity. Residual risk: motions with neither bitmap nor prose are caught by neither sequencing, and writing the hardest enumerations under conversion pressure may bias toward bitmap-shaped prose. This is an explicit deviation from a recorded author decision, pending sign-off.
 11. **Deleted knowledge can be silently lost in corners no gate reaches** (the archive documents real depth-5-only regressions). The per-transition conformance gate closes most of this class; the depth-4 belt stays for the rest, and some taste will still be rediscovered by eye, later. That is the accepted price of deleting rather than porting.
 
 Open questions deliberately left for implementation: whether the locked-twins ZWNJ optimization ever replaces the chokepoint-plus-coverage-transform; whether any real case ever needs the `right.then` hop widened (a language change); and the namer-dot Chrome itemization issue, which stays in the graveyard untouched.

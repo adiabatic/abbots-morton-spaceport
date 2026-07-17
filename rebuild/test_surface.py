@@ -184,7 +184,7 @@ DISAGREEING_RUNE = textwrap.dedent("""\
         A loop.
     stances:
       hapax:
-        way: hapax
+        motion: hapax
         bitmap: ["##", "##", "##", "##", "##", "##"]
         bitmaps:
           entry-form: {bitmap: ["# ", "# ", "# ", "# ", "# ", "##"]}
@@ -231,7 +231,7 @@ def test_anchor_convention_drift_is_flagged(tmp_path):
             A vertical stroke.
         stances:
           hapax:
-            way: hapax
+            motion: hapax
             bitmap: [" #", " #", " #", " #", " #", " #"]
             surface:
               entries:

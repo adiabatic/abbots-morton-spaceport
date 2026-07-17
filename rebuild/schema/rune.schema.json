@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "rune.schema.json",
   "title": "Quikscript rune file",
-  "description": "One rune per file: ductus (the closed enumeration of ways), stances with complete join surfaces, and policy riders. Stance identity is the structured tuple; generated display names never appear in authored data.",
+  "description": "One rune per file: ductus (the closed enumeration of motions), stances with complete join surfaces, and policy riders. Stance identity is the structured tuple; generated display names never appear in authored data.",
   "type": "object",
   "additionalProperties": false,
   "required": ["rune", "ductus", "stances"],
@@ -11,7 +11,7 @@
     "codepoint": {"type": "integer", "minimum": 0, "description": "The Unicode code point for this rune's raw glyph. One per rune, mutually exclusive with `sequence` (ligatures use that instead). Example: ·Pea is `codepoint: 0xE650`."},
     "sequence": {"type": "array", "items": {"$ref": "#/$defs/familyName"}, "minItems": 2, "description": "Ligature runes only (instead of `codepoint`): the component families this single glyph stands in for, in order. Example: `sequence: [qsTea, qsOy]` — the ·Tea·Oy ligature `qsTea_qsOy`."},
     "ductus": {
-      "description": "How each way is drawn, in prose, keyed by the way's pen-motion id — documentation for readers, never read by the build for geometry. Example: ·Pea declares `full` and `half`. A ductus with exactly one way names that sole way `hapax`, the reserved sentinel for one-way runes.",
+      "description": "How each motion is drawn, in prose, keyed by the motion's name — documentation for readers, never read by the build for geometry. Example: ·Pea declares `full` and `half`. A ductus with exactly one motion names that sole motion `hapax`, the reserved sentinel for one-motion runes.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
@@ -20,7 +20,7 @@
     "notes": {"description": "Free-form prose about this rune, for human readers — never read by the build. Unlike `ductus` (how the letter is drawn), `notes` records join constraints and design rationale.", "type": "string"},
     "mono": {"$ref": "#/$defs/drawing", "description": "The monospace (fixed-width) reference `bitmap` of this letter, with an optional `y_offset`. The proportional, contextual shapes live in `stances`."},
     "stances": {
-      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes; that rune's single `ductus` way is likewise named `hapax`, with the pen-motion label kept only in the ductus prose.",
+      "description": "This letter's proportional shapes, keyed by stance name. Each entry is one stance — a `bitmap` plus its join `surface` — the contextual variants the build picks between, as against the single fixed-width `mono`. At least one is required, and policy records refer back to a stance by this name. A rune with exactly one stance names that sole stance `hapax`, the reserved sentinel for one-stance runes; that rune's single `ductus` motion is likewise named `hapax`, with the pen-motion label kept only in the ductus prose.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {"$ref": "#/$defs/motionName"},
@@ -66,9 +66,9 @@
     "stance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["way", "bitmap"],
+      "required": ["motion", "bitmap"],
       "properties": {
-        "way": {"$ref": "#/$defs/motionName", "description": "The pen-motion this stance is drawn with — must be one of the rune's `ductus` keys. Stances can share a way."},
+        "motion": {"$ref": "#/$defs/motionName", "description": "The pen-motion this stance is drawn with — must be one of the rune's `ductus` keys. Stances can share a motion."},
         "traits": {"type": "array", "items": {"enum": ["half", "alt"]}, "description": "The stance's design flags — a closed set: `half` (shortened to the x-height) and `alt` (an alternate form). Omit for neither. Anything else that distinguishes a stance lives in named bitmaps or policy groups, not here. Example: qsPea's half stance — `traits: [half]`."},
         "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The letter's pixel grid: row strings top to bottom, `#` for ink and space for blank."},
         "y_offset": {"type": "integer", "description": "Shifts this stance's bitmap down by N pixels so a Deep letter reaches below the baseline. Deep letters use `-3`; everything else omits it (defaults to 0) — the same as `mono`'s `y_offset`."},
@@ -346,7 +346,7 @@
       }
     },
     "when": {
-      "description": "The surroundings a record needs before it fires. List any of `left`, `right`, `self`, `word`, `feature`. The record fires only if all of them match.\n\n`left` reads the already-settled left neighbor, so it can name the `stance` it chose and the height it `joined_at`. `right` reads the raw, not-yet-settled right neighbor, so it matches only static identity (`family`, `class`, `stroke`, boundary) — never a stance or a seam height.\n\n`self` is this letter's own entry/exit state. `word` is its position in the run (initial, medial, final, isolated). `feature` is the active stylistic set (`ssNN`).\n\nExample: ·Pea's full-way refuse uses `{left: {joined_at: y6}, right: {class: can-enter-at-x-height, except: […]}}`: a settled-left height beside a raw-right class.",
+      "description": "The surroundings a record needs before it fires. List any of `left`, `right`, `self`, `word`, `feature`. The record fires only if all of them match.\n\n`left` reads the already-settled left neighbor, so it can name the `stance` it chose and the height it `joined_at`. `right` reads the raw, not-yet-settled right neighbor, so it matches only static identity (`family`, `class`, `stroke`, boundary) — never a stance or a seam height.\n\n`self` is this letter's own entry/exit state. `word` is its position in the run (initial, medial, final, isolated). `feature` is the active stylistic set (`ssNN`).\n\nExample: ·Pea's full-motion refuse uses `{left: {joined_at: y6}, right: {class: can-enter-at-x-height, except: […]}}`: a settled-left height beside a raw-right class.",
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,

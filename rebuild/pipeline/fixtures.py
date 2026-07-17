@@ -179,7 +179,7 @@ def _it() -> Rune:
         name="qsIt",
         codepoint=0xE670,
         ductus={"hapax": "- Either written from top to bottom or bottom to top."},
-        stances={"hapax": Stance("hapax", way="hapax", bitmap=_IT_BAR, surface=surface)},
+        stances={"hapax": Stance("hapax", motion="hapax", bitmap=_IT_BAR, surface=surface)},
         policy=policy,
     )
 
@@ -187,7 +187,7 @@ def _it() -> Rune:
 def _tea() -> Rune:
     full = Stance(
         "full",
-        way="full",
+        motion="full",
         bitmap=_TEA_BAR,
         surface=Surface(
             entries={
@@ -214,7 +214,7 @@ def _tea() -> Rune:
     )
     half = Stance(
         "half",
-        way="half",
+        motion="half",
         traits=("half",),
         bitmap=_TEA_HALF,
         surface=Surface(
@@ -307,7 +307,7 @@ def _tea() -> Rune:
 def _pea() -> Rune:
     full = Stance(
         "full",
-        way="full",
+        motion="full",
         bitmap=_PEA_FULL,
         surface=Surface(
             entries={
@@ -335,7 +335,7 @@ def _pea() -> Rune:
     )
     half = Stance(
         "half",
-        way="half",
+        motion="half",
         traits=("half",),
         bitmap=_PEA_HALF,
         bitmaps={"half-dips-both-sides": _PEA_HALF_BOTH_DIPS},
@@ -408,7 +408,7 @@ def _pea() -> Rune:
                         )
                     )
                 ),
-                why="These join ·Pea through the half way's x-height dip instead.",
+                why="These join ·Pea through the half motion's x-height dip instead.",
                 provenance=_prov(_PEA_FILE, "policy.refuse[0]"),
             ),
         ),
@@ -435,7 +435,7 @@ def _pea() -> Rune:
 def _may() -> Rune:
     loop = Stance(
         "loop",
-        way="loop",
+        motion="loop",
         bitmap=_MAY_LOOP,
         bitmaps={"pulled-back": _MAY_PULLED_BACK, "pulled-back-stubless": _MAY_PULLED_BACK_STUBLESS},
         surface=Surface(
@@ -467,7 +467,7 @@ def _may() -> Rune:
     )
     grounded = Stance(
         "grounded-loop",
-        way="grounded-loop",
+        motion="grounded-loop",
         bitmap=_MAY_GROUNDED,
         bitmaps={"pulled-back-grounded": _MAY_PULLED_BACK_GROUNDED},
         surface=Surface(
@@ -579,7 +579,7 @@ def _may() -> Rune:
 def _oy() -> Rune:
     loop = Stance(
         "hapax",
-        way="hapax",
+        motion="hapax",
         bitmap=_OY_LOOP,
         bitmaps={"open-on-the-left": _OY_OPEN_LEFT},
         surface=Surface(
@@ -616,7 +616,7 @@ def _oy() -> Rune:
 def _tea_oy() -> Rune:
     stance = Stance(
         "hapax",
-        way="hapax",
+        motion="hapax",
         bitmap=_TEA_OY,
         surface=Surface(
             entries={},

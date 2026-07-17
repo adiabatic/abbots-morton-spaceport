@@ -7,7 +7,7 @@ ductus:
     As the full ligature, but begun from the ·Day foot hook at the baseline, then rising across to the x-height exit on the right.
 stances:
   full:
-    way: full
+    motion: full
     traits: []
     bitmap:
     - "#    ##"  #
@@ -27,7 +27,7 @@ stances:
       unlocks: []
       require: []
   half:
-    way: half
+    motion: half
     traits: [half]
     bitmap:
     - "     ###"  #

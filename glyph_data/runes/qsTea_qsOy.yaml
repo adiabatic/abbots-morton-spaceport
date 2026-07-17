@@ -7,7 +7,7 @@ notes: |
   Entryless by declaration: the empty entries map is explicit so the obligation is visible (entry inheritance from the lead ·Tea cannot apply — the ligature's leftmost ink at the lead's entry heights does not match the lead's anchors). Predecessors withdraw their exits before this ligature; that is cell semantics on their side, never policy here.
 stances:
   hapax:
-    way: hapax
+    motion: hapax
     traits: []
     bitmap:
     - "   #    "

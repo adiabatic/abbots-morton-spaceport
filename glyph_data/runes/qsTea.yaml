@@ -6,7 +6,7 @@ ductus:
     - Or the same stroke, written from the baseline straight up to the top line.
     - Under ss03, when the previous letter's stroke arrives at the x-height and the next letter joins at the baseline, the bar is still drawn full-height: the incoming stroke goes up to the top, then doubles back down to the baseline to serve the next letter's join.
   half: |
-    As the full way, but the stroke covers only the span from the top line down to the x-height.
+    As the full motion, but the stroke covers only the span from the top line down to the x-height.
 mono:
   bitmap:
   - "  #  "
@@ -20,7 +20,7 @@ mono:
   - "  #  "  #
 stances:
   full:
-    way: full
+    motion: full
     traits: []
     bitmap:
     - "#"
@@ -52,7 +52,7 @@ stances:
           right: {class: can-enter-at-baseline}
       require: []
   half:
-    way: half
+    motion: half
     traits: [half]
     bitmap:
     - "#"

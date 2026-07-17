@@ -6,12 +6,12 @@ This document is the north star for a from-scratch rebuild of Abbots Morton Spac
 
 A few words recur with precise meanings:
 
-- **Rune** — the addressable unit of the script that owns a set of stances. Every rune is either a **character** or a **ligature**, and either kind may be drawn more than one way. (Coined here; the everyday words are all spoken for — see the note below.)
+- **Rune** — the addressable unit of the script that owns a set of stances. Every rune is either a **character** or a **ligature**, and either kind may be drawn with more than one motion. (Coined here; the everyday words are all spoken for — see the note below.)
 - **Character** — a rune _with_ a code point: one of the 46 Quikscript characters (·Pea, ·May, …), the abstract input unit, independent of how it happens to be drawn.
 - **Ligature** — a rune that fuses a _sequence_ of characters into one drawn unit and has _no_ code point of its own (·Out+Tea, which doesn’t work as separate glyphs). Like a character, a ligature may have more than one stance.
 - **Bitmap** — a concrete grid of on/off pixels that a rune can be drawn as. A rune has one or more bitmaps — ·May needs at least two: one that can be attached to at the baseline, and another that can attach to the next rune at the baseline.
 - **Ink** — a filled bitmap pixel (a `#` cell, as opposed to blank space); the font’s strokes are made of ink. Much of the join machinery reasons about _where_ a stance’s ink falls — off-anchor contact, for instance, is ink touching where it shouldn’t.
-- **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine way to write the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
+- **Stance** — a bitmap paired with everything it can do and every rule about how it joins: which entries it accepts, which exits it offers, which combinations of the two are legal, and which joins it refuses. A stance is _one genuine motion for writing the rune_, bundled with its full join policy — not merely a silhouette. A rune has one or more stances, and each stance compiles to a glyph.
 - **Glyph** — the drawable output shape the shaper actually selects, in the OpenType sense: what a stance compiles to. Usually has no code point of its own. Kept with its standard meaning, never repurposed.
 - **Anchor** — a named attachment point on a stance, in the standard OpenType sense. The ones that matter here are the **entry** and **exit** anchors that drive _cursive attachment_ (`curs`): the shaper makes a join by snapping one rune’s exit anchor onto the next rune’s entry anchor. A stance’s join surface is, concretely, which entry/exit anchors it carries and at what heights.
 - **Extension** — pixels added to a stance’s connecting stroke so a join physically connects: the two runes already meet at the same height, but one or both need their connecting ink lengthened to actually touch. It is a parametric adjustment to a stance’s geometry, _not_ a stance of its own; its per-instance value is the _extension amount_. This is the default name for the whole motion, since lengthening is overwhelmingly the common case.
@@ -64,12 +64,12 @@ So the sacred things are assets and ideas; only their current _encoding_ is up f
 
 ### The stance set’s truth is held jointly by ductus _and_ bitmaps — and finishing the ductus gates the rewrite
 
-The stances-first model rests on each rune’s full set of ways-of-being-drawn, and that set’s truth lives in **two co-equal sources**, neither subsuming the other:
+The stances-first model rests on each rune’s full set of motions, and that set’s truth lives in **two co-equal sources**, neither subsuming the other:
 
-- the **ductus** — the enumeration of _how_ the rune is drawn (the abstract strokes and orders, the count of distinct ways), and
-- the **bitmaps** — the concrete pixels that realize those ways, canonical in their own right (and, recall, never derived one from another).
+- the **ductus** — the enumeration of _how_ the rune is drawn (the abstract strokes and orders, the count of distinct motions), and
+- the **bitmaps** — the concrete pixels that realize those motions, canonical in their own right (and, recall, never derived one from another).
 
-The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four ways to draw a glyph and forget the fifth. A stance set can only be honestly “closed” (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
+The ductus is currently **woefully incomplete**, and the author wants to **finish writing all of it before starting the rewrite** — because the failure mode is precise and dangerous: you write down four of a glyph’s motions and forget the fifth. A stance set can only be honestly “closed” (the property the whole authoring model depends on) if the ductus that enumerates it is complete. So **completing the ductus is the gating precondition** for the rebuild — not because ductus is the _sole_ source of truth (the bitmaps are equally canonical), but because it is the _enumeration_ that tells you the bitmap set is complete rather than secretly missing a fifth stance.
 
 ## The deepest principle: discovery, not declaration
 
@@ -138,7 +138,7 @@ Both are derivable from honest rune-capability and geometry data; neither should
 
 ## The unit of authoring is the written stance (stances-first)
 
-The spec is **stances-first**, not capability-matrix-first. A rune is authored as a small, **closed, explicitly-declared set of written stances** — the genuine ways a hand would draw it. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N ways_ of being written and joined — no more.
+The spec is **stances-first**, not capability-matrix-first. A rune is authored as a small, **closed, explicitly-declared set of written stances** — the genuine motions a hand would draw it with. ·May, for instance, can be written counterclockwise or clockwise, and each needs its own bitmap to look right. He wants to state plainly that ·May has _only these N motions_ of being written and joined — no more.
 
 Two qualities are essential and in tension:
 
@@ -147,7 +147,7 @@ Two qualities are essential and in tension:
 
 The legal join surface (which entry/exit heights and combinations a rune supports) is then **read off** the stance set and surfaced to the author, rather than being declared independently. This keeps the readability win of the heights-first view as a _derived, displayed_ artifact while keeping authoring grounded in real written stances.
 
-**Open tension:** stances-first _is_ essentially today’s model, and today’s pain is exactly the accretion of stances. So the rebuild’s success hinges on a principled answer to: _what makes a stance a legitimate member of the stance set (a real way to write the rune) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, “mostly B” risks walking straight back into the local maximum.
+**Open tension:** stances-first _is_ essentially today’s model, and today’s pain is exactly the accretion of stances. So the rebuild’s success hinges on a principled answer to: _what makes a stance a legitimate member of the stance set (a real motion for writing the rune) versus an accretion (a stance that exists only to patch one join bug)?_ Without that line, “mostly B” risks walking straight back into the local maximum.
 
 ## Attachment heights
 
@@ -166,9 +166,9 @@ This is also a current bug source: getting an LLM to extend _exactly_ the things
 
 ## What a stance is — and the category error behind the accretion
 
-The author’s definition: **a stance belongs in a rune’s stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine way to write the rune, plus its full join capability.
+The author’s definition: **a stance belongs in a rune’s stance list if and only if it specifies a bitmap together with everything that is possible with it and how it should join to other things.** A stance is a self-contained statement of one genuine motion for writing the rune, plus its full join capability.
 
-The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn’t a _way of writing the rune_ at all — it’s a **contextual join override**, most often a _suppression_: “in this particular case, don’t join in _this_ manner, even though it would otherwise be permissible.” The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a way of writing the rune — a reliable tell.
+The accretion is a **category error against that definition.** Stance lists bloat because minting a stance is, today, the most convenient way to express something that isn’t a _motion for writing the rune_ at all — it’s a **contextual join override**, most often a _suppression_: “in this particular case, don’t join in _this_ manner, even though it would otherwise be permissible.” The stance exists only to carry that override. Such stances are named after the _context that birthed them_ (`*.before-day-exam`, `*_after_it_and_vie`, `*.ex-noentry`) rather than after a motion for writing the rune — a reliable tell.
 
 So the override complexity is real and (the author believes) **irreducible** — the domain plus OpenType’s limits are genuinely that complex. The goal is not to delete it but to **house it correctly.** The author pushes as much intelligence as possible down into the Python; what can’t go there has accreted into long override lists in `quikscript.yaml` that “smell like warts.”
 
@@ -180,7 +180,7 @@ Decompose what an accretion-stance is currently doing into its real parts, each 
 - **The same shape, extended to reach** an awkward attachment → the **extension/contraction** axis, not a new stance.
 - **The binding of stance-to-context** (“when does this stance apply”) and **pure suppression** (“don’t join ·X·Y this way / at all,” with no shape change) → relational join rules **co-located on the runes themselves** (see “Locality of reference” below), expressed over the clean stance set — not carried by minting new stances.
 
-**Case in point — `qsNo.stances.alt_after_it_and_vie`:** a specialization of `qsNo.stances.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a “tighter” shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor’s baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor’s state**, not a new way of writing ·No. It’s currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild’s job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
+**Case in point — `qsNo.stances.alt_after_it_and_vie`:** a specialization of `qsNo.stances.alt` via inheritance (inheritance is a genuinely good idea and stays). It is _not_ about a “tighter” shape. It exists because **·It and ·Vie only connect at the baseline _sometimes_** — the predecessor’s baseline exit is _conditional_, and ·No must select a stance that matches it when (and only when) that conditional exit is present. So the real content is **selection conditioned on the neighbor’s state**, not a new motion for writing ·No. It’s currently a separate stance only because adding one was the least-bad place to put that conditional given the current YAML structure. The rebuild’s job is to let this condition ride on an _existing_ stance rather than spawn a sibling named after the neighbors that summon it.
 
 ## Locality of reference: at most two places
 
@@ -203,10 +203,10 @@ For joins, an extension is a **parametric adjustment, not a stance.** ·Jay has 
 
 ### A mis-scoped extension can be a symptom of an under-fleshed stance set
 
-A recurring bug class: an extension directive lands on **not exactly the right set of ways to write a rune** — it extends the thing you meant _and also_ extends something you didn’t. This has two distinct root causes, and telling them apart matters:
+A recurring bug class: an extension directive lands on **not exactly the right set of motions for writing a rune** — it extends the thing you meant _and also_ extends something you didn’t. This has two distinct root causes, and telling them apart matters:
 
 - **Plain mis-scoping** — author or LLM error in the current YAML: the directive’s target set is simply wrong, and the fix is to narrow it.
-- **An under-fleshed stance set** — the deeper case. The directive over-applies because two genuinely different ways of drawing the rune are still conflated into one stance, so there’s no precise target to attach to. The real fix is to **split the stance** into the distinct ways it actually needs, then aim the directive at the right one.
+- **An under-fleshed stance set** — the deeper case. The directive over-applies because two genuinely different motions for drawing the rune are still conflated into one stance, so there’s no precise target to attach to. The real fix is to **split the stance** into the distinct motions it actually needs, then aim the directive at the right one.
 
 This is a direct echo of the ductus gate: when the stance set under-distinguishes, extension directives have nothing precise to bind to and bleed onto siblings. Completing the ductus isn’t only about _coverage_ — it’s what gives every directive an exact target, so “extends one thing and accidentally another” stops being possible.
 
@@ -300,7 +300,7 @@ Extension rides in the same way: OpenType can’t stretch a bitmap, so an extend
 
 ## How the two runes negotiate a join
 
-Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual ways of writing a rune (the stances)**, not on the rune in the abstract. In particular, **no rune ever _requires_ a join** — only a specific stance may carry a requirement (a way of writing the rune that only makes sense when it joins). So “the two runes negotiate” is shorthand for “their selected stances do.” Confirmed:
+Both sides carry rules that bear on the same join — what each side offers, accepts, or refuses there — so the model needs a way to reconcile them. A precision that matters: these rules ride on the **individual motions for writing a rune (the stances)**, not on the rune in the abstract. In particular, **no rune ever _requires_ a join** — only a specific stance may carry a requirement (a motion for writing the rune that only makes sense when it joins). So “the two runes negotiate” is shorthand for “their selected stances do.” Confirmed:
 
 - **Veto is unilateral.** Either rune can forbid a join, and the other gets no say. If ·Way says “never join ·Thaw,” the join is dead. Suppression does not negotiate.
 - **Making a join requires mutual capability.** A join happens only where the left offers an exit and the right accepts an entry that are compatible — same attachment height, and close enough that any needed extension or contraction can actually bridge them. Neither side can force a join the other can’t physically accept.

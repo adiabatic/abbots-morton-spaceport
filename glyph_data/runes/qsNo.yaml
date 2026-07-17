@@ -15,7 +15,7 @@ mono:
   - "  #  "  #
 stances:
   loop:
-    way: loop
+    motion: loop
     traits: []
     bitmap:
     - "#   #"  #
@@ -31,7 +31,7 @@ stances:
       unlocks: []
       require: []
   flipped:
-    way: flipped
+    motion: flipped
     traits: [alt]
     bitmap:
     - "  #  "  #
