@@ -129,6 +129,39 @@ export function singletonChunks(singletons) {
   return chunks;
 }
 
+export function queueCounts(units, recordOf, ruledIds = new Set()) {
+  let blankUnits = 0;
+  const clusters = new Set();
+  for (const unit of units) {
+    if (unit.batch === null || unit.batch === undefined || typeof unit.cluster !== 'string') continue;
+    if (ruledIds.has(unit.class)) continue;
+    if (!isBlank(recordOf(unit.id))) continue;
+    blankUnits += 1;
+    clusters.add(unit.cluster);
+  }
+  return { blankUnits, clusters: clusters.size };
+}
+
+// The next unworked decision in queue order: the largest cluster with an echo group nobody has seen yet (a rep per such group), then the singletons the same way. A record on a still-blank member can only be a skip, so any recorded member marks its whole echo group as consciously deferred — the flow never re-stacks a deferral or its lookalike siblings. Returns null when every blank unit sits in a deferred group.
+export function nextDocketDecision(units, recordOf, ruledIds) {
+  const clusters = buildClusters(units, recordOf);
+  const { tranche, later, singletons } = partitionClusters(clusters, ruledIds);
+  for (const cluster of [...tranche, ...later]) {
+    const open = [];
+    for (const group of cluster.echoGroups) {
+      if (group.unitIds.some((id) => recordOf(id))) continue;
+      open.push(group.unitIds[0]);
+    }
+    if (open.length > 0) return { kind: 'cluster', cluster, unitIds: open };
+  }
+  const openSingles = singletons.filter((cluster) => !recordOf(cluster.exemplar.id));
+  if (openSingles.length > 0) {
+    const [chunk] = singletonChunks(openSingles);
+    return { kind: 'singletons', unitIds: chunk.unitIds, remaining: openSingles.length };
+  }
+  return null;
+}
+
 export function docketTotals(clusters) {
   let blankUnits = 0;
   let echoGroups = 0;
