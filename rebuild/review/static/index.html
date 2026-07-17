@@ -34,6 +34,21 @@
         <div id="search-results" role="listbox" aria-label="Search results across all classes" hidden></div>
       </div>
       <div class="strip-actions">
+        <div class="type-preview">
+          <input
+            type="text"
+            id="type-preview-input"
+            placeholder="preview: ·day·utter…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Type Quikscript to preview it in the rebuild font"
+            title="Render arbitrary Quikscript in the rebuild (after) font: letter names joined with middots (·day·utter; plain dots work too), spaces between words, zwnj for a non-joiner, uniXXXX or a bare PUA hex like e653 for raw codepoints — or paste Quikscript characters directly. Kerning off, default features, like the After column."
+          />
+          <div id="type-preview-panel" hidden>
+            <div class="type-preview-render" id="type-preview-render"></div>
+            <p class="type-preview-hint" id="type-preview-hint" hidden></p>
+          </div>
+        </div>
         <button type="button" id="jump-unverdicted" title="Jump to the first unverdicted unit, across every class and batch">First unverdicted</button>
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="copy-verdicts">Copy verdicts</button>
@@ -125,6 +140,7 @@
         </tbody>
       </table>
       <p>Verdicting a unit that has no verdict yet advances to the next unverdicted unit; re-verdicting a unit that already has a verdict updates it in place and keeps the cursor put, so you can revise without losing your spot. The “First unverdicted” button up top jumps to the first unverdicted unit anywhere on the surface — scanning every batch in order across every class, switching batch (and clearing the class filter if needed) to land on it.</p>
+      <p>The small text box left of “First unverdicted” previews arbitrary Quikscript in the rebuild (after) font. Type letter names joined with middots (<code>·day·utter</code>; plain dots work too), separate words with spaces, and use <code>zwnj</code> for a non-joiner or <code>uniXXXX</code> (or a bare PUA hex like <code>e653</code>) for a raw codepoint — pasted Quikscript characters render as-is. It renders with kerning off and default features, matching the After column; clear the box to dismiss the preview.</p>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit shows a small badge (“only when ss03 is on”, “only under ss10”, …) only when its config set is informative — hover it for the full list. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
       <p>Units whose ink is pixel-identical in both fonts under every config (or, for ss10-only divergences, pixel-identical to the Junior font’s isolated rendering) were machine-approved at build time, and units in a no-verdict ledger class (like boundary-echo, whose windows the ratified boundary rule adjudicates wholesale) never need individual verdicts; both kinds are hidden by default. The “Show no-verdict units” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human workload only.</p>
       <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the rebuild has no kerning until its own later milestone, so the old font’s kern feature would be pure comparison noise. Kern differences get their own review when that milestone lands.</p>
