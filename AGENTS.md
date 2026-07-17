@@ -23,6 +23,7 @@ The rebuild tends to generate far more notes than a forward-working agent ever r
 - Never commit without explicit user approval. Show the changes and wait for the go-ahead before committing.
 - When the work reaches a natural commit point, don’t just offer to commit — spawn a fresh sub-agent to draft commit-message suggestions, then present those for approval.
 - In this repository only, it’s OK to have multiline commit messages, although by no means mandatory.
+- In this repository only, don’t use worktrees unless explicitly asked.
 - Prefer commit messages that either:
   - describe the change in author/reader experience — what the YAML/HTML/code now lets you skip writing, or what now looks right. For example: “Make tables.html store state in the URL, not localStorage”.
   - describe how the font’s letters will look different (“Reduce the half-·He extension at the x-height”, “Don’t join ·Way·Thaw ever”)
