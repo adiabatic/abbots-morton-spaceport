@@ -1,5 +1,6 @@
 import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
+import { parsePreview } from './preview.js';
 import {
   createStore,
   recordVerdict,
@@ -1339,6 +1340,24 @@ function renderSearchResults(query) {
   }
 }
 
+function updateTypePreview() {
+  const input = document.getElementById('type-preview-input');
+  const panel = document.getElementById('type-preview-panel');
+  const sample = document.getElementById('type-preview-render');
+  const hint = document.getElementById('type-preview-hint');
+  if (!input.value.trim()) {
+    panel.hidden = true;
+    sample.textContent = '';
+    hint.hidden = true;
+    return;
+  }
+  const { text, unknown } = parsePreview(input.value);
+  sample.textContent = text;
+  hint.textContent = unknown.length > 0 ? `Unrecognized: ${unknown.join(', ')}` : '';
+  hint.hidden = unknown.length === 0;
+  panel.hidden = false;
+}
+
 async function runSearch() {
   const input = document.getElementById('unit-search');
   const query = input.value;
@@ -1609,6 +1628,7 @@ function wireEvents() {
     selectSearchResult(row.dataset.unit);
   });
 
+  document.getElementById('type-preview-input').addEventListener('input', updateTypePreview);
   document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
   document.getElementById('next-batch').addEventListener('click', () => shiftBatch(1));
