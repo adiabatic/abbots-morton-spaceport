@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, view: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, docket: null, view: null });
 });
 
 test('a units worklist rides the hash and round-trips', () => {
@@ -49,17 +49,29 @@ test('a units worklist rides the hash and round-trips', () => {
   assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
 });
 
-test('shedWorklist drops units and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
+test('the docket cursor rides the hash beside a units worklist and round-trips', () => {
+  const parsed = parseHash('#units=u-0001,u-0002&docket=1');
+  assert.equal(parsed.units, 'u-0001,u-0002');
+  assert.equal(parsed.docket, '1');
+  assert.equal(parseHash('#batch=0').docket, null);
+  const serialized = writeHash({ units: 'u-0001,u-0002', docket: '1' });
+  const reparsed = parseHash(`#${serialized}`);
+  assert.equal(reparsed.units, 'u-0001,u-0002');
+  assert.equal(reparsed.docket, '1');
+});
+
+test('shedWorklist drops the units worklist, the docket cursor, and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
-    assert.equal(shedWorklist({ [key]: value }).units, null, `changing ${key} must shed the worklist`);
-    assert.equal(shedWorklist({ [key]: value }).view, null, `changing ${key} must leave the docket view`);
+    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, docket: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
+  assert.equal(cleared.docket, null, 'clear-filters sheds the docket cursor alongside the other filters');
   assert.equal(cleared.view, null, 'clear-filters leaves the docket view too');
 });
 
-test('shedWorklist keeps a cursor move or machine toggle inside the worklist', () => {
+test('shedWorklist keeps a cursor move or machine toggle inside the worklist, injecting no docket key', () => {
+  assert.deepEqual(shedWorklist({ unit: 'u-0001' }), { unit: 'u-0001' });
   assert.deepEqual(shedWorklist({ unit: 'u-0003' }), { unit: 'u-0003' });
   assert.deepEqual(shedWorklist({ machine: '1' }), { machine: '1' });
   assert.deepEqual(shedWorklist({}), {});

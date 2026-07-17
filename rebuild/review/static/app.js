@@ -50,7 +50,9 @@ import {
   buildClusters,
   docketTotals,
   echoConflicts,
+  nextDocketDecision,
   partitionClusters,
+  queueCounts,
   ruledClassIds,
   singletonChunks,
 } from './docket.js';
@@ -481,6 +483,47 @@ function buildRow(unit) {
   return row;
 }
 
+function buildDocketContext(units) {
+  const strip = el('aside', 'docket-context');
+  const back = el('a', 'open-app', 'Docket ↩');
+  back.href = '#view=docket';
+  back.title = 'Back to the full docket view; finishing this worklist advances to the next decision by itself.';
+  const clusterIds = new Set();
+  for (const unit of units) if (typeof unit.cluster === 'string') clusterIds.add(unit.cluster);
+  if (clusterIds.size === 1) {
+    const clusterId = [...clusterIds][0];
+    const cluster = buildClusters([...unitsById.values()], (id) => store.records.get(id)).find(
+      (entry) => entry.id === clusterId,
+    );
+    if (cluster) {
+      const line = el('p', 'docket-context-line');
+      line.append(el('strong', null, 'Docket decision'));
+      line.append(
+        document.createTextNode(
+          ` — one verdict per echo group covers all ${formatCount(cluster.size)} lookalike units of `,
+        ),
+      );
+      line.append(el('span', 'chip', cluster.class));
+      line.append(document.createTextNode(' '));
+      line.append(el('span', 'configs', cluster.id));
+      line.append(document.createTextNode(' '));
+      line.append(back);
+      strip.append(line);
+      strip.append(buildEvidenceLine(cluster.evidence));
+      return strip;
+    }
+  }
+  const line = el('p', 'docket-context-line');
+  const singles = clusterIds.size > 1;
+  line.append(el('strong', null, singles ? 'Docket singletons' : 'Docket worklist'));
+  line.append(
+    document.createTextNode(` — ${units.length}${singles ? ' one-off' : ''} unit${units.length === 1 ? '' : 's'} stacked. `),
+  );
+  line.append(back);
+  strip.append(line);
+  return strip;
+}
+
 function renderBatch(units, machine) {
   closeRejectMenu();
   closeNeitherMenu();
@@ -491,6 +534,7 @@ function renderBatch(units, machine) {
     container.append(el('p', 'empty', 'No units match the current batch and filters.'));
     return;
   }
+  if (state.units && state.docket) container.append(buildDocketContext(units));
   let currentGroup = null;
   let groupNode = null;
   for (const unit of units) {
@@ -666,8 +710,18 @@ function updateProgress() {
   } else {
     let batchVerdicted = 0;
     for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
-    document.getElementById('batch-progress').textContent =
-      `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
+    let line;
+    if (state.units && state.docket) {
+      const queue = queueCounts([...unitsById.values()], (id) => store.records.get(id), ruledClassIds(manifest.classes));
+      line =
+        `Docket decision: ${batchVerdicted}/${visibleUnits.length} · ` +
+        `queue: ${formatCount(queue.blankUnits)} blank in ${formatCount(queue.clusters)} clusters`;
+    } else if (state.units) {
+      line = `Worklist: ${batchVerdicted}/${visibleUnits.length}`;
+    } else {
+      line = `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
+    }
+    document.getElementById('batch-progress').textContent = line;
   }
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
@@ -699,6 +753,10 @@ function updateTitle() {
     return;
   }
   const unitId = cursorUnitId();
+  if (state.units) {
+    document.title = `${unitId ?? '—'} · ${state.docket ? 'docket' : 'worklist'} — AMS review`;
+    return;
+  }
   document.title = `${unitId ?? '—'} · batch ${state.batch} — AMS review`;
 }
 
@@ -794,6 +852,11 @@ function worklistHref(unitIds) {
   return `#units=${unitIds.join(',')}`;
 }
 
+// Docket-launched worklists carry the flag that turns worklist exhaustion into an auto-advance to the next docket decision; conflict stacks stay plain because settling one means changing existing verdicts, not filling blanks.
+function docketWorklistHref(unitIds) {
+  return `${worklistHref(unitIds)}&docket=1`;
+}
+
 function buildEvidenceLine(evidence) {
   const line = el('p', 'evidence');
   if (evidence.counts.length === 0) {
@@ -830,7 +893,7 @@ function buildClusterCard(cluster, position) {
   }
   const reps = el('p', 'reps');
   reps.append(
-    appButton(worklistHref(cluster.reps), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
+    appButton(docketWorklistHref(cluster.reps), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
   );
   reps.append(
     el('span', 'note', ` — one per echo group; each verdict echo-fills its group, covering all ${cluster.size} units.`),
@@ -869,7 +932,7 @@ function buildLaterSection(later) {
     row.append(classCell);
     row.append(el('td', null, cluster.exemplar.notation));
     const judge = el('td');
-    judge.append(appButton(worklistHref(cluster.reps), `Judge ${cluster.reps.length}`));
+    judge.append(appButton(docketWorklistHref(cluster.reps), `Judge ${cluster.reps.length}`));
     row.append(judge);
     body.append(row);
   }
@@ -884,7 +947,7 @@ function buildSingletonSection(singletons) {
   section.append(el('h2', null, `Singletons — ${singletons.length} one-off units`));
   const links = el('p', 'chunk-links', `Work them as app worklists, ${SINGLETON_CHUNK} at a time: `);
   for (const chunk of singletonChunks(singletons)) {
-    links.append(appButton(worklistHref(chunk.unitIds), `Judge ${chunk.start}–${chunk.end}`));
+    links.append(appButton(docketWorklistHref(chunk.unitIds), `Judge ${chunk.start}–${chunk.end}`));
     links.append(document.createTextNode(' '));
   }
   section.append(links);
@@ -970,9 +1033,11 @@ function renderDocket() {
   }
   const recordOf = (id) => store.records.get(id);
   const clusters = buildClusters([...unitsById.values()], recordOf);
-  const { tranche, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledClassIds(manifest.classes));
+  const ruledIds = ruledClassIds(manifest.classes);
+  const { tranche, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledIds);
   const conflicts = echoConflicts(echoIndex, unitsById, recordOf);
-  const totals = docketTotals(clusters);
+  // The headline counts cover the workable queue — the note below already presents the ledger-ruled blanks as excluded from it.
+  const totals = docketTotals(clusters.filter((cluster) => !ruledIds.has(cluster.class)));
 
   const header = el('header', 'docket-header');
   header.append(el('h2', null, 'Docket'));
@@ -1086,6 +1151,7 @@ async function applyHashState() {
     state.status,
     state.machine,
     state.units,
+    state.docket,
     transientMachineUnitId,
   ]);
   if (key !== renderedKey) {
@@ -1158,6 +1224,15 @@ async function advanceFrom(unitId) {
     setStateReplace({ unit: ids[next] });
     return;
   }
+  if (state.units) {
+    if (state.docket) {
+      await advanceDocket();
+      return;
+    }
+    toast('Everything in this worklist is verdicted');
+    updateTitle();
+    return;
+  }
   const batches = availableBatches(manifest, state.class);
   for (const batch of batches) {
     if (batch <= state.batch) continue;
@@ -1172,6 +1247,25 @@ async function advanceFrom(unitId) {
   }
   toast('Everything in this view is verdicted — press ] for the next class');
   updateTitle();
+}
+
+// The docket flow's analog of the cross-batch advance: when a docket worklist is fully judged, stack the next decision straight away — the queue recomputes from the live store, so "next" is always the docket view's own top card. Replaces (not pushes) history so Back still returns to the docket in one step.
+async function advanceDocket() {
+  await ensureAllShards();
+  const recordOf = (id) => store.records.get(id);
+  const decision = nextDocketDecision([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
+  if (!decision) {
+    toast('The docket queue is clear');
+    setState({ units: null, docket: null, unit: null, view: 'docket' });
+    return;
+  }
+  const queue = queueCounts([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
+  const what =
+    decision.kind === 'cluster'
+      ? `${formatCount(decision.cluster.size)} lookalike unit${decision.cluster.size === 1 ? '' : 's'} in ${decision.cluster.class}`
+      : `${decision.unitIds.length} singletons`;
+  toast(`Decision done — next: ${what} (${formatCount(queue.blankUnits)} blank left)`);
+  setStateReplace({ units: decision.unitIds.join(','), docket: '1', unit: decision.unitIds[0], view: null });
 }
 
 function verdictCursor(verdict) {
@@ -1490,6 +1584,34 @@ async function restoreAutosave() {
   }
   markExported(store);
   if (result.added > 0) toast(`Restored ${result.added} autosaved verdicts`);
+}
+
+// The store is this page's memory alone, restored from the server only at boot — so a docket left open in another tab or window goes stale as verdicts land elsewhere, and its next autosave POST would clobber them. Re-merging the server file whenever the page regains focus keeps every open copy of the app fresh (newer `at` wins, exactly the import rule) and folds the other session's verdicts into this page's next POST. Cleared verdicts are absent from the file rather than tombstoned, so a clear never propagates across tabs — another still-open copy can resurrect it; clearing is rare and visible, so that trade is fine.
+let verdictSyncInFlight = false;
+let verdictSyncLastAt = 0;
+let bootRestoreDone = false;
+
+async function syncVerdictsFromServer() {
+  if (!bootRestoreDone || verdictSyncInFlight || Date.now() - verdictSyncLastAt < 2000) return;
+  verdictSyncInFlight = true;
+  try {
+    const response = await fetch('autosave');
+    if (!response.ok) return;
+    const data = await response.json();
+    const result = importVerdicts(store, data, manifest.generated_at);
+    if (!result.ok || result.units.length === 0) return;
+    for (const id of result.units) {
+      store.unexported.delete(id);
+      syncRowVerdict(id);
+    }
+    updateProgress();
+    toast(`Picked up ${result.units.length} verdict${result.units.length === 1 ? '' : 's'} from another session`);
+  } catch (error) {
+    console.warn('verdict sync failed', error);
+  } finally {
+    verdictSyncInFlight = false;
+    verdictSyncLastAt = Date.now();
+  }
 }
 
 function verdictsFilename(now = new Date()) {
@@ -1953,6 +2075,7 @@ function wireEvents() {
 
   document.getElementById('type-preview-input').addEventListener('input', updateTypePreview);
   document.getElementById('open-docket').addEventListener('click', () => {
+    syncVerdictsFromServer();
     const next = 'view=docket';
     // Re-clicking while already in the docket leaves the hash byte-identical (no hashchange), so re-resolve directly — a free manual refresh.
     if (location.hash.replace(/^#/, '') === next) applyHashState();
@@ -1986,6 +2109,13 @@ function wireEvents() {
   window.addEventListener('hashchange', () => {
     state = withDefaults(parseHash(location.hash));
     applyHashState();
+  });
+
+  window.addEventListener('focus', () => {
+    syncVerdictsFromServer();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncVerdictsFromServer();
   });
 
   window.addEventListener('beforeunload', (event) => {
@@ -2042,4 +2172,5 @@ renderChrome();
 renderSidebar();
 wireEvents();
 await restoreAutosave();
+bootRestoreDone = true;
 applyHashState();
