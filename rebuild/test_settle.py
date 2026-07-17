@@ -384,7 +384,7 @@ def test_formation_survives_where_the_ligature_serves_the_follower(real_spec):
     assert _real_labels(real_spec, "qsDay qsUtter qsTea") == ("qsDay_qsUtter.full", "qsTea.full")
     assert _real_labels(real_spec, "qsDay qsUtter qsTea", features=("ss03",)) == (
         "qsDay_qsUtter.full.ex-y5.ex-ext-1",
-        "qsTea.half.en-y5",
+        "qsTea.full.en-y5",
     )
 
 

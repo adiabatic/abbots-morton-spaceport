@@ -150,7 +150,7 @@ def test_derived_cells_match_the_audit_for_every_unit(enricher, workload):
 
 
 def test_known_halves_extension_unit(enricher, units_by_key):
-    # Deleting the x-height-halves records left one halves-entry-extension-restored survivor: the ss03 ·Tea·Day·Utter·Tea composition, where the qsDay_qsUtter ligature keeps its baseline en-ext-1 and sums it with its own x-height exit extension on one cell, so the enricher reports the extension on both the ligature's exit and the following half-·Tea's entry.
+    # Deleting the x-height-halves records left one halves-entry-extension-restored survivor: the ss03 ·Tea·Day·Utter·Tea composition, where the qsDay_qsUtter ligature keeps its baseline en-ext-1 and sums it with its own x-height exit extension on one cell, so the enricher reports the extension on both the ligature's exit and the following ·Tea's entry (now the full bar, which also diffs against the old font's half).
     unit = units_by_key[("E652:E653:E67A:E652", "ss03")]
     enriched = enricher.enrich(unit)
     assert enriched.before_glyphs == (
@@ -161,7 +161,7 @@ def test_known_halves_extension_unit(enricher, units_by_key):
     assert enriched.before_seams == ("y0", "y5")
     assert enriched.after_seams == ("y0", "y5")
     assert enriched.after_extensions == (1, 1)
-    assert enriched.diff_positions == (1,)
+    assert enriched.diff_positions == (1, 2)
     assert enriched.pair == (1, 2)
     assert "glyph_data/runes/qsDay_qsUtter.yaml:policy.extend" in " ".join(enriched.provenance)
 
