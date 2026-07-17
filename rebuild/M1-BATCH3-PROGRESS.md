@@ -5,8 +5,9 @@ Scratch progress file for the in-flight qsLow migration; delete at batch close, 
 ## Committed
 
 - 878709b Add ·Low
+- 2f18041 Don’t prefer ·Day+Utter so hard that you don’t get ·Day·Utter.alt·Low like The Manual uses
 
-The ·Day·Utter·Low fork resolution (§5.7 late formation + the qsUtter §5.9 follower prefer, with the pipeline, schema, test, and doc changes it carries) sits in the working tree awaiting review.
+The artifact cycle has re-run at 2f18041 (all gates green); its fallout — the re-pinned census, the subset-table row-count re-baseline, and the carried-master swap to `rebuild/evidence/verdicts-carried-2f18041.json` — sits in the working tree awaiting commit.
 
 ## Parked
 
@@ -29,7 +30,6 @@ The ·Day·Utter·Low fork resolution (§5.7 late formation + the qsUtter §5.9 
 
 ## Resume
 
-1. Review + commit the fork-resolution working tree; record the qsUtter `why:`.
-2. Artifact cycle: `uv run python rebuild/tools/artifact_cycle.py --verdicts rebuild/evidence/verdicts-carried-7d6cc45.json --update-pins --jobs 8`.
-3. Review sitting over the qsLow + fork-resolution units (import the carried master, then `make review-serve`).
-4. Sign off qsLow’s ductus (grep `# DRAFT`).
+1. Commit the artifact-cycle fallout; record the qsUtter `why:`.
+2. Review sitting: `make review-serve`, import `rebuild/evidence/verdicts-carried-2f18041.json`, then `verdicts-echo-fill.json`, then work `http://localhost:7294/docket.html` (re-bake with `uv run python rebuild/tools/review_docket.py rebuild/evidence/verdicts-carried-2f18041.json` if the surface changes).
+3. Sign off qsLow’s ductus (grep `# DRAFT`).
