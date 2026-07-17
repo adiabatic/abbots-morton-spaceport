@@ -11,8 +11,8 @@ from rebuild.review.ink import InkComparator  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
-# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers, and echo is an order-derived group id absent from older surfaces; everything adjudicable either describes is already covered by the window plus both fonts' glyphs, cells, and seams.
-PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams", "echo"}
+# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; echo is an order-derived group id absent from older surfaces, and cluster is a derived ink-signature id that churns with any font change; everything adjudicable any of them describes is already covered by the window plus both fonts' glyphs, cells, and seams.
+PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams", "echo", "cluster"}
 
 
 def load_surface(root):

@@ -263,6 +263,8 @@ export function searchHaystack(unit) {
     codepoints.replaceAll(':', ''),
     unit.class,
     unit.group,
+    unit.echo ?? '',
+    unit.cluster ?? '',
     ...(unit.kinds ?? []),
   ];
   return parts.join(' ').toLowerCase();

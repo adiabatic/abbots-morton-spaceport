@@ -45,6 +45,15 @@ import {
   tokenSeparators,
   searchUnits,
 } from './render.js';
+import {
+  SINGLETON_CHUNK,
+  buildClusters,
+  docketTotals,
+  echoConflicts,
+  partitionClusters,
+  ruledClassIds,
+  singletonChunks,
+} from './docket.js';
 
 const FONT_SIZE = 88;
 const VERDICT_LABELS = [
@@ -651,10 +660,15 @@ function updateProgress() {
     `(✓${formatCount(counts.approve)} ✗${formatCount(counts.reject)} ≈${formatCount(counts.either)} ` +
     `≡${formatCount(counts.identical)} ∅${formatCount(counts.neither)} →${formatCount(counts.skip)})`;
   updateClassProgress();
-  let batchVerdicted = 0;
-  for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
-  document.getElementById('batch-progress').textContent =
-    `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
+  if (state.view === 'docket') {
+    // renderDocket owns the batch-progress line in the docket view; a store mutation here (undo, import, autosave restore) just re-derives the queue.
+    scheduleDocketRefresh();
+  } else {
+    let batchVerdicted = 0;
+    for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
+    document.getElementById('batch-progress').textContent =
+      `Batch ${state.batch}: ${batchVerdicted}/${visibleUnits.length}`;
+  }
   const nudge = document.getElementById('unexported-nudge');
   nudge.hidden = store.unexported.size === 0;
   nudge.textContent = `${store.unexported.size} unexported${autosaveHealthy() ? ' (autosaved)' : ''}`;
@@ -680,6 +694,10 @@ function updateClassProgress() {
 }
 
 function updateTitle() {
+  if (state.view === 'docket') {
+    document.title = 'Docket — AMS review';
+    return;
+  }
   const unitId = cursorUnitId();
   document.title = `${unitId ?? '—'} · batch ${state.batch} — AMS review`;
 }
@@ -746,6 +764,267 @@ function updateBatchNav() {
   document.getElementById('next-batch').disabled = position < 0 || position >= batches.length - 1;
 }
 
+let docketRefreshTimer = null;
+
+function scheduleDocketRefresh() {
+  clearTimeout(docketRefreshTimer);
+  docketRefreshTimer = setTimeout(() => {
+    docketRefreshTimer = null;
+    if (state.view === 'docket') renderDocket();
+  }, 150);
+}
+
+function appButton(href, label) {
+  const link = el('a', 'open-app', `${label} ↗`);
+  link.href = href;
+  return link;
+}
+
+function unitLinkEl(unitId) {
+  const link = el('a', 'unit-link', unitId);
+  link.href = `#unit=${unitId}`;
+  return link;
+}
+
+function verdictChipEl(verdict) {
+  return el('span', `verdict-chip ${verdict}`, verdict);
+}
+
+function worklistHref(unitIds) {
+  return `#units=${unitIds.join(',')}`;
+}
+
+function buildEvidenceLine(evidence) {
+  const line = el('p', 'evidence');
+  if (evidence.counts.length === 0) {
+    line.textContent = 'No verdicted unit shares this delta — a fresh question.';
+    return line;
+  }
+  const tallies = evidence.counts.map((entry) => `${entry.verdict} ×${entry.count}`).join(', ');
+  line.append(document.createTextNode(`Same delta already judged elsewhere: ${tallies}. `));
+  for (const [index, sample] of evidence.samples.entries()) {
+    if (index > 0) line.append(document.createTextNode('; '));
+    line.append(unitLinkEl(sample.unit));
+    line.append(document.createTextNode(` ${sample.verdict}`));
+    if (sample.note) line.append(el('span', 'note', ` ${sample.note.slice(0, 90)}`));
+  }
+  return line;
+}
+
+function buildClusterCard(cluster, position) {
+  const card = el('article', 'cluster');
+  const header = el('header');
+  header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
+  header.append(el('span', null, `in ${cluster.echoGroups.length} echo group${cluster.echoGroups.length === 1 ? '' : 's'}`));
+  header.append(el('span', 'chip', cluster.class));
+  header.append(el('span', 'configs', cluster.configs.join(', ')));
+  header.append(el('span', 'configs', cluster.id));
+  card.append(header);
+  if (cluster.exemplar.summary) card.append(el('p', 'summary', cluster.exemplar.summary));
+  for (const group of renderGroupsOf(cluster.exemplar)) {
+    const pair = el('div', 'render-pair');
+    pair.append(el('div', 'config-label', group.label));
+    pair.append(buildSample(cluster.exemplar, 'before', group.featureSettings));
+    pair.append(buildSample(cluster.exemplar, 'after', group.featureSettings));
+    card.append(pair);
+  }
+  const reps = el('p', 'reps');
+  reps.append(
+    appButton(worklistHref(cluster.reps), `Judge ${cluster.reps.length} rep${cluster.reps.length === 1 ? '' : 's'}`),
+  );
+  reps.append(
+    el('span', 'note', ` — one per echo group; each verdict echo-fills its group, covering all ${cluster.size} units.`),
+  );
+  card.append(reps);
+  card.append(buildEvidenceLine(cluster.evidence));
+  const members = el('details');
+  members.append(el('summary', null, `All ${cluster.size} members`));
+  for (const id of cluster.memberIds) {
+    members.append(unitLinkEl(id));
+    members.append(document.createTextNode(' '));
+  }
+  card.append(members);
+  return card;
+}
+
+function buildLaterSection(later) {
+  const section = el('section', 'docket-later');
+  let laterUnits = 0;
+  for (const cluster of later) laterUnits += cluster.size;
+  section.append(el('h2', null, `Later tranches — ${later.length} smaller clusters, ${formatCount(laterUnits)} units`));
+  const details = el('details');
+  details.append(el('summary', null, 'Compact list — clusters promote into the tranche above as it clears'));
+  const table = el('table', 'workorder');
+  const head = el('thead');
+  const headRow = el('tr');
+  for (const label of ['Units', 'Class', 'Exemplar', '']) headRow.append(el('th', null, label));
+  head.append(headRow);
+  table.append(head);
+  const body = el('tbody');
+  for (const cluster of later) {
+    const row = el('tr');
+    row.append(el('td', null, String(cluster.size)));
+    const classCell = el('td');
+    classCell.append(el('span', 'chip', cluster.class));
+    row.append(classCell);
+    row.append(el('td', null, cluster.exemplar.notation));
+    const judge = el('td');
+    judge.append(appButton(worklistHref(cluster.reps), `Judge ${cluster.reps.length}`));
+    row.append(judge);
+    body.append(row);
+  }
+  table.append(body);
+  details.append(table);
+  section.append(details);
+  return section;
+}
+
+function buildSingletonSection(singletons) {
+  const section = el('section', 'docket-singletons');
+  section.append(el('h2', null, `Singletons — ${singletons.length} one-off units`));
+  const links = el('p', 'chunk-links', `Work them as app worklists, ${SINGLETON_CHUNK} at a time: `);
+  for (const chunk of singletonChunks(singletons)) {
+    links.append(appButton(worklistHref(chunk.unitIds), `Judge ${chunk.start}–${chunk.end}`));
+    links.append(document.createTextNode(' '));
+  }
+  section.append(links);
+  const details = el('details');
+  details.append(el('summary', null, `All ${singletons.length} singletons by name`));
+  const table = el('table', 'workorder');
+  const body = el('tbody');
+  for (const cluster of singletons) {
+    const row = el('tr');
+    const link = el('td');
+    link.append(unitLinkEl(cluster.exemplar.id));
+    row.append(link);
+    row.append(el('td', null, cluster.exemplar.notation));
+    const classCell = el('td');
+    classCell.append(el('span', 'chip', cluster.class));
+    row.append(classCell);
+    body.append(row);
+  }
+  table.append(body);
+  details.append(table);
+  section.append(details);
+  return section;
+}
+
+function buildConflictSection(conflicts) {
+  const section = el('section', 'docket-conflicts');
+  section.append(el('h2', null, `Echo groups with disagreeing verdicts (${conflicts.length})`));
+  section.append(
+    el('p', 'docket-note', 'The same visual change judged differently across contexts — worth a re-check when convenient.'),
+  );
+  for (const conflict of conflicts) {
+    const card = el('article', 'conflict');
+    const header = el('header');
+    header.append(el('span', 'chip', conflict.echo));
+    header.append(el('span', 'chip', conflict.class));
+    header.append(appButton(worklistHref(conflict.unitIds), 'View stacked'));
+    card.append(header);
+    const table = el('table', 'conflict');
+    const body = el('tbody');
+    for (const id of conflict.unitIds) {
+      const row = el('tr');
+      const link = el('td');
+      link.append(unitLinkEl(id));
+      row.append(link);
+      row.append(el('td', null, unitsById.get(id)?.notation ?? ''));
+      const verdictCell = el('td');
+      const record = conflict.records.get(id);
+      if (record) verdictCell.append(verdictChipEl(record.verdict));
+      else verdictCell.append(el('span', 'note', '(blank)'));
+      row.append(verdictCell);
+      const noteCell = el('td');
+      if (record && record.note) noteCell.append(el('span', 'note', record.note.slice(0, 90)));
+      row.append(noteCell);
+      body.append(row);
+    }
+    table.append(body);
+    card.append(table);
+    section.append(card);
+  }
+  return section;
+}
+
+function renderDocket() {
+  const container = document.getElementById('docket');
+  const scrollY = window.scrollY;
+  container.textContent = '';
+  let clustered = false;
+  for (const unit of unitsById.values()) {
+    if (unit.batch !== null && typeof unit.cluster === 'string') {
+      clustered = true;
+      break;
+    }
+  }
+  if (!clustered) {
+    container.append(
+      el(
+        'p',
+        'docket-note',
+        `This surface predates cluster signatures — rebuild it with ${manifest.build_command ?? 'uv run python -m rebuild.review.build'} to use the docket view.`,
+      ),
+    );
+    return;
+  }
+  const recordOf = (id) => store.records.get(id);
+  const clusters = buildClusters([...unitsById.values()], recordOf);
+  const { tranche, later, singletons, ruledBlankUnits } = partitionClusters(clusters, ruledClassIds(manifest.classes));
+  const conflicts = echoConflicts(echoIndex, unitsById, recordOf);
+  const totals = docketTotals(clusters);
+
+  const header = el('header', 'docket-header');
+  header.append(el('h2', null, 'Docket'));
+  header.append(
+    el(
+      'p',
+      'docket-provenance',
+      `${formatCount(totals.blankUnits)} blank units in ${formatCount(totals.echoGroups)} echo groups → ` +
+        `${formatCount(totals.clusters)} clusters (${formatCount(totals.multiClusters)} multi-unit, ` +
+        `${formatCount(totals.singletonClusters)} singleton), live against the current verdicts.`,
+    ),
+  );
+  if (ruledBlankUnits > 0) {
+    header.append(
+      el(
+        'p',
+        'docket-note',
+        `${formatCount(ruledBlankUnits)} more blank units sit in ledger-ruled classes and are excluded here — ` +
+          'one class-level decision (or a bulk-proposal import) covers each; reach them from the sidebar with status “unverdicted”.',
+      ),
+    );
+  }
+  header.append(
+    el(
+      'p',
+      'docket-note',
+      'Every button stacks a decision as a worklist — judge there with the keyboard flow; echo-fill multiplies each verdict, and this queue recomputes as verdicts land.',
+    ),
+  );
+  container.append(header);
+
+  if (totals.clusters === 0) container.append(el('p', 'docket-note', 'No blank units — the queue is clear.'));
+
+  if (tranche.length > 0) {
+    const section = el('section', 'docket-tranche');
+    let trancheUnits = 0;
+    for (const cluster of tranche) trancheUnits += cluster.size;
+    section.append(
+      el('h2', null, `This tranche — top ${tranche.length} cluster decisions, ${formatCount(trancheUnits)} units`),
+    );
+    for (const [index, cluster] of tranche.entries()) section.append(buildClusterCard(cluster, index + 1));
+    container.append(section);
+  }
+  if (later.length > 0) container.append(buildLaterSection(later));
+  if (singletons.length > 0) container.append(buildSingletonSection(singletons));
+  if (conflicts.length > 0) container.append(buildConflictSection(conflicts));
+
+  document.getElementById('batch-progress').textContent =
+    `Docket: ${formatCount(totals.blankUnits)} blank in ${formatCount(totals.clusters)} clusters`;
+  window.scrollTo(0, scrollY);
+}
+
 function populateFilterOptions() {
   const familySelect = document.getElementById('filter-family');
   const families = new Set();
@@ -771,6 +1050,23 @@ function syncFilterControls() {
 
 async function applyHashState() {
   const token = (renderToken += 1);
+  const docketView = state.view === 'docket';
+  document.body.classList.toggle('docket-view', docketView);
+  document.getElementById('docket').hidden = !docketView;
+  if (docketView) {
+    await ensureAllShards();
+    if (token !== renderToken) return;
+    closeRejectMenu();
+    closeNeitherMenu();
+    visibleUnits = [];
+    machineUnits = [];
+    renderedKey = null;
+    renderDocket();
+    updateProgress();
+    updateTitle();
+    updateSidebarHighlights();
+    return;
+  }
   const units = await unitsForView(state.batch, state.class);
   if (token !== renderToken) return;
   const { human, machine } = partitionUnits(units, state, (unitId) => store.records.get(unitId));
@@ -1278,10 +1574,22 @@ function selectSearchResult(unitId) {
   else location.hash = next;
 }
 
-function activeSearchUnitId() {
+function activeSearchRow() {
   const rows = document.querySelectorAll('#search-results .search-result');
   if (searchActive < 0 || searchActive >= rows.length) return null;
-  return rows[searchActive].dataset.unit;
+  return rows[searchActive];
+}
+
+function selectSearchRow(row) {
+  if (!row) return;
+  if (row.dataset.units) {
+    closeSearch();
+    document.getElementById('unit-search').blur();
+    // The hash carries the group's unit ids as a worklist — the same form as the echo chip — so the group renders stacked.
+    location.hash = `units=${row.dataset.units}`;
+    return;
+  }
+  selectSearchResult(row.dataset.unit);
 }
 
 function setSearchActive(index) {
@@ -1308,19 +1616,30 @@ function renderSearchResults(query) {
   input.setAttribute('aria-expanded', 'true');
   input.removeAttribute('aria-activedescendant');
   searchActive = -1;
-  if (matches.length === 0) {
+  const groupId = query.trim().toLowerCase();
+  if (/^e-\d{4}$/.test(groupId) && echoIndex.has(groupId)) {
+    const members = echoIndex.get(groupId);
+    const row = el('button', 'search-result search-group');
+    row.type = 'button';
+    row.id = `search-opt-${groupId}`;
+    row.dataset.units = members.join(',');
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', 'false');
+    row.append(el('span', 'search-id', groupId));
+    row.append(el('span', 'search-notation', `echo group — stack all ${members.length} members as a worklist`));
+    results.append(row);
+  }
+  if (matches.length === 0 && !results.querySelector('.search-result')) {
     results.append(presentational(el('p', 'search-empty', 'No units match.')));
     return;
   }
-  for (const [position, unit] of matches.entries()) {
+  for (const unit of matches) {
     const row = el('button', 'search-result');
     row.type = 'button';
     row.id = `search-opt-${unit.id}`;
     row.dataset.unit = unit.id;
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', 'false');
-    row.setAttribute('aria-setsize', String(matches.length));
-    row.setAttribute('aria-posinset', String(position + 1));
     row.append(el('span', 'search-id', unit.id));
     row.append(el('span', 'search-notation', unit.notation));
     row.append(el('span', 'search-class', unit.class));
@@ -1332,6 +1651,11 @@ function renderSearchResults(query) {
           : `batch ${unit.batch}`;
     row.append(el('span', 'search-where', where));
     results.append(row);
+  }
+  const rows = results.querySelectorAll('.search-result');
+  for (const [position, row] of rows.entries()) {
+    row.setAttribute('aria-setsize', String(rows.length));
+    row.setAttribute('aria-posinset', String(position + 1));
   }
   if (total > matches.length) {
     results.append(
@@ -1613,8 +1937,7 @@ function wireEvents() {
       setSearchActive(searchActive - 1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      const firstId = searchResults.querySelector('.search-result')?.dataset.unit;
-      selectSearchResult(activeSearchUnitId() ?? firstId);
+      selectSearchRow(activeSearchRow() ?? searchResults.querySelector('.search-result'));
     }
   });
   // Hide on blur after a beat so a result's mousedown still registers as a selection; the timer is cancelled if the box is re-focused first (so a fast reopen isn't blanked).
@@ -1625,10 +1948,16 @@ function wireEvents() {
     const row = event.target.closest('.search-result');
     if (!row) return;
     event.preventDefault();
-    selectSearchResult(row.dataset.unit);
+    selectSearchRow(row);
   });
 
   document.getElementById('type-preview-input').addEventListener('input', updateTypePreview);
+  document.getElementById('open-docket').addEventListener('click', () => {
+    const next = 'view=docket';
+    // Re-clicking while already in the docket leaves the hash byte-identical (no hashchange), so re-resolve directly — a free manual refresh.
+    if (location.hash.replace(/^#/, '') === next) applyHashState();
+    else location.hash = next;
+  });
   document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
   document.getElementById('next-batch').addEventListener('click', () => shiftBatch(1));

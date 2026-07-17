@@ -1,5 +1,6 @@
 """Tests for the review-app build CLI: a full M1 build into a temp directory validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build."""
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ from rebuild.review.build import (
 )
 from rebuild.review.census import load_pins
 from rebuild.review.export import build_triage, load_units, load_verdicts
+from rebuild.review.ink import InkComparator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -67,6 +69,15 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any(
         seam["home"] for unit in units for seam in unit.get("secondary_seams") or ()
     ), "a fixture unit must exercise the homed secondary-seam branch"
+    assert any(isinstance(unit["cluster"], str) for unit in units)
+    assert any(unit["cluster"] is None for unit in units)
+    echoes_by_cluster = {}
+    for unit in units:
+        if unit["cluster"]:
+            echoes_by_cluster.setdefault(unit["cluster"], set()).add(unit["echo"])
+    assert any(
+        len(echoes) > 1 for echoes in echoes_by_cluster.values()
+    ), "a fixture cluster must span echo groups"
 
 
 def test_full_build_passes_the_contract_checker(built):
@@ -239,6 +250,46 @@ def test_echo_groups_partition_the_human_workload(built):
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
     assert len(siblings) == 10
+
+
+def test_cluster_signatures_coarsen_the_echo_grain(built):
+    """Cluster signatures are the blank-queue grain the in-app docket view groups by: every human unit carries a c- id, every exempt unit carries null, a cluster never mixes classes or config sets, and every echo group nests inside exactly one cluster — the cluster key is the echo key minus the judged pair, so echo groups can only coarsen, never split."""
+    out_dir, manifest = built
+    by_cluster = {}
+    echo_cluster = {}
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            if unit["batch"] is None:
+                assert unit["cluster"] is None, unit["id"]
+                continue
+            assert isinstance(unit["cluster"], str) and unit["cluster"].startswith("c-"), unit["id"]
+            by_cluster.setdefault(unit["cluster"], []).append(unit)
+            assert echo_cluster.setdefault(unit["echo"], unit["cluster"]) == unit["cluster"], unit["id"]
+    for members in by_cluster.values():
+        assert len({member["class"] for member in members}) == 1
+        assert len({tuple(member["configs"]) for member in members}) == 1
+
+
+def test_cluster_id_recipe_matches_the_docket_tool(built):
+    """Locks the signature recipe to the one rebuild/tools/review_docket.py always used — sha1 of repr((configs, class, per-config ink diffs)) — so shipped cluster ids can never silently drift from the historical docket ids that recorded verdict notes and recommendations reference."""
+    out_dir, manifest = built
+    comparator = InkComparator(
+        out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
+    )
+    sampled = 0
+    for meta in manifest["classes"]:
+        units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        unit = next((entry for entry in units if entry["batch"] is not None), None)
+        if unit is None:
+            continue
+        text = "".join(chr(int(part, 16)) for part in unit["codepoints"].split(":"))
+        diffs = tuple(comparator.config_diff(text, config) for config in unit["configs"])
+        key = (tuple(unit["configs"]), unit["class"], diffs)
+        assert unit["cluster"] == "c-" + hashlib.sha1(repr(key).encode()).hexdigest()[:8], unit["id"]
+        sampled += 1
+        if sampled == 3:
+            break
+    assert sampled == 3
 
 
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():

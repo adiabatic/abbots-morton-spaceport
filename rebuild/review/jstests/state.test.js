@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, view: null });
 });
 
 test('a units worklist rides the hash and round-trips', () => {
@@ -49,18 +49,28 @@ test('a units worklist rides the hash and round-trips', () => {
   assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
 });
 
-test('shedWorklist drops units when a navigation patch changes class, batch, group, config, family, or status', () => {
+test('shedWorklist drops units and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
     assert.equal(shedWorklist({ [key]: value }).units, null, `changing ${key} must shed the worklist`);
+    assert.equal(shedWorklist({ [key]: value }).view, null, `changing ${key} must leave the docket view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
+  assert.equal(cleared.view, null, 'clear-filters leaves the docket view too');
 });
 
 test('shedWorklist keeps a cursor move or machine toggle inside the worklist', () => {
   assert.deepEqual(shedWorklist({ unit: 'u-0003' }), { unit: 'u-0003' });
   assert.deepEqual(shedWorklist({ machine: '1' }), { machine: '1' });
   assert.deepEqual(shedWorklist({}), {});
+});
+
+test('the docket view rides the hash and round-trips', () => {
+  assert.equal(parseHash('#view=docket').view, 'docket');
+  assert.equal(parseHash('#batch=0').view, null);
+  const serialized = writeHash({ view: 'docket' });
+  assert.equal(serialized, 'view=docket');
+  assert.equal(parseHash(`#${serialized}`).view, 'docket');
 });
 
 test('the machine toggle rides the hash and round-trips', () => {

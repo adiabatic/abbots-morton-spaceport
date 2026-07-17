@@ -564,7 +564,7 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
   );
 });
 
-test('searchHaystack folds id, notation, codepoints, class, group, and kinds into one lowercase string', () => {
+test('searchHaystack folds id, notation, codepoints, class, group, echo, cluster, and kinds into one lowercase string', () => {
   const haystack = searchHaystack(shardA[0]);
   assert.ok(haystack.includes('u-0001'));
   assert.ok(haystack.includes('·tea·oy'));
@@ -574,6 +574,19 @@ test('searchHaystack folds id, notation, codepoints, class, group, and kinds int
   assert.ok(haystack.includes('marker-staging-ligature-formation'));
   assert.ok(haystack.includes('qstea:qsoy'));
   assert.ok(haystack.includes('ligation'));
+  assert.ok(haystack.includes('e-0001'), 'the echo group id is searchable');
+  assert.ok(haystack.includes('c-3a570001'), 'the cluster signature id is searchable');
+});
+
+test('searchUnits finds units by echo group id and by cluster id', () => {
+  assert.deepEqual(
+    searchUnits(allUnits, 'e-0000').matches.map((unit) => unit.id).sort(),
+    ['u-0005', 'u-0006'],
+  );
+  assert.deepEqual(
+    searchUnits(allUnits, 'c-0da49c11').matches.map((unit) => unit.id).sort(),
+    ['u-0005', 'u-0006'],
+  );
 });
 
 test('searchUnits finds a unit by its exact id across every shard', () => {

@@ -1028,7 +1028,7 @@ details.group {
 
 }
 
-/* The core dual-font render block is top-level (not nested in .row) so pages beyond the app — docket.html reuses it via app.css — get the fonts and band styling too. */
+/* The core dual-font render block is top-level (not nested in .row) so surfaces beyond the batch grid — the docket view's exemplar cards — get the fonts and band styling too. */
 .qs {
   font-size: var(--font-size);
   line-height: 1.4;
@@ -1167,6 +1167,199 @@ dialog {
 
     form {
       margin: 0;
+    }
+  }
+}
+
+/* The docket view replaces the batch grid inside <main>; the header strip, sidebar, search, and dialogs stay live. */
+body.docket-view main {
+  > .toolbar,
+  > .col-headers,
+  > #batch {
+    display: none;
+  }
+}
+
+#docket {
+  padding: 0.75rem 1.25rem 4rem;
+
+  h2 {
+    font-weight: 600;
+  }
+
+  section {
+    margin-top: 2.5rem;
+  }
+
+  .docket-header h2 {
+    margin-bottom: 0.25rem;
+  }
+
+  .docket-provenance {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin: 0.25rem 0;
+  }
+
+  .docket-note {
+    color: var(--muted);
+    font-size: 0.9rem;
+    max-width: 60rem;
+    margin: 0.4rem 0;
+  }
+
+  article {
+    background: var(--card);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+
+    & > header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0.75rem;
+
+      .size {
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+
+      .configs {
+        color: var(--muted);
+        font-family: var(--code-font);
+        font-size: 0.8rem;
+      }
+    }
+  }
+
+  .chip {
+    font-family: var(--code-font);
+    font-size: 0.75rem;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.1em 0.6em;
+    background: light-dark(#f0f0f0, #333);
+  }
+
+  .verdict-chip {
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 0.1em 0.7em;
+    color: light-dark(#fff, #1a1a1a);
+
+    &.approve {
+      background: var(--approve);
+    }
+
+    &.reject {
+      background: var(--reject);
+    }
+
+    &.either {
+      background: var(--either);
+    }
+
+    &.identical {
+      background: var(--identical);
+    }
+
+    &.neither {
+      background: var(--neither);
+    }
+
+    &.skip {
+      background: var(--skip);
+    }
+  }
+
+  .render-pair {
+    margin: 0.75rem 0;
+
+    .config-label {
+      color: var(--muted);
+      font-family: var(--code-font);
+      font-size: 0.8rem;
+      margin-bottom: 0.25rem;
+    }
+  }
+
+  .evidence,
+  .reps {
+    font-size: 0.9rem;
+
+    .note {
+      color: var(--muted);
+      font-style: italic;
+    }
+  }
+
+  details {
+    font-size: 0.85rem;
+
+    a {
+      margin-right: 0.6em;
+    }
+  }
+
+  table.conflict {
+    border-collapse: collapse;
+    font-size: 0.85rem;
+
+    td {
+      padding: 0.15rem 0.8rem 0.15rem 0;
+      vertical-align: baseline;
+    }
+
+    .note {
+      color: var(--muted);
+      font-style: italic;
+    }
+  }
+
+  .open-app {
+    display: inline-block;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.15em 0.7em;
+    text-decoration: none;
+    white-space: nowrap;
+
+    &:hover {
+      background: light-dark(rgba(0, 102, 204, 0.08), rgba(74, 158, 255, 0.12));
+    }
+  }
+
+  table.workorder {
+    border-collapse: collapse;
+    font-size: 0.9rem;
+
+    th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    td,
+    th {
+      padding: 0.3rem 1rem 0.3rem 0;
+      vertical-align: baseline;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+  }
+
+  .chunk-links {
+    font-size: 0.9rem;
+
+    .open-app {
+      margin: 0 0.5em 0.4em 0;
     }
   }
 }
