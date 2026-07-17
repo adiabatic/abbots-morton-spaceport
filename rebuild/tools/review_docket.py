@@ -1,4 +1,4 @@
-"""Generate the review docket for the live surface: cluster the blank human units across echo groups by (configs, class, per-config ink delta) — the echo key minus the judged pair — so one visual question that recurs across letter contexts is briefed and decided once instead of once per context. Writes docket.html next to index.html (reusing the surface's dual-font rendering and deep-linking into the app by unit id) plus a machine-readable tmp/docket-data.json for recommendation authoring, and folds an optional recommendations JSON (tmp/docket-recs.json) back into the page. The page also calls out ledger classes already ruled intended/reviewed-approved that still hold blank units (bulk-verdict candidates whose rationale the manifest carries verbatim from the ledger), and lists echo groups whose recorded verdicts disagree (the echo_verdicts.py conflict audit, rendered)."""
+"""Generate the review docket for the live surface: cluster the blank human units across echo groups by (configs, class, per-config ink delta) — the echo key minus the judged pair — so one visual question that recurs across letter contexts is briefed and decided once instead of once per context. The page is a work order, not a gallery: every decision is one `index.html#units=…` worklist link that stacks the decision's representatives in the app, where the actual judging happens with the keyboard flow and echo-fill; only the current tranche of top cluster decisions carries an exemplar render pair, and everything else is a compact row. Writes docket.html next to index.html plus a machine-readable tmp/docket-data.json for recommendation authoring, and folds an optional recommendations JSON (tmp/docket-recs.json) back into the page. The page also calls out ledger classes already ruled intended/reviewed-approved that still hold blank units (bulk-verdict candidates whose rationale the manifest carries verbatim from the ledger), and lists echo groups whose recorded verdicts disagree (the echo_verdicts.py conflict audit, rendered with a stacked-worklist link per group)."""
 
 import argparse
 import collections
@@ -21,6 +21,8 @@ RECOMMENDATIONS = ROOT / "tmp/docket-recs.json"
 RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
 FONT_SIZE = 88
 UNIT_ID = re.compile(r"\bu-\d{4}\b")
+TRANCHE_SIZE = 25
+SINGLETON_CHUNK = 40
 
 DOCKET_CSS = """
 body.docket {
@@ -183,6 +185,51 @@ body.docket {
     white-space: pre-wrap;
     max-width: 60rem;
   }
+
+  .open-app {
+    display: inline-block;
+    font-weight: 600;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 0.15em 0.7em;
+    text-decoration: none;
+    white-space: nowrap;
+
+    &:hover {
+      background: light-dark(rgba(0, 102, 204, 0.08), rgba(74, 158, 255, 0.12));
+    }
+  }
+
+  table.workorder {
+    border-collapse: collapse;
+    font-size: 0.9rem;
+
+    th {
+      text-align: left;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    td,
+    th {
+      padding: 0.3rem 1rem 0.3rem 0;
+      vertical-align: baseline;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+  }
+
+  .chunk-links {
+    font-size: 0.9rem;
+
+    .open-app {
+      margin: 0 0.5em 0.4em 0;
+    }
+  }
 }
 """
 
@@ -235,6 +282,18 @@ def unit_link(unit_id, label=None):
     return f'<a href="index.html#unit={unit_id}">{html.escape(label or unit_id)}</a>'
 
 
+def worklist_href(unit_ids):
+    return "index.html#units=" + ",".join(unit_ids)
+
+
+def app_button(href, label):
+    return f'<a class="open-app" href="{html.escape(href)}">{html.escape(label)} ↗</a>'
+
+
+def cluster_reps(cluster):
+    return [group["unit_ids"][0] for group in cluster["echo_groups"]]
+
+
 def linkify(text):
     return UNIT_ID.sub(lambda match: unit_link(match.group(0)), html.escape(text))
 
@@ -275,17 +334,11 @@ def recommendation_html(recommendation):
     return f'<div class="recommendation">{chip}<p class="reasoning">{reasoning}</p></div>'
 
 
-def cluster_cards(clusters, recommendations, manifest):
+def tranche_cards(clusters, recommendations, manifest):
     cards = []
-    for cluster in clusters:
+    for position, cluster in enumerate(clusters, 1):
         exemplar = cluster["exemplar_unit"]
-        reps = " ".join(
-            unit_link(group["unit_ids"][0], f'{group["unit_ids"][0]} ({group["notations"][0]})')
-            for group in cluster["echo_groups"][:8]
-        )
-        more = ""
-        if len(cluster["echo_groups"]) > 8:
-            more = f' <span class="note">(+{len(cluster["echo_groups"]) - 8} more groups below)</span>'
+        reps = cluster_reps(cluster)
         evidence = cluster["evidence"]
         if evidence["counts"]:
             tallies = ", ".join(f"{verdict} ×{count}" for verdict, count in evidence["counts"].items())
@@ -301,9 +354,14 @@ def cluster_cards(clusters, recommendations, manifest):
             unit_link(unit_id) for group in cluster["echo_groups"] for unit_id in group["unit_ids"]
         )
         summary = f'<p class="summary">{linkify(exemplar["summary"])}</p>' if exemplar.get("summary") else ""
+        rep_label = f"Judge {len(reps)} rep{'s' if len(reps) != 1 else ''} in the app"
+        judge = (
+            f"{app_button(worklist_href(reps), rep_label)}"
+            f' <span class="note">— one per echo group; each verdict echo-fills its group, covering all {cluster["size"]} units.</span>'
+        )
         cards.append(
             f'<article class="cluster" id="{cluster["id"]}">'
-            f'<header><span class="size">{cluster["size"]} unit{"s" if cluster["size"] != 1 else ""}</span>'
+            f'<header><span class="size">{position}. {cluster["size"]} unit{"s" if cluster["size"] != 1 else ""}</span>'
             f'<span>in {len(cluster["echo_groups"])} echo group{"s" if len(cluster["echo_groups"]) != 1 else ""}</span>'
             f'<span class="chip">{html.escape(cluster["class"])}</span>'
             f'<span class="configs">{html.escape(", ".join(cluster["configs"]))}</span>'
@@ -311,32 +369,72 @@ def cluster_cards(clusters, recommendations, manifest):
             f'{recommendation_html(recommendations.get("clusters", {}).get(cluster["id"]))}'
             f"{summary}"
             f'{exemplar_html(exemplar, manifest)}'
+            f'<p class="reps">{judge}</p>'
             f"{evidence_html}"
-            f'<p class="reps">Decide one representative per echo group: {reps}{more}</p>'
             f"<details><summary>All {cluster['size']} members</summary>{members}</details>"
             f"</article>"
         )
     return "".join(cards)
 
 
-def ruled_cards(ruled, recommendations, units_by_id, manifest):
+def cluster_rows(clusters, recommendations):
+    rows = []
+    for cluster in clusters:
+        recommendation = recommendations.get("clusters", {}).get(cluster["id"]) or {}
+        chip = verdict_chip(recommendation["verdict"]) if recommendation.get("verdict") else ""
+        reps = cluster_reps(cluster)
+        rows.append(
+            f'<tr><td>{cluster["size"]}</td>'
+            f'<td><span class="chip">{html.escape(cluster["class"])}</span></td>'
+            f'<td>{html.escape(cluster["exemplar_unit"]["notation"])}</td>'
+            f"<td>{chip}</td>"
+            f'<td>{app_button(worklist_href(reps), f"Judge {len(reps)}")}</td></tr>'
+        )
+    return (
+        '<table class="workorder"><thead><tr><th>Units</th><th>Class</th><th>Exemplar</th>'
+        "<th>Rec</th><th></th></tr></thead><tbody>" + "".join(rows) + "</tbody></table>"
+    )
+
+
+def singleton_section(singletons):
+    chunk_links = []
+    for start in range(0, len(singletons), SINGLETON_CHUNK):
+        chunk = singletons[start : start + SINGLETON_CHUNK]
+        chunk_links.append(
+            app_button(
+                worklist_href([cluster["exemplar_unit"]["id"] for cluster in chunk]),
+                f"Judge {start + 1}–{start + len(chunk)}",
+            )
+        )
+    rows = "".join(
+        f'<tr><td>{unit_link(cluster["exemplar_unit"]["id"])}</td>'
+        f'<td>{html.escape(cluster["exemplar_unit"]["notation"])}</td>'
+        f'<td><span class="chip">{html.escape(cluster["class"])}</span></td></tr>'
+        for cluster in singletons
+    )
+    return (
+        f'<p class="chunk-links">Work them as app worklists, {SINGLETON_CHUNK} at a time: {" ".join(chunk_links)}</p>'
+        f'<details><summary>All {len(singletons)} singletons by name</summary>'
+        f'<table class="workorder"><tbody>{rows}</tbody></table></details>'
+    )
+
+
+def ruled_cards(ruled, recommendations):
     cards = []
-    for entry in ruled:
-        exemplar = units_by_id[entry["exemplar_ids"][0]]
-        links = " ".join(unit_link(unit_id) for unit_id in entry["exemplar_ids"])
+    for position, entry in enumerate(ruled, 1):
         recommendation = recommendation_html(recommendations.get("classes", {}).get(entry["id"]))
+        class_href = f'index.html#class={entry["id"]}&status=unverdicted'
         cards.append(
             f'<article class="ruled">'
-            f'<header><span class="size">{entry["blank_count"]} blank units</span>'
+            f'<header><span class="size">{position}. {entry["blank_count"]} blank units</span>'
             f'<span>in {entry["echo_group_count"]} echo groups</span>'
             f'<span class="chip">{html.escape(entry["id"])}</span>'
-            f'<span class="chip">{html.escape(entry["status"])}</span></header>'
-            f"<p>The ledger already records this phenomenon as <strong>{html.escape(entry['status'])}</strong>, "
-            f"so these blanks are candidates for one bulk decision rather than per-unit review.</p>"
+            f'<span class="chip">{html.escape(entry["status"])}</span>'
+            f'{app_button(class_href, "Judge in the app")}</header>'
             f'{recommendation}'
-            f'<div class="why">{html.escape(entry["why"])}</div>'
-            f'{exemplar_html(exemplar, manifest)}'
-            f'<p class="reps">Exemplars: {links}</p>'
+            f"<p>The ledger already records this phenomenon as <strong>{html.escape(entry['status'])}</strong> — "
+            f"one decision covers the class: judge it in the app, or bless it and import a bulk proposals file.</p>"
+            f'<details><summary>Ledger rationale</summary><div class="why">{html.escape(entry["why"])}</div></details>'
             f"</article>"
         )
     return "".join(cards)
@@ -357,7 +455,8 @@ def conflict_cards(conflicts, units_by_id):
             )
         cards.append(
             f'<article class="conflict"><header><span class="chip">{conflict["echo"]}</span>'
-            f'<span class="chip">{html.escape(conflict["class"])}</span></header>'
+            f'<span class="chip">{html.escape(conflict["class"])}</span>'
+            f'{app_button(worklist_href(conflict["unit_ids"]), "View stacked in the app")}</header>'
             f'<table class="conflict">{"".join(rows)}</table></article>'
         )
     return "".join(cards)
@@ -366,21 +465,50 @@ def conflict_cards(conflicts, units_by_id):
 def build_page(manifest, data, recommendations, units_by_id, verdicts_name, head_warning):
     preamble = ""
     if recommendations.get("preamble"):
-        preamble = f'<p class="preamble">{linkify(recommendations["preamble"])}</p>'
+        preamble = (
+            f'<details><summary>Sitting notes</summary><p class="preamble">{linkify(recommendations["preamble"])}</p></details>'
+        )
     warning = f'<p class="warning">{html.escape(head_warning)}</p>' if head_warning else ""
     totals = data["totals"]
+    ruled_units = sum(entry["blank_count"] for entry in data["ruled_classes"])
     ruled_section = ""
     if data["ruled_classes"]:
         ruled_section = (
-            "<section><h2>Already ruled in the ledger — bulk candidates</h2>"
-            + ruled_cards(data["ruled_classes"], recommendations, units_by_id, manifest)
+            f'<section><h2>1 · Class rulings — {len(data["ruled_classes"])} decisions cover {ruled_units} units</h2>'
+            + ruled_cards(data["ruled_classes"], recommendations)
+            + "</section>"
+        )
+    tranche_section = ""
+    if data["tranche"]:
+        tranche_units = sum(cluster["size"] for cluster in data["tranche"])
+        tranche_section = (
+            f'<section><h2>2 · This tranche — top {len(data["tranche"])} cluster decisions, {tranche_units} units</h2>'
+            "<p>Each cluster shares one before→after ink delta, so one look answers the whole card. "
+            "Judge the representatives in the app — echo-fill multiplies each verdict across its group. "
+            "Re-bake the docket after a working session to get the next tranche.</p>"
+            + tranche_cards(data["tranche"], recommendations, manifest)
+            + "</section>"
+        )
+    later_section = ""
+    if data["later"]:
+        later_units = sum(cluster["size"] for cluster in data["later"])
+        later_section = (
+            f"<section><h2>3 · Later tranches — {len(data['later'])} smaller clusters, {later_units} units</h2>"
+            f"<details><summary>Compact list (re-bake promotes these as the tranche above clears)</summary>"
+            f'{cluster_rows(data["later"], recommendations)}</details></section>'
+        )
+    singleton_sec = ""
+    if data["singletons"]:
+        singleton_sec = (
+            f'<section><h2>4 · Singletons — {len(data["singletons"])} one-off units</h2>'
+            + singleton_section(data["singletons"])
             + "</section>"
         )
     conflict_section = ""
     if data["conflicts"]:
         conflict_section = (
-            f'<section><h2>Echo groups with disagreeing verdicts ({len(data["conflicts"])})</h2>'
-            "<p>The same visual change judged differently across contexts — worth a re-check.</p>"
+            f'<section><h2>5 · Echo groups with disagreeing verdicts ({len(data["conflicts"])})</h2>'
+            "<p>The same visual change judged differently across contexts — worth a re-check when convenient.</p>"
             + conflict_cards(data["conflicts"], units_by_id)
             + "</section>"
         )
@@ -401,15 +529,14 @@ verdicts from <code>{html.escape(verdicts_name)}</code> ·
 {totals["blank_units"]} blank units in {totals["echo_groups"]} echo groups →
 <strong>{totals["clusters"]} clusters</strong> ({totals["multi_clusters"]} multi-unit, {totals["singleton_clusters"]} singleton) ·
 <a href="index.html">open the review app</a></p>
+<p>Every button below opens the review app with the decision stacked as a worklist — all judging happens there, with the keyboard flow and echo-fill. This page is just the order of battle.</p>
 {warning}
 {preamble}
 </header>
 {ruled_section}
-<section>
-<h2>Clusters — one visual question each, largest first</h2>
-<p>Each cluster shares one before→after ink delta (the echo key minus the judged pair), so a decision on any representative should hold for every member. Deciding a representative in the app echo-fills its own group; the other groups in the cluster each need one representative, or ask for a proposals import file covering the whole cluster.</p>
-{cluster_cards(data["clusters"], recommendations, manifest)}
-</section>
+{tranche_section}
+{later_section}
+{singleton_sec}
 {conflict_section}
 <footer><p class="provenance">Generated by rebuild/tools/review_docket.py — regenerate with
 <code>uv run python rebuild/tools/review_docket.py {html.escape(verdicts_name)}</code></p></footer>
@@ -553,6 +680,13 @@ def main():
     if recommendations_path.exists():
         recommendations = json.loads(recommendations_path.read_text())
 
+    ruled_ids = {entry["id"] for entry in ruled}
+    unruled = [cluster for cluster in clusters if cluster["class"] not in ruled_ids]
+    multi = [cluster for cluster in clusters if cluster["size"] > 1 and cluster["class"] not in ruled_ids]
+    tranche = multi[:TRANCHE_SIZE]
+    later = multi[TRANCHE_SIZE:]
+    singletons = [cluster for cluster in unruled if cluster["size"] == 1]
+
     docket_data = {
         "manifest_generated_at": manifest["generated_at"],
         "verdicts_file": verdicts_path.name,
@@ -562,6 +696,9 @@ def main():
             "clusters": len(clusters),
             "multi_clusters": sum(1 for cluster in clusters if cluster["size"] > 1),
             "singleton_clusters": sum(1 for cluster in clusters if cluster["size"] == 1),
+            "ruled_units": sum(entry["blank_count"] for entry in ruled),
+            "tranche_clusters": len(tranche),
+            "tranche_units": sum(cluster["size"] for cluster in tranche),
         },
         "clusters": [{key: value for key, value in cluster.items() if key != "exemplar_unit"} for cluster in clusters],
         "ruled_classes": [{key: value for key, value in entry.items() if key != "why"} for entry in ruled],
@@ -579,15 +716,23 @@ def main():
     data_out.parent.mkdir(parents=True, exist_ok=True)
     data_out.write_text(json.dumps(docket_data, ensure_ascii=False, indent=1) + "\n")
 
-    page_data = {"totals": docket_data["totals"], "clusters": clusters, "ruled_classes": ruled, "conflicts": conflicts}
+    page_data = {
+        "totals": docket_data["totals"],
+        "ruled_classes": ruled,
+        "tranche": tranche,
+        "later": later,
+        "singletons": singletons,
+        "conflicts": conflicts,
+    }
     out = pathlib.Path(args.out) if args.out else surface / "docket.html"
     out.write_text(build_page(manifest, page_data, recommendations, units_by_id, verdicts_path.name, head_warning))
 
     totals = docket_data["totals"]
     print(
         f"wrote {out} and {data_out}: {totals['blank_units']} blank units in {totals['echo_groups']} echo groups → "
-        f"{totals['clusters']} clusters ({totals['multi_clusters']} multi-unit, {totals['singleton_clusters']} singleton); "
-        f"{len(ruled)} already-ruled classes hold blanks; {len(conflicts)} echo groups disagree"
+        f"{len(ruled)} class rulings ({totals['ruled_units']} units) + a {len(tranche)}-cluster tranche "
+        f"({totals['tranche_units']} units) + {len(later)} later clusters + {len(singletons)} singletons; "
+        f"{len(conflicts)} echo groups disagree"
     )
 
 
