@@ -1026,82 +1026,84 @@ details.group {
     }
   }
 
-  .qs {
-    font-size: var(--font-size);
-    line-height: 1.4;
-    /* Kern-neutral comparison: the rebuild has no kerning until its own milestone, so the old font's kern feature is pure noise here. Composes with the inline font-feature-settings the app sets per render group. */
-    font-kerning: none;
-    -webkit-font-smoothing: none;
-    font-smooth: never;
-    position: relative;
-    white-space: pre;
-    overflow-x: auto;
-    --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
-    background-image:
-      linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
-      linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
-    background-size: 16px 16px;
-    background-position:
-      0 5.6px,
-      8px 13.6px;
+}
 
-    &.before {
-      font-family: var(--before-font);
-    }
+/* The core dual-font render block is top-level (not nested in .row) so pages beyond the app — docket.html reuses it via app.css — get the fonts and band styling too. */
+.qs {
+  font-size: var(--font-size);
+  line-height: 1.4;
+  /* Kern-neutral comparison: the rebuild has no kerning until its own milestone, so the old font's kern feature is pure noise here. Composes with the inline font-feature-settings the app sets per render group. */
+  font-kerning: none;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+  position: relative;
+  white-space: pre;
+  overflow-x: auto;
+  --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  background-image:
+    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 5.6px,
+    8px 13.6px;
 
-    &.after {
-      font-family: var(--after-font);
-    }
+  &.before {
+    font-family: var(--before-font);
+  }
 
-    .pair-band {
+  &.after {
+    font-family: var(--after-font);
+  }
+
+  .pair-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--hot-fill);
+    border-bottom: 5px solid var(--hot);
+    pointer-events: none;
+  }
+
+  /* A secondary divergent seam: clearly subordinate to the primary amber band — fainter fill, a dashed top edge instead of the solid bottom one — with the home-unit chip as the only clickable part. */
+  .secondary-band {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: light-dark(rgba(217, 119, 6, 0.06), rgba(255, 184, 107, 0.05));
+    border-top: 3px dashed light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
+    pointer-events: none;
+
+    .seam-chip {
       position: absolute;
-      top: 0;
-      bottom: 0;
-      background: var(--hot-fill);
-      border-bottom: 5px solid var(--hot);
-      pointer-events: none;
+      top: 0.35rem;
+      left: 50%;
+      translate: -50% 0;
+      pointer-events: auto;
+      font-family: var(--code-font);
+      font-size: 10px;
+      line-height: 1.5;
+      padding: 0 0.5em;
+      border: 1px solid var(--hairline);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
     }
 
-    /* A secondary divergent seam: clearly subordinate to the primary amber band — fainter fill, a dashed top edge instead of the solid bottom one — with the home-unit chip as the only clickable part. */
-    .secondary-band {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      background: light-dark(rgba(217, 119, 6, 0.06), rgba(255, 184, 107, 0.05));
-      border-top: 3px dashed light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
-      pointer-events: none;
-
-      .seam-chip {
-        position: absolute;
-        top: 0.35rem;
-        left: 50%;
-        translate: -50% 0;
-        pointer-events: auto;
-        font-family: var(--code-font);
-        font-size: 10px;
-        line-height: 1.5;
-        padding: 0 0.5em;
-        border: 1px solid var(--hairline);
-        border-radius: 8px;
-        background: var(--card);
-        color: var(--muted);
-        text-decoration: none;
-        white-space: nowrap;
-      }
-
-      a.seam-chip:hover {
-        border-color: var(--hot);
-        color: var(--hot);
-      }
+    a.seam-chip:hover {
+      border-color: var(--hot);
+      color: var(--hot);
     }
+  }
 
-    .boundary-mark {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      border-left: 2px dotted light-dark(#888, #999);
-      pointer-events: none;
-    }
+  .boundary-mark {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-left: 2px dotted light-dark(#888, #999);
+    pointer-events: none;
   }
 }
 

@@ -14,7 +14,7 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 Nothing gates these — act on any cycle, whenever it’s worth it.
 
-- **Review-app echo-group viewer** — the review app has no way to show every member of an echo group by name; add one. Unblocks settling the 14 disagreeing echo groups the audit flags (13 with split imported history, plus e-0061 where the qsLow sitting’s 21 fresh rejects sit against 6 imported eithers and 1 approve).
+- **Open echo groups by name inside the review app** — a row’s echo chip already stacks its own group as a worklist, and the docket’s disagreeing-groups section now carries a “View stacked” button per group, so settling the 14 disagreeing groups (13 with split imported history, plus e-0061 where the qsLow sitting’s 21 fresh rejects sit against 6 imported eithers and 1 approve) is unblocked. Still worth adding: reaching a group from inside the app by id — e.g. typing `e-0061` into the cross-class search.
 
 ### Do when a gate takes too long
 
