@@ -210,6 +210,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "junior_equivalent": unit.junior_equivalent,
         "no_verdict": unit.no_verdict,
         "echo": unit.echo,
+        "cluster": unit.cluster,
         "class": unit.class_id,
         "group": unit.group,
         "codepoints": unit.codepoints,
@@ -311,6 +312,12 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
     return sorted(removed)
 
 
+def _cluster_id(configs, class_id, diffs) -> str:
+    """The blank-queue cluster signature the in-app docket view groups by: the echo key minus the judged pair, so every echo group nests inside exactly one cluster. The repr recipe must stay byte-compatible with rebuild/tools/review_docket.py's historical ids so recorded c- references keep resolving."""
+    key = (tuple(configs), class_id, diffs)
+    return "c-" + hashlib.sha1(repr(key).encode()).hexdigest()[:8]
+
+
 @dataclass(frozen=True)
 class _UnitProjection:
     """The slim, picklable phase-1 result a surface worker returns per unit: everything the parent's serial reduces read, and never the EnrichedUnit (its ~61 KB ExplainReport stays alive worker-side for phase 2)."""
@@ -369,10 +376,11 @@ def _surface_worker(conn, init: dict) -> None:
                 conn.send(("ok", results, list(enricher.mismatches)))
             elif message[0] == "phase2":
                 fragments: dict[str, dict] = {}
-                for unit_id, (batch, echo, class_id, seam_assign) in message[1].items():
+                for unit_id, (batch, echo, cluster, class_id, seam_assign) in message[1].items():
                     enriched = retained[unit_id]
                     enriched.unit.batch = batch
                     enriched.unit.echo = echo
+                    enriched.unit.cluster = cluster
                     enriched.unit.class_id = class_id
                     for seam, (home, suppressed) in zip(enriched.secondary_seams, seam_assign):
                         seam.home = home
@@ -466,6 +474,7 @@ def _run_parallel(
                 pair = (values[pair_codepoints[0]], values[pair_codepoints[1]])
             key = (unit.configs, pair, unit.class_id, result_by_id[unit.unit_id].config_diffs)
             unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
+            unit.cluster = _cluster_id(unit.configs, unit.class_id, result_by_id[unit.unit_id].config_diffs)
 
         classes = workload.classes_present + synthesize_family_classes(
             units, families.FAMILY_ORDER, families.FAMILY_WHY
@@ -475,7 +484,7 @@ def _run_parallel(
 
         for conn, chunk in zip(conns, slices):
             payload = {
-                unit.unit_id: (unit.batch, unit.echo, unit.class_id, assignments[unit.unit_id])
+                unit.unit_id: (unit.batch, unit.echo, unit.cluster, unit.class_id, assignments[unit.unit_id])
                 for unit in chunk
             }
             conn.send(("phase2", payload))
@@ -663,6 +672,7 @@ def build_m1(
                 pair = (values[enriched.pair_codepoints[0]], values[enriched.pair_codepoints[1]])
             key = (unit.configs, pair, unit.class_id, config_diffs[unit.unit_id])
             unit.echo = echo_ids.setdefault(key, f"e-{len(echo_ids):04d}")
+            unit.cluster = _cluster_id(unit.configs, unit.class_id, config_diffs[unit.unit_id])
 
         classes = workload.classes_present + synthesize_family_classes(
             workload.units, families.FAMILY_ORDER, families.FAMILY_WHY
@@ -771,6 +781,7 @@ def _table_diff_unit_json(
         "junior_equivalent": False,
         "no_verdict": False,
         "echo": None,
+        "cluster": None,
         "class": entry.bucket,
         "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
         "codepoints": ":".join(f"{value:04X}" for value in witness) if witness else None,
@@ -1093,6 +1104,17 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             need(isinstance(echo, str), "human-workload units must carry an echo group id")
         else:
             need(echo is None, "units outside the human workload must carry echo null")
+    need("cluster" in unit, "cluster must be present")
+    cluster = unit.get("cluster")
+    need(
+        cluster is None or (isinstance(cluster, str) and cluster.startswith("c-")),
+        "cluster must be null or a c-XXXXXXXX signature id",
+    )
+    if mode == "m1-audit":
+        if isinstance(unit.get("batch"), int):
+            need(isinstance(cluster, str), "human-workload units must carry a cluster signature id")
+        else:
+            need(cluster is None, "units outside the human workload must carry cluster null")
     for key in ("class", "group", "notation", "summary", "explain"):
         need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
     need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")

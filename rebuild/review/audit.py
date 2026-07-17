@@ -56,6 +56,7 @@ class Unit:
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""
     echo: str | None = None
+    cluster: str | None = None
 
     @property
     def codepoint_values(self) -> tuple[int, ...]:

@@ -1,10 +1,10 @@
-export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status', 'machine', 'units'];
+export const STATE_KEYS = ['class', 'batch', 'unit', 'group', 'config', 'family', 'status', 'machine', 'units', 'view'];
 
 export const WORKLIST_EXIT_KEYS = ['class', 'batch', 'group', 'config', 'family', 'status'];
 
 export function shedWorklist(patch) {
   for (const key of WORKLIST_EXIT_KEYS) {
-    if (key in patch) return { units: null, ...patch };
+    if (key in patch) return { units: null, view: null, ...patch };
   }
   return patch;
 }
