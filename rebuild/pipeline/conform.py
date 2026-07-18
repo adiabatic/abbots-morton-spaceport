@@ -529,14 +529,16 @@ def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResu
     return report
 
 
-def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, deep4=None):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set and `deep4` its depth4_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots — and the fourth repeats that one deeper for depth-4-bearing inputs."""
+def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, deep4=None, deep4_live=None):
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set and `deep4` its depth4_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots — and the fourth repeats that one deeper for depth-4-bearing inputs, further gated by `deep4_live` (the table's `fourth_slot_filter`, built here when not supplied) so the replay and the table agree on which windows carry a live fourth slot."""
     from rebuild.pipeline import table as table_module
 
     if deep is None:
         deep = table_module.depth3_inputs(spec)
     if deep4 is None:
         deep4 = table_module.depth4_inputs(spec)
+    if deep4_live is None:
+        deep4_live = table_module.fourth_slot_filter(spec, frozenset(features))
     try:
         labels = raw_labels(spec, text, features)
     except ValueError:
@@ -569,7 +571,12 @@ def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, 
         )
         right4 = (
             na
-            if right3 in boundaries or right3 in (edge, na) or _label_family(label) not in deep4
+            if right3 in boundaries
+            or right3 in (edge, na)
+            or _label_family(label) not in deep4
+            or not deep4_live(
+                _label_family(label), _label_family(right1), _label_family(right2), _label_family(right3)
+            )
             else (labels[index + 4] if index + 4 < len(labels) else edge)
         )
         matched = None
@@ -963,17 +970,19 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
     prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
+    engine = settle_module.Engine(spec, frozenset(features))
+    deep4_live = table_module.fourth_slot_filter(spec, frozenset(features), engine)
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
         witness = None
         for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rows_by_rule.get(index, ())):
             text = _token_text(spec, tokens)
-            settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
+            settled = settle_module.settle_with_engine(engine, [ord(ch) for ch in text])
             expected = settled_names(spec, settled, glyph_names)
             if any(
                 matched == index
                 for _pos, _window, matched in _matched_windows(
-                    spec, text, features, expected, rules_by_input, deep, deep4
+                    spec, text, features, expected, rules_by_input, deep, deep4, deep4_live
                 )
             ):
                 witness = text
@@ -1040,6 +1049,7 @@ def _conformance_config(
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
     features = features_for_config(config)
+    engine = settle_module.Engine(spec, features)
     built = table_module.build_tables(spec, features)
     decision = built[0] if isinstance(built, (tuple, list)) else built
     renames = _raw_rename_map(spec, frozenset(features))
@@ -1048,6 +1058,7 @@ def _conformance_config(
     result = ConformanceConfigResult(config=config)
     deep = table_module.depth3_inputs(spec)
     deep4 = table_module.depth4_inputs(spec)
+    deep4_live = table_module.fourth_slot_filter(spec, features, engine)
     modes: set[str] = set()
     rules_hit: set[int] = set()
     realized: set[tuple[str, str, str, str, str, str]] = set()
@@ -1058,7 +1069,7 @@ def _conformance_config(
         check_zwnj_structure(text, config, shaper, shaped, result.divergences)
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-        settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
+        settled = settle_module.settle_with_engine(engine, [ord(ch) for ch in text])
         expected_cells = settled_names(spec, settled, glyph_names)
         if isolated_overlay_active(spec, features):
             expected = isolated_overlay_names(spec, settled)
@@ -1068,7 +1079,7 @@ def _conformance_config(
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
         for _position, window, matched in _matched_windows(
-            spec, text, features, expected_cells, rules_by_input, deep, deep4
+            spec, text, features, expected_cells, rules_by_input, deep, deep4, deep4_live
         ):
             realized.add(window)
             if matched is not None:
