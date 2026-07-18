@@ -9,15 +9,16 @@ Scratch progress file for the in-flight qsLow migration; delete at batch close, 
 - 11d085c Don’t prefer ·Utter.alt when it only shifts the one join to the other neighbor
 - 2217445 Withhold ·Day’s exit before ·Tea·Low so ·Tea joins forward into ·Low
 - 8be6139 Give ·Low·Tea and ·Day·Utter·Tea the full-height bar under ss03 even word-finally
+- 0835753 Under ss03, prefer ·Utter ~x~ ·Tea.!half to ·Utter ~x~ ·Tea.half
 
-The artifact cycle has re-run over the adjudication commits (all gates green); its fallout — the re-pinned census, the moved echo-partition pin, and the carried-master swap to `rebuild/evidence/verdicts-carried-0f5155b.json` — lands alongside this note in the bookkeeping commit.
+The artifact cycle has re-run over the adjudication commits (all gates green); its fallout — the re-pinned census and the carried-master swap to `rebuild/evidence/verdicts-carried-0835753.json` — lands alongside this note in the bookkeeping commit.
 
 ## Parked
 
 - **`why:` for qsUtter.policy.prefer[2]** — the record is now scoped `when: {right: {family: qsLow}}` and carries a `why: TODO` stub; the rationale text is the user’s to write (the principle is recorded in the sitting’s verdict notes, carried in the master).
 - **Ductus sign-off** — qsLow’s drafted `hapax` motion carries `# DRAFT — pending author sign-off` (the letter had no ductus prose in `glyph_data/quikscript.yaml`).
 - **·Low·Oy·Tea·Oy standing approval** — the carried verdict note says auto-approve “no matter what happens around ·Low·Oy”; carrying only preserves verdicts across unchanged renders, so at batch close this needs a durable home (census pin or similar).
-- **Sitting forks and residue** — the ·It exit-extension-before-·Low fork, the word-final full-·Tea-after-·Utter fork, and the three-part ·Utter residue are tracked in WHATNEXT under “Doable anytime”.
+- **Sitting forks and residue** — the ·It exit-extension-before-·Low fork and the three-part ·Utter residue are tracked in WHATNEXT under “Doable anytime”. (The word-final full-·Tea-after-·Utter fork is decided: the u-9101 ruling chose the full bar, qsUtter is ungated in full-·Tea’s ss03 x-height unlock, and the flip file executes the ruling on the previously-verdicted windows.)
 
 ## Design overrides
 
@@ -35,6 +36,6 @@ The artifact cycle has re-run over the adjudication commits (all gates green); i
 ## Resume
 
 1. Fill in the `why: TODO` on qsUtter’s scoped prefer.
-2. Finish the sitting: `make review-serve` (already running if port 7294 answers), import `rebuild/evidence/verdicts-carried-0f5155b.json` if the store is empty, then work the 484-blank queue in the app’s docket view (`#view=docket`).
+2. Finish the sitting: `make review-serve` (already running if port 7294 answers), import `rebuild/evidence/verdicts-carried-0835753.json`, then `verdicts-echo-fill.json`, then `verdicts-flip-utter-tea-full-bar.json`, then work the blank queue in the app’s docket view (`#view=docket`).
 3. Sign off qsLow’s ductus (grep `# DRAFT`).
-4. Decide the two sitting forks (WHATNEXT, “Doable anytime”): the ·It extension before ·Low, and word-final full-·Tea after ·Utter.
+4. Decide the remaining sitting fork (WHATNEXT, “Doable anytime”): the ·It extension before ·Low.
