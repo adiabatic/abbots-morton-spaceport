@@ -1,41 +1,41 @@
 {
   "_surface": {
-    "generated_at": "2026-07-17T20:24:44Z",
-    "repo_head": "0f5155b"
+    "generated_at": "2026-07-18T04:04:51Z",
+    "repo_head": "6e6761a"
   },
   "manifest": {
     "totals": {
-      "units": 24834,
-      "rows": 121415,
+      "units": 24913,
+      "rows": 121652,
       "batches": 13,
-      "echo_groups": 1238
+      "echo_groups": 1237
     },
     "classes_count": 26,
     "machine_approved": {
-      "units": 19328,
+      "units": 19274,
       "by_class": {
-        "boundary-echo": 7368,
-        "dangling-anchor-dropped": 4706,
-        "bare-name-live-join": 2928,
+        "boundary-echo": 7346,
+        "dangling-anchor-dropped": 4701,
+        "bare-name-live-join": 2901,
         "ss10-isolation-completed": 3403,
         "ss10-ligature-suppressed": 617,
         "kern-channel-out-of-scope": 306
       }
     },
     "class_unit_count": {
-      "boundary-echo": 9024,
+      "boundary-echo": 9075,
       "dangling-anchor-dropped": 4746,
-      "bare-name-live-join": 3191
+      "bare-name-live-join": 3219
     },
     "secondary_seams": {
-      "units_with_markers": 2096,
-      "seams_homed": 927,
+      "units_with_markers": 2102,
+      "seams_homed": 936,
       "seams_homeless": 1360,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 3677,
+    "human_units": 3737,
     "config_note_distribution": [
       [
         null,
@@ -55,7 +55,7 @@
       ],
       [
         "only when ss03 is on",
-        1331
+        1410
       ],
       [
         "only when ss04 is off",
@@ -68,20 +68,20 @@
     ]
   },
   "audit": {
-    "row_count": 121415,
-    "units": 25748
+    "row_count": 121652,
+    "units": 25827
   },
   "ink": {
-    "machine_total": 13917,
-    "non_identical": 11831,
+    "machine_total": 13863,
+    "non_identical": 11964,
     "by_class": {
-      "boundary-echo": 5898,
-      "dangling-anchor-dropped": 5091,
-      "bare-name-live-join": 2928
+      "boundary-echo": 5876,
+      "dangling-anchor-dropped": 5086,
+      "bare-name-live-join": 2901
     },
-    "boundary_echo_exempt": 3739,
-    "human_units": 8092,
-    "batches": 27
+    "boundary_echo_exempt": 3812,
+    "human_units": 8152,
+    "batches": 28
   },
   "families": {
     "census": {
