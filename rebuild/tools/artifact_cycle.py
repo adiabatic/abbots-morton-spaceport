@@ -962,7 +962,7 @@ def _as_str(value: object | None) -> str | None:
 
 
 def _gate_entry(status: str) -> dict:
-    return {"status": status, "green": status == "green"}
+    return {"status": status, "green": status.startswith("green")}
 
 
 def _surface_block(surface_dir: Path) -> dict:
