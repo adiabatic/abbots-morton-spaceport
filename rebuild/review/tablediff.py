@@ -27,12 +27,16 @@ class SettlementKey:
     backtrack: frozenset[str] | None
     look1: frozenset[str] | None
     look2: frozenset[str] | None
+    look3: frozenset[str] | None = None
 
     def label(self) -> str:
         def part(value: frozenset[str] | None) -> str:
             return " ".join(sorted(value)) if value is not None else "-"
 
-        return f"{self.input} / {part(self.backtrack)} / {part(self.look1)} / {part(self.look2)}"
+        label = f"{self.input} / {part(self.backtrack)} / {part(self.look1)} / {part(self.look2)}"
+        if self.look3 is not None:
+            label += f" / {part(self.look3)}"
+        return label
 
 
 @dataclass(frozen=True)
@@ -82,9 +86,20 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
         for line in handle:
             if line.startswith("#") or line.startswith("input\t") or not line.strip():
                 continue
-            input_glyph, backtrack, look1, look2, outcome, joint, provenance = line.rstrip("\n").split("\t")
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) == 7:
+                # A pre-depth-3 snapshot: no lookahead3 column, every rule effectively unconstrained there.
+                input_glyph, backtrack, look1, look2, outcome, joint, provenance = fields
+                look3 = "-"
+            else:
+                input_glyph, backtrack, look1, look2, look3, outcome, joint, provenance = fields
             key = SettlementKey(
-                config, input_glyph, _parse_set(backtrack), _parse_set(look1), _parse_set(look2)
+                config,
+                input_glyph,
+                _parse_set(backtrack),
+                _parse_set(look1),
+                _parse_set(look2),
+                _parse_set(look3),
             )
             rows[key] = SettlementValue(outcome=outcome, joint=joint == "joint", provenance=provenance)
     return rows
@@ -232,7 +247,7 @@ class WitnessIndex:
         self.config = config
         features = features_for_config(config)
         engine = Engine(spec, features)
-        self.positions: dict[tuple[str, str, str, str], tuple[int, ...]] = {}
+        self.positions: dict[tuple[str, str, str, str, str], tuple[int, ...]] = {}
         self.pairs: dict[tuple[str, str], tuple[int, ...]] = {}
         alphabet = spec_alphabet(spec)
         for depth in range(1, max_depth + 1):
@@ -266,13 +281,18 @@ class WitnessIndex:
                         if right1 in self.BOUNDARYISH or right1 == self.EDGE
                         else (raw[index + 2] if index + 2 < len(raw) else self.EDGE)
                     )
-                    self.positions.setdefault((label, left, right1, right2), codepoints)
+                    right3 = (
+                        self.NA
+                        if right2 in self.BOUNDARYISH or right2 in (self.EDGE, self.NA)
+                        else (raw[index + 3] if index + 3 < len(raw) else self.EDGE)
+                    )
+                    self.positions.setdefault((label, left, right1, right2, right3), codepoints)
                     if index + 1 < len(settled_labels) and letter_mask[index] and letter_mask[index + 1]:
                         self.pairs.setdefault((settled_labels[index], settled_labels[index + 1]), codepoints)
 
     def witness_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
         best: tuple[int, ...] | None = None
-        for (label, left, right1, right2), codepoints in self.positions.items():
+        for (label, left, right1, right2, right3), codepoints in self.positions.items():
             if label != key.input:
                 continue
             if key.backtrack is not None and left not in key.backtrack:
@@ -280,6 +300,8 @@ class WitnessIndex:
             if key.look1 is not None and right1 not in key.look1:
                 continue
             if key.look2 is not None and right2 not in key.look2:
+                continue
+            if key.look3 is not None and right3 not in key.look3:
                 continue
             if best is None or (len(codepoints), codepoints) < (len(best), best):
                 best = codepoints

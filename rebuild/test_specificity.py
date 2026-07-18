@@ -109,3 +109,62 @@ class TestPickMostSpecific:
         sibling = extend(by=1, right=Condition(family=("qsIt",)))
         assert outranks(SPEC, keyed, sibling) is Ordering.A_OUTRANKS
         assert pick_most_specific(SPEC, [sibling, keyed]) is keyed
+
+
+class TestDepthThreeChainSpecificity:
+    """The depth-3 chain records must not move in the section 6.2 order: `_side_axes` walks only the spine of `then:` hops and `_family_set` conservatively ignores multi-axis `except:` entries, so a chain carried by an `except` adds no axis and subtracts nothing — the edited record ranks exactly as its pre-chain shape did."""
+
+    @pytest.fixture(scope="class")
+    def real_spec(self):
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return load_default_spec()
+
+    @staticmethod
+    def _strip_chain(cond: Condition) -> Condition:
+        from dataclasses import replace
+
+        stripped_then = None if cond.then is None else TestDepthThreeChainSpecificity._strip_chain(cond.then)
+        kept_excepts = tuple(ex for ex in cond.except_ if ex.then is None)
+        return replace(cond, then=stripped_then, except_=kept_excepts)
+
+    @pytest.mark.parametrize(
+        "rune,index",
+        (("qsDay", 1), ("qsOy", 0), ("qsTea_qsOy", 0)),
+        ids=("qsDay.prefer1", "qsOy.prefer0", "qsTea_qsOy.prefer0"),
+    )
+    def test_edited_records_keep_their_axes_and_rank(self, real_spec, rune, index):
+        from dataclasses import replace
+
+        record = real_spec.runes[rune].policy.prefer[index]
+        assert record.when.right is not None
+        stripped_when = replace(record.when, right=self._strip_chain(record.when.right))
+        assert axis_sets(real_spec, record.when, rune) == axis_sets(real_spec, stripped_when, rune)
+        assert (
+            outranks(real_spec, record, replace(record, when=stripped_when), rune, rune) is Ordering.EQUAL
+        )
+
+    def test_then_then_axes_only_on_the_qsday_no_record(self, real_spec):
+        for rune in ("qsOy", "qsTea_qsOy"):
+            for record in real_spec.runes[rune].policy.prefer:
+                axes = axis_sets(real_spec, record.when, rune)
+                assert not any("then.then" in axis for axis in axes)
+        chained = [
+            axes
+            for record in real_spec.runes["qsDay"].policy.prefer
+            for axes in [axis_sets(real_spec, record.when, "qsDay")]
+            if any("then.then" in axis for axis in axes)
+        ]
+        assert len(chained) == 1
+        assert chained[0]["right.then.family"] == frozenset({"qsNo"})
+        assert chained[0]["right.then.then.family"] == frozenset({"qsTea", "qsMay", "qsLow"})
+
+    def test_qsday_prefer_family_axes_pinned(self, real_spec):
+        record = real_spec.runes["qsDay"].policy.prefer[1]
+        axes = axis_sets(real_spec, record.when, "qsDay")
+        assert axes["right.family"] == frozenset({"qsTea"})
+        assert axes["right.then.family"] == frozenset({"qsDay", "qsDay_qsUtter", "qsIt", "qsUtter"})

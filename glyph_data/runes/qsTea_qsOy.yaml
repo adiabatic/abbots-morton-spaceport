@@ -31,7 +31,10 @@ policy:
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
-    when: {right: {family: [qsTea, qsIt]}}
+    when:
+      right:
+        family: [qsTea, qsIt]
+        except: [{family: qsTea, then: {family: qsUtter, then: {family: qsLow}}}]
     why: 'Ligature twin of qsOy.policy.prefer[0] — ligatures do not inherit component policy (proven by u-0283/u-0284/u-0285), and forming ·Tea·Oy must not change the grouping: when the groupings tie, the ligature leaves its baseline exit unrealized so the follower pair joins — "The old way seems nicer to write out by hand".'
   extend: []
   contract: []

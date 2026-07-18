@@ -529,8 +529,12 @@ def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResu
     return report
 
 
-def _matched_windows(spec, text, features, expected, rules_by_input):
-    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to."""
+def _matched_windows(spec, text, features, expected, rules_by_input, deep=None):
+    """Replay the settlement lookup's view of one string: yield (position, window key, first-matching rule index or None) per letter slot, with labels and rules in the config's renamed (marker-folded) space and the left slot read from the settled stream — the exact first-match-wins semantics the emitted FEA compiles to. `deep` is the table's depth3_inputs set (computed here when not supplied); the third window slot is #NA except where the table enumerates it — a depth-3-bearing input with letters at both nearer slots."""
+    from rebuild.pipeline import table as table_module
+
+    if deep is None:
+        deep = table_module.depth3_inputs(spec)
     try:
         labels = raw_labels(spec, text, features)
     except ValueError:
@@ -556,6 +560,11 @@ def _matched_windows(spec, text, features, expected, rules_by_input):
             if right1 in boundaries or right1 == edge
             else (labels[index + 2] if index + 2 < len(labels) else edge)
         )
+        right3 = (
+            na
+            if right2 in boundaries or right2 in (edge, na) or _label_family(label) not in deep
+            else (labels[index + 3] if index + 3 < len(labels) else edge)
+        )
         matched = None
         for rule_index, rule in rules_by_input.get(label, ()):
             if rule.backtrack is not None and left not in rule.backtrack:
@@ -564,9 +573,12 @@ def _matched_windows(spec, text, features, expected, rules_by_input):
                 continue
             if rule.look2 is not None and right2 not in rule.look2:
                 continue
+            look3 = getattr(rule, "look3", None)
+            if look3 is not None and right3 not in look3:
+                continue
             matched = rule_index
             break
-        yield index, (label, left, right1, right2), matched
+        yield index, (label, left, right1, right2, right3), matched
 
 
 def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, object]]]:
@@ -601,8 +613,11 @@ def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
     return "".join(chars)
 
 
-def _shortest_window_prefixes(decision) -> dict[tuple[str, str, str | None], tuple[str, ...]]:
-    """BFS the decision table's own windows, mirroring the table builder's worklist at label grain: for each (left label, input label, constrained-right1 label or None-for-boundary-seeds) item, the shortest token prefix that realizes it. The prefix holds the tokens BEFORE the input slot — empty for edge-left items, the boundary token for boundary-left items."""
+def _shortest_window_prefixes(decision):
+    """BFS the decision table's own windows, mirroring the table builder's worklist at label grain: for each (left label, input label, constrained-right1 label or None-for-boundary-seeds) item, the shortest token prefix that realizes it. The prefix holds the tokens BEFORE the input slot — empty for edge-left items, the boundary token for boundary-left items.
+
+    Returns `(prefixes, by_right3)`. `prefixes` is the shortest prefix per window, used to grow longer chains. `by_right3` maps each window to `{producing-row-right3-label: shortest-prefix}` — the third-lookahead the realizing row was pinned to (mirroring the table builder's right3 exactness in `table._flag_prospect_joints`). A backtrack whose withdrawal is decided by the raw third slot (a depth-3-conditional cell) is realized only under specific right3 values, so a witness for it must pick the prefix whose right3 matches the target window's own look2; the flat `prefixes` map can only offer the shortest, which may be a right3 the target rule never takes.
+    """
     from collections import deque
 
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, BOUNDARYISH
@@ -614,6 +629,7 @@ def _shortest_window_prefixes(decision) -> dict[tuple[str, str, str | None], tup
     for row in decision.transitions:
         rows_by_item.setdefault((row.left, row.input_glyph), []).append(row)
     prefixes: dict[tuple[str, str, str | None], tuple[str, ...]] = {}
+    by_right3: dict[tuple[str, str, str], dict[str, tuple[str, ...]]] = {}
     queue: deque[tuple[str, str, str | None]] = deque()
     for left, input_label in sorted(rows_by_item):
         if left in boundary_prefixes:
@@ -630,11 +646,14 @@ def _shortest_window_prefixes(decision) -> dict[tuple[str, str, str | None], tup
             if row.right1 in BOUNDARYISH:
                 continue
             successor = (row.outcome, row.right1, row.right2)
+            options = by_right3.setdefault(successor, {})
+            if row.right3 not in options or len(extended) < len(options[row.right3]):
+                options[row.right3] = extended
             if successor in prefixes:
                 continue
             prefixes[successor] = extended
             queue.append(successor)
-    return prefixes
+    return prefixes, by_right3
 
 
 def _refolds_intact(spec, tokens) -> bool:
@@ -659,13 +678,19 @@ def _refolds_intact(spec, tokens) -> bool:
     return labels == list(tokens)
 
 
-def _window_witness_tokens(spec, prefixes, row) -> tuple[str, ...] | None:
+def _window_witness_tokens(spec, prefixes, by_right3, row) -> tuple[str, ...] | None:
     """Assemble the token stream that realizes one transition row's window: the BFS prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge). A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. Every assembled stream is then checked to survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to a realizable row."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
 
     boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
-    prefix = prefixes.get((row.left, row.input_glyph, row.right1))
+    # The backtrack cell's own third lookahead is this window's look2 (row.right2), so a backtrack whose withdrawal turns on the raw third slot must be realized by the prefix pinned to that same right3 — the flat shortest prefix can carry a right3 this rule never takes (the depth-3-conditional withdrawal case).
+    options = by_right3.get((row.left, row.input_glyph, row.right1), {})
+    prefix = options.get(row.right2)
+    if prefix is None:
+        prefix = options.get(NA_LABEL)
+    if prefix is None:
+        prefix = prefixes.get((row.left, row.input_glyph, row.right1))
     if prefix is None:
         prefix = prefixes.get((row.left, row.input_glyph, None))
     if prefix is None:
@@ -688,47 +713,101 @@ def _window_witness_tokens(spec, prefixes, row) -> tuple[str, ...] | None:
                 for name, rune in spec.runes.items()
                 if rune.sequence
             }
-            liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
-            if liga is not None:
-                follower = settle_module.RightToken("letter", _label_family(row.right2))
-                if not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
-                    second = next(
+            right3 = getattr(row, "right3", NA_LABEL)
+            if right3 not in (EDGE_LABEL, NA_LABEL):
+                # A pinned third slot doubles as the guard-firing follower the two search branches in the else-arm would otherwise hunt for a formation pair at (input, right1) — the table's right3 options already replay that guard's filters. A pair at (right1, right2) instead pushes its guard one slot over, onto (right3, right4), so its guard-firing token is searched at the fourth slot; a surviving pair at (right2, right3) likewise needs its own guard-firing token appended.
+                if right3 in boundary_labels:
+                    tokens.append(right3)
+                else:
+                    tokens.append(_label_family(right3))
+                    liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
+                    if liga_at_lookahead is not None:
+                        follower = settle_module.RightToken("letter", _label_family(right3))
+                        if not settle_module.formation_blocked(
+                            spec, liga_at_lookahead, follower, settle_module.EDGE
+                        ):
+                            second = next(
+                                (
+                                    name
+                                    for name in sorted(spec.runes)
+                                    if not spec.runes[name].sequence
+                                    and (_label_family(right3), name) not in pairs
+                                    and settle_module.formation_blocked(
+                                        spec,
+                                        liga_at_lookahead,
+                                        follower,
+                                        settle_module.RightToken("letter", name),
+                                    )
+                                ),
+                                None,
+                            )
+                            if second is None:
+                                return None
+                            tokens.append(second)
+                    liga_past = pairs.get((_label_family(row.right2), _label_family(right3)))
+                    if liga_past is not None and not settle_module.formation_blocked(
+                        spec, liga_past, settle_module.EDGE, settle_module.EDGE
+                    ):
+                        follower = next(
+                            (
+                                name
+                                for name in sorted(spec.runes)
+                                if not spec.runes[name].sequence
+                                and (_label_family(right3), name) not in pairs
+                                and settle_module.formation_blocked(
+                                    spec,
+                                    liga_past,
+                                    settle_module.RightToken("letter", name),
+                                    settle_module.EDGE,
+                                )
+                            ),
+                            None,
+                        )
+                        if follower is None:
+                            return None
+                        tokens.append(follower)
+            else:
+                liga = pairs.get((_label_family(row.input_glyph), _label_family(row.right1)))
+                if liga is not None:
+                    follower = settle_module.RightToken("letter", _label_family(row.right2))
+                    if not settle_module.formation_blocked(spec, liga, follower, settle_module.EDGE):
+                        second = next(
+                            (
+                                name
+                                for name in sorted(spec.runes)
+                                if not spec.runes[name].sequence
+                                and (_label_family(row.right2), name) not in pairs
+                                and settle_module.formation_blocked(
+                                    spec, liga, follower, settle_module.RightToken("letter", name)
+                                )
+                            ),
+                            None,
+                        )
+                        if second is None:
+                            return None
+                        tokens.append(second)
+                liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
+                if liga_at_lookahead is not None and not settle_module.formation_blocked(
+                    spec, liga_at_lookahead, settle_module.EDGE, settle_module.EDGE
+                ):
+                    follower = next(
                         (
                             name
                             for name in sorted(spec.runes)
                             if not spec.runes[name].sequence
                             and (_label_family(row.right2), name) not in pairs
                             and settle_module.formation_blocked(
-                                spec, liga, follower, settle_module.RightToken("letter", name)
+                                spec,
+                                liga_at_lookahead,
+                                settle_module.RightToken("letter", name),
+                                settle_module.EDGE,
                             )
                         ),
                         None,
                     )
-                    if second is None:
+                    if follower is None:
                         return None
-                    tokens.append(second)
-            liga_at_lookahead = pairs.get((_label_family(row.right1), _label_family(row.right2)))
-            if liga_at_lookahead is not None and not settle_module.formation_blocked(
-                spec, liga_at_lookahead, settle_module.EDGE, settle_module.EDGE
-            ):
-                follower = next(
-                    (
-                        name
-                        for name in sorted(spec.runes)
-                        if not spec.runes[name].sequence
-                        and (_label_family(row.right2), name) not in pairs
-                        and settle_module.formation_blocked(
-                            spec,
-                            liga_at_lookahead,
-                            settle_module.RightToken("letter", name),
-                            settle_module.EDGE,
-                        )
-                    ),
-                    None,
-                )
-                if follower is None:
-                    return None
-                tokens.append(follower)
+                    tokens.append(follower)
     if not _refolds_intact(spec, tokens):
         return None
     return tuple(tokens)
@@ -748,14 +827,19 @@ def _first_match_rows(decision) -> dict[int, list]:
                 continue
             if rule.look2 is not None and row.right2 not in rule.look2:
                 continue
+            look3 = getattr(rule, "look3", None)
+            if look3 is not None and getattr(row, "right3", "#NA") not in look3:
+                continue
             rows_by_rule.setdefault(index, []).append(row)
             break
     return rows_by_rule
 
 
-def _candidate_witness_tokens(spec, prefixes, rows, limit: int = 6) -> list[tuple[str, ...]]:
+def _candidate_witness_tokens(spec, prefixes, by_right3, rows, limit: int = 6) -> list[tuple[str, ...]]:
     candidates = {
-        tokens for row in rows if (tokens := _window_witness_tokens(spec, prefixes, row)) is not None
+        tokens
+        for row in rows
+        if (tokens := _window_witness_tokens(spec, prefixes, by_right3, row)) is not None
     }
     return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
 
@@ -763,7 +847,12 @@ def _candidate_witness_tokens(spec, prefixes, rows, limit: int = 6) -> list[tupl
 def rule_signature(rule) -> str:
     slots = ", ".join(
         f"{name}={list(value) if value is not None else 'any'}"
-        for name, value in (("backtrack", rule.backtrack), ("look1", rule.look1), ("look2", rule.look2))
+        for name, value in (
+            ("backtrack", rule.backtrack),
+            ("look1", rule.look1),
+            ("look2", rule.look2),
+            ("look3", getattr(rule, "look3", None)),
+        )
     )
     return f"{rule.input_glyph} [{slots}] -> {rule.outcome}"
 
@@ -783,19 +872,24 @@ def find_rule_witnesses(spec, features, decision, glyph_names=None) -> WitnessRe
 
     if glyph_names is None:
         glyph_names = {cell: cell_label(spec, cell) for cell in decision.reachable_cells()}
+    from rebuild.pipeline import table as table_module
+
+    deep = table_module.depth3_inputs(spec)
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
-    prefixes = _shortest_window_prefixes(decision)
+    prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
     report = WitnessReport(config=decision.config, rules=len(decision.rules))
     for index in range(len(decision.rules)):
         witness = None
-        for tokens in _candidate_witness_tokens(spec, prefixes, rows_by_rule.get(index, ())):
+        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rows_by_rule.get(index, ())):
             text = _token_text(spec, tokens)
             settled = settle_module.settle(spec, [ord(ch) for ch in text], features)
             expected = settled_names(spec, settled, glyph_names)
             if any(
                 matched == index
-                for _pos, _window, matched in _matched_windows(spec, text, features, expected, rules_by_input)
+                for _pos, _window, matched in _matched_windows(
+                    spec, text, features, expected, rules_by_input, deep
+                )
             ):
                 witness = text
                 break
@@ -867,9 +961,10 @@ def _conformance_config(
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
 
     result = ConformanceConfigResult(config=config)
+    deep = table_module.depth3_inputs(spec)
     modes: set[str] = set()
     rules_hit: set[int] = set()
-    realized: set[tuple[str, str, str, str]] = set()
+    realized: set[tuple[str, str, str, str, str]] = set()
 
     def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)
@@ -887,7 +982,7 @@ def _conformance_config(
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
         for _position, window, matched in _matched_windows(
-            spec, text, features, expected_cells, rules_by_input
+            spec, text, features, expected_cells, rules_by_input, deep
         ):
             realized.add(window)
             if matched is not None:
@@ -898,13 +993,13 @@ def _conformance_config(
             result.sequences += 1
             sweep_text("".join(combo))
 
-    prefixes = _shortest_window_prefixes(decision)
+    prefixes, by_right3 = _shortest_window_prefixes(decision)
     rows_by_rule = _first_match_rows(decision)
 
     swept = [index for index in range(len(decision.rules)) if index not in rules_hit]
     witnessed: dict[int, str] = {}
     for index in swept:
-        for tokens in _candidate_witness_tokens(spec, prefixes, rows_by_rule.get(index, ())):
+        for tokens in _candidate_witness_tokens(spec, prefixes, by_right3, rows_by_rule.get(index, ())):
             text = _token_text(spec, tokens)
             sweep_text(text)
             result.topped_up_sequences += 1
@@ -924,18 +1019,19 @@ def _conformance_config(
             f"{config}: settlement rule has no verifiable witness (dead code in the emitted FEA): {rule_signature(decision.rules[index])}"
         )
 
-    def renamed_key(row) -> tuple[str, str, str, str]:
+    def renamed_key(row) -> tuple[str, str, str, str, str]:
         return (
             renames.get(row.input_glyph, row.input_glyph),
             row.left,
             renames.get(row.right1, row.right1),
             renames.get(row.right2, row.right2),
+            renames.get(row.right3, row.right3),
         )
 
     for row in decision.transitions:
         if renamed_key(row) in realized:
             continue
-        tokens = _window_witness_tokens(spec, prefixes, row)
+        tokens = _window_witness_tokens(spec, prefixes, by_right3, row)
         if tokens is None:
             continue
         sweep_text(_token_text(spec, tokens))

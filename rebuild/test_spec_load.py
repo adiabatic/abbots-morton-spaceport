@@ -306,6 +306,64 @@ def test_refuse_right_then_rejected(tmp_path):
     )
 
 
+def test_right_chain_two_hops_accepted(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when: {right: {family: qsDay, then: {family: qsMay, then: {family: qsIt}}}}
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: [qsDay, qsMay]
+                except: [{family: qsDay, then: {family: qsMay, then: {family: qsIt}}}]
+        """)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+    prefer = spec.runes["qsIt"].policy.prefer
+    assert prefer[0].when.right.then.then.family == ("qsIt",)
+    assert prefer[1].when.right.except_[0].then.then.family == ("qsIt",)
+
+
+def test_right_chain_three_hops_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right: {family: qsDay, then: {family: qsMay, then: {family: qsIt, then: {family: qsDay}}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "at most two letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
+def test_right_chain_hops_carried_by_except_count_toward_the_cap(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: qsDay
+                then:
+                  family: qsMay
+                  except: [{family: qsMay, then: {family: qsIt, then: {family: qsDay}}}]
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "at most two letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
 def test_unknown_family(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:

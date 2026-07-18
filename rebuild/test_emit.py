@@ -18,6 +18,7 @@ class FakeRule:
     outcome: str
     joint: bool = False
     provenance: tuple = ()
+    look3: tuple | None = None
 
 
 @dataclass
@@ -119,6 +120,26 @@ class TestEmitGsub:
     def test_provenance_comments_ride_along(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
         assert "# joint row | p2" in plan.fea_text
+
+    def test_three_slot_rule_emits_a_third_lookahead_class(self, spec, glyphs):
+        names = {cell: record.name for cell, record in glyphs.items()}
+        it_ex = names[CellId("qsIt", "hapax", None, "baseline", ())]
+        rules = [
+            FakeRule(
+                "qsIt", None, ("qsMay",), ("qsTea",), it_ex, provenance=("p9",), look3=("qsOy", "qsPea")
+            ),
+            FakeRule("qsIt", None, ("qsMay",), ("qsTea",), "qsIt", provenance=("p9",)),
+        ]
+        plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(rules)}, glyphs=glyphs)
+        settle_block = plan.fea_text.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        three_slot_line = next(line for line in settle_block.splitlines() if it_ex in line)
+        assert f"sub qsIt' qsMay qsTea @s_qsIt_la3_0 by {it_ex};" in three_slot_line
+        assert "@s_qsIt_la3_0 = [qsOy qsPea];" in plan.class_definitions
+
+    def test_locked_twin_in_look3_raises(self, spec, glyphs):
+        bad = [FakeRule("qsIt", None, ("qsMay",), None, "qsIt", provenance=(), look3=("qsTea.noentry",))]
+        with pytest.raises(emit_gsub.EmitError):
+            emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(bad)}, glyphs=glyphs)
 
     def test_locked_twin_in_lookahead_raises(self, spec, glyphs):
         bad = [FakeRule("qsIt", None, ("qsTea.noentry",), None, "qsIt", provenance=())]

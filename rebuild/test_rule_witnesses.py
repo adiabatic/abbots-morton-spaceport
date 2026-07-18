@@ -43,6 +43,7 @@ def test_dead_rule_raises_the_alarm():
         backtrack=("qsNever.loop",),
         look1=None,
         look2=None,
+        look3=None,
         outcome="qsMay",
         provenance=(),
         joint=False,
