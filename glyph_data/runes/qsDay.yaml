@@ -80,6 +80,7 @@ policy:
   - cell: {exit: none}
     over: {exit: baseline}
     when: {right: {family: qsTea, then: {family: qsNo, then: {family: [qsTea, qsMay, qsLow]}}}}
+    why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·No.alt`'
   - cell: {exit: none}
     over: {exit: baseline}
     when:
@@ -87,6 +88,7 @@ policy:
       right:
         family: qsTea
         then: {family: qsUtter, except: [{family: qsUtter, then: {family: [qsTea, qsLow]}}]}
+    why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·Utter`'
   - cell: {exit: none}
     over: {exit: baseline}
     when:

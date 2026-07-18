@@ -69,6 +69,7 @@ policy:
   - cell: {exit: x-height}
     over: {exit: baseline}
     when: {left: {is: boundary}, right: {family: qsUtter, then: {family: qsMay}}}
+    why: 'if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height'
   extend: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsFee}}}]
   contract: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsJai}}}]
   resolve: []
