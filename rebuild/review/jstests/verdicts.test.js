@@ -10,6 +10,7 @@ import {
   assembleExport,
   markExported,
   importVerdicts,
+  recentNotes,
   verdictCounts,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
@@ -255,4 +256,53 @@ test('identical is a first-class verdict kind: recordable, countable, undoable',
   assert.equal(verdictCounts(store).identical, 1);
   undo(store);
   assert.equal(store.records.has('u-0001'), false);
+});
+
+test('recentNotes returns distinct notes newest-first by their at stamp', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'oldest note', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'middle note', at: '2026-06-10T10:00:00Z' });
+  recordVerdict(store, 'u-0003', 'reject', { note: 'newest note', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['newest note', 'middle note', 'oldest note']);
+});
+
+test('recentNotes dedupes a note across units and ranks it by its newest stamp', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'reached-for seam', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'clean baseline join', at: '2026-06-10T10:00:00Z' });
+  recordVerdict(store, 'u-0003', 'reject', { note: 'reached-for seam', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['reached-for seam', 'clean baseline join']);
+});
+
+test('recentNotes filters by verdict kind, and null gathers every kind', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'reject note', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'neither', { note: 'neither note', at: '2026-06-10T10:00:00Z' });
+  recordVerdict(store, 'u-0003', 'reject', { note: 'later reject note', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store, 'reject'), ['later reject note', 'reject note']);
+  assert.deepEqual(recentNotes(store, 'neither'), ['neither note']);
+  assert.deepEqual(recentNotes(store, null), ['later reject note', 'neither note', 'reject note']);
+  assert.deepEqual(recentNotes(store), ['later reject note', 'neither note', 'reject note']);
+});
+
+test('recentNotes drops notes matching an exclude entry', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'keep me', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'drop me', at: '2026-06-10T10:00:00Z' });
+  assert.deepEqual(recentNotes(store, 'reject', { exclude: ['drop me'] }), ['keep me']);
+});
+
+test('recentNotes caps the result at the requested limit', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'note one', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'note two', at: '2026-06-10T10:00:00Z' });
+  recordVerdict(store, 'u-0003', 'reject', { note: 'note three', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store, 'reject', { limit: 2 }), ['note three', 'note two']);
+});
+
+test('recentNotes never returns an empty note', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['real note']);
 });

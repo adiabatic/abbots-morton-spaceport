@@ -134,6 +134,20 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
   return { ok: true, mismatch, added, replaced, keptNewer, invalid, units };
 }
 
+export function recentNotes(store, verdict = null, { limit = 10, exclude = [] } = {}) {
+  const excluded = new Set(exclude);
+  const newestAt = new Map();
+  for (const record of store.records.values()) {
+    if (verdict !== null && record.verdict !== verdict) continue;
+    if (!record.note || excluded.has(record.note)) continue;
+    const seen = newestAt.get(record.note);
+    if (seen === undefined || record.at > seen) newestAt.set(record.note, record.at);
+  }
+  const notes = [...newestAt.keys()];
+  notes.sort((a, b) => (newestAt.get(a) < newestAt.get(b) ? 1 : newestAt.get(a) > newestAt.get(b) ? -1 : 0));
+  return notes.slice(0, limit);
+}
+
 export function verdictCounts(store) {
   const counts = { approve: 0, reject: 0, either: 0, identical: 0, neither: 0, skip: 0 };
   for (const record of store.records.values()) counts[record.verdict] += 1;

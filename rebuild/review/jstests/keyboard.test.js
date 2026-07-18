@@ -10,6 +10,7 @@ const EXPECTED = [
   ['c', 'neither'],
   ['e', 'identical'],
   ['u', 'undo'],
+  ['r', 'repeat'],
   ['n', 'note'],
   ['g', 'group-approve'],
   ['x', 'explain'],
@@ -131,4 +132,35 @@ test('reject-menu choices respect input focus and modifiers, but Escape still ca
   assert.equal(actionForKey('s', { rejectMenuOpen: true, inInput: true }), null);
   assert.equal(actionForKey('a', { rejectMenuOpen: true, modified: true }), null);
   assert.equal(actionForKey('Escape', { rejectMenuOpen: true, inInput: true }), 'reject-cancel');
+});
+
+test('while the reject menu is open, an unmapped digit picks a recent reject note', () => {
+  assert.equal(actionForKey('1', { rejectMenuOpen: true }), 'reject-recent-1');
+  assert.equal(actionForKey('7', { rejectMenuOpen: true }), 'reject-recent-7');
+  assert.equal(actionForKey('9', { rejectMenuOpen: true }), 'reject-recent-9');
+});
+
+test('while the neither menu is open, an unmapped digit picks a recent neither note', () => {
+  assert.equal(actionForKey('1', { neitherMenuOpen: true }), 'neither-recent-1');
+  assert.equal(actionForKey('4', { neitherMenuOpen: true }), 'neither-recent-4');
+  assert.equal(actionForKey('9', { neitherMenuOpen: true }), 'neither-recent-9');
+});
+
+test('the zero key selects the tenth recent note in either menu', () => {
+  assert.equal(actionForKey('0', { rejectMenuOpen: true }), 'reject-recent-0');
+  assert.equal(actionForKey('0', { neitherMenuOpen: true }), 'neither-recent-0');
+});
+
+test('menu digit shortcuts are suppressed under modifiers or input focus', () => {
+  assert.equal(actionForKey('1', { rejectMenuOpen: true, modified: true }), null);
+  assert.equal(actionForKey('1', { rejectMenuOpen: true, inInput: true }), null);
+  assert.equal(actionForKey('0', { neitherMenuOpen: true, modified: true }), null);
+  assert.equal(actionForKey('0', { neitherMenuOpen: true, inInput: true }), null);
+});
+
+test('digits stay unbound when no menu is open', () => {
+  for (const key of ['0', '1', '5', '9']) {
+    assert.equal(actionForKey(key), null, `key ${key}`);
+    assert.equal(actionForKey(key, { overlayOpen: true }), null, `key ${key}`);
+  }
 });
