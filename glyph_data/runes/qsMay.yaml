@@ -66,7 +66,7 @@ stances:
           - {family: qsAh}
           - {family: qsUtter}
       exits: {x-height: {x: 5, stroke: horizontal}}
-      pairings: {never: [{entry: baseline, exit: baseline}, {entry: x-height, exit: x-height}]}
+      pairings: {never: [{entry: x-height, exit: x-height}]}
       cells: []
       unlocks: []
       require: []
