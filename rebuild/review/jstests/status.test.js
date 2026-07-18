@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { bannerModel } from '../static/status.js';
+import { bannerModel, remedyCommand } from '../static/status.js';
 
 function checks(overrides = {}) {
   return {
@@ -28,6 +28,7 @@ test('a missing status reports the server as unavailable', () => {
   assert.equal(model.level, 'error');
   assert.equal(model.text, 'Status unavailable');
   assert.equal(model.remedy, 'restart the review server (make review-serve)');
+  assert.equal(model.command, 'make review-serve');
 });
 
 test('an undefined status is also unavailable', () => {
@@ -52,6 +53,7 @@ test('a surface rebuilt since the page loaded is stale', () => {
   assert.equal(model.level, 'stale');
   assert.equal(model.text, 'Surface rebuilt since this page loaded');
   assert.equal(model.remedy, 'reload the page');
+  assert.equal(model.command, null);
 });
 
 test('a surface check failure is stale and carries its own detail and remedy', () => {
@@ -62,6 +64,34 @@ test('a surface check failure is stale and carries its own detail and remedy', (
   assert.equal(model.level, 'stale');
   assert.equal(model.text, 'surface dir missing');
   assert.equal(model.remedy, 'run make review-build');
+});
+
+test('a command remedy is surfaced for copying; a prose remedy is not', () => {
+  const stale = bannerModel(
+    withChecks({
+      freshness: {
+        level: 'fail',
+        detail: 'The build inputs changed since the surface was generated: rune sources.',
+        remedy: "make artifact-cycle ARGS='--verdicts rebuild/evidence/verdicts-carried-0f5155b.json'",
+        components: {},
+      },
+    }),
+    'gen-1',
+  );
+  assert.equal(stale.command, "make artifact-cycle ARGS='--verdicts rebuild/evidence/verdicts-carried-0f5155b.json'");
+  const prose = bannerModel(
+    withChecks({ verdict_store: { level: 'warn', detail: 'store stale', remedy: 'Import the carried verdicts in the app.' } }),
+    'gen-1',
+  );
+  assert.equal(prose.command, null);
+});
+
+test('remedyCommand recognizes make and uv run invocations only', () => {
+  assert.equal(remedyCommand('make review-build'), 'make review-build');
+  assert.equal(remedyCommand('uv run python -m rebuild.review.build'), 'uv run python -m rebuild.review.build');
+  assert.equal(remedyCommand('run make review-build'), null);
+  assert.equal(remedyCommand('reload the page'), null);
+  assert.equal(remedyCommand(null), null);
 });
 
 test('the fail scan takes freshness before gates', () => {
@@ -134,6 +164,7 @@ test('an all-clear surface is ready with the blank count', () => {
   assert.equal(model.level, 'ready');
   assert.equal(model.text, 'Ready — 484 blanks left');
   assert.equal(model.remedy, null);
+  assert.equal(model.command, null);
 });
 
 test('a ready surface with an unknown blank count omits the number', () => {

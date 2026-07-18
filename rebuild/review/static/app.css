@@ -143,6 +143,9 @@ summary:focus-visible {
 }
 
 .readiness {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 13px;
   font-weight: 600;
   padding: 0.1rem 0.6em;
@@ -150,6 +153,18 @@ summary:focus-visible {
   border-radius: 8px;
   color: var(--readiness-color, var(--muted));
   background: color-mix(in srgb, var(--readiness-color, transparent) 12%, transparent);
+
+  .readiness-copy {
+    flex: none;
+    font-size: 11px;
+    font-weight: 400;
+    padding: 0.1rem 0.45rem;
+
+    &.copied {
+      border-color: var(--approve);
+      color: var(--approve);
+    }
+  }
 
   &.readiness-ready {
     --readiness-color: var(--approve);
