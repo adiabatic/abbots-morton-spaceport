@@ -4,7 +4,7 @@ It mechanizes the commit-time sequence: snapshot the current review surface (the
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and queues behind gate:rebuild, so its per-config process pool only spins up once the box is free.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, queues behind gate:make-test — co-resident with gate:rebuild's pytest pool rather than after it — since conform is short again post-depth-4-pruning and waiting out gate:rebuild would only add that pool's ~3 minutes to the critical path. Its per-config process pool spins up once the t=0 make-test pool has drained.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
@@ -406,7 +406,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     else:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:rebuild (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test, then CO-RESIDENT with gate:rebuild's pool (--jobs {plan.conform_jobs})"
         )
     lines.append(
         f"    build-stage --jobs budget        : {plan.job_budget}  (a 12-way `make test` owns the cores)"
@@ -783,16 +783,16 @@ def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _St
 
 def _gate_conform_task(
     pool_policy: str,
-    rebuild_fut: Future | None,
+    make_fut: Future | None,
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:rebuild — the tail of the make-test -> rebuild chain — so its per-config process pool only spins up once both pytest pools have drained. The stale conform_summary.json was unlinked before run_m1 started, so the verdict here can only come from this cycle's subprocess."""
-    if pool_policy == "queue" and rebuild_fut is not None:
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:make-test — the head of the make-test -> rebuild chain — so its per-config process pool spins up once the t=0 make-test pool has drained, co-resident with gate:rebuild's pytest pool. Conform is short after the depth-4 pruning, so queueing it behind gate:rebuild too would only pile that pool's runtime onto the critical path; it stays a process pool, not a pytest pool, so the one-12-way-pytest-pool-at-a-time invariant (make-test then rebuild, guarded by gate:rebuild's own wait on make_fut) is untouched. The stale conform_summary.json was unlinked before run_m1 started, so the verdict here can only come from this cycle's subprocess."""
+    if pool_policy == "queue" and make_fut is not None:
         try:
-            rebuild_fut.result()
+            make_fut.result()
         except Exception:
             pass
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
@@ -915,7 +915,7 @@ def _run_cycle(
                 conform_fut = pool.submit(
                     _gate_conform_task,
                     plan.pool_policy,
-                    rebuild_fut,
+                    make_fut,
                     spawn,
                     emit,
                     registry,

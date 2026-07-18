@@ -360,7 +360,7 @@ def _rebuild_green(pool_policy, make_fut, spawn, emit, registry, update_pins):
     return ac._RebuildOutcome("green", [], [])
 
 
-def _conform_green(pool_policy, rebuild_fut, spawn, emit, registry, argv):
+def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
     return "green", []
 
 
@@ -552,10 +552,19 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     assert record["rebuild_start"] >= record["run_m1_finish"]
 
 
-def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
+def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypatch, tmp_path):
     record = {}
+    release_make = threading.Event()
+    make_running = threading.Event()
     release_rebuild = threading.Event()
     rebuild_running = threading.Event()
+    conform_started = threading.Event()
+
+    def fake_make(spawn, emit, registry):
+        make_running.set()
+        release_make.wait()
+        record["make_finish"] = time.monotonic()
+        return _step("gate:make-test", 0)
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         rebuild_running.set()
@@ -567,6 +576,7 @@ def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
         if name == "gate:conform":
             record["conform_start"] = time.monotonic()
             record["conform_argv"] = argv
+            conform_started.set()
         return _step(name, 0)
 
     summary_path = tmp_path / "conform_summary.json"
@@ -576,7 +586,7 @@ def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     _patch_build_chain(monkeypatch)
 
@@ -589,11 +599,16 @@ def test_pool_queue_serializes_conform_after_rebuild(monkeypatch, tmp_path):
         )
     )
     t.start()
+    make_running.wait()
     rebuild_running.wait()
+    assert "conform_start" not in record
+    release_make.set()
+    conform_started.wait()
+    assert "rebuild_finish" not in record
     release_rebuild.set()
     t.join()
 
-    assert record["conform_start"] >= record["rebuild_finish"]
+    assert record["conform_start"] >= record["make_finish"]
     assert record["conform_argv"][:6] == [
         "uv",
         "run",
@@ -920,7 +935,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane build" in text
     assert "Lane rebuild" in text
     assert "Lane conform" in text
-    assert "QUEUED behind gate:rebuild" in text
+    assert "CO-RESIDENT with gate:rebuild's pool" in text
     assert "--jobs budget        : 1" in text
 
     by_name = {step.name: step for step in plan.steps}
