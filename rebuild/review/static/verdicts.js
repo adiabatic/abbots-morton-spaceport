@@ -134,14 +134,21 @@ export function importVerdicts(store, data, manifestGeneratedAt, { force = false
   return { ok: true, mismatch, added, replaced, keptNewer, invalid, units };
 }
 
+const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[carried [^\]]*\])+\s*/;
+
+export function stripCarriedProvenance(note) {
+  return note.replace(CARRIED_PROVENANCE_PREFIX, '');
+}
+
 export function recentNotes(store, verdict = null, { limit = 10, exclude = [] } = {}) {
   const excluded = new Set(exclude);
   const newestAt = new Map();
   for (const record of store.records.values()) {
     if (verdict !== null && record.verdict !== verdict) continue;
-    if (!record.note || excluded.has(record.note)) continue;
-    const seen = newestAt.get(record.note);
-    if (seen === undefined || record.at > seen) newestAt.set(record.note, record.at);
+    const note = stripCarriedProvenance(record.note);
+    if (!note || excluded.has(note)) continue;
+    const seen = newestAt.get(note);
+    if (seen === undefined || record.at > seen) newestAt.set(note, record.at);
   }
   const notes = [...newestAt.keys()];
   notes.sort((a, b) => (newestAt.get(a) < newestAt.get(b) ? 1 : newestAt.get(a) > newestAt.get(b) ? -1 : 0));

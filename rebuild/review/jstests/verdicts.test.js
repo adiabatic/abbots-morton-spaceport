@@ -306,3 +306,54 @@ test('recentNotes never returns an empty note', () => {
   recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
   assert.deepEqual(recentNotes(store), ['real note']);
 });
+
+test('recentNotes strips stacked carried-forward provenance markers from a note', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[carried u-23958@review-pre-85f66b0, verdicted 2026-07-17] [carried u-23697@review-pre-0f5155b, verdicted 2026-07-17] the new way fails to join for no obvious reason',
+    at: '2026-06-10T09:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), ['the new way fails to join for no obvious reason']);
+});
+
+test('recentNotes merges a carried copy with its hand-typed twin under the newest stamp', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', { note: 'seam overshoots', at: '2026-06-10T09:00:00Z' });
+  recordVerdict(store, 'u-0002', 'reject', {
+    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] seam overshoots',
+    at: '2026-06-10T10:00:00Z',
+  });
+  recordVerdict(store, 'u-0003', 'reject', { note: 'later note', at: '2026-06-10T11:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['later note', 'seam overshoots']);
+});
+
+test('recentNotes drops a carried note whose stripped text matches an exclude entry', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the old way seems nicer to write out by hand',
+    at: '2026-06-10T09:00:00Z',
+  });
+  const excluded = recentNotes(store, 'reject', { exclude: ['the old way seems nicer to write out by hand'] });
+  assert.deepEqual(excluded, []);
+});
+
+test('recentNotes drops a note that is nothing but provenance markers', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
+    at: '2026-06-10T09:00:00Z',
+  });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['real note']);
+});
+
+test('recentNotes leaves a carried mention after real text untouched', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: 'compare with [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] handling',
+    at: '2026-06-10T09:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), [
+    'compare with [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] handling',
+  ]);
+});
