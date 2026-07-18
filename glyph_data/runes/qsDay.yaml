@@ -87,7 +87,16 @@ policy:
       self: {entry: live}
       right:
         family: qsTea
-        then: {family: qsUtter, except: [{family: qsUtter, then: {family: [qsTea, qsLow]}}]}
+        then:
+          family: qsUtter
+          except:
+          - {family: qsUtter, then: {family: qsLow}}
+          - family: qsUtter
+            then:
+              family: qsTea
+              except:
+              - family: qsTea
+                then: {family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsUtter]}
     why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·Utter`'
   - cell: {exit: none}
     over: {exit: baseline}

@@ -658,8 +658,12 @@ def _shortest_window_prefixes(decision):
             successor = (row.outcome, row.right1, row.right2)
             options = by_right3.setdefault(successor, {})
             deep_key = (row.right3, row.right4)
-            if deep_key not in options or len(extended) < len(options[deep_key]):
-                options[deep_key] = extended
+            bucket = options.setdefault(deep_key, [])
+            if extended not in bucket:
+                # Keep a few shortest alternates, not just the winner: distinct producer paths collapse onto one deep-key (both #NA when the producer is not deep), and a deep record further upstream can invalidate the shortest path for specific target windows — the ·Day·Tea·No·Tea route to a ·Tea.en-y0 left is the worked case.
+                bucket.append(extended)
+                bucket.sort(key=lambda p: (len(p), p))
+                del bucket[6:]
             if successor in prefixes:
                 continue
             prefixes[successor] = extended
@@ -689,25 +693,39 @@ def _refolds_intact(spec, tokens) -> bool:
     return labels == list(tokens)
 
 
-def _window_witness_tokens(spec, prefixes, by_right3, row) -> tuple[str, ...] | None:
-    """Assemble the token stream that realizes one transition row's window: the BFS prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge). A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. Every assembled stream is then checked to survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to a realizable row."""
+def _window_witness_candidates(spec, prefixes, by_right3, row) -> list[tuple[str, ...]]:
+    """Assemble candidate token streams that could realize one transition row's window, most-plausible prefix first: the BFS prefixes pinned to the row's own deep slots, then the unpinned buckets, then the flat shortest prefixes. Several candidates exist because a deep record upstream of the prefix can invalidate one path for this row's specific right context while another path stays realizable; the caller sweeps or settles each until the window is actually realized."""
+    from rebuild.pipeline.table import NA_LABEL
+
+    # The backtrack cell's own third and fourth lookaheads are this window's look2 and look3 (row.right2, row.right3), so a backtrack whose withdrawal turns on a raw deep slot must be realized by a prefix pinned to those same values — a flat shortest prefix can carry deep slots this rule never takes (the depth-3-/depth-4-conditional withdrawal cases).
+    options = by_right3.get((row.left, row.input_glyph, row.right1), {})
+    ordered_prefixes: list[tuple[str, ...]] = []
+    for bucket_key in (
+        (row.right2, getattr(row, "right3", NA_LABEL)),
+        (row.right2, NA_LABEL),
+        (NA_LABEL, NA_LABEL),
+    ):
+        for prefix in options.get(bucket_key, ()):
+            if prefix not in ordered_prefixes:
+                ordered_prefixes.append(prefix)
+    for flat_key in ((row.left, row.input_glyph, row.right1), (row.left, row.input_glyph, None)):
+        prefix = prefixes.get(flat_key)
+        if prefix is not None and prefix not in ordered_prefixes:
+            ordered_prefixes.append(prefix)
+    candidates: list[tuple[str, ...]] = []
+    for prefix in ordered_prefixes[:6]:
+        tokens = _assemble_window_witness(spec, prefix, row)
+        if tokens is not None and tokens not in candidates:
+            candidates.append(tokens)
+    return candidates
+
+
+def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
+    """One candidate stream from one prefix: the prefix, the input, then just enough right context to pin right1/right2 (a boundary token, a letter, or nothing for the text edge) plus the pinned deep slots. A window whose input and right1 are a formation pair exists only where the section 5.7 guard fires, and the guard's second slot is the token after right2 — beyond what the window pins — so such a witness is extended with a second-slot letter under which the guard fires. The assembled stream must survive the raw replay unchanged (`_refolds_intact`); a stream the guard would refold differently — a prefix ligature un-formed, an adjacent pair re-formed — is discarded so the caller falls through to the next candidate."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline.table import BOUNDARY_LEFT_LABELS, EDGE_LABEL, NA_LABEL
 
     boundary_labels = {label for kind, label in BOUNDARY_LEFT_LABELS.items() if kind != "edge"}
-    # The backtrack cell's own third and fourth lookaheads are this window's look2 and look3 (row.right2, row.right3), so a backtrack whose withdrawal turns on a raw deep slot must be realized by the prefix pinned to those same values — the flat shortest prefix can carry deep slots this rule never takes (the depth-3-/depth-4-conditional withdrawal cases).
-    options = by_right3.get((row.left, row.input_glyph, row.right1), {})
-    prefix = options.get((row.right2, getattr(row, "right3", NA_LABEL)))
-    if prefix is None:
-        prefix = options.get((row.right2, NA_LABEL))
-    if prefix is None:
-        prefix = options.get((NA_LABEL, NA_LABEL))
-    if prefix is None:
-        prefix = prefixes.get((row.left, row.input_glyph, row.right1))
-    if prefix is None:
-        prefix = prefixes.get((row.left, row.input_glyph, None))
-    if prefix is None:
-        return None
     tokens = list(prefix) + [_label_family(row.input_glyph)]
     if row.right1 == EDGE_LABEL:
         pass
@@ -902,11 +920,9 @@ def _first_match_rows(decision) -> dict[int, list]:
     return rows_by_rule
 
 
-def _candidate_witness_tokens(spec, prefixes, by_right3, rows, limit: int = 6) -> list[tuple[str, ...]]:
+def _candidate_witness_tokens(spec, prefixes, by_right3, rows, limit: int = 10) -> list[tuple[str, ...]]:
     candidates = {
-        tokens
-        for row in rows
-        if (tokens := _window_witness_tokens(spec, prefixes, by_right3, row)) is not None
+        tokens for row in rows for tokens in _window_witness_candidates(spec, prefixes, by_right3, row)
     }
     return sorted(candidates, key=lambda tokens: (len(tokens), tokens))[:limit]
 
@@ -1100,13 +1116,14 @@ def _conformance_config(
         )
 
     for row in decision.transitions:
-        if renamed_key(row) in realized:
+        key = renamed_key(row)
+        if key in realized:
             continue
-        tokens = _window_witness_tokens(spec, prefixes, by_right3, row)
-        if tokens is None:
-            continue
-        sweep_text(_token_text(spec, tokens))
-        result.topped_up_sequences += 1
+        for tokens in _window_witness_candidates(spec, prefixes, by_right3, row):
+            sweep_text(_token_text(spec, tokens))
+            result.topped_up_sequences += 1
+            if key in realized:
+                break
     unrealized = [row for row in decision.transitions if renamed_key(row) not in realized]
     result.uncovered_transitions = len(unrealized)
     if unrealized:

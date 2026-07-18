@@ -16,6 +16,9 @@ NONE_STATE = "none"
 WITHDRAWN_SUFFIX = "-withdrawn"
 
 RIGHT_WINDOW_SLOTS = 4  # right1..rightN, the raw window settlement sees; table.py asserts its Transition/Rule arity against this at import, so a chain-cap raise without the matching table widening fails loudly instead of baking records past the window in silently
+RIGHT_CHAIN_CAP = (
+    RIGHT_WINDOW_SLOTS - 1
+)  # then:/except-carried hops past the immediate right neighbor that spec_load's lint admits — derived, never set independently of the window
 
 
 @dataclass(frozen=True)

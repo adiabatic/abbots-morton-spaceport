@@ -112,7 +112,7 @@ class TestPickMostSpecific:
 
 
 class TestDepthThreeChainSpecificity:
-    """The depth-3 chain records must not move in the section 6.2 order: `_side_axes` walks only the spine of `then:` hops and `_family_set` conservatively ignores multi-axis `except:` entries, so a chain carried by an `except` adds no axis and subtracts nothing — the edited record ranks exactly as its pre-chain shape did."""
+    """The depth-3 and depth-4 chain records must not move in the section 6.2 order: `_side_axes` walks only the spine of `then:` hops and `_family_set` conservatively ignores multi-axis `except:` entries, so a chain carried by an `except` adds no axis and subtracts nothing — the edited record ranks exactly as its pre-chain shape did."""
 
     @pytest.fixture(scope="class")
     def real_spec(self):
@@ -134,8 +134,8 @@ class TestDepthThreeChainSpecificity:
 
     @pytest.mark.parametrize(
         "rune,index",
-        (("qsDay", 1), ("qsOy", 0), ("qsTea_qsOy", 0)),
-        ids=("qsDay.prefer1", "qsOy.prefer0", "qsTea_qsOy.prefer0"),
+        (("qsDay", 1), ("qsDay", 4), ("qsOy", 0), ("qsTea_qsOy", 0)),
+        ids=("qsDay.prefer1", "qsDay.prefer4", "qsOy.prefer0", "qsTea_qsOy.prefer0"),
     )
     def test_edited_records_keep_their_axes_and_rank(self, real_spec, rune, index):
         from dataclasses import replace

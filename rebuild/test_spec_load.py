@@ -5,8 +5,9 @@ import warnings
 from pathlib import Path
 
 import pytest
+import yaml
 
-from rebuild.pipeline import spec_load
+from rebuild.pipeline import model, spec_load
 from rebuild.pipeline.model import Condition
 from rebuild.pipeline.spec_load import SpecError, SpecWarning, load_default_spec, load_spec
 
@@ -95,7 +96,9 @@ def test_loads_all_six_runes(spec):
 def test_ductus_shapes(spec):
     may = spec.runes["qsMay"].ductus
     assert "clockwise" in may["loop"]
-    assert spec.runes["qsIt"].ductus["hapax"].strip() == "- Either written from top to bottom or bottom to top."
+    assert (
+        spec.runes["qsIt"].ductus["hapax"].strip() == "- Either written from top to bottom or bottom to top."
+    )
 
 
 def test_registry_contents(spec):
@@ -201,7 +204,9 @@ def test_lone_stance_must_be_hapax(tmp_path):
                 baseline: {x: 1, withdrawal: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("single-stance rune must name its sole stance 'hapax'" in issue.message for issue in error.issues)
+    assert any(
+        "single-stance rune must name its sole stance 'hapax'" in issue.message for issue in error.issues
+    )
     assert any("stances.bar" in issue.path for issue in error.issues)
 
 
@@ -249,7 +254,9 @@ def test_lone_motion_must_be_hapax(tmp_path):
                 baseline: {x: 1, withdrawal: safe}
         """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
-    assert any("single-motion ductus must name its sole motion 'hapax'" in issue.message for issue in error.issues)
+    assert any(
+        "single-motion ductus must name its sole motion 'hapax'" in issue.message for issue in error.issues
+    )
     assert any("ductus.bar" in issue.path for issue in error.issues)
 
 
@@ -328,7 +335,7 @@ def test_right_chain_two_hops_accepted(tmp_path):
     assert prefer[1].when.right.except_[0].then.then.family == ("qsIt",)
 
 
-def test_right_chain_three_hops_rejected(tmp_path):
+def test_right_chain_three_hops_accepted(tmp_path):
     text = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           prefer:
@@ -337,15 +344,48 @@ def test_right_chain_three_hops_rejected(tmp_path):
             when:
               right: {family: qsDay, then: {family: qsMay, then: {family: qsIt, then: {family: qsDay}}}}
         """)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+    prefer = spec.runes["qsIt"].policy.prefer
+    assert prefer[0].when.right.then.then.then.family == ("qsDay",)
+
+
+def test_right_chain_four_hops_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right: {family: qsDay, then: {family: qsMay, then: {family: qsIt, then: {family: qsDay, then: {family: qsMay}}}}}
+        """)
     error = load_tmp_error(tmp_path, {"qsIt": text})
     assert any(
-        "at most two letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        "at most three letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
         for issue in error.issues
     )
 
 
 def test_right_chain_hops_carried_by_except_count_toward_the_cap(tmp_path):
-    text = MINIMAL_RUNE + textwrap.dedent("""\
+    rejected = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: qsDay
+                then:
+                  family: qsMay
+                  except: [{family: qsMay, then: {family: qsIt, then: {family: qsDay, then: {family: qsMay}}}}]
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": rejected})
+    assert any(
+        "at most three letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+    accepted = MINIMAL_RUNE + textwrap.dedent("""\
         policy:
           prefer:
           - cell: {exit: none}
@@ -357,9 +397,46 @@ def test_right_chain_hops_carried_by_except_count_toward_the_cap(tmp_path):
                   family: qsMay
                   except: [{family: qsMay, then: {family: qsIt, then: {family: qsDay}}}]
         """)
-    error = load_tmp_error(tmp_path, {"qsIt": text})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": accepted})
+    right = spec.runes["qsIt"].policy.prefer[0].when.right
+    assert right.then.except_[0].then.then.family == ("qsDay",)
+
+
+def _right_then_chain(reach: int) -> dict:
+    node: dict = {"family": "qsIt"}
+    for _ in range(reach):
+        node = {"family": "qsDay", "then": node}
+    return node
+
+
+def _rune_with_right_chain(reach: int) -> str:
+    policy = {
+        "policy": {
+            "prefer": [
+                {
+                    "cell": {"exit": "none"},
+                    "over": {"exit": "baseline"},
+                    "when": {"right": _right_then_chain(reach)},
+                }
+            ]
+        }
+    }
+    return MINIMAL_RUNE + yaml.safe_dump(policy, sort_keys=False)
+
+
+def test_right_chain_cap_tracks_the_window_constant(tmp_path):
+    assert model.RIGHT_CHAIN_CAP == model.RIGHT_WINDOW_SLOTS - 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": _rune_with_right_chain(model.RIGHT_CHAIN_CAP)})
+    assert spec.runes["qsIt"].policy.prefer[0].when.right is not None
+    error = load_tmp_error(tmp_path, {"qsIt": _rune_with_right_chain(model.RIGHT_CHAIN_CAP + 1)})
+    expected_word = spec_load._CAP_WORDS[model.RIGHT_CHAIN_CAP]
     assert any(
-        "at most two letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        f"at most {expected_word} letters past" in issue.message
+        and "policy.prefer[0].when.right" in issue.path
         for issue in error.issues
     )
 

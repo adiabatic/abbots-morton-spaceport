@@ -521,7 +521,7 @@ def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
     )
 
 
-# The depth-3 regression pins (doc/rebuild-design.md section 3.4, the orphaned-·Tea windows): in ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor used to withdraw its baseline exit on the prospect that ·Tea would join forward into ·Utter, and qsUtter's ·Low-scoped prefer then vetoed the entry, leaving ·Tea joined on neither side. The depth-3 chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit exactly there, restoring the old font's y0,break,y0 grouping; the contrast windows pin that the yield still fires everywhere else.
+# The depth-3 regression pins (doc/rebuild-design.md section 3.4, the orphaned-·Tea windows): in ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor used to withdraw its baseline exit on the prospect that ·Tea would join forward into ·Utter, and qsUtter's ·Low-scoped prefer then vetoed the entry, leaving ·Tea joined on neither side. The depth-3 chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit exactly there, restoring the old font's y0,break,y0 grouping; the contrast windows pin that the yield still fires everywhere else. The depth-4 sextet carries the same phenomenon one token deeper: qsDay.policy.prefer[4]'s entry-live carve-out reads the fourth raw glyph, so ·Pea·Day·Tea·Utter·Tea·May withdraws ·Day's exit and joins ·Tea forward into ·Utter when the fourth letter is an orphan follower, while the rescue still holds when the tail stays joinable (·Pea, or a word-final stop) and ss03 keeps the y5 ·Utter·Tea escape; these windows run five and six letters, past the acceptance oracle's four-letter horizon, so they are pinned here by hand.
 
 
 ORPHANED_TEA_ROWS = (
@@ -551,6 +551,69 @@ ORPHANED_TEA_ROWS = (
 )
 @pytest.mark.parametrize("features", ((), ("ss03",)), ids=["default", "ss03"])
 def test_orphaned_tea_depth3_windows(real_spec, sequence, features, expected):
+    assert _real_labels(real_spec, sequence, features) == expected
+
+
+ORPHAN_DEPTH4_ROWS = (
+    (
+        "qsPea qsDay qsTea qsUtter qsTea qsMay",
+        (),
+        (
+            "qsPea.full.ex-y0",
+            "qsDay.half.en-y0",
+            "qsTea.full.ex-y0",
+            "qsUtter.mono.en-y0",
+            "qsTea.full.ex-y0",
+            "qsMay.loop.en-y0",
+        ),
+    ),
+    (
+        "qsPea qsDay qsTea qsUtter qsTea qsPea",
+        (),
+        (
+            "qsPea.full.ex-y0",
+            "qsDay.half.en-y0.ex-y0",
+            "qsTea.full.en-y0",
+            "qsUtter.alternate.ex-y0",
+            "qsTea.full.en-y0",
+            "qsPea.full",
+        ),
+    ),
+    (
+        "qsPea qsDay qsTea qsUtter qsTea",
+        (),
+        (
+            "qsPea.full.ex-y0",
+            "qsDay.half.en-y0.ex-y0",
+            "qsTea.full.en-y0",
+            "qsUtter.alternate.ex-y0",
+            "qsTea.full.en-y0",
+        ),
+    ),
+    (
+        "qsPea qsDay qsTea qsUtter qsTea qsMay",
+        ("ss03",),
+        (
+            "qsPea.full.ex-y0",
+            "qsDay.half.en-y0",
+            "qsTea.full.ex-y0",
+            "qsUtter.mono.en-y0.ex-y5.ex-ext-1",
+            "qsTea.full.en-y5.ex-y0",
+            "qsMay.loop.en-y0",
+        ),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "sequence,features,expected",
+    ORPHAN_DEPTH4_ROWS,
+    ids=[
+        row[0].replace(" ", "|") + ("-" + "-".join(row[1]) if row[1] else "-default")
+        for row in ORPHAN_DEPTH4_ROWS
+    ],
+)
+def test_orphaned_tea_depth4_windows(real_spec, sequence, features, expected):
     assert _real_labels(real_spec, sequence, features) == expected
 
 
