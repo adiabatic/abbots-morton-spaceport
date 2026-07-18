@@ -28,6 +28,7 @@ class SettlementKey:
     look1: frozenset[str] | None
     look2: frozenset[str] | None
     look3: frozenset[str] | None = None
+    look4: frozenset[str] | None = None
 
     def label(self) -> str:
         def part(value: frozenset[str] | None) -> str:
@@ -36,6 +37,8 @@ class SettlementKey:
         label = f"{self.input} / {part(self.backtrack)} / {part(self.look1)} / {part(self.look2)}"
         if self.look3 is not None:
             label += f" / {part(self.look3)}"
+        if self.look4 is not None:
+            label += f" / {part(self.look4)}"
         return label
 
 
@@ -91,8 +94,12 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
                 # A pre-depth-3 snapshot: no lookahead3 column, every rule effectively unconstrained there.
                 input_glyph, backtrack, look1, look2, outcome, joint, provenance = fields
                 look3 = "-"
-            else:
+                look4 = "-"
+            elif len(fields) == 8:
                 input_glyph, backtrack, look1, look2, look3, outcome, joint, provenance = fields
+                look4 = "-"
+            else:
+                input_glyph, backtrack, look1, look2, look3, look4, outcome, joint, provenance = fields
             key = SettlementKey(
                 config,
                 input_glyph,
@@ -100,6 +107,7 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
                 _parse_set(look1),
                 _parse_set(look2),
                 _parse_set(look3),
+                _parse_set(look4),
             )
             rows[key] = SettlementValue(outcome=outcome, joint=joint == "joint", provenance=provenance)
     return rows
@@ -237,7 +245,7 @@ class WitnessIndex:
     NA = "#NA"
     BOUNDARYISH = frozenset({"space", "uni200C", "periodcentered"})
 
-    def __init__(self, spec, config: str, max_depth: int = 4):
+    def __init__(self, spec, config: str, max_depth: int = 5):
         import itertools
 
         from rebuild.pipeline.conform import features_for_config, raw_labels, spec_alphabet
@@ -247,7 +255,7 @@ class WitnessIndex:
         self.config = config
         features = features_for_config(config)
         engine = Engine(spec, features)
-        self.positions: dict[tuple[str, str, str, str, str], tuple[int, ...]] = {}
+        self.positions: dict[tuple[str, str, str, str, str, str], tuple[int, ...]] = {}
         self.pairs: dict[tuple[str, str], tuple[int, ...]] = {}
         alphabet = spec_alphabet(spec)
         for depth in range(1, max_depth + 1):
@@ -286,13 +294,18 @@ class WitnessIndex:
                         if right2 in self.BOUNDARYISH or right2 in (self.EDGE, self.NA)
                         else (raw[index + 3] if index + 3 < len(raw) else self.EDGE)
                     )
-                    self.positions.setdefault((label, left, right1, right2, right3), codepoints)
+                    right4 = (
+                        self.NA
+                        if right3 in self.BOUNDARYISH or right3 in (self.EDGE, self.NA)
+                        else (raw[index + 4] if index + 4 < len(raw) else self.EDGE)
+                    )
+                    self.positions.setdefault((label, left, right1, right2, right3, right4), codepoints)
                     if index + 1 < len(settled_labels) and letter_mask[index] and letter_mask[index + 1]:
                         self.pairs.setdefault((settled_labels[index], settled_labels[index + 1]), codepoints)
 
     def witness_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
         best: tuple[int, ...] | None = None
-        for (label, left, right1, right2, right3), codepoints in self.positions.items():
+        for (label, left, right1, right2, right3, right4), codepoints in self.positions.items():
             if label != key.input:
                 continue
             if key.backtrack is not None and left not in key.backtrack:
@@ -302,6 +315,8 @@ class WitnessIndex:
             if key.look2 is not None and right2 not in key.look2:
                 continue
             if key.look3 is not None and right3 not in key.look3:
+                continue
+            if key.look4 is not None and right4 not in key.look4:
                 continue
             if best is None or (len(codepoints), codepoints) < (len(best), best):
                 best = codepoints

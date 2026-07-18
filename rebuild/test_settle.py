@@ -27,6 +27,7 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import (
     EDGE,
     UNKNOWN,
+    Candidate,
     Engine,
     EStrandedError,
     LeftContext,
@@ -78,7 +79,11 @@ ROWS = (
         (),
         ("qsMay.loop.ex-y5.ex-ext-1", "qsIt.hapax.en-y5.ex-y0.ex-ext-1", "qsMay.loop.en-y0"),
     ),
-    ("qsIt qsMay qsIt", (), ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5")),
+    (
+        "qsIt qsMay qsIt",
+        (),
+        ("qsIt.hapax.ex-y0", "qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1", "qsIt.hapax.en-y5"),
+    ),
     # The entered middle qsIt withdraws its exit before a follower that refuses its baseline entry after qsIt; withdrawal: safe leaves the plain exit-none cell.
     ("qsTea qsIt qsTea", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.en-ext-1", "qsTea.full")),
     ("qsIt qsTea", (), ("qsIt.hapax", "qsTea.full")),
@@ -126,7 +131,11 @@ ROWS = (
     # ss02/ss05 triggers are out of the M1 alphabet: identical to default over these windows.
     ("qsMay qsTea", ("ss02",), ("qsMay.loop.ex-bind-pulled-back", "qsTea.full")),
     # AUTHORED-DATA FINDING: the qsIt baseline-exit refusal toward [qsTea, qsRoe, qsIt] is self-scoped to unentered cells, so an entered qsIt joins a following qsIt at the baseline (today's font breaks here); identical under ss04 because the middle ·It settles with an x-height entry, so the baseline-baseline pass-through grant never engages in this window.
-    ("qsTea qsIt qsIt", (), ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0")),
+    (
+        "qsTea qsIt qsIt",
+        (),
+        ("qsTea.half.ex-y5", "qsIt.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1", "qsIt.hapax.en-y0"),
+    ),
     (
         "qsTea qsIt qsIt",
         ("ss04",),
@@ -160,9 +169,7 @@ def test_entry_extension_suppressed_when_left_seam_already_extended():
 def test_right_chain_matcher_nested_then():
     engine = Engine(SPEC, frozenset())
     tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
-    chain = Condition(
-        family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))
-    )
+    chain = Condition(family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",))))
     assert engine.cond_matches_right(None, chain, (tea, may, it)) is True
     assert engine.cond_matches_right(None, chain, (tea, may, tea)) is False
     assert engine.cond_matches_right(None, chain, (tea, it, it)) is False
@@ -190,6 +197,44 @@ def test_right_chain_matcher_except_hops_walk_forward():
     assert engine.cond_matches_right(None, cond, (tea,)) is None
 
 
+def test_right_chain_matcher_reach_three():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    chain = Condition(
+        family=("qsTea",),
+        then=Condition(
+            family=("qsMay",), then=Condition(family=("qsIt",), then=Condition(family=("qsTea",)))
+        ),
+    )
+    assert engine.cond_matches_right(None, chain, (tea, may, it, tea)) is True
+    assert engine.cond_matches_right(None, chain, (tea, may, it, may)) is False
+    assert engine.cond_matches_right(None, chain, (tea, may, tea, tea)) is False
+    assert engine.cond_matches_right(None, chain, (tea, may, it, UNKNOWN)) is None
+    assert engine.cond_matches_right(None, chain, (tea, may, it)) is None
+
+
+def test_right_chain_matcher_except_reach_three():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    cond = Condition(
+        family=("qsTea", "qsIt"),
+        except_=(
+            Condition(
+                family=("qsTea",),
+                then=Condition(
+                    family=("qsMay",),
+                    then=Condition(family=("qsIt",), then=Condition(family=("qsTea",))),
+                ),
+            ),
+        ),
+    )
+    assert engine.cond_matches_right(None, cond, (tea, may, it, tea)) is False
+    assert engine.cond_matches_right(None, cond, (tea, may, it, may)) is True
+    assert engine.cond_matches_right(None, cond, (tea, may, tea, tea)) is True
+    assert engine.cond_matches_right(None, cond, (may, may, it, tea)) is False
+    assert engine.cond_matches_right(None, cond, (tea, may, it, UNKNOWN)) is None
+
+
 def test_when_matches_third_slot_defaults_unknown():
     engine = Engine(SPEC, frozenset())
     tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
@@ -208,6 +253,36 @@ def test_when_matches_third_slot_defaults_unknown():
         is False
     )
     assert engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may) is None
+
+
+def test_when_matches_fourth_slot_defaults_unknown():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    when = When(
+        right=Condition(
+            family=("qsTea",),
+            then=Condition(
+                family=("qsMay",), then=Condition(family=("qsIt",), then=Condition(family=("qsTea",)))
+            ),
+        )
+    )
+    left = LeftContext("edge")
+    assert (
+        engine.when_matches(
+            None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it, right4=tea
+        )
+        is True
+    )
+    assert (
+        engine.when_matches(
+            None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it, right4=may
+        )
+        is False
+    )
+    assert (
+        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it)
+        is None
+    )
 
 
 def test_e_stranded_raises_on_forged_commitment():
@@ -325,6 +400,32 @@ def test_follower_cell_grain_prefer_withholds_the_predecessor_exit():
     assert labels == ("A.stroke", "B.hook.ex-y0", "C.base.en-y0")
 
 
+def test_prefer_deep_slots_reach_the_own_record_but_not_a_follower():
+    spec = _synthetic_spec()
+    engine = Engine(spec, frozenset())
+    candidate = Candidate("stroke", None, "x-height", 0)
+    a, b, c = (RightToken("letter", name) for name in ("A", "B", "C"))
+    left = LeftContext("edge")
+    own = PolicyRecord(
+        kind="prefer",
+        stance="stroke",
+        when=When(
+            right=Condition(family=("B",), then=Condition(family=("C",), then=Condition(family=("A",))))
+        ),
+    )
+    assert engine._prefer_favors("A", own, "A", candidate, left, b, c, a, UNKNOWN) is True
+    assert engine._prefer_favors("A", own, "A", candidate, left, b, c, c, UNKNOWN) is None
+    follower = PolicyRecord(
+        kind="prefer",
+        stance="hook",
+        when=When(right=Condition(family=("C",), then=Condition(family=("A",)))),
+    )
+    baseline = engine._prefer_favors("B", follower, "A", candidate, left, b, c, UNKNOWN, UNKNOWN)
+    assert baseline is True
+    assert engine._prefer_favors("B", follower, "A", candidate, left, b, c, a, a) is baseline
+    assert engine._prefer_favors("B", follower, "A", candidate, left, b, c, c, c) is baseline
+
+
 def test_absolute_prefer_outranks_join_count():
     prefer = PolicyRecord(
         kind="prefer",
@@ -416,8 +517,7 @@ def test_round1_greedy_may_chain_pairing(real_spec, length, expected):
 def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
     codepoints = [real_spec.registry.families[name].codepoint for name in names.split()]
     return tuple(
-        cell_label(real_spec, settled.cell)
-        for settled in settle(real_spec, codepoints, frozenset(features))
+        cell_label(real_spec, settled.cell) for settled in settle(real_spec, codepoints, frozenset(features))
     )
 
 

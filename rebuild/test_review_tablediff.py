@@ -115,6 +115,39 @@ def test_provenance_only_demotion(tmp_path):
     assert entries[0].old.outcome == entries[0].new.outcome
 
 
+def test_load_settlement_widths_round_trip(tmp_path):
+    def load(body):
+        path = tmp_path / "settlement-default.tsv"
+        path.write_text(body)
+        return tablediff.load_settlement(path)
+
+    seven = load(
+        "input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.hapax.en-y5\t-\t\n"
+    )
+    eight = load(
+        "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\toutcome\tjoint\tprovenance\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsIt.hapax.en-y5\t-\t\n"
+    )
+    nine = load(
+        "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsLow\tqsIt.hapax.en-y5\t-\t\n"
+    )
+
+    legacy = tablediff.SettlementKey("default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None)
+    assert list(seven) == [legacy]
+    assert list(eight) == [legacy]
+    assert next(iter(seven)).look4 is None
+    assert next(iter(eight)).look4 is None
+
+    with_look4 = tablediff.SettlementKey(
+        "default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None, frozenset({"qsLow"})
+    )
+    assert list(nine) == [with_look4]
+    assert with_look4 != legacy
+    assert next(iter(nine)).look4 == frozenset({"qsLow"})
+
+
 def test_self_diff_is_empty():
     entries = tablediff.diff_dirs(M1_DIR, M1_DIR)
     assert entries == []

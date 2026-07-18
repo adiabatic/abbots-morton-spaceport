@@ -6,7 +6,7 @@ Boundary semantics: space and ZWNJ split runs and derive word position; the name
 
 Withdrawal is candidate semantics, not a fixup: a join that does not realize mid-word leaves the cell's exit state none, and when the declined exit row binds a named withdrawal bitmap the cell carries an `ex-bind-<bitmap>` adjustment (the model's closed adjustments grammar) so the withdrawn drawing is part of the cell's identity; `withdrawal: safe` rows collapse to the plain exit-none cell. At a boundary the exit was never declined, so the base drawing stands.
 
-`transition` keeps the plan's contract signature and returns Settled; `transition_trace` is the additive rich form the table builder and the explain CLI consume, extended with a raw third lookahead slot (`right3`, default UNKNOWN) that only an own-rune prefer record's `then:` chain can reach — see `_prefer_favors` for the discipline that keeps every other consumer UNKNOWN-optimistic at that slot.
+`transition` keeps the plan's contract signature and returns Settled; `transition_trace` is the additive rich form the table builder and the explain CLI consume, extended with raw third and fourth lookahead slots (`right3` / `right4`, default UNKNOWN) that only an own-rune prefer record's `then:` chain can reach — see `_prefer_favors` for the discipline that keeps every other consumer UNKNOWN-optimistic at those slots.
 """
 
 from __future__ import annotations
@@ -291,6 +291,7 @@ class Engine:
         right1: RightToken,
         right2: RightToken,
         right3: RightToken = UNKNOWN,
+        right4: RightToken = UNKNOWN,
     ) -> bool | None:
         if when.feature is not None and when.feature not in self.features:
             return False
@@ -308,7 +309,7 @@ class Engine:
         if when.left is not None and not self.cond_matches_left(owner, when.left, left, entry):
             return False
         if when.right is not None:
-            verdict = self.cond_matches_right(owner, when.right, (right1, right2, right3))
+            verdict = self.cond_matches_right(owner, when.right, (right1, right2, right3, right4))
             if verdict is False:
                 return False
             if verdict is None:
@@ -602,8 +603,9 @@ class Engine:
         right1: RightToken,
         right2: RightToken,
         right3: RightToken,
+        right4: RightToken,
     ) -> bool | None:
-        """Whether a prefer record speaks for this candidate. Our own rune's record targets the candidate's stance/cell directly; a follower's record votes for candidates under which its preferred continuation is refusal-aware admissible (design section 5.9), with joined_at bound to the candidate's seam. Returns None when the record's when does not match this window at all. Only the own-rune branch reads the raw third slot — a follower's vote is evaluated one position over, where the same slot is its right2, so handing it right3 would double-shift the window; every other consumer of when_matches (closure, prospect, refusals, unlocks) keeps the slot UNKNOWN-optimistic, which is what confines depth-3 behavior changes to windows where a depth-3 record fires at its own position."""
+        """Whether a prefer record speaks for this candidate. Our own rune's record targets the candidate's stance/cell directly; a follower's record votes for candidates under which its preferred continuation is refusal-aware admissible (design section 5.9), with joined_at bound to the candidate's seam. Returns None when the record's when does not match this window at all. Only the own-rune branch reads the raw third and fourth slots — a follower's vote is evaluated one position over, where those slots are its right2/right3, so handing them along would double-shift the window; every other consumer of when_matches (closure, prospect, refusals, unlocks) keeps the deep slots UNKNOWN-optimistic, which is what confines deep-window behavior changes to windows where a deep record fires at its own position."""
         if owner == rune_name:
             verdict = self.when_matches(
                 owner,
@@ -614,6 +616,7 @@ class Engine:
                 right1=right1,
                 right2=right2,
                 right3=right3,
+                right4=right4,
             )
             if verdict is False:
                 return None
@@ -674,6 +677,7 @@ class Engine:
         right1: RightToken,
         right2: RightToken,
         right3: RightToken,
+        right4: RightToken,
         notes: list[str],
     ) -> list[Candidate]:
         """One prefer stage (absolute or yielding), with records from both seam runes, most-specific first. Nested conflicts resolve silently; equal-or-incomparable records demanding disjoint candidate sets are E-INCOMPARABLE across runes and E-AMBIGUOUS within one."""
@@ -698,7 +702,9 @@ class Engine:
             favored = set()
             relevant = False
             for candidate in survivors:
-                vote = self._prefer_favors(owner, record, rune_name, candidate, left, right1, right2, right3)
+                vote = self._prefer_favors(
+                    owner, record, rune_name, candidate, left, right1, right2, right3, right4
+                )
                 if vote is None:
                     continue
                 relevant = True
@@ -821,6 +827,7 @@ class Engine:
         right1: RightToken,
         right2: RightToken,
         right3: RightToken = UNKNOWN,
+        right4: RightToken = UNKNOWN,
     ) -> TransitionTrace:
         if token.kind != "letter":
             return TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ())
@@ -859,7 +866,9 @@ class Engine:
         decided_stage = "only-candidate"
         runner_up: Candidate | None = None
 
-        survivors = self._apply_prefers(True, rune_name, survivors, left, right1, right2, right3, notes)
+        survivors = self._apply_prefers(
+            True, rune_name, survivors, left, right1, right2, right3, right4, notes
+        )
         if len(survivors) == 1 and decided_stage == "only-candidate" and len(ranked) > 1:
             decided_stage = "absolute-prefer"
 
@@ -875,7 +884,9 @@ class Engine:
 
         if len(survivors) > 1:
             before = list(survivors)
-            survivors = self._apply_prefers(False, rune_name, survivors, left, right1, right2, right3, notes)
+            survivors = self._apply_prefers(
+                False, rune_name, survivors, left, right1, right2, right3, right4, notes
+            )
             if len(survivors) == 1:
                 decided_stage = "yielding-prefer"
                 runner_up = next(c for c in before if c not in survivors)
@@ -1157,7 +1168,7 @@ def settle_traces(engine: Engine, codepoints: Sequence[int]) -> list[TransitionT
             out.append(TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ()))
             left = LeftContext(token.kind)
             continue
-        trace = engine.transition_trace(left, token, at(i + 1), at(i + 2), at(i + 3))
+        trace = engine.transition_trace(left, token, at(i + 1), at(i + 2), at(i + 3), at(i + 4))
         out.append(trace)
         left = LeftContext("letter", trace.settled)
     return out
