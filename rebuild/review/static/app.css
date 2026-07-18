@@ -787,7 +787,7 @@ details.group {
 
       .clear-verdict {
         grid-row: 1;
-        grid-column: 4;
+        grid-column: 1;
         font-size: 12px;
         padding: 0.1rem 0.45rem;
         color: var(--muted);
@@ -798,6 +798,19 @@ details.group {
 
         &:disabled {
           opacity: 0.3;
+        }
+      }
+
+      /* Repeat sits above Approve because r sits above f on the keyboard, matching the physical-column layout noted below. */
+      .repeat-verdict {
+        grid-row: 1;
+        grid-column: 4;
+        font-size: 12px;
+        padding: 0.1rem 0.45rem;
+        color: var(--muted);
+
+        kbd {
+          font-size: 10px;
         }
       }
 
@@ -827,6 +840,16 @@ details.group {
           &:hover {
             border-color: var(--reject);
           }
+
+          &.recent {
+            max-width: 48ch;
+            white-space: normal;
+          }
+        }
+
+        .menu-sep {
+          border-top: 1px solid var(--hairline);
+          margin: 0.15rem 0;
         }
       }
 
@@ -856,6 +879,15 @@ details.group {
           &:hover {
             border-color: var(--neither);
           }
+
+          &.recent {
+            max-width: 48ch;
+          }
+        }
+
+        .menu-sep {
+          border-top: 1px solid var(--hairline);
+          margin: 0.15rem 0;
         }
       }
 

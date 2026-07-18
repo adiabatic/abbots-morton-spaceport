@@ -12,6 +12,7 @@ import {
   markExported,
   importVerdicts,
   verdictCounts,
+  recentNotes,
 } from './verdicts.js';
 import {
   renderGroupsOf,
@@ -392,6 +393,13 @@ function buildRow(unit) {
     clear.append(document.createTextNode('Clear '));
     clear.append(el('kbd', null, '⌫'));
     buttons.append(clear);
+    const repeat = el('button', 'repeat-verdict');
+    repeat.type = 'button';
+    repeat.title = 'Repeat the previous verdict and its note on this unit';
+    repeat.tabIndex = -1;
+    repeat.append(document.createTextNode('Repeat '));
+    repeat.append(el('kbd', null, 'r'));
+    buttons.append(repeat);
   }
   label.append(buttons);
 
@@ -400,6 +408,7 @@ function buildRow(unit) {
   note.placeholder = 'note (n)';
   note.disabled = exempt;
   note.setAttribute('aria-label', `Note for ${unit.id}`);
+  note.setAttribute('list', 'note-suggestions');
 
   const groups = renderGroupsOf(unit);
   row.append(label, buildSample(unit, 'before', groups[0].featureSettings), buildSample(unit, 'after', groups[0].featureSettings));
@@ -1186,12 +1195,12 @@ function toast(message) {
   }, 2600);
 }
 
-function applyVerdict(unitId, verdict) {
+function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
   const row = rowFor(unitId);
-  const note = row ? row.querySelector('.note').value : '';
+  const noteValue = note ?? (row ? row.querySelector('.note').value : '');
   const existing = store.records.get(unitId);
   const wasUnverdicted = !existing;
-  if (existing && existing.verdict === verdict) {
+  if (toggle && existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
     // A verdict fills the unverdicted rest of the unit's echo group (same change, same judged pair — one question); skip is a per-unit deferral and never echoes, and already-verdicted members are never overwritten.
@@ -1200,11 +1209,12 @@ function applyVerdict(unitId, verdict) {
       verdict === 'skip' || !unit
         ? []
         : echoFillTargets(unit, echoIndex.get(unit.echo) ?? [], (id) => store.records.has(id));
-    const applied = recordVerdictWithEchoes(store, unitId, verdict, echoes, { note });
+    const applied = recordVerdictWithEchoes(store, unitId, verdict, echoes, { note: noteValue });
     for (const id of applied) syncRowVerdict(id);
     if (applied.length > 1) {
       toast(`Echoed to ${applied.length - 1} matching window${applied.length === 2 ? '' : 's'} (u to undo all)`);
     }
+    lastVerdictedUnitId = unitId;
   }
   syncRowVerdict(unitId);
   updateProgress();
@@ -1274,6 +1284,19 @@ function verdictCursor(verdict) {
   if (applyVerdict(unitId, verdict)) advanceFrom(unitId);
 }
 
+let lastVerdictedUnitId = null;
+
+// Repeat reads the source unit's live record rather than a snapshot, so a note typed or edited after the verdict landed is what gets repeated; it never toggle-clears, so hammering r across a run of identical screwups is safe.
+function repeatLast(unitId = cursorUnitId()) {
+  const source = lastVerdictedUnitId === null ? null : store.records.get(lastVerdictedUnitId);
+  if (!source) {
+    toast('Nothing to repeat');
+    return;
+  }
+  if (!unitId || unitId === lastVerdictedUnitId) return;
+  if (applyVerdict(unitId, source.verdict, { toggle: false, note: source.note || null })) advanceFrom(unitId);
+}
+
 async function jumpToFirstUnverdicted() {
   if (state.units) {
     const open = visibleUnits.find((unit) => !store.records.has(unit.id));
@@ -1303,6 +1326,32 @@ async function jumpToFirstUnverdicted() {
 
 let rejectMenuUnitId = null;
 let rejectMenuNode = null;
+let rejectMenuRecents = [];
+
+// The keys 1–9 then 0 pick from this sitting's ten most recent distinct comments of the menu's own verdict kind, so a repeated objection is typed once and reused until it ages off the list.
+function recentKeyLabel(index) {
+  return index === 9 ? '0' : String(index + 1);
+}
+
+function recentIndexForAction(action, prefix) {
+  if (!action.startsWith(prefix)) return null;
+  const digit = action.slice(prefix.length);
+  return digit === '0' ? 9 : Number.parseInt(digit, 10) - 1;
+}
+
+function appendRecentOptions(menu, optionClass, actionPrefix, recents) {
+  if (recents.length === 0) return;
+  menu.append(el('div', 'menu-sep'));
+  for (const [index, note] of recents.entries()) {
+    const option = el('button', `${optionClass} recent`);
+    option.type = 'button';
+    option.dataset.action = `${actionPrefix}${recentKeyLabel(index)}`;
+    option.setAttribute('role', 'menuitem');
+    option.append(el('kbd', null, recentKeyLabel(index)));
+    option.append(document.createTextNode(` ${note}`));
+    menu.append(option);
+  }
+}
 
 function openRejectMenu(unitId) {
   closeRejectMenu();
@@ -1320,12 +1369,21 @@ function openRejectMenu(unitId) {
     option.append(document.createTextNode(` ${choice.label}`));
     menu.append(option);
   }
+  rejectMenuRecents = recentNotes(store, 'reject', {
+    exclude: REJECT_MENU_CHOICES.map((choice) => choice.note).filter(Boolean),
+  });
+  appendRecentOptions(menu, 'reject-option', 'reject-recent-', rejectMenuRecents);
   menu.addEventListener('click', (event) => {
     const option = event.target.closest('.reject-option');
     if (!option) return;
     event.stopPropagation();
     if (option.dataset.action === 'reject-comment') {
       rejectWithComment();
+      return;
+    }
+    const recentIndex = recentIndexForAction(option.dataset.action, 'reject-recent-');
+    if (recentIndex !== null) {
+      chooseRejectOption(rejectMenuRecents[recentIndex] ?? null);
       return;
     }
     const choice = REJECT_MENU_CHOICES.find((entry) => entry.action === option.dataset.action);
@@ -1341,6 +1399,7 @@ function closeRejectMenu() {
   if (rejectMenuNode) rejectMenuNode.remove();
   rejectMenuUnitId = null;
   rejectMenuNode = null;
+  rejectMenuRecents = [];
 }
 
 function chooseRejectOption(cannedNote) {
@@ -1366,6 +1425,7 @@ function rejectWithComment() {
 
 let neitherMenuUnitId = null;
 let neitherMenuNode = null;
+let neitherMenuRecents = [];
 
 function openNeitherMenu(unitId) {
   closeNeitherMenu();
@@ -1383,12 +1443,21 @@ function openNeitherMenu(unitId) {
     option.append(document.createTextNode(` ${choice.label}`));
     menu.append(option);
   }
+  neitherMenuRecents = recentNotes(store, 'neither', {
+    exclude: NEITHER_MENU_CHOICES.map((choice) => choice.note).filter(Boolean),
+  });
+  appendRecentOptions(menu, 'neither-option', 'neither-recent-', neitherMenuRecents);
   menu.addEventListener('click', (event) => {
     const option = event.target.closest('.neither-option');
     if (!option) return;
     event.stopPropagation();
     if (option.dataset.action === 'neither-comment') {
       neitherWithComment();
+      return;
+    }
+    const recentIndex = recentIndexForAction(option.dataset.action, 'neither-recent-');
+    if (recentIndex !== null) {
+      chooseNeitherOption(neitherMenuRecents[recentIndex] ?? null);
       return;
     }
     const choice = NEITHER_MENU_CHOICES.find((entry) => entry.action === option.dataset.action);
@@ -1404,6 +1473,7 @@ function closeNeitherMenu() {
   if (neitherMenuNode) neitherMenuNode.remove();
   neitherMenuUnitId = null;
   neitherMenuNode = null;
+  neitherMenuRecents = [];
 }
 
 function chooseNeitherOption(cannedNote) {
@@ -1473,6 +1543,7 @@ function approveGroupOf(unitId) {
   }
   const applied = groupApprove(store, expanded);
   for (const id of applied) syncRowVerdict(id);
+  if (applied.length > 0) lastVerdictedUnitId = applied[0];
   updateProgress();
   scheduleAutosave();
   const inGroup = applied.filter((id) => ids.includes(id)).length;
@@ -1872,6 +1943,13 @@ function wireEvents() {
       chooseRejectOption(menuChoice.note);
       return;
     }
+    const rejectRecentIndex = recentIndexForAction(action, 'reject-recent-');
+    if (rejectRecentIndex !== null) {
+      event.preventDefault();
+      const note = rejectMenuRecents[rejectRecentIndex];
+      if (note !== undefined) chooseRejectOption(note);
+      return;
+    }
     if (action === 'neither-cancel') {
       event.preventDefault();
       closeNeitherMenu();
@@ -1886,6 +1964,13 @@ function wireEvents() {
     if (neitherChoice) {
       event.preventDefault();
       chooseNeitherOption(neitherChoice.note);
+      return;
+    }
+    const neitherRecentIndex = recentIndexForAction(action, 'neither-recent-');
+    if (neitherRecentIndex !== null) {
+      event.preventDefault();
+      const note = neitherMenuRecents[neitherRecentIndex];
+      if (note !== undefined) chooseNeitherOption(note);
       return;
     }
     event.preventDefault();
@@ -1908,6 +1993,8 @@ function wireEvents() {
       }
     } else if (action === 'undo') {
       undoLast();
+    } else if (action === 'repeat') {
+      repeatLast();
     } else if (action === 'note') {
       const row = rowFor(cursorUnitId());
       if (row) row.querySelector('.note').focus();
@@ -1985,6 +2072,11 @@ function wireEvents() {
       scheduleAutosave();
       return;
     }
+    const repeat = event.target.closest('.repeat-verdict');
+    if (repeat && row) {
+      repeatLast(row.dataset.unit);
+      return;
+    }
     const copy = event.target.closest('.copy-unit');
     if (copy && row) {
       copyToClipboard(copyPreamble(unitsById.get(row.dataset.unit)), copy);
@@ -2013,6 +2105,19 @@ function wireEvents() {
     if (updateNote(store, row.dataset.unit, note.value)) {
       updateProgress();
       scheduleAutosave();
+    }
+  });
+
+  // The suggestion list refreshes only when a note field gains focus — rebuilding it on every keystroke would reshuffle the dropdown mid-typing and capture half-typed notes as suggestions.
+  document.getElementById('batch').addEventListener('focusin', (event) => {
+    const note = event.target.closest('.note');
+    if (!note) return;
+    const suggestions = document.getElementById('note-suggestions');
+    suggestions.replaceChildren();
+    for (const text of recentNotes(store, null, { limit: 100 })) {
+      const option = document.createElement('option');
+      option.value = text;
+      suggestions.append(option);
     }
   });
 
