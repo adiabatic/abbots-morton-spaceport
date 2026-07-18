@@ -30,13 +30,12 @@ def count_effective(records) -> int:
     return sum(1 for record in records.values() if record.get("verdict") != "skip")
 
 
-def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
-    """Carried masters land under rebuild/evidence/, so the sweep covers both that directory and the repo root, where exports and fill files live."""
+def _iter_verdict_files(repo_root):
+    """Carried masters land under rebuild/evidence/, so the sweep covers both that directory and the repo root, where exports and fill files live. The live autosave is excluded by name; callers that want it read it separately."""
     root = Path(repo_root)
     candidates = sorted(root.glob("verdicts-*.json")) + sorted(
         (root / "rebuild" / "evidence").glob("verdicts-*.json")
     )
-    best: tuple[Path, int] | None = None
     for path in candidates:
         if path.name == "verdicts-autosave.json":
             continue
@@ -45,16 +44,57 @@ def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
         except OSError:
             continue
         data = parse_autosave_payload(raw)
-        if data is None or data["manifest_generated_at"] != manifest_stamp:
+        if data is None:
             continue
-        try:
-            records = _latest_from_list(data["verdicts"])
-        except KeyError, TypeError:
+        yield path, data
+
+
+def _effective_count(data) -> int | None:
+    try:
+        return count_effective(_latest_from_list(data["verdicts"]))
+    except KeyError, TypeError:
+        return None
+
+
+def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
+    best: tuple[Path, int] | None = None
+    for path, data in _iter_verdict_files(repo_root):
+        if data["manifest_generated_at"] != manifest_stamp:
             continue
-        count = count_effective(records)
+        count = _effective_count(data)
+        if count is None:
+            continue
         if best is None or count > best[1]:
             best = (path, count)
     return best
+
+
+def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
+    """Choose the verdicts file the artifact cycle carries forward when the caller didn't name one. Candidates are the live autosave plus every verdicts-*.json export at the repo root and under rebuild/evidence; the stamp-aligned candidate with the most effective verdicts wins (the autosave breaks ties, since it is the live store). When nothing aligns — the served surface was restamped outside a recorded cycle — the newest-stamped candidate stands in, which is safe because carry_verdicts re-resolves by content and ink keys rather than trusting the stamp. None means no candidate holds a single effective verdict."""
+    entries: list[tuple[Path, str, int, bool]] = []
+    autosave_path = Path(autosave_path)
+    try:
+        raw = autosave_path.read_bytes() if autosave_path.exists() else None
+    except OSError:
+        raw = None
+    autosave = parse_autosave_payload(raw) if raw is not None else None
+    if autosave is not None:
+        count = _effective_count(autosave)
+        if count:
+            entries.append((autosave_path, autosave["manifest_generated_at"], count, True))
+    for path, data in _iter_verdict_files(repo_root):
+        count = _effective_count(data)
+        if count:
+            entries.append((path, data["manifest_generated_at"], count, False))
+    if not entries:
+        return None
+    pool = [entry for entry in entries if manifest_stamp is not None and entry[1] == manifest_stamp]
+    aligned = bool(pool)
+    if not pool:
+        latest = max(stamp for _, stamp, _, _ in entries)
+        pool = [entry for entry in entries if entry[1] == latest]
+    path, stamp, count, _ = max(pool, key=lambda entry: (entry[2], entry[3]))
+    return {"path": path, "stamp": stamp, "count": count, "aligned": aligned}
 
 
 def load_human_unit_ids(review_dir) -> frozenset[str]:
@@ -326,7 +366,7 @@ def compute_status(
 
     frontier_hit = pick_frontier(repo_root, generated_at)
     frontier_rel = _rel(repo_root, frontier_hit[0]) if frontier_hit else None
-    artifact_cycle_remedy = f"make artifact-cycle ARGS='--verdicts {frontier_rel or '<frontier>'}'"
+    artifact_cycle_remedy = "make artifact-cycle"
 
     summary = _load_json_dict(cycle_summary_path)
     carry_out = summary.get("carry_out") if summary else None

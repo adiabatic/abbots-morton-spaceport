@@ -6,7 +6,7 @@ The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonze
 
 The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and queues behind gate:rebuild, so its per-config process pool only spins up once the box is free.
 
-Run as: uv run python rebuild/tools/artifact_cycle.py --verdicts verdicts-X.json
+Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
 
 from __future__ import annotations
@@ -27,7 +27,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
+AUTOSAVE = ROOT / "verdicts-autosave.json"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
 CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
@@ -323,6 +326,33 @@ def build_plan(
         plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
     return plan
+
+
+def resolve_carry_source() -> dict | None:
+    from rebuild.review import status
+
+    try:
+        stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
+    except OSError, ValueError:
+        stamp = None
+    return status.resolve_carry_source(ROOT, stamp, AUTOSAVE)
+
+
+def describe_carry_source(resolved: dict, root: Path) -> str:
+    try:
+        shown = resolved["path"].relative_to(root)
+    except ValueError:
+        shown = resolved["path"]
+    if resolved["aligned"]:
+        provenance = "stamped for the served surface"
+    else:
+        provenance = (
+            f"stamped {resolved['stamp']}, not the served surface; carry re-resolves by content and ink keys"
+        )
+    return (
+        f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {provenance}). "
+        "Pass --verdicts to override."
+    )
 
 
 def resolve_short_id() -> str:
@@ -1069,7 +1099,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Drive the commit-time artifact cycle: snapshot, run_m1, surface rebuild, carry, census pins, gates."
     )
     parser.add_argument(
-        "--verdicts", type=Path, help="prior verdicts master to carry forward (required unless --no-carry)"
+        "--verdicts",
+        type=Path,
+        help="prior verdicts master to carry forward (default: auto-resolve the best candidate among the autosave and the verdicts-*.json files at the repo root and under rebuild/evidence)",
     )
     parser.add_argument("--no-carry", action="store_true", help="skip the verdict carry-forward step")
     parser.add_argument(
@@ -1126,7 +1158,15 @@ def main(argv: list[str] | None = None) -> int:
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     if not args.no_carry and args.verdicts is None and not first_run:
-        parser.error("--verdicts is required unless --no-carry (refusing to guess which master to carry)")
+        resolved = resolve_carry_source()
+        if resolved is None:
+            args.no_carry = True
+            print(
+                "No carryable verdicts found (neither the autosave nor any verdicts-*.json at the repo root or under rebuild/evidence holds an effective verdict); proceeding without carry. Pass --verdicts to name a master explicitly."
+            )
+        else:
+            args.verdicts = resolved["path"]
+            print(describe_carry_source(resolved, ROOT))
 
     if args.dry_run:
         plan = build_plan(
