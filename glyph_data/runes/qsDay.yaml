@@ -69,10 +69,24 @@ policy:
     over: {exit: baseline}
     when:
       self: {entry: none}
-      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]}}
+      right:
+        family: qsTea
+        then:
+          family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]
+          except: [{family: qsUtter, then: {family: qsLow}}]
   - cell: {exit: none}
     over: {exit: baseline}
     when: {right: {family: qsTea, then: {family: [qsMay, qsLow]}}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when: {right: {family: qsTea, then: {family: qsNo, then: {family: [qsTea, qsMay, qsLow]}}}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      self: {entry: live}
+      right:
+        family: qsTea
+        then: {family: qsUtter, except: [{family: qsUtter, then: {family: [qsTea, qsLow]}}]}
   - cell: {exit: none}
     over: {exit: baseline}
     when:

@@ -1,4 +1,4 @@
-"""YAML → ResolvedSpec: schema validation with file/line errors, the Python lints (stance-ID naming, ductus parity, refuse right.then rejection, reference resolution), predicate-class evaluation, and rune-local group resolution (rebuild/M1-PLAN.md section 5, Group 1).
+"""YAML → ResolvedSpec: schema validation with file/line errors, the Python lints (stance-ID naming, ductus parity, refuse right.then rejection, the right-side then-chain depth cap, reference resolution), predicate-class evaluation, and rune-local group resolution (rebuild/M1-PLAN.md section 5, Group 1).
 
 Schema validation is driven directly by the JSON Schema files under rebuild/schema/ through a small built-in evaluator covering the keyword subset those schemas use, so `uv run pytest rebuild/` needs no third-party validator; when `jsonschema` is importable (the plan's `uv run --with jsonschema` path) a cross-check test asserts the two layers agree. Every error carries the YAML file, key path, and line; all errors are collected before SpecError is raised.
 """
@@ -47,6 +47,7 @@ HAPAX_SENTINEL = "hapax"
 
 _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole motion 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
+_CHAIN_RULE = "a right-side then: chain may reach at most two letters past the immediate right neighbor — the depth-3 window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
 
 
 @dataclass(frozen=True)
@@ -448,6 +449,17 @@ def _walk_conditions(raw: object, path: str):
             yield from _walk_conditions(raw["then"], f"{path}.then")
 
 
+def _right_chain_reach(raw: dict) -> int:
+    """How many raw slots past its own a right condition's then: chains read: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there."""
+    reach = 0
+    if isinstance(raw.get("then"), dict):
+        reach = max(reach, 1 + _right_chain_reach(raw["then"]))
+    for atom in raw.get("except", ()) or ():
+        if isinstance(atom, dict):
+            reach = max(reach, _right_chain_reach(atom))
+    return reach
+
+
 def _when_conditions(raw: dict | None, path: str):
     if not raw:
         return
@@ -494,6 +506,7 @@ class _Linter:
         self._lint_single_motion_sentinel()
         self._lint_ductus_parity()
         self._lint_refuse_window_rule()
+        self._lint_right_chain_depth()
 
     def run_deep(self) -> None:
         self.stance_rows = self._stance_rows()
@@ -565,6 +578,30 @@ class _Linter:
             right = when.get("right") if isinstance(when, dict) else None
             if isinstance(right, dict) and "then" in right:
                 self.context.error(f"policy.refuse[{index}].when.right.then", _WINDOW_RULE)
+
+    def _lint_right_chain_depth(self) -> None:
+        policy = self.raw.get("policy")
+        for kind in ("prefer", "extend", "contract"):
+            records = policy.get(kind) if isinstance(policy, dict) else None
+            for index, record in enumerate(records if isinstance(records, list) else ()):
+                if not isinstance(record, dict):
+                    continue
+                when = record.get("when")
+                right = when.get("right") if isinstance(when, dict) else None
+                if isinstance(right, dict) and _right_chain_reach(right) > 2:
+                    self.context.error(f"policy.{kind}[{index}].when.right", _CHAIN_RULE)
+        for stance_name, stance_raw in self._stances().items():
+            surface = stance_raw.get("surface")
+            unlocks = surface.get("unlocks") if isinstance(surface, dict) else None
+            for index, unlock in enumerate(unlocks if isinstance(unlocks, list) else ()):
+                if not isinstance(unlock, dict):
+                    continue
+                when = unlock.get("when")
+                right = when.get("right") if isinstance(when, dict) else None
+                if isinstance(right, dict) and _right_chain_reach(right) > 2:
+                    self.context.error(
+                        f"stances.{stance_name}.surface.unlocks[{index}].when.right", _CHAIN_RULE
+                    )
 
     def _lint_ductus_parity(self) -> None:
         ductus = self.raw.get("ductus")

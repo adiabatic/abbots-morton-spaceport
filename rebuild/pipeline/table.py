@@ -2,7 +2,9 @@
 
 `build_tables(spec, features)` tabulates the settlement kernel over every (settled-left state, rune, raw-right-1, raw-right-2) window reachable under settlement for one feature configuration, by fixpoint over reachable left states rather than string enumeration, so the table is exact. Windows that formation makes impossible are excluded — but a ligature pair survives unformed exactly where the section 5.7 late-formation guard fires, so pair windows are enumerated under precisely the guard-firing follower contexts (`_survivable_formation_windows`): the lead's window is admitted per guard-firing right2, and the trail's window inherits the matching allowed-right2 set through the worklist, keeping the fixpoint exact. The mirror facet holds for formed-ligature tokens at any slot: a ligature input's window, and any window with a ligature at right1, is admitted only where that ligature's own guard does NOT fire over the raw tokens its post-formation neighbors stand for (`liga_formed_before`), existentially over the beyond-window slot. ZWNJ-locked entry-bearing inputs enumerate under the chokepoint twin's glyph name (`model.locked_glyph_name`, the `<raw>.noentry` shape the emitter's chokepoint actually produces), locked before settlement — which keeps each plain input's boundary-left outcomes in a single block, exactly as the prototype encoded it.
 
-Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, two-lookahead-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
+Outcome-partition compression is DFA-style per input and per slot: two fillers land in one class iff their full outcome signatures over the other slots are identical. `assert_outcome_partition` re-derives the partitions and replays every reachable transition against the ordered rules under first-match-wins semantics — the hard build invariant of prototype follow-up 1. Rule ordering per input follows the proven discipline: boundary-outcome rows with `uni200C` explicit in the class first, three-lookahead-slot rows before two-slot rows before one-slot rows, identity rows omitted, the slot-dropped fallback last, plus ZWNJ backtrack-slot coverage guards for never-locked inputs.
+
+Rows carry a fourth window slot, `right3`, enumerated lazily: only an input whose own rune carries a depth-3 prefer record (`depth3_inputs`) gets its windows split by the raw third lookahead, and only where both nearer slots are letters — everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned).
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
 """
@@ -54,6 +56,7 @@ class Transition:
     left: str
     right1: str
     right2: str
+    right3: str
     outcome: str
     settled: Settled
     left_settled: Settled | None
@@ -62,8 +65,8 @@ class Transition:
     provenance: tuple[str, ...]
 
     @property
-    def key(self) -> tuple[str, str, str, str]:
-        return (self.input_glyph, self.left, self.right1, self.right2)
+    def key(self) -> tuple[str, str, str, str, str]:
+        return (self.input_glyph, self.left, self.right1, self.right2, self.right3)
 
     @property
     def is_identity(self) -> bool:
@@ -76,6 +79,7 @@ class Rule:
     backtrack: tuple[str, ...] | None
     look1: tuple[str, ...] | None
     look2: tuple[str, ...] | None
+    look3: tuple[str, ...] | None
     outcome: str
     provenance: tuple[str, ...]
     joint: bool
@@ -109,20 +113,24 @@ class DecisionTable:
 
     def assert_outcome_partition(self) -> None:
         """The hard build invariant (prototype follow-up 1): recompute the per-slot signature partitions and verify disjoint cover, then replay every reachable transition against the ordered rules under first-match-wins semantics."""
-        by_input: dict[str, dict[tuple[str, str, str], Transition]] = {}
+        by_input: dict[str, dict[tuple[str, str, str, str], Transition]] = {}
         for row in self.transitions:
-            by_input.setdefault(row.input_glyph, {})[(row.left, row.right1, row.right2)] = row
+            by_input.setdefault(row.input_glyph, {})[(row.left, row.right1, row.right2, row.right3)] = row
         for input_glyph, rows in by_input.items():
-            lefts = sorted({left for left, _r1, _r2 in rows})
-            r1s = sorted({r1 for _left, r1, _r2 in rows})
-            r2s = sorted({r2 for _left, _r1, r2 in rows})
+            lefts = sorted({left for left, _r1, _r2, _r3 in rows})
+            r1s = sorted({r1 for _left, r1, _r2, _r3 in rows})
+            r2s = sorted({r2 for _left, _r1, r2, _r3 in rows})
+            r3s = sorted({r3 for _left, _r1, _r2, r3 in rows})
 
-            def outcome(left: str, r1: str, r2: str) -> str | None:
-                row = rows.get((left, r1, r2))
+            def outcome(left: str, r1: str, r2: str, r3: str) -> str | None:
+                row = rows.get((left, r1, r2, r3))
                 return row.outcome if row is not None else None
 
             blocks = _signature_blocks(
-                lefts, lambda left: frozenset(((r1, r2), outcome(left, r1, r2)) for r1 in r1s for r2 in r2s)
+                lefts,
+                lambda left: frozenset(
+                    ((r1, r2, r3), outcome(left, r1, r2, r3)) for r1 in r1s for r2 in r2s for r3 in r3s
+                ),
             )
             covered: set[str] = set()
             for block in blocks:
@@ -148,6 +156,8 @@ class DecisionTable:
                 if rule.look1 is not None and row.right1 not in rule.look1:
                     continue
                 if rule.look2 is not None and row.right2 not in rule.look2:
+                    continue
+                if rule.look3 is not None and row.right3 not in rule.look3:
                     continue
                 predicted = rule.outcome
                 break
@@ -175,7 +185,7 @@ class DecisionTable:
     def write_tsv(self, path: Path) -> None:
         lines = [
             f"# settlement table, config {self.config}",
-            "input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance",
+            "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\toutcome\tjoint\tprovenance",
         ]
         for rule in self.rules:
             lines.append(
@@ -185,6 +195,7 @@ class DecisionTable:
                         " ".join(rule.backtrack) if rule.backtrack else "-",
                         " ".join(rule.look1) if rule.look1 else "-",
                         " ".join(rule.look2) if rule.look2 else "-",
+                        " ".join(rule.look3) if rule.look3 else "-",
                         rule.outcome,
                         "joint" if rule.joint else "-",
                         "; ".join(dict.fromkeys(p for p in rule.provenance if p)),
@@ -206,6 +217,27 @@ class TreatyTable:
             lines.append("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
+
+
+def right_chain_reach(cond) -> int:
+    """How many raw slots past its own a right condition's then: chains read: a then: hop advances one slot, and an except: entry tests its parent's slot, so its hops count from there. Mirrors spec_load's raw-dict lint over the resolved Condition."""
+    reach = 0
+    if cond.then is not None:
+        reach = max(reach, 1 + right_chain_reach(cond.then))
+    for ex in cond.except_:
+        reach = max(reach, right_chain_reach(ex))
+    return reach
+
+
+def depth3_inputs(spec: ResolvedSpec) -> frozenset[str]:
+    """The rune names whose windows the raw third lookahead can decide: only an own-rune prefer record ever receives the real right3 (settle's `_prefer_favors` discipline), so exactly the runes carrying a prefer whose right condition chains two hops."""
+    out = set()
+    for name, rune in spec.runes.items():
+        for record in rune.policy.prefer:
+            right = record.when.right
+            if right is not None and right_chain_reach(right) >= 2:
+                out.add(name)
+    return frozenset(out)
 
 
 def _formation_pairs(spec: ResolvedSpec) -> frozenset[tuple[str, str]]:
@@ -281,6 +313,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         return BOUNDARY_LEFT_LABELS[token.kind]
 
     survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
+    deep_inputs = depth3_inputs(spec)
 
     from rebuild.pipeline import settle as settle_module
 
@@ -361,38 +394,75 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
             else:
                 right2_options = [EDGE]
             for right2 in right2_options:
-                trace = engine.transition_trace(left, token, right1, right2)
-                row = Transition(
-                    input_glyph=input_label,
-                    left=left_label,
-                    right1=right_label(right1),
-                    right2=right_label(right2) if right1.kind == "letter" else NA_LABEL,
-                    outcome=cell_label(spec, trace.settled.cell),
-                    settled=trace.settled,
-                    left_settled=left.settled,
-                    joint=trace.joint_floor,
-                    prospect=trace.prospect,
-                    provenance=tuple(trace.notes),
-                )
-                existing = transitions.get(row.key)
-                if existing is not None and existing.outcome != row.outcome:
-                    raise PartitionError(
-                        f"window {row.key} settles inconsistently: {existing.outcome} vs {row.outcome}"
+                if rune_name in deep_inputs and right1.kind == "letter" and right2.kind == "letter":
+                    right3_options: list[RightToken | None] = [
+                        r
+                        for r in right_boundaries + right_letters
+                        if not (
+                            r.kind == "letter"
+                            and (right2.rune, r.rune) in formation_pairs
+                            and (right2.rune, r.rune) not in survivable
+                        )
+                    ]
+                    if follower_map is not None:
+                        trail_allowed = follower_map.get(right2.rune)
+                        if trail_allowed is not None:
+                            right3_options = [r for r in right3_options if r in trail_allowed]
+                    if (right1.rune, right2.rune) in formation_pairs:
+                        pair_map = survivable.get((right1.rune, right2.rune)) or {}
+                        right3_options = [
+                            r for r in right3_options if r.kind == "letter" and r.rune in pair_map
+                        ]
+                    if right1.rune in liga_sequences:
+                        right3_options = [
+                            r for r in right3_options if liga_formed_before(right1.rune, right2, r)
+                        ]
+                    if right2.rune in liga_sequences:
+                        right3_options = [
+                            r for r in right3_options if liga_formed_before(right2.rune, r, None)
+                        ]
+                else:
+                    right3_options = [None]
+                for right3 in right3_options:
+                    trace = engine.transition_trace(
+                        left, token, right1, right2, right3 if right3 is not None else EDGE
                     )
-                transitions[row.key] = row
-                if right1.kind == "letter":
-                    successor_allowed = follower_map.get(right2.rune) if follower_map is not None else None
-                    worklist.append(
-                        (LeftContext("letter", trace.settled), right1.rune, right2, successor_allowed)
+                    row = Transition(
+                        input_glyph=input_label,
+                        left=left_label,
+                        right1=right_label(right1),
+                        right2=right_label(right2) if right1.kind == "letter" else NA_LABEL,
+                        right3=right_label(right3) if right3 is not None else NA_LABEL,
+                        outcome=cell_label(spec, trace.settled.cell),
+                        settled=trace.settled,
+                        left_settled=left.settled,
+                        joint=trace.joint_floor,
+                        prospect=trace.prospect,
+                        provenance=tuple(trace.notes),
                     )
+                    existing = transitions.get(row.key)
+                    if existing is not None and existing.outcome != row.outcome:
+                        raise PartitionError(
+                            f"window {row.key} settles inconsistently: {existing.outcome} vs {row.outcome}"
+                        )
+                    transitions[row.key] = row
+                    if right1.kind == "letter":
+                        successor_allowed = (
+                            frozenset({right3})
+                            if right3 is not None
+                            else (follower_map.get(right2.rune) if follower_map is not None else None)
+                        )
+                        worklist.append(
+                            (LeftContext("letter", trace.settled), right1.rune, right2, successor_allowed)
+                        )
 
     rows = _flag_prospect_joints(sorted(transitions.values(), key=lambda t: t.key))
 
     rules: list[Rule] = []
     identity_guards = 0
-    by_input: dict[str, dict[tuple[str, str, str], Transition]] = {}
+    by_input: dict[str, dict[tuple[str, str, str, str], Transition]] = {}
     for row in rows:
-        by_input.setdefault(row.input_glyph, {})[(row.left, row.right1, row.right2)] = row
+        by_input.setdefault(row.input_glyph, {})[(row.left, row.right1, row.right2, row.right3)] = row
     for input_glyph in sorted(by_input):
         never_locked = not is_entry_bearing(spec, input_glyph.split(".")[0])
         input_rules, guards = _rules_for_input(input_glyph, by_input[input_glyph], never_locked)
@@ -441,6 +511,8 @@ def _flag_prospect_joints(rows: list[Transition]) -> list[Transition]:
             for successor in successors.get((row.outcome, row.right1), ()):
                 if successor.right1 != row.right2:
                     continue
+                if row.right3 != NA_LABEL and successor.right2 != row.right3:
+                    continue
                 realized = 1 if successor.settled.seam is not None else 0
                 if realized != row.prospect:
                     joint = True
@@ -457,18 +529,22 @@ def _signature_blocks(values, signature_of) -> list[tuple[str, ...]]:
 
 
 def _rules_for_input(
-    input_glyph: str, rows: dict[tuple[str, str, str], Transition], never_locked: bool
+    input_glyph: str, rows: dict[tuple[str, str, str, str], Transition], never_locked: bool
 ) -> tuple[list[Rule], int]:
-    lefts = sorted({left for left, _r1, _r2 in rows})
-    r1s = sorted({r1 for _left, r1, _r2 in rows})
-    r2s = sorted({r2 for _left, _r1, r2 in rows})
+    lefts = sorted({left for left, _r1, _r2, _r3 in rows})
+    r1s = sorted({r1 for _left, r1, _r2, _r3 in rows})
+    r2s = sorted({r2 for _left, _r1, r2, _r3 in rows})
+    r3s = sorted({r3 for _left, _r1, _r2, r3 in rows})
 
-    def outcome(left: str, r1: str, r2: str) -> str | None:
-        row = rows.get((left, r1, r2))
+    def outcome(left: str, r1: str, r2: str, r3: str) -> str | None:
+        row = rows.get((left, r1, r2, r3))
         return row.outcome if row is not None else None
 
     left_blocks = _signature_blocks(
-        lefts, lambda left: frozenset(((r1, r2), outcome(left, r1, r2)) for r1 in r1s for r2 in r2s)
+        lefts,
+        lambda left: frozenset(
+            ((r1, r2, r3), outcome(left, r1, r2, r3)) for r1 in r1s for r2 in r2s for r3 in r3s
+        ),
     )
     default_blocks = [block for block in left_blocks if set(block) & BOUNDARYISH]
     committed_blocks = [block for block in left_blocks if not set(block) & BOUNDARYISH]
@@ -482,11 +558,12 @@ def _rules_for_input(
     def emit_group(members: tuple[str, ...], backtrack: tuple[str, ...] | None, rules: list[Rule]) -> None:
         nonlocal identity_guards
         representative = members[0]
-        group_rows = {(r1, r2): row for (left, r1, r2), row in rows.items() if left == representative}
-        group_r1s = sorted({r1 for r1, _r2 in group_rows})
+        group_rows = {(r1, r2, r3): row for (left, r1, r2, r3), row in rows.items() if left == representative}
+        group_r1s = sorted({r1 for r1, _r2, _r3 in group_rows})
 
         r1_blocks = _signature_blocks(
-            group_r1s, lambda r1: frozenset((r2, outcome(representative, r1, r2)) for r2 in r2s)
+            group_r1s,
+            lambda r1: frozenset(((r2, r3), outcome(representative, r1, r2, r3)) for r2 in r2s for r3 in r3s),
         )
 
         boundary_block = next((block for block in r1_blocks if set(block) & BOUNDARYISH), None)
@@ -495,11 +572,17 @@ def _rules_for_input(
         fallback_rules: list[Rule] = []
         if boundary_block is not None:
             samples = {
-                group_rows[(r1, NA_LABEL)].outcome for r1 in boundary_block if (r1, NA_LABEL) in group_rows
+                group_rows[(r1, NA_LABEL, NA_LABEL)].outcome
+                for r1 in boundary_block
+                if (r1, NA_LABEL, NA_LABEL) in group_rows
             }
             if len(samples) != 1:
                 raise PartitionError(f"{input_glyph}: boundary lookaheads disagree: {samples}")
-            sample = next(group_rows[(r1, NA_LABEL)] for r1 in boundary_block if (r1, NA_LABEL) in group_rows)
+            sample = next(
+                group_rows[(r1, NA_LABEL, NA_LABEL)]
+                for r1 in boundary_block
+                if (r1, NA_LABEL, NA_LABEL) in group_rows
+            )
             fallback_outcome = sample.outcome
             if fallback_outcome != input_glyph:
                 boundary_rules.append(
@@ -508,6 +591,7 @@ def _rules_for_input(
                         backtrack,
                         BOUNDARY_LOOKAHEAD_CLASS,
                         None,
+                        None,
                         fallback_outcome,
                         sample.provenance,
                         sample.joint,
@@ -515,7 +599,14 @@ def _rules_for_input(
                 )
                 fallback_rules.append(
                     Rule(
-                        input_glyph, backtrack, None, None, fallback_outcome, sample.provenance, sample.joint
+                        input_glyph,
+                        backtrack,
+                        None,
+                        None,
+                        None,
+                        fallback_outcome,
+                        sample.provenance,
+                        sample.joint,
                     )
                 )
 
@@ -526,14 +617,21 @@ def _rules_for_input(
             letters = tuple(label for label in r1_block if label not in BOUNDARYISH)
             if set(r1_block) - set(letters):
                 raise PartitionError(f"{input_glyph}: mixed letter/boundary lookahead block {r1_block}")
-            block_r2s = sorted({r2 for (r1, r2) in group_rows if r1 == r1_block[0]})
+            block_r2s = sorted({r2 for (r1, r2, _r3) in group_rows if r1 == r1_block[0]})
             r2_blocks = _signature_blocks(
-                block_r2s, lambda r2: frozenset((r1, outcome(representative, r1, r2)) for r1 in r1_block)
+                block_r2s,
+                lambda r2: frozenset(
+                    ((r1, r3), outcome(representative, r1, r2, r3)) for r1 in r1_block for r3 in r3s
+                ),
             )
-            distinct_outcomes = {group_rows[(r1_block[0], block[0])].outcome for block in r2_blocks}
-            block_joint = any(row.joint for (r1, _r2), row in group_rows.items() if r1 in r1_block)
+            distinct_outcomes = {row.outcome for (r1, _r2, _r3), row in group_rows.items() if r1 in r1_block}
+            block_joint = any(row.joint for (r1, _r2, _r3), row in group_rows.items() if r1 in r1_block)
             if len(distinct_outcomes) == 1:
-                sample = group_rows[(r1_block[0], block_r2s[0])]
+                sample = next(
+                    row
+                    for (r1, r2, _r3), row in sorted(group_rows.items())
+                    if r1 == r1_block[0] and r2 == block_r2s[0]
+                )
                 out = sample.outcome
                 if out == fallback_outcome:
                     continue
@@ -541,43 +639,143 @@ def _rules_for_input(
                     if fallback_outcome != input_glyph:
                         identity_guards += 1
                         letter_rules.append(
-                            Rule(input_glyph, backtrack, letters, None, out, sample.provenance, block_joint)
+                            Rule(
+                                input_glyph,
+                                backtrack,
+                                letters,
+                                None,
+                                None,
+                                out,
+                                sample.provenance,
+                                block_joint,
+                            )
                         )
                     continue
                 letter_rules.append(
-                    Rule(input_glyph, backtrack, letters, None, out, sample.provenance, block_joint)
+                    Rule(input_glyph, backtrack, letters, None, None, out, sample.provenance, block_joint)
                 )
                 continue
-            # Outcome depends on the second lookahead slot. Order inside the split: the boundary row (uni200C explicit at the slot) first, so no later row of this window can match across a skipped ZWNJ; then letter-constrained two-slot rows, where an identity outcome becomes an identity guard whenever a slot-dropped fallback follows; then the fallback, which catches the run edge — a positive lookahead class cannot match end-of-buffer.
+            # Outcome depends on a later lookahead slot. Order inside the split: the boundary row (uni200C explicit at the slot) first, so no later row of this window can match across a skipped ZWNJ; then the third-slot bundles (each replaying the same discipline one slot over: boundary row, letter-constrained three-slot rules, the slot-dropped two-slot fallback), so three-slot rows precede every two-slot row; then letter-constrained two-slot rules, where an identity outcome becomes an identity guard whenever a slot-dropped fallback follows; then the fallback, which catches the run edge — a positive lookahead class cannot match end-of-buffer.
             slot_fallback: Rule | None = None
             boundary_slot_rule: Rule | None = None
+            deep_rules: list[Rule] = []
             two_slot_rules: list[Rule] = []
             for r2_block in r2_blocks:
-                sample = group_rows[(r1_block[0], r2_block[0])]
-                out = sample.outcome
                 r2_letters = tuple(label for label in r2_block if label not in BOUNDARYISH)
-                if set(r2_block) & BOUNDARYISH:
-                    if set(r2_block) - set(r2_letters) - BOUNDARYISH:
-                        raise PartitionError(f"{input_glyph}: unexpected labels in r2 block {r2_block}")
-                    if out != input_glyph:
-                        boundary_slot_rule = Rule(
+                block_r3s = sorted(
+                    {r3 for (r1, r2, r3) in group_rows if r1 == r1_block[0] and r2 == r2_block[0]}
+                )
+                block_outcomes = {outcome(representative, r1_block[0], r2_block[0], r3) for r3 in block_r3s}
+                if len(block_outcomes) == 1:
+                    sample = group_rows[(r1_block[0], r2_block[0], block_r3s[0])]
+                    out = sample.outcome
+                    if set(r2_block) & BOUNDARYISH:
+                        if set(r2_block) - set(r2_letters) - BOUNDARYISH:
+                            raise PartitionError(f"{input_glyph}: unexpected labels in r2 block {r2_block}")
+                        if out != input_glyph:
+                            boundary_slot_rule = Rule(
+                                input_glyph,
+                                backtrack,
+                                letters,
+                                BOUNDARY_LOOKAHEAD_CLASS,
+                                None,
+                                out,
+                                sample.provenance,
+                                block_joint,
+                            )
+                            slot_fallback = Rule(
+                                input_glyph,
+                                backtrack,
+                                letters,
+                                None,
+                                None,
+                                out,
+                                sample.provenance,
+                                block_joint,
+                            )
+                        continue
+                    two_slot_rules.append(
+                        Rule(
                             input_glyph,
                             backtrack,
                             letters,
-                            BOUNDARY_LOOKAHEAD_CLASS,
+                            r2_letters,
+                            None,
                             out,
                             sample.provenance,
                             block_joint,
                         )
-                        slot_fallback = Rule(
-                            input_glyph, backtrack, letters, None, out, sample.provenance, block_joint
-                        )
+                    )
                     continue
-                two_slot_rules.append(
-                    Rule(input_glyph, backtrack, letters, r2_letters, out, sample.provenance, block_joint)
+                if set(r2_block) & BOUNDARYISH:
+                    raise PartitionError(
+                        f"{input_glyph}: boundary second-slot block {r2_block} splits by the third slot"
+                    )
+                r3_blocks = _signature_blocks(
+                    block_r3s,
+                    lambda r3: frozenset(
+                        ((r1, r2), outcome(representative, r1, r2, r3)) for r1 in r1_block for r2 in r2_block
+                    ),
                 )
+                slot3_fallback: Rule | None = None
+                boundary_slot3_rule: Rule | None = None
+                three_slot_rules: list[Rule] = []
+                for r3_block in r3_blocks:
+                    sample = group_rows[(r1_block[0], r2_block[0], r3_block[0])]
+                    out = sample.outcome
+                    r3_letters = tuple(label for label in r3_block if label not in BOUNDARYISH)
+                    if set(r3_block) & BOUNDARYISH:
+                        if set(r3_block) - set(r3_letters) - BOUNDARYISH:
+                            raise PartitionError(f"{input_glyph}: unexpected labels in r3 block {r3_block}")
+                        if out != input_glyph:
+                            boundary_slot3_rule = Rule(
+                                input_glyph,
+                                backtrack,
+                                letters,
+                                r2_letters,
+                                BOUNDARY_LOOKAHEAD_CLASS,
+                                out,
+                                sample.provenance,
+                                block_joint,
+                            )
+                            slot3_fallback = Rule(
+                                input_glyph,
+                                backtrack,
+                                letters,
+                                r2_letters,
+                                None,
+                                out,
+                                sample.provenance,
+                                block_joint,
+                            )
+                        continue
+                    three_slot_rules.append(
+                        Rule(
+                            input_glyph,
+                            backtrack,
+                            letters,
+                            r2_letters,
+                            r3_letters,
+                            out,
+                            sample.provenance,
+                            block_joint,
+                        )
+                    )
+                if boundary_slot3_rule is not None:
+                    deep_rules.append(boundary_slot3_rule)
+                for rule in three_slot_rules:
+                    if rule.outcome == input_glyph:
+                        if slot3_fallback is None:
+                            continue
+                        identity_guards += 1
+                    elif slot3_fallback is not None and rule.outcome == slot3_fallback.outcome:
+                        continue
+                    deep_rules.append(rule)
+                if slot3_fallback is not None:
+                    deep_rules.append(slot3_fallback)
             if boundary_slot_rule is not None:
                 letter_rules.append(boundary_slot_rule)
+            letter_rules.extend(deep_rules)
             for rule in two_slot_rules:
                 if rule.outcome == input_glyph:
                     if slot_fallback is None:
@@ -610,6 +808,7 @@ def _rules_for_input(
                     ("uni200C",),
                     rule.look1,
                     rule.look2,
+                    rule.look3,
                     rule.outcome,
                     rule.provenance + ("ZWNJ backtrack-slot coverage row",),
                     rule.joint,
@@ -620,6 +819,7 @@ def _rules_for_input(
             Rule(
                 input_glyph,
                 ("uni200C",),
+                None,
                 None,
                 None,
                 input_glyph,

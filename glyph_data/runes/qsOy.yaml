@@ -61,7 +61,10 @@ policy:
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
-    when: {right: {family: [qsTea, qsIt]}}
+    when:
+      right:
+        family: [qsTea, qsIt]
+        except: [{family: qsTea, then: {family: qsUtter, then: {family: qsLow}}}]
     why: 'Round-1 verdict, 37 windows: when the groupings tie, ·Oy leaves its baseline exit unrealized so the follower pair joins instead — "I think I would rather prefer ·Tea·It to join" (u-0280); "The old way seems nicer to write out by hand" (the rest). Yielding, so a strict-gain ·Oy·Tea/·Oy·It join is kept.'
   extend: []
   contract: []

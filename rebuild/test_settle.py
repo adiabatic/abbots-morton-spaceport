@@ -26,6 +26,7 @@ from rebuild.pipeline.model import (
 )
 from rebuild.pipeline.settle import (
     EDGE,
+    UNKNOWN,
     Engine,
     EStrandedError,
     LeftContext,
@@ -154,6 +155,59 @@ def test_entry_extension_suppressed_when_left_seam_already_extended():
     settled = settle(SPEC, codepoints, frozenset())
     assert settled[1].extension == 1
     assert settled[2].cell.adjustments == ()
+
+
+def test_right_chain_matcher_nested_then():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    chain = Condition(
+        family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))
+    )
+    assert engine.cond_matches_right(None, chain, (tea, may, it)) is True
+    assert engine.cond_matches_right(None, chain, (tea, may, tea)) is False
+    assert engine.cond_matches_right(None, chain, (tea, it, it)) is False
+    assert engine.cond_matches_right(None, chain, (may, may, it)) is False
+    assert engine.cond_matches_right(None, chain, (tea, may, UNKNOWN)) is None
+    assert engine.cond_matches_right(None, chain, (tea, may)) is None
+    assert engine.cond_matches_right(None, chain, (tea,)) is None
+
+
+def test_right_chain_matcher_except_hops_walk_forward():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    cond = Condition(
+        family=("qsTea", "qsIt"),
+        except_=(
+            Condition(family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))),
+        ),
+    )
+    assert engine.cond_matches_right(None, cond, (tea, may, it)) is False
+    assert engine.cond_matches_right(None, cond, (tea, may, tea)) is True
+    assert engine.cond_matches_right(None, cond, (tea, tea, it)) is True
+    assert engine.cond_matches_right(None, cond, (it, may, it)) is True
+    assert engine.cond_matches_right(None, cond, (may, may, it)) is False
+    assert engine.cond_matches_right(None, cond, (tea, may, UNKNOWN)) is None
+    assert engine.cond_matches_right(None, cond, (tea,)) is None
+
+
+def test_when_matches_third_slot_defaults_unknown():
+    engine = Engine(SPEC, frozenset())
+    tea, may, it = (RightToken("letter", name) for name in ("qsTea", "qsMay", "qsIt"))
+    when = When(
+        right=Condition(
+            family=("qsTea",), then=Condition(family=("qsMay",), then=Condition(family=("qsIt",)))
+        )
+    )
+    left = LeftContext("edge")
+    assert (
+        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=it)
+        is True
+    )
+    assert (
+        engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may, right3=tea)
+        is False
+    )
+    assert engine.when_matches(None, when, left=left, entry=None, seam=None, right1=tea, right2=may) is None
 
 
 def test_e_stranded_raises_on_forged_commitment():
@@ -365,6 +419,39 @@ def _real_labels(real_spec, names: str, features=()) -> tuple[str, ...]:
         cell_label(real_spec, settled.cell)
         for settled in settle(real_spec, codepoints, frozenset(features))
     )
+
+
+# The depth-3 regression pins (doc/rebuild-design.md section 3.4, the orphaned-·Tea windows): in ·Day·Tea·Utter·Low and ·Oy·Tea·Utter·Low the predecessor used to withdraw its baseline exit on the prospect that ·Tea would join forward into ·Utter, and qsUtter's ·Low-scoped prefer then vetoed the entry, leaving ·Tea joined on neither side. The depth-3 chains on qsDay.policy.prefer[1] and qsOy/qsTea_qsOy.policy.prefer[0] keep the predecessor's exit exactly there, restoring the old font's y0,break,y0 grouping; the contrast windows pin that the yield still fires everywhere else.
+
+
+ORPHANED_TEA_ROWS = (
+    (
+        "qsDay qsTea qsUtter qsLow",
+        ("qsDay.full.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+    ),
+    (
+        "qsOy qsTea qsUtter qsLow",
+        ("qsOy.hapax.ex-y0", "qsTea.full.en-y0", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+    ),
+    ("qsDay qsTea qsUtter", ("qsDay.full", "qsTea.full.ex-y0", "qsUtter.mono.en-y0")),
+    (
+        "qsDay qsTea qsUtter qsMay",
+        ("qsDay.full", "qsTea.full.ex-y0", "qsUtter.mono.en-y0.ex-y5", "qsMay.loop.en-y5"),
+    ),
+    ("qsTea qsUtter qsLow", ("qsTea.full", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0")),
+    (
+        "qsDay qsIt qsUtter qsLow",
+        ("qsDay.full", "qsIt.hapax", "qsUtter.alternate.ex-y0", "qsLow.hapax.en-y0"),
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "sequence,expected", ORPHANED_TEA_ROWS, ids=[row[0].replace(" ", "|") for row in ORPHANED_TEA_ROWS]
+)
+@pytest.mark.parametrize("features", ((), ("ss03",)), ids=["default", "ss03"])
+def test_orphaned_tea_depth3_windows(real_spec, sequence, features, expected):
+    assert _real_labels(real_spec, sequence, features) == expected
 
 
 def test_late_formation_yields_before_low(real_spec):

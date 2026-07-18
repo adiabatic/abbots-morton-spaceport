@@ -2,7 +2,7 @@
 
 Stage order, fixed by lookup definition order (which fixes LookupList indices and hence cross-feature application order on both shapers): the ss10 isolated-input pre-empt (single substitutions replacing every letter's raw cmap glyph by its anchor-free `.ss10` twin; defined first so that under ss10 it applies before formation can see the buffer — the twins appear in no formation sequence, marker line, chokepoint class, or settlement input, so under ss10 no ligature ever forms, nothing settles, and each letter keeps its own cluster) → formation (type-4 over the registry's ligature sequences; a ligature the section 5.7 late-formation guard ever blocks moves into its own chaining-context lookup `m1_formation_guarded`, staged first, whose generated `ignore sub` rows realize the guard over the two raw lookahead slots — with ZWNJ-explicit forming rows ordered ahead of them so a skipped ZWNJ can never satisfy a guard class, per the table builder's boundary-row discipline — and whose verdicts come straight from `settle.formation_blocked`, config-blind by that function's construction, so the pre-marker staging loses nothing) → ss marker substitutions (unconditional, per set, staged after formation so enabling a set cannot un-form a ligature; composite markers render multi-set union states) → the ZWNJ chokepoint (`sub uni200C @entry-live' by @entry-locked`) → ONE settlement lookup of chained-context single substitutions with per-family `subtable;` breaks, positive rules only — then, post-settlement, the namer-dot mini-calt (supplied here because `_namer_dot_calt_fea` is a no-op on the `senior_fea` path; its follower class includes the ss10 twins of the Short letters so the dot still lowers under ss10).
 
-Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` (tuples of glyph labels or None), `outcome`, `joint`, `provenance`. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
+Rule consumption is duck-typed against Group 2's `table.DecisionTable`: each rule exposes `input_glyph`, `backtrack` / `look1` / `look2` / `look3` (tuples of glyph labels or None; `look3` is read via getattr so pre-depth-3 duck-typed tables keep working), `outcome`, `joint`, `provenance`. A rule with a live `look3` compiles to one further lookahead class after `look2` — the raw third slot a depth-3 prefer record reads. When `tables_by_config` carries several configurations, their rule lists are folded by exact-duplicate union with a conflict assertion — sound exactly when the table builder already disambiguates inputs by marker labels per configuration (the prototype's feature-fold invariant); a same-window different-outcome collision raises.
 
 Invariants asserted before returning: no locked twin and no chokepoint output appears in any raw lookahead class; every glyph named by any rule exists in the supplied glyph inventory; zero selection-semantics `ignore sub` (the namer-dot stage's guard and the generated late-formation guard rows are the sanctioned exemptions — both are formation/boundary machinery, not selection semantics).
 """
@@ -172,6 +172,7 @@ class _FoldedRule:
     backtrack: tuple[str, ...] | None
     look1: tuple[str, ...] | None
     look2: tuple[str, ...] | None
+    look3: tuple[str, ...] | None
     outcome: str
     provenance: tuple[str, ...]
     joint: bool
@@ -212,6 +213,7 @@ def _renamed(rule, renames: dict[str, str]):
         backtrack=slot(rule.backtrack),
         look1=slot(rule.look1),
         look2=slot(rule.look2),
+        look3=slot(getattr(rule, "look3", None)),
         outcome=renames.get(rule.outcome, rule.outcome),
         provenance=tuple(rule.provenance or ()),
         joint=bool(getattr(rule, "joint", False)),
@@ -228,7 +230,7 @@ def _fold_rules(tables_by_config: Mapping, spec: ResolvedSpec | None = None) -> 
         renames = _raw_rename_map(spec, _config_features(config))
         for raw_rule in getattr(table, "rules", ()):
             rule = _renamed(raw_rule, renames)
-            key = (rule.input_glyph, rule.backtrack, rule.look1, rule.look2)
+            key = (rule.input_glyph, rule.backtrack, rule.look1, rule.look2, getattr(rule, "look3", None))
             existing = seen.get(key)
             if existing is not None:
                 if existing != rule.outcome:
@@ -245,7 +247,11 @@ def _settle_lines(
     rules: Iterable, registry: _ClassRegistry, marker_names: frozenset[str] = frozenset()
 ) -> tuple[list[str], int]:
     def mentions_marker(rule) -> bool:
-        return any(label in marker_names for slot in (rule.look1, rule.look2) for label in slot or ())
+        return any(
+            label in marker_names
+            for slot in (rule.look1, rule.look2, getattr(rule, "look3", None))
+            for label in slot or ()
+        )
 
     by_input: dict[str, list] = {}
     for rule in rules:
@@ -276,6 +282,8 @@ def _settle_lines(
             parts.append(registry.ref(tuple(rule.look1), f"s_{base}_la1_{index}"))
         if rule.look2:
             parts.append(registry.ref(tuple(rule.look2), f"s_{base}_la2_{index}"))
+        if getattr(rule, "look3", None):
+            parts.append(registry.ref(tuple(rule.look3), f"s_{base}_la3_{index}"))
         parts.append(f"by {rule.outcome};")
         provenance = "; ".join(dict.fromkeys(str(p) for p in (rule.provenance or ()) if p))
         comment_bits = [
@@ -295,7 +303,7 @@ def _assert_invariants(
     allowed_ignores: frozenset[str] = frozenset(),
 ) -> None:
     for rule in rules:
-        for slot in (rule.look1, rule.look2):
+        for slot in (rule.look1, rule.look2, getattr(rule, "look3", None)):
             if not slot:
                 continue
             leaked = set(slot) & locked
@@ -308,7 +316,7 @@ def _assert_invariants(
         for name in (rule.input_glyph, rule.outcome):
             if name not in named_glyphs:
                 missing.add(name)
-        for slot in (rule.backtrack, rule.look1, rule.look2):
+        for slot in (rule.backtrack, rule.look1, rule.look2, getattr(rule, "look3", None)):
             for name in slot or ():
                 if name not in named_glyphs and name not in ("uni200C", "space", "periodcentered"):
                     missing.add(name)

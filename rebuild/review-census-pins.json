@@ -1,22 +1,22 @@
 {
   "_surface": {
-    "generated_at": "2026-07-18T04:59:48Z",
-    "repo_head": "a4876ea"
+    "generated_at": "2026-07-18T09:02:04Z",
+    "repo_head": "de17b7f"
   },
   "manifest": {
     "totals": {
       "units": 24913,
       "rows": 121652,
       "batches": 13,
-      "echo_groups": 1227
+      "echo_groups": 1214
     },
     "classes_count": 26,
     "machine_approved": {
-      "units": 19135,
+      "units": 19145,
       "by_class": {
         "boundary-echo": 7322,
-        "dangling-anchor-dropped": 4686,
-        "bare-name-live-join": 2801,
+        "dangling-anchor-dropped": 4690,
+        "bare-name-live-join": 2807,
         "ss10-isolation-completed": 3403,
         "ss10-ligature-suppressed": 617,
         "kern-channel-out-of-scope": 306
@@ -24,18 +24,18 @@
     },
     "class_unit_count": {
       "boundary-echo": 9075,
-      "dangling-anchor-dropped": 4731,
-      "bare-name-live-join": 3113
+      "dangling-anchor-dropped": 4735,
+      "bare-name-live-join": 3119
     },
     "secondary_seams": {
-      "units_with_markers": 2109,
-      "seams_homed": 943,
-      "seams_homeless": 1360,
+      "units_with_markers": 2085,
+      "seams_homed": 944,
+      "seams_homeless": 1332,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 3852,
+    "human_units": 3842,
     "config_note_distribution": [
       [
         null,
@@ -72,29 +72,29 @@
     "units": 25827
   },
   "ink": {
-    "machine_total": 13724,
-    "non_identical": 12103,
+    "machine_total": 13734,
+    "non_identical": 12093,
     "by_class": {
       "boundary-echo": 5852,
-      "dangling-anchor-dropped": 5071,
-      "bare-name-live-join": 2801
+      "dangling-anchor-dropped": 5075,
+      "bare-name-live-join": 2807
     },
     "boundary_echo_exempt": 3836,
-    "human_units": 8267,
+    "human_units": 8257,
     "batches": 28
   },
   "families": {
     "census": {
-      "no-chain-gains": 160,
+      "no-chain-gains": 165,
       "tea-it-xheight": 37,
       "oy-it-baseline": 17,
       "may-utter-gains": 103,
-      "seam-loss-withdrawal": 483,
+      "seam-loss-withdrawal": 482,
       "extension-non-summing": 320,
       "unmatched-misc": 255,
       "deferred-ss04": 458,
-      "deferred-ss03": 152
+      "deferred-ss03": 151
     },
-    "total": 1985
+    "total": 1988
   }
 }

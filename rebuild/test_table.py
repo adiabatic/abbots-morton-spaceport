@@ -1,9 +1,16 @@
-"""Decision-table and treaty-table tests over the real M1 fixture spec: the fixpoint enumeration, the outcome-partition hard invariant, E-STRANDED at table level, rule-ordering discipline, joint flagging, configuration identities, and diff-stable TSV output."""
+"""Decision-table and treaty-table tests over the real M1 fixture spec: the fixpoint enumeration, the outcome-partition hard invariant, E-STRANDED at table level, rule-ordering discipline, joint flagging, configuration identities, and diff-stable TSV output. The depth-3 class at the bottom runs on the real loaded rune YAML because the frozen fixture spec predates the depth-3 chain records."""
 
 import pytest
 
 from rebuild.pipeline import fixtures
-from rebuild.pipeline.table import BOUNDARY_LOOKAHEAD_CLASS, TreatyRow, build_tables
+from rebuild.pipeline.table import (
+    BOUNDARY_LOOKAHEAD_CLASS,
+    BOUNDARYISH,
+    NA_LABEL,
+    TreatyRow,
+    build_tables,
+    depth3_inputs,
+)
 
 SPEC = fixtures.mini_spec()
 
@@ -40,11 +47,11 @@ def test_reachable_cells_cover_the_known_settlements(default_tables):
 def test_transition_outcomes_match_settlement_examples(default_tables):
     decision, _treaty = default_tables
     by_key = {row.key: row for row in decision.transitions}
-    row = by_key[("qsIt", "#EDGE", "qsMay", "#EDGE")]
+    row = by_key[("qsIt", "#EDGE", "qsMay", "#EDGE", "#NA")]
     assert row.outcome == "qsIt.hapax.ex-y0"
-    row = by_key[("qsTea", "#EDGE", "qsIt", "#EDGE")]
+    row = by_key[("qsTea", "#EDGE", "qsIt", "#EDGE", "#NA")]
     assert row.outcome == "qsTea.half.ex-y5"
-    row = by_key[("qsTea.noentry", "uni200C", "qsIt", "#EDGE")]
+    row = by_key[("qsTea.noentry", "uni200C", "qsIt", "#EDGE", "#NA")]
     assert row.outcome == "qsTea.half.ex-y5.locked"
 
 
@@ -144,6 +151,93 @@ def test_cited_provenance_records_demonstrably_firing_policy(default_tables, ss0
     assert "glyph_data/runes/qsMay.yaml:policy.extend[1]" in ss03_decision.cited_provenance
     assert "glyph_data/runes/qsMay.yaml:policy.extend[1]" not in decision.cited_provenance
     assert "glyph_data/runes/qsTea.yaml:stances.half.surface.unlocks[0]" in ss03_decision.cited_provenance
+
+
+def test_fixture_spec_has_no_depth3_inputs_and_no_look3(default_tables):
+    assert depth3_inputs(SPEC) == frozenset()
+    decision, _treaty = default_tables
+    assert all(row.right3 == NA_LABEL for row in decision.transitions)
+    assert all(rule.look3 is None for rule in decision.rules)
+
+
+class TestDepthThreeTables:
+    """The lazy third lookahead slot over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3, the split rows compile to three-slot rules ordered ahead of their two-slot fallbacks, and the hard invariants hold with the extra slot — which is also the corpus-wide proof that the depth-3 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
+
+    @pytest.fixture(scope="class")
+    def real_spec(self):
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return load_default_spec()
+
+    @pytest.fixture(scope="class")
+    def real_default_decision(self, real_spec):
+        decision, _treaty = build_tables(real_spec, frozenset())
+        return decision
+
+    def test_depth3_inputs_census(self, real_spec):
+        assert depth3_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy"})
+
+    def test_look3_enumerated_lazily(self, real_spec, real_default_decision):
+        deep = depth3_inputs(real_spec)
+        saw_enumerated = False
+        for row in real_default_decision.transitions:
+            if row.input_glyph.split(".")[0] not in deep or row.right2 in BOUNDARYISH:
+                assert row.right3 == NA_LABEL, row.key
+            elif row.right3 != NA_LABEL:
+                saw_enumerated = True
+        assert saw_enumerated
+
+    def test_hard_invariants_hold_with_the_third_slot(self, real_default_decision):
+        real_default_decision.assert_outcome_partition()
+        real_default_decision.assert_e_stranded()
+
+    def test_three_slot_rules_only_for_depth3_inputs(self, real_spec, real_default_decision):
+        deep = depth3_inputs(real_spec)
+        three_slot = [rule for rule in real_default_decision.rules if rule.look3 is not None]
+        assert three_slot
+        assert {rule.input_glyph.split(".")[0] for rule in three_slot} <= deep
+
+    def test_low_window_rule_and_ordering(self, real_default_decision):
+        rules = [rule for rule in real_default_decision.rules if rule.input_glyph == "qsDay"]
+        low_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.backtrack is None
+            and rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 == ("qsLow",)
+        )
+        assert rules[low_index].outcome == "qsDay.full.ex-y0"
+        boundary3_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.backtrack is None
+            and rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 == BOUNDARY_LOOKAHEAD_CLASS
+        )
+        fallback_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.backtrack is None
+            and rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 is None
+        )
+        assert rules[boundary3_index].outcome == "qsDay.full"
+        assert rules[fallback_index].outcome == "qsDay.full"
+        assert boundary3_index < low_index < fallback_index
+
+    def test_tsv_carries_the_lookahead3_column(self, real_default_decision, tmp_path):
+        path = tmp_path / "settlement-default.tsv"
+        real_default_decision.write_tsv(path)
+        lines = path.read_text().splitlines()
+        assert lines[1] == "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\toutcome\tjoint\tprovenance"
+        assert any(line.split("\t")[4] == "qsLow" for line in lines[2:])
 
 
 def test_rule_provenance_carries_yaml_pointers(default_tables):

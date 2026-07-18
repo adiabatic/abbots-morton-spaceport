@@ -52,7 +52,7 @@ class Condition:
     stroke: str | None = None
     is_token: str | None = None  # "boundary" | "space" | "zwnj" | "namer-dot" ("is:" in YAML)
     except_: tuple["Condition", ...] = ()
-    then: "Condition | None" = None  # right-only static hop; forbidden on refuse/require
+    then: "Condition | None" = None  # right-only static hop, lint-capped chain; forbidden on refuse/require
 
 
 @dataclass(frozen=True)

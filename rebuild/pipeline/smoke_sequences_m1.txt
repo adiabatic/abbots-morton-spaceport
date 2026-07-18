@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsMay E665, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsMay E665, qsLow E667, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -70,3 +70,11 @@ E670 E665 E652 E679       # It May Tea Oy
 E650 E650 E670 E665       # Pea Pea It May
 E665 E650 E650            # May Pea Pea
 E652 E670 E652 E679 E670  # Tea It Tea+Oy It (five tokens, ligature mid-chain)
+#
+# Depth-3 windows: the third lookahead class in the settlement lookup (qsLow E667).
+E653 E652 E67A E667       # Day Tea Utter Low (Day keeps its baseline exit; Tea joins on neither side otherwise)
+E679 E652 E67A E667       # Oy Tea Utter Low (Oy keeps its baseline exit)
+E653 E652 E67A            # Day Tea Utter (contrast: Day still yields to the Tea Utter join)
+E653 E652 E67A E665       # Day Tea Utter May (contrast: the yield survives a non-Low fourth letter)
+E653 E652 E67A 200C E667  # Day Tea Utter ZWNJ Low (the third-slot class must not match across the break)
+E650 E679 E652 E67A E667  # Pea Oy Tea Utter Low (the depth-3 window with a settled left)
