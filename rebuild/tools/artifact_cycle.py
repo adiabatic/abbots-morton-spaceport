@@ -31,6 +31,7 @@ REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
 CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
+CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
 
@@ -874,7 +875,7 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
             _join_gates(report, failures, js_fut, None, None, make_fut, plan.update_pins, emit)
-            return _finish(report, failures)
+            return _finish(report, failures, plan)
 
         if not plan.skip_gates:
             rebuild_fut = pool.submit(
@@ -901,7 +902,7 @@ def _run_cycle(
         ):
             failures.append("surface rebuild failed")
             _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
-            return _finish(report, failures)
+            return _finish(report, failures, plan)
 
         if plan.carry_out is not None:
             if not _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
@@ -915,12 +916,12 @@ def _run_cycle(
         )
 
         _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
-        return _finish(report, failures)
+        return _finish(report, failures, plan)
     except KeyboardInterrupt:
         registry.terminate_all()
         pool.shutdown(wait=False, cancel_futures=True)
         report.interrupted = True
-        return _finish_interrupted(report, failures, registry.killed_count)
+        return _finish_interrupted(report, failures, registry.killed_count, plan)
     finally:
         pool.shutdown(wait=True)
 
@@ -954,6 +955,82 @@ def _print_summary(report: CycleReport) -> None:
         print(f"      {path}")
     print(f"      {CONFORM_SUMMARY}")
     print("=" * 68)
+
+
+def _as_str(value: object | None) -> str | None:
+    return None if value is None else str(value)
+
+
+def _gate_entry(status: str) -> dict:
+    return {"status": status, "green": status == "green"}
+
+
+def _surface_block(surface_dir: Path) -> dict:
+    block: dict = {"dir": str(surface_dir), "generated_at": None, "inputs_fingerprint": None}
+    try:
+        manifest = json.loads((surface_dir / "manifest.json").read_text())
+        block["generated_at"] = manifest.get("generated_at")
+        block["inputs_fingerprint"] = manifest.get("inputs_fingerprint")
+    except Exception:
+        pass
+    return block
+
+
+def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, exit_kind: str) -> dict:
+    return {
+        "format": "ams-cycle-summary/1",
+        "finished_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "exit": exit_kind,
+        "failures": list(failures),
+        "gates": {
+            "js": _gate_entry(report.gate_js),
+            "rebuild": _gate_entry(report.gate_rebuild),
+            "conform": _gate_entry(report.gate_conform),
+            "make_test": _gate_entry(report.gate_make_test),
+        },
+        "unmatched": report.unmatched,
+        "multi_matched": report.multi_matched,
+        "boundary_pass": report.boundary_pass,
+        "pins_pass": report.pins_pass,
+        "surface_units": report.surface_units,
+        "surface_rows": report.surface_rows,
+        "surface_batches": report.surface_batches,
+        "echo_groups": report.echo_groups,
+        "carry_out": _as_str(report.carry_out),
+        "carry_lines": list(report.carry_lines),
+        "census_status": report.census_status,
+        "snapshot_dir": _as_str(report.snapshot_dir),
+        "interrupted": report.interrupted,
+        "plan": {
+            "verdicts": _as_str(plan.verdicts),
+            "carry_out": _as_str(plan.carry_out),
+            "conform_horizon": plan.conform_horizon,
+            "pool_policy": plan.pool_policy,
+            "skip_gates": plan.skip_gates,
+            "skip_conform": plan.skip_conform,
+            "update_pins": plan.update_pins,
+            "review_out": _as_str(plan.review_out),
+            "first_run": plan.first_run,
+            "short_id": plan.short_id,
+        },
+        "argv": list(sys.argv),
+        "surface": _surface_block(plan.census_surface),
+    }
+
+
+def write_cycle_summary(payload: dict) -> None:
+    target = CYCLE_SUMMARY
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    os.replace(tmp, target)
+
+
+def _emit_cycle_summary(report: CycleReport, failures: list[str], plan: Plan, exit_kind: str) -> None:
+    try:
+        write_cycle_summary(cycle_summary_payload(report, failures, plan, exit_kind))
+    except Exception as exc:
+        print(f"warning: failed to write {CYCLE_SUMMARY}: {exc!r}", file=sys.stderr)
 
 
 def _preflight(args: argparse.Namespace) -> bool:
@@ -1106,8 +1183,9 @@ def main(argv: list[str] | None = None) -> int:
     return _run_cycle(plan, report, emit, registry)
 
 
-def _finish(report: CycleReport, failures: list[str]) -> int:
+def _finish(report: CycleReport, failures: list[str], plan: Plan) -> int:
     _print_summary(report)
+    _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok")
     if failures:
         print("\nCYCLE FAILED:")
         for reason in failures:
@@ -1117,8 +1195,9 @@ def _finish(report: CycleReport, failures: list[str]) -> int:
     return 0
 
 
-def _finish_interrupted(report: CycleReport, failures: list[str], killed_count: int) -> int:
+def _finish_interrupted(report: CycleReport, failures: list[str], killed_count: int, plan: Plan) -> int:
     _print_summary(report)
+    _emit_cycle_summary(report, failures, plan, "interrupted")
     print(f"\nCYCLE INTERRUPTED (SIGINT): terminated {killed_count} child process(es).")
     return 130
 

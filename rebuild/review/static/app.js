@@ -1,6 +1,7 @@
 import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
 import { parsePreview } from './preview.js';
+import { bannerModel } from './status.js';
 import {
   createStore,
   recordVerdict,
@@ -1077,6 +1078,7 @@ function renderDocket() {
     ),
   );
   container.append(header);
+  renderDocketReadiness();
 
   if (totals.clusters === 0) container.append(el('p', 'docket-note', 'No blank units — the queue is clear.'));
 
@@ -1685,6 +1687,52 @@ async function syncVerdictsFromServer() {
   }
 }
 
+let lastStatusModel = null;
+let statusRefreshInFlight = false;
+let statusRefreshLastAt = 0;
+
+function readinessLine(model) {
+  return model.remedy && model.level !== 'ready' ? `${model.text} — ${model.remedy}` : model.text;
+}
+
+function renderReadinessBanner() {
+  const node = document.getElementById('readiness');
+  if (!node || !lastStatusModel) return;
+  node.textContent = readinessLine(lastStatusModel);
+  node.className = `readiness readiness-${lastStatusModel.level}`;
+  node.title = lastStatusModel.remedy ?? '';
+  node.hidden = false;
+}
+
+function renderDocketReadiness() {
+  const header = document.querySelector('#docket .docket-header');
+  if (!header) return;
+  const existing = header.querySelector('.docket-readiness');
+  if (existing) existing.remove();
+  if (!lastStatusModel || lastStatusModel.level === 'ready') return;
+  header.append(el('p', `docket-readiness readiness-${lastStatusModel.level}`, readinessLine(lastStatusModel)));
+}
+
+async function refreshStatus() {
+  if (statusRefreshInFlight || Date.now() - statusRefreshLastAt < 2000) return;
+  statusRefreshInFlight = true;
+  try {
+    let payload = null;
+    try {
+      const response = await fetch('status');
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+    lastStatusModel = bannerModel(payload, manifest.generated_at);
+    renderReadinessBanner();
+    if (state.view === 'docket') renderDocketReadiness();
+  } finally {
+    statusRefreshInFlight = false;
+    statusRefreshLastAt = Date.now();
+  }
+}
+
 function verdictsFilename(now = new Date()) {
   const time = now
     .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
@@ -2214,13 +2262,18 @@ function wireEvents() {
   window.addEventListener('hashchange', () => {
     state = withDefaults(parseHash(location.hash));
     applyHashState();
+    refreshStatus();
   });
 
   window.addEventListener('focus', () => {
     syncVerdictsFromServer();
+    refreshStatus();
   });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) syncVerdictsFromServer();
+    if (!document.hidden) {
+      syncVerdictsFromServer();
+      refreshStatus();
+    }
   });
 
   window.addEventListener('beforeunload', (event) => {
@@ -2286,3 +2339,4 @@ wireEvents();
 await restoreAutosave();
 bootRestoreDone = true;
 applyHashState();
+refreshStatus();

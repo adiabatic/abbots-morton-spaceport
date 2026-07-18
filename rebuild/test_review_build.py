@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from rebuild.pipeline import fingerprint
 from rebuild.review.audit import ACCEPTANCE_CONFIGS
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
@@ -86,6 +87,25 @@ def test_full_build_passes_the_contract_checker(built):
     assert manifest["totals"] == PINS["manifest"]["totals"]
     assert len(manifest["classes"]) == PINS["manifest"]["classes_count"]
     assert manifest["mode"] == "m1-audit"
+
+
+def test_manifest_carries_the_inputs_fingerprint(built):
+    _out_dir, manifest = built
+    inputs = manifest["inputs_fingerprint"]
+    assert set(inputs) == set(fingerprint.COMPONENTS)
+    recorded = fingerprint.read_stage_a(M1_DIR) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
+    for key in fingerprint.STAGE_A_COMPONENTS:
+        assert inputs[key] == recorded[key]
+    for key in fingerprint.STAGE_B_COMPONENTS:
+        assert isinstance(inputs[key], str)
+
+
+def test_check_manifest_flags_a_malformed_inputs_fingerprint():
+    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+    manifest["inputs_fingerprint"] = {"data": "x"}
+    assert any("inputs_fingerprint" in error for error in check_manifest(manifest))
+    manifest["inputs_fingerprint"] = {key: 7 for key in fingerprint.COMPONENTS}
+    assert any("inputs_fingerprint" in error for error in check_manifest(manifest))
 
 
 def test_machine_approved_histogram_pins_the_census(built):
@@ -581,9 +601,7 @@ def test_export_round_trip(built, tmp_path):
     assert machine["by_class"] == PINS["manifest"]["machine_approved"]["by_class"]
     assert machine["method"]
     assert machine["rows_covered"] == sum(
-        len(unit["configs"])
-        for unit in units.values()
-        if unit["ink_identical"] or unit["junior_equivalent"]
+        len(unit["configs"]) for unit in units.values() if unit["ink_identical"] or unit["junior_equivalent"]
     )
     expanded = []
     for token in machine["unit_ids"]:
@@ -594,9 +612,7 @@ def test_export_round_trip(built, tmp_path):
             expanded.append(int(token[2:]))
     assert len(expanded) == PINS["manifest"]["machine_approved"]["units"]
     assert {f"u-{number:04d}" for number in expanded} == {
-        unit_id
-        for unit_id, unit in units.items()
-        if unit["ink_identical"] or unit["junior_equivalent"]
+        unit_id for unit_id, unit in units.items() if unit["ink_identical"] or unit["junior_equivalent"]
     }
     assert counts["rows_covered"] == sum(
         len(units[uid]["configs"])

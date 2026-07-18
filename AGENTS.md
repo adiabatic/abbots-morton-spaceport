@@ -79,6 +79,7 @@ IMPORTANT: After any Python changes, run `make prettier` to format the code.
 ## Dev-server URLs
 
 - `make serve` runs `tools/serve.py`, which serves the `site/` directory on `http://localhost:7293/`.
+- `make review-serve` serves the rebuild review surface on `http://localhost:7294/`. When the user asks whether everything is ready to verdict, don't reason it out from the git log — run `make verdict-ready` (surface freshness by input fingerprint, gate greenness, verdict-store alignment, server, blanks remaining); the app shows the same status as a banner.
 
 ## YAML files
 

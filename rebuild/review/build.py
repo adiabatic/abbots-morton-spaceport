@@ -22,6 +22,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+from rebuild.pipeline import fingerprint
 from rebuild.review import families, tablediff
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
@@ -86,6 +87,12 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _inputs_fingerprint(repo_root: Path, m1_dir: Path, before_font: Path, junior_font: Path) -> dict:
+    """Stage A values are copied from run_m1's recorded inputs_fingerprint.json rather than recomputed, so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it; nulls mean the record predates fingerprinting."""
+    stage_a = fingerprint.read_stage_a(m1_dir) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
+    return {**stage_a, **fingerprint.stage_b(repo_root, before_font, junior_font)}
+
+
 def _upem(path: Path) -> int:
     from fontTools.ttLib import TTFont
 
@@ -101,7 +108,7 @@ def _repo_head(repo_root: Path) -> str:
             text=True,
             check=True,
         ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return "unknown"
 
 
@@ -522,6 +529,7 @@ def _write_surface(
     batch_size: int,
     audit_path: Path,
     ledger_path: Path,
+    subset_dir: Path,
     before_font: Path,
     after_font: Path,
     junior_font: Path,
@@ -544,7 +552,9 @@ def _write_surface(
                 "why": entry.why,
                 "unit_count": len(units),
                 "row_count": sum(len(unit.rows) for unit in units),
-                "machine_approved_count": sum(1 for unit in units if unit.ink_identical or unit.junior_equivalent),
+                "machine_approved_count": sum(
+                    1 for unit in units if unit.ink_identical or unit.junior_equivalent
+                ),
                 "shard": f"units/{entry.id}.json",
                 "batches": sorted({unit.batch for unit in units if unit.batch is not None}),
             }
@@ -560,6 +570,7 @@ def _write_surface(
         "mode": "m1-audit",
         "generated_at": _generated_at(audit_path, ledger_path, before_font, after_font),
         "repo_head": _repo_head(repo_root),
+        "inputs_fingerprint": _inputs_fingerprint(repo_root, subset_dir, before_font, junior_font),
         "source": {
             "audit": _relative(audit_path, repo_root),
             "ledger": _relative(ledger_path, repo_root),
@@ -701,6 +712,7 @@ def build_m1(
         batch_size,
         audit_path,
         ledger_path,
+        subset_dir,
         before_font,
         after_font,
         junior_font,
@@ -924,6 +936,7 @@ def build_table_diff(
         "mode": "table-diff",
         "generated_at": _generated_at(Path(baseline_dir), Path(new_dir), before_font, after_font),
         "repo_head": _repo_head(repo_root),
+        "inputs_fingerprint": {key: None for key in fingerprint.COMPONENTS},
         "source": {"baseline": str(baseline_dir), "new": str(new_dir)},
         "fonts": fonts,
         "configs": all_configs,
@@ -970,6 +983,13 @@ def check_manifest(manifest: dict) -> list[str]:
     for key in ("generated_at", "repo_head", "build_command", "serve_command"):
         need(isinstance(manifest.get(key), str) and manifest.get(key), f"{key} must be a nonempty string")
     need(isinstance(manifest.get("source"), dict), "source must be a mapping")
+    inputs = manifest.get("inputs_fingerprint")
+    need(
+        isinstance(inputs, dict)
+        and set(inputs) == set(fingerprint.COMPONENTS)
+        and all(value is None or isinstance(value, str) for value in inputs.values()),
+        "inputs_fingerprint must map the six input components to hashes or null",
+    )
     need(
         isinstance(manifest.get("configs"), list) and manifest.get("configs"),
         "configs must be a nonempty list",

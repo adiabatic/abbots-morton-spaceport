@@ -142,6 +142,29 @@ summary:focus-visible {
   }
 }
 
+.readiness {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0.1rem 0.6em;
+  border: 1px solid var(--readiness-color, var(--hairline));
+  border-radius: 8px;
+  color: var(--readiness-color, var(--muted));
+  background: color-mix(in srgb, var(--readiness-color, transparent) 12%, transparent);
+
+  &.readiness-ready {
+    --readiness-color: var(--approve);
+  }
+
+  &.readiness-warn {
+    --readiness-color: var(--neither);
+  }
+
+  &.readiness-stale,
+  &.readiness-error {
+    --readiness-color: var(--reject);
+  }
+}
+
 .search {
   position: relative;
   display: flex;
@@ -1300,6 +1323,22 @@ body.docket-view main {
     font-size: 0.9rem;
     max-width: 60rem;
     margin: 0.4rem 0;
+  }
+
+  .docket-readiness {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin: 0.25rem 0;
+    color: var(--readiness-color, var(--muted));
+
+    &.readiness-warn {
+      --readiness-color: var(--neither);
+    }
+
+    &.readiness-stale,
+    &.readiness-error {
+      --readiness-color: var(--reject);
+    }
   }
 
   article {
