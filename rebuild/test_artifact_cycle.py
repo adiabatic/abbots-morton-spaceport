@@ -1141,3 +1141,66 @@ def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path
     assert summary["surface"]["dir"] == str(surface_dir)
     assert summary["surface"]["generated_at"] is None
     assert summary["surface"]["inputs_fingerprint"] is None
+
+
+def _verdicts_doc(stamp, units):
+    return {
+        "format": "ams-review-verdicts/1",
+        "manifest_generated_at": stamp,
+        "exported_at": stamp,
+        "verdicts": [
+            {"unit": unit, "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"} for unit in units
+        ],
+    }
+
+
+def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
+    review_out = tmp_path / "rebuild" / "out" / "review"
+    review_out.mkdir(parents=True)
+    (review_out / "manifest.json").write_text(json.dumps({"generated_at": stamp}))
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "REVIEW_OUT", review_out)
+    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
+    monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
+
+
+def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
+    _seed_auto_repo(tmp_path, monkeypatch)
+    (tmp_path / "verdicts-autosave.json").write_text(
+        json.dumps(_verdicts_doc("2026-07-17T20:24:44Z", ["u-1", "u-2"]))
+    )
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Auto-resolved carry source: verdicts-autosave.json (2 effective verdicts" in out
+    assert "stamped for the served surface" in out
+    assert str(tmp_path / "verdicts-autosave.json") in out
+
+
+def test_dry_run_auto_resolution_flags_a_mismatched_stamp(tmp_path, monkeypatch, capsys):
+    _seed_auto_repo(tmp_path, monkeypatch)
+    (tmp_path / "verdicts-carried-old.json").write_text(
+        json.dumps(_verdicts_doc("2026-07-10T00:00:00Z", ["u-1"]))
+    )
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Auto-resolved carry source: verdicts-carried-old.json" in out
+    assert "not the served surface" in out
+
+
+def test_dry_run_degrades_to_no_carry_when_nothing_carryable(tmp_path, monkeypatch, capsys):
+    _seed_auto_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "No carryable verdicts found" in out
+    assert "(no carry)" in out
+
+
+def test_explicit_verdicts_skips_auto_resolution(tmp_path, monkeypatch, capsys):
+    _seed_auto_repo(tmp_path, monkeypatch)
+    (tmp_path / "verdicts-autosave.json").write_text(
+        json.dumps(_verdicts_doc("2026-07-17T20:24:44Z", ["u-1"]))
+    )
+    assert ac.main(["--dry-run", "--verdicts", "verdicts-mine.json"]) == 0
+    out = capsys.readouterr().out
+    assert "Auto-resolved" not in out
+    assert "verdicts-mine.json" in out

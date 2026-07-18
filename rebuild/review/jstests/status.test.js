@@ -72,13 +72,13 @@ test('a command remedy is surfaced for copying; a prose remedy is not', () => {
       freshness: {
         level: 'fail',
         detail: 'The build inputs changed since the surface was generated: rune sources.',
-        remedy: "make artifact-cycle ARGS='--verdicts rebuild/evidence/verdicts-carried-0f5155b.json'",
+        remedy: 'make artifact-cycle',
         components: {},
       },
     }),
     'gen-1',
   );
-  assert.equal(stale.command, "make artifact-cycle ARGS='--verdicts rebuild/evidence/verdicts-carried-0f5155b.json'");
+  assert.equal(stale.command, 'make artifact-cycle');
   const prose = bannerModel(
     withChecks({ verdict_store: { level: 'warn', detail: 'store stale', remedy: 'Import the carried verdicts in the app.' } }),
     'gen-1',

@@ -2,7 +2,13 @@
 
 import json
 
-from rebuild.review.status import compute_status, count_effective, latest_verdicts, pick_frontier
+from rebuild.review.status import (
+    compute_status,
+    count_effective,
+    latest_verdicts,
+    pick_frontier,
+    resolve_carry_source,
+)
 
 STAMP = "2026-07-17T20:24:44Z"
 OTHER_STAMP = "2026-07-10T00:00:00Z"
@@ -129,7 +135,7 @@ def test_pre_fingerprint_manifest_fails_all_unknown(tmp_path):
     freshness = call(tmp_path)["checks"]["freshness"]
     assert freshness["level"] == "fail"
     assert set(freshness["components"].values()) == {"unknown"}
-    assert freshness["remedy"].startswith("make artifact-cycle")
+    assert freshness["remedy"] == "make artifact-cycle"
 
 
 def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
@@ -140,7 +146,7 @@ def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
     assert freshness["level"] == "fail"
     assert freshness["components"]["data"] == "stale"
     assert freshness["components"]["static"] == "fresh"
-    assert freshness["remedy"].startswith("make artifact-cycle")
+    assert freshness["remedy"] == "make artifact-cycle"
     assert "data" in freshness["detail"]
 
 
@@ -376,6 +382,53 @@ def test_pick_frontier_includes_evidence_carried_masters(tmp_path):
     assert hit is not None
     assert hit[0].name == "verdicts-carried-abc1234.json"
     assert hit[1] == 2
+
+
+def test_resolve_carry_source_prefers_aligned_max_count(tmp_path):
+    write_autosave(tmp_path, records=[verdict("u-1")])
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
+    _write(
+        tmp_path / "verdicts-old.json",
+        verdicts_doc(OTHER_STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
+    )
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit["path"].name == "verdicts-export.json"
+    assert hit["count"] == 2
+    assert hit["aligned"] is True
+
+
+def test_resolve_carry_source_autosave_breaks_aligned_tie(tmp_path):
+    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2")])
+    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit["path"].name == "verdicts-autosave.json"
+    assert hit["aligned"] is True
+
+
+def test_resolve_carry_source_falls_back_to_newest_stamp(tmp_path):
+    write_autosave(tmp_path, stamp=OTHER_STAMP, records=[verdict("u-1")])
+    _write(
+        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
+        verdicts_doc("2026-07-12T00:00:00Z", [verdict("u-1"), verdict("u-2")]),
+    )
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit["aligned"] is False
+    assert hit["path"].name == "verdicts-carried-abc1234.json"
+    assert hit["stamp"] == "2026-07-12T00:00:00Z"
+    assert hit["count"] == 2
+
+
+def test_resolve_carry_source_empty_aligned_autosave_yields_to_stale_master(tmp_path):
+    write_autosave(tmp_path, records=[])
+    _write(tmp_path / "verdicts-master.json", verdicts_doc(OTHER_STAMP, [verdict("u-1")]))
+    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit["path"].name == "verdicts-master.json"
+    assert hit["aligned"] is False
+
+
+def test_resolve_carry_source_none_when_nothing_carryable(tmp_path):
+    write_autosave(tmp_path, records=[verdict("u-1", "skip")])
+    assert resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json") is None
 
 
 def test_mismatched_empty_autosave_remedy_names_the_frontier(tmp_path):
