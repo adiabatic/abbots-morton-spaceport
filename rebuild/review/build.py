@@ -858,7 +858,7 @@ def build_table_diff(
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
     with_witnesses: bool = True,
-    witness_depth: int = 4,
+    witness_depth: int = 5,
 ) -> dict:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
