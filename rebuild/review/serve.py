@@ -11,6 +11,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
+M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
+CYCLE_SUMMARY_PATH = REPO_ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / "verdicts-autosave.json"
 EXPORT_FORMAT = "ams-review-verdicts/1"
 PORT = 7294
@@ -19,7 +21,7 @@ PORT = 7294
 def parse_autosave_payload(raw: bytes) -> dict | None:
     try:
         data = json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except ValueError, UnicodeDecodeError:
         return None
     if not isinstance(data, dict):
         return None
@@ -63,9 +65,46 @@ def main() -> None:
     from livereload import Server
     from tornado.web import RequestHandler, StaticFileHandler
 
+    from rebuild.review import status
+
+    human_ids_cache: dict[str | None, frozenset[str] | None] = {}
+
+    def cached_human_ids() -> frozenset[str] | None:
+        try:
+            stamp = json.loads((REVIEW_DIR / "manifest.json").read_text()).get("generated_at")
+        except OSError, ValueError:
+            return None
+        if stamp not in human_ids_cache:
+            try:
+                human_ids_cache[stamp] = status.load_human_unit_ids(REVIEW_DIR)
+            except OSError, ValueError, KeyError, TypeError:
+                human_ids_cache[stamp] = None
+        return human_ids_cache[stamp]
+
     class NoCacheStaticHandler(StaticFileHandler):
         def set_extra_headers(self, path: str) -> None:
             self.set_header("Cache-Control", "no-store")
+
+    class StatusHandler(RequestHandler):
+        def set_default_headers(self) -> None:
+            self.set_header("Cache-Control", "no-store")
+
+        def get(self) -> None:
+            try:
+                result = status.compute_status(
+                    REPO_ROOT,
+                    REVIEW_DIR,
+                    M1_OUT,
+                    AUTOSAVE_PATH,
+                    CYCLE_SUMMARY_PATH,
+                    human_ids=cached_human_ids(),
+                )
+            except Exception as exc:
+                self.set_status(500)
+                self.finish({"error": str(exc)})
+                return
+            self.set_header("Content-Type", "application/json")
+            self.finish(json.dumps(result))
 
     class AutosaveHandler(RequestHandler):
         def set_default_headers(self) -> None:
@@ -86,7 +125,10 @@ def main() -> None:
 
     class ReviewServer(Server):
         def get_web_handlers(self, script):
-            return [(r"/autosave", AutosaveHandler)] + super().get_web_handlers(script)
+            return [
+                (r"/status", StatusHandler),
+                (r"/autosave", AutosaveHandler),
+            ] + super().get_web_handlers(script)
 
     server = ReviewServer()
     server.SFH = NoCacheStaticHandler  # pyright: ignore[reportAttributeAccessIssue]

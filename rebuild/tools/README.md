@@ -10,3 +10,4 @@ Long-running scripts for the M1 rebuild. All run from the repo root (some import
 | `review_docket.py`  | Writes tmp/docket-data.json (blank clusters by shard `cluster` signature, ruled classes, disagreeing echo groups) for bulk proposals; the live view is `#view=docket`   |
 | `scratch_build.py`  | Parameterized `load_spec(runes_dir, ...)` build into a scratch out-dir, for A/B oracle experiments without touching `glyph_data/runes/`                                 |
 | `probe.py`          | Probe one codepoint window: old-font baseline vs new settlement, all configs                                                                                            |
+| `verdict_ready.py`  | The readiness checklist (`make verdict-ready`): surface freshness by input fingerprint, gate greenness from the last cycle, verdict-store alignment, server, blanks     |

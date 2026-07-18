@@ -26,6 +26,7 @@ from rebuild.pipeline import (
     defects,
     emit_gpos,
     emit_gsub,
+    fingerprint,
     geometry,
     manual_pins,
     surface,
@@ -212,6 +213,7 @@ def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1
         "font": str(font_path),
     }
     (out_dir / "pipeline_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+    fingerprint.write_stage_a(REPO_ROOT, out_dir)
     return summary
 
 

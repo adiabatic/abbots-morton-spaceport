@@ -8,7 +8,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from rebuild.tools import artifact_cycle as ac
+
+
+@pytest.fixture(autouse=True)
+def _redirect_cycle_summary(monkeypatch, tmp_path):
+    monkeypatch.setattr(ac, "CYCLE_SUMMARY", tmp_path / "cycle_summary.json")
 
 
 def _pass_summaries():
@@ -979,3 +986,150 @@ def test_review_out_rehearsal_plan(monkeypatch):
     assert ac._preflight(waiver) is True
     refuse = argparse.Namespace(review_out=None, yes=False)
     assert ac._preflight(refuse) is False
+
+
+def _green_report():
+    report = ac.CycleReport()
+    report.gate_js = "green"
+    report.gate_rebuild = "green"
+    report.gate_conform = "green"
+    report.gate_make_test = "green"
+    return report
+
+
+def test_cycle_summary_payload_all_green_exit_ok():
+    payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
+    assert payload["format"] == "ams-cycle-summary/1"
+    assert payload["exit"] == "ok"
+    assert payload["failures"] == []
+    assert set(payload["gates"]) == {"js", "rebuild", "conform", "make_test"}
+    assert all(gate["green"] is True for gate in payload["gates"].values())
+    assert payload["finished_at"].endswith("Z")
+
+
+def test_cycle_summary_payload_skipped_conform_not_green():
+    report = _green_report()
+    report.gate_conform = "skipped (--skip-conform)"
+    payload = ac.cycle_summary_payload(report, [], _plan(skip_conform=True), "ok")
+    assert payload["gates"]["conform"]["green"] is False
+    assert payload["gates"]["conform"]["status"] == "skipped (--skip-conform)"
+    assert payload["gates"]["js"]["green"] is True
+    assert payload["plan"]["skip_conform"] is True
+
+
+def test_cycle_summary_payload_failures_exit_failed():
+    payload = ac.cycle_summary_payload(_green_report(), ["make test failed"], _plan(), "failed")
+    assert payload["exit"] == "failed"
+    assert payload["failures"] == ["make test failed"]
+
+
+def test_cycle_summary_payload_plan_block_and_argv():
+    plan = _plan()
+    payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
+    assert payload["plan"] == {
+        "verdicts": "v.json",
+        "carry_out": str(plan.carry_out),
+        "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
+        "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
+        "skip_gates": False,
+        "skip_conform": False,
+        "update_pins": False,
+        "review_out": None,
+        "first_run": False,
+        "short_id": "testid",
+    }
+    assert payload["argv"] == list(sys.argv)
+
+
+def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
+    target = tmp_path / "elsewhere" / "cycle_summary.json"
+    monkeypatch.setattr(ac, "CYCLE_SUMMARY", target)
+    ac.write_cycle_summary({"format": "ams-cycle-summary/1"})
+    assert json.loads(target.read_text()) == {"format": "ams-cycle-summary/1"}
+    assert not list(target.parent.glob("*.tmp"))
+
+
+def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
+    surface_dir = tmp_path / "surface"
+    surface_dir.mkdir()
+    (surface_dir / "manifest.json").write_text(
+        json.dumps({"generated_at": "2026-07-17T12:00:00Z", "inputs_fingerprint": {"runes": "abc123"}})
+    )
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(review_out=surface_dir)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["format"] == "ams-cycle-summary/1"
+    assert summary["exit"] == "ok"
+    assert all(gate["green"] is True for gate in summary["gates"].values())
+    assert summary["surface"]["dir"] == str(surface_dir)
+    assert summary["surface"]["generated_at"] == "2026-07-17T12:00:00Z"
+    assert summary["surface"]["inputs_fingerprint"] == {"runes": "abc123"}
+
+
+def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
+    def fake_run_m1(report, *, spawn, emit, registry, budget):
+        return None
+
+    monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(review_out=tmp_path / "surface")
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["exit"] == "failed"
+    assert summary["failures"]
+
+
+def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
+    def boom(report, *, spawn, emit, registry, budget):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(ac, "_do_run_m1", boom)
+
+    plan = _plan(skip_gates=True, review_out=tmp_path / "surface")
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry())
+
+    assert rc == 130
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["exit"] == "interrupted"
+    assert summary["interrupted"] is True
+
+
+def test_cycle_summary_surface_nulls_when_manifest_missing(monkeypatch, tmp_path):
+    surface_dir = tmp_path / "surface"
+    surface_dir.mkdir()
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(review_out=surface_dir)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    summary = json.loads(ac.CYCLE_SUMMARY.read_text())
+    assert summary["surface"]["dir"] == str(surface_dir)
+    assert summary["surface"]["generated_at"] is None
+    assert summary["surface"]["inputs_fingerprint"] is None

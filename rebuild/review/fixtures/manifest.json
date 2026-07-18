@@ -3,6 +3,14 @@
  "mode": "m1-audit",
  "generated_at": "2026-06-10T00:00:00Z",
  "repo_head": "fixture",
+ "inputs_fingerprint": {
+  "data": "fixture-data",
+  "baselines": "fixture-baselines",
+  "pipeline_code": "fixture-pipeline-code",
+  "review_code": "fixture-review-code",
+  "static": "fixture-static",
+  "fonts": "fixture-fonts"
+ },
  "source": {
   "audit": "rebuild/review/fixtures/fixture-audit.tsv",
   "ledger": "rebuild/review/fixtures/fixture-ledger.yaml"

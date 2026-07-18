@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve artifact-cycle prettier woff2 clean
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve artifact-cycle verdict-ready prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -67,6 +67,10 @@ review-serve:
 # Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, census pins, gates). Pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'.
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
+
+# Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
+verdict-ready:
+	uv run python -m rebuild.tools.verdict_ready $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
