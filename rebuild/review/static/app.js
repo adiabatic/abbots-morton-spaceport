@@ -1701,6 +1701,14 @@ function renderReadinessBanner() {
   node.textContent = readinessLine(lastStatusModel);
   node.className = `readiness readiness-${lastStatusModel.level}`;
   node.title = lastStatusModel.remedy ?? '';
+  if (lastStatusModel.command) {
+    const command = lastStatusModel.command;
+    const button = el('button', 'readiness-copy', 'Copy');
+    button.type = 'button';
+    button.title = `Copy ${command} to the clipboard`;
+    button.addEventListener('click', () => copyToClipboard(command, button));
+    node.append(button);
+  }
   node.hidden = false;
 }
 
