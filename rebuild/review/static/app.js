@@ -1187,6 +1187,16 @@ async function applyHashState() {
 }
 
 let toastTimer = null;
+// Reading time, not a flat timeout: each digit adds half a word because numerals ("3,193", "e-0061") are read digit-by-digit, slower than a word of the same length.
+function toastDuration(message) {
+  let units = 0;
+  for (const token of message.split(/\s+/)) {
+    if (!token) continue;
+    const digits = (token.match(/\d/g) ?? []).length;
+    units += 1 + digits / 2;
+  }
+  return Math.min(2600 + units * 320, 10000);
+}
 function toast(message) {
   const node = document.getElementById('toast');
   node.textContent = message;
@@ -1194,7 +1204,7 @@ function toast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     node.hidden = true;
-  }, 2600);
+  }, toastDuration(message));
 }
 
 function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
