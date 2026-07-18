@@ -13,6 +13,7 @@ from rebuild.pipeline.table import (
     build_tables,
     depth3_inputs,
     depth4_inputs,
+    fourth_slot_filter,
 )
 
 SPEC = fixtures.mini_spec()
@@ -179,7 +180,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTables:
-    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the lone depth-4 input (qsDay's entry-live carve-out) splits on right4, the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
+    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the lone depth-4 input (qsDay's entry-live carve-out) splits on right4 — and only in the chain-live windows `fourth_slot_filter` admits — the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
 
     @pytest.fixture(scope="class")
     def real_spec(self):
@@ -211,6 +212,19 @@ class TestDepthThreeTables:
             elif row.right3 != NA_LABEL:
                 saw_enumerated = True
         assert saw_enumerated
+
+    def test_look4_enumerated_only_where_the_chain_is_live(self, real_spec, real_default_decision):
+        live = fourth_slot_filter(real_spec, frozenset())
+        assert live("qsDay", "qsTea", "qsUtter", "qsTea")
+        assert not live("qsDay", "qsTea", "qsUtter", "qsLow")
+        assert not live("qsDay", "qsTea", "qsTea", "qsUtter")
+        for row in real_default_decision.transitions:
+            if row.input_glyph.split(".")[0] != "qsDay":
+                continue
+            if (row.right1, row.right2, row.right3) == ("qsTea", "qsUtter", "qsTea"):
+                assert row.right4 != NA_LABEL, row.key
+            else:
+                assert row.right4 == NA_LABEL, row.key
 
     def test_hard_invariants_hold_with_the_third_slot(self, real_default_decision):
         real_default_decision.assert_outcome_partition()
@@ -300,7 +314,7 @@ class TestDepthThreeTables:
 
 
 class TestDepthFourTablesSynthetic:
-    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the production YAML lint still caps chains at two hops, so no shipped rune reaches depth 4 yet. One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects to bypass the lint, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot."""
+    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the production YAML lint still caps chains at two hops, so no shipped rune reaches depth 4 yet. One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects to bypass the lint, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's chain-live windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):
@@ -346,6 +360,16 @@ class TestDepthFourTablesSynthetic:
             elif row.right4 != NA_LABEL:
                 saw_enumerated = True
         assert saw_enumerated
+
+    def test_look4_enumerated_only_where_the_chain_is_live(self, synthetic_spec, synthetic_decision):
+        live = fourth_slot_filter(synthetic_spec, frozenset())
+        assert live("qsTea", "qsMay", "qsMay", "qsMay")
+        assert not live("qsTea", "qsMay", "qsMay", "qsIt")
+        assert not live("qsTea", "qsIt", "qsMay", "qsMay")
+        for row in synthetic_decision.transitions:
+            if row.input_glyph.split(".")[0] != "qsTea" or row.right4 == NA_LABEL:
+                continue
+            assert (row.right1, row.right2, row.right3) == ("qsMay", "qsMay", "qsMay"), row.key
 
     def test_hard_invariants_hold_with_the_fourth_slot(self, synthetic_decision):
         synthetic_decision.assert_outcome_partition()
