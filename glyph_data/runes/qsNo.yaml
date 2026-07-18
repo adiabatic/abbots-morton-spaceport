@@ -60,6 +60,11 @@ policy:
   - cell: {exit: x-height}
     over: {exit: baseline}
     when: {left: {except: [family: qsIt]}, right: {family: [qsDay, qsNo, qsIt, qsOy]}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when:
+      left: {family: [qsTea_qsOy, qsDay, qsIt, qsOy], joined_at: baseline}
+      right: {family: qsTea, then: {family: qsIt}}
   - cell: {exit: baseline}
     over: {exit: x-height}
     when: {left: {is: boundary}, right: {family: qsMay}}

@@ -71,16 +71,17 @@ policy:
       self: {entry: none}
       right:
         family: qsTea
-        then:
-          family: [qsDay, qsDay_qsUtter, qsIt, qsUtter]
-          except: [{family: qsUtter, then: {family: qsLow}}]
+        then: {family: qsUtter, except: [{family: qsUtter, then: {family: qsLow}}]}
   - cell: {exit: none}
     over: {exit: baseline}
-    when: {right: {family: qsTea, then: {family: [qsMay, qsLow]}}}
+    when: {right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsMay, qsLow, qsIt]}}}
   - cell: {exit: none}
     over: {exit: baseline}
     when: {right: {family: qsTea, then: {family: qsNo, then: {family: [qsTea, qsMay, qsLow]}}}}
     why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·No.alt`'
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when: {right: {family: qsTea, then: {family: qsNo, then: {is: boundary}}}}
   - cell: {exit: none}
     over: {exit: baseline}
     when:
@@ -98,16 +99,6 @@ policy:
               - family: qsTea
                 then: {family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsUtter]}
     why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·Utter`'
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when:
-      left: {family: qsTea, joined_at: baseline}
-      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter, qsIt]}}
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when:
-      left: {family: [qsIt, qsUtter]}
-      right: {family: qsTea, then: {family: [qsDay, qsDay_qsUtter]}}
   extend:
   - stance: half
     entry: baseline
