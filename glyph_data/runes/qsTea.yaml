@@ -45,11 +45,11 @@ stances:
       - {entry: x-height, feature: ss03, when: {left: {family: qsMay, joined_at: x-height}}}
       - entry: x-height
         feature: ss03
-        when: {left: {family: [qsDay_qsUtter, qsLow], joined_at: x-height}}
+        when: {left: {family: [qsDay_qsUtter, qsLow, qsUtter], joined_at: x-height}}
       - entry: x-height
         feature: ss03
         when:
-          left: {family: [qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot], joined_at: x-height}
+          left: {family: [qsI, qsAh, qsOut, qsOwe, qsFoot], joined_at: x-height}
           right: {class: can-enter-at-baseline}
       require: []
   half:
