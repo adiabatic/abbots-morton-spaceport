@@ -1007,6 +1007,14 @@ def test_cycle_summary_payload_all_green_exit_ok():
     assert payload["finished_at"].endswith("Z")
 
 
+def test_cycle_summary_payload_annotated_green_rebuild_is_green():
+    report = _green_report()
+    report.gate_rebuild = "green (4 documented baseline)"
+    payload = ac.cycle_summary_payload(report, [], _plan(), "ok")
+    assert payload["gates"]["rebuild"]["green"] is True
+    assert payload["gates"]["rebuild"]["status"] == "green (4 documented baseline)"
+
+
 def test_cycle_summary_payload_skipped_conform_not_green():
     report = _green_report()
     report.gate_conform = "skipped (--skip-conform)"
