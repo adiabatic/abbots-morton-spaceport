@@ -134,8 +134,8 @@ class TestDepthThreeChainSpecificity:
 
     @pytest.mark.parametrize(
         "rune,index",
-        (("qsDay", 1), ("qsDay", 4), ("qsOy", 0), ("qsTea_qsOy", 0)),
-        ids=("qsDay.prefer1", "qsDay.prefer4", "qsOy.prefer0", "qsTea_qsOy.prefer0"),
+        (("qsDay", 1), ("qsDay", 5), ("qsOy", 0), ("qsTea_qsOy", 0)),
+        ids=("qsDay.prefer1", "qsDay.prefer5", "qsOy.prefer0", "qsTea_qsOy.prefer0"),
     )
     def test_edited_records_keep_their_axes_and_rank(self, real_spec, rune, index):
         from dataclasses import replace
@@ -148,7 +148,7 @@ class TestDepthThreeChainSpecificity:
             outranks(real_spec, record, replace(record, when=stripped_when), rune, rune) is Ordering.EQUAL
         )
 
-    def test_then_then_axes_only_on_the_qsday_no_record(self, real_spec):
+    def test_then_then_axes_only_on_the_qsday_no_records(self, real_spec):
         for rune in ("qsOy", "qsTea_qsOy"):
             for record in real_spec.runes[rune].policy.prefer:
                 axes = axis_sets(real_spec, record.when, rune)
@@ -159,12 +159,19 @@ class TestDepthThreeChainSpecificity:
             for axes in [axis_sets(real_spec, record.when, "qsDay")]
             if any("then.then" in axis for axis in axes)
         ]
-        assert len(chained) == 1
-        assert chained[0]["right.then.family"] == frozenset({"qsNo"})
+        assert len(chained) == 2
+        assert all(axes["right.then.family"] == frozenset({"qsNo"}) for axes in chained)
         assert chained[0]["right.then.then.family"] == frozenset({"qsTea", "qsMay", "qsLow"})
+        assert chained[1]["right.then.then.is"] == frozenset({"edge", "namer-dot", "space", "zwnj"})
 
     def test_qsday_prefer_family_axes_pinned(self, real_spec):
         record = real_spec.runes["qsDay"].policy.prefer[1]
         axes = axis_sets(real_spec, record.when, "qsDay")
         assert axes["right.family"] == frozenset({"qsTea"})
-        assert axes["right.then.family"] == frozenset({"qsDay", "qsDay_qsUtter", "qsIt", "qsUtter"})
+        assert axes["right.then.family"] == frozenset({"qsUtter"})
+        record = real_spec.runes["qsDay"].policy.prefer[2]
+        axes = axis_sets(real_spec, record.when, "qsDay")
+        assert axes["right.family"] == frozenset({"qsTea"})
+        assert axes["right.then.family"] == frozenset(
+            {"qsDay", "qsDay_qsUtter", "qsMay", "qsLow", "qsIt"}
+        )
