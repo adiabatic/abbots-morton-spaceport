@@ -66,6 +66,9 @@ policy:
   - cell: {exit: baseline}
     over: {exit: none}
     when: {left: {is: boundary}, right: {family: qsUtter}}
+  - cell: {exit: x-height}
+    over: {exit: baseline}
+    when: {left: {is: boundary}, right: {family: qsUtter, then: {family: qsMay}}}
   extend: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsFee}}}]
   contract: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsJai}}}]
   resolve: []
