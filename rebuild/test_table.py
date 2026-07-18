@@ -179,7 +179,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTables:
-    """The lazy third lookahead slot over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3, the split rows compile to three-slot rules ordered ahead of their two-slot fallbacks, and the hard invariants hold with the extra slot — which is also the corpus-wide proof that the depth-3 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
+    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the lone depth-4 input (qsDay's entry-live carve-out) splits on right4, the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
 
     @pytest.fixture(scope="class")
     def real_spec(self):
@@ -198,6 +198,9 @@ class TestDepthThreeTables:
 
     def test_depth3_inputs_census(self, real_spec):
         assert depth3_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy"})
+
+    def test_depth4_inputs_census(self, real_spec):
+        assert depth4_inputs(real_spec) == frozenset({"qsDay"})
 
     def test_look3_enumerated_lazily(self, real_spec, real_default_decision):
         deep = depth3_inputs(real_spec)
@@ -249,6 +252,41 @@ class TestDepthThreeTables:
         assert rules[boundary3_index].outcome == "qsDay.full"
         assert rules[fallback_index].outcome == "qsDay.full"
         assert boundary3_index < low_index < fallback_index
+
+    def test_orphan_window_rule_and_ordering(self, real_default_decision):
+        rules = [rule for rule in real_default_decision.rules if rule.input_glyph == "qsDay"]
+        orphans = ("qsDay", "qsDay_qsUtter", "qsIt", "qsLow", "qsMay", "qsNo", "qsUtter")
+        orphan_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 == ("qsTea",)
+            and rule.look4 == orphans
+        )
+        assert rules[orphan_index].outcome == "qsDay.half.en-y0"
+        backtrack = rules[orphan_index].backtrack
+        boundary4_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.backtrack == backtrack
+            and rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 == ("qsTea",)
+            and rule.look4 == BOUNDARY_LOOKAHEAD_CLASS
+        )
+        fallback_index = next(
+            index
+            for index, rule in enumerate(rules)
+            if rule.backtrack == backtrack
+            and rule.look1 == ("qsTea",)
+            and rule.look2 == ("qsUtter",)
+            and rule.look3 == ("qsTea",)
+            and rule.look4 is None
+        )
+        assert rules[boundary4_index].outcome == "qsDay.half.en-y0.ex-y0"
+        assert rules[fallback_index].outcome == "qsDay.half.en-y0.ex-y0"
+        assert boundary4_index < orphan_index < fallback_index
 
     def test_tsv_carries_the_lookahead3_column(self, real_default_decision, tmp_path):
         path = tmp_path / "settlement-default.tsv"

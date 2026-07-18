@@ -527,11 +527,19 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                             )
                         transitions[row.key] = row
                         if right1.kind == "letter":
-                            successor_allowed = (
-                                frozenset({right3})
-                                if right3 is not None
-                                else (follower_map.get(right2.rune) if follower_map is not None else None)
-                            )
+                            if right3 is not None:
+                                successor_allowed = frozenset({right3})
+                            else:
+                                successor_allowed = (
+                                    follower_map.get(right2.rune) if follower_map is not None else None
+                                )
+                                # A right3_allowed pin that this window could not enumerate (the input is not deep) still names the raw token one past its window, which is the successor's right2 — forward it, or a depth-4-decided left leaks unreachable follower windows the conform transition gate then reports as dead.
+                                if right3_allowed is not None:
+                                    successor_allowed = (
+                                        right3_allowed
+                                        if successor_allowed is None
+                                        else successor_allowed & right3_allowed
+                                    )
                             successor_r3 = frozenset({right4}) if right4 is not None else None
                             worklist.append(
                                 (

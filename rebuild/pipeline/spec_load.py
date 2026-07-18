@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from rebuild.pipeline.model import (
+    RIGHT_CHAIN_CAP,
     Bitmap,
     BoundaryToken,
     CellBinding,
@@ -47,7 +48,8 @@ HAPAX_SENTINEL = "hapax"
 
 _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/rebuild-design.md section 3.1), except that a single-stance rune names its sole stance and sole motion 'hapax' (a reserved sentinel; the pen-motion label lives in the ductus prose)"
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
-_CHAIN_RULE = "a right-side then: chain may reach at most two letters past the immediate right neighbor — the depth-3 window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
+_CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+_CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
 
 
 @dataclass(frozen=True)
@@ -588,7 +590,7 @@ class _Linter:
                     continue
                 when = record.get("when")
                 right = when.get("right") if isinstance(when, dict) else None
-                if isinstance(right, dict) and _right_chain_reach(right) > 2:
+                if isinstance(right, dict) and _right_chain_reach(right) > RIGHT_CHAIN_CAP:
                     self.context.error(f"policy.{kind}[{index}].when.right", _CHAIN_RULE)
         for stance_name, stance_raw in self._stances().items():
             surface = stance_raw.get("surface")
@@ -598,7 +600,7 @@ class _Linter:
                     continue
                 when = unlock.get("when")
                 right = when.get("right") if isinstance(when, dict) else None
-                if isinstance(right, dict) and _right_chain_reach(right) > 2:
+                if isinstance(right, dict) and _right_chain_reach(right) > RIGHT_CHAIN_CAP:
                     self.context.error(
                         f"stances.{stance_name}.surface.unlocks[{index}].when.right", _CHAIN_RULE
                     )

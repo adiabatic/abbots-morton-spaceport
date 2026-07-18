@@ -92,7 +92,7 @@ class TestEmitGsub:
             fea.index("lookup m1_formation {"),
             fea.index("lookup m1_ss02_marker {"),
             fea.index("lookup m1_zwnj {"),
-            fea.index("lookup m1_settle {"),
+            fea.index("lookup m1_settle useExtension {"),
         ]
         assert order == sorted(order)
 
@@ -115,7 +115,7 @@ class TestEmitGsub:
 
     def test_subtable_breaks_between_families(self, spec, glyphs):
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(_rules(spec, glyphs))}, glyphs=glyphs)
-        settle_block = plan.fea_text.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
         assert settle_block.count("subtable;") == 2  # qsIt | qsMay | qsTea.ss03
 
     def test_provenance_comments_ride_along(self, spec, glyphs):
@@ -132,7 +132,7 @@ class TestEmitGsub:
             FakeRule("qsIt", None, ("qsMay",), ("qsTea",), "qsIt", provenance=("p9",)),
         ]
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(rules)}, glyphs=glyphs)
-        settle_block = plan.fea_text.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
         three_slot_line = next(line for line in settle_block.splitlines() if it_ex in line)
         assert f"sub qsIt' qsMay qsTea @s_qsIt_la3_0 by {it_ex};" in three_slot_line
         assert "@s_qsIt_la3_0 = [qsOy qsPea];" in plan.class_definitions
@@ -154,7 +154,7 @@ class TestEmitGsub:
             FakeRule("qsIt", None, ("qsMay",), ("qsTea",), "qsIt", provenance=("p9",)),
         ]
         plan = emit_gsub.emit_gsub(spec, {frozenset(): FakeDecision(rules)}, glyphs=glyphs)
-        settle_block = plan.fea_text.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        settle_block = plan.fea_text.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
         four_slot_line = next(line for line in settle_block.splitlines() if it_ex in line)
         assert f"sub qsIt' qsMay qsTea @s_qsIt_la3_0 @s_qsIt_la4_0 by {it_ex};" in four_slot_line
         assert "@s_qsIt_la4_0 = [qsPea qsTea];" in plan.class_definitions
@@ -216,7 +216,7 @@ class TestEmitGsub:
         formation = fea.split("lookup m1_formation {")[1].split("} m1_formation;")[0]
         assert ".ss10" not in formation
         assert ".ss10" not in fea.split("@m1_entry_live = [")[1].split("]")[0]
-        settle_block = fea.split("lookup m1_settle {")[1].split("} m1_settle;")[0]
+        settle_block = fea.split("lookup m1_settle useExtension {")[1].split("} m1_settle;")[0]
         assert ".ss10" not in settle_block
         followers = fea.split("@m1_namer_short_followers = [")[1].split("]")[0].split()
         assert "qsIt.ss10" in followers  # the namer dot still lowers before a Short letter under ss10
