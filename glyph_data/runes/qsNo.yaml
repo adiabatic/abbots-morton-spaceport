@@ -72,7 +72,7 @@ policy:
     over: {exit: none}
     when:
       left: {is: boundary}
-      right: {family: qsUtter, except: [{family: qsUtter, then: {family: qsMay}}]}
+      right: {family: qsUtter, except: [{family: qsUtter, then: {family: [qsDay, qsMay]}}]}
   extend: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsFee}}}]
   contract: [{stance: loop, exit: x-height, by: 1, when: {right: {family: qsJai}}}]
   resolve: []
