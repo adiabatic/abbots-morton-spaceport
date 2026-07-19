@@ -1298,13 +1298,30 @@ def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
 
 def test_prior_make_test_fingerprint_reads_the_summary(tmp_path):
     summary = tmp_path / "cycle_summary.json"
-    assert ac.prior_make_test_fingerprint(summary) is None
+    green = tmp_path / "make-test-green.json"
+    assert ac.prior_make_test_fingerprint(summary, green) is None
     summary.write_text(json.dumps({"make_test_fingerprint": "abc123"}))
-    assert ac.prior_make_test_fingerprint(summary) == "abc123"
+    assert ac.prior_make_test_fingerprint(summary, green) == "abc123"
     summary.write_text(json.dumps({"make_test_fingerprint": None}))
-    assert ac.prior_make_test_fingerprint(summary) is None
+    assert ac.prior_make_test_fingerprint(summary, green) is None
     summary.write_text("not json")
-    assert ac.prior_make_test_fingerprint(summary) is None
+    assert ac.prior_make_test_fingerprint(summary, green) is None
+
+
+def test_prior_make_test_fingerprint_prefers_the_green_record(tmp_path):
+    summary = tmp_path / "cycle_summary.json"
+    green = tmp_path / "make-test-green.json"
+    summary.write_text(json.dumps({"make_test_fingerprint": "from-summary"}))
+    ac.record_make_test_green("from-green", green)
+    assert ac.prior_make_test_fingerprint(summary, green) == "from-green"
+    record = ac.read_make_test_green(green)
+    assert record is not None
+    assert record["fingerprint"] == "from-green"
+    assert isinstance(record.get("finished_at"), str)
+    green.write_text("not json")
+    assert ac.prior_make_test_fingerprint(summary, green) == "from-summary"
+    green.write_text(json.dumps({"fingerprint": None}))
+    assert ac.prior_make_test_fingerprint(summary, green) == "from-summary"
 
 
 def test_dry_run_plan_skip_make_test():
