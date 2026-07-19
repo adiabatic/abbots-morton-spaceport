@@ -1001,8 +1001,9 @@ def run_conformance(
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     max_length: int = 5,
     out_dir: Path | None = None,
+    tables: Mapping[str, tuple] | None = None,
 ) -> ConformReport:
-    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead."""
+    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. `tables` is the caller's already-built `build_tables` mapping (config -> (decision, treaty)); each config found there reuses its decision table instead of rebuilding the fixpoint."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -1010,7 +1011,17 @@ def run_conformance(
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
     results = [
-        _conformance_config(shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length)
+        _conformance_config(
+            shaper,
+            spec,
+            config,
+            alphabet,
+            splitters,
+            glyph_names,
+            anchors_of,
+            max_length,
+            decision=tables[config][0] if tables is not None and config in tables else None,
+        )
         for config in configs
     ]
     report = merge_conformance_results(Path(font_path), results)
@@ -1042,16 +1053,18 @@ def _conformance_config(
     glyph_names: Mapping[CellId, str],
     anchors_of: Callable[[str], dict | None] | None,
     max_length: int,
+    decision=None,
 ) -> ConformanceConfigResult:
-    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call."""
+    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Callers that already hold this config's decision table pass it as `decision`; the fixpoint rebuild here is only the standalone fallback."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline import table as table_module
     from rebuild.pipeline.emit_gsub import _raw_rename_map
 
     features = features_for_config(config)
     engine = settle_module.Engine(spec, features)
-    built = table_module.build_tables(spec, features)
-    decision = built[0] if isinstance(built, (tuple, list)) else built
+    if decision is None:
+        built = table_module.build_tables(spec, features)
+        decision = built[0] if isinstance(built, (tuple, list)) else built
     renames = _raw_rename_map(spec, frozenset(features))
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
 
@@ -1152,6 +1165,7 @@ def conformance_config_worker(
     config: str,
     max_length: int = 5,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
+    decision=None,
 ) -> ConformanceConfigResult:
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
@@ -1159,7 +1173,9 @@ def conformance_config_worker(
     glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
-    return _conformance_config(shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length)
+    return _conformance_config(
+        shaper, spec, config, alphabet, splitters, glyph_names, anchors_of, max_length, decision=decision
+    )
 
 
 def merge_conformance_results(font_path: Path, results: Iterable[ConformanceConfigResult]) -> ConformReport:
