@@ -1,6 +1,6 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
@@ -243,6 +243,7 @@ class Plan:
     verdicts: Path | None
     update_pins: bool
     skip_gates: bool
+    do_merge: bool = False
     skip_conform: bool = False
     skip_make_test: bool = False
     make_test_note: str = ""
@@ -278,6 +279,7 @@ def build_plan(
     skip_gates: bool,
     first_run: bool,
     short_id: str,
+    no_merge: bool = False,
     skip_conform: bool = False,
     skip_make_test: bool = False,
     make_test_note: str = "",
@@ -298,6 +300,7 @@ def build_plan(
     job_budget = stage_job_budget(skip_gates=skip_gates, ncores=ncores)
     conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
     census_surface = review_out if review_out is not None else REVIEW_OUT
+    do_merge = do_carry and not no_merge and review_out is None
 
     plan = Plan(
         short_id=short_id,
@@ -307,6 +310,7 @@ def build_plan(
         verdicts=verdicts,
         update_pins=update_pins,
         skip_gates=skip_gates,
+        do_merge=do_merge,
         skip_conform=skip_conform,
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
@@ -360,6 +364,26 @@ def build_plan(
         plan.steps.append(Step("carry", None, "SKIPPED (first run)", lane="build"))
     else:
         plan.steps.append(Step("carry", None, "SKIPPED (--no-carry)", lane="build"))
+
+    if do_merge:
+        assert resolved_carry_out is not None
+        plan.steps.append(
+            Step(
+                "merge",
+                ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(resolved_carry_out)],
+                lane="build",
+            )
+        )
+    elif do_carry and review_out is not None:
+        plan.steps.append(
+            Step("merge", None, "SKIPPED (rehearsal: the live autosave is never written)", lane="build")
+        )
+    elif do_carry:
+        plan.steps.append(Step("merge", None, "SKIPPED (--no-merge)", lane="build"))
+    elif first_run:
+        plan.steps.append(Step("merge", None, "SKIPPED (first run)", lane="build"))
+    else:
+        plan.steps.append(Step("merge", None, "SKIPPED (--no-carry)", lane="build"))
 
     census_mode = "--update" if update_pins else "--check"
     plan.steps.append(
@@ -483,7 +507,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
-        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> census",
+        "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census",
         "    Lane rebuild                     : starts when run_m1's four JSONs pass;",
     ]
     if plan.skip_make_test:
@@ -549,6 +573,8 @@ class CycleReport:
     echo_groups: int | None = None
     carry_out: Path | None = None
     carry_lines: list[str] = field(default_factory=list)
+    merge_status: str = "not run"
+    merge_lines: list[str] = field(default_factory=list)
     census_status: str = "not run"
     gate_js: str = "not run"
     gate_rebuild: str = "not run"
@@ -835,6 +861,18 @@ def _do_carry(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildReg
     return result.returncode == 0
 
 
+def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+    argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(plan.carry_out)]
+    result = spawn("merge", argv, emit=emit, registry=registry, stream=False)
+    _dump_captured(emit, result)
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("merged ", "nothing changed", "stashed ")):
+            report.merge_lines.append(stripped)
+    report.merge_status = "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    return result.returncode == 0
+
+
 def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool, surface: Path) -> str:
     if update_pins:
         census = spawn(
@@ -1039,8 +1077,14 @@ def _run_cycle(
             return _finish(report, failures, plan)
 
         if plan.carry_out is not None:
-            if not _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
+            carried = _do_carry(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+            if not carried:
                 failures.append("carry_verdicts failed")
+            if plan.do_merge:
+                if not carried:
+                    report.merge_status = "not run (carry failed)"
+                elif not _do_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
+                    failures.append("verdict merge failed")
         report.census_status = _do_census(
             spawn=spawn,
             emit=emit,
@@ -1078,6 +1122,9 @@ def _print_summary(report: CycleReport) -> None:
     print(f"  echo groups        : {show(report.echo_groups)}")
     print(f"  carry output       : {show(report.carry_out)}")
     for line in report.carry_lines:
+        print(f"      {line}")
+    print(f"  merge -> autosave  : {report.merge_status}")
+    for line in report.merge_lines:
         print(f"      {line}")
     print(f"  census pins        : {report.census_status}")
     print(f"  gate: JS suite     : {report.gate_js}")
@@ -1137,12 +1184,15 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "echo_groups": report.echo_groups,
         "carry_out": _as_str(report.carry_out),
         "carry_lines": list(report.carry_lines),
+        "merge_status": report.merge_status,
+        "merge_lines": list(report.merge_lines),
         "census_status": report.census_status,
         "snapshot_dir": _as_str(report.snapshot_dir),
         "interrupted": report.interrupted,
         "plan": {
             "verdicts": _as_str(plan.verdicts),
             "carry_out": _as_str(plan.carry_out),
+            "do_merge": plan.do_merge,
             "conform_horizon": plan.conform_horizon,
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
@@ -1187,7 +1237,7 @@ def _preflight(args: argparse.Namespace) -> bool:
         print("manifest and rewrite the shards under it, stranding the live verdicting")
         print("session. AFTER this cycle you MUST:")
         print("  1. restart the review server:  uv run python -m rebuild.review.serve")
-        print("  2. import the fresh carried verdicts file printed below.")
+        print("  2. reload the app (the carried verdicts are merged into the autosave automatically).")
         print("=" * 68)
         return True
     print("=" * 68)
@@ -1213,6 +1263,11 @@ def main(argv: list[str] | None = None) -> int:
         help="prior verdicts master to carry forward (default: auto-resolve the best candidate among the autosave and the verdicts-*.json files at the repo root and under rebuild/evidence)",
     )
     parser.add_argument("--no-carry", action="store_true", help="skip the verdict carry-forward step")
+    parser.add_argument(
+        "--no-merge",
+        action="store_true",
+        help="leave verdicts-autosave.json untouched after the carry (skip the automatic merge into the live store)",
+    )
     parser.add_argument(
         "--carry-out",
         type=Path,
@@ -1306,6 +1361,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_gates=args.skip_gates,
             first_run=first_run,
             short_id=resolve_short_id(),
+            no_merge=args.no_merge,
             skip_conform=args.skip_conform,
             skip_make_test=skip_make_test,
             make_test_note=make_test_note,
@@ -1332,6 +1388,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_gates=args.skip_gates,
         first_run=first_run,
         short_id=resolve_short_id(),
+        no_merge=args.no_merge,
         skip_conform=args.skip_conform,
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,

@@ -1626,6 +1626,12 @@ async function flushAutosave() {
       headers: { 'Content-Type': 'application/json' },
       body: exportPayload(),
     });
+    if (response.status === 409) {
+      if (!autosaveFailed) toast('Autosave refused: this tab is from an older surface — reload to continue');
+      autosaveFailed = true;
+      updateProgress();
+      return;
+    }
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     autosaveWorks = true;
     autosaveFailed = false;

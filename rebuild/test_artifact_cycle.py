@@ -232,6 +232,65 @@ def test_dry_run_plan_skip_conform():
     assert by_name["gate:rebuild"].argv is not None
 
 
+def test_dry_run_plan_merge_follows_carry():
+    plan = _plan(snapshot_dir=None, short_id="abc1234")
+    names = [step.name for step in plan.steps]
+    assert names.index("merge") == names.index("carry") + 1
+    assert names.index("census") == names.index("merge") + 1
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["merge"].argv == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.tools.merge_verdicts",
+        str(ac.ROOT / "verdicts-carried-abc1234.json"),
+    ]
+    assert plan.do_merge is True
+
+
+def test_dry_run_plan_no_merge_skips_the_merge_step():
+    plan = _plan(no_merge=True)
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["merge"].argv is None
+    assert by_name["merge"].note == "SKIPPED (--no-merge)"
+    assert by_name["carry"].argv is not None
+    assert plan.do_merge is False
+
+
+def test_dry_run_plan_rehearsal_never_touches_the_autosave():
+    plan = _plan(review_out=Path("tmp/reh"))
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["merge"].argv is None
+    assert "rehearsal" in by_name["merge"].note
+    assert plan.do_merge is False
+
+
+def test_dry_run_plan_merge_skipped_without_carry():
+    no_carry = ac.build_plan(
+        verdicts=None,
+        no_carry=True,
+        carry_out=None,
+        snapshot_dir=None,
+        update_pins=False,
+        skip_gates=False,
+        first_run=False,
+        short_id="abc",
+    )
+    assert {step.name: step for step in no_carry.steps}["merge"].note == "SKIPPED (--no-carry)"
+    first = ac.build_plan(
+        verdicts=None,
+        no_carry=False,
+        carry_out=None,
+        snapshot_dir=None,
+        update_pins=False,
+        skip_gates=False,
+        first_run=True,
+        short_id="abc",
+    )
+    assert {step.name: step for step in first.steps}["merge"].note == "SKIPPED (first run)"
+
+
 def test_dry_run_plan_no_carry_and_update_pins():
     plan = ac.build_plan(
         verdicts=None,
@@ -345,6 +404,11 @@ def _carry_ok(report, *, spawn, emit, registry, plan):
     return True
 
 
+def _merge_ok(report, *, spawn, emit, registry, plan):
+    report.merge_status = "merged"
+    return True
+
+
 def _census_clean(*, spawn, emit, registry, update_pins, surface):
     return "clean"
 
@@ -368,7 +432,85 @@ def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
     monkeypatch.setattr(ac, "_do_carry", _carry_ok)
+    monkeypatch.setattr(ac, "_do_merge", _merge_ok)
     monkeypatch.setattr(ac, "_do_census", _census_clean)
+
+
+def test_merge_failure_fails_the_cycle(monkeypatch, capsys):
+    def failing_merge(report, *, spawn, emit, registry, plan):
+        report.merge_status = "FAILED (exit 1)"
+        return False
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    monkeypatch.setattr(ac, "_do_carry", _carry_ok)
+    monkeypatch.setattr(ac, "_do_merge", failing_merge)
+    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    assert report.merge_status == "FAILED (exit 1)"
+    assert "verdict merge failed" in capsys.readouterr().out
+
+
+def test_merge_not_run_when_carry_fails(monkeypatch, capsys):
+    called = {"merge": False}
+
+    def failing_carry(report, *, spawn, emit, registry, plan):
+        return False
+
+    def watching_merge(report, *, spawn, emit, registry, plan):
+        called["merge"] = True
+        return True
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_do_surface_build", _surface_ok)
+    monkeypatch.setattr(ac, "_do_carry", failing_carry)
+    monkeypatch.setattr(ac, "_do_merge", watching_merge)
+    monkeypatch.setattr(ac, "_do_census", _census_clean)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+
+    plan = _plan()
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    assert not called["merge"]
+    assert report.merge_status == "not run (carry failed)"
+    assert "carry_verdicts failed" in capsys.readouterr().out
+
+
+def test_do_merge_parses_the_summary_line():
+    stdout = "\n".join(
+        [
+            "verdicts-carried-abc.json: 5 added, 0 replaced, 2 kept newer",
+            "merged 1 file(s) into verdicts-autosave.json: 5 added, 0 replaced, 2 kept newer; "
+            "store holds 7 verdicts (7 effective) on manifest S1",
+        ]
+    )
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        assert name == "merge"
+        assert argv[:5] == ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts"]
+        return _step(name, 0, stdout=stdout)
+
+    report = ac.CycleReport()
+    ok = ac._do_merge(
+        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_plan()
+    )
+    assert ok
+    assert report.merge_status == "merged"
+    assert any(line.startswith("merged 1 file(s)") for line in report.merge_lines)
 
 
 def test_gates_launch_before_run_m1_finishes(monkeypatch):
@@ -1053,6 +1195,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
     assert payload["plan"] == {
         "verdicts": "v.json",
         "carry_out": str(plan.carry_out),
+        "do_merge": True,
         "conform_horizon": ac.CONFORM_HORIZON_DEFAULT,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
