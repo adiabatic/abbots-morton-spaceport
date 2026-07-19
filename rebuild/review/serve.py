@@ -1,6 +1,6 @@
 """Dev server for the generated review app — a sibling of tools/serve.py over rebuild/out/review/ on port 7294, so it runs alongside the site server on 7293.
 
-The app POSTs its verdict store to /autosave after every mutation and restores it on load, so a reload or crash never loses in-progress blessing work. The autosave lives at the repo root (not under rebuild/out/review/, where livereload's JSON watch would turn every save into a page reload) as verdicts-autosave.json, next to the exported masters and covered by the same gitignore pattern. When an incoming save carries a different manifest generation than the file on disk, the old file is stashed aside as verdicts-autosave-<stamp>.json instead of being overwritten — a stale-manifest autosave is the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface.
+The app POSTs its verdict store to /autosave after every mutation and restores it on load, so a reload or crash never loses in-progress blessing work. The autosave lives at the repo root (not under rebuild/out/review/, where livereload's JSON watch would turn every save into a page reload) as verdicts-autosave.json, next to the exported masters and covered by the same gitignore pattern. When an incoming save carries a newer manifest generation than the file on disk, the old file is stashed aside as verdicts-autosave-<stamp>.json instead of being overwritten — a stale-manifest autosave is the only copy of un-exported work from before a surface rebuild, and its unit ids must never be silently joined to the new surface. The reverse direction is refused outright with a 409: a tab still open from before a rebuild would otherwise clobber the freshly merged store with its pre-rebuild copy on its next flush or pagehide beacon. Every accepted save is also diffed against the store it replaces and appended to verdicts-journal.ndjson (rebuild.review.journal), so any verdict change — including clears, which the store files cannot represent — can be replayed and recovered.
 
 Usage: uv run python -m rebuild.review.serve
 """
@@ -9,11 +9,14 @@ import json
 import os
 from pathlib import Path
 
+from rebuild.review import journal
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
 M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
 CYCLE_SUMMARY_PATH = REPO_ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / "verdicts-autosave.json"
+JOURNAL_PATH = REPO_ROOT / journal.JOURNAL_NAME
 EXPORT_FORMAT = "ams-review-verdicts/1"
 PORT = 7294
 
@@ -39,21 +42,44 @@ def stash_path_for(path: Path, stamp: str) -> Path:
     return path.with_name(f"{path.stem}-{safe}{path.suffix}")
 
 
-def receive_autosave(raw: bytes, path: Path) -> tuple[int, dict]:
+def receive_autosave(raw: bytes, path: Path, journal_path: Path | None = None) -> tuple[int, dict]:
     data = parse_autosave_payload(raw)
     if data is None:
         return 400, {"ok": False, "error": f"not an {EXPORT_FORMAT} document"}
     stashed = None
+    existing = None
     if path.exists():
         existing = parse_autosave_payload(path.read_bytes())
         if existing is not None and existing["manifest_generated_at"] != data["manifest_generated_at"]:
+            if existing["manifest_generated_at"] > data["manifest_generated_at"]:
+                return 409, {
+                    "ok": False,
+                    "error": (
+                        "stale session: the autosave on disk is stamped for a newer surface "
+                        f"({existing['manifest_generated_at']}); reload the app"
+                    ),
+                }
             stash = stash_path_for(path, existing["manifest_generated_at"])
             os.replace(path, stash)
             stashed = stash.name
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_bytes(raw)
     os.replace(tmp, path)
-    return 200, {"ok": True, "saved": len(data["verdicts"]), "stashed": stashed}
+    body = {"ok": True, "saved": len(data["verdicts"]), "stashed": stashed}
+    if journal_path is not None:
+        try:
+            journal.record_transition(
+                journal_path,
+                source="autosave",
+                stamp=data["manifest_generated_at"],
+                old_stamp=existing["manifest_generated_at"] if existing is not None else None,
+                old_verdicts=existing["verdicts"] if existing is not None else [],
+                new_verdicts=data["verdicts"],
+                stashed=stashed,
+            )
+        except OSError as exc:
+            body["journal_error"] = str(exc)
+    return 200, body
 
 
 def main() -> None:
@@ -119,7 +145,7 @@ def main() -> None:
             self.finish(AUTOSAVE_PATH.read_bytes())
 
         def post(self) -> None:
-            status, body = receive_autosave(self.request.body, AUTOSAVE_PATH)
+            status, body = receive_autosave(self.request.body, AUTOSAVE_PATH, JOURNAL_PATH)
             self.set_status(status)
             self.finish(body)
 

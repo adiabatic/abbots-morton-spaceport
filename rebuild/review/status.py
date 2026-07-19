@@ -11,6 +11,7 @@ from rebuild.review.serve import parse_autosave_payload
 SURFACE_REMEDY = "uv run python -m rebuild.review.build"
 REVIEW_BUILD_REMEDY = "make review-build"
 CARRY_TOOL = "rebuild/tools/carry_verdicts.py"
+MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
 
 
 def _latest_from_list(verdicts) -> dict[str, dict]:
@@ -128,14 +129,14 @@ def _rel(repo_root, path) -> str:
 
 def _carry_import_remedy(carry_out) -> str:
     if carry_out:
-        return f"Import the carried verdicts ({carry_out}) in the app."
-    return "Import the carried verdicts in the app."
+        return f"Merge the carried verdicts into the autosave: {MERGE_TOOL} {carry_out}"
+    return f"Merge the carried verdicts into the autosave with {MERGE_TOOL}."
 
 
 def _carry_forward_remedy(carry_out) -> str:
     if carry_out:
-        return f"Import the carried verdicts ({carry_out}) in the app."
-    return f"Carry the autosave forward with {CARRY_TOOL}, then import it in the app."
+        return f"Merge the carried verdicts into the autosave: {MERGE_TOOL} {carry_out}"
+    return f"Carry the autosave forward with {CARRY_TOOL}, then merge it with {MERGE_TOOL}."
 
 
 def _surface_check(manifest) -> dict:
@@ -275,7 +276,7 @@ def _verdict_store_check(
         except KeyError, TypeError:
             stale_effective = 0
         if stale_effective == 0 and frontier_hit and frontier_hit[1] > 0:
-            remedy = f"Import {frontier_rel} in the app; the stale autosave is empty and will be stashed automatically."
+            remedy = f"Merge {frontier_rel} into the autosave ({MERGE_TOOL}); the stale autosave is empty and will be stashed automatically."
         else:
             remedy = _carry_forward_remedy(carry_out)
         return {
@@ -294,8 +295,8 @@ def _verdict_store_check(
     if effective == 0 and frontier_hit and frontier_hit[1] > 0:
         return {
             "level": "warn",
-            "detail": "The autosave is aligned with this surface but empty; the frontier verdicts are not yet imported.",
-            "remedy": f"Import {frontier_rel} in the app (carried verdicts first, then any echo fill).",
+            "detail": "The autosave is aligned with this surface but empty; the frontier verdicts are not yet merged in.",
+            "remedy": f"Merge {frontier_rel} into the autosave ({MERGE_TOOL}) — carried verdicts first, then any echo fill.",
         }, records
     return {
         "level": "ok",

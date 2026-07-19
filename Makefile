@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve artifact-cycle verdict-ready prettier woff2 clean
+.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -64,9 +64,16 @@ review-build:
 review-serve:
 	uv run python -m rebuild.review.serve
 
-# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. gate:make-test auto-skips when nothing outside rebuild/, glyph_data/runes/, doc/, and Markdown has changed since its last green run (ARGS='--force-make-test' overrides).
+# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, merge into the autosave, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. gate:make-test auto-skips when nothing outside rebuild/, glyph_data/runes/, doc/, and Markdown has changed since its last green run (ARGS='--force-make-test' overrides).
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
+
+# The whole loop in one command: stop the review server if it's running, run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the fresh surface. A failed cycle stops before serving.
+review-cycle:
+	-@pkill -f 'rebuild\.review\.serve' 2>/dev/null || true
+	@while lsof -ti tcp:7294 >/dev/null 2>&1; do sleep 0.2; done
+	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
+	uv run python -m rebuild.review.serve
 
 # Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
 verdict-ready:

@@ -30,3 +30,4 @@ rebuild/out/
 .claude/scheduled_tasks.lock
 /verdicts-*.json
 /verdicts.json
+/verdicts-journal.ndjson
