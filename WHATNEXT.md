@@ -14,8 +14,6 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 Nothing gates these — act on any cycle, whenever it’s worth it.
 
-- **The merged ·Tea·No echo group vs its worked-example pin** — `test_review_build.py::test_echo_groups_partition_the_human_workload` fails on any fresh build (`assert len(siblings) == 11` sees 68; it predates the ·No·Utter·Day widening and fails on clean 78eba8d too): the third-form ·X·Day·Tea·No units share a change signature with the broader full-·Tea~·No.alt join change, so they merged into e-0540 (68 members, all now carried approves — the 57 originals plus the 11 third-form windows) instead of standing alone. Decide whether to re-author the pin to the merged group or tighten the grouping key.
-
 - **The ·Oy withdraw twins** — qsOy/qsTea_qsOy's withdraw-before-{·Tea,·It} records still carry only the ·Tea·Utter·Low carve-out, so ·{Utter,May,No}·Oy·Tea·Utter·Tea strands its final ·Tea exactly the way the ·Day windows did before the un-shadowing. The same one-line widening (innermost except family → `[qsLow, qsTea]`) extends the taste, but ·Oy's record has no entry-liveness scope, so it reaches word-initial ·Oy everywhere: 704 windows move (285 off the old font), including the gated length-4 ·Oy·Tea·Utter·Tea, which needs a ledger entry plus a verdict. Decide it as its own sitting, not a rider.
 
 ### Do when a gate takes too long
