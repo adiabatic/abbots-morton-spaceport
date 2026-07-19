@@ -1,4 +1,4 @@
-"""Headless replacement for the review app's Import dialog: merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json with the exact union the app computes (per unit, the strictly newer `at` wins), so the artifact cycle lands carried verdicts without a browser round-trip and the app just picks them up on boot or focus. The existing aligned autosave is always part of the union and the result can only grow, so a merge never drops a verdict; a stale-stamped autosave is stashed aside first, exactly like the server's /autosave handler; inputs stamped for a different surface are refused outright — carry_verdicts.py is the cross-surface bridge, there is no force path. Every write is appended to verdicts-journal.ndjson (rebuild.review.journal), and --restore-as-of replays that journal to recover the store as of any recorded moment.
+"""Headless replacement for the review app's Import dialog: merge stamp-aligned ams-review-verdicts/1 files into verdicts-autosave.json with the exact union the app computes (per unit, the strictly newer `at` wins), so the artifact cycle lands carried verdicts without a browser round-trip and the app just picks them up on boot or focus. The existing aligned autosave is always part of the union and the result can only grow, so a merge never drops a verdict; a stale-stamped autosave is stashed aside first, exactly like the server's /autosave handler; inputs stamped for a different surface are refused outright — carry_verdicts.py is the cross-surface bridge, there is no force path. A merge that would write refuses while the review server is listening (an open tab would flush its own store back over the write on its next focus, exactly as --restore-as-of --apply guards against); stop the server or pass --yes. Every write is appended to verdicts-journal.ndjson (rebuild.review.journal), and --restore-as-of replays that journal to recover the store as of any recorded moment.
 
 Usage:
   uv run python -m rebuild.tools.merge_verdicts [FILES ...]     # no FILES: merge the frontier file verdict-ready names
@@ -91,7 +91,9 @@ def _surface_stamp(surface: Path) -> str | None:
     return stamp if isinstance(stamp, str) else None
 
 
-def run_merge(files: list[Path], *, autosave: Path, surface: Path, journal_path: Path, dry_run: bool) -> int:
+def run_merge(
+    files: list[Path], *, autosave: Path, surface: Path, journal_path: Path, dry_run: bool, yes: bool = False
+) -> int:
     stamp = _surface_stamp(surface)
     if stamp is None:
         print(f"ERROR: {surface} has no readable manifest.json; build the surface first (make artifact-cycle).")
@@ -174,6 +176,14 @@ def run_merge(files: list[Path], *, autosave: Path, surface: Path, journal_path:
             f"({_effective(result)} effective)."
         )
         return 0
+
+    if _server_listening() and not yes:
+        print(
+            "ERROR: the review server is listening on port 7294. An open tab would merge its own store right "
+            "back over this merge on its next focus. Stop the server first (make review-cycle runs the merge "
+            "with the server down), or pass --yes to merge anyway."
+        )
+        return 1
 
     stashed = None
     if existing_exists and not aligned:
@@ -285,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         help="reconstruct the store as of this UTC time (ISO prefix, e.g. 2026-07-19T03:00) from the journal",
     )
     parser.add_argument("--apply", action="store_true", help="with --restore-as-of: replace the live autosave with the reconstruction")
-    parser.add_argument("--yes", action="store_true", help="with --apply: proceed even while the review server is listening")
+    parser.add_argument("--yes", action="store_true", help="proceed even while the review server is listening (a plain merge and --restore-as-of --apply both refuse otherwise)")
     parser.add_argument("--out", type=Path, help="with --restore-as-of: where to write the reconstruction")
     parser.add_argument("--autosave", type=Path, default=AUTOSAVE, help="the live store (default: %(default)s)")
     parser.add_argument("--surface", type=Path, default=SURFACE, help="the served surface (default: %(default)s)")
@@ -304,7 +314,12 @@ def main(argv: list[str] | None = None) -> int:
             yes=args.yes,
         )
     return run_merge(
-        args.files, autosave=args.autosave, surface=args.surface, journal_path=args.journal, dry_run=args.dry_run
+        args.files,
+        autosave=args.autosave,
+        surface=args.surface,
+        journal_path=args.journal,
+        dry_run=args.dry_run,
+        yes=args.yes,
     )
 
 
