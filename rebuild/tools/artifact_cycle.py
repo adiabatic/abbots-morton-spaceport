@@ -6,7 +6,7 @@ The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonze
 
 The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, queues behind gate:make-test — co-resident with gate:rebuild's pytest pool rather than after it — since conform is short again post-depth-4-pruning and waiting out gate:rebuild would only add that pool's ~3 minutes to the critical path. Its per-config process pool spins up once the t=0 make-test pool has drained.
 
-gate:make-test is auto-skipped when its input closure is provably unchanged since the last cycle where it ran green. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The content fingerprint of that closure is recorded in cycle_summary.json whenever the gate runs green (or is validly skipped, carrying the chain forward); the next cycle skips the gate when its own fingerprint matches. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless.
+gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
@@ -38,6 +38,7 @@ M1_OUT = ROOT / "rebuild" / "out" / "m1"
 CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
+MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
 
@@ -113,8 +114,36 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     return digest.hexdigest()
 
 
-def prior_make_test_fingerprint(summary_path: Path | None = None) -> str | None:
-    """The make-test closure fingerprint recorded by the previous cycle, present only when that cycle's gate:make-test ran green or validly carried an earlier green forward."""
+def read_make_test_green(path: Path | None = None) -> dict | None:
+    """The shared last-green record for `make test` ({fingerprint, finished_at}), written by rebuild.tools.make_test_gate on every green run — interactive or as gate:make-test."""
+    try:
+        record = json.loads((path if path is not None else MAKE_TEST_GREEN).read_text())
+    except OSError, ValueError:
+        return None
+    if isinstance(record, dict) and isinstance(record.get("fingerprint"), str):
+        return record
+    return None
+
+
+def record_make_test_green(fingerprint: str, path: Path | None = None) -> None:
+    target = path if path is not None else MAKE_TEST_GREEN
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps({"format": "ams-make-test-green/1", "fingerprint": fingerprint, "finished_at": stamp})
+        + "\n"
+    )
+    os.replace(tmp, target)
+
+
+def prior_make_test_fingerprint(
+    summary_path: Path | None = None, green_path: Path | None = None
+) -> str | None:
+    """The closure fingerprint of the last green `make test` run: the shared green record when present (always at least as fresh, since every green run rewrites it), else the fingerprint the previous cycle recorded green or validly carried forward."""
+    record = read_make_test_green(green_path)
+    if record is not None:
+        return record["fingerprint"]
     try:
         summary = json.loads((summary_path if summary_path is not None else CYCLE_SUMMARY).read_text())
     except OSError, ValueError:
