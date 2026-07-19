@@ -232,6 +232,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
                     config,
                     max_length,
                     cell_glyphs,
+                    tables[config][0],
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -243,7 +244,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
         report.write(out_dir / "conform_summary.json")
     else:
         report = conform.run_conformance(
-            out_dir / "M1.otf", spec, glyphs=cell_glyphs, max_length=max_length, out_dir=out_dir
+            out_dir / "M1.otf", spec, glyphs=cell_glyphs, max_length=max_length, out_dir=out_dir, tables=tables
         )
     summary = {
         "sequences": report.sequences,
