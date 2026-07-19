@@ -246,7 +246,7 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
 
 
 def test_echo_groups_partition_the_human_workload(built):
-    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example is the ·Day·Tea·No regrouping, whose windows (·Pea/·Tea/·Day/·May/·No/·It/·Oy/·Utter-led plus the bare and namer-dot forms) share one group."""
+    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea~·No.alt baseline-join group: 57 plain ·X·Tea·No windows plus 11 third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers all 68 because the visible change is byte-identical."""
     out_dir, manifest = built
     by_echo = {}
     example = None
@@ -267,7 +267,7 @@ def test_echo_groups_partition_the_human_workload(built):
     siblings = {member["codepoints"] for member in by_echo[example["echo"]]}
     assert "E653:E652:E666" in siblings
     assert "E679:E653:E652:E666" in siblings
-    assert len(siblings) == 11
+    assert len(siblings) == 68
 
 
 def test_cluster_signatures_coarsen_the_echo_grain(built):
