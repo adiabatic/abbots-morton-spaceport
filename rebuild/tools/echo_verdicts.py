@@ -4,8 +4,13 @@ import argparse
 import collections
 import json
 import pathlib
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
+
 SURFACE = ROOT / "rebuild/out/review"
 OUT = ROOT / "verdicts-echo-fill.json"
 
@@ -62,7 +67,7 @@ def main():
             continue
         if len(kinds) == 1 and blanks:
             source_unit, source = max(judged, key=lambda pair: pair[1]["at"])
-            note = f"[echo-fill from {source_unit['id']}] {source['note']}".strip()
+            note = cap_markers(f"[echo-fill from {source_unit['id']}] {source['note']}".strip())
             for unit in blanks:
                 fills.append({"unit": unit["id"], "verdict": source["verdict"], "note": note, "at": source["at"]})
 
