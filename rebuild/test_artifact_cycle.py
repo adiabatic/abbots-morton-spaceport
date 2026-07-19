@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -1219,3 +1220,150 @@ def test_explicit_verdicts_skips_auto_resolution(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Auto-resolved" not in out
     assert "verdicts-mine.json" in out
+
+
+def test_make_test_exempt_classification():
+    for path in (
+        "rebuild/pipeline/conform.py",
+        "rebuild/tools/artifact_cycle.py",
+        "glyph_data/runes/qsDay.yaml",
+        "doc/glyph-names.md",
+        "doc/rebuild-design.md",
+        "WHATNEXT.md",
+        "FONTLOG.md",
+        "tmp/scratch.txt",
+        ".claude/settings.json",
+    ):
+        assert ac.make_test_exempt(path), path
+    for path in (
+        "glyph_data/quikscript.yaml",
+        "glyph_data/punctuation.yaml",
+        "tools/build_font.py",
+        "test/test_calt_regressions.py",
+        "site/the-manual.html",
+        "conftest.py",
+        "Makefile",
+        "pyproject.toml",
+        "uv.lock",
+    ):
+        assert not ac.make_test_exempt(path), path
+
+
+def _git_repo(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "core.excludesFile", os.devnull], cwd=tmp_path, check=True)
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "build_font.py").write_text("print()\n")
+    (tmp_path / "rebuild").mkdir()
+    (tmp_path / "rebuild" / "notes.py").write_text("x = 1\n")
+    (tmp_path / "README.md").write_text("hello\n")
+    return tmp_path
+
+
+def test_closure_files_apply_the_exemptions(tmp_path):
+    root = _git_repo(tmp_path)
+    assert ac.make_test_closure_files(root) == ["tools/build_font.py"]
+
+
+def test_closure_files_none_outside_a_git_repo(tmp_path):
+    assert ac.make_test_closure_files(tmp_path) is None
+    assert ac.make_test_closure_fingerprint(tmp_path) is None
+
+
+def test_closure_fingerprint_moves_only_with_closure_content(tmp_path):
+    root = _git_repo(tmp_path)
+    first = ac.make_test_closure_fingerprint(root)
+    assert first is not None
+
+    (root / "rebuild" / "notes.py").write_text("x = 2\n")
+    (root / "README.md").write_text("changed\n")
+    assert ac.make_test_closure_fingerprint(root) == first
+
+    (root / "tools" / "build_font.py").write_text("print(2)\n")
+    second = ac.make_test_closure_fingerprint(root)
+    assert second != first
+
+    (root / "test").mkdir()
+    (root / "test" / "test_new.py").write_text("def test(): pass\n")
+    assert ac.make_test_closure_fingerprint(root) not in (first, second)
+
+
+def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
+    root = _git_repo(tmp_path)
+    subprocess.run(["git", "add", "tools/build_font.py"], cwd=root, check=True)
+    first = ac.make_test_closure_fingerprint(root)
+    (root / "tools" / "build_font.py").unlink()
+    assert ac.make_test_closure_fingerprint(root) != first
+
+
+def test_prior_make_test_fingerprint_reads_the_summary(tmp_path):
+    summary = tmp_path / "cycle_summary.json"
+    assert ac.prior_make_test_fingerprint(summary) is None
+    summary.write_text(json.dumps({"make_test_fingerprint": "abc123"}))
+    assert ac.prior_make_test_fingerprint(summary) == "abc123"
+    summary.write_text(json.dumps({"make_test_fingerprint": None}))
+    assert ac.prior_make_test_fingerprint(summary) is None
+    summary.write_text("not json")
+    assert ac.prior_make_test_fingerprint(summary) is None
+
+
+def test_dry_run_plan_skip_make_test():
+    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:make-test"].argv is None
+    assert by_name["gate:make-test"].note == "SKIPPED (closure unchanged since its last green run)"
+    assert by_name["gate:rebuild"].argv is not None
+    rendered = ac.render_plan(plan)
+    assert "gate:make-test auto-skipped" in rendered
+
+
+def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
+    plan = _plan(skip_make_test=False, make_test_fingerprint="fp-1")
+    report = ac.CycleReport()
+
+    report.gate_make_test = "green"
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    assert payload["make_test_fingerprint"] == "fp-1"
+
+    report.gate_make_test = "FAILED (exit 2)"
+    payload = ac.cycle_summary_payload(report, ["make test failed"], plan, "failed")
+    assert payload["make_test_fingerprint"] is None
+
+    skipped = _plan(
+        skip_make_test=True,
+        make_test_note="closure unchanged since its last green run",
+        make_test_fingerprint="fp-1",
+    )
+    report = ac.CycleReport()
+    report.gate_make_test = "skipped (closure unchanged since its last green run)"
+    payload = ac.cycle_summary_payload(report, [], skipped, "ok")
+    assert payload["make_test_fingerprint"] == "fp-1"
+
+    gates_off = _plan(skip_gates=True)
+    report = ac.CycleReport()
+    payload = ac.cycle_summary_payload(report, [], gates_off, "ok")
+    assert payload["make_test_fingerprint"] is None
+
+
+def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
+    record = {"make_calls": 0}
+
+    def fake_make(spawn, emit, registry):
+        record["make_calls"] += 1
+        return _step("gate:make-test", 0)
+
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _rebuild_green)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert record["make_calls"] == 0
+    assert report.gate_make_test == "skipped (closure unchanged since its last green run)"
+    assert report.gate_rebuild == "green"
+    assert report.gate_conform == "green"

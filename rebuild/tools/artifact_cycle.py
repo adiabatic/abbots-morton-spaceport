@@ -6,12 +6,15 @@ The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonze
 
 The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, queues behind gate:make-test — co-resident with gate:rebuild's pytest pool rather than after it — since conform is short again post-depth-4-pruning and waiting out gate:rebuild would only add that pool's ~3 minutes to the critical path. Its per-config process pool spins up once the t=0 make-test pool has drained.
 
+gate:make-test is auto-skipped when its input closure is provably unchanged since the last cycle where it ran green. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The content fingerprint of that closure is recorded in cycle_summary.json whenever the gate runs green (or is validly skipped, carrying the chain forward); the next cycle skips the gate when its own fingerprint matches. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless.
+
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -69,6 +72,55 @@ CENSUS_HINT_MODULES = frozenset(
         "test_review_ink",
     }
 )
+
+MAKE_TEST_EXEMPT_PREFIXES = ("rebuild/", "glyph_data/runes/", "doc/", "tmp/", ".claude/")
+
+
+def make_test_exempt(path: str) -> bool:
+    """Whether a repo-relative path is provably outside gate:make-test's input closure. The exempt trees are safe because nothing the gate executes reads them: build_font globs glyph_data/*.yaml non-recursively (never glyph_data/runes/), and test/, site/, tools/, conftest.py contain no reference to rebuild/ or the rune files; Markdown is never an input to any gate."""
+    return path.endswith(".md") or any(path.startswith(prefix) for prefix in MAKE_TEST_EXEMPT_PREFIXES)
+
+
+def make_test_closure_files(root: Path) -> list[str] | None:
+    """Every tracked or untracked-unignored file that could affect gate:make-test, repo-relative and sorted. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except OSError, subprocess.SubprocessError:
+        return None
+    paths = {entry for entry in result.stdout.split("\0") if entry}
+    return sorted(path for path in paths if not make_test_exempt(path))
+
+
+def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
+    """Content hash of gate:make-test's input closure, read from the worktree (not the index) so uncommitted edits count. A deleted-but-tracked file hashes as absent, so deletions move the fingerprint too."""
+    files = make_test_closure_files(root)
+    if files is None:
+        return None
+    digest = hashlib.sha256()
+    for rel in files:
+        path = root / rel
+        try:
+            file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            file_hash = "absent"
+        digest.update(f"{rel}\t{file_hash}\n".encode())
+    return digest.hexdigest()
+
+
+def prior_make_test_fingerprint(summary_path: Path | None = None) -> str | None:
+    """The make-test closure fingerprint recorded by the previous cycle, present only when that cycle's gate:make-test ran green or validly carried an earlier green forward."""
+    try:
+        summary = json.loads((summary_path if summary_path is not None else CYCLE_SUMMARY).read_text())
+    except OSError, ValueError:
+        return None
+    value = summary.get("make_test_fingerprint") if isinstance(summary, dict) else None
+    return value if isinstance(value, str) else None
 
 
 @dataclass
@@ -163,6 +215,9 @@ class Plan:
     update_pins: bool
     skip_gates: bool
     skip_conform: bool = False
+    skip_make_test: bool = False
+    make_test_note: str = ""
+    make_test_fingerprint: str | None = None
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     job_budget: int = 1
     conform_jobs: int = 1
@@ -195,6 +250,9 @@ def build_plan(
     first_run: bool,
     short_id: str,
     skip_conform: bool = False,
+    skip_make_test: bool = False,
+    make_test_note: str = "",
+    make_test_fingerprint: str | None = None,
     conform_horizon: int = CONFORM_HORIZON_DEFAULT,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
@@ -221,6 +279,9 @@ def build_plan(
         update_pins=update_pins,
         skip_gates=skip_gates,
         skip_conform=skip_conform,
+        skip_make_test=skip_make_test,
+        make_test_note=make_test_note,
+        make_test_fingerprint=make_test_fingerprint,
         pool_policy=pool_policy,
         job_budget=job_budget,
         conform_jobs=conform_jobs,
@@ -323,7 +384,10 @@ def build_plan(
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
             )
-        plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
+        if skip_make_test:
+            plan.steps.append(Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0"))
+        else:
+            plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
 
     return plan
 
@@ -385,14 +449,19 @@ def _render_concurrency(plan: Plan) -> list[str]:
             "  Concurrency (--skip-gates):",
             f"    Lane build only; no gates; --jobs budget: {plan.job_budget}",
         ]
+    t0_lane = "gate:js" if plan.skip_make_test else "gate:js, gate:make-test"
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
-        "    Lane t0   [from t=0, background]  : gate:js, gate:make-test",
+        f"    Lane t0   [from t=0, background]  : {t0_lane}",
         "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> census",
         "    Lane rebuild                     : starts when run_m1's four JSONs pass;",
     ]
-    if plan.pool_policy == "overlap":
+    if plan.skip_make_test:
+        lines.append(
+            "                                       gate:make-test auto-skipped (closure unchanged), so no queueing"
+        )
+    elif plan.pool_policy == "overlap":
         lines.append(
             "                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)"
         )
@@ -892,11 +961,17 @@ def _run_cycle(
     failures: list[str] = []
     try:
         js_fut = None if plan.skip_gates else pool.submit(_gate_js_task, spawn, emit, registry)
-        make_fut = None if plan.skip_gates else pool.submit(_gate_make_test_task, spawn, emit, registry)
+        make_fut = (
+            None
+            if plan.skip_gates or plan.skip_make_test
+            else pool.submit(_gate_make_test_task, spawn, emit, registry)
+        )
         rebuild_fut: Future | None = None
         conform_fut: Future | None = None
         if not plan.skip_gates and plan.skip_conform:
             report.gate_conform = "skipped (--skip-conform)"
+        if not plan.skip_gates and plan.skip_make_test:
+            report.gate_make_test = f"skipped ({plan.make_test_note})"
 
         gate = _do_run_m1(report, spawn=spawn, emit=emit, registry=registry, budget=plan.job_budget)
         if gate is None or not gate.ok:
@@ -1018,6 +1093,11 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "conform": _gate_entry(report.gate_conform),
             "make_test": _gate_entry(report.gate_make_test),
         },
+        "make_test_fingerprint": (
+            plan.make_test_fingerprint
+            if report.gate_make_test.startswith("green") or plan.skip_make_test
+            else None
+        ),
         "unmatched": report.unmatched,
         "multi_matched": report.multi_matched,
         "boundary_pass": report.boundary_pass,
@@ -1130,6 +1210,11 @@ def main(argv: list[str] | None = None) -> int:
         help="skip gate:conform (the exhaustive font-vs-settle sweep) while keeping the other gates",
     )
     parser.add_argument(
+        "--force-make-test",
+        action="store_true",
+        help="run gate:make-test even when its input closure is unchanged since its last green run (the auto-skip)",
+    )
+    parser.add_argument(
         "--conform-horizon",
         type=int,
         default=CONFORM_HORIZON_DEFAULT,
@@ -1157,6 +1242,20 @@ def main(argv: list[str] | None = None) -> int:
 
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
+    skip_make_test = False
+    make_test_note = ""
+    make_test_fp: str | None = None
+    if not args.skip_gates:
+        make_test_fp = make_test_closure_fingerprint(ROOT)
+        if (
+            not args.force_make_test
+            and make_test_fp is not None
+            and make_test_fp == prior_make_test_fingerprint()
+        ):
+            skip_make_test = True
+            make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
+            print(f"gate:make-test auto-skipped: {make_test_note}")
+
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
         if resolved is None:
@@ -1179,6 +1278,9 @@ def main(argv: list[str] | None = None) -> int:
             first_run=first_run,
             short_id=resolve_short_id(),
             skip_conform=args.skip_conform,
+            skip_make_test=skip_make_test,
+            make_test_note=make_test_note,
+            make_test_fingerprint=make_test_fp,
             conform_horizon=args.conform_horizon,
             pool_policy=args.rebuild_pool,
             review_out=args.review_out,
@@ -1202,6 +1304,9 @@ def main(argv: list[str] | None = None) -> int:
         first_run=first_run,
         short_id=resolve_short_id(),
         skip_conform=args.skip_conform,
+        skip_make_test=skip_make_test,
+        make_test_note=make_test_note,
+        make_test_fingerprint=make_test_fp,
         conform_horizon=args.conform_horizon,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
