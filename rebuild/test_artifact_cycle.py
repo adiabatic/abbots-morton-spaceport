@@ -266,6 +266,72 @@ def test_dry_run_plan_rehearsal_never_touches_the_autosave():
     assert plan.do_merge is False
 
 
+def test_dry_run_plan_complaints_follows_census_and_reads_the_autosave(tmp_path, monkeypatch):
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    plan = _plan()
+    names = [step.name for step in plan.steps]
+    assert names.index("complaints") == names.index("census") + 1
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["complaints"].argv == [
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "rebuild.tools.complaint_docket",
+        str(autosave),
+    ]
+    assert by_name["complaints"].note == "informational, non-gating"
+    assert plan.complaints_note == ""
+
+
+def test_dry_run_plan_complaints_skips_on_rehearsal_first_run_and_missing_autosave(tmp_path, monkeypatch):
+    autosave = tmp_path / "verdicts-autosave.json"
+    autosave.write_text("{}")
+    monkeypatch.setattr(ac, "AUTOSAVE", autosave)
+    rehearsal = _plan(review_out=Path("tmp/reh"))
+    by_name = {step.name: step for step in rehearsal.steps}
+    assert by_name["complaints"].argv is None
+    assert "rehearsal" in by_name["complaints"].note
+    assert rehearsal.complaints_note != ""
+
+    first = _plan(first_run=True, verdicts=None)
+    by_name = {step.name: step for step in first.steps}
+    assert by_name["complaints"].argv is None
+    assert "first run" in by_name["complaints"].note
+
+    monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "missing.json")
+    absent = _plan()
+    by_name = {step.name: step for step in absent.steps}
+    assert by_name["complaints"].argv is None
+    assert "no verdicts store" in by_name["complaints"].note
+
+
+def test_do_complaints_scrapes_the_headline_and_never_fails_the_cycle():
+    def spawn(name, argv, *, emit, registry, stream):
+        return _step(
+            name,
+            0,
+            "wrote /x/tmp/complaints-data.json: 3 open complaints (1 fresh / 2 standing) in 2 groups — 5 park candidates, 4 approved sharers likely churn if fixed\n",
+        )
+
+    status = ac._do_complaints(spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry())
+    assert status.startswith("3 open complaints")
+
+    def spawn_empty(name, argv, *, emit, registry, stream):
+        return _step(name, 0, "no open complaints\n")
+
+    status = ac._do_complaints(spawn=spawn_empty, emit=ac._Emitter(), registry=ac._ChildRegistry())
+    assert status == "no open complaints"
+
+    def spawn_broken(name, argv, *, emit, registry, stream):
+        return _step(name, 2, "boom\n")
+
+    status = ac._do_complaints(spawn=spawn_broken, emit=ac._Emitter(), registry=ac._ChildRegistry())
+    assert status == "FAILED (exit 2) — informational"
+
+
 def test_dry_run_plan_merge_skipped_without_carry():
     no_carry = ac.build_plan(
         verdicts=None,

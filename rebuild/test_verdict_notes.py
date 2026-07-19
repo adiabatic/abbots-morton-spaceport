@@ -1,6 +1,6 @@
-"""Tests for rebuild.tools.verdict_notes.cap_markers: the note-collapse the carry/echo producers and the collapse_verdict_notes backfill apply to keep only the newest few provenance markers while preserving human prose."""
+"""Tests for rebuild.tools.verdict_notes: cap_markers, the note-collapse the carry/echo producers and the collapse_verdict_notes backfill apply to keep only the newest few provenance markers while preserving human prose, and strip_markers, the marker-free gist the complaint docket reports."""
 
-from rebuild.tools.verdict_notes import cap_markers
+from rebuild.tools.verdict_notes import cap_markers, strip_markers
 
 CARRIED_A = "[carried u-1@review-pre-aaa, verdicted 2026-07-18]"
 CARRIED_B = "[carried u-2@review-pre-bbb, verdicted 2026-07-17]"
@@ -61,3 +61,21 @@ def test_keep_parameter_is_honored():
     note = f"{CARRIED_A} {CARRIED_B} {CARRIED_C} prose"
     assert cap_markers(note, keep=1) == f"{CARRIED_A} prose"
     assert cap_markers(note, keep=3) == note
+
+
+def test_recognizes_parked_markers():
+    parked = "[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z]"
+    note = f"{parked} {CARRIED_A} {CARRIED_B} keep me"
+    assert cap_markers(note) == f"{parked} {CARRIED_A} keep me"
+
+
+def test_strip_markers_leaves_only_the_prose():
+    parked = "[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z]"
+    assert strip_markers(f"{parked} {CARRIED_A} the seam overshoots") == "the seam overshoots"
+    assert strip_markers(f"{CARRIED_A} {CARRIED_B}") == ""
+    assert strip_markers("I prefer M1.") == "I prefer M1."
+
+
+def test_strip_markers_spares_a_human_note_starting_with_a_non_marker_bracket():
+    note = "[see attached] my thoughts on the join"
+    assert strip_markers(note) == note

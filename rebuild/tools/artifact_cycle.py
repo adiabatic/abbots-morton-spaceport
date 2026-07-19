@@ -254,6 +254,7 @@ class Plan:
     conform_horizon: int = CONFORM_HORIZON_DEFAULT
     review_out: Path | None = None
     census_surface: Path = REVIEW_OUT
+    complaints_note: str = ""
     steps: list[Step] = field(default_factory=list)
 
 
@@ -407,6 +408,24 @@ def build_plan(
             lane="build",
         )
     )
+
+    if review_out is not None:
+        plan.complaints_note = "rehearsal: reads the live autosave"
+    elif first_run:
+        plan.complaints_note = "first run: no verdicts to cluster"
+    elif not AUTOSAVE.exists():
+        plan.complaints_note = "no verdicts store"
+    if plan.complaints_note:
+        plan.steps.append(Step("complaints", None, f"SKIPPED ({plan.complaints_note})", lane="build"))
+    else:
+        plan.steps.append(
+            Step(
+                "complaints",
+                ["uv", "run", "python", "-m", "rebuild.tools.complaint_docket", str(AUTOSAVE)],
+                "informational, non-gating",
+                lane="build",
+            )
+        )
 
     if skip_gates:
         plan.steps.append(Step("gates", None, "SKIPPED (--skip-gates)"))
@@ -576,6 +595,7 @@ class CycleReport:
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
     census_status: str = "not run"
+    complaints_status: str = "not run"
     gate_js: str = "not run"
     gate_rebuild: str = "not run"
     gate_conform: str = "not run"
@@ -909,6 +929,26 @@ def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: 
     return "STALE (informational — re-run with --update-pins or edit by hand)"
 
 
+def _do_complaints(*, spawn, emit: _Emitter, registry: _ChildRegistry) -> str:
+    result = spawn(
+        "complaints",
+        ["uv", "run", "python", "-m", "rebuild.tools.complaint_docket", str(AUTOSAVE)],
+        emit=emit,
+        registry=registry,
+        stream=False,
+    )
+    _dump_captured(emit, result)
+    if result.returncode != 0:
+        return f"FAILED (exit {result.returncode}) — informational"
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped == "no open complaints":
+            return stripped
+        if stripped.startswith("wrote ") and ": " in stripped:
+            return stripped.split(": ", 1)[1]
+    return "done"
+
+
 def _gate_js_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _StepResult:
     return spawn("gate:js", jstest_argv(), emit=emit, registry=registry, stream=False)
 
@@ -1092,6 +1132,10 @@ def _run_cycle(
             update_pins=plan.update_pins,
             surface=plan.census_surface,
         )
+        if plan.complaints_note:
+            report.complaints_status = f"skipped ({plan.complaints_note})"
+        else:
+            report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
 
         _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
         return _finish(report, failures, plan)
@@ -1127,6 +1171,7 @@ def _print_summary(report: CycleReport) -> None:
     for line in report.merge_lines:
         print(f"      {line}")
     print(f"  census pins        : {report.census_status}")
+    print(f"  complaint groups   : {report.complaints_status}")
     print(f"  gate: JS suite     : {report.gate_js}")
     print(f"  gate: rebuild      : {report.gate_rebuild}")
     print(f"  gate: conform      : {report.gate_conform}")
@@ -1187,6 +1232,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "merge_status": report.merge_status,
         "merge_lines": list(report.merge_lines),
         "census_status": report.census_status,
+        "complaints_status": report.complaints_status,
         "snapshot_dir": _as_str(report.snapshot_dir),
         "interrupted": report.interrupted,
         "plan": {
