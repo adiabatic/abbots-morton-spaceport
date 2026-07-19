@@ -92,7 +92,7 @@ policy:
     why: 'Claude figured that this would be the best (least disruptive) way to have `·Day | ·Utter.alt ~b~ ·Low` happen; The Manual requires this'
   - cell: {entry: x-height}
     over: {entry: baseline}
-    when: {left: {joined_at: x-height}, right: {family: qsMay}}
+    when: {left: {joined_at: x-height}, right: {family: [qsDay, qsMay]}}
     why: 'if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height'
   extend:
   - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
