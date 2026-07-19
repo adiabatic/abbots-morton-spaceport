@@ -1,4 +1,4 @@
-"""Tests for the review-app build CLI: a full M1 build into a temp directory validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build."""
+"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from the `built_review_surface` session cache in rebuild/conftest.py — built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep the cache's byte-identity premise honest."""
 
 import hashlib
 import json
@@ -34,10 +34,8 @@ PINS = load_pins()
 
 
 @pytest.fixture(scope="module")
-def built(tmp_path_factory):
-    out_dir = tmp_path_factory.mktemp("review-out")
-    manifest = build_m1(out_dir)
-    return out_dir, manifest
+def built(built_review_surface):
+    return built_review_surface
 
 
 def _load_fixture_units():
