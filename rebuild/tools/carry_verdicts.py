@@ -8,6 +8,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from rebuild.review.ink import InkComparator  # noqa: E402
+from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
@@ -102,7 +103,7 @@ def main():
 
     def carry(unit, record, source):
         provenance = f"[carried {record['unit']}@{source}, verdicted {record['at'][:10]}]"
-        note = f"{provenance} {record['note']}".strip()
+        note = cap_markers(f"{provenance} {record['note']}".strip())
         carried.append({"unit": unit["id"], "verdict": record["verdict"], "note": note, "at": record["at"]})
         kinds[record["verdict"]] += 1
 

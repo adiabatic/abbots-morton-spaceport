@@ -357,3 +357,26 @@ test('recentNotes leaves a carried mention after real text untouched', () => {
     'compare with [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] handling',
   ]);
 });
+
+test('recentNotes strips leading echo-fill and echo-harmonize markers ahead of the note', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the seam overshoots',
+    at: '2026-06-10T09:00:00Z',
+  });
+  recordVerdict(store, 'u-0002', 'reject', {
+    note: '[echo-harmonize e-1007 — docket 2026-07-18T00:00:00Z] harmonize to approve',
+    at: '2026-06-10T10:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the seam overshoots']);
+});
+
+test('recentNotes drops a note that is nothing but echo-fill provenance', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'reject', {
+    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
+    at: '2026-06-10T09:00:00Z',
+  });
+  recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
+  assert.deepEqual(recentNotes(store), ['real note']);
+});
