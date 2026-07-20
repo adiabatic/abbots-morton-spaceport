@@ -1,0 +1,113 @@
+rune: qsFee
+codepoint: 0xE658
+notes: |
+  No matter what, ·Fee cannot join both to and from at the x-height on the same letter.
+ductus:
+  loop: |  
+    Written clockwise from the top. Potentially exits at the x-height. Potentially gets joined to at the top height.
+  reversed-loop: |
+    Joined to at the x-height. Then loops around the bottom and exits at the top, going counter-clockwise.
+mono:
+  bitmap:
+  - "  #  "
+  - "   # "
+  - "    #"
+  - "  ###"  #
+  - " #  #"
+  - "#   #"
+  - "#   #"
+  - "#   #"
+  - " ### "  #
+stances:
+  loop:
+    motion: loop
+    traits: []
+    bitmap:
+    - "  #  "
+    - "   # "
+    - "    #"
+    - "  ###"  #
+    - " #  #"
+    - "#   #"
+    - "#   #"
+    - "#   #"
+    - " ### "  #
+    surface:
+      entries: {top: {x: 0, stroke: horizontal, stub: {cols: [0, 1], inks_when: joined}}}
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+          toward:
+          - family:
+            - qsTea
+            - qsDay
+            - qsCheer
+            - qsMay
+            - qsNo
+            - qsRoe
+            - qsLlan
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsOy
+            - qsUtter
+            - qsOwe
+            - qsFoot
+      cells: []
+      unlocks: []
+      require: []
+  reversed-loop:
+    motion: reversed-loop
+    traits: []
+    bitmap:
+    - "  #  "
+    - "   # "
+    - "    #"
+    - " #  #"  #
+    - " #  #"
+    - "#   #"
+    - "#   #"
+    - "#   #"
+    - " ### "  #
+    surface:
+      entries:
+        x-height:
+          x: 1
+          stroke: vertical
+          from:
+          - family:
+            - qsDay_qsUtter
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
+            - qsJay_qsUtter
+            - qsWay_qsUtter
+            - qsWhy_qsUtter
+            - qsMay
+            - qsNo
+            - qsLow
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            joined_at: x-height
+      cells: []
+      unlocks: []
+      require: [entry]
+policy:
+  order: [loop, reversed-loop]
+  refuse: []
+  prefer: []
+  extend:
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: [qsDay, qsCheer, qsNo, qsRoe, qsLlan, qsIt, qsEt, qsEight, qsOwe, qsFoot]}
+  - {stance: loop, exit: x-height, by: 3, when: {right: {family: qsMay}}}
+  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  contract: []
+  resolve: []
+  groups: {}

@@ -209,7 +209,7 @@ class TestDeadPolicy:
     def test_deferred_partner_records_are_partitioned(self, spec):
         report = defects.run_gates(spec, _tables(), {})
         deferred = "\n".join(report.deferred_partner)
-        # qsMay's after-·Fee bound contract names only qsFee, which has no rune file.
+        # The fixture's qsMay contract names only qsFee, absent from the fixture spec — the batch-1 deferred-partner shape, preserved as the exemplar; the real qsMay binds pulled-back-stubless on its entry row instead of carrying the contract.
         assert "qsMay.yaml:policy.contract[0]" in deferred
 
     def test_in_alphabet_unexercised_records_land_in_dead_list(self, spec):

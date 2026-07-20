@@ -56,6 +56,7 @@ stances:
           from:
           - {family: qsDay_qsUtter}
           - {family: qsThey_qsUtter}
+          - {family: qsFee}
           - {family: qsVie_qsUtter}
           - {family: qsSee_qsUtter}
           - {family: qsJai_qsUtter}

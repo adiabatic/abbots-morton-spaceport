@@ -51,11 +51,13 @@ policy:
   refuse: []
   prefer: []
   extend:
+  - {stance: full, exit: x-height, by: 1, when: {right: {family: qsFee}}}
   - {stance: full, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   - stance: half
     entry: baseline
     by: 1
     when: {left: {family: [qsTea, qsYe], joined_at: baseline}}
+  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsFee}}}
   - {stance: half, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   contract: []
   resolve: []
