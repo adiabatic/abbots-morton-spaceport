@@ -106,7 +106,15 @@ stances:
 policy:
   order: [loop, reversed-loop]
   refuse: []
-  prefer: [{cell: {exit: x-height}, over: {entry: x-height}, why: 'Generally connecting to the next letter is easier to do than to bend ·Fee backwards'}]
+  prefer:
+  - cell: {exit: x-height}
+    over: {entry: x-height}
+    why: 'Generally connecting to the next letter is easier to do than to bend ·Fee backwards'
+  - cell: {exit: none}
+    over: {exit: x-height}
+    mode: absolute
+    when: {right: {family: qsUtter, then: {family: qsTea, then: {family: qsDay}}}}
+    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   extend:
   - stance: loop
     exit: x-height

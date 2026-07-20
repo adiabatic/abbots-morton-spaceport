@@ -65,9 +65,18 @@ policy:
     when:
       left: {family: [qsTea_qsOy, qsDay, qsIt, qsOy], joined_at: baseline}
       right: {family: qsTea, then: {family: qsIt}}
+  - cell: {exit: none}
+    over: {exit: baseline}
+    when: {right: {family: qsTea, then: {family: qsDay}}}
+    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. This stops `·No.alt ~b~ ·Tea`.
   - cell: {exit: baseline}
     over: {exit: x-height}
     when: {left: {is: boundary}, right: {family: qsMay}}
+  - cell: {exit: none}
+    over: {exit: x-height}
+    mode: absolute
+    when: {right: {family: qsUtter, then: {family: qsTea, then: {family: qsDay}}}}
+    why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   - cell: {exit: baseline}
     over: {exit: none}
     when:
