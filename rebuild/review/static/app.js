@@ -838,8 +838,19 @@ function scheduleDocketRefresh() {
   clearTimeout(docketRefreshTimer);
   docketRefreshTimer = setTimeout(() => {
     docketRefreshTimer = null;
-    if (state.view === 'docket') renderDocket();
+    if (state.view === 'docket') renderDocket({ anchor: captureDocketAnchor() });
   }, 150);
+}
+
+// A live refresh drops every newly judged cluster, so restoring the old pixel offset would slide the page under the reader by the height of whatever vanished above them; anchoring to the first card still in view keeps the card being read in place while the judged ones melt away around it.
+function captureDocketAnchor() {
+  const docket = document.getElementById('docket');
+  if (docket.hidden) return null;
+  for (const card of docket.querySelectorAll('article.cluster')) {
+    const rect = card.getBoundingClientRect();
+    if (rect.bottom > 0) return { cluster: card.dataset.cluster, delta: rect.top };
+  }
+  return null;
 }
 
 function appButton(href, label) {
@@ -886,6 +897,7 @@ function buildEvidenceLine(evidence) {
 
 function buildClusterCard(cluster, position) {
   const card = el('article', 'cluster');
+  card.dataset.cluster = cluster.id;
   const header = el('header');
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
   header.append(el('span', null, `in ${cluster.echoGroups.length} echo group${cluster.echoGroups.length === 1 ? '' : 's'}`));
@@ -1020,7 +1032,7 @@ function buildConflictSection(conflicts) {
   return section;
 }
 
-function renderDocket() {
+function renderDocket({ anchor = null } = {}) {
   const container = document.getElementById('docket');
   const scrollY = window.scrollY;
   container.textContent = '';
@@ -1098,7 +1110,9 @@ function renderDocket() {
 
   document.getElementById('batch-progress').textContent =
     `Docket: ${formatCount(totals.blankUnits)} blank in ${formatCount(totals.clusters)} clusters`;
-  window.scrollTo(0, scrollY);
+  const anchorCard = anchor ? container.querySelector(`article.cluster[data-cluster="${anchor.cluster}"]`) : null;
+  if (anchorCard) window.scrollTo(0, anchorCard.getBoundingClientRect().top + window.scrollY - anchor.delta);
+  else window.scrollTo(0, scrollY);
 }
 
 function populateFilterOptions() {
@@ -2299,6 +2313,11 @@ function wireEvents() {
       refreshStatus();
     }
   });
+
+  // A docket kept open beside the judging tab never regains focus between decisions, so the focus re-merge above can't keep it fresh; while the docket is on screen, poll the server store instead. syncVerdictsFromServer's own guard bounds the rate, and each pickup re-derives the queue, so judged cluster decisions leave the page by themselves instead of waiting for a tab switch.
+  setInterval(() => {
+    if (state.view === 'docket' && !document.hidden) syncVerdictsFromServer();
+  }, 3000);
 
   window.addEventListener('beforeunload', (event) => {
     if (store.unexported.size === 0) return;
