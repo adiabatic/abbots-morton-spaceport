@@ -106,12 +106,7 @@ stances:
 policy:
   order: [loop, reversed-loop]
   refuse: []
-  prefer:
-  - cell: {exit: x-height}
-    over: {entry: x-height}
-    when:
-      left: {family: [qsMay, qsNo, qsLow]}
-      right: {except: [family: qsTea, family: qsUtter]}
+  prefer: [{cell: {exit: x-height}, over: {entry: x-height}, why: 'Generally connecting to the next letter is easier to do than to bend ·Fee backwards'}]
   extend:
   - stance: loop
     exit: x-height
