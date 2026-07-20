@@ -135,7 +135,7 @@ policy:
   prefer:
   - cell: {exit: x-height}
     over: {entry: x-height}
-    when: {left: {family: qsUtter}, right: {except: [family: qsTea]}}
+    when: {left: {family: qsUtter}, right: {except: [family: qsTea, family: qsFee]}}
   - {cell: {exit: baseline}, when: {left: {is: boundary}, right: {family: qsMay}}}
   - {cell: {exit: baseline}, when: {left: {family: qsMay, joined_at: none}, right: {family: qsMay}}}
   extend:

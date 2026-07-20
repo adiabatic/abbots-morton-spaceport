@@ -3,7 +3,7 @@ codepoint: 0xE658
 notes: |
   No matter what, ·Fee cannot join both to and from at the x-height on the same letter.
 ductus:
-  loop: |  
+  loop: |
     Written clockwise from the top. Potentially exits at the x-height. Potentially gets joined to at the top height.
   reversed-loop: |
     Joined to at the x-height. Then loops around the bottom and exits at the top, going counter-clockwise.
@@ -42,7 +42,14 @@ stances:
           - family:
             - qsTea
             - qsDay
+            - qsDay_qsUtter
+            - qsVie_qsUtter
+            - qsSee_qsUtter
+            - qsJai_qsUtter
             - qsCheer
+            - qsJay_qsUtter
+            - qsWay_qsUtter
+            - qsWhy_qsUtter
             - qsMay
             - qsNo
             - qsRoe
@@ -99,13 +106,30 @@ stances:
 policy:
   order: [loop, reversed-loop]
   refuse: []
-  prefer: []
+  prefer:
+  - cell: {exit: x-height}
+    over: {entry: x-height}
+    when:
+      left: {family: [qsMay, qsNo, qsLow]}
+      right: {except: [family: qsTea, family: qsUtter]}
   extend:
   - stance: loop
     exit: x-height
     by: 1
     when:
-      right: {family: [qsDay, qsCheer, qsNo, qsRoe, qsLlan, qsIt, qsEt, qsEight, qsOwe, qsFoot]}
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsCheer
+        - qsNo
+        - qsRoe
+        - qsLlan
+        - qsIt
+        - qsEt
+        - qsEight
+        - qsOwe
+        - qsFoot
   - {stance: loop, exit: x-height, by: 3, when: {right: {family: qsMay}}}
   - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
   contract: []
