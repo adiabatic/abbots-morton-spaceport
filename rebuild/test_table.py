@@ -198,7 +198,9 @@ class TestDepthThreeTables:
         return decision
 
     def test_depth3_inputs_census(self, real_spec):
-        assert depth3_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy"})
+        assert depth3_inputs(real_spec) == frozenset(
+            {"qsDay", "qsFee", "qsMay", "qsNo", "qsOy", "qsTea_qsOy", "qsUtter"}
+        )
 
     def test_depth4_inputs_census(self, real_spec):
         assert depth4_inputs(real_spec) == frozenset({"qsDay"})
