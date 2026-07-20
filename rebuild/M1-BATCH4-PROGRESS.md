@@ -4,7 +4,8 @@ Scratch progress file for the in-flight qsFee migration; delete at batch close, 
 
 ## Committed
 
-- (pending) Add ·Fee
+- 23db583 Add ·Fee
+- (this commit) Re-pin the census for the ·Fee surface and bump the corpus literals (default-subset rows 30,940; the ·Tea~·No.alt echo group now spans 74 sibling windows)
 
 ## Parked
 
