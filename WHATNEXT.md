@@ -15,6 +15,7 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 Nothing gates these — act on any cycle, whenever it’s worth it.
 
 - **The ·Oy withdraw twins** — qsOy/qsTea_qsOy's withdraw-before-{·Tea,·It} records still carry only the ·Tea·Utter·Low carve-out, so ·{Utter,May,No}·Oy·Tea·Utter·Tea strands its final ·Tea exactly the way the ·Day windows did before the un-shadowing. The same one-line widening (innermost except family → `[qsLow, qsTea]`) extends the taste, but ·Oy's record has no entry-liveness scope, so it reaches word-initial ·Oy everywhere: 704 windows move (285 off the old font), including the gated length-4 ·Oy·Tea·Utter·Tea, which needs a ledger entry plus a verdict. Decide it as its own sitting, not a rider.
+- **The ·Low·Oy·Tea·Oy standing approval needs a durable home** — the carried verdict note auto-approves the window "no matter what happens around ·Low·Oy", but carrying only preserves verdicts across unchanged renders, so a render change would silently re-queue it. Encode the standing approval durably (census pin or similar).
 
 ### Do when a gate takes too long
 
