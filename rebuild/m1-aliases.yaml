@@ -12,10 +12,12 @@ qsPea.en-y6.ex-y0: {rune: qsPea, stance: full, entry: y6, exit: baseline}
 qsPea.half.en-y5.ex-y5: {rune: qsPea, stance: half, entry: x-height, exit: x-height}
 qsPea.half.en-y6.ex-y6: {rune: qsPea, stance: half, entry: y6, exit: y6}
 qsPea.half.en-y6.ex-y6.noentry: {rune: qsPea, stance: half, exit: y6, adjustments: [locked]}
+qsPea.half.ex-y5: {rune: qsPea, stance: half, exit: x-height}
 qsPea.half.ex-y5.ex-dips: {rune: qsPea, stance: half, exit: x-height}
 qsPea.noentry: {rune: qsPea, stance: full, adjustments: [locked]}
 qsTea: {rune: qsTea, stance: full}
 qsTea.en-y0: {rune: qsTea, stance: full, entry: baseline}
+qsTea.en-y5.ex-y0.after-fee: {rune: qsTea, stance: full, entry: x-height, exit: baseline}
 qsTea.ex-y0: {rune: qsTea, stance: full, exit: baseline}
 qsTea.half.en-y5.after-xheight-exit: {rune: qsTea, stance: half, entry: x-height}
 qsTea.half.en-y8.ex-y5.noentry: {rune: qsTea, stance: half, exit: x-height, adjustments: [locked]}
@@ -31,9 +33,19 @@ qsDay_qsUtter.ex-ext-1: {rune: qsDay_qsUtter, stance: full, exit: x-height, adju
 qsDay_qsUtter.half.en-y0.ex-y5: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height}
 qsDay_qsUtter.half.en-y0.ex-y5.en-ext-1: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
 qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1: {rune: qsDay_qsUtter, stance: half, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
+qsFee: {rune: qsFee, stance: loop}
+qsFee.en-y5: {rune: qsFee, stance: reversed-loop, entry: x-height}
+qsFee.ex-y5: {rune: qsFee, stance: loop, exit: x-height}
+qsFee.ex-y5.before-may: {rune: qsFee, stance: loop, exit: x-height}
+qsFee.ex-y5.before-may.ex-ext-3: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-3]}
+qsFee.ex-y5.before-utter: {rune: qsFee, stance: loop, exit: x-height}
+qsFee.ex-y5.before-utter.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
+qsFee.ex-y5.ex-ext-1: {rune: qsFee, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
+qsFee.noentry: {rune: qsFee, stance: loop, adjustments: [locked]}
 qsMay: {rune: qsMay, stance: loop}
 qsMay.en-y0.ex-y5: {rune: qsMay, stance: loop, entry: baseline, exit: x-height}
 qsMay.en-y5: {rune: qsMay, stance: loop, entry: x-height}
+qsMay.en-y5.after-fee: {rune: qsMay, stance: loop, entry: x-height}
 qsMay.en-y5.ex-y0: {rune: qsMay, stance: grounded-loop, entry: x-height, exit: baseline}
 qsMay.en-y0.ex-y5.en-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
 qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1: {rune: qsMay, stance: loop, entry: baseline, exit: x-height, adjustments: [en-ext-1, ex-ext-1]}
@@ -46,7 +58,9 @@ qsNo.alt.en-y0.ex-y0: {rune: qsNo, stance: flipped, entry: baseline, exit: basel
 qsNo.alt.en-y0.ex-y0.after-it-and-vie: {rune: qsNo, stance: flipped, entry: baseline, exit: baseline}
 qsNo.alt.en-y0.ex-y0.noentry: {rune: qsNo, stance: flipped, exit: baseline, adjustments: [locked]}
 qsNo.en-ext-1: {rune: qsNo, stance: loop, entry: x-height, adjustments: [en-ext-1]}
+qsNo.ex-ext-1: {rune: qsNo, stance: loop, exit: x-height, adjustments: [ex-ext-1]}
 qsNo.noentry: {rune: qsNo, stance: loop, adjustments: [locked]}
+qsNo.noentry.ex-ext-1: {rune: qsNo, stance: loop, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsLow: {rune: qsLow, stance: hapax}
 qsLow.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsLow.noentry: {rune: qsLow, stance: hapax, adjustments: [locked]}
@@ -73,3 +87,4 @@ qsUtter.alt.ex-y0: {rune: qsUtter, stance: alternate, exit: baseline}
 qsUtter.alt.ex-y0.before-may: {rune: qsUtter, stance: alternate, exit: baseline}
 qsUtter.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [ex-ext-1]}
 qsUtter.noentry: {rune: qsUtter, stance: mono, adjustments: [locked]}
+qsUtter.noentry.ex-ext-1: {rune: qsUtter, stance: mono, exit: x-height, adjustments: [locked, ex-ext-1]}

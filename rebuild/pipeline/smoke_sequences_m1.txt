@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsMay E665, qsLow E667, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsLow E667, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -78,3 +78,16 @@ E653 E652 E67A            # Day Tea Utter (contrast: Day still yields to the Tea
 E653 E652 E67A E665       # Day Tea Utter May (contrast: the yield survives a non-Low fourth letter)
 E653 E652 E67A 200C E667  # Day Tea Utter ZWNJ Low (the third-slot class must not match across the break)
 E650 E679 E652 E67A E667  # Pea Oy Tea Utter Low (the depth-3 window with a settled left)
+#
+# qsFee windows: the x-height one-way street (joined to XOR from, never both).
+E658                      # Fee in isolation
+E665 E658                 # May Fee (extended x-height join into the reversed loop)
+E658 E665                 # Fee May (the triple-extended exit into the pulled-back stubless May)
+E658 E652                 # Fee Tea (unjoined by default; joins under ss03)
+E658 E67A E666            # Fee Utter No (the alternate Utter reaches back to Fee)
+E658 E679                 # Fee Oy (x-height join into the opened loop)
+E667 E658                 # Low Fee (extended x-height join)
+E653 E67A E658            # Day+Utter Fee (the ligature's exit extended into Fee)
+E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second seam breaks)
+200C E658                 # ZWNJ Fee (locked twin)
+E658 200C E665            # Fee ZWNJ May (exit severed)

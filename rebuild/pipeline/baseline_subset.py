@@ -1,6 +1,6 @@
 """One-time streaming filter of the baseline tables to the M1 sub-alphabet (M1-PLAN section 5, Group 3).
 
-Streams each `rebuild/out/baseline-<config>.tsv.gz` once via `rebuild.validation.rowmodel.iter_rows`, keeps rows whose codepoints are a subset of the 8-symbol alphabet, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` preserving the header lines and the canonical (length, codepoints) row order. The same filter runs over `equivalence-triage.tsv` into `rebuild/out/m1/triage.subset.tsv`.
+Streams each `rebuild/out/baseline-<config>.tsv.gz` once via `rebuild.validation.rowmodel.iter_rows`, keeps rows whose codepoints are a subset of the M1 alphabet, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` preserving the header lines and the canonical (length, codepoints) row order. The same filter runs over `equivalence-triage.tsv` into `rebuild/out/m1/triage.subset.tsv`.
 
 Run as: uv run python -m rebuild.pipeline.baseline_subset
 """
@@ -17,7 +17,7 @@ BASELINE_DIR = REPO_ROOT / "rebuild" / "out"
 OUT_DIR = BASELINE_DIR / "m1"
 
 M1_ALPHABET = frozenset(
-    {0x0020, 0x00B7, 0x200C, 0xE650, 0xE652, 0xE653, 0xE665, 0xE666, 0xE667, 0xE670, 0xE679, 0xE67A}
+    {0x0020, 0x00B7, 0x200C, 0xE650, 0xE652, 0xE653, 0xE658, 0xE665, 0xE666, 0xE667, 0xE670, 0xE679, 0xE67A}
 )
 
 
