@@ -64,7 +64,7 @@ review-build:
 review-serve:
 	uv run python -m rebuild.review.serve
 
-# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, merge into the autosave, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. gate:make-test auto-skips when nothing outside rebuild/, glyph_data/runes/, doc/, and Markdown has changed since its last green run (ARGS='--force-make-test' overrides).
+# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, merge into the autosave, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. Every heavy stage auto-skips when a green record proves its inputs unchanged since its last green run — run_m1, the surface rebuild, the census, gate:conform, gate:rebuild, and gate:make-test — so a verdict-only cycle costs seconds; ARGS='--fresh' runs everything anyway (ARGS='--force-make-test' forces just that gate).
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 

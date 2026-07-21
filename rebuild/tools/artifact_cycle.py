@@ -8,6 +8,8 @@ The two artifact-independent gates (js, make-test) run from t=0 in a small threa
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-green.json. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
 
@@ -41,6 +43,10 @@ ECHO_TOOL = ROOT / "rebuild" / "tools" / "echo_verdicts.py"
 ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
+RUN_M1_GREEN = ROOT / "rebuild" / "out" / "run-m1-green.json"
+CONFORM_GREEN = ROOT / "rebuild" / "out" / "conform-green.json"
+REBUILD_GATE_GREEN = ROOT / "rebuild" / "out" / "rebuild-gate-green.json"
+CENSUS_GREEN = ROOT / "rebuild" / "out" / "census-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 REVIEW_PORT = 7294
 
@@ -116,10 +122,10 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     return digest.hexdigest()
 
 
-def read_make_test_green(path: Path | None = None) -> dict | None:
-    """The shared last-green record for `make test` ({fingerprint, finished_at}), written by rebuild.tools.make_test_gate on every green run — interactive or as gate:make-test."""
+def read_green_record(path: Path) -> dict | None:
+    """A gate's last-green record ({fingerprint, finished_at}); None when absent or malformed."""
     try:
-        record = json.loads((path if path is not None else MAKE_TEST_GREEN).read_text())
+        record = json.loads(path.read_text())
     except OSError, ValueError:
         return None
     if isinstance(record, dict) and isinstance(record.get("fingerprint"), str):
@@ -127,16 +133,31 @@ def read_make_test_green(path: Path | None = None) -> dict | None:
     return None
 
 
-def record_make_test_green(fingerprint: str, path: Path | None = None) -> None:
-    target = path if path is not None else MAKE_TEST_GREEN
-    target.parent.mkdir(parents=True, exist_ok=True)
+def record_green(path: Path, fingerprint: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
-        json.dumps({"format": "ams-make-test-green/1", "fingerprint": fingerprint, "finished_at": stamp})
+        json.dumps({"format": f"ams-{path.stem}/1", "fingerprint": fingerprint, "finished_at": stamp})
         + "\n"
     )
-    os.replace(tmp, target)
+    os.replace(tmp, path)
+
+
+def clear_contradicted_green(path: Path, fingerprint: str | None) -> None:
+    """A red result over content whose fingerprint still matches the recorded green contradicts the record; delete it so no later cycle can skip on a falsified green."""
+    record = read_green_record(path)
+    if fingerprint is not None and record is not None and record["fingerprint"] == fingerprint:
+        path.unlink(missing_ok=True)
+
+
+def read_make_test_green(path: Path | None = None) -> dict | None:
+    """The shared last-green record for `make test`, written by rebuild.tools.make_test_gate on every green run — interactive or as gate:make-test."""
+    return read_green_record(path if path is not None else MAKE_TEST_GREEN)
+
+
+def record_make_test_green(fingerprint: str, path: Path | None = None) -> None:
+    record_green(path if path is not None else MAKE_TEST_GREEN, fingerprint)
 
 
 def prior_make_test_fingerprint(
@@ -152,6 +173,164 @@ def prior_make_test_fingerprint(
         return None
     value = summary.get("make_test_fingerprint") if isinstance(summary, dict) else None
     return value if isinstance(value, str) else None
+
+
+M1_ARTIFACT_NAMES = ("M1.otf", "divergence-audit.tsv", "inputs_fingerprint.json")
+REBUILD_GATE_EXEMPT_PREFIXES = ("rebuild/evidence/", "rebuild/review/jstests/")
+
+
+def _sha256_path(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return "absent"
+
+
+def _digest_lines(lines: list[str]) -> str:
+    digest = hashlib.sha256()
+    for line in lines:
+        digest.update(line.encode() + b"\n")
+    return digest.hexdigest()
+
+
+def _subset_tables(root: Path) -> list[Path]:
+    return sorted((root / "rebuild" / "out" / "m1").glob("baseline-*.subset.tsv.gz"))
+
+
+def run_m1_skip_fingerprint(root: Path = ROOT) -> str:
+    """Content key over everything a full run_m1 reads: the Stage A fingerprint components (rune and config data, the full baselines, the pipeline code), the oracle's subset tables — which Stage A's `baselines` covers only by proxy — and uv.lock for the pinned toolchain. Matching the recorded green means a rerun would reproduce rebuild/out/m1 byte for byte."""
+    from rebuild.pipeline import fingerprint
+
+    lines = [f"{name}\t{value}" for name, value in sorted(fingerprint.stage_a(root).items())]
+    lines += [f"{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
+    lines.append(f"uv.lock\t{_sha256_path(root / 'uv.lock')}")
+    return _digest_lines(lines)
+
+
+def m1_artifacts_present(root: Path = ROOT) -> bool:
+    """Whether rebuild/out/m1 still holds everything a skipped run_m1 must leave behind: the four gate summaries plus the artifacts the surface build consumes."""
+    m1 = root / "rebuild" / "out" / "m1"
+    names = [path.name for path in M1_SUMMARY_FILES.values()] + list(M1_ARTIFACT_NAMES)
+    return all((m1 / name).exists() for name in names)
+
+
+def conform_skip_fingerprint(root: Path = ROOT, horizon: int = CONFORM_HORIZON_DEFAULT) -> str:
+    """The run_m1 key plus the compiled font's bytes and the sweep horizon — exactly what gate:conform sweeps. The horizon is in the key so a green at a shallower horizon can never satisfy a deeper gate."""
+    lines = [
+        f"run-m1\t{run_m1_skip_fingerprint(root)}",
+        f"M1.otf\t{_sha256_path(root / 'rebuild' / 'out' / 'm1' / 'M1.otf')}",
+        f"horizon\t{horizon}",
+    ]
+    return _digest_lines(lines)
+
+
+def rebuild_gate_closure_files(root: Path) -> list[str] | None:
+    """Every tracked or untracked-unignored file the rebuild pytest suite can read from the repo: rebuild/ and glyph_data/ (minus Markdown, the carried-verdict evidence, and the JS-only jstests) plus the root conftest.py, pyproject.toml, and uv.lock. None when git is unavailable, in which case the caller must run the gate unconditionally."""
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                "rebuild/",
+                "glyph_data/",
+                "conftest.py",
+                "pyproject.toml",
+                "uv.lock",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except OSError, subprocess.SubprocessError:
+        return None
+    paths = {entry for entry in result.stdout.split("\0") if entry}
+    return sorted(
+        path
+        for path in paths
+        if not path.endswith(".md")
+        and not any(path.startswith(prefix) for prefix in REBUILD_GATE_EXEMPT_PREFIXES)
+    )
+
+
+def rebuild_gate_skip_fingerprint(root: Path = ROOT) -> str | None:
+    """Content key over gate:rebuild's full input closure: the repo files from rebuild_gate_closure_files plus the out/m1 artifacts the suite reads and the site fonts and baselines it shapes against. The verdict store is deliberately absent — the suite exercises it only through fixtures — which is what lets verdict-only cycles skip the gate."""
+    from rebuild.pipeline import fingerprint
+
+    files = rebuild_gate_closure_files(root)
+    if files is None:
+        return None
+    m1 = root / "rebuild" / "out" / "m1"
+    lines = [f"{rel}\t{_sha256_path(root / rel)}" for rel in files]
+    lines += [f"m1/{name}\t{_sha256_path(m1 / name)}" for name in M1_ARTIFACT_NAMES]
+    lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
+    lines.append(f"fonts\t{fingerprint.hash_paths(root, fingerprint.font_paths(root))}")
+    lines.append(f"baselines\t{fingerprint.baselines_value(root)}")
+    return _digest_lines(lines)
+
+
+def surface_build_skippable(root: Path = ROOT, review_out: Path | None = None) -> bool:
+    """Whether rebuilding the review surface would reproduce its content byte for byte, so the build can be skipped with the autosave still aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as recorded by run_m1, Stage B recomputed) and every shard the manifest names is still present. generated_at is mtime-derived, so a rebuild after pure mtime churn (git checkout, touch) could restamp it even with identical content — skipping deliberately keeps the existing stamp instead, which preserves the manifest-autosave alignment the stamp exists to key."""
+    from rebuild.pipeline import fingerprint
+
+    surface = review_out if review_out is not None else REVIEW_OUT
+    try:
+        manifest = json.loads((surface / "manifest.json").read_text())
+    except OSError, ValueError:
+        return False
+    recorded = manifest.get("inputs_fingerprint")
+    if not isinstance(recorded, dict):
+        return False
+    stage_a = fingerprint.read_stage_a(root / "rebuild" / "out" / "m1")
+    if stage_a is None:
+        return False
+    before_font, junior_font = fingerprint.font_paths(root)
+    expected = {**stage_a, **fingerprint.stage_b(root, before_font, junior_font)}
+    if recorded != expected:
+        return False
+    try:
+        shards = [meta["shard"] for meta in manifest["classes"] if meta.get("shard")]
+    except KeyError, TypeError:
+        return False
+    return all((surface / shard).exists() for shard in shards)
+
+
+def census_skip_fingerprint(root: Path = ROOT, surface: Path | None = None) -> str | None:
+    """Content key over the census check's inputs: the surface identity (its recorded fingerprint and stamp), the checked-in pins, and the source artifacts the ink and family groups re-shape (the audit, the compiled font, and the subset tables; the site fonts and spec ride inside the manifest fingerprint). None when the surface has no fingerprinted manifest."""
+    surface_dir = surface if surface is not None else REVIEW_OUT
+    try:
+        manifest = json.loads((surface_dir / "manifest.json").read_text())
+    except OSError, ValueError:
+        return None
+    fp = manifest.get("inputs_fingerprint")
+    if not isinstance(fp, dict):
+        return None
+    m1 = root / "rebuild" / "out" / "m1"
+    lines = [
+        f"manifest\t{json.dumps(fp, sort_keys=True)}",
+        f"generated_at\t{manifest.get('generated_at')}",
+        f"pins\t{_sha256_path(root / 'rebuild' / 'review-census-pins.json')}",
+        f"M1.otf\t{_sha256_path(m1 / 'M1.otf')}",
+        f"audit\t{_sha256_path(m1 / 'divergence-audit.tsv')}",
+    ]
+    lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
+    return _digest_lines(lines)
+
+
+def snapshot_surface(src: Path, dst: Path) -> str:
+    """Snapshot the surface as an APFS clone when possible (cp -c uses clonefile(2), sharing blocks copy-on-write, so the ~130MB recovery copy costs neither wall time nor real disk); shutil.copytree remains the portable fallback."""
+    if sys.platform == "darwin":
+        result = subprocess.run(["cp", "-Rc", str(src), str(dst)], capture_output=True, text=True)
+        if result.returncode == 0:
+            return "cloned"
+        shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(src, dst)
+    return "copied"
 
 
 @dataclass
@@ -250,6 +429,17 @@ class Plan:
     skip_make_test: bool = False
     make_test_note: str = ""
     make_test_fingerprint: str | None = None
+    skip_run_m1: bool = False
+    run_m1_note: str = ""
+    run_m1_fingerprint: str | None = None
+    skip_surface: bool = False
+    surface_note: str = ""
+    skip_rebuild_gate: bool = False
+    rebuild_gate_note: str = ""
+    conform_note: str = ""
+    skip_census: bool = False
+    census_skip_note: str = ""
+    record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     job_budget: int = 1
     conform_jobs: int = 1
@@ -291,6 +481,17 @@ def build_plan(
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     review_out: Path | None = None,
     ncores: int | None = None,
+    skip_run_m1: bool = False,
+    run_m1_note: str = "",
+    run_m1_fingerprint: str | None = None,
+    skip_surface: bool = False,
+    surface_note: str = "",
+    skip_rebuild_gate: bool = False,
+    rebuild_gate_note: str = "",
+    conform_note: str = "",
+    skip_census: bool = False,
+    census_skip_note: str = "",
+    record_greens: bool = False,
 ) -> Plan:
     resolved_snapshot = snapshot_dir if snapshot_dir is not None else ROOT / "tmp" / f"review-pre-{short_id}"
     do_carry = not no_carry and not first_run
@@ -318,6 +519,17 @@ def build_plan(
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fingerprint,
+        skip_run_m1=skip_run_m1,
+        run_m1_note=run_m1_note,
+        run_m1_fingerprint=run_m1_fingerprint,
+        skip_surface=skip_surface,
+        surface_note=surface_note,
+        skip_rebuild_gate=skip_rebuild_gate,
+        rebuild_gate_note=rebuild_gate_note,
+        conform_note=conform_note,
+        skip_census=skip_census,
+        census_skip_note=census_skip_note,
+        record_greens=record_greens,
         pool_policy=pool_policy,
         job_budget=job_budget,
         conform_jobs=conform_jobs,
@@ -332,20 +544,38 @@ def build_plan(
         )
     else:
         plan.steps.append(
-            Step("snapshot", None, f"copytree {REVIEW_OUT} -> {resolved_snapshot}", lane="build")
+            Step(
+                "snapshot",
+                None,
+                f"snapshot {REVIEW_OUT} -> {resolved_snapshot} (APFS clone when supported)",
+                lane="build",
+            )
         )
 
-    run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-    if job_budget > 1:
-        run_m1_argv += ["--jobs", str(job_budget)]
-    plan.steps.append(Step("run_m1", run_m1_argv, lane="build"))
+    if skip_run_m1:
+        plan.steps.append(
+            Step(
+                "run_m1",
+                None,
+                f"SKIPPED ({run_m1_note}); gate re-evaluated from the recorded summaries",
+                lane="build",
+            )
+        )
+    else:
+        run_m1_argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+        if job_budget > 1:
+            run_m1_argv += ["--jobs", str(job_budget)]
+        plan.steps.append(Step("run_m1", run_m1_argv, lane="build"))
 
-    surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
-    if job_budget > 1:
-        surface_argv += ["--jobs", str(job_budget)]
-    if review_out is not None:
-        surface_argv += ["--out", str(review_out)]
-    plan.steps.append(Step("surface-build", surface_argv, lane="build"))
+    if skip_surface:
+        plan.steps.append(Step("surface-build", None, f"SKIPPED ({surface_note})", lane="build"))
+    else:
+        surface_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
+        if job_budget > 1:
+            surface_argv += ["--jobs", str(job_budget)]
+        if review_out is not None:
+            surface_argv += ["--out", str(review_out)]
+        plan.steps.append(Step("surface-build", surface_argv, lane="build"))
 
     if do_carry:
         assert resolved_carry_out is not None
@@ -411,28 +641,31 @@ def build_plan(
         plan.steps.append(Step("echo-fill", None, echo_note, lane="build"))
         plan.steps.append(Step("echo-merge", None, echo_note, lane="build"))
 
-    census_mode = "--update" if update_pins else "--check"
-    plan.steps.append(
-        Step(
-            "census",
-            [
-                "uv",
-                "run",
-                "python",
-                "-m",
-                "rebuild.review.census",
-                census_mode,
-                "--surface",
-                str(census_surface),
-            ],
-            (
-                "then `git diff -- rebuild/review-census-pins.json`, printed in full"
-                if update_pins
-                else "staleness reported informationally"
-            ),
-            lane="build",
+    if skip_census:
+        plan.steps.append(Step("census", None, f"SKIPPED ({census_skip_note})", lane="build"))
+    else:
+        census_mode = "--update" if update_pins else "--check"
+        plan.steps.append(
+            Step(
+                "census",
+                [
+                    "uv",
+                    "run",
+                    "python",
+                    "-m",
+                    "rebuild.review.census",
+                    census_mode,
+                    "--surface",
+                    str(census_surface),
+                ],
+                (
+                    "then `git diff -- rebuild/review-census-pins.json`, printed in full"
+                    if update_pins
+                    else "staleness reported informationally"
+                ),
+                lane="build",
+            )
         )
-    )
 
     if review_out is not None:
         plan.complaints_note = "rehearsal: reads the live autosave"
@@ -456,27 +689,34 @@ def build_plan(
         plan.steps.append(Step("gates", None, "SKIPPED (--skip-gates)"))
     else:
         plan.steps.append(Step("gate:js", jstest_argv(), lane="t0"))
-        plan.steps.append(
-            Step(
-                "gate:rebuild",
-                [
-                    "uv",
-                    "run",
-                    "pytest",
-                    "rebuild/",
-                    "-n",
-                    "auto",
-                    "--dist",
-                    "worksteal",
-                    "-q",
-                    "--tb=no",
-                    "-rfE",
-                ],
-                lane="rebuild",
+        if skip_rebuild_gate:
+            plan.steps.append(
+                Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild")
             )
-        )
+        else:
+            plan.steps.append(
+                Step(
+                    "gate:rebuild",
+                    [
+                        "uv",
+                        "run",
+                        "pytest",
+                        "rebuild/",
+                        "-n",
+                        "auto",
+                        "--dist",
+                        "worksteal",
+                        "-q",
+                        "--tb=no",
+                        "-rfE",
+                    ],
+                    lane="rebuild",
+                )
+            )
         if skip_conform:
-            plan.steps.append(Step("gate:conform", None, "SKIPPED (--skip-conform)", lane="conform"))
+            plan.steps.append(
+                Step("gate:conform", None, f"SKIPPED ({conform_note or '--skip-conform'})", lane="conform")
+            )
         else:
             plan.steps.append(
                 Step("gate:conform", conform_gate_argv(conform_jobs, conform_horizon), lane="conform")
@@ -552,18 +792,23 @@ def _render_concurrency(plan: Plan) -> list[str]:
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         f"    Lane t0   [from t=0, background]  : {t0_lane}",
         "    Lane build[serial, main thread]  : snapshot -> run_m1 -> surface-build -> carry -> merge -> census",
-        "    Lane rebuild                     : starts when run_m1's four JSONs pass;",
     ]
-    if plan.skip_make_test:
+    if plan.skip_rebuild_gate:
         lines.append(
-            "                                       gate:make-test auto-skipped (closure unchanged), so no queueing"
-        )
-    elif plan.pool_policy == "overlap":
-        lines.append(
-            "                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)"
+            "    Lane rebuild                     : SKIPPED (inputs unchanged since its last green run)"
         )
     else:
-        lines.append("                                       QUEUED behind gate:make-test  (queue policy)")
+        lines.append("    Lane rebuild                     : starts when run_m1's four JSONs pass;")
+        if plan.skip_make_test:
+            lines.append(
+                "                                       gate:make-test auto-skipped (closure unchanged), so no queueing"
+            )
+        elif plan.pool_policy == "overlap":
+            lines.append(
+                "                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)"
+            )
+        else:
+            lines.append("                                       QUEUED behind gate:make-test  (queue policy)")
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
     elif plan.pool_policy == "overlap":
@@ -629,6 +874,7 @@ class CycleReport:
     gate_rebuild: str = "not run"
     gate_conform: str = "not run"
     gate_make_test: str = "not run"
+    rebuild_recordable: bool = False
     interrupted: bool = False
 
 
@@ -795,6 +1041,7 @@ class _RebuildOutcome:
     status: str
     failures: list[str]
     hard_ids: list[str]
+    recordable: bool = False
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -822,19 +1069,34 @@ def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome
         if buckets["census-hint"]:
             parts.append(f"{len(buckets['census-hint'])} stale census pins? (re-run with --update-pins)")
         status = "green" if not parts else "green (" + ", ".join(parts) + ")"
-    return _RebuildOutcome(status=status, failures=failures, hard_ids=list(buckets["hard"]))
+    recordable = not buckets["hard"] and not buckets["census-hint"]
+    return _RebuildOutcome(
+        status=status, failures=failures, hard_ids=list(buckets["hard"]), recordable=recordable
+    )
 
 
 def _do_run_m1(
-    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, budget: int
+    report: CycleReport,
+    *,
+    spawn,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    budget: int,
+    skip: bool = False,
+    skip_note: str = "",
+    record: bool = False,
+    fingerprint: str | None = None,
 ) -> GateOutcome | None:
-    for path in M1_SUMMARY_FILES.values():
-        path.unlink(missing_ok=True)
-    CONFORM_SUMMARY.unlink(missing_ok=True)
-    argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-    if budget > 1:
-        argv += ["--jobs", str(budget)]
-    spawn("run_m1", argv, emit=emit, registry=registry, stream=True)
+    """Run (or, when `skip` is set, reuse) the M1 build and judge its gate from the four summary JSONs. The skip path leaves rebuild/out/m1 untouched and re-evaluates the recorded summaries, which is sound because run_m1's outputs are deterministic and timestamp-free over the fingerprinted inputs. A live green records the fingerprint only if it still matches — an input edited mid-run means the tested content is no longer on disk — and a live red matching the record deletes it."""
+    if skip:
+        emit.emit(f"\nrun_m1: SKIPPED — {skip_note}; evaluating the gate from the recorded summaries.")
+    else:
+        for path in M1_SUMMARY_FILES.values():
+            path.unlink(missing_ok=True)
+        argv = ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+        if budget > 1:
+            argv += ["--jobs", str(budget)]
+        spawn("run_m1", argv, emit=emit, registry=registry, stream=True)
     missing = [name for name, path in M1_SUMMARY_FILES.items() if not path.exists()]
     if missing:
         for name in missing:
@@ -850,6 +1112,14 @@ def _do_run_m1(
     report.multi_matched = gate.multi_matched
     report.boundary_pass = bool(summaries["boundary"].get("pass"))
     report.pins_pass = bool(summaries["manual_pins"].get("pass"))
+    if record and fingerprint is not None:
+        if not gate.ok:
+            clear_contradicted_green(RUN_M1_GREEN, fingerprint)
+        elif not skip:
+            if run_m1_skip_fingerprint(ROOT) == fingerprint:
+                record_green(RUN_M1_GREEN, fingerprint)
+            else:
+                emit.emit("run_m1 green, but its inputs changed while it ran — green not recorded")
     return gate
 
 
@@ -867,7 +1137,23 @@ def _do_surface_build(
     registry: _ChildRegistry,
     review_out: Path | None,
     budget: int,
+    skip: bool = False,
+    skip_note: str = "",
 ) -> bool:
+    if skip:
+        surface_dir = review_out if review_out is not None else REVIEW_OUT
+        try:
+            manifest = json.loads((surface_dir / "manifest.json").read_text())
+        except OSError, ValueError:
+            emit.emit("ERROR: surface-build skip: the manifest vanished mid-cycle; rerun with --fresh.")
+            return False
+        totals = manifest.get("totals") or {}
+        report.surface_units = totals.get("units")
+        report.surface_rows = totals.get("rows")
+        report.surface_batches = totals.get("batches")
+        report.echo_groups = totals.get("echo_groups")
+        emit.emit(f"\nsurface-build: SKIPPED — {skip_note}.")
+        return True
     argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
     if budget > 1:
         argv += ["--jobs", str(budget)]
@@ -946,7 +1232,16 @@ def _do_echo_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _Chi
     return result.returncode == 0
 
 
-def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool, surface: Path) -> str:
+def _do_census(
+    *,
+    spawn,
+    emit: _Emitter,
+    registry: _ChildRegistry,
+    update_pins: bool,
+    surface: Path,
+    record: bool = False,
+) -> str:
+    """Check (or re-baseline) the census pins, and keep census-green.json honest: a clean check records the key it checked, --update records the key over the pins it just wrote (they are current by construction), and a stale check whose key matches the record deletes the falsified green. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes)."""
     if update_pins:
         census = spawn(
             "census",
@@ -966,9 +1261,14 @@ def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: 
         _dump_captured(emit, diff)
         if census.returncode != 0:
             return "update FAILED"
+        if record:
+            key = census_skip_fingerprint(ROOT, surface)
+            if key is not None:
+                record_green(CENSUS_GREEN, key)
         if diff.stdout.strip():
             return "updated (diff shown above — review every moved number)"
         return "updated (no change)"
+    key = census_skip_fingerprint(ROOT, surface) if record else None
     census = spawn(
         "census",
         ["uv", "run", "python", "-m", "rebuild.review.census", "--check", "--surface", str(surface)],
@@ -978,7 +1278,11 @@ def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: 
     )
     _dump_captured(emit, census)
     if census.returncode == 0:
+        if key is not None:
+            record_green(CENSUS_GREEN, key)
         return "clean"
+    if record:
+        clear_contradicted_green(CENSUS_GREEN, key)
     return "STALE (informational — re-run with --update-pins or edit by hand)"
 
 
@@ -1018,7 +1322,8 @@ def _gate_conform_task(
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:make-test — the head of the make-test -> rebuild chain — so its per-config process pool spins up once the t=0 make-test pool has drained, co-resident with gate:rebuild's pytest pool. Conform is short after the depth-4 pruning, so queueing it behind gate:rebuild too would only pile that pool's runtime onto the critical path; it stays a process pool, not a pytest pool, so the one-12-way-pytest-pool-at-a-time invariant (make-test then rebuild, guarded by gate:rebuild's own wait on make_fut) is untouched. The stale conform_summary.json was unlinked before run_m1 started, so the verdict here can only come from this cycle's subprocess."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:make-test — the head of the make-test -> rebuild chain — so its per-config process pool spins up once the t=0 make-test pool has drained, co-resident with gate:rebuild's pytest pool. Conform is short after the depth-4 pruning, so queueing it behind gate:rebuild too would only pile that pool's runtime onto the critical path; it stays a process pool, not a pytest pool, so the one-12-way-pytest-pool-at-a-time invariant (make-test then rebuild, guarded by gate:rebuild's own wait on make_fut) is untouched. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    CONFORM_SUMMARY.unlink(missing_ok=True)
     if pool_policy == "queue" and make_fut is not None:
         try:
             make_fut.result()
@@ -1093,6 +1398,7 @@ def _join_gates(
             report.gate_rebuild = "FAILED (exception)"
         else:
             report.gate_rebuild = outcome.status
+            report.rebuild_recordable = outcome.recordable
             for test_id in outcome.hard_ids:
                 emit.emit(f"  hard rebuild failure: {test_id}")
             failures.extend(outcome.failures)
@@ -1114,6 +1420,30 @@ def _join_gates(
                 failures.append("make test failed")
 
 
+def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, str], emit: _Emitter) -> None:
+    """Persist the concurrent gates' green records after they joined. Each key was snapshotted right after run_m1 finished (the artifacts it hashes are final from then on) and is recomputed here before recording, so a source file edited while the gates ran — content the gates never tested — can never be recorded green. A red gate whose key still matches its record deletes the falsified record."""
+    key = gate_keys.get("conform")
+    if key:
+        if report.gate_conform == "green":
+            if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
+                record_green(CONFORM_GREEN, key)
+            else:
+                emit.emit("gate:conform green, but its inputs changed while the cycle ran — green not recorded")
+        elif report.gate_conform.startswith("FAILED"):
+            clear_contradicted_green(CONFORM_GREEN, key)
+    key = gate_keys.get("rebuild")
+    if key:
+        if report.gate_rebuild.startswith("green") and report.rebuild_recordable:
+            if rebuild_gate_skip_fingerprint(ROOT) == key:
+                record_green(REBUILD_GATE_GREEN, key)
+            else:
+                emit.emit(
+                    "gate:rebuild green, but its input closure changed while the cycle ran — green not recorded"
+                )
+        elif report.gate_rebuild.startswith("FAILED"):
+            clear_contradicted_green(REBUILD_GATE_GREEN, key)
+
+
 def _run_cycle(
     plan: Plan, report: CycleReport, emit: _Emitter, registry: _ChildRegistry, spawn=_run_step
 ) -> int:
@@ -1128,24 +1458,44 @@ def _run_cycle(
         )
         rebuild_fut: Future | None = None
         conform_fut: Future | None = None
+        gate_keys: dict[str, str] = {}
         if not plan.skip_gates and plan.skip_conform:
-            report.gate_conform = "skipped (--skip-conform)"
+            report.gate_conform = f"skipped ({plan.conform_note or '--skip-conform'})"
+        if not plan.skip_gates and plan.skip_rebuild_gate:
+            report.gate_rebuild = f"skipped ({plan.rebuild_gate_note})"
         if not plan.skip_gates and plan.skip_make_test:
             report.gate_make_test = f"skipped ({plan.make_test_note})"
 
-        gate = _do_run_m1(report, spawn=spawn, emit=emit, registry=registry, budget=plan.job_budget)
+        gate = _do_run_m1(
+            report,
+            spawn=spawn,
+            emit=emit,
+            registry=registry,
+            budget=plan.job_budget,
+            skip=plan.skip_run_m1,
+            skip_note=plan.run_m1_note,
+            record=plan.record_greens,
+            fingerprint=plan.run_m1_fingerprint,
+        )
         if gate is None or not gate.ok:
             failures.extend(_run_m1_reasons(gate))
-            report.gate_rebuild = "not run (run_m1 gate failed)"
+            if plan.skip_gates or not plan.skip_rebuild_gate:
+                report.gate_rebuild = "not run (run_m1 gate failed)"
             if not plan.skip_gates and not plan.skip_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
             _join_gates(report, failures, js_fut, None, None, make_fut, plan.update_pins, emit)
             return _finish(report, failures, plan)
 
+        if plan.record_greens and not plan.skip_gates:
+            if not plan.skip_conform:
+                gate_keys["conform"] = conform_skip_fingerprint(ROOT, plan.conform_horizon)
+            if not plan.skip_rebuild_gate:
+                gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
         if not plan.skip_gates:
-            rebuild_fut = pool.submit(
-                _gate_rebuild_task, plan.pool_policy, make_fut, spawn, emit, registry, plan.update_pins
-            )
+            if not plan.skip_rebuild_gate:
+                rebuild_fut = pool.submit(
+                    _gate_rebuild_task, plan.pool_policy, make_fut, spawn, emit, registry, plan.update_pins
+                )
             if not plan.skip_conform:
                 conform_fut = pool.submit(
                     _gate_conform_task,
@@ -1164,9 +1514,12 @@ def _run_cycle(
             registry=registry,
             review_out=plan.review_out,
             budget=plan.job_budget,
+            skip=plan.skip_surface,
+            skip_note=plan.surface_note,
         ):
             failures.append("surface rebuild failed")
             _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
+            _record_gate_greens(report, plan, gate_keys, emit)
             return _finish(report, failures, plan)
 
         if plan.carry_out is not None:
@@ -1187,19 +1540,24 @@ def _run_cycle(
                     report.echo_merge_status = "not run (echo-fill failed)"
                 elif not _do_echo_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
                     failures.append("echo-merge failed")
-        report.census_status = _do_census(
-            spawn=spawn,
-            emit=emit,
-            registry=registry,
-            update_pins=plan.update_pins,
-            surface=plan.census_surface,
-        )
+        if plan.skip_census:
+            report.census_status = f"skipped ({plan.census_skip_note})"
+        else:
+            report.census_status = _do_census(
+                spawn=spawn,
+                emit=emit,
+                registry=registry,
+                update_pins=plan.update_pins,
+                surface=plan.census_surface,
+                record=plan.record_greens and plan.review_out is None,
+            )
         if plan.complaints_note:
             report.complaints_status = f"skipped ({plan.complaints_note})"
         else:
             report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
 
         _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
+        _record_gate_greens(report, plan, gate_keys, emit)
         return _finish(report, failures, plan)
     except KeyboardInterrupt:
         registry.terminate_all()
@@ -1315,6 +1673,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "pool_policy": plan.pool_policy,
             "skip_gates": plan.skip_gates,
             "skip_conform": plan.skip_conform,
+            "skip_run_m1": plan.skip_run_m1,
+            "skip_surface": plan.skip_surface,
+            "skip_rebuild_gate": plan.skip_rebuild_gate,
+            "skip_census": plan.skip_census,
             "update_pins": plan.update_pins,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
@@ -1417,6 +1779,11 @@ def main(argv: list[str] | None = None) -> int:
         help="run gate:make-test even when its input closure is unchanged since its last green run (the auto-skip)",
     )
     parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="run every stage and gate even when a green record proves its inputs unchanged since the last green run (disables all auto-skips, gate:make-test's included)",
+    )
+    parser.add_argument(
         "--conform-horizon",
         type=int,
         default=CONFORM_HORIZON_DEFAULT,
@@ -1441,6 +1808,8 @@ def main(argv: list[str] | None = None) -> int:
         help="print the resolved step plan and exit without executing anything",
     )
     args = parser.parse_args(argv)
+    if args.fresh:
+        args.force_make_test = True
 
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
@@ -1457,6 +1826,51 @@ def main(argv: list[str] | None = None) -> int:
             skip_make_test = True
             make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
             print(f"gate:make-test auto-skipped: {make_test_note}")
+
+    run_m1_fp = run_m1_skip_fingerprint(ROOT)
+    skip_run_m1 = False
+    run_m1_note = ""
+    skip_surface = False
+    surface_note = ""
+    skip_rebuild_gate = False
+    rebuild_gate_note = ""
+    conform_note = ""
+    auto_skip_conform = False
+    skip_census = False
+    census_skip_note = ""
+    if not args.fresh:
+        green = read_green_record(RUN_M1_GREEN)
+        if green is not None and green["fingerprint"] == run_m1_fp and m1_artifacts_present(ROOT):
+            skip_run_m1 = True
+            run_m1_note = "build inputs unchanged since the last green M1 build; --fresh overrides"
+            print(f"run_m1 auto-skipped: {run_m1_note}")
+    if skip_run_m1:
+        if args.review_out is None and not first_run and surface_build_skippable(ROOT):
+            skip_surface = True
+            surface_note = "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
+            print(f"surface-build auto-skipped: {surface_note}")
+        if not args.skip_gates and not args.skip_conform:
+            green = read_green_record(CONFORM_GREEN)
+            if green is not None and green["fingerprint"] == conform_skip_fingerprint(
+                ROOT, args.conform_horizon
+            ):
+                auto_skip_conform = True
+                conform_note = "font and sweep inputs unchanged since its last green sweep; --fresh overrides"
+                print(f"gate:conform auto-skipped: {conform_note}")
+        if not args.skip_gates:
+            rebuild_key = rebuild_gate_skip_fingerprint(ROOT)
+            green = read_green_record(REBUILD_GATE_GREEN)
+            if rebuild_key is not None and green is not None and green["fingerprint"] == rebuild_key:
+                skip_rebuild_gate = True
+                rebuild_gate_note = "input closure unchanged since its last green run; --fresh overrides"
+                print(f"gate:rebuild auto-skipped: {rebuild_gate_note}")
+        if skip_surface and not args.update_pins:
+            census_key = census_skip_fingerprint(ROOT)
+            green = read_green_record(CENSUS_GREEN)
+            if census_key is not None and green is not None and green["fingerprint"] == census_key:
+                skip_census = True
+                census_skip_note = "surface, pins, and source inputs unchanged since the last clean check; --fresh overrides"
+                print(f"census auto-skipped: {census_skip_note}")
 
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
@@ -1480,13 +1894,23 @@ def main(argv: list[str] | None = None) -> int:
             first_run=first_run,
             short_id=resolve_short_id(),
             no_merge=args.no_merge,
-            skip_conform=args.skip_conform,
+            skip_conform=args.skip_conform or auto_skip_conform,
             skip_make_test=skip_make_test,
             make_test_note=make_test_note,
             make_test_fingerprint=make_test_fp,
             conform_horizon=args.conform_horizon,
             pool_policy=args.rebuild_pool,
             review_out=args.review_out,
+            skip_run_m1=skip_run_m1,
+            run_m1_note=run_m1_note,
+            run_m1_fingerprint=run_m1_fp,
+            skip_surface=skip_surface,
+            surface_note=surface_note,
+            skip_rebuild_gate=skip_rebuild_gate,
+            rebuild_gate_note=rebuild_gate_note,
+            conform_note=conform_note,
+            skip_census=skip_census,
+            census_skip_note=census_skip_note,
         )
         print(render_plan(plan))
         return 0
@@ -1507,13 +1931,24 @@ def main(argv: list[str] | None = None) -> int:
         first_run=first_run,
         short_id=resolve_short_id(),
         no_merge=args.no_merge,
-        skip_conform=args.skip_conform,
+        skip_conform=args.skip_conform or auto_skip_conform,
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
         make_test_fingerprint=make_test_fp,
         conform_horizon=args.conform_horizon,
         pool_policy=args.rebuild_pool,
         review_out=args.review_out,
+        skip_run_m1=skip_run_m1,
+        run_m1_note=run_m1_note,
+        run_m1_fingerprint=run_m1_fp,
+        skip_surface=skip_surface,
+        surface_note=surface_note,
+        skip_rebuild_gate=skip_rebuild_gate,
+        rebuild_gate_note=rebuild_gate_note,
+        conform_note=conform_note,
+        skip_census=skip_census,
+        census_skip_note=census_skip_note,
+        record_greens=True,
     )
 
     report = CycleReport()
@@ -1523,9 +1958,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: snapshot dir already exists: {plan.snapshot_dir}")
             print("Refusing to overwrite the only recovery copy. Remove it or pass --snapshot-dir.")
             return 2
-        shutil.copytree(REVIEW_OUT, plan.snapshot_dir)
+        how = snapshot_surface(REVIEW_OUT, plan.snapshot_dir)
         report.snapshot_dir = plan.snapshot_dir
-        print(f"Snapshotted {REVIEW_OUT} -> {plan.snapshot_dir}")
+        print(f"Snapshotted {REVIEW_OUT} -> {plan.snapshot_dir} ({how})")
 
     emit = _Emitter()
     registry = _ChildRegistry()

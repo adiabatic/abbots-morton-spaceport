@@ -484,7 +484,7 @@ def _step(name="x", rc=0, stdout="", stderr=""):
     return ac._StepResult(name, rc, stdout, stderr, 0.0)
 
 
-def _pass_run_m1(report, *, spawn, emit, registry, budget):
+def _pass_run_m1(report, *, spawn, emit, registry, budget, **_):
     report.unmatched = 1
     report.multi_matched = 0
     report.boundary_pass = True
@@ -492,7 +492,7 @@ def _pass_run_m1(report, *, spawn, emit, registry, budget):
     return ac.GateOutcome(True, [], 1, 0)
 
 
-def _surface_ok(report, *, spawn, emit, registry, review_out, budget):
+def _surface_ok(report, *, spawn, emit, registry, review_out, budget, **_):
     report.surface_units = 1
     return True
 
@@ -516,7 +516,7 @@ def _echo_merge_ok(report, *, spawn, emit, registry, plan):
     return True
 
 
-def _census_clean(*, spawn, emit, registry, update_pins, surface):
+def _census_clean(*, spawn, emit, registry, update_pins, surface, **_):
     return "clean"
 
 
@@ -813,7 +813,7 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
         make_started.set()
         return _step("gate:make-test", 0)
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         release_run_m1.wait()
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
@@ -849,7 +849,7 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
 def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
     record = {}
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
@@ -874,7 +874,7 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
 def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
     called = {"rebuild": False}
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         return None
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
@@ -941,7 +941,7 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     release_make = threading.Event()
     rebuild_started = threading.Event()
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         record["run_m1_finish"] = time.monotonic()
         return ac.GateOutcome(True, [], 1, 0)
 
@@ -999,17 +999,20 @@ def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypa
         record["rebuild_finish"] = time.monotonic()
         return ac._RebuildOutcome("green", [], [])
 
+    summary_path = tmp_path / "conform_summary.json"
+
     def fake_spawn(name, argv, *, emit, registry, stream):
         if name == "gate:conform":
             record["conform_start"] = time.monotonic()
             record["conform_argv"] = argv
+            summary_path.write_text(
+                json.dumps(
+                    {"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True}
+                )
+            )
             conform_started.set()
         return _step(name, 0)
 
-    summary_path = tmp_path / "conform_summary.json"
-    summary_path.write_text(
-        json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
-    )
     monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -1053,14 +1056,14 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     ev_make = threading.Event()
     ev_rebuild = threading.Event()
 
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         report.unmatched = 7777
         report.multi_matched = 0
         report.boundary_pass = True
         report.pins_pass = True
         return ac.GateOutcome(True, [], 7777, 0)
 
-    def fake_surface(report, *, spawn, emit, registry, review_out, budget):
+    def fake_surface(report, *, spawn, emit, registry, review_out, budget, **_):
         report.surface_units = 15903
         report.surface_rows = 81894
         report.surface_batches = 16
@@ -1199,7 +1202,7 @@ def test_classify_rebuild_reads_colored_pytest_output():
 
 
 def test_failure_funnels_from_concurrent_branch(monkeypatch, capsys):
-    def fake_surface(report, *, spawn, emit, registry, review_out, budget):
+    def fake_surface(report, *, spawn, emit, registry, review_out, budget, **_):
         report.surface_units = 100
         return True
 
@@ -1271,7 +1274,7 @@ def test_queue_policy_rebuild_runs_when_make_test_task_raises(monkeypatch, capsy
 
 
 def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         return None
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -1296,7 +1299,7 @@ def test_keyboard_interrupt_terminates_children_and_returns_130(monkeypatch, cap
     proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     registry.add(proc)
 
-    def boom(report, *, spawn, emit, registry, budget):
+    def boom(report, *, spawn, emit, registry, budget, **_):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ac, "_do_run_m1", boom)
@@ -1484,6 +1487,10 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
         "skip_conform": False,
+        "skip_run_m1": False,
+        "skip_surface": False,
+        "skip_rebuild_gate": False,
+        "skip_census": False,
         "update_pins": False,
         "review_out": None,
         "first_run": False,
@@ -1529,7 +1536,7 @@ def test_cycle_writes_green_summary_with_surface(monkeypatch, tmp_path):
 
 
 def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
-    def fake_run_m1(report, *, spawn, emit, registry, budget):
+    def fake_run_m1(report, *, spawn, emit, registry, budget, **_):
         return None
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
@@ -1549,7 +1556,7 @@ def test_cycle_writes_failed_summary_on_run_m1_failure(monkeypatch, tmp_path):
 
 
 def test_cycle_writes_interrupted_summary(monkeypatch, tmp_path):
-    def boom(report, *, spawn, emit, registry, budget):
+    def boom(report, *, spawn, emit, registry, budget, **_):
         raise KeyboardInterrupt
 
     monkeypatch.setattr(ac, "_do_run_m1", boom)
@@ -1605,6 +1612,12 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "REVIEW_OUT", review_out)
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
     monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
+    monkeypatch.setattr(
+        ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild" / "out" / "rebuild-gate-green.json"
+    )
+    monkeypatch.setattr(ac, "CENSUS_GREEN", tmp_path / "rebuild" / "out" / "census-green.json")
 
 
 def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
@@ -1811,3 +1824,433 @@ def test_run_cycle_never_spawns_make_test_when_skipped(monkeypatch):
     assert report.gate_make_test == "skipped (closure unchanged since its last green run)"
     assert report.gate_rebuild == "green"
     assert report.gate_conform == "green"
+
+
+def test_green_record_roundtrip(tmp_path):
+    path = tmp_path / "conform-green.json"
+    assert ac.read_green_record(path) is None
+    ac.record_green(path, "fp-1")
+    record = ac.read_green_record(path)
+    assert record["fingerprint"] == "fp-1"
+    assert record["format"] == "ams-conform-green/1"
+    ac.clear_contradicted_green(path, "fp-other")
+    assert ac.read_green_record(path) is not None
+    ac.clear_contradicted_green(path, None)
+    assert ac.read_green_record(path) is not None
+    ac.clear_contradicted_green(path, "fp-1")
+    assert ac.read_green_record(path) is None
+
+
+def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
+    (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
+    (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
+    (tmp_path / "uv.lock").write_text("lock-1")
+    (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 1\n")
+    first = ac.run_m1_skip_fingerprint(tmp_path)
+    assert first == ac.run_m1_skip_fingerprint(tmp_path)
+    (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 2\n")
+    second = ac.run_m1_skip_fingerprint(tmp_path)
+    assert second != first
+    (tmp_path / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
+    third = ac.run_m1_skip_fingerprint(tmp_path)
+    assert third != second
+    (tmp_path / "uv.lock").write_text("lock-2")
+    assert ac.run_m1_skip_fingerprint(tmp_path) != third
+
+
+def test_conform_skip_fingerprint_includes_horizon_and_font(tmp_path):
+    (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
+    base = ac.conform_skip_fingerprint(tmp_path, 5)
+    assert ac.conform_skip_fingerprint(tmp_path, 5) == base
+    assert ac.conform_skip_fingerprint(tmp_path, 4) != base
+    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(b"OTTO")
+    assert ac.conform_skip_fingerprint(tmp_path, 5) != base
+
+
+def test_m1_artifacts_present(tmp_path):
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    names = [path.name for path in ac.M1_SUMMARY_FILES.values()] + list(ac.M1_ARTIFACT_NAMES)
+    assert not ac.m1_artifacts_present(tmp_path)
+    for name in names:
+        (m1 / name).write_text("{}")
+    assert ac.m1_artifacts_present(tmp_path)
+    (m1 / "M1.otf").unlink()
+    assert not ac.m1_artifacts_present(tmp_path)
+
+
+def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild" / "evidence").mkdir(parents=True)
+    (tmp_path / "rebuild" / "review" / "jstests").mkdir(parents=True)
+    (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "rebuild" / "test_x.py").write_text("")
+    (tmp_path / "rebuild" / "NOTES.md").write_text("")
+    (tmp_path / "rebuild" / "evidence" / "verdicts-old.json").write_text("{}")
+    (tmp_path / "rebuild" / "review" / "jstests" / "x.test.js").write_text("")
+    (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("")
+    (tmp_path / "tools" / "outside.py").write_text("")
+    (tmp_path / "conftest.py").write_text("")
+    (tmp_path / "pyproject.toml").write_text("")
+    (tmp_path / "uv.lock").write_text("")
+    files = ac.rebuild_gate_closure_files(tmp_path)
+    assert files == [
+        "conftest.py",
+        "glyph_data/runes/qsX.yaml",
+        "pyproject.toml",
+        "rebuild/test_x.py",
+        "uv.lock",
+    ]
+
+
+def test_rebuild_gate_closure_none_outside_git(tmp_path):
+    assert ac.rebuild_gate_closure_files(tmp_path) is None
+
+
+def test_surface_build_skippable_matches_manifest(tmp_path):
+    from rebuild.pipeline import fingerprint
+
+    m1 = tmp_path / "rebuild" / "out" / "m1"
+    m1.mkdir(parents=True)
+    surface = tmp_path / "rebuild" / "out" / "review"
+    surface.mkdir(parents=True)
+    stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
+    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
+    before_font, junior_font = fingerprint.font_paths(tmp_path)
+    expected = {**stage_a, **fingerprint.stage_b(tmp_path, before_font, junior_font)}
+    shard = surface / "units-000.json"
+    shard.write_text("[]")
+    manifest = {
+        "generated_at": "2026-01-01T00:00:00Z",
+        "inputs_fingerprint": expected,
+        "classes": [{"id": "c", "shard": "units-000.json"}],
+    }
+    (surface / "manifest.json").write_text(json.dumps(manifest))
+    assert ac.surface_build_skippable(tmp_path, surface)
+    shard.unlink()
+    assert not ac.surface_build_skippable(tmp_path, surface)
+    shard.write_text("[]")
+    manifest["inputs_fingerprint"] = {**expected, "data": "changed"}
+    (surface / "manifest.json").write_text(json.dumps(manifest))
+    assert not ac.surface_build_skippable(tmp_path, surface)
+
+
+def test_census_skip_fingerprint_moves_with_pins_and_surface(tmp_path):
+    surface = tmp_path / "surface"
+    surface.mkdir()
+    (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
+    assert ac.census_skip_fingerprint(tmp_path, surface) is None
+    (surface / "manifest.json").write_text(
+        json.dumps({"generated_at": "g", "inputs_fingerprint": {"data": "d"}})
+    )
+    first = ac.census_skip_fingerprint(tmp_path, surface)
+    assert first is not None
+    (tmp_path / "rebuild" / "review-census-pins.json").write_text("{}")
+    second = ac.census_skip_fingerprint(tmp_path, surface)
+    assert second != first
+    (surface / "manifest.json").write_text(
+        json.dumps({"generated_at": "g2", "inputs_fingerprint": {"data": "d"}})
+    )
+    assert ac.census_skip_fingerprint(tmp_path, surface) != second
+
+
+def test_dry_run_plan_skip_run_m1_surface_and_census():
+    plan = _plan(
+        skip_run_m1=True,
+        run_m1_note="build inputs unchanged since the last green M1 build; --fresh overrides",
+        skip_surface=True,
+        surface_note="the surface already reflects these inputs byte for byte, stamp included; --fresh overrides",
+        skip_census=True,
+        census_skip_note="surface, pins, and source inputs unchanged since the last clean check; --fresh overrides",
+    )
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["run_m1"].argv is None
+    assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
+    assert by_name["surface-build"].argv is None
+    assert by_name["census"].argv is None
+    assert by_name["carry"].argv is not None
+    assert by_name["gate:rebuild"].argv is not None
+
+
+def test_dry_run_plan_skip_rebuild_gate():
+    plan = _plan(
+        skip_rebuild_gate=True,
+        rebuild_gate_note="input closure unchanged since its last green run; --fresh overrides",
+    )
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:rebuild"].argv is None
+    assert "SKIPPED (input closure unchanged" in by_name["gate:rebuild"].note
+    assert by_name["gate:conform"].argv is not None
+    rendered = ac.render_plan(plan)
+    assert "Lane rebuild                     : SKIPPED" in rendered
+
+
+def test_dry_run_plan_auto_skip_conform_note():
+    plan = _plan(
+        skip_conform=True,
+        conform_note="font and sweep inputs unchanged since its last green sweep; --fresh overrides",
+    )
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:conform"].argv is None
+    assert "font and sweep inputs unchanged" in by_name["gate:conform"].note
+
+
+def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
+    record = {"rebuild_calls": 0}
+
+    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+        record["rebuild_calls"] += 1
+        return ac._RebuildOutcome("green", [], [])
+
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(
+        skip_rebuild_gate=True,
+        rebuild_gate_note="input closure unchanged since its last green run; --fresh overrides",
+    )
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert record["rebuild_calls"] == 0
+    assert report.gate_rebuild.startswith("skipped (input closure unchanged")
+    assert report.gate_conform == "green"
+
+
+def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
+    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    files["pipeline"].write_text(json.dumps({"defect_errors": []}))
+    files["boundary"].write_text(json.dumps({"pass": True}))
+    files["manual_pins"].write_text(json.dumps({"pass": True}))
+    files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
+
+    def no_spawn(*a, **k):
+        raise AssertionError("skip path must not spawn")
+
+    report = ac.CycleReport()
+    gate = ac._do_run_m1(
+        report,
+        spawn=no_spawn,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        budget=1,
+        skip=True,
+        skip_note="test skip",
+    )
+    assert gate is not None and gate.ok
+    assert report.unmatched == 7
+    assert files["pipeline"].exists()
+
+
+def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_path):
+    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+
+    def write_summaries(*a, **k):
+        files["pipeline"].write_text(json.dumps({"defect_errors": []}))
+        files["boundary"].write_text(json.dumps({"pass": True}))
+        files["manual_pins"].write_text(json.dumps({"pass": True}))
+        files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
+        return _step("run_m1", 0)
+
+    report = ac.CycleReport()
+    gate = ac._do_run_m1(
+        report,
+        spawn=write_summaries,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        budget=1,
+        record=True,
+        fingerprint="fp-live",
+    )
+    assert gate is not None and gate.ok
+    assert ac.read_green_record(green)["fingerprint"] == "fp-live"
+
+    green.unlink()
+    gate = ac._do_run_m1(
+        report,
+        spawn=write_summaries,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        budget=1,
+        record=True,
+        fingerprint="fp-from-before-a-mid-run-edit",
+    )
+    assert gate is not None and gate.ok
+    assert ac.read_green_record(green) is None
+
+
+def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
+    files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
+    monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", green)
+    ac.record_green(green, "fp-1")
+
+    def write_red(*a, **k):
+        files["pipeline"].write_text(json.dumps({"defect_errors": ["boom"]}))
+        files["boundary"].write_text(json.dumps({"pass": True}))
+        files["manual_pins"].write_text(json.dumps({"pass": True}))
+        files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
+        return _step("run_m1", 0)
+
+    report = ac.CycleReport()
+    gate = ac._do_run_m1(
+        report,
+        spawn=write_red,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        budget=1,
+        record=True,
+        fingerprint="fp-1",
+    )
+    assert gate is not None and not gate.ok
+    assert ac.read_green_record(green) is None
+
+    ac.record_green(green, "fp-1")
+
+    def no_spawn(*a, **k):
+        raise AssertionError("skip path must not spawn")
+
+    gate = ac._do_run_m1(
+        report,
+        spawn=no_spawn,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        budget=1,
+        skip=True,
+        skip_note="test",
+        record=True,
+        fingerprint="fp-1",
+    )
+    assert gate is not None and not gate.ok
+    assert ac.read_green_record(green) is None
+
+
+def test_do_surface_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
+    surface = tmp_path / "review"
+    surface.mkdir()
+    (surface / "manifest.json").write_text(
+        json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2, "echo_groups": 3}})
+    )
+    monkeypatch.setattr(ac, "REVIEW_OUT", surface)
+
+    def no_spawn(*a, **k):
+        raise AssertionError("skip path must not spawn")
+
+    report = ac.CycleReport()
+    ok = ac._do_surface_build(
+        report,
+        spawn=no_spawn,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        review_out=None,
+        budget=1,
+        skip=True,
+        skip_note="test",
+    )
+    assert ok
+    assert (report.surface_units, report.surface_rows, report.surface_batches, report.echo_groups) == (
+        5,
+        9,
+        2,
+        3,
+    )
+
+
+def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
+    conform_green = tmp_path / "conform-green.json"
+    rebuild_green = tmp_path / "rebuild-gate-green.json"
+    monkeypatch.setattr(ac, "CONFORM_GREEN", conform_green)
+    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", rebuild_green)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "cfp")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "rfp")
+    plan = _plan()
+    report = ac.CycleReport()
+    report.gate_conform = "green"
+    report.gate_rebuild = "green (4 documented baseline)"
+    report.rebuild_recordable = True
+    ac._record_gate_greens(report, plan, {"conform": "cfp", "rebuild": "rfp"}, ac._Emitter())
+    assert ac.read_green_record(conform_green)["fingerprint"] == "cfp"
+    assert ac.read_green_record(rebuild_green)["fingerprint"] == "rfp"
+
+    conform_green.unlink()
+    rebuild_green.unlink()
+    ac._record_gate_greens(report, plan, {"conform": "moved", "rebuild": "moved-too"}, ac._Emitter())
+    assert ac.read_green_record(conform_green) is None
+    assert ac.read_green_record(rebuild_green) is None
+
+    report.gate_rebuild = "green (1 stale census pins? (re-run with --update-pins))"
+    report.rebuild_recordable = False
+    ac._record_gate_greens(report, plan, {"rebuild": "rfp"}, ac._Emitter())
+    assert ac.read_green_record(rebuild_green) is None
+
+    ac.record_green(conform_green, "cfp")
+    report.gate_conform = "FAILED"
+    ac._record_gate_greens(report, plan, {"conform": "cfp"}, ac._Emitter())
+    assert ac.read_green_record(conform_green) is None
+
+
+def test_classify_rebuild_recordable_only_when_unannotated():
+    clean = ac._classify_rebuild(_step("gate:rebuild", 0, stdout=""), update_pins=False)
+    assert clean.recordable
+    baseline_ids = "\n".join(f"FAILED {test_id}" for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
+    documented = ac._classify_rebuild(_step("gate:rebuild", 1, stdout=baseline_ids), update_pins=False)
+    assert documented.status.startswith("green")
+    assert documented.recordable
+    hinted = ac._classify_rebuild(
+        _step("gate:rebuild", 1, stdout="FAILED rebuild/test_review_audit.py::test_x"), update_pins=False
+    )
+    assert hinted.status.startswith("green")
+    assert not hinted.recordable
+    hard = ac._classify_rebuild(
+        _step("gate:rebuild", 1, stdout="FAILED rebuild/test_settle.py::test_x"), update_pins=False
+    )
+    assert not hard.recordable
+
+
+def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path):
+    green = tmp_path / "census-green.json"
+    monkeypatch.setattr(ac, "CENSUS_GREEN", green)
+    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "cen-fp")
+    status = ac._do_census(
+        spawn=lambda *a, **k: _step("census", 0),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        update_pins=False,
+        surface=tmp_path,
+        record=True,
+    )
+    assert status == "clean"
+    assert ac.read_green_record(green)["fingerprint"] == "cen-fp"
+    status = ac._do_census(
+        spawn=lambda *a, **k: _step("census", 1),
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        update_pins=False,
+        surface=tmp_path,
+        record=True,
+    )
+    assert status.startswith("STALE")
+    assert ac.read_green_record(green) is None
+
+
+def test_snapshot_surface_copies_tree(tmp_path):
+    src = tmp_path / "src"
+    (src / "sub").mkdir(parents=True)
+    (src / "sub" / "a.json").write_text("[1]")
+    (src / "manifest.json").write_text("{}")
+    dst = tmp_path / "dst"
+    how = ac.snapshot_surface(src, dst)
+    assert how in ("cloned", "copied")
+    assert (dst / "manifest.json").read_text() == "{}"
+    assert (dst / "sub" / "a.json").read_text() == "[1]"
