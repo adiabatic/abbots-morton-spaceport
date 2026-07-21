@@ -6,7 +6,8 @@ Scratch progress file for the in-flight qsFee migration; delete at batch close, 
 
 - 23db583 Add ·Fee
 - d05f565 Re-pin the census for the ·Fee surface and bump the corpus literals (default-subset rows 30,940; the ·Tea~·No.alt echo group now spans 74 sibling windows)
-- (this commit) Prefer ·Fee's forward x-height join over its backward one, and join ·Fee into the ·Day·Utter ligature (the sitting's 94 rejects; paired with the matching qsFee carve-out in qsMay's follower prefer)
+- 12a2789 Make ·Fee join forward at the x-height, and back into ·Day·Utter (the sitting's 94 rejects; paired with the matching qsFee carve-out in qsMay's follower prefer)
+- (this commit) Give ·Pea·No the baseline join no matter what follows it (qsPea's `toward:` carve-out paired with qsNo's prefer carve-out; ·Pea·No·Fee and ·Pea·No·Oy stop after ·No by choice)
 
 ## Parked
 
@@ -23,12 +24,12 @@ Scratch progress file for the in-flight qsFee migration; delete at batch close, 
 
 - `uv run pytest rebuild/ -n auto --dist worksteal` — expect exactly the four documented baseline failures plus the artifact-pinned census tests until the cycle re-pins.
 - `uv run python -m rebuild.pipeline.run_m1 --jobs 8` — defect/boundary/Manual-pin gates pass (pin gate 32/32; the alphabet growth pulled 3 more pins into scope); budget gate yellow-steady (headroom ~43 KB); exits nonzero at the oracle stage on the verdict-gated rows, expected until the remaining blanks land verdicts.
-- Oracle direct: expect `multi_matched: 0`, `unmatched: 13159` — the standing verdict-gated taste rows plus the ·Fee windows still awaiting adjudication; the sitting's 94 rejected groupings now render the old font's way (mostly riding the bare-name-live-join and dangling-anchor-dropped classes), and the ·Pea·May-family windows keep the un-extended baseline join per the sitting's standing note, riding may-baseline-entry-extension-dropped.
+- Oracle direct: expect `multi_matched: 0`, `unmatched: 13987` — the standing verdict-gated taste rows plus the ·Fee windows still awaiting adjudication; the sitting's 94 rejected groupings now render the old font's way (mostly riding the bare-name-live-join and dangling-anchor-dropped classes), and the ·Pea·May-family windows keep the un-extended baseline join per the sitting's standing note, riding may-baseline-entry-extension-dropped.
 - `uv run python -m rebuild.pipeline.run_m1 --conform-only --jobs 8` — must be exact (13-symbol alphabet).
 - `make test` self-skips (the shipped legacy pipeline is untouched); `uv run pytest rebuild/ ...` is this batch's gate.
 
 ## Resume
 
-1. The cycle is current and the store aligned (`make verdict-ready` answers READY; 7 blanks remain — the widened echo grain plus the cycle's own prefill filled the rest from carried verdicts).
+1. The cycle is current and the store aligned (`make verdict-ready` answers READY; 97 blanks remain — the widened echo grain plus the cycle's own prefill filled the rest from carried verdicts).
 2. Prepare the next sitting with the review-docket skill (echo prefill, docket bake), then adjudicate the blanks in the app's docket view (`#view=docket`).
 3. At batch close: delete this file, lifting surviving forward-pointers into WHATNEXT.md.
