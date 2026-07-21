@@ -532,7 +532,7 @@ def _rebuild_green(pool_policy, make_fut, spawn, emit, registry, update_pins):
     return ac._RebuildOutcome("green", [], [])
 
 
-def _conform_green(pool_policy, make_fut, spawn, emit, registry, argv):
+def _conform_green(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
     return "green", []
 
 
@@ -979,7 +979,7 @@ def test_pool_overlap_starts_rebuild_before_make_test_done(monkeypatch):
     assert record["rebuild_start"] >= record["run_m1_finish"]
 
 
-def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypatch, tmp_path):
+def test_pool_queue_conform_waits_for_rebuild_gate(monkeypatch, tmp_path):
     record = {}
     release_make = threading.Event()
     make_running = threading.Event()
@@ -1006,9 +1006,7 @@ def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypa
             record["conform_start"] = time.monotonic()
             record["conform_argv"] = argv
             summary_path.write_text(
-                json.dumps(
-                    {"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True}
-                )
+                json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
             )
             conform_started.set()
         return _step(name, 0)
@@ -1033,11 +1031,12 @@ def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypa
     rebuild_running.wait()
     assert "conform_start" not in record
     release_make.set()
-    conform_started.wait()
-    assert "rebuild_finish" not in record
+    assert not conform_started.wait(0.2)
     release_rebuild.set()
+    conform_started.wait()
     t.join()
 
+    assert record["conform_start"] >= record["rebuild_finish"]
     assert record["conform_start"] >= record["make_finish"]
     assert record["conform_argv"][:6] == [
         "uv",
@@ -1047,6 +1046,56 @@ def test_pool_queue_conform_waits_for_make_test_coresident_with_rebuild(monkeypa
         "rebuild.pipeline.run_m1",
         "--conform-only",
     ]
+    assert report.gate_conform == "green"
+    assert box["rc"] == 0
+
+
+def test_pool_queue_conform_falls_back_to_make_test_when_rebuild_skipped(monkeypatch, tmp_path):
+    record = {}
+    release_make = threading.Event()
+    make_running = threading.Event()
+    conform_started = threading.Event()
+
+    def fake_make(spawn, emit, registry):
+        make_running.set()
+        release_make.wait()
+        record["make_finish"] = time.monotonic()
+        return _step("gate:make-test", 0)
+
+    summary_path = tmp_path / "conform_summary.json"
+
+    def fake_spawn(name, argv, *, emit, registry, stream):
+        if name == "gate:conform":
+            record["conform_start"] = time.monotonic()
+            summary_path.write_text(
+                json.dumps({"divergences": 0, "uncovered_rules": 0, "uncovered_transitions": 0, "pass": True})
+            )
+            conform_started.set()
+        return _step(name, 0)
+
+    monkeypatch.setattr(ac, "CONFORM_SUMMARY", summary_path)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(pool_policy="queue", skip_rebuild_gate=True, rebuild_gate_note="inputs unchanged")
+    report = ac.CycleReport()
+    box = {}
+    t = threading.Thread(
+        target=lambda: box.__setitem__(
+            "rc", ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=fake_spawn)
+        )
+    )
+    t.start()
+    make_running.wait()
+    assert not conform_started.wait(0.2)
+    release_make.set()
+    conform_started.wait()
+    t.join()
+
+    assert record["conform_start"] >= record["make_finish"]
+    assert report.gate_rebuild == "skipped (inputs unchanged)"
     assert report.gate_conform == "green"
     assert box["rc"] == 0
 
@@ -1368,7 +1417,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane build" in text
     assert "Lane rebuild" in text
     assert "Lane conform" in text
-    assert "CO-RESIDENT with gate:rebuild's pool" in text
+    assert "QUEUED behind gate:rebuild's pool" in text
     assert "--jobs budget        : 1" in text
 
     by_name = {step.name: step for step in plan.steps}
@@ -1617,9 +1666,7 @@ def _seed_auto_repo(tmp_path, monkeypatch, *, stamp="2026-07-17T20:24:44Z"):
     monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "rebuild" / "review" / "jstests")
     monkeypatch.setattr(ac, "RUN_M1_GREEN", tmp_path / "rebuild" / "out" / "run-m1-green.json")
     monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "rebuild" / "out" / "conform-green.json")
-    monkeypatch.setattr(
-        ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild" / "out" / "rebuild-gate-green.json"
-    )
+    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild" / "out" / "rebuild-gate-green.json")
     monkeypatch.setattr(ac, "CENSUS_GREEN", tmp_path / "rebuild" / "out" / "census-green.json")
 
 
