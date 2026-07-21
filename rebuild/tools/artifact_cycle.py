@@ -10,6 +10,8 @@ gate:make-test is auto-skipped when its input closure is provably unchanged sinc
 
 The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-green.json. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
+A green finish ends with a retention pass over the cycle's own disk piles, all of them regenerable or journal-covered: every tmp/review-pre-* snapshot except this cycle's is deleted (a snapshot is read once, by its own cycle's carry, and never again), root verdicts-carried-*.json files not stamped for the live surface are deleted (only the stamp-aligned frontier is ever read; the tracked copy under rebuild/evidence/ is never touched), verdicts-autosave-* stashes not referenced by a journal event at or after the last base event are deleted (the journal, not the stashes, is the sanctioned recovery path — and the reference index is the test because a stash's mtime predates the event that created it), and the journal itself is compacted to the newest base event older than RETENTION_WINDOW_DAYS, keeping at least that many days of --restore-as-of history. Failed, interrupted, first-run, and rehearsal cycles never prune; --keep-history opts out entirely; a retention error warns and never turns a green cycle red.
+
 Run as: uv run python rebuild/tools/artifact_cycle.py — the carry source is auto-resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one explicitly.
 """
 
@@ -28,7 +30,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +57,7 @@ REBUILD_POOL_POLICY_DEFAULT = "queue"
 _GATE_POOL_WORKERS = 5
 _CONFORM_JOBS_CAP = 8
 CONFORM_HORIZON_DEFAULT = 5
+RETENTION_WINDOW_DAYS = 7
 
 M1_SUMMARY_FILES = {
     "pipeline": M1_OUT / "pipeline_summary.json",
@@ -447,6 +450,7 @@ class Plan:
     review_out: Path | None = None
     census_surface: Path = REVIEW_OUT
     complaints_note: str = ""
+    retention: bool = False
     steps: list[Step] = field(default_factory=list)
 
 
@@ -492,6 +496,7 @@ def build_plan(
     skip_census: bool = False,
     census_skip_note: str = "",
     record_greens: bool = False,
+    keep_history: bool = False,
 ) -> Plan:
     resolved_snapshot = snapshot_dir if snapshot_dir is not None else ROOT / "tmp" / f"review-pre-{short_id}"
     do_carry = not no_carry and not first_run
@@ -505,6 +510,7 @@ def build_plan(
     conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
     census_surface = review_out if review_out is not None else REVIEW_OUT
     do_merge = do_carry and not no_merge and review_out is None
+    do_retention = not keep_history and not first_run and review_out is None
 
     plan = Plan(
         short_id=short_id,
@@ -530,6 +536,7 @@ def build_plan(
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         record_greens=record_greens,
+        retention=do_retention,
         pool_policy=pool_policy,
         job_budget=job_budget,
         conform_jobs=conform_jobs,
@@ -725,6 +732,23 @@ def build_plan(
             plan.steps.append(Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0"))
         else:
             plan.steps.append(Step("gate:make-test", ["make", "test"], lane="t0"))
+
+    if do_retention:
+        plan.steps.append(
+            Step(
+                "retention",
+                None,
+                f"on green finish: keep only this cycle's tmp/review-pre-* snapshot and the stamp-aligned verdicts-carried-*.json, drop verdicts-autosave-* stashes older than the journal's last base event, compact the journal to a {RETENTION_WINDOW_DAYS}-day restore floor; --keep-history skips",
+            )
+        )
+    elif keep_history:
+        plan.steps.append(Step("retention", None, "SKIPPED (--keep-history)"))
+    elif first_run:
+        plan.steps.append(Step("retention", None, "SKIPPED (first run: nothing accumulated yet)"))
+    else:
+        plan.steps.append(
+            Step("retention", None, "SKIPPED (rehearsal: the live piles are not this cycle's to prune)")
+        )
 
     return plan
 
@@ -1748,6 +1772,111 @@ def _preflight(args: argparse.Namespace) -> bool:
     return False
 
 
+def prune_snapshots(tmp_dir: Path, keep: Path) -> list[Path]:
+    removed: list[Path] = []
+    for path in sorted(tmp_dir.glob("review-pre-*")):
+        if not path.is_dir() or path.resolve() == keep.resolve():
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed.append(path)
+    return removed
+
+
+def prune_carried(root: Path, stamp: str | None, keep: Path | None) -> tuple[list[Path], list[Path]]:
+    """Delete root-level carried files not stamped for the live surface. Only stamp-aligned files are ever read again (status.pick_frontier keys on manifest_generated_at, never on filename or mtime), and the tracked evidence copy lives under rebuild/evidence/, outside this glob. Unreadable files are kept and reported rather than deleted."""
+    removed: list[Path] = []
+    unreadable: list[Path] = []
+    if stamp is None:
+        return removed, unreadable
+    for path in sorted(root.glob("verdicts-carried-*.json")):
+        if keep is not None and path.resolve() == keep.resolve():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except OSError, ValueError:
+            unreadable.append(path)
+            continue
+        if isinstance(data, dict) and data.get("manifest_generated_at") == stamp:
+            continue
+        path.unlink(missing_ok=True)
+        removed.append(path)
+    return removed, unreadable
+
+
+def prune_stashes(root: Path, journal_path: Path) -> list[Path] | None:
+    """Delete verdicts-autosave-* stashes not referenced by a journal event at or after the last base event. The reference index, not mtime, is the test: os.replace preserves the displaced store's mtime, so the stash the latest base itself created predates that base on disk. Everything deleted is replayable via --restore-as-of. Returns None (nothing touched) when the journal holds no base to anchor on."""
+    from rebuild.review import journal
+
+    events = list(journal.iter_events(journal_path))
+    last_base_at = None
+    for event in events:
+        if event.get("base"):
+            last_base_at = event.get("at") or ""
+    if last_base_at is None:
+        return None
+    keep_names = {
+        event["stashed"]
+        for event in events
+        if event.get("stashed") and (event.get("at") or "") >= last_base_at
+    }
+    removed: list[Path] = []
+    for path in sorted(root.glob("verdicts-autosave-*.json")):
+        if path.name in keep_names:
+            continue
+        path.unlink(missing_ok=True)
+        removed.append(path)
+    return removed
+
+
+def retention_cutoff(now: datetime | None = None) -> str:
+    moment = (now or datetime.now(timezone.utc)) - timedelta(days=RETENTION_WINDOW_DAYS)
+    return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def run_retention(plan: Plan) -> None:
+    from rebuild.review import journal
+
+    def rel(path: Path) -> str:
+        try:
+            return str(path.relative_to(ROOT))
+        except ValueError:
+            return str(path)
+
+    print("\nRetention (skip with --keep-history):")
+
+    removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir)
+    if removed:
+        print(f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}")
+    else:
+        print(f"  snapshots : nothing to remove; kept {rel(plan.snapshot_dir)}")
+
+    try:
+        stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
+    except OSError, ValueError:
+        stamp = None
+    if stamp is None:
+        print("  carried   : left intact (no surface manifest to align against)")
+    else:
+        removed, unreadable = prune_carried(ROOT, stamp, plan.carry_out)
+        print(f"  carried   : removed {len(removed)} stale verdicts-carried-*.json; kept the stamp-aligned frontier")
+        for path in unreadable:
+            print(f"              kept {rel(path)} (unreadable, not pruning it)")
+
+    journal_path = ROOT / journal.JOURNAL_NAME
+    removed_stashes = prune_stashes(ROOT, journal_path)
+    if removed_stashes is None:
+        print("  stashes   : left intact (the journal holds no base event to anchor on)")
+    else:
+        print(f"  stashes   : removed {len(removed_stashes)} verdicts-autosave-* stashes older than the journal's last base")
+
+    result = journal.compact(journal_path, cutoff=retention_cutoff())
+    if result["compacted"]:
+        total = result["dropped_lines"] + result["kept_lines"]
+        print(f"  journal   : compacted {total} -> {result['kept_lines']} lines (restore floor now {result['floor_at']})")
+    else:
+        print(f"  journal   : left intact (no base event older than {RETENTION_WINDOW_DAYS} days)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Drive the commit-time artifact cycle: snapshot, run_m1, surface rebuild, carry, census pins, gates."
@@ -1815,6 +1944,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="rehearsal mode: redirect the surface write to this dir so the cycle can run while the live server is up",
+    )
+    parser.add_argument(
+        "--keep-history",
+        action="store_true",
+        help="skip the green-finish retention pass (old snapshots, stale carried files and stashes, and the journal's pre-window history all stay on disk)",
     )
     parser.add_argument("--yes", action="store_true", help="override the running-review-server refusal")
     parser.add_argument(
@@ -1926,6 +2060,7 @@ def main(argv: list[str] | None = None) -> int:
             conform_note=conform_note,
             skip_census=skip_census,
             census_skip_note=census_skip_note,
+            keep_history=args.keep_history,
         )
         print(render_plan(plan))
         return 0
@@ -1964,6 +2099,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         record_greens=True,
+        keep_history=args.keep_history,
     )
 
     report = CycleReport()
@@ -1990,6 +2126,11 @@ def _finish(report: CycleReport, failures: list[str], plan: Plan) -> int:
         for reason in failures:
             print(f"  - {reason}")
         return 1
+    if plan.retention and plan.record_greens:
+        try:
+            run_retention(plan)
+        except Exception as exc:
+            print(f"warning: retention pass failed: {exc!r}", file=sys.stderr)
     print("\nCycle complete.")
     return 0
 

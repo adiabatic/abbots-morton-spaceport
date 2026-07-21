@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from rebuild.review import journal
 from rebuild.tools import artifact_cycle as ac
 
 
@@ -2321,3 +2322,243 @@ def test_snapshot_surface_copies_tree(tmp_path):
     assert how in ("cloned", "copied")
     assert (dst / "manifest.json").read_text() == "{}"
     assert (dst / "sub" / "a.json").read_text() == "[1]"
+
+
+def _carried(stamp):
+    return json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": []})
+
+
+def test_prune_snapshots_removes_others_keeps_the_cycle_snapshot_and_ignores_files(tmp_path):
+    (tmp_path / "review-pre-a").mkdir()
+    (tmp_path / "review-pre-b").mkdir()
+    keep = tmp_path / "review-pre-keep"
+    keep.mkdir()
+    a_file = tmp_path / "review-pre-x.json"
+    a_file.write_text("{}")
+
+    removed = ac.prune_snapshots(tmp_path, keep)
+
+    assert removed == [tmp_path / "review-pre-a", tmp_path / "review-pre-b"]
+    assert keep.exists()
+    assert a_file.exists()
+    assert not (tmp_path / "review-pre-a").exists()
+    assert not (tmp_path / "review-pre-b").exists()
+
+
+def test_prune_carried_keeps_aligned_and_keep_and_deletes_stale(tmp_path):
+    stamp = "2026-07-17T20:24:44Z"
+    aligned = tmp_path / "verdicts-carried-aligned.json"
+    aligned.write_text(_carried(stamp))
+    stale = tmp_path / "verdicts-carried-stale.json"
+    stale.write_text(_carried("2026-07-10T00:00:00Z"))
+    keep = tmp_path / "verdicts-carried-keep.json"
+    keep.write_text(_carried("2026-07-10T00:00:00Z"))
+    unreadable = tmp_path / "verdicts-carried-broken.json"
+    unreadable.write_text("{ not json")
+    not_a_dict = tmp_path / "verdicts-carried-list.json"
+    not_a_dict.write_text(json.dumps(["a", "b"]))
+    evidence = tmp_path / "rebuild" / "evidence"
+    evidence.mkdir(parents=True)
+    evidence_stale = evidence / "verdicts-carried-evidence.json"
+    evidence_stale.write_text(_carried("2026-07-10T00:00:00Z"))
+
+    removed, unread = ac.prune_carried(tmp_path, stamp, keep)
+
+    assert set(removed) == {stale, not_a_dict}
+    assert unread == [unreadable]
+    assert aligned.exists()
+    assert keep.exists()
+    assert unreadable.exists()
+    assert evidence_stale.exists()
+    assert not stale.exists()
+    assert not not_a_dict.exists()
+
+
+def test_prune_carried_stamp_none_deletes_nothing(tmp_path):
+    stale = tmp_path / "verdicts-carried-stale.json"
+    stale.write_text(_carried("2026-07-10T00:00:00Z"))
+
+    removed, unread = ac.prune_carried(tmp_path, None, None)
+
+    assert removed == []
+    assert unread == []
+    assert stale.exists()
+
+
+def test_prune_stashes_keeps_from_the_last_base_onward(tmp_path):
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    journal.record_transition(
+        journal_path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[],
+        stashed="verdicts-autosave-A.json",
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        journal_path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[],
+        new_verdicts=[],
+        stashed="verdicts-autosave-B.json",
+        at="2026-07-10T02:00:00Z",
+    )
+    journal.record_transition(
+        journal_path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[],
+        new_verdicts=[],
+        stashed="verdicts-autosave-C.json",
+        at="2026-07-10T03:00:00Z",
+    )
+    journal.record_transition(
+        journal_path,
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=[],
+        new_verdicts=[],
+        stashed="verdicts-autosave-D.json",
+        at="2026-07-10T04:00:00Z",
+    )
+    stashes = {}
+    for tag in ("A", "B", "C", "D", "E"):
+        path = tmp_path / f"verdicts-autosave-{tag}.json"
+        path.write_text("{}")
+        stashes[tag] = path
+    live = tmp_path / "verdicts-autosave.json"
+    live.write_text("{}")
+
+    removed = ac.prune_stashes(tmp_path, journal_path)
+
+    assert removed == [stashes["A"], stashes["B"], stashes["E"]]
+    assert not stashes["A"].exists()
+    assert not stashes["B"].exists()
+    assert not stashes["E"].exists()
+    assert stashes["C"].exists()
+    assert stashes["D"].exists()
+    assert live.exists()
+
+
+def test_prune_stashes_returns_none_without_a_base_event(tmp_path):
+    journal_path = tmp_path / "verdicts-journal.ndjson"
+    journal.record_transition(
+        journal_path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[],
+        new_verdicts=[],
+        stashed="verdicts-autosave-Z.json",
+        at="2026-07-10T01:00:00Z",
+    )
+    orphan = tmp_path / "verdicts-autosave-Z.json"
+    orphan.write_text("{}")
+
+    result = ac.prune_stashes(tmp_path, journal_path)
+
+    assert result is None
+    assert orphan.exists()
+
+
+def test_retention_cutoff_is_the_window_before_now():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=timezone.utc)
+    expected = (
+        (now - timedelta(days=ac.RETENTION_WINDOW_DAYS))
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    assert ac.retention_cutoff(now) == expected
+    assert ac.retention_cutoff(now) == "2026-07-14T12:00:00Z"
+
+
+def test_build_plan_retention_default_on():
+    plan = _plan()
+    assert plan.retention is True
+    by_name = {step.name: step for step in plan.steps}
+    note = by_name["retention"].note
+    assert "green finish" in note
+    assert str(ac.RETENTION_WINDOW_DAYS) in note
+
+
+def test_build_plan_retention_skipped_with_keep_history():
+    plan = _plan(keep_history=True)
+    assert plan.retention is False
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["retention"].note == "SKIPPED (--keep-history)"
+
+
+def test_build_plan_retention_off_on_first_run():
+    plan = _plan(first_run=True, verdicts=None)
+    assert plan.retention is False
+    by_name = {step.name: step for step in plan.steps}
+    assert "first run" in by_name["retention"].note
+
+
+def test_build_plan_retention_off_on_rehearsal():
+    plan = _plan(review_out=Path("tmp/reh"))
+    assert plan.retention is False
+    by_name = {step.name: step for step in plan.steps}
+    assert "rehearsal" in by_name["retention"].note
+
+
+def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
+    calls = {"n": 0}
+
+    def stub(plan):
+        calls["n"] += 1
+
+    monkeypatch.setattr(ac, "run_retention", stub)
+    plan = _plan(record_greens=True)
+    assert plan.retention is True and plan.record_greens is True
+    rc = ac._finish(ac.CycleReport(), [], plan)
+    assert rc == 0
+    assert calls["n"] == 1
+
+
+def test_finish_skips_retention_when_failures(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
+    plan = _plan(record_greens=True)
+    rc = ac._finish(ac.CycleReport(), ["boom"], plan)
+    assert rc == 1
+    assert calls["n"] == 0
+
+
+def test_finish_skips_retention_when_plan_opts_out(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
+    plan = _plan(keep_history=True, record_greens=True)
+    assert plan.retention is False
+    rc = ac._finish(ac.CycleReport(), [], plan)
+    assert rc == 0
+    assert calls["n"] == 0
+
+
+def test_finish_never_prunes_a_mocked_green_cycle(monkeypatch):
+    calls = {"n": 0}
+    monkeypatch.setattr(ac, "run_retention", lambda plan: calls.__setitem__("n", calls["n"] + 1))
+    plan = _plan()
+    assert plan.retention is True and plan.record_greens is False
+    rc = ac._finish(ac.CycleReport(), [], plan)
+    assert rc == 0
+    assert calls["n"] == 0
+
+
+def test_finish_survives_a_retention_error(monkeypatch):
+    def boom(plan):
+        raise RuntimeError("retention blew up")
+
+    monkeypatch.setattr(ac, "run_retention", boom)
+    plan = _plan(record_greens=True)
+    rc = ac._finish(ac.CycleReport(), [], plan)
+    assert rc == 0

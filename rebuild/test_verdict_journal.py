@@ -181,3 +181,193 @@ def test_payload_for_sorts_and_stamps(tmp_path):
     assert payload["manifest_generated_at"] == "S1"
     assert payload["exported_at"] == "2026-07-10T05:00:00Z"
     assert [record["unit"] for record in payload["verdicts"]] == ["u-1", "u-2"]
+
+
+def test_compact_rewrites_to_the_newest_base_at_or_before_cutoff(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-1"), v("u-2")],
+        at="2026-07-10T02:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1"), v("u-2")],
+        new_verdicts=[v("u-3")],
+        at="2026-07-10T03:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S2",
+        old_stamp="S2",
+        old_verdicts=[v("u-3")],
+        new_verdicts=[v("u-3"), v("u-4")],
+        at="2026-07-10T04:00:00Z",
+    )
+
+    entries = read_lines(path)
+    floor_index = next(i for i, e in enumerate(entries) if e.get("base") and e.get("stamp") == "S2")
+    as_ofs = ["2026-07-10T03:00:00Z", "2026-07-10T03:30:00Z", "2026-07-10T04:00:00Z", None]
+    before = {as_of: journal.replay(path, as_of=as_of) for as_of in as_ofs}
+
+    result = journal.compact(path, cutoff="2026-07-10T03:30:00Z")
+    assert result["compacted"] is True
+    assert result["floor_at"] == "2026-07-10T03:00:00Z"
+    assert result["dropped_lines"] == floor_index
+    assert result["kept_lines"] == len(entries) - floor_index
+
+    for as_of in as_ofs:
+        assert journal.replay(path, as_of=as_of) == before[as_of]
+
+    events = list(journal.iter_events(path))
+    assert events[0]["base"] is True
+    assert events[0]["stamp"] == "S2"
+    assert events[0]["at"] == "2026-07-10T03:00:00Z"
+
+
+def test_compact_leaves_the_journal_untouched_when_cutoff_precedes_every_base(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T02:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-1"), v("u-2")],
+        at="2026-07-10T03:00:00Z",
+    )
+    before = path.read_bytes()
+    result = journal.compact(path, cutoff="2026-07-10T01:00:00Z")
+    assert result["compacted"] is False
+    assert path.read_bytes() == before
+
+
+def test_compact_leaves_the_journal_untouched_when_already_at_the_only_base(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-1"), v("u-2")],
+        at="2026-07-10T02:00:00Z",
+    )
+    before = path.read_bytes()
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is False
+    assert path.read_bytes() == before
+
+
+def test_compact_missing_journal_is_a_no_op(tmp_path):
+    path = tmp_path / "missing.ndjson"
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is False
+    assert not path.exists()
+
+
+def test_compact_preserves_a_torn_trailing_line_after_the_floor(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-2")],
+        at="2026-07-10T03:00:00Z",
+    )
+    torn = '{"kind": "event", "source": "autosa'
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(torn)
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True
+    assert result["floor_at"] == "2026-07-10T03:00:00Z"
+    assert path.read_text().endswith(torn)
+    events = list(journal.iter_events(path))
+    assert events[0]["stamp"] == "S2"
+
+
+def test_compact_stops_scanning_at_a_torn_line_before_the_last_base(tmp_path):
+    path = tmp_path / "journal.ndjson"
+    journal.record_transition(
+        path,
+        source="autosave",
+        stamp="S1",
+        old_stamp=None,
+        old_verdicts=[],
+        new_verdicts=[v("u-1")],
+        at="2026-07-10T01:00:00Z",
+    )
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S2",
+        old_stamp="S1",
+        old_verdicts=[v("u-1")],
+        new_verdicts=[v("u-2")],
+        at="2026-07-10T03:00:00Z",
+    )
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"kind": "event", "sour\n')
+    journal.record_transition(
+        path,
+        source="merge",
+        stamp="S3",
+        old_stamp="S2",
+        old_verdicts=[v("u-2")],
+        new_verdicts=[v("u-3")],
+        at="2026-07-10T05:00:00Z",
+    )
+    result = journal.compact(path, cutoff="2026-07-10T09:00:00Z")
+    assert result["compacted"] is True
+    assert result["floor_at"] == "2026-07-10T03:00:00Z"
+    assert result["dropped_lines"] == 2
+    assert "S3" in path.read_text()
+    events = list(journal.iter_events(path))
+    assert events[0]["stamp"] == "S2"
+    assert len(events) == 1
