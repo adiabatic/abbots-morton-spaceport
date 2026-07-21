@@ -456,10 +456,10 @@ def jstest_argv() -> list[str]:
     return ["node", "--test", *files]
 
 
-def stage_job_budget(*, skip_gates: bool, ncores: int | None = None) -> int:
-    """The --jobs budget the driver hands run_m1 and surface-build. Under a gated cycle a 12-way `make test` owns the box from t=0, so the build stages stay serial (1); only --skip-gates frees the cores for them to fan out."""
+def stage_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
+    """The --jobs budget the driver hands run_m1 and surface-build. Under a gated cycle a 12-way `make test` owns the box from t=0, so the build stages stay serial (1) — but make-test is the whole reason for that politeness, so the cores open up whenever it isn't actually going to run: --skip-gates, or the closure-unchanged auto-skip. gate:js still runs from t=0 in that case, but it's a single node process, not a pool."""
     n = ncores or (os.cpu_count() or 1)
-    return n if skip_gates else 1
+    return n if skip_gates or skip_make_test else 1
 
 
 def build_plan(
@@ -501,7 +501,7 @@ def build_plan(
             carry_out if carry_out is not None else ROOT / f"verdicts-carried-{short_id}.json"
         )
 
-    job_budget = stage_job_budget(skip_gates=skip_gates, ncores=ncores)
+    job_budget = stage_job_budget(skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores)
     conform_jobs = min(_CONFORM_JOBS_CAP, ncores or (os.cpu_count() or 1))
     census_surface = review_out if review_out is not None else REVIEW_OUT
     do_merge = do_carry and not no_merge and review_out is None
@@ -819,9 +819,12 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test, then CO-RESIDENT with gate:rebuild's pool (--jobs {plan.conform_jobs})"
         )
-    lines.append(
-        f"    build-stage --jobs budget        : {plan.job_budget}  (a 12-way `make test` owns the cores)"
+    budget_reason = (
+        "gate:make-test skipped, so the build stages fan out"
+        if plan.skip_make_test
+        else "a 12-way `make test` owns the cores"
     )
+    lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  ({budget_reason})")
     return lines
 
 
