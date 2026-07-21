@@ -1390,6 +1390,7 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
 
 
 # The runes this M1 batch added whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
+# Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its 787 ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter"})
 
 
