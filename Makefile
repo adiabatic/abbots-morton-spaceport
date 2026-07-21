@@ -71,7 +71,7 @@ artifact-cycle:
 # The whole loop in one command: stop the review server if it's running, run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the fresh surface. A failed cycle stops before serving.
 review-cycle:
 	-@pkill -f 'rebuild\.review\.serve' 2>/dev/null || true
-	@while lsof -ti tcp:7294 >/dev/null 2>&1; do sleep 0.2; done
+	@while lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; do sleep 0.2; done
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 	uv run python -m rebuild.review.serve
 
