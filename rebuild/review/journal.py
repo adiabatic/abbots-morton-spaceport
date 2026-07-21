@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -150,6 +151,46 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
         elif kind == "clear":
             records.pop(entry.get("unit"), None)
     return stamp, records
+
+
+def compact(journal_path, *, cutoff: str) -> dict:
+    """Rewrite the journal to begin at the newest base event whose `at` is lexicographically at or before `cutoff` (an ISO-Z stamp), dropping every earlier line. A base event carries the full store, so replay and --restore-as-of stay exact for every moment from that base onward; every earlier moment becomes unrecoverable, which is why the caller chooses the cutoff, not this function. Kept lines are carried byte-for-byte (scanning stops at the first unparseable line, mirroring replay, so a torn tail is never reinterpreted) and the rewrite is atomic. A journal with no parseable base at or before the cutoff, or one already starting at that base, is left untouched."""
+    journal_path = Path(journal_path)
+    untouched = {"compacted": False, "floor_at": None, "dropped_lines": 0, "kept_lines": 0}
+    try:
+        text = journal_path.read_text(encoding="utf-8")
+    except OSError:
+        return untouched
+    lines = text.splitlines(keepends=True)
+    floor_index = None
+    floor_at = None
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            break
+        if (
+            isinstance(entry, dict)
+            and entry.get("kind") == "event"
+            and entry.get("base")
+            and (entry.get("at") or "") <= cutoff
+        ):
+            floor_index = index
+            floor_at = entry.get("at")
+    if not floor_index:
+        untouched["kept_lines"] = len(lines)
+        return untouched
+    tmp = journal_path.with_name(journal_path.name + ".tmp")
+    tmp.write_text("".join(lines[floor_index:]), encoding="utf-8")
+    os.replace(tmp, journal_path)
+    return {
+        "compacted": True,
+        "floor_at": floor_at,
+        "dropped_lines": floor_index,
+        "kept_lines": len(lines) - floor_index,
+    }
 
 
 def payload_for(stamp: str, records: dict[str, dict], exported_at: str | None = None) -> dict:
