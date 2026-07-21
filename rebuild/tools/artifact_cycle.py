@@ -4,7 +4,7 @@ It mechanizes the commit-time sequence: snapshot the current review surface (the
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, queues behind gate:make-test — co-resident with gate:rebuild's pytest pool rather than after it — since conform is short again post-depth-4-pruning and waiting out gate:rebuild would only add that pool's ~3 minutes to the critical path. Its per-config process pool spins up once the t=0 make-test pool has drained.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, parks at the tail of the make-test -> rebuild chain, so only one heavy pool owns the box at a time. It used to launch co-resident with gate:rebuild's pytest pool on the theory that conform was short post-depth-4-pruning, but the 13-symbol alphabet grew the sweep back to ~6½ minutes and the two pools together oversubscribe the cores roughly 2:1 — measured, that contention roughly tripled gate:rebuild's wall time, a strictly worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
@@ -815,9 +815,17 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    Lane conform                     : starts when run_m1's four JSONs pass; CO-RESIDENT with the pytest pools (--jobs {plan.conform_jobs})"
         )
+    elif not plan.skip_rebuild_gate:
+        lines.append(
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:rebuild's pool (queue policy — one heavy pool at a time) (--jobs {plan.conform_jobs})"
+        )
+    elif not plan.skip_make_test:
+        lines.append(
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test (queue policy; gate:rebuild skipped) (--jobs {plan.conform_jobs})"
+        )
     else:
         lines.append(
-            f"    Lane conform                     : starts when run_m1's four JSONs pass; QUEUED behind gate:make-test, then CO-RESIDENT with gate:rebuild's pool (--jobs {plan.conform_jobs})"
+            f"    Lane conform                     : starts when run_m1's four JSONs pass; both pytest gates skipped, so no queueing (--jobs {plan.conform_jobs})"
         )
     budget_reason = (
         "gate:make-test skipped, so the build stages fan out"
@@ -925,7 +933,7 @@ class _ChildRegistry:
             return self._closed
 
     def add(self, proc: subprocess.Popen) -> bool:
-        """Track a live child. Returns False once terminate_all has torn the registry down, so a worker that unblocks after a KeyboardInterrupt (the queue-mode rebuild task parked on make_fut is the case) never leaves a fresh subprocess untracked — the caller reaps it instead of spawning an orphaned pytest army."""
+        """Track a live child. Returns False once terminate_all has torn the registry down, so a worker that unblocks after a KeyboardInterrupt (the queue-mode gate tasks parked on an earlier gate's future — rebuild on make-test, conform on rebuild — are the case) never leaves a fresh subprocess untracked — the caller reaps it instead of spawning an orphaned pytest army."""
         with self._lock:
             if self._closed:
                 return False
@@ -1319,19 +1327,22 @@ def _gate_make_test_task(spawn, emit: _Emitter, registry: _ChildRegistry) -> _St
 
 def _gate_conform_task(
     pool_policy: str,
+    rebuild_fut: Future | None,
     make_fut: Future | None,
     spawn,
     emit: _Emitter,
     registry: _ChildRegistry,
     argv: list[str],
 ) -> tuple[str, list[str]]:
-    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks behind gate:make-test — the head of the make-test -> rebuild chain — so its per-config process pool spins up once the t=0 make-test pool has drained, co-resident with gate:rebuild's pytest pool. Conform is short after the depth-4 pruning, so queueing it behind gate:rebuild too would only pile that pool's runtime onto the critical path; it stays a process pool, not a pytest pool, so the one-12-way-pytest-pool-at-a-time invariant (make-test then rebuild, guarded by gate:rebuild's own wait on make_fut) is untouched. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
+    """gate:conform shapes the exhaustive font-vs-settle sweep against the fresh M1.otf via run_m1 --conform-only. Under the queue policy it parks at the tail of the make-test -> rebuild chain — behind gate:rebuild's future when that gate runs (which itself already waited out make-test), else directly behind gate:make-test — so its per-config process pool only spins up once the pytest pools have drained. Co-resident, the two heavy gates oversubscribe the box roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than the same work in sequence. The stale conform_summary.json is unlinked here, just before the sweep spawns, so the verdict can only come from this cycle's subprocess (an auto-skipped gate never runs this task and never reads the file)."""
     CONFORM_SUMMARY.unlink(missing_ok=True)
-    if pool_policy == "queue" and make_fut is not None:
-        try:
-            make_fut.result()
-        except Exception:
-            pass
+    if pool_policy == "queue":
+        for fut in (rebuild_fut, make_fut):
+            if fut is not None:
+                try:
+                    fut.result()
+                except Exception:
+                    pass
     result = spawn("gate:conform", argv, emit=emit, registry=registry, stream=False)
     summary = None
     if CONFORM_SUMMARY.exists():
@@ -1503,6 +1514,7 @@ def _run_cycle(
                 conform_fut = pool.submit(
                     _gate_conform_task,
                     plan.pool_policy,
+                    rebuild_fut,
                     make_fut,
                     spawn,
                     emit,
@@ -1796,7 +1808,7 @@ def main(argv: list[str] | None = None) -> int:
         "--rebuild-pool",
         choices=POOL_POLICIES,
         default=REBUILD_POOL_POLICY_DEFAULT,
-        help="how gate:rebuild shares cores with make test: 'queue' (one 12-way pool at a time, default) or 'overlap' (co-resident)",
+        help="how the heavy gates share cores: 'queue' (one pool at a time — make-test, then rebuild, then conform; default) or 'overlap' (co-resident)",
     )
     parser.add_argument(
         "--review-out",
