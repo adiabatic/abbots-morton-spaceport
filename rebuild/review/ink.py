@@ -117,13 +117,50 @@ class InkComparator:
         pieces.sort()
         return tuple(pieces)
 
+    def run_ink(self, side: str, text: str, features: dict[str, bool]) -> list:
+        """The placed ink of one shaped run in run order: one (own-frame outline, pen position) entry per glyph that carries ink, so config_diff can align the two fonts' runs glyph-by-glyph. Shaping is always kern-neutral."""
+        shaper, outlines = self._sides[side]
+        result = shaper.shape(text, kern_neutral(features))
+        pieces = []
+        pen_x = 0
+        for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
+            placed = outlines.placed(name, 0, y_offset)
+            if placed:
+                pieces.append((placed, pen_x + x_offset))
+            pen_x += x_advance
+        return pieces
+
     def config_diff(self, text: str, config: str) -> tuple:
-        """The before→after ink delta under one config: (pieces only the before font draws, pieces only the after font draws), jointly translated so the delta's leftmost point sits at x=0. Both empty means ink-identical. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — even though the surrounding letters differ."""
+        """The before→after ink delta under one config, localized to the changed region: the two shaped runs are aligned glyph-by-glyph from both ends, stripping the common prefix (same ink at the same position) and the common suffix (same ink rigidly shifted by one uniform dx — followers that merely slid over because the change altered the run's advance), and the remaining middles are multiset-subtracted and jointly translated so the delta's leftmost point sits at x=0. Returns (pieces only the before font draws, pieces only the after font draws, suffix shift); ((), (), 0) means ink-identical. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing — the echo-group key — no matter which unchanged letters surround the change."""
         features = features_for(config)
-        before = Counter(self.ink_pieces("before", text, features))
-        after = Counter(self.ink_pieces("after", text, features))
-        before_only = list((before - after).elements())
-        after_only = list((after - before).elements())
+        before = self.run_ink("before", text, features)
+        after = self.run_ink("after", text, features)
+        start = 0
+        while start < len(before) and start < len(after) and before[start] == after[start]:
+            start += 1
+        stripped = 0
+        shift = None
+        while len(before) - 1 - stripped >= start and len(after) - 1 - stripped >= start:
+            outline_before, pen_before = before[len(before) - 1 - stripped]
+            outline_after, pen_after = after[len(after) - 1 - stripped]
+            if outline_before != outline_after:
+                break
+            dx = pen_after - pen_before
+            if shift is None:
+                shift = dx
+            if dx != shift:
+                break
+            stripped += 1
+        if shift is None:
+            shift = 0
+        middle_before = Counter(
+            translate_outline(outline, pen, 0) for outline, pen in before[start : len(before) - stripped]
+        )
+        middle_after = Counter(
+            translate_outline(outline, pen, 0) for outline, pen in after[start : len(after) - stripped]
+        )
+        before_only = list((middle_before - middle_after).elements())
+        after_only = list((middle_after - middle_before).elements())
         xs = [
             point[0]
             for piece in before_only + after_only
@@ -132,7 +169,7 @@ class InkComparator:
             if point is not None
         ]
         if not xs:
-            return ((), ())
+            return ((), (), shift)
         x0 = min(xs)
 
         def normalize(pieces):
@@ -149,7 +186,7 @@ class InkComparator:
                 )
             )
 
-        return (normalize(before_only), normalize(after_only))
+        return (normalize(before_only), normalize(after_only), shift)
 
 
 class JuniorOracle:

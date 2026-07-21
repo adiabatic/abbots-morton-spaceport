@@ -74,6 +74,29 @@ def test_verdicts_are_deterministic_across_two_comparators(workload, comparator)
     ]
 
 
+def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
+    """The worked flanking-context example from the may-baseline-entry-extension-dropped class: ·Pea·May drops ·May's one-pixel baseline entry extension, and followers appended after the judged pair add no ink to the delta — ·Low and ·Low·Fee render identically in their own frames and merely slide left by the dropped pixel's 50 units, so the localized delta is byte-identical across the follower contexts (one echo key, one visual question) and only the recorded shift distinguishes a window with followers from the bare pair, whose delta shows nothing sliding."""
+    pair = "".join(chr(value) for value in (0xE650, 0xE665))
+    one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
+    two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))
+    diff_pair = comparator.config_diff(pair, "default")
+    diff_one = comparator.config_diff(one_follower, "default")
+    diff_two = comparator.config_diff(two_followers, "default")
+    assert diff_two == diff_one
+    assert diff_two[:2] == diff_pair[:2]
+    assert diff_two[0] and diff_two[1]
+    assert diff_pair[2] == 0
+    assert diff_two[2] == -50
+
+
+def test_config_diff_identity_sentinel_matches_ink_identical(workload, comparator):
+    """The ink_identical flag build.py derives from config_diff stays exactly the census's absolute comparison: a diff of ((), (), 0) — empty middles and no follower shift — under every config is the same verdict ink_identical reaches by comparing whole placed runs."""
+    unit = workload.units[0]
+    assert unit.unit_id == "u-0000"
+    assert all(comparator.config_diff(_text(unit), config) == ((), (), 0) for config in unit.configs)
+    assert comparator.ink_identical(_text(unit), unit.configs) is True
+
+
 def test_full_histogram_reproduces_the_census(workload, comparator):
     """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
     pins = PINS["ink"]

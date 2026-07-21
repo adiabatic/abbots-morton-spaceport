@@ -112,7 +112,7 @@ def _repo_head(repo_root: Path) -> str:
         return "unknown"
 
 
-UNIT_ASSEMBLY_EPOCH = "2026-07-04T07:00:00Z"
+UNIT_ASSEMBLY_EPOCH = "2026-07-21T00:00:00Z"
 
 
 def _generated_at(*inputs: Path) -> str:
@@ -364,7 +364,7 @@ def _surface_worker(conn, init: dict) -> None:
                 for unit in message[1]:
                     text = "".join(chr(value) for value in unit.codepoint_values)
                     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-                    unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+                    unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
                     unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
                     enriched = enricher.enrich(unit)
                     retained[unit.unit_id] = enriched
@@ -649,7 +649,7 @@ def build_m1(
         for unit in workload.units:
             text = "".join(chr(value) for value in unit.codepoint_values)
             diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
-            unit.ink_identical = all(diff == ((), ()) for diff in diffs)
+            unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
             unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
             config_diffs[unit.unit_id] = diffs
         total_batches = assign_batches(workload.units, batch_size)
