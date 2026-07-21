@@ -29,6 +29,6 @@ Scratch progress file for the in-flight qsFee migration; delete at batch close, 
 
 ## Resume
 
-1. The cycle is current and the store aligned (`make verdict-ready` answers READY; 655 blanks remain — the re-rendered ·Fee windows plus rows the sitting didn't reach).
+1. The cycle is current and the store aligned (`make verdict-ready` answers READY; 7 blanks remain — the widened echo grain plus the cycle's own prefill filled the rest from carried verdicts).
 2. Prepare the next sitting with the review-docket skill (echo prefill, docket bake), then adjudicate the blanks in the app's docket view (`#view=docket`).
 3. At batch close: delete this file, lifting surviving forward-pointers into WHATNEXT.md.

@@ -1,6 +1,6 @@
 """The one-command driver for the commit-time artifact cycle.
 
-It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
+It mechanizes the commit-time sequence: snapshot the current review surface (the only recovery copy, since everything under rebuild/out is gitignored), recompile M1.otf and vet it, rebuild the review surface in place, carry prior verdicts forward onto the fresh manifest, merge the carried file into the live autosave (rebuild.tools.merge_verdicts, so the app needs no manual import; --no-merge opts out), land echo-prefill verdicts onto the freshly restamped autosave (rebuild.tools.echo_verdicts writes fill records for the blanks in unanimously-judged echo groups, then a second merge_verdicts pass imports them, so cross-cycle echo blanks fill without a sitting-prep pass), re-baseline the census pins, and run the four gates — always printing a summary table at the end, even on failure.
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
@@ -37,6 +37,8 @@ AUTOSAVE = ROOT / "verdicts-autosave.json"
 M1_OUT = ROOT / "rebuild" / "out" / "m1"
 CENSUS_PINS = ROOT / "rebuild" / "review-census-pins.json"
 CARRY_TOOL = ROOT / "rebuild" / "tools" / "carry_verdicts.py"
+ECHO_TOOL = ROOT / "rebuild" / "tools" / "echo_verdicts.py"
+ECHO_FILL = ROOT / "verdicts-echo-fill.json"
 CYCLE_SUMMARY = ROOT / "rebuild" / "out" / "cycle_summary.json"
 MAKE_TEST_GREEN = ROOT / "rebuild" / "out" / "make-test-green.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
@@ -386,6 +388,29 @@ def build_plan(
     else:
         plan.steps.append(Step("merge", None, "SKIPPED (--no-carry)", lane="build"))
 
+    if do_merge:
+        plan.steps.append(
+            Step("echo-fill", ["uv", "run", "python", str(ECHO_TOOL), str(AUTOSAVE)], lane="build")
+        )
+        plan.steps.append(
+            Step(
+                "echo-merge",
+                ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(ECHO_FILL)],
+                lane="build",
+            )
+        )
+    else:
+        if do_carry and review_out is not None:
+            echo_note = "SKIPPED (rehearsal: the live autosave is never written)"
+        elif do_carry:
+            echo_note = "SKIPPED (--no-merge)"
+        elif first_run:
+            echo_note = "SKIPPED (first run)"
+        else:
+            echo_note = "SKIPPED (--no-carry)"
+        plan.steps.append(Step("echo-fill", None, echo_note, lane="build"))
+        plan.steps.append(Step("echo-merge", None, echo_note, lane="build"))
+
     census_mode = "--update" if update_pins else "--check"
     plan.steps.append(
         Step(
@@ -594,6 +619,10 @@ class CycleReport:
     carry_lines: list[str] = field(default_factory=list)
     merge_status: str = "not run"
     merge_lines: list[str] = field(default_factory=list)
+    echo_fill_status: str = "not run"
+    echo_fill_lines: list[str] = field(default_factory=list)
+    echo_merge_status: str = "not run"
+    echo_merge_lines: list[str] = field(default_factory=list)
     census_status: str = "not run"
     complaints_status: str = "not run"
     gate_js: str = "not run"
@@ -893,6 +922,30 @@ def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildReg
     return result.returncode == 0
 
 
+def _do_echo_fill(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+    argv = ["uv", "run", "python", str(ECHO_TOOL), str(AUTOSAVE)]
+    result = spawn("echo-fill", argv, emit=emit, registry=registry, stream=False)
+    _dump_captured(emit, result)
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("wrote ") and "echo-fill verdicts" in stripped:
+            report.echo_fill_lines.append(stripped)
+    report.echo_fill_status = "filled" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    return result.returncode == 0
+
+
+def _do_echo_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+    argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(ECHO_FILL)]
+    result = spawn("echo-merge", argv, emit=emit, registry=registry, stream=False)
+    _dump_captured(emit, result)
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("merged ", "nothing changed", "stashed ")):
+            report.echo_merge_lines.append(stripped)
+    report.echo_merge_status = "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    return result.returncode == 0
+
+
 def _do_census(*, spawn, emit: _Emitter, registry: _ChildRegistry, update_pins: bool, surface: Path) -> str:
     if update_pins:
         census = spawn(
@@ -1123,8 +1176,17 @@ def _run_cycle(
             if plan.do_merge:
                 if not carried:
                     report.merge_status = "not run (carry failed)"
+                    report.echo_fill_status = "not run (carry failed)"
+                    report.echo_merge_status = "not run (carry failed)"
                 elif not _do_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
                     failures.append("verdict merge failed")
+                    report.echo_fill_status = "not run (merge failed)"
+                    report.echo_merge_status = "not run (merge failed)"
+                elif not _do_echo_fill(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
+                    failures.append("echo-fill failed")
+                    report.echo_merge_status = "not run (echo-fill failed)"
+                elif not _do_echo_merge(report, spawn=spawn, emit=emit, registry=registry, plan=plan):
+                    failures.append("echo-merge failed")
         report.census_status = _do_census(
             spawn=spawn,
             emit=emit,
@@ -1169,6 +1231,12 @@ def _print_summary(report: CycleReport) -> None:
         print(f"      {line}")
     print(f"  merge -> autosave  : {report.merge_status}")
     for line in report.merge_lines:
+        print(f"      {line}")
+    print(f"  echo-fill          : {report.echo_fill_status}")
+    for line in report.echo_fill_lines:
+        print(f"      {line}")
+    print(f"  echo-merge         : {report.echo_merge_status}")
+    for line in report.echo_merge_lines:
         print(f"      {line}")
     print(f"  census pins        : {report.census_status}")
     print(f"  complaint groups   : {report.complaints_status}")
@@ -1231,6 +1299,10 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "carry_lines": list(report.carry_lines),
         "merge_status": report.merge_status,
         "merge_lines": list(report.merge_lines),
+        "echo_fill_status": report.echo_fill_status,
+        "echo_fill_lines": list(report.echo_fill_lines),
+        "echo_merge_status": report.echo_merge_status,
+        "echo_merge_lines": list(report.echo_merge_lines),
         "census_status": report.census_status,
         "complaints_status": report.complaints_status,
         "snapshot_dir": _as_str(report.snapshot_dir),
