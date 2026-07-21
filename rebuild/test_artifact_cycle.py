@@ -1345,6 +1345,9 @@ def test_stage_job_budget():
     assert ac.stage_job_budget(skip_gates=False, ncores=12) == 1
     assert ac.stage_job_budget(skip_gates=True, ncores=12) == 12
     assert ac.stage_job_budget(skip_gates=True, ncores=1) == 1
+    assert ac.stage_job_budget(skip_gates=False, skip_make_test=True, ncores=12) == 12
+    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 1
+    assert ac.stage_job_budget(skip_gates=True, skip_make_test=True, ncores=12) == 12
 
 
 def test_dry_run_renders_concurrency():
@@ -1772,6 +1775,23 @@ def test_dry_run_plan_skip_make_test():
     assert by_name["gate:rebuild"].argv is not None
     rendered = ac.render_plan(plan)
     assert "gate:make-test auto-skipped" in rendered
+
+
+def test_skip_make_test_frees_the_build_stage_budget():
+    plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
+    assert plan.job_budget == 4
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["run_m1"].argv[-2:] == ["--jobs", "4"]
+    assert by_name["surface-build"].argv[-2:] == ["--jobs", "4"]
+    rendered = ac.render_plan(plan)
+    assert "--jobs budget        : 4" in rendered
+    assert "gate:make-test skipped, so the build stages fan out" in rendered
+
+    gated = _plan(skip_make_test=False)
+    assert gated.job_budget == 1
+    gated_by_name = {step.name: step for step in gated.steps}
+    assert gated_by_name["run_m1"].argv == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
+    assert "a 12-way `make test` owns the cores" in ac.render_plan(gated)
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
