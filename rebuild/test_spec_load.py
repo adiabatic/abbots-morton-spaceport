@@ -164,7 +164,7 @@ def test_scope_condition_parsing(spec):
     (scope,) = row.scope
     assert scope.klass == ("can-enter-at-x-height",)
     assert scope.except_ == tuple(
-        Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsOwe")
+        Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsNo", "qsOwe")
     )
     top = spec.runes["qsTea"].stances["half"].surface.entries["top"]
     assert top.selectable is False

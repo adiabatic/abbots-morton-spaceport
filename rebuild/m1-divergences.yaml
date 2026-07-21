@@ -150,7 +150,7 @@
   match: {predicate: no_xheight_entry_extension_dropped, configs: all}
   count: 952
   exemplars:
-    - {config: default, codepoints: "E650:E666:E653", baseline: "qsPea.half.ex-y5.ex-dips|qsNo.en-ext-1|qsDay", new: "qsPea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
+    - {config: default, codepoints: "E652:E666:E653", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsDay", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsDay/full/x-height/None/ (no en-ext-1, ·No and everything after it one pixel tighter)"}
     - {config: default, codepoints: "E652:E666:E666", baseline: "qsTea.half.ex-y5|qsNo.en-ext-1|qsNo", new: "qsTea/half/None/x-height/|qsNo/loop/x-height/x-height/|qsNo/loop/x-height/None/ (no en-ext-1)"}
 
 - id: may-ligature-seam-loosened

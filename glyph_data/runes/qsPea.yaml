@@ -93,7 +93,13 @@ stances:
           stub: {cols: [3], inks_when: joined}
           toward:
           - class: can-enter-at-x-height
-            except: [family: qsTea, family: qsDay, family: qsFee, family: qsYe, family: qsOwe]
+            except:
+            - {family: qsTea}
+            - {family: qsDay}
+            - {family: qsFee}
+            - {family: qsYe}
+            - {family: qsNo}
+            - {family: qsOwe}
       cells: [{entry: x-height, exit: x-height, bitmap: half-dips-both-sides}]
       unlocks: []
       require: []
