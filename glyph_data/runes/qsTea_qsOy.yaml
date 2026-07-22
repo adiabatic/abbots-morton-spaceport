@@ -1,5 +1,7 @@
 rune: qsTea_qsOy
-sequence: [qsTea, qsOy]
+sequence:
+- qsTea
+- qsOy
 ductus:
   hapax: |
     Written as ·Tea flowing into ·Oy: the vertical bar first, from the top down through the x-height. Without lifting the pen, the small ·Oy loop is drawn clockwise around the foot of the bar, closing on it, and the stroke runs out diagonally down to the right, ending at the baseline, where it may connect to the next letter.
@@ -21,21 +23,31 @@ stances:
     - "       #"  #
     surface:
       entries: {}
-      exits: {baseline: {x: 8, stroke: vertical, withdrawal: safe}}
+      exits:
+        baseline:
+          x: 8
+          stroke: vertical
+          withdrawal: safe
       cells: []
       unlocks: []
       require: []
 policy:
-  order: [hapax]
+  order:
+  - hapax
   refuse: []
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
     when:
       right:
-        family: [qsTea, qsIt]
+        family:
+        - qsTea
+        - qsIt
         except:
-        - {family: qsTea, then: {family: qsUtter, then: {family: qsLow}}}
+        - family: qsTea
+          then:
+            family: qsUtter
+            then: {family: qsLow}
         - family: qsTea
           then:
             family: qsUtter
@@ -44,7 +56,15 @@ policy:
               except:
               - family: qsTea
                 then:
-                  family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsAh, qsUtter]
+                  family:
+                  - qsDay
+                  - qsDay_qsUtter
+                  - qsMay
+                  - qsNo
+                  - qsLow
+                  - qsIt
+                  - qsAh
+                  - qsUtter
     why: 'Ligature twin of qsOy.policy.prefer[0] — ligatures do not inherit component policy (proven by u-0283/u-0284/u-0285), and forming ·Tea·Oy must not change the grouping: when the groupings tie, the ligature leaves its baseline exit unrealized so the follower pair joins — "The old way seems nicer to write out by hand".'
   extend: []
   contract: []

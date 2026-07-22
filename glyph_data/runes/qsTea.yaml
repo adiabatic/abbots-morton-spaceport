@@ -33,28 +33,73 @@ stances:
     - "#"
     - "#"  #
     surface:
-      entries: {baseline: {x: 0, stroke: vertical}, top: {x: 0, stroke: vertical}}
-      exits: {baseline: {x: 1, stroke: vertical, withdrawal: safe}}
-      pairings: {never: [{entry: baseline, exit: baseline}]}
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+        top:
+          x: 0
+          stroke: vertical
+      exits:
+        baseline:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
+      pairings:
+        never:
+        - entry: baseline
+          exit: baseline
       cells: []
       # The ss02/ss03 rows add the full bar's x-height entry (today's `entry_xheight` and `entry_xheight_after_fee`, both bundling the baseline-exit cell); the row's anchor follows the standard convention (x = 0, the bar's only ink column).
       unlocks:
-      - {pairing: {entry: baseline, exit: baseline}, feature: ss05, when: {left: {family: qsEt}}}
-      - {entry: x-height, feature: ss02, when: {left: {family: qsI}}}
-      - {entry: x-height, feature: ss03, when: {left: {family: qsFee, joined_at: x-height}}}
-      - {entry: x-height, feature: ss03, when: {left: {family: qsMay, joined_at: x-height}}}
+      - pairing:
+          entry: baseline
+          exit: baseline
+        feature: ss05
+        when:
+          left: {family: qsEt}
       - entry: x-height
-        feature: ss03
-        when: {left: {family: [qsDay_qsUtter, qsLow, qsUtter], joined_at: x-height}}
+        feature: ss02
+        when:
+          left: {family: qsI}
       - entry: x-height
         feature: ss03
         when:
-          left: {family: [qsI, qsAh, qsOut, qsOwe, qsFoot], joined_at: x-height}
+          left:
+            family: qsFee
+            joined_at: x-height
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family: qsMay
+            joined_at: x-height
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family:
+            - qsDay_qsUtter
+            - qsLow
+            - qsUtter
+            joined_at: x-height
+      - entry: x-height
+        feature: ss03
+        when:
+          left:
+            family:
+            - qsI
+            - qsAh
+            - qsOut
+            - qsOwe
+            - qsFoot
+            joined_at: x-height
           right: {class: can-enter-at-baseline}
       require: []
   half:
     motion: half
-    traits: [half]
+    traits:
+    - half
     bitmap:
     - "#"
     - "#"
@@ -71,46 +116,126 @@ stances:
         x-height:
           x: 0
           stroke: vertical
-          from: [{class: halves-that-exit-at-x-height, except: [family: qsDay_qsUtter]}]
+          from:
+          - class: halves-that-exit-at-x-height
+            except:
+            - {family: qsDay_qsUtter}
         # Today's `entry_curs_only [0, 8]`: the anchor registers for GPOS parity, but settlement never chooses this row as an entry.
-        top: {x: 0, selectable: false}
-      exits: {x-height: {x: 1, stroke: vertical, withdrawal: safe}}
-      pairings: {never: [{entry: x-height, exit: x-height}]}
+        top:
+          x: 0
+          selectable: false
+      exits:
+        x-height:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
+      pairings:
+        never:
+        - entry: x-height
+          exit: x-height
       cells: []
       unlocks:
       - entry: x-height
         feature: ss03
         when:
           left:
-            family: [qsDay_qsUtter, qsMay, qsLow, qsI, qsAh, qsUtter, qsOut, qsOwe, qsFoot]
+            family:
+            - qsDay_qsUtter
+            - qsMay
+            - qsLow
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            - qsFoot
             joined_at: x-height
       require: []
 policy:
-  order: [full, half]
+  order:
+  - full
+  - half
   refuse:
   - stance: full
     entry: baseline
-    when: {left: {family: [qsPea, qsTea, qsYe, qsHe, qsExam, qsIt, qsEat]}}
-  - {stance: full, exit: baseline, when: {self: {entry: none}, left: {family: qsEt}}}
+    when:
+      left:
+        family:
+        - qsPea
+        - qsTea
+        - qsYe
+        - qsHe
+        - qsExam
+        - qsIt
+        - qsEat
   - stance: full
     exit: baseline
-    when: {right: {family: [qsThaw, qsExcite, qsExam, qsIt]}}
+    when:
+      self: {entry: none}
+      left: {family: qsEt}
+  - stance: full
+    exit: baseline
+    when:
+      right:
+        family:
+        - qsThaw
+        - qsExcite
+        - qsExam
+        - qsIt
     why: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke.
-  - {stance: half, entry: x-height, when: {right: {family: qsTea}}}
-  - {stance: half, exit: x-height, when: {self: {entry: none}, left: {family: qsEt}}}
+  - stance: half
+    entry: x-height
+    when:
+      right: {family: qsTea}
   - stance: half
     exit: x-height
-    when: {right: {family: [qsTea, qsFee, qsCheer, qsYe, qsOwe, qsFoot]}}
+    when:
+      self: {entry: none}
+      left: {family: qsEt}
+  - stance: half
+    exit: x-height
+    when:
+      right:
+        family:
+        - qsTea
+        - qsFee
+        - qsCheer
+        - qsYe
+        - qsOwe
+        - qsFoot
   prefer: []
   extend:
   - stance: full
     entry: baseline
     by: 1
-    when: {left: {family: [qsKey, qsJay, qsEight], joined_at: baseline}}
-  - {stance: full, exit: baseline, by: 1, when: {right: {family: qsI}}}
-  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsI}}}
+    when:
+      left:
+        family:
+        - qsKey
+        - qsJay
+        - qsEight
+        joined_at: baseline
+  - stance: full
+    exit: baseline
+    by: 1
+    when:
+      right: {family: qsI}
+  - stance: half
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsI}
   contract:
-  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsZoo}}}
-  - {stance: half, exit: x-height, by: 1, when: {self: {entry: none}, right: {family: qsJay}}}
+  - stance: half
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsZoo}
+  - stance: half
+    exit: x-height
+    by: 1
+    when:
+      self: {entry: none}
+      right: {family: qsJay}
   resolve: []
   groups: {}

@@ -47,7 +47,9 @@ stances:
         y_offset: -3
     surface:
       entries:
-        baseline: {x: 0, stroke: horizontal}
+        baseline:
+          x: 0
+          stroke: horizontal
         x-height:
           x: 3
           stroke: horizontal
@@ -66,8 +68,14 @@ stances:
           - {family: qsI}
           - {family: qsAh}
           - {family: qsUtter}
-      exits: {x-height: {x: 5, stroke: horizontal}}
-      pairings: {never: [{entry: x-height, exit: x-height}]}
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+      pairings:
+        never:
+        - entry: x-height
+          exit: x-height
       cells: []
       unlocks: []
       require: []
@@ -117,40 +125,97 @@ stances:
           - {family: qsI}
           - {family: qsAh}
           - {family: qsUtter}
-      exits: {baseline: {x: 4, stroke: horizontal}}
+      exits:
+        baseline:
+          x: 4
+          stroke: horizontal
       cells: []
       unlocks: []
       require: []
 policy:
-  order: [loop, grounded-loop]
+  order:
+  - loop
+  - grounded-loop
   refuse:
   - stance: grounded-loop
     exit: baseline
     when:
-      right: {family: [qsTea, qsDay, qsZoo, qsHe, qsNo, qsRoe, qsIt, qsEat, qsUtter, qsOoze]}
+      right:
+        family:
+        - qsTea
+        - qsDay
+        - qsZoo
+        - qsHe
+        - qsNo
+        - qsRoe
+        - qsIt
+        - qsEat
+        - qsUtter
+        - qsOoze
   - stance: grounded-loop
     exit: baseline
-    when: {self: {entry: live}, right: {family: [qsThaw, qsYe]}}
+    when:
+      self: {entry: live}
+      right:
+        family:
+        - qsThaw
+        - qsYe
     why: ·Thaw and ·Ye additionally reject the grounded exit when ·May is entered at the x-height.
   prefer:
   - cell: {exit: x-height}
     over: {entry: x-height}
-    when: {left: {family: qsUtter}, right: {except: [family: qsTea, family: qsFee]}}
-  - {cell: {exit: baseline}, when: {left: {is: boundary}, right: {family: qsMay}}}
-  - {cell: {exit: baseline}, when: {left: {family: qsMay, joined_at: none}, right: {family: qsMay}}}
+    when:
+      left: {family: qsUtter}
+      right:
+        except:
+        - {family: qsTea}
+        - {family: qsFee}
+  - cell: {exit: baseline}
+    when:
+      left: {is: boundary}
+      right: {family: qsMay}
+  - cell: {exit: baseline}
+    when:
+      left:
+        family: qsMay
+        joined_at: none
+      right: {family: qsMay}
   - cell: {exit: none}
     over: {exit: x-height}
     mode: absolute
-    when: {right: {family: qsUtter, then: {family: qsTea, then: {family: qsDay}}}}
+    when:
+      right:
+        family: qsUtter
+        then:
+          family: qsTea
+          then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   extend:
   - stance: loop
     exit: x-height
     by: 1
     ok: [1, 1]
-    when: {right: {family: [qsDay, qsDay_qsUtter, qsFee, qsJai, qsJay, qsRoe, qsIt]}}
-  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  - {stance: loop, exit: x-height, by: 1, when: {self: {entry: live}}}
+    when:
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+        - qsFee
+        - qsJai
+        - qsJay
+        - qsRoe
+        - qsIt
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      self: {entry: live}
   contract: []
   resolve: []
   groups: {}

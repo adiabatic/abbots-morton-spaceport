@@ -33,7 +33,13 @@ stances:
     - "#   #"
     - " ### "  #
     surface:
-      entries: {top: {x: 0, stroke: horizontal, stub: {cols: [0, 1], inks_when: joined}}}
+      entries:
+        top:
+          x: 0
+          stroke: horizontal
+          stub:
+            cols: [0, 1]
+            inks_when: joined
       exits:
         x-height:
           x: 5
@@ -102,9 +108,12 @@ stances:
             joined_at: x-height
       cells: []
       unlocks: []
-      require: [entry]
+      require:
+      - entry
 policy:
-  order: [loop, reversed-loop]
+  order:
+  - loop
+  - reversed-loop
   refuse: []
   prefer:
   - cell: {exit: x-height}
@@ -113,7 +122,12 @@ policy:
   - cell: {exit: none}
     over: {exit: x-height}
     mode: absolute
-    when: {right: {family: qsUtter, then: {family: qsTea, then: {family: qsDay}}}}
+    when:
+      right:
+        family: qsUtter
+        then:
+          family: qsTea
+          then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   extend:
   - stance: loop
@@ -133,8 +147,17 @@ policy:
         - qsEight
         - qsOwe
         - qsFoot
-  - {stance: loop, exit: x-height, by: 3, when: {right: {family: qsMay}}}
-  - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  - stance: loop
+    exit: x-height
+    by: 3
+    when:
+      right: {family: qsMay}
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
   contract: []
   resolve: []
   groups: {}
