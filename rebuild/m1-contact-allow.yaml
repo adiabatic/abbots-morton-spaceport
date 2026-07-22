@@ -85,7 +85,6 @@
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.hapax.en-y5.ex-y0:qsUtter.mono.en-y0:y1
-- signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
 # ·May·(Day+Utter) joins at the baseline today; ·May's grounded-loop descender and the ligature's ·Day descender sit side by side below the baseline.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
@@ -195,10 +194,11 @@
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
 
-# Entered ·It·Utter baseline join (the qsIt before-utter unlock / entered-it baseline gain); the un-extended ss04 pass-through ·It cell's y1 body adjacency, same corner as its ex-ext-1 twin.
+# Entered ·It·Utter baseline join (the qsIt before-utter unlock / entered-it baseline gain); the un-extended ss04 pass-through ·It cell's y1 body adjacency, the same corner on every ·Utter exit variant. The ex-y5.ex-ext-1 follower is the ·Fee-migration sibling (baseline row E666:E670:E67A:E658); ·Utter's exit extension lengthens its x-height connector toward ·Fee, not the y1 corner.
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-bind-pulled-back:y1
 - signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsIt.hapax.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
 - signature: contact:qsTea_qsOy.hapax.ex-y0:qsIt.hapax.en-y0.ex-y0:y1
   why: ·Tea·Oy ligature into ·It joins at the baseline today (baseline row E652:E679:E670, seam y0); the ligature's ·Oy tail against ·It's bar — the blessed ·Tea·Oy·It corner, with ·It now carrying its baseline exit in the ss04 pass-through.
