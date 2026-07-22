@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsLow E667, qsIt E670, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsLow E667, qsIt E670, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -91,3 +91,20 @@ E653 E67A E658            # Day+Utter Fee (the ligature's exit extended into Fee
 E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second seam breaks)
 200C E658                 # ZWNJ Fee (locked twin)
 E658 200C E665            # Fee ZWNJ May (exit severed)
+#
+# qsAh windows: baseline in, x-height out (the Short diagonal).
+E676                      # Ah in isolation
+E650 E676                 # Pea Ah (the full Pea's baseline exit into Ah)
+E652 E676                 # Tea Ah (baseline join)
+E670 E676                 # It Ah (baseline join)
+E666 E676                 # No Ah (the flipped No's baseline exit into Ah)
+E67A E676                 # Utter Ah (the alternate Utter's baseline exit into Ah)
+E653 E676                 # Day Ah (break: Ah's entry does not receive Day)
+E679 E676                 # Oy Ah (break: Ah's entry does not receive Oy)
+E676 E665                 # Ah May (extended x-height exit into the pulled-back May)
+E676 E658                 # Ah Fee (extended x-height exit into the reversed loop)
+E676 E652                 # Ah Tea (unjoined by default; extended x-height join under ss03)
+E676 E679                 # Ah Oy (unextended x-height join into the opened loop)
+E665 E676 E665            # May Ah May (joined on both sides: baseline in, extended x-height out)
+200C E676                 # ZWNJ Ah (locked twin)
+E676 200C E665            # Ah ZWNJ May (exit severed)

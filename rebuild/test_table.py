@@ -271,7 +271,7 @@ class TestDepthThreeTables:
 
     def test_orphan_window_rule_and_ordering(self, real_default_decision):
         rules = [rule for rule in real_default_decision.rules if rule.input_glyph == "qsDay"]
-        orphans = ("qsDay", "qsDay_qsUtter", "qsIt", "qsLow", "qsMay", "qsNo", "qsUtter")
+        orphans = ("qsAh", "qsDay", "qsDay_qsUtter", "qsIt", "qsLow", "qsMay", "qsNo", "qsUtter")
         orphan_index = next(
             index
             for index, rule in enumerate(rules)
@@ -279,6 +279,7 @@ class TestDepthThreeTables:
             and rule.look2 == ("qsUtter",)
             and rule.look3 == ("qsTea",)
             and rule.look4 == orphans
+            and "qsPea.full.ex-y0" in rule.backtrack
         )
         assert rules[orphan_index].outcome == "qsDay.half.en-y0"
         backtrack = rules[orphan_index].backtrack

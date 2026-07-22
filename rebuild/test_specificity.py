@@ -161,7 +161,7 @@ class TestDepthThreeChainSpecificity:
         ]
         assert len(chained) == 2
         assert all(axes["right.then.family"] == frozenset({"qsNo"}) for axes in chained)
-        assert chained[0]["right.then.then.family"] == frozenset({"qsTea", "qsMay", "qsLow"})
+        assert chained[0]["right.then.then.family"] == frozenset({"qsTea", "qsMay", "qsLow", "qsAh"})
         assert chained[1]["right.then.then.is"] == frozenset({"edge", "namer-dot", "space", "zwnj"})
 
     def test_qsday_prefer_family_axes_pinned(self, real_spec):

@@ -73,7 +73,8 @@ policy:
               family: qsTea
               except:
               - family: qsTea
-                then: {family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsUtter]}
+                then:
+                  family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsAh, qsUtter]
   extend: []
   contract: []
   resolve: []

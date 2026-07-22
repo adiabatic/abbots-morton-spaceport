@@ -284,13 +284,17 @@ class TestLateFormationGuardLines:
         guarded, plain, ignores = emit_gsub._formation_lines(real_spec, registry)
         assert "    sub qsTea qsOy by qsTea_qsOy;" in plain
         assert all("qsDay" not in line for line in plain)
-        assert "    ignore sub qsDay' qsUtter' qsLow;" in guarded
+        assert "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in guarded
         assert "    sub qsDay' qsUtter' by qsDay_qsUtter;" in guarded
         assert guarded.index("    sub qsDay' qsUtter' uni200C by qsDay_qsUtter;") < guarded.index(
-            "    ignore sub qsDay' qsUtter' qsLow;"
+            "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;"
         )
         assert guarded[-1] == "    sub qsDay' qsUtter' by qsDay_qsUtter;"
-        assert "ignore sub qsDay' qsUtter' qsLow;" in ignores
+        assert "ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;" in ignores
+        definition = next(
+            line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
+        )
+        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsLow];"
 
     def test_partial_second_slot_guard_gets_a_two_slot_ignore(self, real_spec):
         registry = emit_gsub._ClassRegistry()
@@ -299,5 +303,5 @@ class TestLateFormationGuardLines:
         assert len(two_slot) == 1
         class_name = two_slot[0].split()[-1].rstrip(";")
         definition = next(line for line in registry.definitions if line.startswith(class_name + " "))
-        assert definition == f"{class_name} = [qsDay qsIt qsLow qsMay qsNo qsTea];"
+        assert definition == f"{class_name} = [qsAh qsDay qsIt qsLow qsMay qsNo qsTea];"
         assert "    sub qsDay' qsUtter' qsUtter uni200C by qsDay_qsUtter;" in guarded
