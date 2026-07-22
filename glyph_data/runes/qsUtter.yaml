@@ -25,14 +25,21 @@ stances:
     - "#    "
     - "#    "  #
     surface:
-      entries: {baseline: {x: 0, stroke: vertical}}
-      exits: {x-height: {x: 5, stroke: horizontal}}
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
       cells: []
       unlocks: []
       require: []
   alternate:
     motion: alternate
-    traits: [alt]
+    traits:
+    - alt
     bitmap:
     - "  ## "  #
     - " #   "
@@ -63,45 +70,108 @@ stances:
           x: 0
           stroke: horizontal
           joined: reaches-way-back
-          from: [{family: [qsMay, qsFee, qsNo, qsUtter], joined_at: x-height}]
-      exits: {baseline: {x: 5, stroke: horizontal}}
+          from:
+          - family:
+            - qsMay
+            - qsFee
+            - qsNo
+            - qsUtter
+            joined_at: x-height
+      exits:
+        baseline:
+          x: 5
+          stroke: horizontal
       cells:
-      - {entry: x-height, exit: baseline, bitmap: reaches-way-back, exit_x: 6}
-      - {entry: x-height, exit: baseline-withdrawn, bitmap: reaches-way-back-withdrawn}
+      - entry: x-height
+        exit: baseline
+        bitmap: reaches-way-back
+        exit_x: 6
+      - entry: x-height
+        exit: baseline-withdrawn
+        bitmap: reaches-way-back-withdrawn
       unlocks: []
-      require: [exit]
+      require:
+      - exit
 policy:
-  order: [mono, alternate]
+  order:
+  - mono
+  - alternate
   refuse:
-  - {stance: alternate, exit: baseline, when: {right: {family: [qsYe, qsHe, qsUtter]}}}
   - stance: alternate
     exit: baseline
-    when: {left: {is: boundary}, right: {family: qsNo}}
+    when:
+      right:
+        family:
+        - qsYe
+        - qsHe
+        - qsUtter
+  - stance: alternate
+    exit: baseline
+    when:
+      left: {is: boundary}
+      right: {family: qsNo}
     why: “un-”, as a prefix, should not use the alternate ·Utter. It says so in The Manual, on page 21.
   prefer:
   - cell: {exit: none}
     over: {exit: x-height}
-    when: {right: {family: qsTea, then: {family: [qsDay, qsMay, qsIt, qsUtter]}}}
+    when:
+      right:
+        family: qsTea
+        then:
+          family:
+          - qsDay
+          - qsMay
+          - qsIt
+          - qsUtter
   - cell: {exit: baseline}
     over: {exit: x-height}
-    when: {self: {entry: none}, right: {family: qsMay}}
+    when:
+      self: {entry: none}
+      right: {family: qsMay}
     why: A bare ·Utter before ·May keeps the alternate baseline join; the mono x-height reach into a pulled-back ·May wins only when it buys a better join, as before ·May·May where the grounded ·May carries the chain on at the baseline.
   - cell: {exit: baseline}
     over: {entry: baseline}
-    when: {right: {family: qsLow}}
+    when:
+      right: {family: qsLow}
     why: 'Claude figured that this would be the best (least disruptive) way to have `·Day | ·Utter.alt ~b~ ·Low` happen; The Manual requires this'
   - cell: {exit: none}
     over: {exit: x-height}
     mode: absolute
-    when: {right: {family: qsUtter, then: {family: qsTea, then: {family: qsDay}}}}
+    when:
+      right:
+        family: qsUtter
+        then:
+          family: qsTea
+          then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   - cell: {entry: x-height}
     over: {entry: baseline}
-    when: {left: {joined_at: x-height}, right: {family: qsMay}}
+    when:
+      left: {joined_at: x-height}
+      right: {family: qsMay}
     why: 'if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height'
   extend:
-  - {stance: mono, exit: x-height, by: 1, when: {right: {family: [qsBay, qsGay, qsThey, qsFee]}}}
-  - {stance: mono, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  contract: [{stance: mono, exit: x-height, by: 2, when: {right: {family: qsJai}}}]
+  - stance: mono
+    exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsBay
+        - qsGay
+        - qsThey
+        - qsFee
+  - stance: mono
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  contract:
+  - stance: mono
+    exit: x-height
+    by: 2
+    when:
+      right: {family: qsJai}
   resolve: []
   groups: {}

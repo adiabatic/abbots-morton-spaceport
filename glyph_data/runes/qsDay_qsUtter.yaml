@@ -1,5 +1,7 @@
 rune: qsDay_qsUtter
-sequence: [qsDay, qsUtter]
+sequence:
+- qsDay
+- qsUtter
 ductus:
   full: |
     The ·Day downstroke and the ·Utter stroke drawn as one motion: straight down the left, hooking out of the descender foot and rising across to exit at the x-height on the right, where it may connect to the next letter.
@@ -21,14 +23,21 @@ stances:
     - "#      "
     y_offset: -3
     surface:
-      entries: {x-height: {x: 0, stroke: vertical}}
-      exits: {x-height: {x: 7, stroke: horizontal}}
+      entries:
+        x-height:
+          x: 0
+          stroke: vertical
+      exits:
+        x-height:
+          x: 7
+          stroke: horizontal
       cells: []
       unlocks: []
       require: []
   half:
     motion: half
-    traits: [half]
+    traits:
+    - half
     bitmap:
     - "     ###"  #
     - "    #   "
@@ -41,24 +50,55 @@ stances:
     - "#       "
     y_offset: -3
     surface:
-      entries: {baseline: {x: 0, stroke: diagonal}}
-      exits: {x-height: {x: 8, stroke: horizontal}}
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+      exits:
+        x-height:
+          x: 8
+          stroke: horizontal
       cells: []
       unlocks: []
       require: []
 policy:
-  order: [full, half]
+  order:
+  - full
+  - half
   refuse: []
   prefer: []
   extend:
-  - {stance: full, exit: x-height, by: 1, when: {right: {family: qsFee}}}
-  - {stance: full, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+  - stance: full
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - stance: full
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
   - stance: half
     entry: baseline
     by: 1
-    when: {left: {family: [qsTea, qsYe], joined_at: baseline}}
-  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsFee}}}
-  - {stance: half, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
+    when:
+      left:
+        family:
+        - qsTea
+        - qsYe
+        joined_at: baseline
+  - stance: half
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - stance: half
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
   contract: []
   resolve: []
   groups: {}

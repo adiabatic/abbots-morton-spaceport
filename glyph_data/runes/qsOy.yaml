@@ -51,21 +51,35 @@ stances:
             - qsUtter
             - qsOut
             joined_at: x-height
-      exits: {baseline: {x: 8, stroke: vertical, withdrawal: safe}}
-      cells: [{entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}]
+      exits:
+        baseline:
+          x: 8
+          stroke: vertical
+          withdrawal: safe
+      cells:
+      - entry: x-height
+        exit: baseline
+        bitmap: open-on-the-left
+        exit_x: 5
       unlocks: []
       require: []
 policy:
-  order: [hapax]
+  order:
+  - hapax
   refuse: []
   prefer:
   - cell: {exit: none}
     over: {exit: baseline}
     when:
       right:
-        family: [qsTea, qsIt]
+        family:
+        - qsTea
+        - qsIt
         except:
-        - {family: qsTea, then: {family: qsUtter, then: {family: qsLow}}}
+        - family: qsTea
+          then:
+            family: qsUtter
+            then: {family: qsLow}
         - family: qsTea
           then:
             family: qsUtter
@@ -74,7 +88,15 @@ policy:
               except:
               - family: qsTea
                 then:
-                  family: [qsDay, qsDay_qsUtter, qsMay, qsNo, qsLow, qsIt, qsAh, qsUtter]
+                  family:
+                  - qsDay
+                  - qsDay_qsUtter
+                  - qsMay
+                  - qsNo
+                  - qsLow
+                  - qsIt
+                  - qsAh
+                  - qsUtter
   extend: []
   contract: []
   resolve: []

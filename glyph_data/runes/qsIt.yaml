@@ -1,6 +1,8 @@
 rune: qsIt
 codepoint: 0xE670
-ductus: {hapax: "- Either written from top to bottom or bottom to top.\n"}
+ductus:
+  hapax: |
+    - Either written from top to bottom or bottom to top.
 mono:
   bitmap:
   - "  #  "  #
@@ -21,58 +23,142 @@ stances:
     - "#"
     - "#"  #
     surface:
-      entries: {baseline: {x: 0, stroke: vertical}, x-height: {x: 0, stroke: vertical}}
+      entries:
+        baseline:
+          x: 0
+          stroke: vertical
+        x-height:
+          x: 0
+          stroke: vertical
       exits:
-        baseline: {x: 1, stroke: vertical, withdrawal: safe}
-        x-height: {x: 1, stroke: vertical, withdrawal: safe}
+        baseline:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
+        x-height:
+          x: 1
+          stroke: vertical
+          withdrawal: safe
       pairings:
         # The ductus's old join-constraint bullets, relocated: joined at one height, ·It joins onward only at the other; same-height pass-through exists only behind the ss04 unlock below.
         only:
-        - {entry: x-height, exit: baseline}
-        - {entry: x-height, exit: none}
-        - {entry: baseline, exit: x-height}
-        - {entry: baseline, exit: none}
-        - {entry: none, exit: x-height}
-        - {entry: none, exit: baseline}
-        - {entry: none, exit: none}
+        - entry: x-height
+          exit: baseline
+        - entry: x-height
+          exit: none
+        - entry: baseline
+          exit: x-height
+        - entry: baseline
+          exit: none
+        - entry: none
+          exit: x-height
+        - entry: none
+          exit: baseline
+        - entry: none
+          exit: none
       cells: []
-      unlocks: [{pairing: {entry: baseline, exit: baseline}, feature: ss04}]
+      unlocks:
+      - pairing:
+          entry: baseline
+          exit: baseline
+        feature: ss04
       require: []
 policy:
   refuse:
-  - {entry: x-height, when: {left: {family: qsIt}}}
+  - entry: x-height
+    when:
+      left: {family: qsIt}
   - entry: baseline
-    when: {left: {family: qsIt}}
+    when:
+      left: {family: qsIt}
     why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
-  - {stance: hapax, exit: x-height, when: {right: {family: [qsDay, qsDay_qsUtter]}}}
-  - {exit: x-height, when: {self: {entry: none}, right: {family: [qsZoo, qsYe]}}}
-  - {exit: x-height, when: {self: {entry: none}, left: {family: qsOwe}}}
-  - {exit: x-height, when: {self: {entry: live}, left: {family: [qsJay, qsYe, qsIt, qsEat]}}}
+  - stance: hapax
+    exit: x-height
+    when:
+      right:
+        family:
+        - qsDay
+        - qsDay_qsUtter
+  - exit: x-height
+    when:
+      self: {entry: none}
+      right:
+        family:
+        - qsZoo
+        - qsYe
+  - exit: x-height
+    when:
+      self: {entry: none}
+      left: {family: qsOwe}
+  - exit: x-height
+    when:
+      self: {entry: live}
+      left:
+        family:
+        - qsJay
+        - qsYe
+        - qsIt
+        - qsEat
   - stance: hapax
     exit: baseline
-    when: {self: {entry: none}, right: {family: [qsTea, qsRoe, qsIt]}}
+    when:
+      self: {entry: none}
+      right:
+        family:
+        - qsTea
+        - qsRoe
+        - qsIt
     why: Two adjacent verticals joined at the baseline render as one extra-thick stroke.
   - exit: baseline
     when:
       self: {entry: none}
-      left: {family: [qsBay, qsDay, qsGay, qsShe]}
-      right: {except: [family: qsDay, family: qsDay_qsUtter, family: qsUtter]}
+      left:
+        family:
+        - qsBay
+        - qsDay
+        - qsGay
+        - qsShe
+      right:
+        except:
+        - {family: qsDay}
+        - {family: qsDay_qsUtter}
+        - {family: qsUtter}
   - stance: hapax
     exit: baseline
     when:
       self: {entry: none}
-      left: {family: [qsZoo, qsShe, qsEat, qsOwe]}
+      left:
+        family:
+        - qsZoo
+        - qsShe
+        - qsEat
+        - qsOwe
       right: {family: qsUtter}
   - stance: hapax
     exit: baseline
-    when: {self: {entry: live}, left: {family: qsDay, stance: half}, right: {family: qsUtter}}
+    when:
+      self: {entry: live}
+      left:
+        family: qsDay
+        stance: half
+      right: {family: qsUtter}
   prefer:
   - cell: {exit: none}
     over: {exit: x-height}
-    when: {left: {family: qsOy, joined_at: baseline}, right: {family: qsNo}}
+    when:
+      left:
+        family: qsOy
+        joined_at: baseline
+      right: {family: qsNo}
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
-  - {stance: hapax, entry: baseline, by: 1, when: {left: {family: qsKey, joined_at: baseline}}}
+  - stance: hapax
+    entry: baseline
+    by: 1
+    when:
+      left:
+        family: qsKey
+        joined_at: baseline
   - stance: hapax
     exit: baseline
     by: 1
@@ -86,9 +172,31 @@ policy:
         - {family: qsMay}
         - {family: qsLow}
         - {family: qsUtter}
-  - {stance: hapax, exit: baseline, by: 1, when: {self: {entry: none}, right: {family: qsI}}}
-  - {stance: hapax, exit: baseline, by: 1, when: {right: {family: [qsJai, qsCheer, qsOwe]}}}
-  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: [qsZoo, qsJai, qsCheer, qsOwe]}}}
+  - stance: hapax
+    exit: baseline
+    by: 1
+    when:
+      self: {entry: none}
+      right: {family: qsI}
+  - stance: hapax
+    exit: baseline
+    by: 1
+    when:
+      right:
+        family:
+        - qsJai
+        - qsCheer
+        - qsOwe
+  - stance: hapax
+    exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsZoo
+        - qsJai
+        - qsCheer
+        - qsOwe
   contract: []
   resolve: []
   groups: {}

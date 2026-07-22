@@ -23,19 +23,46 @@ stances:
     - "   # "
     - "###  "  #
     surface:
-      entries: {baseline: {x: 0, stroke: horizontal}}
-      exits: {x-height: {x: 5, stroke: vertical}}
+      entries:
+        baseline:
+          x: 0
+          stroke: horizontal
+      exits:
+        x-height:
+          x: 5
+          stroke: vertical
       cells: []
       unlocks: []
       require: []
 policy:
-  order: [hapax]
+  order:
+  - hapax
   refuse: []
   prefer: []
   extend:
-  - {stance: hapax, entry: baseline, by: 1, when: {left: {family: qsSee, joined_at: baseline}}}
-  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: qsFee}}}
-  - {stance: hapax, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}
-  contract: [{stance: hapax, exit: x-height, by: 1, when: {right: {family: qsJai}}}]
+  - stance: hapax
+    entry: baseline
+    by: 1
+    when:
+      left:
+        family: qsSee
+        joined_at: baseline
+  - stance: hapax
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsFee}
+  - stance: hapax
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  contract:
+  - stance: hapax
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsJai}
   resolve: []
   groups: {}
