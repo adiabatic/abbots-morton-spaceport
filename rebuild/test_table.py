@@ -203,7 +203,7 @@ class TestDepthThreeTables:
         )
 
     def test_depth4_inputs_census(self, real_spec):
-        assert depth4_inputs(real_spec) == frozenset({"qsDay"})
+        assert depth4_inputs(real_spec) == frozenset({"qsDay", "qsOy", "qsTea_qsOy"})
 
     def test_look3_enumerated_lazily(self, real_spec, real_default_decision):
         deep = depth3_inputs(real_spec)
