@@ -78,6 +78,10 @@ qsIt.ex-y0.before-day.after-no-baseline-join: {rune: qsIt, stance: hapax, exit: 
 qsIt.ex-y0.before-utter: {rune: qsIt, stance: hapax, exit: baseline}
 qsIt.ex-y5: {rune: qsIt, stance: hapax, exit: x-height}
 qsIt.noentry: {rune: qsIt, stance: hapax, adjustments: [locked]}
+qsAh: {rune: qsAh, stance: hapax}
+qsAh.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
+qsAh.noentry: {rune: qsAh, stance: hapax, adjustments: [locked]}
+qsAh.noentry.ex-ext-1: {rune: qsAh, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
 qsOy: {rune: qsOy, stance: hapax}
 qsOy.en-y5.ex-y0: {rune: qsOy, stance: hapax, entry: x-height, exit: baseline}
 qsOy.noentry: {rune: qsOy, stance: hapax, adjustments: [locked]}
