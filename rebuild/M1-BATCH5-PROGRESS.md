@@ -4,7 +4,9 @@ Scratch progress file for the in-flight qsAh migration; delete at batch close, l
 
 ## Committed
 
-- (pending) Add ·Ah
+- a97767a Add ·Ah
+- a1ceb3b Let ·Ah·May·Tea join on both sides of ·May again (the sitting's 17 rejects; the ss03/ss10 arms deliberately hold their adjudicated renders)
+- c1814af Draw word-final ·Ah·Tea with the full bar under ss03 (the sitting's neither on ·Fee·Utter·Ah·Tea)
 
 ## Parked
 
