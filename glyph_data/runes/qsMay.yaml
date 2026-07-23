@@ -142,7 +142,6 @@ policy:
     when:
       right:
         family:
-        - qsTea
         - qsDay
         - qsZoo
         - qsHe
@@ -152,6 +151,24 @@ policy:
         - qsEat
         - qsUtter
         - qsOoze
+  - stance: grounded-loop
+    exit: baseline
+    when:
+      left:
+        except:
+        - {family: qsAh}
+      right: {family: qsTea}
+    why: the old way has ·May make both permissible joins
+  - stance: grounded-loop
+    exit: baseline
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  - stance: grounded-loop
+    exit: baseline
+    when:
+      right: {family: qsTea}
+      feature: ss10
   - stance: grounded-loop
     exit: baseline
     when:
