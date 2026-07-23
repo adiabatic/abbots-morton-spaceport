@@ -1,0 +1,15 @@
+format: ams-standing-approvals/1
+rules:
+  - id: tea-oy-ligature-break
+    verdict: approve
+    note: "·X ~x~ ·Tea.half | ·Oy → ·X | ·Tea+Oy: never going to have a different opinion unless ·X is ·Out"
+    match:
+      before:
+        pivot: qsTea.half
+        seam_into: y5
+        seam_out: break
+        follower: qsOy
+      after:
+        ligature: qsTea_qsOy
+        seam_into: break
+      except_left: [qsOut]
