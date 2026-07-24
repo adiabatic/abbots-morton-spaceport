@@ -94,15 +94,7 @@ stances:
             - qsOwe
             - qsFoot
             joined_at: x-height
-          right: {class: can-enter-at-baseline}
-      # if ss03 is on (and it is), then this should be …·Ah·Tea.!half
-      - entry: x-height
-        feature: ss03
-        when:
-          left:
-            family: qsAh
-            joined_at: x-height
-          right: {is: boundary}
+        why: When ss03 is on, I’d rather have `·Ah ~x~ ·Tea.!half` than `·Ah | ·Tea` or `·Ah ~x~ ·Tea.half` — and same thing for other letters (not just ·Ah) that stick out with a flat rightward stroke
       require: []
   half:
     motion: half
