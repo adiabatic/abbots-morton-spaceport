@@ -188,7 +188,8 @@
         "entry": {"$ref": "#/$defs/height", "description": "Grants an extra entry height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
         "exit": {"$ref": "#/$defs/height", "description": "Grants an extra exit height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
         "pairing": {"$ref": "#/$defs/pairing", "description": "Grants an extra entry+exit combination while the feature is on — a pair `pairings` would otherwise forbid. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
-        "when": {"$ref": "#/$defs/when", "description": "Narrows the grant to a context — the usual `when` rules apply (settled left, raw right). Without it, the unlock holds wherever the feature is on."}
+        "when": {"$ref": "#/$defs/when", "description": "Narrows the grant to a context — the usual `when` rules apply (settled left, raw right). Without it, the unlock holds wherever the feature is on."},
+        "why": {"type": "string", "description": "An optional note saying why this grant exists. It records the author's rationale and changes no shaping."}
       },
       "oneOf": [
         {"required": ["entry"], "allOf": [{"not": {"required": ["exit"]}}, {"not": {"required": ["pairing"]}}]},

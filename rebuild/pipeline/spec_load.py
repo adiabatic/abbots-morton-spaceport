@@ -403,6 +403,7 @@ def _surface(raw: dict | None, context: _FileContext, base_path: str) -> Surface
                 exit=item.get("exit"),
                 pairing=_pairing(item["pairing"]) if "pairing" in item else None,
                 when=_when(item.get("when")) if item.get("when") else None,
+                why=item.get("why"),
                 provenance=context.provenance(f"{base_path}.unlocks[{index}]"),
             )
             for index, item in enumerate(raw.get("unlocks", ()))

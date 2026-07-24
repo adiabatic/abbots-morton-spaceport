@@ -127,6 +127,7 @@ class Unlock:
     exit: Height | None = None
     pairing: Pairing | None = None
     when: When | None = None
+    why: str | None = None
     provenance: Provenance | None = None
 
 
