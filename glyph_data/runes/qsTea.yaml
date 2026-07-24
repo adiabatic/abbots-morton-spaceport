@@ -66,33 +66,15 @@ stances:
         feature: ss03
         when:
           left:
-            family: qsFee
-            joined_at: x-height
-      - entry: x-height
-        feature: ss03
-        when:
-          left:
-            family: qsMay
-            joined_at: x-height
-      - entry: x-height
-        feature: ss03
-        when:
-          left:
             family:
             - qsDay_qsUtter
+            - qsFee
+            - qsMay
             - qsLow
-            - qsUtter
-            joined_at: x-height
-      - entry: x-height
-        feature: ss03
-        when:
-          left:
-            family:
             - qsI
             - qsAh
+            - qsUtter
             - qsOut
-            - qsOwe
-            - qsFoot
             joined_at: x-height
         why: When ss03 is on, I’d rather have `·Ah ~x~ ·Tea.!half` than `·Ah | ·Tea` or `·Ah ~x~ ·Tea.half` — and same thing for other letters (not just ·Ah) that stick out with a flat rightward stroke
       require: []
@@ -147,8 +129,6 @@ stances:
             - qsAh
             - qsUtter
             - qsOut
-            - qsOwe
-            - qsFoot
             joined_at: x-height
       require: []
 policy:
