@@ -105,7 +105,6 @@ stances:
             - qsUtter
             - qsOut
             - qsOwe
-            joined_at: x-height
       cells: []
       unlocks: []
       require:
