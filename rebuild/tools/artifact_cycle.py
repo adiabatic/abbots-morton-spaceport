@@ -442,6 +442,7 @@ class Plan:
     skip_rebuild_gate: bool = False
     rebuild_gate_note: str = ""
     conform_note: str = ""
+    conform_proven: bool = False
     skip_census: bool = False
     census_skip_note: str = ""
     record_greens: bool = False
@@ -495,6 +496,7 @@ def build_plan(
     skip_rebuild_gate: bool = False,
     rebuild_gate_note: str = "",
     conform_note: str = "",
+    conform_proven: bool = False,
     skip_census: bool = False,
     census_skip_note: str = "",
     record_greens: bool = False,
@@ -535,6 +537,7 @@ def build_plan(
         skip_rebuild_gate=skip_rebuild_gate,
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
+        conform_proven=conform_proven,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         record_greens=record_greens,
@@ -1715,8 +1718,9 @@ def _as_str(value: object | None) -> str | None:
     return None if value is None else str(value)
 
 
-def _gate_entry(status: str) -> dict:
-    return {"status": status, "green": status.startswith("green")}
+def _gate_entry(status: str, skip: str | None = None) -> dict:
+    """`skip` is why the gate did not run, and it is the discriminator the readiness checker needs: "proved" means a matching green record already showed this exact content passing, so the state is verified; "forced" means a flag suppressed the gate and nothing proved anything. The status prose cannot carry that — both kinds read "skipped (...)" — and a reader that cannot tell them apart is what once let --skip-conform report READY."""
+    return {"status": status, "green": status.startswith("green"), "skip": skip}
 
 
 def _surface_block(surface_dir: Path) -> dict:
@@ -1738,9 +1742,12 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "failures": list(failures),
         "gates": {
             "js": _gate_entry(report.gate_js),
-            "rebuild": _gate_entry(report.gate_rebuild),
-            "conform": _gate_entry(report.gate_conform),
-            "make_test": _gate_entry(report.gate_make_test),
+            "rebuild": _gate_entry(report.gate_rebuild, "proved" if plan.skip_rebuild_gate else None),
+            "conform": _gate_entry(
+                report.gate_conform,
+                "proved" if plan.conform_proven else ("forced" if plan.skip_conform else None),
+            ),
+            "make_test": _gate_entry(report.gate_make_test, "proved" if plan.skip_make_test else None),
         },
         "make_test_fingerprint": (
             plan.make_test_fingerprint
@@ -2125,6 +2132,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_rebuild_gate=skip_rebuild_gate,
             rebuild_gate_note=rebuild_gate_note,
             conform_note=conform_note,
+            conform_proven=auto_skip_conform,
             skip_census=skip_census,
             census_skip_note=census_skip_note,
             keep_history=args.keep_history,
@@ -2163,6 +2171,7 @@ def main(argv: list[str] | None = None) -> int:
         skip_rebuild_gate=skip_rebuild_gate,
         rebuild_gate_note=rebuild_gate_note,
         conform_note=conform_note,
+        conform_proven=auto_skip_conform,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
         record_greens=True,

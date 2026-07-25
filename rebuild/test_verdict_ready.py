@@ -201,7 +201,67 @@ def test_gates_exit_failed(tmp_path):
     assert "rebuild" in gates["detail"]
 
 
-def test_gates_skipped_conform_warns(tmp_path):
+GATE_NAMES = ("js", "rebuild", "conform", "make_test")
+
+
+def _gate_map(**overrides):
+    base = {name: {"status": "passed", "green": True, "skip": None} for name in GATE_NAMES}
+    base.update(overrides)
+    return base
+
+
+def test_gates_forced_skip_fails(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(
+        tmp_path,
+        gates=_gate_map(conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"}),
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "unverified" in gates["detail"]
+    assert "conform" in gates["detail"]
+
+
+def test_gates_not_run_fails_as_unverified(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(
+        tmp_path,
+        gates={name: {"status": "not run", "green": False, "skip": None} for name in GATE_NAMES},
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "unverified" in gates["detail"]
+    assert "failing gates" not in gates["detail"]
+
+
+def test_gates_proved_skip_is_ready(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(
+        tmp_path,
+        gates=_gate_map(
+            conform={"status": "skipped (inputs unchanged)", "green": False, "skip": "proved"},
+            make_test={"status": "skipped (closure unchanged)", "green": False, "skip": "proved"},
+        ),
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "ok"
+
+
+def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
+    write_surface(tmp_path / "rebuild" / "out" / "review")
+    write_summary(
+        tmp_path,
+        gates=_gate_map(
+            rebuild={"status": "FAILED (exit 1)", "green": False, "skip": None},
+            conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
+        ),
+    )
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail"
+    assert "failing gates: rebuild" in gates["detail"]
+
+
+def test_gates_legacy_summary_without_skip_key_keeps_its_old_verdict(tmp_path):
     write_surface(tmp_path / "rebuild" / "out" / "review")
     write_summary(
         tmp_path,
@@ -214,7 +274,7 @@ def test_gates_skipped_conform_warns(tmp_path):
     )
     gates = call(tmp_path)["checks"]["gates"]
     assert gates["level"] == "warn"
-    assert "conform" in gates["detail"]
+    assert "predates" in gates["detail"]
 
 
 def test_gates_all_green_ok(tmp_path):
