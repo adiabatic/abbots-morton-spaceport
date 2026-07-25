@@ -96,16 +96,14 @@ policy:
   - mono
   - alternate
   refuse:
-  - stance: alternate
-    exit: baseline
+  - exit: baseline
     when:
       right:
         family:
         - qsYe
         - qsHe
         - qsUtter
-  - stance: alternate
-    exit: baseline
+  - exit: baseline
     when:
       left: {is: boundary}
       right: {family: qsNo}
@@ -150,8 +148,7 @@ policy:
       right: {family: qsMay}
     why: 'if `·Utter.alt ~b~ ·May` works, then `·No ~x~ ·Utter.alt ~b~ ·May` should work too; we should have an ·Utter.alt that can connect to the previous letter at the x-height'
   extend:
-  - stance: mono
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right:
@@ -160,15 +157,13 @@ policy:
         - qsGay
         - qsThey
         - qsFee
-  - stance: mono
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsTea}
       feature: ss03
   contract:
-  - stance: mono
-    exit: x-height
+  - exit: x-height
     by: 2
     when:
       right: {family: qsJai}

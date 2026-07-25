@@ -72,8 +72,7 @@ policy:
     when:
       left: {family: qsIt}
     why: ·It never joins to itself. Retires the round-1 entered-it-baseline-join-gain approvals and deliberately forgoes the old font's lone real ·It·It chain (ss04, before ·Utter).
-  - stance: hapax
-    exit: x-height
+  - exit: x-height
     when:
       right:
         family:
@@ -99,8 +98,7 @@ policy:
         - qsYe
         - qsIt
         - qsEat
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     when:
       self: {entry: none}
       right:
@@ -123,8 +121,7 @@ policy:
         - {family: qsDay}
         - {family: qsDay_qsUtter}
         - {family: qsUtter}
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     when:
       self: {entry: none}
       left:
@@ -134,8 +131,7 @@ policy:
         - qsEat
         - qsOwe
       right: {family: qsUtter}
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     when:
       self: {entry: live}
       left:
@@ -152,13 +148,11 @@ policy:
       right: {family: qsNo}
   extend:
   # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
-  - stance: hapax
-    entry: baseline
+  - entry: baseline
     by: 1
     when:
       left: {family: qsKey}
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     by: 1
     when:
       self: {entry: live}
@@ -170,14 +164,12 @@ policy:
         - {family: qsMay}
         - {family: qsLow}
         - {family: qsUtter}
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     by: 1
     when:
       self: {entry: none}
       right: {family: qsI}
-  - stance: hapax
-    exit: baseline
+  - exit: baseline
     by: 1
     when:
       right:
@@ -185,8 +177,7 @@ policy:
         - qsJai
         - qsCheer
         - qsOwe
-  - stance: hapax
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right:

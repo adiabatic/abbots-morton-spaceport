@@ -59,8 +59,7 @@ policy:
   refuse: []
   prefer: []
   extend:
-  - stance: hapax
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right:
@@ -69,15 +68,13 @@ policy:
         - qsThey
         - qsFee
         - qsMay
-  - stance: hapax
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsTea}
       feature: ss03
   contract:
-  - stance: hapax
-    exit: x-height
+  - exit: x-height
     by: 2
     when:
       right: {family: qsJai}

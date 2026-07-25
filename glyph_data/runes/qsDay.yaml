@@ -76,8 +76,7 @@ policy:
   - full
   - half
   refuse:
-  - stance: half
-    entry: baseline
+  - entry: baseline
     when:
       left: {family: qsWay}
   prefer:
@@ -164,8 +163,7 @@ policy:
                   - qsUtter
     why: '`·Day ~b~ ·Tea` is less pleasant to write than `·Tea ~b~ ·Utter`'
   extend:
-  - stance: half
-    entry: baseline
+  - entry: baseline
     by: 1
     when:
       left:
