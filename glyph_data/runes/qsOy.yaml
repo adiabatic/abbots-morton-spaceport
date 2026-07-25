@@ -50,7 +50,6 @@ stances:
             - qsAh
             - qsUtter
             - qsOut
-            joined_at: x-height
       exits:
         baseline:
           x: 8

@@ -46,7 +46,6 @@ stances:
             - qsIt
             - qsOy
             - qsUtter
-            joined_at: baseline
       exits:
         x-height:
           x: 7

@@ -43,12 +43,9 @@ stances:
             - 0
             inks_when: joined
           from:
-          - family: qsMay
-            joined_at: x-height
-          - family: qsUtter
-            joined_at: x-height
-          - family: qsDay_qsUtter
-            joined_at: x-height
+          - {family: qsMay}
+          - {family: qsUtter}
+          - {family: qsDay_qsUtter}
         baseline:
           x: 3
           stroke: vertical
@@ -106,12 +103,9 @@ stances:
             - 0
             inks_when: joined
           from:
-          - family: qsMay
-            joined_at: x-height
-          - family: qsUtter
-            joined_at: x-height
-          - family: qsDay_qsUtter
-            joined_at: x-height
+          - {family: qsMay}
+          - {family: qsUtter}
+          - {family: qsDay_qsUtter}
       exits:
         y6:
           x: 4

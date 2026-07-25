@@ -76,7 +76,6 @@ stances:
             - qsFee
             - qsNo
             - qsUtter
-            joined_at: x-height
       exits:
         baseline:
           x: 5
