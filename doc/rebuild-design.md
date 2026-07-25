@@ -81,8 +81,7 @@ stances:
     - "  ## "
     y_offset: -3
     bitmaps:                 # optional named hand-drawn siblings, referenced by cell/anchor bindings below
-      pulled-back:          {bitmap: [...], y_offset: -3}
-      pulled-back-grounded: {bitmap: [...], y_offset: -3}
+      pulled-back-stubless: {bitmap: [...], y_offset: -3}
     surface: { ... }
 ```
 
@@ -93,19 +92,18 @@ stances:
 The surface is the heart of the format: the stance’s complete join capability, as data.
 
 ```yaml
-surface:
+surface:                                      # a composite: the rows above cells: are qsMay's loop, the cells: rows are qsUtter's alternate
   entries:
     baseline:  {x: 0, stroke: horizontal}
-    x-height:  {x: 3, stroke: horizontal, joined: pulled-back}
+    x-height:  {x: 3, stroke: horizontal, joined: pulled-back-stubless, joined_x: 2}
   exits:
-    x-height:  {x: 5, stroke: horizontal, withdrawal: pulled-back}
+    x-height:  {x: 5, stroke: horizontal}
   pairings:
     never:
-      - {entry: baseline, exit: baseline}     # qsMay's prose note, now machine-checked
-      - {entry: x-height, exit: x-height}
+      - {entry: x-height, exit: x-height}     # qsMay's prose note at the x-height, now machine-checked
   cells:
-    - {entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}        # explicit per-cell binding when side bindings compose
-    - {entry: x-height, exit: baseline, bitmap: pulled-back-grounded, entry_x: 2}   # (illustrative; ·May's real baseline exit lives on grounded-loop)
+    - {entry: x-height, exit: baseline, bitmap: reaches-way-back, exit_x: 6}             # per-cell anchor override: the exit moves with the joined form
+    - {entry: x-height, exit: baseline-withdrawn, bitmap: reaches-way-back-withdrawn}    # entry-live + exit-declined, named rather than computed
   unlocks: []                                 # ss capability rows; each may carry a narrowing when:
   require: []                                 # [entry] / [exit] for join-born stances that only exist joined
 ```
@@ -115,9 +113,9 @@ Key by key:
 - **`entries` / `exits`** — maps keyed by height name. `x:` is the anchor’s x pixel; y is implied by the height. The validator enforces the standing conventions (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`) against the **resolved per-cell bitmap** (see below), and requires an explicit `x_off_convention: true` flag on the deliberate exceptions (·He, ·Ye, the inset wide-letter entries), so drift cannot be committed silently. `ink_y:` carries today’s `exit_ink_y`; `selectable: false` carries today’s `entry_curs_only` (both kept as flagged oddities). A stance may declare several entries (·Roe’s dual-height entry is two rows, not a special list form).
 - **`stroke:`** — `horizontal | vertical | diagonal`, the stroke orientation at the attachment: closed condition axis 4, new first-class data, the input to the orientation-mismatch and collision flaggers.
 - **`toward:` / `from:`** — optional positive neighbor scope on an exit/entry row: a row with `toward: [{family: qsMay}]` produces joining cells only against the named set (conditions from §3.4, predicate classes allowed). This is the one-line home of today’s positive allowlists (·They’s tuck exists only toward ·May; ·Roe’s baseline exit fires only before nine named families), and it is load-bearing for migration (§13.3): without it, every allowlist would have to be inverted into complement refusals, and join-count would flip hundreds of deliberately-unjoined pairs to joined. The dead-policy gate checks scopes, so an empty scope cannot rot silently.
-- **`stub:`** — columns of ink at this anchor’s row that exist only in the states where this side’s join is absent, blanked in the states where the declared removal applies. A stub declares which liveness state removes it (`stub: {cols: [4], when: joined}` or `when: withdrawn`), because the real data has both polarities: ·Gay’s opened top loses its corner pixel when the entry joins, while ·May’s exit connector at column 4 is kept when the exit joins and removed when the exit is declined. Stub edits are strictly same-row and are validated against the resolved per-cell bitmap; anything that wants to differ across rows is a hand-drawn shape, never a computed edit.
-- **`joined:` / `withdrawal:`** — per-side bindings to hand-drawn sibling bitmaps: `joined:` names the form used when this side is live (for redraws beyond a same-row stub), `withdrawal:` names the form used when this side is declined mid-word, or `safe` when the compiler can verify the isolated ink has no reaching connector at this row. A declined side whose ink would dangle and which binds no withdrawal shape is the hard error `E-DANGLE`. This replaces the entire authored `.ex-noentry` / `.noentry` / `noexit` universe with one checkable obligation: ·May’s x-height exit binds `withdrawal: pulled-back` (today’s two `ex-noentry` stances are just cells), and nothing is named after a context.
-- **`cells:`** — the explicit binding grain. Side bindings (`stub`, `joined`, `withdrawal`) are validated sugar that expand into per-cell bitmap bindings; when two side bindings touch the same reachable cell (·May’s entry-live + exit-withdrawn cell, or a both-sides-live cell like today’s `pulled_back…and_exits_at_baseline`), the composition must be named explicitly here — a `cells:` row binds the cell to one hand-drawn bitmap, with optional per-cell anchor overrides (`entry_x:`, `exit_x:`) for the real cases where the anchor moves with the form (qsMay’s x-height entry is x=3 entry-only but x=2 in the combined cell; qsUtter.alt’s exit shifts when its reach-back entry form is active). Resolution order: explicit cell binding > side bindings > base bitmap; two side bindings disagreeing on a reachable cell with no explicit `cells:` row is a build error naming the cell. All validators (stub rows, withdrawal safety, anchor conventions, gap arithmetic) run against the resolved per-cell bitmap.
+- **`stub:`** — columns of ink at this anchor’s row that appear or vanish with this side’s join state. A stub declares which state inks it (`stub: {cols: [0], inks_when: joined}` or `inks_when: withdrawn`), because the real data has both polarities: ·Pea’s x-height entry sprouts a nub at column 0 only when a letter joins there, while ·May’s grounded loop carries a column-3 pixel in its base drawing that retracts when its x-height entry joins. Stub edits are strictly same-row and are validated against the resolved per-cell bitmap; anything that wants to differ across rows is a hand-drawn shape, never a computed edit.
+- **`joined:` / `withdrawal:`** — per-side bindings to hand-drawn sibling bitmaps: `joined:` names the form used when this side is live (for redraws beyond a same-row stub), `withdrawal:` names the form used when this side is declined mid-word, or `safe` when the compiler can verify the isolated ink has no reaching connector at this row. A declined side whose ink would dangle and which binds no withdrawal shape is the hard error `E-DANGLE`. This replaces the entire authored `.ex-noentry` / `.noentry` / `noexit` universe with one checkable obligation: today’s two ·May `ex-noentry` stances are just cells, ·Utter’s alternate names its declined-exit drawing on a `cells:` row instead (`reaches-way-back-withdrawn`), and nothing is named after a context.
+- **`cells:`** — the explicit binding grain. Side bindings (`stub`, `joined`, `withdrawal`) are validated sugar that expand into per-cell bitmap bindings; when a cell’s drawing is neither of the answers the sugar can give (·Utter.alt’s entry-live + exit-declined cell, whose entry binding says `reaches-way-back` and whose decline wants the withdrawn form), the composition must be named explicitly here — a `cells:` row binds the cell to one hand-drawn bitmap, with optional per-cell anchor overrides (`entry_x:`, `exit_x:`) for the real cases where the anchor moves with the form (qsUtter.alt’s exit shifts to x=6 when its reach-back entry form is active; ·Oy’s opened loop moves its baseline exit to x=5). Resolution order: explicit cell binding > side bindings > base bitmap; two side bindings disagreeing on a reachable cell with no explicit `cells:` row is a build error naming the cell. All validators (stub rows, withdrawal safety, anchor conventions, gap arithmetic) run against the resolved per-cell bitmap.
 - **`pairings`** — constraints over two-sided cells: `never:` (subtractive, common) or `only:` (when the legal set is smaller than its complement, as for ·It). One-sided and isolated cells always exist unless `require` removes them.
 - **`unlocks`** — stylistic-set capability rows adding an entry, an exit, or a pairing under a feature, each with an optional narrowing `when:` from the closed vocabulary — necessary, not optional, in practice: every one of today’s ten SS unlocks is context-scoped (ss05’s ·Tea both-baseline fires only after ·Et; ss02 only after ·I), and an unlock without its context would silently widen behavior into don’t-care drift. A deliberately context-free unlock is the special case, not the default.
 - **`require`** — this stance only makes sense joined on the named side(s). ·Fee’s counterclockwise loop declares `require: [entry]` — and the discriminator against the binding mechanisms above is ductus: ·Fee’s joined form is a genuinely different pen motion (it loops the opposite way), so it is a stance with `require`, whereas ·Gay’s opened top is the same motion minus a starting flick, so it is a binding on the arch stance’s entry row. Only a stance may carry a requirement, per core-idea.
@@ -135,15 +133,15 @@ policy:
   order: [loop, grounded-loop]    # stance preference; default = declaration order; retires name-sort and terminal_default
   refuse:
     - {when: {right: {family: qsThaw}}, why: Joined ·Way·Thaw is ugly and awkward to write by hand.}     # whole-join grain
-    - {exit: baseline, when: {right: {class: can_enter_at_baseline, except: [{family: qsNo}]}}}          # surface-row grain
+    - {exit: baseline, when: {right: {class: can-enter-at-baseline, except: [{family: qsNo}]}}}          # surface-row grain
     - {stance: flipped, when: {left: {family: qsZoo}, right: {family: qsEt}}}                            # stance grain
   prefer:
     - {stance: flipped, when: {left: {family: [qsIt, qsVie], joined_at: baseline}}}                      # mode defaults to yields-to-joins
     - {stance: smaller-loop, mode: absolute, when: {left: {family: qsPea, joined_at: baseline}}, why: This is what the join looks like, not a taste call.}
     - {cell: {exit: baseline}, over: {entry: baseline}, why: ·He joins the follower, not the predecessor, when both baseline joins are open.}   # cell grain, §5.9
   extend:
-    - {stance: loop, exit: x-height, by: 1, ok: [1, 2], when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}
-    - {stance: standard, entry: baseline, by: 1, bind: after-see, when: {left: {family: qsSee, joined_at: baseline}}}   # hand-drawn-bound form (this record belongs on qsOut; shown for the grammar)
+    - {exit: x-height, by: 1, ok: [1, 2], when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}           # no stance: — only one qsMay stance exits at the x-height
+    - {stance: standard, entry: baseline, by: 1, bind: after-see, when: {left: {family: qsSee}}}   # hand-drawn-bound form (this record belongs on qsOut; shown for the grammar)
   contract:
     - {stance: loop, entry: x-height, by: 1, when: {left: {family: qsHe}}, why: ·He's bare downstroke already sits flush.}
   resolve: []                     # recorded tie-breaks and case-groups, §6.3
@@ -155,7 +153,7 @@ policy:
 
 - **`refuse`** — the unilateral veto, applied before ranking, never negotiated, at three grains (whole join, one surface row toward a context, one stance in a context). This is the daily labor — saying no — at one line per no, with union/subtraction set algebra and predicate classes for bulk. A refusal authored on either rune kills the join; the derived view renders it from both runes’ matrices even though the record lives on one. Refuse and require records may not use `right.then` — they must be decidable one position to the left of the rune they constrain, which is what keeps the lookahead closure (§6.1) inside the window.
 - **`prefer`** — ranking among surviving candidates, at stance grain or **cell grain** (`cell: {…}, over: {…}` — needed wherever one stance’s cells compete, §5.9). `mode: yields-to-joins` (the default) suspends the preference whenever candidates’ window join-counts differ — core-idea’s “prefer X in isolation, yield when Y buys a better neighbor join” as the _default semantics_ of every preference. `mode: absolute` outranks join-count and is the rare, explicit escape (the format’s answer to taste-over-join cases); the linter notes that an absolute prefer is nearly always better written as a refuse. Prefers from **both** runes of a seam participate in that seam’s ranking (§6.1).
-- **`extend` / `contract`** — the parametric connector layer. The target `(stance, side, height)` is mandatory; a rune-level shorthand is an error when more than one stance offers the named side and height (refuse-to-guess applied to scoping — together with mandatory explicit targets, this structurally kills the mis-scoped-extension bug class). `by:` is the author’s amount; `ok: [lo, hi]` is the authored tolerance band (the autonomous loop’s declared resting place; defaults to `[by, by]` with a global `band_slack` knob). `split:` lets one logical extension be carried partly by each side, validated against the summed band. `trim: N` (receiver-side same-row ink blanking, today’s `en-trim`) is a contract option. **`bind:`** names a hand-drawn sibling bitmap (with optional anchor overrides) in place of same-row arithmetic — the sanctioned home for neighbor-conditioned junction ink that is not mechanical connector lengthening: qsRoe’s `shortened_top`/`shortened_bottom` entry-extension forms, qsOut’s after-·See bodies, qsMay’s after-·Fee stubless entry form. Bound shapes count in the §4 watchdog. At most one extend and one contract record apply per (seam, side) — the most specific (§6.2) — and same-side records never sum; only `split:` combines sides. Different amounts for different followers are additional records on the same stance, never sibling stances.
+- **`extend` / `contract`** — the parametric connector layer. The target side and height are mandatory, and `stance:` too whenever more than one stance offers that side and height; where only one does, the stance name is left off, because it would discriminate nothing (refuse-to-guess applied to scoping — together with mandatory explicit targets, this structurally kills the mis-scoped-extension bug class). `by:` is the author’s amount; `ok: [lo, hi]` is the authored tolerance band (the autonomous loop’s declared resting place; defaults to `[by, by]` with a global `band_slack` knob). `split:` lets one logical extension be carried partly by each side, validated against the summed band. `trim: N` (receiver-side same-row ink blanking, today’s `en-trim`) is a contract option. **`bind:`** names a hand-drawn sibling bitmap (with optional anchor overrides) in place of same-row arithmetic — the sanctioned home for neighbor-conditioned junction ink that is not mechanical connector lengthening: qsRoe’s `shortened_top`/`shortened_bottom` entry-extension forms and qsOut’s after-·See bodies. Bound shapes count in the §4 watchdog. At most one extend and one contract record apply per (seam, side) — the most specific (§6.2) — and same-side records never sum; only `split:` combines sides. Different amounts for different followers are additional records on the same stance, never sibling stances.
 - **`resolve`** — recorded resolutions of conflicts, in two shapes: against a named record (`{against: {rune: qsGay, id: plant-word-initial}, when: …, pick: …, why: …}`) and against the structural floor (`{at: {right: {family: qsX}}, pick: …, why: …}` — overriding the deterministic default of §6.1 for a named window class). Case-group promotion uses set expressions with union and subtraction; the subsumption linter flags individual resolves a promoted group makes deletable, and a group overlapping a surviving individual resolve is a build error. `why:` is mandatory on every resolve and every `mode: absolute` prefer; encouraged everywhere.
 - **`groups`** — rune-local named sets with first-class union and subtraction over family literals, traits, and predicate classes.
 
@@ -167,7 +165,7 @@ A `when:` object admits exactly these keys; the schema is `additionalProperties:
 when:
   left:                        # the RESOLVED left neighbor — settlement runs left to right, so this is settled fact
     family: [qsIt, qsVie]      # axis 1; ligature runes are ordinary values here; group/class references legal
-    class: can_exit_at_baseline    # a predicate class (§2) or rune-local group
+    class: can-exit-at-baseline    # a predicate class (§2) or rune-local group
     stance: flipped            # axis 2 — the neighbor's resolved stance
     joined_at: baseline        # axis 3 — the height of the join being decided (none = the seam did not join)
     stroke: vertical           # axis 4 — orientation at the facing attachment
@@ -175,11 +173,11 @@ when:
     except: [{family: qsIng}]  # negation/carve-out, legal in every condition object
   right:                       # the RAW right neighbor — static facts only, never resolved state
     family: [qsDay]
-    class: can_enter_at_baseline
+    class: can-enter-at-baseline
     stroke: horizontal
     is: boundary
     except: [{family: qsMay}]
-    then: {family: [qsExam], class: can_enter_at_xheight}    # a static hop; may nest two further thens, and an except entry may carry its own chain — capped three hops out
+    then: {family: [qsExam], class: can-enter-at-x-height}    # a static hop; may nest two further thens, and an except entry may carry its own chain — capped three hops out
   self: {entry: live}          # this position's own cell state — live | none per side (replaces extend_exit_when_entered)
   word: final                  # axis 5 — initial | medial | final | isolated (derived from run-splitting boundaries)
   feature: ss04                # axis 7 — active stylistic set(s)
@@ -210,7 +208,7 @@ All geometry below is today’s real data. (The four candidate designs each work
 
 ### 5.1 ·May: motions, and surrender with one authored line
 
-·May is two realized motions (`loop` rising to the x-height; `grounded-loop` resting on the baseline) plus an `unrealized: counterclockwise` ledger entry. The real geometry, expressed exactly:
+·May is two realized motions: `loop`, rising to the x-height, and `grounded-loop`, resting on the baseline. The real geometry, expressed exactly:
 
 ```yaml
 stances:
@@ -218,32 +216,28 @@ stances:
     motion: loop
     bitmap: [...]                          # today's mono drawing
     bitmaps:
-      pulled-back: {bitmap: [...]}         # today's pulled_back_a_bit_for_entry_at_short_height — one pixel off at y=5
-      pulled-back-stubless: {bitmap: [...]}    # today's …without_stubbie, the after-·Fee entry form
+      pulled-back-stubless: {bitmap: [...]}    # today's pulled_back…without_stubbie, the form every x-height arriver gets
     surface:
       entries:
         baseline: {x: 0, stroke: horizontal}
-        x-height: {x: 3, stroke: horizontal, joined: pulled-back}
+        x-height: {x: 3, stroke: horizontal, joined: pulled-back-stubless, joined_x: 2}   # the entry anchor moves with the bound form
       exits:
-        x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}
+        x-height: {x: 5, stroke: horizontal}
       pairings:
-        never: [{entry: baseline, exit: baseline}, {entry: x-height, exit: x-height}]
-      cells:
-        - {entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}   # entry-live + exit-declined compose to one drawing
+        never: [{entry: x-height, exit: x-height}]
   grounded-loop:
     motion: grounded-loop
     bitmap: [...]                          # today's exits_at_baseline
-    bitmaps:
-      pulled-back-grounded: {bitmap: [...]}    # today's pulled_back…and_exits_at_baseline
     surface:
-      entries: {x-height: {x: 3, joined: pulled-back-grounded, joined_x: 2}}     # the entry anchor moves with the bound form
-      exits:   {baseline: {x: 4}}
+      entries:
+        x-height: {x: 2, stroke: horizontal, stub: {cols: [3], inks_when: withdrawn}}   # the base drawing's connector pixel retracts on the join
+      exits:   {baseline: {x: 4, stroke: horizontal}}
 policy:
-  contract:
-    - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee, joined_at: x-height}}, why: ·Fee's long reach-over absorbs the baseline stubbie; the redraw spans rows, so it is a bound shape, not arithmetic.}
+  contract:                                # illustrative: qsMay.policy.contract is empty — see below
+    - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee}}, why: ·Fee's long reach-over absorbs the baseline stubbie; the redraw spans rows, so it is a bound shape, not arithmetic.}
 ```
 
-The connector pixel at column 4 of the y=5 row is kept when the exit joins (it is the connecting stroke) and removed when the exit is declined mid-word — so it is the `withdrawal: pulled-back` binding, _not_ a stub blanked on join, and `withdrawal: safe` would rightly fail `E-DANGLE` verification here. In `·May·They+Utter` — where the ligature refuses entries after ·May — settlement sees before committing anything that the seam offers no entry, so ·May lands in its (baseline-entry, exit-withdrawn) or (none, exit-withdrawn) cell, rendered with the bound form. Today’s two authored `ex-noentry` stances, the `_exit_noentry_fallback` scorer, and the post-liga left-cleanup pass are all replaced by cell semantics plus one `withdrawal:` binding; the four hand-drawn ·May variants of one motion all survive as bindings of one stance, and nothing is named after a context.
+Neither stance needs a `cells:` row, because on each of them only one side carries a binding and the sugar resolves with nothing to compose: the loop swaps in a whole hand-drawn sibling when its x-height entry is live, and the grounded loop needs only a same-row stub, retracting column 3 of its y=5 row when its own entry joins. The `contract:` record above is the `bind:` grammar shown on ·May’s first candidate for it, an after-·Fee stubless entry; it stays illustrative because the shipped entry row binds `pulled-back-stubless` for every arriver, so the record lives only in the M1 fixture spec. Where a decline genuinely redraws across rows the composition is named on a `cells:` row instead: ·Utter’s alternate binds `reaches-way-back-withdrawn` for its declined baseline exit, which is why that row cannot claim `withdrawal: safe`. In `·May·They+Utter` — where the ligature refuses entries after ·May — settlement sees before committing anything that the seam offers no entry, so ·May lands in its (baseline-entry, exit-none) or (none, exit-none) cell. Today’s two authored `ex-noentry` stances, the `_exit_noentry_fallback` scorer, and the post-liga left-cleanup pass are all replaced by cell semantics; ·May’s hand-drawn variants and its context-named stances come down to two motions plus one binding and one stub, and nothing is named after a context.
 
 ### 5.2 ·No after ·It/·Vie: the canonical accretion stance, dissolved
 
@@ -251,7 +245,7 @@ The connector pixel at column 4 of the y=5 row is kept when the exit joins (it i
 
 ### 5.3 ·It·No: contextual preference that yields
 
-One record on qsNo: `- {stance: flipped, when: {left: {family: qsIt}}}` (default mode, yields-to-joins). Settlement at ·It’s seat ranks pair candidates (§6.1), with ·No’s prefer participating from the right side of the seam. In isolation, both seam heights score 1 join with no onward prospect, so the tie goes to the prefer: flipped wins. In `·It·No·Owe`, the x-height path scores 2 (the seam plus ·No’s prospective x-height exit into ·Owe, which the baseline path forecloses), so plain `loop` wins before the prefer is consulted. In `·Roe·It·No` with ·Roe resolved to a baseline exit, ·It’s pairings force the x-height exit and only `loop` can join — capability, not preference. One line, three behaviors, each printable by `tools/explain.py`. (A scope note from verification: ·Roe’s baseline exit is itself allowlist-scoped today — its row carries `toward:` the nine families it serves, which does not include ·It; the example’s premise holds via ·Roe’s other followers.)
+One record on qsNo: `- {stance: flipped, when: {left: {family: qsIt, joined_at: baseline}}}` (default mode, yields-to-joins). Settlement at ·It’s seat ranks pair candidates (§6.1), with ·No’s prefer participating from the right side of the seam. In isolation, both seam heights score 1 join with no onward prospect, so the tie goes to the prefer: flipped wins. In `·It·No·Owe`, the x-height path scores 2 (the seam plus ·No’s prospective x-height exit into ·Owe, which the baseline path forecloses), so plain `loop` wins before the prefer is consulted. In `·Roe·It·No` with ·Roe resolved to a baseline exit, ·It’s pairings force the x-height exit and only `loop` can join — capability, not preference. One line, three behaviors, each printable by `tools/explain.py`. (A scope note from verification: ·Roe’s baseline exit is itself allowlist-scoped today — its row carries `toward:` the nine families it serves, which does not include ·It; the example’s premise holds via ·Roe’s other followers.)
 
 ### 5.4 ·Utter·Gay·Low·It (“ugly”): priority over the intersection
 
