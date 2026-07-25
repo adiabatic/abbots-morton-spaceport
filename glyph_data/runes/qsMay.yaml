@@ -56,18 +56,8 @@ stances:
           joined: pulled-back-stubless
           joined_x: 2
           from:
-          - {family: qsDay_qsUtter}
-          - {family: qsThey_qsUtter}
+          - {class: x-height-arrivers}
           - {family: qsFee}
-          - {family: qsVie_qsUtter}
-          - {family: qsSee_qsUtter}
-          - {family: qsJai_qsUtter}
-          - {family: qsJay_qsUtter}
-          - {family: qsWay_qsUtter}
-          - {family: qsWhy_qsUtter}
-          - {family: qsI}
-          - {family: qsAh}
-          - {family: qsUtter}
       exits:
         x-height:
           x: 5
@@ -103,17 +93,7 @@ stances:
             - 3
             inks_when: withdrawn
           from:
-          - {family: qsDay_qsUtter}
-          - {family: qsThey_qsUtter}
-          - {family: qsVie_qsUtter}
-          - {family: qsSee_qsUtter}
-          - {family: qsJai_qsUtter}
-          - {family: qsJay_qsUtter}
-          - {family: qsWay_qsUtter}
-          - {family: qsWhy_qsUtter}
-          - {family: qsI}
-          - {family: qsAh}
-          - {family: qsUtter}
+          - {class: x-height-arrivers}
       exits:
         baseline:
           x: 4
@@ -216,4 +196,17 @@ policy:
       self: {entry: live}
   contract: []
   resolve: []
-  groups: {}
+  groups:
+    x-height-arrivers:
+      union:
+      - {family: qsDay_qsUtter}
+      - {family: qsThey_qsUtter}
+      - {family: qsVie_qsUtter}
+      - {family: qsSee_qsUtter}
+      - {family: qsJai_qsUtter}
+      - {family: qsJay_qsUtter}
+      - {family: qsWay_qsUtter}
+      - {family: qsWhy_qsUtter}
+      - {family: qsI}
+      - {family: qsAh}
+      - {family: qsUtter}
