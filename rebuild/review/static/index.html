@@ -53,7 +53,6 @@
         <button type="button" id="open-import">Import…</button>
         <button type="button" id="open-docket" title="A live work order over the blank units: clusters sharing one before→after ink delta, largest first. Every button stacks a decision as a worklist here in the app, and the view re-sorts itself as verdicts land.">Docket</button>
         <button type="button" id="jump-unverdicted" title="Jump to the first unverdicted unit, across every class and batch">First unverdicted</button>
-        <button type="button" id="copy-verdicts">Copy verdicts</button>
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="open-help" aria-keyshortcuts="?">Keys <kbd>?</kbd></button>
       </div>
@@ -159,7 +158,6 @@
       <h2>Import verdicts</h2>
       <p>Merge a previously exported <code>verdicts.json</code> by unit id; the newer record per unit wins.</p>
       <label class="file-label">File <input type="file" id="import-file" accept="application/json,.json" /></label>
-      <label class="paste-label">Or paste <textarea id="import-paste" rows="6" spellcheck="false"></textarea></label>
       <div class="dialog-actions">
         <button type="button" id="do-import">Import</button>
         <form method="dialog"><button>Cancel</button></form>

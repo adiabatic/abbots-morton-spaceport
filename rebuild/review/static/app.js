@@ -2278,23 +2278,11 @@ function wireEvents() {
   document.getElementById('open-help').addEventListener('click', () => helpDialog.showModal());
   document.getElementById('open-import').addEventListener('click', () => importDialog.showModal());
   document.getElementById('download-verdicts').addEventListener('click', downloadVerdicts);
-  document.getElementById('copy-verdicts').addEventListener('click', (event) => {
-    copyToClipboard(exportPayload(), event.target.closest('button'));
-    markExported(store);
-    updateProgress();
-    toast(`Copied ${store.records.size} verdicts to the clipboard`);
-  });
 
   document.getElementById('do-import').addEventListener('click', async () => {
     const fileInput = document.getElementById('import-file');
-    const paste = document.getElementById('import-paste');
-    if (fileInput.files.length > 0) {
-      runImport(await fileInput.files[0].text());
-    } else if (paste.value.trim()) {
-      runImport(paste.value);
-    } else {
-      toast('Choose a file or paste an export first');
-    }
+    if (fileInput.files.length > 0) runImport(await fileInput.files[0].text());
+    else toast('Choose a file first');
   });
 
   window.addEventListener('hashchange', () => {
