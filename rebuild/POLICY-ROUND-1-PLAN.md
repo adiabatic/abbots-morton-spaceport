@@ -19,13 +19,3 @@ Round 1 is closed. Its edits are in the runes, its per-class verdict rationale i
 
 - **The run never writes the ledger file.** Counts in `rebuild/m1-divergences.yaml` are filled from the conformance run and reviewed as a diff. That ledger’s own header comment is the enforced statement of this, and of the status vocabulary and the partition rule alongside it.
 - **A round never fabricates a verdict.** Unverdicted units stay unverdicted, and a skip yields a proposal the user rules on — never a recorded verdict.
-
-## The rationale two qsMay records lost
-
-`qsMay.policy.prefer[1]` (word start) and `[2]` (chain interior) are the greedy ·May·May pairing this round authored, and both are live. Their `why:` fields were removed in `875b44c`, so the block below — reproduced exactly as round 1 wrote it — is the only surviving statement of why those two records exist, including the warning against deleting the chain-interior one as redundant. Restoring the texts to the rune is the user’s call, a `why:` being the user’s own voice; until that happens this block is not a copy that may be trimmed.
-
-```yaml
-  prefer:
-  - {cell: {exit: baseline}, when: {left: {is: boundary}, right: {family: qsMay}}, why: 'Round-1 verdict on ·May·May·May·May — "the old way seems nicer to write out by hand": at word start, pair up — the grounded baseline join into the next ·May beats declining when the join counts tie.'}
-  - {cell: {exit: baseline}, when: {left: {family: qsMay, joined_at: none}, right: {family: qsMay}}, why: 'Chain interior of the same verdict ("the old way seems nicer to write out by hand"): after an unjoined ·May, pair with the next ·May. The acceptance oracle''s window universe tops out at four letters, where the word-start record alone already reproduces every outcome (including the u-0341 quad flip), so this record is invisible to the divergence audit — do not delete it as redundant. Its real load is ·May chains of five or more, which without it regress to the rejected defer-to-the-tail grouping instead of the old greedy y0 | break | y0 | break pairing the shipped font draws at every length; the length-5 and length-6 settle assertions in rebuild/test_settle.py pin it. Like the word-start record, its left: condition can never match a non-·May predecessor seam.'}
-```
