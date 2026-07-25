@@ -327,6 +327,32 @@ def census_skip_fingerprint(root: Path = ROOT, surface: Path | None = None) -> s
     return _digest_lines(lines)
 
 
+def resolve_snapshot_dir(tmp_dir: Path, short_id: str) -> Path:
+    """A free name for this pass's surface snapshot. The short id names the commit, but a snapshot names one run: two cycles at an unmoved HEAD — every look-edit-look pass, and every retry after a cycle that stopped early — would otherwise land on the same directory, and the driver refuses to overwrite one because an unfinished cycle's snapshot can be the only copy of a surface it already clobbered. So take the first free `-2`, `-3`, … suffix instead, and let unfinished_cycle_snapshot spare the copy that refusal was protecting. They cannot pile up otherwise: prune_snapshots globs `review-pre-*` and keeps only the current pass's. The carried-verdicts filename keeps the bare short id, since that one is deliberately commit-stamped."""
+    base = tmp_dir / f"review-pre-{short_id}"
+    if not base.exists():
+        return base
+    suffix = 2
+    while (candidate := tmp_dir / f"review-pre-{short_id}-{suffix}").exists():
+        suffix += 1
+    return candidate
+
+
+def unfinished_cycle_snapshot(summary_path: Path | None = None) -> Path | None:
+    """The snapshot of the last cycle that did not finish green, when it is still on disk. Such a cycle can have rewritten the live surface and then stopped, which leaves its snapshot the only copy of what the surface held beforehand — so this pass must neither take that name nor let its own retention sweep it away. A green cycle's snapshot needs no such protection: its own carry already read it, and nothing reads a snapshot twice."""
+    try:
+        summary = json.loads((summary_path if summary_path is not None else CYCLE_SUMMARY).read_text())
+    except OSError, ValueError:
+        return None
+    if not isinstance(summary, dict) or summary.get("exit") == "ok":
+        return None
+    recorded = summary.get("snapshot_dir")
+    if not isinstance(recorded, str):
+        return None
+    path = Path(recorded)
+    return path if path.is_dir() else None
+
+
 def snapshot_surface(src: Path, dst: Path) -> str:
     """Snapshot the surface as an APFS clone when possible (cp -c uses clonefile(2), sharing blocks copy-on-write, so the ~130MB recovery copy costs neither wall time nor real disk); shutil.copytree remains the portable fallback."""
     if sys.platform == "darwin":
@@ -445,6 +471,7 @@ class Plan:
     conform_proven: bool = False
     skip_census: bool = False
     census_skip_note: str = ""
+    preserve_snapshot: Path | None = None
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     job_budget: int = 1
@@ -499,10 +526,13 @@ def build_plan(
     conform_proven: bool = False,
     skip_census: bool = False,
     census_skip_note: str = "",
+    preserve_snapshot: Path | None = None,
     record_greens: bool = False,
     keep_history: bool = False,
 ) -> Plan:
-    resolved_snapshot = snapshot_dir if snapshot_dir is not None else ROOT / "tmp" / f"review-pre-{short_id}"
+    resolved_snapshot = (
+        snapshot_dir if snapshot_dir is not None else resolve_snapshot_dir(ROOT / "tmp", short_id)
+    )
     do_carry = not no_carry and not first_run
     resolved_carry_out: Path | None = None
     if do_carry:
@@ -540,6 +570,7 @@ def build_plan(
         conform_proven=conform_proven,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
+        preserve_snapshot=preserve_snapshot,
         record_greens=record_greens,
         retention=do_retention,
         pool_policy=pool_policy,
@@ -1846,10 +1877,14 @@ def _preflight(args: argparse.Namespace) -> bool:
     return False
 
 
-def prune_snapshots(tmp_dir: Path, keep: Path) -> list[Path]:
+def prune_snapshots(tmp_dir: Path, keep: Path, preserve: Path | None = None) -> list[Path]:
+    """Delete every surface snapshot but this pass's. `preserve` spares one more: the snapshot of a cycle that never finished, which can be the only copy of a surface that cycle had already begun rewriting."""
+    spared = {keep.resolve()}
+    if preserve is not None:
+        spared.add(preserve.resolve())
     removed: list[Path] = []
     for path in sorted(tmp_dir.glob("review-pre-*")):
-        if not path.is_dir() or path.resolve() == keep.resolve():
+        if not path.is_dir() or path.resolve() in spared:
             continue
         shutil.rmtree(path, ignore_errors=True)
         removed.append(path)
@@ -1918,7 +1953,7 @@ def run_retention(plan: Plan) -> None:
 
     print("\nRetention (skip with --keep-history):")
 
-    removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir)
+    removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir, plan.preserve_snapshot)
     if removed:
         print(f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}")
     else:
@@ -1974,7 +2009,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--snapshot-dir",
         type=Path,
-        help="where to snapshot the current surface (default: tmp/review-pre-<short hash>)",
+        help="where to snapshot the current surface (default: tmp/review-pre-<short hash>, or the first free -2, -3 name when a pass at this commit already took it)",
     )
     parser.add_argument(
         "--update-pins",
@@ -2095,6 +2130,12 @@ def main(argv: list[str] | None = None) -> int:
                 census_skip_note = "surface, pins, and source inputs unchanged since the last clean check; --fresh overrides"
                 print(f"census auto-skipped: {census_skip_note}")
 
+    preserve_snapshot = unfinished_cycle_snapshot()
+    if preserve_snapshot is not None:
+        print(
+            f"The last cycle did not finish green; keeping its snapshot at {preserve_snapshot} as well as this pass's."
+        )
+
     if not args.no_carry and args.verdicts is None and not first_run:
         resolved = resolve_carry_source()
         if resolved is None:
@@ -2135,6 +2176,7 @@ def main(argv: list[str] | None = None) -> int:
             conform_proven=auto_skip_conform,
             skip_census=skip_census,
             census_skip_note=census_skip_note,
+            preserve_snapshot=preserve_snapshot,
             keep_history=args.keep_history,
         )
         print(render_plan(plan))
@@ -2174,6 +2216,7 @@ def main(argv: list[str] | None = None) -> int:
         conform_proven=auto_skip_conform,
         skip_census=skip_census,
         census_skip_note=census_skip_note,
+        preserve_snapshot=preserve_snapshot,
         record_greens=True,
         keep_history=args.keep_history,
     )
@@ -2183,7 +2226,9 @@ def main(argv: list[str] | None = None) -> int:
     if not first_run:
         if plan.snapshot_dir.exists():
             print(f"ERROR: snapshot dir already exists: {plan.snapshot_dir}")
-            print("Refusing to overwrite the only recovery copy. Remove it or pass --snapshot-dir.")
+            print(
+                "Refusing to overwrite the only recovery copy. Remove it or point --snapshot-dir elsewhere."
+            )
             return 2
         how = snapshot_surface(REVIEW_OUT, plan.snapshot_dir)
         report.snapshot_dir = plan.snapshot_dir
