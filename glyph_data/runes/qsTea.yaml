@@ -50,7 +50,6 @@ stances:
         - entry: baseline
           exit: baseline
       cells: []
-      # The ss02/ss03 rows add the full bar's x-height entry (today's `entry_xheight` and `entry_xheight_after_fee`, both bundling the baseline-exit cell); the row's anchor follows the standard convention (x = 0, the bar's only ink column).
       unlocks:
       - pairing:
           entry: baseline
@@ -101,7 +100,6 @@ stances:
           - class: halves-that-exit-at-x-height
             except:
             - {family: qsDay_qsUtter}
-        # Today's `entry_curs_only [0, 8]`: the anchor registers for GPOS parity, but settlement never chooses this row as an entry.
         top:
           x: 0
           selectable: false

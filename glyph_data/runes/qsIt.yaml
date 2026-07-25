@@ -40,7 +40,6 @@ stances:
           stroke: vertical
           withdrawal: safe
       pairings:
-        # The ductus's old join-constraint bullets, relocated: joined at one height, ·It joins onward only at the other; same-height pass-through exists only behind the ss04 unlock below.
         only:
         - entry: x-height
           exit: baseline
@@ -147,7 +146,6 @@ policy:
         joined_at: baseline
       right: {family: qsNo}
   extend:
-  # The old YAML's halves-minus-qsPea x-height entry-extension record was transcribed here for M1 and deleted in the round-1 verdict pass: the shipped font never realizes it (probed: both ·Tea·It and ·He·It join un-extended today), and the reviewer rejected every window where M1 realized it — "this widens the ·Tea·It extension for no reason".
   - entry: baseline
     by: 1
     when:
