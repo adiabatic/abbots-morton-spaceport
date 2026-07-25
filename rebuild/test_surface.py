@@ -100,8 +100,20 @@ def test_resolve_explicit_cell_bindings(spec):
     assert plan.entry_stub is None and plan.exit_stub is None
     assert plan.safety_checks == (("exit", "x-height"),)
     plan = surface.resolve_cell(spec, CellId("qsPea", "half", "x-height", "x-height", ()))
-    assert plan.bitmap == "half-dips-both-sides"
+    assert plan.bitmap is None
     assert (plan.entry_x, plan.exit_x) == (0, 4)
+    assert plan.entry_stub.cols == (0,) and plan.exit_stub.cols == (3,)
+    assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
+        " ## ",
+        "#  #",
+        "#  #",
+        "#  #",
+        "    ",
+        "    ",
+        "    ",
+        "    ",
+        "    ",
+    ]
     plan = surface.resolve_cell(spec, CellId("qsOy", "hapax", "x-height", "baseline", ()))
     assert plan.bitmap == "open-on-the-left"
     assert (plan.entry_x, plan.exit_x) == (0, 5)

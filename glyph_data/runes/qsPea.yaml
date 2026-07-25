@@ -78,18 +78,6 @@ stances:
     - "    "
     - "    "
     - "    "  #
-    bitmaps:
-      half-dips-both-sides:
-        bitmap:
-        - " ## "
-        - "#  #"
-        - "#  #"
-        - "#  #"  #
-        - "    "
-        - "    "
-        - "    "
-        - "    "
-        - "    "  #
     surface:
       entries:
         y6:
@@ -131,10 +119,7 @@ stances:
             - {family: qsYe}
             - {family: qsNo}
             - {family: qsOwe}
-      cells:
-      - entry: x-height
-        exit: x-height
-        bitmap: half-dips-both-sides
+      cells: []
       unlocks: []
       require: []
 policy:
