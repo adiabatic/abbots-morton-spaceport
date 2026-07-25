@@ -252,7 +252,7 @@ class ScriptRegistry:
 
 @dataclass(frozen=True)
 class ResolvedSpec:  # spec_load's output; the input to everything else
-    runes: Mapping[str, Rune]  # only the modeled runes (five + the ligature)
+    runes: Mapping[str, Rune]  # only the modeled runes
     registry: ScriptRegistry
 
 

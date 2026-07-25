@@ -1,6 +1,6 @@
 # Baseline extraction plan (§13.1)
 
-This plan governs Phase 3 (implementation) and Phase 4 (extraction runs) of the §13.1 baseline: shape the depth-2 basis through the current built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), black-box, and record every window’s resolved outcome as a diff-stable table under `rebuild/out/`. The table is the migration oracle and the review surface’s first real workload. Grounding documents: `doc/rebuild-design.md` §3.4, §6.1, §8, §10, §13.1, and `rebuild/recon/baseline-recon.md`, since deleted per the note-taking rules and now in git history only (all file:line references below that are not given explicitly are in the recon).
+This is the contract for the §13.1 baseline: shape the depth-2 basis through the current built Senior Sans font (`site/AbbotsMortonSpaceportSansSenior-Regular.otf`), black-box, and record every window’s resolved outcome as a diff-stable table under `rebuild/out/`. The table is the migration oracle and the review surface’s first real workload. Grounding documents: `doc/rebuild-design.md` §3.4, §6.1, §8, §10, §13.1.
 
 Fixed provenance for every run under this plan:
 
@@ -9,13 +9,12 @@ Fixed provenance for every run under this plan:
 | Repo SHA     | `ae9d08d`                                                          |
 | Font         | `site/AbbotsMortonSpaceportSansSenior-Regular.otf`                 |
 | Font SHA-256 | `3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35` |
-| Machine      | Apple Silicon, 12 logical cores (8 performance)                    |
 
 ## 1. The basis
 
 ### Alphabet
 
-47 symbols, exactly the recon’s census:
+47 symbols — `rebuild/baseline/alphabet.py` asserts the count:
 
 - The 44 Quikscript runes, U+E650–U+E66C and U+E670–U+E67E (`doc/glyph-names.md`; the angle parens U+E66E/E66F are punctuation and excluded).
 - `space` (U+0020) and ZWNJ (U+200C), the run-splitting boundary tokens.
@@ -49,13 +48,11 @@ The settlement model’s window is `[resolved-left, self, raw-right, raw-right²
 
 ## 2. Runtime and size strategy
 
-Recon-measured throughput on this machine: ≈91,500 shapes/s single-threaded with a stylistic-set feature dict, full-name recovery, and position extraction (≈10.9 µs/shape).
-
-- Shaping cost per configuration: 4,985,760 shapes ≈ **55 s single-threaded**. With classification, serialization, and gzip the honest end-to-end estimate is 3–4× that, ≈ **2.5–3.5 min single-threaded per configuration** — already inside the ≤20 min budget with an order of magnitude to spare.
-- **Multiprocessing anyway**: `multiprocessing` with **10 worker processes** (12 logical cores, two left for the writer and the OS), mirroring the pytest-xdist subprocess pattern — each worker builds its own `hb.Font`, `TTFont`, and one reused `hb.Buffer`, materializing `glyph_infos`/`glyph_positions` before the next shape. Work is sharded by first symbol (47 shards per configuration, matching the `test_join_ink.py` parametrization pattern). Expected wall clock: **≈20–30 s per configuration**, ≈5–6 min for all 11 configurations, plus ≈4–6 min for the equivalence pass (§6, four extra shapes per eligible string). Whole Phase 4 extraction: **well under 15 minutes total**.
+- Shaping is cheap against the §13.1 ≤20 min per-configuration budget even single-threaded; classification, serialization, and gzip are the same order again.
+- **Multiprocessing anyway**: `multiprocessing` with **10 worker processes** (leave two cores for the writer and the OS), mirroring the pytest-xdist subprocess pattern — each worker builds its own `hb.Font`, `TTFont`, and one reused `hb.Buffer`, materializing `glyph_infos`/`glyph_positions` before the next shape. Work is sharded by first symbol (47 shards per configuration, matching the `test_join_ink.py` parametrization pattern). The §6 equivalence pass adds four shapes per eligible string.
 - **Determinism under parallelism**: workers write per-shard temporary files; the writer concatenates shards in shard-index order, and rows within a shard are generated in the canonical row order (§3), so output bytes are independent of scheduling. Two runs on the same font must produce byte-identical uncompressed streams; the digest file makes that checkable.
-- **Sizes**: ≈120–160 bytes/row raw → ≈0.6–0.8 GB per configuration uncompressed, comfortably over the ~50 MB threshold, so every bulk table is written gzipped (`.tsv.gz`, `mtime=0` so gzip output is also deterministic): ≈40–70 MB per configuration, ≈0.5–0.8 GB total under `rebuild/out/`. The gzip members are for storage only; SHA-256 digests are computed over the uncompressed stream.
-- **`rebuild/out/` is gitignored** (the implementation step adds the `rebuild/out/` line to `.gitignore` — recon confirmed it is absent today). The committed-shape artifact is the digest summary: `rebuild/out/SUMMARY.md` plus `rebuild/out/digests.tsv` — per configuration: row count, SHA-256 of the uncompressed stream, seam-classification histogram (counts per `y0/y5/y6/y8/lig/break`), resolved-glyph-name frequency table (top section plus total distinct), and equivalence-divergence counts. The summary is small (a few KB), regenerable, and is the piece a future re-extraction diffs meaningfully against without the bulk files (`rebuild/BASELINE-REPORT.md`, which quoted it verbatim, has since been deleted — git history only).
+- **Sizes**: a configuration’s uncompressed table runs to hundreds of megabytes, far over the ~50 MB threshold, so every bulk table is written gzipped (`.tsv.gz`, `mtime=0` so gzip output is also deterministic). The gzip members are for storage only; SHA-256 digests are computed over the uncompressed stream.
+- **`rebuild/out/` is gitignored.** The committed-shape artifact is the digest summary: `rebuild/out/SUMMARY.md` plus `rebuild/out/digests.tsv` — per configuration: row count, SHA-256 of the uncompressed stream, seam-classification histogram (counts per `y0/y5/y6/y8/lig/break`), resolved-glyph-name frequency table (top section plus total distinct), and equivalence-divergence counts. The summary is small (a few KB), regenerable, and is the piece a future re-extraction diffs meaningfully against without the bulk files.
 
 ## 3. The table schema
 
@@ -65,7 +62,7 @@ Header lines (each beginning with `#` and a space), in fixed order:
 
 ```text
 # baseline-extract v<tool version>
-# git_sha: ae9d08d
+# git_sha: <repo SHA at extraction>
 # font: site/AbbotsMortonSpaceportSansSenior-Regular.otf
 # font_sha256: 3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35
 # config: <config token>   (feature dict, e.g. ss02=1 ss03=1; "default" = empty dict)
@@ -87,15 +84,15 @@ Row order: by string length ascending, then by the codepoint tuple ascending —
 
 ## 4. Seam classification
 
-The classifier is the recon item-1 procedure, anchor-Y intersection read black-box from the built font’s GPOS:
+The classifier reads anchor-Y intersection black-box from the built font’s GPOS:
 
-1. At extractor start-up, walk the font’s GPOS `curs` feature to its cursive-attachment (LookupType 3) lookups — discovered by feature reference, never hardcoded lookup indices. Recon verified there are exactly four, one per join height, with anchor Y at 0/250/300/400 font units = pixel y 0/5/6/8 (font units ÷ 50). For each lookup, record the per-height sets {glyphs with an ExitAnchor} and {glyphs with an EntryAnchor}; assert each lookup’s anchors are uniform in Y-per-height semantics (every non-NULL anchor in the y-h lookup sits at h × 50).
-2. For an adjacent output-glyph pair (left, right) not in the same cluster: joined at height h iff the left glyph has an ExitAnchor and the right glyph has an EntryAnchor in the same height-h lookup; `break` iff no lookup pairs them. This is exactly equivalent to the test suite’s anchor-Y intersection (`test/test_shaping.py:530-579`, `_pair_join_ys`); per-height lookups are why cross-height attachment is structurally impossible.
+1. At extractor start-up, walk the font’s GPOS `curs` feature to its cursive-attachment (LookupType 3) lookups — discovered by feature reference, never hardcoded lookup indices. There are exactly four, one per join height, with anchor Y at 0/250/300/400 font units = pixel y 0/5/6/8 (font units ÷ 50). For each lookup, record the per-height sets {glyphs with an ExitAnchor} and {glyphs with an EntryAnchor}; assert each lookup’s anchors are uniform in Y-per-height semantics (every non-NULL anchor in the y-h lookup sits at h × 50).
+2. For an adjacent output-glyph pair (left, right) not in the same cluster: joined at height h iff the left glyph has an ExitAnchor and the right glyph has an EntryAnchor in the same height-h lookup; `break` iff no lookup pairs them. This is exactly equivalent to the test suite’s anchor-Y intersection (`test/test_shaping.py`’s connection loop over `_compiled_glyph_meta`); per-height lookups are why cross-height attachment is structurally impossible.
 3. Same-cluster pairs do not exist as output seams; the input seam is `lig`.
 
 Ink-gap arithmetic (`test/test_join_ink.py`) is deliberately **not** part of the baseline columns — it is a defect detector that belongs to the §9 `E-UNREALIZED` gate, not an outcome fact.
 
-**Split-buffer cross-check policy** (the `_isolation_glyphs_split` technique, `test/test_shaping.py:710-735`): the cross-check validates that a `break` classification corresponds to genuinely uncoupled shaping, but a known, accepted class of isolation leaks exists today (the corpus distinguishes `|` from `|?|` for exactly this reason), so full-basis coverage would mostly re-measure known behavior at ~2× cost. Policy:
+**Split-buffer cross-check policy** (the `_isolation_glyphs_split` technique in `test/test_shaping.py`): the cross-check validates that a `break` classification corresponds to genuinely uncoupled shaping, but a known, accepted class of isolation leaks exists today (the corpus distinguishes `|` from `|?|` for exactly this reason), so full-basis coverage would mostly re-measure known behavior at ~2× cost. Policy:
 
 - **All length-2 strings** (2,209 per configuration — every pair seam in run-isolated context), every configuration.
 - **A deterministic 1% sample of length-3/4 strings containing at least one `break` seam**, selected by a fixed-seed hash of the codepoint tuple (so the sample is identical across runs and configurations), every configuration.
@@ -104,23 +101,23 @@ For each sampled break seam, shape the string split at the seam and compare the 
 
 ## 5. Configurations
 
-Eleven, per §10 tier 3 (“each set alone, every configuration the Manual’s pins use, and at least one declared multi-set combination”) and the recon’s feature census (ss02–ss07, ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual’s configurations):
+Eleven, per §10 tier 3 (“each set alone, every configuration the Manual’s pins use, and at least one declared multi-set combination”) and the font’s feature census (ss02–ss07 and ss10 exist; no ss01/ss08/ss09; every Manual pin is a single set, so the singles superset the Manual’s configurations):
 
 | #   | Config token     | Feature dict     | Why                                                                                                                                    |
 | --- | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | `default`        | (empty)          | The font as shipped; the primary oracle.                                                                                               |
-| 2   | `ss02`           | ss02             | Single set; Manual pins at `the-manual.html` lines 1937, 2567, 3604.                                                                   |
-| 3   | `ss03`           | ss03             | Single set; Manual pin at line 4118.                                                                                                   |
-| 4   | `ss04`           | ss04             | Single set; Manual pin at line 3471.                                                                                                   |
-| 5   | `ss05`           | ss05             | Single set; Manual pin at line 3537.                                                                                                   |
+| 2   | `ss02`           | ss02             | Single set; the Manual pins it on `·May ~b~ ·I ~x~ ·Tea.!half` and two siblings.                                                       |
+| 3   | `ss03`           | ss03             | Single set; the Manual pins `·At \| ·Fee ~x~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                |
+| 4   | `ss04`           | ss04             | Single set; the Manual pins `·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe`.                                                |
+| 5   | `ss05`           | ss05             | Single set; the Manual pins `·Bay \| ·Et ~b~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                                |
 | 6   | `ss06`           | ss06             | Single set; gapped ·Owe (the Manual’s ss06 div is CSS-visual only — no shaped pin exists, so the baseline is its first shaped record). |
-| 7   | `ss07`           | ss07             | Single set; Manual pin at line 1623.                                                                                                   |
-| 8   | `ss10`           | ss10             | Single set; Manual inner-span pin at line 3969.                                                                                        |
+| 7   | `ss07`           | ss07             | Single set; the Manual pins `·At ~x~ ·No ~x~ ·Owe ~x~ ·Day`.                                                                           |
+| 8   | `ss10`           | ss10             | Single set; the Manual pins it on an inner span of the `·At ~x~ ·No \| ·Tea ~x~ ·It …` run.                                            |
 | 9   | `ss02+ss03`      | ss02, ss03       | Declared multi-set combination: both gate qsTea entry stances, so interaction is plausible.                                            |
 | 10  | `ss06+ss07`      | ss06, ss07       | Declared multi-set combination: both reshape qsOwe.                                                                                    |
 | 11  | `ss02+ss03+ss05` | ss02, ss03, ss05 | The §7 conformance-matrix example (“e.g. ss02+ss03+ss05 on ·Tea”); all three touch qsTea’s capability matrix.                          |
 
-No combination is declared in the corpus today; rows 9–11 are this plan’s declarations, recorded here so the future conformance gate inherits them. Cost of the three extras is ≈90 s of shaping — negligible.
+No combination is declared in the corpus today; rows 9–11 are this plan’s declarations, recorded here so the future conformance gate inherits them.
 
 ## 6. The equivalence triage
 
@@ -135,7 +132,7 @@ Four checks, run for **every configuration** over every basis string `w`:
 | `edge-vs-zwnj`  | last symbol not space/ZWNJ  | shape `w + ZWNJ`; the `w` portion vs. the baseline row for `w`                              |
 | `edge-vs-space` | last symbol not space/ZWNJ  | shape `w + space`; same comparison                                                          |
 
-The namer dot does **not** split runs (§3.4), so no namer-dot-vs-edge equivalence is asserted — namer-dot contexts are ordinary basis rows. The `w`-side of every comparison is the already-extracted baseline row (no re-shaping), so the cost is one extra shape per check per eligible string: ≈4 × 4.77M ≈ 19M shapes per configuration, ≈3.5 min single-threaded, ≈25 s on 10 workers.
+The namer dot does **not** split runs (§3.4), so no namer-dot-vs-edge equivalence is asserted — namer-dot contexts are ordinary basis rows. The `w`-side of every comparison is the already-extracted baseline row (no re-shaping), so the cost is one extra shape per check per eligible string.
 
 A divergence is any difference in the `w` portion’s glyph names, cluster structure, or seam classifications (positions are compared but position-only differences are flagged separately, since an attachment shift without a glyph change is a different severity). Divergences are appended to `rebuild/out/equivalence-triage.tsv`, sorted like the baseline, one row per (config, check, string):
 
@@ -147,11 +144,11 @@ config  check  codepoints  baseline_glyphs  boundary_glyphs  first_divergent_pos
 
 ## 7. Validation
 
-Two layers, both must pass before Phase 4’s outputs are trusted.
+Two layers, both must pass before the extraction outputs are trusted.
 
 ### Corpus pin replay
 
-Collect every data-expect run from the three corpora (`site/index.html`, `site/the-manual.html`, `site/extra-senior-words.html`) using the existing collector and parser imported read-only from `test/test_shaping.py` / `conftest.py` (recon item 4: `parse_expect`, `_DataExpectCollector`, `run_shaping_test_runs` are import-safe). For every senior-variant run whose input sequence consists solely of basis-alphabet symbols (44 runes, space, ZWNJ, namer dot — runs containing other Latin literals are out of scope and skipped, with a count reported):
+Collect every data-expect run from the three corpora (`site/index.html`, `site/the-manual.html`, `site/extra-senior-words.html`) using the existing collector and parser imported read-only from `test/test_shaping.py` / `conftest.py` (`parse_expect`, `_DataExpectCollector`, and `run_shaping_test_runs` are import-safe). For every senior-variant run whose input sequence consists solely of basis-alphabet symbols (44 runes, space, ZWNJ, namer dot — runs containing other Latin literals are out of scope and skipped, with a count reported):
 
 - Shape the run’s full sequence through the **extractor’s own library path** (same shaper, same classifier, same configuration dict derived from the run’s `data-stylistic-set`) and assert the pin’s per-seam expectations: join-at-height tokens (`~x~`/`~b~`/`~t~`/`~6~` = y5/y0/y8/y6), bare-adjacency joins (height unasserted, classification must be a join), `|`/`|?|` breaks (classification must be `break`), and `+`/`+?`/`+|` ligation per the parser’s interpretation expansion. Any disagreement is an **extractor bug until proven otherwise** — the pins are ground truth the existing suite already enforces against this exact font.
 - For runs of length ≤ 4, additionally assert the baseline table row for that exact string and configuration matches the live shaping byte-for-byte (glyphs, clusters, seams, positions) — this pins the serialization path, not just the shaping path.
@@ -161,7 +158,7 @@ The replay result (pins checked / skipped / disagreements) is recorded in `SUMMA
 
 ### Extractor unit tests
 
-`rebuild/test_baseline_extract.py`, runnable as `uv run pytest rebuild/ -n auto --dist worksteal` (and picked up by a plain `uv run pytest rebuild/`). Coverage:
+`rebuild/test_extractor.py`, `rebuild/test_validation_suite.py`, and `rebuild/test_baseline_subset.py`, runnable as `uv run pytest rebuild/ -n auto --dist worksteal` (and picked up by a plain `uv run pytest rebuild/`). Coverage:
 
 - GPOS discovery: exactly four cursive lookups behind `curs`; heights resolve to pixel {0, 5, 6, 8}; anchor-Y uniformity assertion.
 - Name recovery: a known >63-byte compiled name resolves correctly via `TTFont.getGlyphName` (and would be truncated via `glyph_to_string`, proving the workaround is load-bearing).
@@ -171,46 +168,62 @@ The replay result (pins checked / skipped / disagreements) is recorded in `SUMMA
 - Equivalence checker: the `w`-portion comparison logic on synthetic cases (identical ⇒ no row; injected difference ⇒ row with correct `divergence_kind`).
 - Split-buffer sampler: fixed-seed sample is stable across runs.
 
-No test pins an outcome we have not already verified from the corpus or the recon — the baseline’s job is to record current behavior, not to assert what it should be.
+No test pins an outcome we have not already verified from the corpus — the baseline’s job is to record current behavior, not to assert what it should be.
 
 ## 8. Module and file layout
 
-Everything new lives under `rebuild/`; nothing outside it is modified except the one-line `rebuild/out/` addition to `.gitignore`. Two implementers can work in parallel along the seam drawn below: implementer A owns the extractor (alphabet, shaper, classify, extract, cli), implementer B owns validation (equivalence, corpus replay, unit tests); both import the same row model and shaping primitives, which land first.
+Everything lives under `rebuild/`; nothing outside it is modified. The extractor (`baseline/`) and the validation suite (`validation/`) are separable: the extractor owns the alphabet, the shaper, the classifier, extraction orchestration, and the CLI; the validation suite owns the §6 boundary checks, the §4 split-buffer cross-check, the §7 corpus-pin replay, and the unit tests. Both implement the same §3 row contract, so the TSV format — not any one Python class — is the interface between them.
 
 ```text
 rebuild/
   BASELINE-PLAN.md                 this document
-  recon/baseline-recon.md          Phase 1 findings
   baseline/
     __init__.py
-    model.py                       shared first: Row/Seam dataclasses, config tokens, row ordering, TSV serialization + parsing, header rendering
-    alphabet.py                    the 47-symbol alphabet (codepoints + names), basis enumeration, shard partitioning by first symbol
-    shaper.py                      per-process state: hb.Font + TTFont + one reused hb.Buffer; shape(text, features) -> (names, clusters, positions); split-buffer shaping
-    classify.py                    GPOS curs-lookup discovery, per-height entry/exit sets, classify_seam(left, right) -> token
+    model.py                       Row dataclass, config tokens, row ordering, TSV serialization + parsing, header rendering
+    alphabet.py                    the 47-symbol alphabet (codepoints + names), basis enumeration, shard partitioning by (length, first symbol)
+    shaper.py                      per-process state: hb.Font + TTFont + one reused hb.Buffer; shape(text, features) -> ShapeResult; split-buffer shaping
+    classify.py                    GPOS curs-lookup discovery, per-height entry/exit sets, classify(left, right) -> token
     extract.py                     orchestration: multiprocessing pool, shard workers, deterministic merge, gzip writing, digest/summary generation
-    equivalence.py                 the four §6 boundary checks and equivalence-triage.tsv writer
-    corpus_replay.py               read-only import of test/ collector + parser; the §7 replay against library shaping and baseline rows
     cli.py                         argparse front end
-  test_baseline_extract.py         the §7 unit tests
+  validation/
+    __init__.py
+    rowmodel.py                    the §3 row contract as the validation suite implements it, plus table reading and chunking
+    shaping.py                     hb.Font + TTFont name recovery, one reused buffer, per-row seam extraction
+    classify.py                    the §4 black-box seam classifier
+    equivalence.py                 the four §6 boundary checks and the equivalence-triage writer
+    split_check.py                 the §4 split-buffer cross-check
+    pins.py                        read-only import of test/ collector + parser; the §7 replay against library shaping and baseline rows
+  check_determinism.py             the §2 and §8 diff-stability driver
+  run_equivalence.py               §6 CLI
+  run_split_check.py               §4 CLI
+  validate_pins.py                 §7 CLI
+  test_extractor.py                extractor unit tests
+  test_validation_suite.py         the §7 validation-suite tests
+  test_baseline_subset.py          baseline_subset filter tests
   out/                             generated, gitignored: baseline-<config>.tsv.gz, digests.tsv, SUMMARY.md, equivalence-triage.tsv, split-check-disagreements.tsv
 ```
 
-Public interfaces (the parallel-work contract):
+Public interfaces:
 
 - `model.Row` — frozen dataclass: `codepoints: tuple[int, ...]`, `glyphs: tuple[str, ...]`, `clusters: tuple[int, ...]`, `seams: tuple[str, ...]`, `positions: tuple[tuple[int, int, int], ...]`; `Row.to_tsv() -> str`, `Row.from_tsv(line) -> Row`, `row_sort_key(row)`; `CONFIGS: dict[str, dict[str, bool]]` (the §5 list, ordered).
 - `shaper.Shaper` — `Shaper(font_path)`, `shape(text: str, features: dict[str, bool]) -> ShapeResult` (names via TTFont, clusters, positions), `shape_split(text, split_offsets, features)`.
 - `classify.SeamClassifier` — `SeamClassifier(font_path)`, `heights() -> tuple[int, ...]`, `classify(left_glyph: str, right_glyph: str) -> str`.
 - `extract.extract_config(config_token: str, out_dir: Path, workers: int) -> Digest` and `extract.run_all(out_dir, workers)`.
-- `equivalence.run(config_token, baseline_path, out_path)` and `corpus_replay.run(out_dir) -> ReplayReport` — both consume `model.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
+- `validation.equivalence.run(baseline_path, out_fh, workers=…) -> Counter` and `validation.split_check.run(...)` with the same signature; `validation.pins` exposes `collect_pin_runs`, `check_pin`, `check_against_baseline`, and `ReplayReport`. All of them consume `validation.rowmodel.Row.from_tsv`, so the validation suite and the extractor cannot drift apart on the row format.
 
 CLI (all via `uv run`):
 
 ```sh
 uv run python -m rebuild.baseline.cli extract --config default --out rebuild/out --workers 10
 uv run python -m rebuild.baseline.cli extract --all --out rebuild/out --workers 10
-uv run python -m rebuild.baseline.cli equivalence --all --out rebuild/out
-uv run python -m rebuild.baseline.cli replay --out rebuild/out
 uv run python -m rebuild.baseline.cli summarize --out rebuild/out
 ```
 
-Implementation-order note: `model.py`, `shaper.py`, and `classify.py` land first (with their unit tests), then A and B proceed in parallel. `make prettier` runs after every Python change; nothing is committed or staged without explicit user approval.
+`cli.py` also carries `equivalence` and `replay` subcommands that look for their modules under `baseline/`; the validation suite shipped them under `validation/`, so drive those, the split-buffer check, and the determinism check from the top-level scripts:
+
+```sh
+uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz --workers 10
+uv run python rebuild/run_split_check.py --baseline rebuild/out/baseline-default.tsv.gz --workers 10
+uv run python rebuild/validate_pins.py --baseline rebuild/out/baseline-default.tsv.gz
+uv run python rebuild/check_determinism.py --config default --lengths 1,2
+```

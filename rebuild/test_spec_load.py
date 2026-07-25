@@ -1,4 +1,4 @@
-"""spec_load unit tests: the real six-rune spec loads with the expected shapes, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
+"""spec_load unit tests: the real spec loads with the expected batch-1 shapes, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
 
 import textwrap
 import warnings

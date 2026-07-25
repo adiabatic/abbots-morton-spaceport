@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the subset-identity assertion. The font-facing sweep itself runs at Phase 5 integration (it needs Group 2's settle/table and the compiled mini-font)."""
+"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the subset-identity assertion. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
 
 import gzip
 

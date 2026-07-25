@@ -1,6 +1,6 @@
 """CoreText-vs-HarfBuzz smoke driver for the M1 mini-font — the prototype recipe carried forward (M1-PLAN section 5, Group 3).
 
-Compiles the Swift harness once per session (swiftc -O), shapes the curated M1 sequence set (rebuild/pipeline/smoke_sequences_m1.txt — extended with the qsPea rows, the four-family seams, the qsTea_qsOy windows, and the namer-dot rows) through CoreText via the binary and through uharfbuzz directly, and diffs GID-for-GID and position-for-position. CoreText reports cumulative pen positions in points at 100 pt; positions are compared after converting to font units (× upem / 100, rounded). Glyph names come from fontTools, never HarfBuzz's truncating API. ZWNJ slots are never compared by GID — only by the structural contract (zero advance on both sides, no ink).
+Compiles the Swift harness once per session (swiftc -O), shapes the curated M1 sequence set (rebuild/pipeline/smoke_sequences_m1.txt) through CoreText via the binary and through uharfbuzz directly, and diffs GID-for-GID and position-for-position. CoreText reports cumulative pen positions in points at 100 pt; positions are compared after converting to font units (× upem / 100, rounded). Glyph names come from fontTools, never HarfBuzz's truncating API. ZWNJ slots are never compared by GID — only by the structural contract (zero advance on both sides, no ink).
 
 Every sequence runs under each of the eight acceptance configurations.
 

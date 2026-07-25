@@ -107,7 +107,7 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
 
 
 def test_machine_approved_histogram_pins_the_census(built):
-    """The kern-neutral ink census the rebatching rests on over the M1-batch-2 workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
+    """The kern-neutral ink census the rebatching rests on over the live workload, after the ink-duplicate merge folds name-grain sibling units: the machine-approved units concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning (boundary-echo, dangling-anchor-dropped, bare-name-live-join), the non-identical remainder, and — after the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) — the human workload. Every count is pinned in rebuild/review-census-pins.json (the "manifest" group)."""
     out_dir, manifest = built
     machine = manifest["machine_approved"]
     manifest_pins = PINS["manifest"]
@@ -135,7 +135,7 @@ def test_machine_approved_histogram_pins_the_census(built):
 
 
 def test_secondary_seam_census_pins_the_real_data(built):
-    """The secondary-seam resolution census over the M1-batch-2 workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. The four counts are pinned in rebuild/review-census-pins.json (manifest.secondary_seams)."""
+    """The secondary-seam resolution census over the live workload, after the ink-duplicate merge: the units carrying visible markers; the seams that link to the shorter unit where the same behavior is the primary judgment; those genuinely context-dependent at the depth-2 horizon (no substring unit reproduces both outcomes with the seam as its primary) that carry home null and are judged in place; and those resolving to an ink-identical home that are suppressed as invisible. The four counts are pinned in rebuild/review-census-pins.json (manifest.secondary_seams)."""
     out_dir, manifest = built
     seam_pins = PINS["manifest"]["secondary_seams"]
     assert manifest["secondary_seams"] == seam_pins
@@ -246,7 +246,7 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
 
 
 def test_echo_groups_partition_the_human_workload(built):
-    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea~·No.alt baseline-join group: 57 plain ·X·Tea·No windows plus 11 third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers all 68 because the visible change is byte-identical."""
+    """Echo groups are the one-question-per-change grain: every human unit carries an e-NNNN id, every exempt unit carries null, and a group never mixes classes, config sets, or judged pairs — its members are the same before→after change in different surroundings. The worked example ·It·Day·Tea·No lands in the merged ·Tea~·No.alt baseline-join group: the plain ·X·Tea·No windows plus the third-form ·X·Day·Tea·No windows where the ·Day yields — an annotation-grain rename that draws identical ink, so it rides along without anchoring the judged pair — so one verdict answers every member because the visible change is byte-identical."""
     out_dir, manifest = built
     by_echo = {}
     example = None
@@ -322,7 +322,7 @@ def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_case
 
 
 def test_config_note_distribution_over_the_built_output(built):
-    """The M1-batch-2 facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set."""
+    """The facts the badge design rests on: the config-set space collapses to a handful of notes — null for the units covering every non-ss10 config, plus the ss04- and ss03-gated and -excluded minorities, the ss10-only overlay, and a small literal-fallback set."""
     out_dir, manifest = built
     histogram = {}
     for meta in manifest["classes"]:

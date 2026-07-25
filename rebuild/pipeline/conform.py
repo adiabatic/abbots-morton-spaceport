@@ -4,7 +4,7 @@
 
 `compare_against_baseline` is the section 6 oracle gate: stream the filtered sub-tables, run `settle` per row, compare ligation (clusters), per-seam classification, and cell identity through the hand-written alias map; every divergent row must match exactly one ledger entry (zero matches fails conformance, two-plus fails the ledger). When a font path is supplied, the gate also compares positions old-vs-new (M1-PLAN section 6 step 3d): each row is shaped against the new font and its per-slot (x_offset, y_offset, x_advance) triples are compared against the baseline's, with sidecar kerns normalized out of the old advances via `KernEvaluator` (the new font emits no kerning). Position equality is enforced on every row whose seam topology and ligation match the baseline and whose cell-grain divergence class (if any) claims ink identity (`ink_identical: true` in the ledger); rows whose matched class legitimately redraws ink (extensions restored or suppressed, withdrawal bindings) are excluded and counted, because their advances move with the ink by design.
 
-Group 2's `settle` and `table` modules are imported lazily inside the entry points, so this module loads (and its helpers unit-test) before Group 2 lands.
+Group 2's `settle` and `table` modules are imported lazily inside the entry points, so this module and its helpers load without them.
 """
 
 from __future__ import annotations
@@ -369,7 +369,7 @@ def isolated_overlay_active(spec: ResolvedSpec, features: frozenset[str]) -> boo
 
 
 def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
-    """The expected rendering under an `overlay: isolated` taste set: settlement is unchanged, but every letter cell renders as its rune's anchor-free `.ss10` twin (drawn identically to the raw cmap glyph), so every seam is visually a break. A ligature-rune cell expands to its components' twins in sequence order — the 2026-07-04 ratification that join suppression also means ligation suppression, realized since SS10-FORM by the pre-empt lookup substituting the twins before formation, so no ligature ever forms and each letter keeps its own cluster."""
+    """The expected rendering under an `overlay: isolated` taste set: settlement is unchanged, but every letter cell renders as its rune's anchor-free `.ss10` twin (drawn identically to the raw cmap glyph), so every seam is visually a break. A ligature-rune cell expands to its components' twins in sequence order — the 2026-07-04 ratification that join suppression also means ligation suppression, realized by the pre-empt lookup substituting the twins before formation, so no ligature ever forms and each letter keeps its own cluster."""
     names: list[str] = []
     for item in settled:
         cell = getattr(item, "cell", None)
@@ -1263,7 +1263,7 @@ def classify_divergence(row: DivergentRow) -> str | None:
         # Position drift never rides a cell-grain class (the ink-identity claim it would hide is exactly what the position channel tests); position-only rows go through the kern-attribution predicate instead.
         return None
     if {"0020", "200C"} & set(row.codepoints.split(":")):
-        # The ratified boundary-equals-word-boundary rule (design section 3.4, extended to space 2026-07-03): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by run_boundary_equivalence — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
+        # The ratified boundary-equals-word-boundary rule (design section 3.4): the new font renders every segment of a window containing a run-splitting boundary (space or ZWNJ) identically to that segment standing alone — enforced per build by run_boundary_equivalence — so a boundary row can only diverge from the baseline where the old font was itself inconsistent across the boundary, and every segment-internal divergence resurfaces on the segment's own enumerated row. Boundary rows therefore carry no adjudicable information and are absorbed wholesale, ahead of every other cell/seam-grain class.
         return "boundary-echo"
     if "ligation" in phenomena:
         # Under the isolated overlay the new font never forms the ligature at all (the ss10 pre-empt replaces every letter before formation) while the old font keeps drawing its own ligature, so the suppression class outranks the marker-staging one (whose 00B7 arm would otherwise swallow the namer-dot ss10 windows).
@@ -1389,15 +1389,15 @@ def _may_ligature_seam_loosened(row: DivergentRow) -> bool:
     )
 
 
-# The runes this M1 batch added whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
-# Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its 787 ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
-# qsAh joined at its migration: its baseline entry and x-height exit anchors ride the base cmap glyph (the ·Pea/·Oy→·Ah and ·Ah→·Day joins are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
+# The migrated runes whose joins the old shipped font never wired into the ss10 isolated overlay, so the old font keeps drawing their cursive joins under ss10 while the new model isolates every letter by design.
+# Membership is not automatic for a newly-migrated rune: qsFee was weighed and deliberately left out, because the old ss10 overlay substitutes every qsFee variant to the bare cmap glyph, which carries no cursive anchors, so the old font already isolates ·Fee correctly and its ss10 seam-loss rows ride the existing ss10_isolation_completed class instead.
+# qsAh is a member because its baseline entry and x-height exit anchors ride the base cmap glyph (the ·Pea/·Oy→·Ah and ·Ah→·Day joins are bare-glyph GPOS attachments with no calt variant), so the old ss10 overlay has nothing to substitute away and keeps drawing those joins.
 SS10_UNCOVERED_BY_OLD_FONT = frozenset({"qsAh", "qsDay", "qsNo", "qsLow", "qsUtter", "qsDay_qsUtter"})
 
 
 @predicate("ss10_isolation_completed")
 def _ss10_isolation_completed(row: DivergentRow) -> bool:
-    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before qsDay/qsNo/qsUtter (and predates qsLow and qsAh the same way — their anchors ride the base cmap glyph, so the old overlay keeps their joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
+    """Under ss10 the new model renders every position bare (the overlay forces the default stance with no seam), so a join the old font still drew there reads as a seam-loss. The old font's ss10 overlay was authored before the runes in `SS10_UNCOVERED_BY_OLD_FONT` (whose anchors ride the base cmap glyph, so the old overlay keeps their joins too) and never isolates them, so it keeps joining the new letters under ss10; the new font's complete isolation is the intended correction. Matches ss10 rows whose only seam change is losses, each on a seam touching one of those new runes (an existing|existing seam never joins under the old ss10, so it can never reach here). Space and ZWNJ rows are excluded so the boundary-echo blanket keeps the partition exact."""
     if {"0020", "200C"} & set(row.codepoints.split(":")):
         return False
     if row.config != "ss10" or "seam" not in row.kinds:
