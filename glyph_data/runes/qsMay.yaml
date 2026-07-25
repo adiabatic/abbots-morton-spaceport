@@ -93,26 +93,15 @@ stances:
     - "#  #"
     - " ## "
     y_offset: -3
-    bitmaps:
-      pulled-back-grounded:
-        bitmap:
-        - "  # "  #
-        - " #  "
-        - " #  "
-        - "#   "
-        - "#   "
-        - "# ##"  #
-        - "#  #"
-        - "#  #"
-        - " ## "
-        y_offset: -3
     surface:
       entries:
         x-height:
-          x: 3
+          x: 2
           stroke: horizontal
-          joined: pulled-back-grounded
-          joined_x: 2
+          stub:
+            cols:
+            - 3
+            inks_when: withdrawn
           from:
           - {family: qsDay_qsUtter}
           - {family: qsThey_qsUtter}

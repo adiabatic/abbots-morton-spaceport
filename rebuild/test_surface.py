@@ -121,9 +121,21 @@ def test_resolve_explicit_cell_bindings(spec):
 
 def test_resolve_side_bindings_and_overrides(spec):
     plan = surface.resolve_cell(spec, CellId("qsMay", "grounded-loop", "x-height", "baseline", ()))
-    assert plan.bitmap == "pulled-back-grounded"
+    assert plan.bitmap is None
     assert plan.entry_x == 2
     assert plan.exit_x == 4
+    assert plan.entry_stub.cols == (3,) and plan.entry_stub.inks_when == "withdrawn"
+    assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
+        "  # ",
+        " #  ",
+        " #  ",
+        "#   ",
+        "#   ",
+        "# ##",
+        "#  #",
+        "#  #",
+        " ## ",
+    ]
     # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands. ·May's loop exit no longer withdraws — its pulled-back binding is entry-side only now — so there is no exit ex-bind rendering.
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", None, None, ()))
     assert plan.bitmap is None
