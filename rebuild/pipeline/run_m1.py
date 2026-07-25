@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 import yaml
 
@@ -371,6 +371,21 @@ def run_oracle(
     return summary
 
 
+def _settle_green(green_path: Path, key: str, ok: bool, recompute: Callable[[], str], label: str) -> None:
+    """Shared last-green bookkeeping, on the discipline rebuild.tools.make_test_gate established: the key is snapshotted before the work, rechecked after, and recorded only when it still matches — inputs edited mid-run describe content that was never tested. A red result whose key still matches the record deletes it, since the green it claims is contradicted. Recording here is what lets the artifact cycle skip work an interactive run already proved."""
+    from rebuild.tools.artifact_cycle import clear_contradicted_green, record_green
+
+    if not ok:
+        clear_contradicted_green(green_path, key)
+        return
+    if recompute() != key:
+        print(f"{label}: green, but its inputs changed while it ran — green not recorded", flush=True)
+        return
+    record_green(green_path, key)
+    where = green_path.relative_to(REPO_ROOT) if green_path.is_relative_to(REPO_ROOT) else green_path
+    print(f"{label}: green — fingerprint recorded in {where}", flush=True)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
@@ -394,37 +409,61 @@ def main(argv: list[str] | None = None) -> None:
     jobs = args.jobs if args.jobs and args.jobs > 1 else 1
 
     if args.conform_only:
+        from rebuild.tools.artifact_cycle import (
+            CONFORM_GREEN,
+            conform_skip_fingerprint,
+            evaluate_conform_gate,
+        )
+
+        def conform_key() -> str:
+            return conform_skip_fingerprint(REPO_ROOT, args.conform_horizon)
+
+        before = conform_key()
         start = time.perf_counter()
         conformance = run_font_conformance(max_length=args.conform_horizon, jobs=jobs)
         print(f"[t] run_font_conformance {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(conformance, indent=2))
+        status, _ = evaluate_conform_gate(conformance)
+        _settle_green(CONFORM_GREEN, before, status == "green", conform_key, "gate:conform")
         if not conformance["pass"]:
             raise SystemExit("font conformance failed; see conform_summary.json")
         return
 
+    from rebuild.tools.artifact_cycle import RUN_M1_GREEN, evaluate_run_m1_gate, run_m1_skip_fingerprint
+
+    def run_m1_key() -> str:
+        return run_m1_skip_fingerprint(REPO_ROOT)
+
     spec = load_default_spec()
-    start = time.perf_counter()
-    summary = run(spec=spec, jobs=jobs)
-    print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
-    print(json.dumps(summary, indent=2))
-    if summary["defect_errors"]:
-        raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
-    start = time.perf_counter()
-    boundary_gate = run_boundary_gate(spec=spec, jobs=jobs)
-    print(f"[t] run_boundary_gate {time.perf_counter() - start:.1f}s", flush=True)
-    print(json.dumps(boundary_gate, indent=2))
-    if not boundary_gate["pass"]:
-        raise SystemExit("boundary-equals-text-edge gate failed; see boundary_equivalence_summary.json")
-    start = time.perf_counter()
-    pin_gate = run_manual_pin_gate(spec=spec)
-    print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
-    print(json.dumps(pin_gate, indent=2))
-    if not pin_gate["pass"]:
-        raise SystemExit("Manual-pin gate failed; see manual_pins_summary.json")
-    start = time.perf_counter()
-    oracle = run_oracle(spec=spec, jobs=jobs)
-    print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
-    print(json.dumps(oracle, indent=2))
+    before = run_m1_key()
+    try:
+        start = time.perf_counter()
+        summary = run(spec=spec, jobs=jobs)
+        print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
+        print(json.dumps(summary, indent=2))
+        if summary["defect_errors"]:
+            raise SystemExit(f"{len(summary['defect_errors'])} defect-gate errors; see pipeline_summary.json")
+        start = time.perf_counter()
+        boundary_gate = run_boundary_gate(spec=spec, jobs=jobs)
+        print(f"[t] run_boundary_gate {time.perf_counter() - start:.1f}s", flush=True)
+        print(json.dumps(boundary_gate, indent=2))
+        if not boundary_gate["pass"]:
+            raise SystemExit("boundary-equals-text-edge gate failed; see boundary_equivalence_summary.json")
+        start = time.perf_counter()
+        pin_gate = run_manual_pin_gate(spec=spec)
+        print(f"[t] run_manual_pin_gate {time.perf_counter() - start:.1f}s", flush=True)
+        print(json.dumps(pin_gate, indent=2))
+        if not pin_gate["pass"]:
+            raise SystemExit("Manual-pin gate failed; see manual_pins_summary.json")
+        start = time.perf_counter()
+        oracle = run_oracle(spec=spec, jobs=jobs)
+        print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
+        print(json.dumps(oracle, indent=2))
+    except SystemExit:
+        _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
+        raise
+    gate = evaluate_run_m1_gate(summary, boundary_gate, pin_gate, oracle)
+    _settle_green(RUN_M1_GREEN, before, gate.ok, run_m1_key, "run_m1")
     if not oracle["pass"]:
         raise SystemExit("oracle conformance failed; see oracle_summary.json and divergence-audit.tsv")
 
