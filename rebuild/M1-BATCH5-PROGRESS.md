@@ -35,6 +35,6 @@ Scratch progress file for the in-flight qsAh migration; delete at batch close, l
 
 ## Resume
 
-1. `make review-cycle` (artifact cycle: snapshot, run_m1, surface rebuild, verdict carry + merge, census re-pin, gates), then `make verdict-ready`.
+1. `make review-cycle` (artifact cycle: snapshot, run_m1, surface rebuild, verdict carry + merge, census re-pin, gates), then `make review-cycle` again — the first pass refreshes the surface and defers the heavy gates, the second runs them without rebuilding anything. Then `make verdict-ready`, which stays NOT READY until that second pass lands.
 2. Prepare the sitting with the review-docket skill (echo prefill, docket bake), then adjudicate the qsAh blanks in the app's docket view (`#view=docket`).
 3. At batch close: delete this file, lifting surviving forward-pointers into WHATNEXT.md — including resolving the WHATNEXT "Unresolved design flags" qsAh half and the "·Day·Tea-before-·No follower set" bullet's qsAh instance.

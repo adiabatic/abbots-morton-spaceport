@@ -1706,6 +1706,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_surface": False,
         "skip_rebuild_gate": False,
         "skip_census": False,
+        "deferred": [],
         "update_pins": False,
         "review_out": None,
         "first_run": False,
@@ -2252,6 +2253,163 @@ def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     assert report.gate_conform == "green"
 
 
+ALL_RUN = {"rebuild": True, "conform": True, "make-test": True}
+
+
+def test_deferred_gates_needs_both_the_flag_and_a_refreshing_pass():
+    assert ac.deferred_gates(defer=True, refreshing=True, would_run=ALL_RUN) == frozenset(
+        {"rebuild", "conform", "make-test"}
+    )
+    assert ac.deferred_gates(defer=False, refreshing=True, would_run=ALL_RUN) == frozenset()
+    assert ac.deferred_gates(defer=True, refreshing=False, would_run=ALL_RUN) == frozenset()
+
+
+def test_deferred_gates_never_demotes_a_gate_that_would_not_run():
+    would_run = {"rebuild": False, "conform": False, "make-test": True}
+    assert ac.deferred_gates(defer=True, refreshing=True, would_run=would_run) == frozenset({"make-test"})
+    assert ac.deferred_gates(defer=True, refreshing=True, would_run={}) == frozenset()
+
+
+def test_dry_run_plan_deferred_gates_replace_their_steps():
+    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    by_name = {step.name: step for step in plan.steps}
+    for name in ("gate:rebuild", "gate:conform", "gate:make-test"):
+        assert by_name[name].argv is None
+        assert by_name[name].note == f"DEFERRED ({ac.DEFER_NOTE})"
+    assert by_name["gate:js"].argv is not None
+    rendered = ac.render_plan(plan)
+    assert "deferred to the next pass        : gate:conform, gate:make-test, gate:rebuild" in rendered
+
+
+def test_deferring_make_test_frees_the_build_stage_budget():
+    plan = _plan(deferred=frozenset({"make-test"}))
+    assert plan.job_budget == 4
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["run_m1"].argv[-2:] == ["--jobs", "4"]
+    assert by_name["surface-build"].argv[-2:] == ["--jobs", "4"]
+    rendered = ac.render_plan(plan)
+    assert "gate:make-test deferred, so the build stages fan out" in rendered
+    assert "gate:make-test deferred, so no queueing" in rendered
+
+
+def test_a_proved_skip_outranks_deferral_in_the_plan():
+    plan = _plan(
+        skip_rebuild_gate=True, rebuild_gate_note="closure unchanged", deferred=frozenset({"rebuild"})
+    )
+    by_name = {step.name: step for step in plan.steps}
+    assert by_name["gate:rebuild"].note == "SKIPPED (closure unchanged)"
+
+
+def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
+    calls = {"rebuild": 0, "conform": 0, "make-test": 0}
+
+    def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+        calls["rebuild"] += 1
+        return ac._RebuildOutcome("green", [], [])
+
+    def fake_conform(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
+        calls["conform"] += 1
+        return "green", []
+
+    def fake_make(spawn, emit, registry):
+        calls["make-test"] += 1
+        return _step("gate:make-test", 0)
+
+    monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", fake_conform)
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 0
+    assert calls == {"rebuild": 0, "conform": 0, "make-test": 0}
+    assert report.gate_js == "green"
+    for status in (report.gate_rebuild, report.gate_conform, report.gate_make_test):
+        assert status == f"deferred ({ac.DEFER_NOTE})"
+
+
+def test_a_deferred_gate_keeps_its_status_when_run_m1_fails(monkeypatch):
+    def failing_run_m1(report, *, spawn, emit, registry, budget, **_):
+        return ac.GateOutcome(False, ["boundary gate failed"], 0, 0)
+
+    monkeypatch.setattr(ac, "_do_run_m1", failing_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+    assert rc == 1
+    assert report.gate_rebuild == f"deferred ({ac.DEFER_NOTE})"
+    assert report.gate_conform == f"deferred ({ac.DEFER_NOTE})"
+
+
+def test_run_cycle_records_no_green_for_a_deferred_gate(monkeypatch, tmp_path):
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    monkeypatch.setattr(ac, "CONFORM_GREEN", tmp_path / "conform-green.json")
+    monkeypatch.setattr(ac, "REBUILD_GATE_GREEN", tmp_path / "rebuild-gate-green.json")
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    _patch_build_chain(monkeypatch)
+
+    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}), record_greens=True)
+    report = ac.CycleReport()
+    assert ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()) == 0
+    assert not (tmp_path / "conform-green.json").exists()
+    assert not (tmp_path / "rebuild-gate-green.json").exists()
+
+
+def test_cycle_summary_payload_marks_deferred_skips():
+    report = _green_report()
+    report.gate_rebuild = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_conform = f"deferred ({ac.DEFER_NOTE})"
+    report.gate_make_test = f"deferred ({ac.DEFER_NOTE})"
+    plan = _plan(deferred=frozenset({"rebuild", "conform", "make-test"}))
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    for name in ("rebuild", "conform", "make_test"):
+        assert payload["gates"][name]["skip"] == "deferred"
+        assert payload["gates"][name]["green"] is False
+    assert payload["gates"]["js"]["skip"] is None
+    assert payload["make_test_fingerprint"] is None
+    assert payload["plan"]["deferred"] == ["conform", "make-test", "rebuild"]
+
+
+def test_cycle_summary_payload_prefers_proved_and_forced_over_deferred():
+    report = _green_report()
+    plan = _plan(
+        skip_rebuild_gate=True,
+        skip_conform=True,
+        skip_make_test=True,
+        deferred=frozenset({"rebuild", "conform", "make-test"}),
+    )
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    assert payload["gates"]["rebuild"]["skip"] == "proved"
+    assert payload["gates"]["make_test"]["skip"] == "proved"
+    assert payload["gates"]["conform"]["skip"] == "forced"
+
+
+def test_finish_hands_a_deferred_green_cycle_to_the_next_pass(monkeypatch, capsys):
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    plan = _plan(deferred=frozenset({"conform", "rebuild"}))
+    assert ac._finish(_green_report(), [], plan) == 0
+    out = capsys.readouterr().out
+    assert "Deferred, and so far unverified on this content: gate:conform, gate:rebuild." in out
+    assert "run `make review-cycle` again" in out
+    assert "NOT READY" in out
+
+
+def test_finish_says_nothing_about_deferral_when_nothing_was_deferred(monkeypatch, capsys):
+    monkeypatch.setattr(ac, "run_retention", lambda plan: None)
+    assert ac._finish(_green_report(), [], _plan()) == 0
+    out = capsys.readouterr().out
+    assert "Cycle complete." in out
+    assert "Deferred" not in out
+
+
 def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
     assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234"
     (tmp_path / "review-pre-abc1234").mkdir()
@@ -2278,6 +2436,70 @@ def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
     removed = ac.prune_snapshots(tmp_path, keep)
     assert {path.name for path in removed} == {"review-pre-abc1234", "review-pre-abc1234-2"}
     assert keep.exists()
+
+
+def _defer_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
+    _seed_auto_repo(tmp_path, monkeypatch, stamp=stamp)
+    (tmp_path / "tmp").mkdir()
+    (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "key")
+    monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
+
+
+def test_main_defers_on_a_refreshing_pass(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run", "--defer-gates"]) == 0
+    out = capsys.readouterr().out
+    assert "Heavy gates deferred to the next pass: gate:conform, gate:make-test, gate:rebuild" in out
+    assert "gate:rebuild: DEFERRED" in out
+
+
+def test_main_does_not_defer_without_the_flag_or_under_fresh(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run"]) == 0
+    assert "deferred" not in capsys.readouterr().out.lower()
+    assert ac.main(["--dry-run", "--defer-gates", "--no-defer-gates"]) == 0
+    assert "deferred" not in capsys.readouterr().out.lower()
+    assert ac.main(["--dry-run", "--defer-gates", "--fresh"]) == 0
+    assert "deferred" not in capsys.readouterr().out.lower()
+
+
+def test_main_never_defers_a_gate_a_flag_already_forces(tmp_path, monkeypatch, capsys):
+    _defer_repo(tmp_path, monkeypatch)
+    assert ac.main(["--dry-run", "--defer-gates", "--skip-conform", "--force-make-test"]) == 0
+    out = capsys.readouterr().out
+    assert "Heavy gates deferred to the next pass: gate:rebuild" in out
+    assert "gate:conform: SKIPPED (--skip-conform)" in out
+    assert "gate:make-test: make test" in out
+
+
+def test_main_defers_nothing_once_the_artifacts_have_settled(tmp_path, monkeypatch, capsys):
+    """The converged pass: run_m1 and the surface both auto-skip, so there is no artifact work to prefer over verification and the pending gates run."""
+    _defer_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "surface_build_skippable", lambda root=None: True)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
+    monkeypatch.setattr(ac, "census_skip_fingerprint", lambda root=None, surface=None: "no-match")
+    assert ac.main(["--dry-run", "--defer-gates"]) == 0
+    out = capsys.readouterr().out
+    assert "Heavy gates deferred" not in out
+    assert "gate:rebuild: uv run pytest" in out
+    assert "gate:conform: uv run python -m rebuild.pipeline.run_m1 --conform-only" in out
+
+
+def test_main_never_defers_a_rehearsal(tmp_path, monkeypatch, capsys):
+    """A rehearsal writes its surface elsewhere, so its surface build is unskippable and every pass would look refreshing — deferring would never converge."""
+    _defer_repo(tmp_path, monkeypatch)
+    ac.record_green(ac.RUN_M1_GREEN, "key")
+    monkeypatch.setattr(ac, "m1_artifacts_present", lambda root=None: True)
+    monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, horizon=None: "no-match")
+    monkeypatch.setattr(ac, "rebuild_gate_skip_fingerprint", lambda root=None: "no-match")
+    assert ac.main(["--dry-run", "--defer-gates", "--review-out", str(tmp_path / "rehearse")]) == 0
+    out = capsys.readouterr().out
+    assert "Heavy gates deferred" not in out
+    assert "gate:rebuild: uv run pytest" in out
 
 
 def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):
