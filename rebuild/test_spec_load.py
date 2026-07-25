@@ -169,7 +169,9 @@ def test_scope_condition_parsing(spec):
     top = spec.runes["qsTea"].stances["half"].surface.entries["top"]
     assert top.selectable is False
     grounded = spec.runes["qsMay"].stances["grounded-loop"].surface.entries["x-height"]
-    assert grounded.joined == "pulled-back-grounded" and grounded.joined_x == 2
+    assert grounded.joined is None and grounded.joined_x is None
+    assert grounded.x == 2
+    assert grounded.stub is not None and grounded.stub.cols == (3,) and grounded.stub.inks_when == "withdrawn"
 
 
 def test_unlock_parsing(spec):
