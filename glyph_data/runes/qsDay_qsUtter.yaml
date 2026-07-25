@@ -79,8 +79,7 @@ policy:
     when:
       right: {family: qsTea}
       feature: ss03
-  - stance: half
-    entry: baseline
+  - entry: baseline
     by: 1
     when:
       left:

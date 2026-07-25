@@ -137,8 +137,7 @@ policy:
   - loop
   - grounded-loop
   refuse:
-  - stance: grounded-loop
-    exit: baseline
+  - exit: baseline
     when:
       right:
         family:
@@ -151,26 +150,22 @@ policy:
         - qsEat
         - qsUtter
         - qsOoze
-  - stance: grounded-loop
-    exit: baseline
+  - exit: baseline
     when:
       left:
         except:
         - {family: qsAh}
       right: {family: qsTea}
     why: the old way has ·May make both permissible joins
-  - stance: grounded-loop
-    exit: baseline
+  - exit: baseline
     when:
       right: {family: qsTea}
       feature: ss03
-  - stance: grounded-loop
-    exit: baseline
+  - exit: baseline
     when:
       right: {family: qsTea}
       feature: ss10
-  - stance: grounded-loop
-    exit: baseline
+  - exit: baseline
     when:
       self: {entry: live}
       right:
@@ -208,8 +203,7 @@ policy:
           then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   extend:
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     ok: [1, 1]
     when:
@@ -222,14 +216,12 @@ policy:
         - qsJay
         - qsRoe
         - qsIt
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsTea}
       feature: ss03
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       self: {entry: live}

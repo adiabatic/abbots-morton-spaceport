@@ -142,8 +142,7 @@ policy:
   - full
   - half
   refuse:
-  - stance: full
-    exit: baseline
+  - exit: baseline
     when:
       right:
         family:
@@ -159,8 +158,7 @@ policy:
         - qsOx
         - qsFoot
     why: These join ·Pea through the half motion's x-height dip instead; without this refusal the structural floor would pick the lower baseline seam over the half chain.
-  - stance: full
-    exit: baseline
+  - exit: baseline
     when:
       left: {joined_at: y6}
       right:

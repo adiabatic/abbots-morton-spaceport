@@ -140,14 +140,12 @@ policy:
         - family: qsUtter
           then: {family: qsMay}
   extend:
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsFee}
   contract:
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsJai}

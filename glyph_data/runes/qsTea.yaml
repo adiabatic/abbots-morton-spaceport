@@ -134,8 +134,7 @@ policy:
   - full
   - half
   refuse:
-  - stance: full
-    entry: baseline
+  - entry: baseline
     when:
       left:
         family:
@@ -146,13 +145,11 @@ policy:
         - qsExam
         - qsIt
         - qsEat
-  - stance: full
-    exit: baseline
+  - exit: baseline
     when:
       self: {entry: none}
       left: {family: qsEt}
-  - stance: full
-    exit: baseline
+  - exit: baseline
     when:
       right:
         family:
@@ -165,13 +162,11 @@ policy:
     entry: x-height
     when:
       right: {family: qsTea}
-  - stance: half
-    exit: x-height
+  - exit: x-height
     when:
       self: {entry: none}
       left: {family: qsEt}
-  - stance: half
-    exit: x-height
+  - exit: x-height
     when:
       right:
         family:
@@ -183,8 +178,7 @@ policy:
         - qsFoot
   prefer: []
   extend:
-  - stance: full
-    entry: baseline
+  - entry: baseline
     by: 1
     when:
       left:
@@ -192,24 +186,20 @@ policy:
         - qsKey
         - qsJay
         - qsEight
-  - stance: full
-    exit: baseline
+  - exit: baseline
     by: 1
     when:
       right: {family: qsI}
-  - stance: half
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsI}
   contract:
-  - stance: half
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsZoo}
-  - stance: half
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       self: {entry: none}

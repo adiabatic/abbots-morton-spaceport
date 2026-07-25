@@ -129,8 +129,7 @@ policy:
           then: {family: qsDay}
     why: I want a word-final ·Tea·Day pair to bind more tightly than the average. ·Utter is mentioned here because ·Utter.alt has a mandatory exit, so it can’t help consuming ·Tea’s baseline slot. Only the letter before ·Utter can prevent this.
   extend:
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right:
@@ -146,13 +145,11 @@ policy:
         - qsEight
         - qsOwe
         - qsFoot
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 3
     when:
       right: {family: qsMay}
-  - stance: loop
-    exit: x-height
+  - exit: x-height
     by: 1
     when:
       right: {family: qsTea}
