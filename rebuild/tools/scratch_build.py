@@ -1,4 +1,4 @@
-"""Scratch-build harness for the round-2 lever hunt: build the M1 pipeline against an arbitrary runes_dir into an arbitrary out_dir and run the oracle, so candidate policy records can be build-tested in isolation without touching glyph_data/runes/ or the shared rebuild/out/m1/ artifacts.
+"""Scratch-build harness for lever hunts: build the M1 pipeline against an arbitrary runes_dir into an arbitrary out_dir and run the oracle, so candidate policy records can be build-tested in isolation without touching glyph_data/runes/ or the shared rebuild/out/m1/ artifacts.
 
 Usage:
     uv run python rebuild/tools/scratch_build.py <runes_dir> <out_dir>

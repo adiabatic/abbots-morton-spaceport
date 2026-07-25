@@ -1,4 +1,4 @@
-"""Geometry unit tests over the four families' real data (via rebuild.pipeline.fixtures), plus synthetic coverage for the adjustment operations the M1 alphabet never reaches (trim, bind at settlement level)."""
+"""Geometry unit tests over the fixture spec's real data (via rebuild.pipeline.fixtures), plus synthetic coverage for the adjustment operations the M1 alphabet never reaches (trim, bind at settlement level)."""
 
 import pytest
 

@@ -64,7 +64,7 @@ def test_fixture_units_dedupe_and_carry_configs(tmp_path):
 
 
 def test_conflicting_class_resolves_to_unmatched_with_config_classes():
-    """A triple whose audit rows carry different classes per config is no longer a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but novel under default), the unit takes the UNMATCHED sentinel as its class — so the novel default behavior is what gets adjudicated — and records every config's class in config_classes. Two distinct *matched* classes for one triple is still a genuine classification bug and raises."""
+    """A triple whose audit rows carry different classes per config is not a build error. When one config leaves it UNMATCHED (the ss03-chain-join-gains windows, blessed under ss03 but novel under default), the unit takes the UNMATCHED sentinel as its class — so the novel default behavior is what gets adjudicated — and records every config's class in config_classes. Two distinct *matched* classes for one triple is still a genuine classification bug and raises."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("a",), ("b",)),
         AuditRow("ss03", "E650:E665", ("cell",), "ss03-chain-join-gains", ("a",), ("b",)),

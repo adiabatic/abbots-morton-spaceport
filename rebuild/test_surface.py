@@ -1,4 +1,4 @@
-"""surface unit tests over the real six-rune spec: cell enumeration under feature configurations, binding resolution per the explicit-cells > side-bindings > base order, the side-binding disagreement error, and the E-ANCHOR convention gate."""
+"""surface unit tests over the real loaded spec: cell enumeration under feature configurations, binding resolution per the explicit-cells > side-bindings > base order, the side-binding disagreement error, and the E-ANCHOR convention gate."""
 
 import textwrap
 import warnings
@@ -136,7 +136,7 @@ def test_resolve_side_bindings_and_overrides(spec):
         "#  #",
         " ## ",
     ]
-    # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands. ·May's loop exit no longer withdraws — its pulled-back binding is entry-side only now — so there is no exit ex-bind rendering.
+    # The token-less exit-none cell is the boundary rendering: the exit was never declined, so the base drawing (connector ink and all) stands. ·May's pulled-back binding is entry-side only, so there is no exit ex-bind rendering.
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", None, None, ()))
     assert plan.bitmap is None
     plan = surface.resolve_cell(spec, CellId("qsMay", "loop", "baseline", "x-height", ()))

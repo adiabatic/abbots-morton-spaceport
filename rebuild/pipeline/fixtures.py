@@ -1,6 +1,6 @@
 """A hand-built mini ResolvedSpec over the real M1 rune data (the moral successor of prototype/spec.py, per M1-PLAN section 5's parallelization note).
 
-Bitmaps, anchors, bindings, pairings, and the policy records below are transcribed from glyph_data/runes/*.yaml so Group 2/3 tests run against the four families' real geometry without depending on Group 1's spec_load. Once spec_load lands, integration swaps this module for the real loader; divergence between the two is a Phase 5 finding, not a license to edit either side silently.
+Bitmaps, anchors, bindings, pairings, and the policy records below are transcribed from glyph_data/runes/*.yaml so Group 2/3 tests run against the fixture families' real geometry without depending on Group 1's spec_load. spec_load is the real loader; divergence between the two is a finding, not a license to edit either side silently.
 """
 
 from __future__ import annotations

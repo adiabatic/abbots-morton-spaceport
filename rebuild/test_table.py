@@ -180,7 +180,7 @@ def test_cap_and_slot_arity_are_tied():
 
 
 class TestDepthThreeTables:
-    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the lone depth-4 input (qsDay's entry-live carve-out) splits on right4 — and only in the chain-live windows `fourth_slot_filter` admits — the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
+    """The lazy third and fourth lookahead slots over the real loaded rune YAML: only depth-3-bearing inputs get their windows split by right3 and only the `depth4_inputs` runes split on right4 — and only in the chain-live windows `fourth_slot_filter` admits — the split rows compile to deeper-slot rules ordered ahead of their shallower fallbacks, and the hard invariants hold with the extra slots — which is also the corpus-wide proof that the depth-3 and depth-4 chain records introduce no E-INCOMPARABLE/E-AMBIGUOUS prefer conflict."""
 
     @pytest.fixture(scope="class")
     def real_spec(self):
@@ -317,7 +317,7 @@ class TestDepthThreeTables:
 
 
 class TestDepthFourTablesSynthetic:
-    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the production YAML lint still caps chains at two hops, so no shipped rune reaches depth 4 yet. One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects to bypass the lint, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's chain-live windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot."""
+    """The lazy fourth lookahead slot, exercised over a synthetic reach-3 record because the frozen fixture spec carries no depth-4 chain of its own (the real loaded YAML's chains are covered by TestDepthThreeTables). One fixture rune (·Tea) is handed an absolute-stance prefer whose right condition chains three `then:` hops, built straight from `model.Condition` objects, with the innermost hop distinguishing outcomes by the fourth raw token: only that input's chain-live windows get their fourth slot split, the split rows compile to four-slot rules ordered ahead of their three-slot fallbacks, and the hard invariants hold with the extra slot."""
 
     @pytest.fixture(scope="class")
     def synthetic_spec(self):

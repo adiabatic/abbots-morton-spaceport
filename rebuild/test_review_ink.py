@@ -1,4 +1,4 @@
-"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the M1-batch-2 workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build."""
+"""Tests for the review surface's ink-identity comparison: the proven census method (uharfbuzz shaping with kerning disabled, DecomposingRecordingPen outlines translated by cumulative advance plus offsets, pieces sorted and compared) reproduces the census facts — u-0000 is ink-identical, the verdict is deterministic, and the full kern-neutral histogram reproduces the machine-approved census over the live workload at the name-grain (pre-merge) dedupe, concentrated in the name-grain classes whose visible stragglers differ only in the old font's kerning, with the no-verdict exemptions (the boundary-echo blanket plus the two x-height-halves deletion forks) leaving the rest as human workload. Every count is pinned in rebuild/review-census-pins.json (the "ink" group). The built surface then folds ink-duplicate sibling units (merge_ink_duplicate_units), so the shipped manifest's counts are smaller — those are pinned in test_review_build."""
 
 from pathlib import Path
 
@@ -98,7 +98,7 @@ def test_config_diff_identity_sentinel_matches_ink_identical(workload, comparato
 
 
 def test_full_histogram_reproduces_the_census(workload, comparator):
-    """The kern-neutral census facts the rebatching rests on over the M1-batch-2 workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
+    """The kern-neutral census facts the rebatching rests on over the live workload at the name-grain (pre-merge) dedupe: the machine-approved units are ink-identical under every config in their sets, concentrated in the name-grain classes (boundary-echo, dangling-anchor-dropped, bare-name-live-join) whose visible difference is only the old font's kerning; the no-verdict share of the non-identical units — the boundary-echo blanket plus the two x-height-halves deletion forks — is exempt, leaving the human workload in its batches. Every count is pinned in rebuild/review-census-pins.json. No verdict family (the UNMATCHED windows) is ink-identical: each is a real new join under review. The built surface additionally folds ink-duplicate siblings; its smaller counts are pinned in test_review_build."""
     pins = PINS["ink"]
     stats = ink_histogram(workload, comparator)
     assert stats["machine_total"] == pins["machine_total"]
@@ -125,7 +125,7 @@ def test_junior_tracking_premise_holds(oracle):
 
 
 def test_junior_oracle_approves_a_suppressed_ligature_unit(oracle):
-    """u-14056's text (·No·Day·Utter·Utter, divergent only under ss10 because the old font still formed the ·Day·Utter ligature there): the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
+    """The ·No·Day·Utter·Utter window (divergent only under ss10 because the old font still formed the ·Day·Utter ligature there): the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
     text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
     assert oracle.approves(("ss10",), text) is True
 
@@ -139,6 +139,6 @@ def test_junior_oracle_only_judges_ss10_only_units(oracle):
 
 
 def test_junior_oracle_refuses_the_lowered_namer_dot(oracle):
-    """The known counterexample from the current surface (the five `· ◊ZWNJ ·X·Y` boundary windows): Junior renders the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle correctly leaves the unit for human eyes."""
+    """The known counterexample (the `· ◊ZWNJ ·X·Y` boundary windows): Junior renders the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle correctly leaves the unit for human eyes."""
     text = "".join(chr(value) for value in (0x00B7, 0x200C, 0xE666, 0xE653))
     assert oracle.approves(("ss10",), text) is False

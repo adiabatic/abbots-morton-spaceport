@@ -60,7 +60,7 @@ def rows_covered(unit: dict) -> int:
 
 
 def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
-    """Collapse sorted u-NNNN ids into "u-0000..u-0024"-style range strings so 1,549 machine-approved ids stay readable in the triage YAML."""
+    """Collapse sorted u-NNNN ids into "u-0000..u-0024"-style range strings so the machine-approved id list stays readable in the triage YAML."""
     numbers = sorted(int(unit_id.split("-", 1)[1]) for unit_id in unit_ids)
     ranges: list[str] = []
     start = previous = None

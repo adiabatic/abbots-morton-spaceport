@@ -30,7 +30,7 @@ The descriptions are read as **editor hover tooltips in VS Code specifically** w
 - **Tight and self-contained.** Each description stands on its own without a scroll or click-through.
 - **Per-key, not per-region.** The hover is keyed to whatever the cursor is on, so every documented key carries its own complete answer; we don’t lean on a neighboring key’s description for context.
 
-### D5 — Lead summary, then air (set 2026-07-03, mid-R40)
+### D5 — Lead summary, then air
 
 Owner instruction, governing every hover written or reworked from here on:
 
@@ -38,7 +38,7 @@ Owner instruction, governing every hover written or reworked from here on:
 - **Vertical whitespace is load-bearing.** Prefer several short paragraphs over one dense one — “I need my vertical whitespace to keep the fatigue down.”
 - **Don’t crib the committed hovers’ style.** Much of the existing text was drafted by an earlier, less capable model (with significant human editing since); write plainer, with less jargon the owner doesn’t personally know, rather than matching the incumbent voice. Restructuring a committed hover to this shape while touching it for other reasons is welcome.
 
-### D6 — Wording is edited in a drafts file, not picked from options (set 2026-07-04)
+### D6 — Wording is edited in a drafts file, not picked from options
 
 The owner works in VS Code, where AskUserQuestion previews are a poor surface for word-smithing. New loop: one hover per round is staged in `tmp/hover-drafts.md` (editable Markdown; blank line = the `\n\n` break; paragraphs stay unwrapped) and simultaneously written into `rune.schema.json` so the real tooltip renders on hover in a rune file (`.vscode/settings.json` maps the schema onto `glyph_data/runes/*.yaml`). The owner edits the draft directly — expected mode: pointing at a phrase and asking for it to be dejargonized — then says “land it”; the text lands verbatim through the usual gates (JSON validation, walk-state upkeep, lint, commit). AskUserQuestion survives only for genuine forks, never wording. The schema carries the unapproved draft between rounds by design and is not committed until landed.
 
@@ -58,39 +58,39 @@ This fixes a reusable template, validated by the winning draft:
 2. **Mechanics** — a short line naming the sub-keys the author actually sets (e.g. “names the side (`entry`/`exit`), how many pixels (`by:`), and when (`when:`)”).
 3. **Example** — `Example: …` a single concrete ·X·Y outcome from a named rune.
 
-Worked examples must be kept honest against the runes as they change; the example is chosen to be the most illustrative real instance, and updated if that rune’s behavior moves. (See the deferred note on auto-checking examples.)
+Worked examples must be kept honest against the runes as they change; the example is chosen to be the most illustrative real instance, and updated if that rune’s behavior moves.
 
 ### D4 — Inline, no separate guide; cross-cutting prose rides the nearest container’s hover
 
-The schema-understanding survey recommended a two-tier split: terse reference inline, plus a separate `doc/rune-schema-guide.md` companion holding all the teaching. **We are not doing that** — it contradicts D1, where the owner ruled out opening a separate doc to recover intent. Everything the owner needs lives in the schema `description` strings, surfaced in VS Code hovers.
+The obvious alternative was a two-tier split: terse reference inline, plus a separate `doc/rune-schema-guide.md` companion holding all the teaching. **We are not doing that** — it contradicts D1, where the owner ruled out opening a separate doc to recover intent. Everything the owner needs lives in the schema `description` strings, surfaced in VS Code hovers.
 
 The one real problem that split was solving — cross-cutting concepts (the rune → stance → surface mental model; the left-settled / right-raw condition symmetry; the reserved-token history) don’t belong on any single leaf key — is handled without a second file: **cross-cutting explanation rides the nearest container key’s `description`.** Hover `when` and you get the left/right symmetry; hover a child like `leftCondition.joined_at` and you get the specific fact plus a one-clause pointer up to `when`. The root schema `description` and the `stances` / `surface` / `policy` container descriptions carry the orientation. No file to open; every concept is one hover away from where it’s used.
 
-`BETTERRUNESCHEMA.md` (this file) is the task tracker: the live walk state and the open decisions. The hover **text** lives in `rune.schema.json`, written as each decision lands; recover the per-decision call-and-why from that file’s `git log`. It is not itself shipped.
-
 ## Walk status
 
-qsPea walk + when-grammar region + the leaf sets: **done through R50** — the full qsPea document-order walk (rows 1–29), the settled Phase-2 when-grammar decisions (`policy`, `when`, `leftCondition`, the condition leaves, `rightCondition.then`, `when.word` — R27–R32), the R40–R46 example-honesty sweep (every worked example re-trued against the live runes), and the R47–R50 leaf sets (the `pairing` leaves, the five `cellBinding` leaves, the five `unlock` leaves, and the `refuse` targeting keys plus a dejargonized `refuseRecord`) are locked, as is the `whenWindowDecidable` container hover with its `right` one-liner (and a veto-register cleanup riding along in `then`); the hover text lives in `rune.schema.json`.
+Every `$def` and key that carries a `description` in `rune.schema.json` is settled — the schema is the record of which.
 
-Still to draft (code-only — no owner decision; draft from the code and let the owner react): `when.feature`, `rightCondition` / `rightConditionNoThen`, `selfCondition`, `whenWindowDecidable`’s `left` / `self` / `word` / `feature` (its `word` should mirror the settled `when.word` wording), `staticCondition`, `groupDefinition`, and the scalar `$defs` (`familyName`, `familyOrList`, `boundaryValue`, the heights, stroke).
+Still to draft (code-only — no owner decision; draft from the code and let the owner react): the `$defs` that carry no `description` yet, which this lists:
 
-Still open (owner decision needed): the `motionName` reserved-token rule (q22) and migration bridging (q24) — both carried in “Open (leans to react to)” below.
+```sh
+uv run python -c "import json; d = json.load(open('rebuild/schema/rune.schema.json'))['\$defs']; print(sorted(k for k, v in d.items() if 'description' not in v))"
+```
 
 ## What is next
 
-From here the walk follows the owner’s source-order rule (set 2026-06-19): document the next **bare** field that actually appears in a live rune YAML, in document order across any of the files, rather than picking by the abstract Phase-2 row codes. The **Walk status** above still maps the territory; this pass just reorders which leaf comes next, and biases toward leaves the owner will actually hover while authoring. Root document order is `rune` → `codepoint`/`sequence` → `ductus` → `notes` → `mono` → `stances` → `policy`; the first four were already done, so `notes` was next.
+From here the walk follows the owner’s source-order rule: document the next **bare** field that actually appears in a live rune YAML, in document order across any of the files, rather than picking by the abstract Phase-2 row codes, biasing toward leaves the owner will actually hover while authoring. Root document order is `rune` → `codepoint`/`sequence` → `ductus` → `notes` → `mono` → `stances` → `policy`.
 
 No round is in flight. Next up: the remaining when-grammar containers and scalars per **Walk status**, then the open leans below.
 
-The R1–R50 decision log — the per-decision call-and-why behind every hover — is retired here. The hover **text** it produced lives on each key in `rune.schema.json`; recover the reasoning from that file’s `git log`.
+The per-decision reasoning behind each hover lives in `rune.schema.json`’s `git log`.
 
 ### Open (leans to react to)
 
 - **q22 — reserved-token history (when grammar/motionName).** Explain why `before`/`after`/`noentry`/… are forbidden in names (old display-name suffixes), or just list them. _Lean: principle inline (“names = the motion, not the neighbors”); history kept terse._
 - **q24 — migration bridging (old quikscript.yaml).** None / brief mapping note / detailed side-by-side from the old `entry_xheight_exit_baseline`-style keys. _Lean: brief mapping note, kept terse._
-- **bitmaps `$def` scope-precision follow-up (from R36/R38).** The `bitmaps` `$def` hover still says its names are “wired up elsewhere,” predating R36’s scope decision: `joined` / `withdrawal` / `cells.bitmap` resolve only to the stance’s own `bitmaps` map — not a sibling bitmap, not the base `bitmap`, not the rune’s `mono`. `exitRow.withdrawal` was reworked to say this (R38); give the `bitmaps` `$def` the same scope precision when the walk reaches it.
-- **D5 retrofit of committed hovers.** The lead-summary + `\n\n` shape now governs new text; the ~50 already-committed hovers mostly don’t have it. _Lean: retrofit opportunistically — restructure a committed hover whenever it’s being touched anyway (as the R40–R46 sweep did), not as a big-bang pass._
+- **`bitmaps` `$def` scope-precision follow-up.** The `bitmaps` `$def` hover still says its names are “wired up elsewhere,” predating the scope decision: `joined` / `withdrawal` / `cells.bitmap` resolve only to the stance’s own `bitmaps` map — not a sibling bitmap, not the base `bitmap`, not the rune’s `mono`. `exitRow.withdrawal` was reworked to say this; give the `bitmaps` `$def` the same scope precision when the walk reaches it.
+- **D5 retrofit of committed hovers.** The lead-summary + `\n\n` shape now governs new text; most already-committed hovers don’t have it. _Lean: retrofit opportunistically — restructure a committed hover whenever it’s being touched anyway, not as a big-bang pass._
 
 ## Health note
 
-Three `rebuild/test_spec_load.py` failures (`test_group_resolution`, `test_predicate_class_membership`, `test_loads_all_six_runes`) are pre-existing M1-batch debt — a rune-set mismatch between the test fixtures and the in-progress migrated data, where `qsPea` shows up as an “extra item”. They are orthogonal to this description-only work; do not chase them here. Note that `make test` does not cover `rebuild/`, so schema-loading tests must be run directly (`uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal`).
+Don’t chase the pre-existing `rebuild/` suite failures here — `WHATNEXT.md`’s batch-1 spec-pin bullet owns them. Note that `make test` does not cover `rebuild/`, so schema-loading tests must be run directly (`uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal`).

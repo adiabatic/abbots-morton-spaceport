@@ -2,7 +2,7 @@
 
 Usage: uv run python -m rebuild.pipeline.explain E665:E670:E665 --features ss03
 
-Sequence positions are colon-separated and may be hex codepoints (E665, 0xE665, U+E665) or qs-names (qsMay), mixed freely; `space`, `zwnj`, and `namer-dot` name the boundary tokens. The CLI loads the real rune files through spec_load when that module exists; until then it falls back to the hand-built fixtures spec with a notice.
+Sequence positions are colon-separated and may be hex codepoints (E665, 0xE665, U+E665) or qs-names (qsMay), mixed freely; `space`, `zwnj`, and `namer-dot` name the boundary tokens. The CLI loads the real rune files through spec_load, falling back to the hand-built fixtures spec with a notice when the loader is unavailable.
 """
 
 from __future__ import annotations
@@ -150,7 +150,7 @@ def _load_spec() -> tuple[ResolvedSpec, str | None]:
         return spec, None
     except (
         Exception
-    ) as error:  # noqa: BLE001 — the fixtures fallback is the documented pre-integration behavior
+    ) as error:  # noqa: BLE001 — the fixtures fallback is deliberate
         from rebuild.pipeline import fixtures
 
         return (
