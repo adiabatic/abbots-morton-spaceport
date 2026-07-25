@@ -84,43 +84,44 @@ stances:
     - "  ##  "
     y_offset: -3
     bitmaps:                       # named hand-drawn siblings, referenced only by bindings below
-      pulled-back: {bitmap: ["..."], y_offset: -3}
       pulled-back-stubless: {bitmap: ["..."], y_offset: -3}
     surface:
       entries:
         baseline: {x: 0, stroke: horizontal}
-        x-height: {x: 3, stroke: horizontal, joined: pulled-back, from: [{family: qsUtter, joined_at: x-height}]}
-          # `from:` = allowlist polarity (§13.3): this entry row joins only against the named scope.
-          # `joined:` = side binding used when this side is live. qsPea's dips are the stub flavor instead:
-          #   x-height: {x: 0, stub: {cols: [0], when: withdrawn}}  — same-row ink present only when joined.
+        x-height: {x: 3, stroke: horizontal, joined: pulled-back-stubless, joined_x: 2, from: [{family: qsUtter}]}
+          # `from:` = allowlist polarity (§13.3): this entry row joins only against the named scope. The row's
+          # own height is implicit — never restate it in the scope as `joined_at: x-height`.
+          # `joined:` = side binding used when this side is live; `joined_x:` moves the anchor with the bound
+          # form. qsPea's dips are the stub flavor instead:
+          #   x-height: {x: 0, stub: {cols: [0], inks_when: joined}}  — same-row ink present only when joined.
       exits:
-        x-height: {x: 5, stroke: horizontal, withdrawal: pulled-back}
+        x-height: {x: 5, stroke: horizontal, withdrawal: safe}
           # `withdrawal:` = the form used when this side is declined mid-word; `safe` only when the compiler
-          # verifies no reaching ink (qsIt's bar). qsPea.half's exit row carries the flagged oddities instead:
+          # verifies no reaching ink (qsIt's bar; qsMay's own x-height exit declares neither). qsPea.half's
+          # exit row carries the flagged oddities instead:
           #   x-height: {x: 4, ink_y: 6}            — today's exit_ink_y
           # and qsTea.half's top entry carries:  top: {x: 0, selectable: false}   — today's entry_curs_only.
       pairings:
-        never: [{entry: baseline, exit: baseline}, {entry: x-height, exit: x-height}]
+        never: [{entry: x-height, exit: x-height}]
           # qsIt uses the only: form — the legal set is smaller than its complement:
           # only: [{entry: x-height, exit: baseline}, {entry: x-height, exit: none}, {entry: baseline, exit: x-height}, {entry: baseline, exit: none}, {entry: none, exit: x-height}, {entry: none, exit: baseline}, {entry: none, exit: none}]
       cells:
-        - {entry: x-height, exit: x-height-withdrawn, bitmap: pulled-back}
-          # explicit composition when two side bindings touch one cell; qsPea's both-dipped half is the
-          # §3.2 case: {entry: x-height, exit: x-height, bitmap: half-dips-both-sides}
+        - {entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}
+          # an explicit row for one cell; qsOy carries this one, purely to move the exit anchor with the
+          # joined form. The other reason for a row is a composition the sugar cannot name — qsUtter.alt's
+          # entry-live + exit-declined cell. qsPea's both-sides dip needs neither: its two stubs compose it.
       unlocks: []
           # qsTea.full carries: {pairing: {entry: baseline, exit: baseline}, feature: ss05, when: {left: {family: qsEt}}}
-          # qsTea.half carries: {entry: x-height, feature: ss03, when: {left: {class: ...widened ss03 scope...}}}
-          # qsIt carries four ss04 rows: {pairing: {entry: baseline, exit: baseline}, feature: ss04, when: {left: {family: qsDay}}} etc.
+          # qsTea.half carries: {entry: x-height, feature: ss03, when: {left: {family: [...widened ss03 scope...]}}}
+          # qsIt carries one ss04 row, deliberately context-free: {pairing: {entry: baseline, exit: baseline}, feature: ss04}
       require: []                  # none of the five runes needs join-born stances (·Fee's case)
   grounded-loop:
     motion: grounded-loop
     bitmap: ["..."]
     y_offset: -3
-    bitmaps:
-      pulled-back-grounded: {bitmap: ["..."], y_offset: -3}
     surface:
       entries:
-        x-height: {x: 3, joined: pulled-back-grounded, joined_x: 2}    # per-cell anchor override: the anchor moves with the bound form
+        x-height: {x: 2, stroke: horizontal, stub: {cols: [3], inks_when: withdrawn}}    # the other stub polarity: base-drawing ink that retracts on the join
       exits:
         baseline: {x: 4, toward: [{family: qsDay}, {family: qsSee}]}   # `toward:` = exit-side allowlist (code-point order)
 policy:
@@ -131,15 +132,19 @@ policy:
       # refuse/require may NOT use right.then — window-decidability, enforced by schema and lint
   prefer: []                       # the M1 subset has zero prefer records (see §5: semantics coverage)
   extend:
-    - {stance: loop, exit: x-height, by: 1, ok: [1, 1], when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}
-    - {stance: loop, exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}    # the ss03-gated reach
-    - {stance: loop, entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsYe, qsHe, qsIt], joined_at: baseline}}}
+    - {exit: x-height, by: 1, ok: [1, 1], when: {right: {family: [qsDay, qsFee, qsJai, qsJay, qsRoe, qsIt]}}}
+    - {exit: x-height, by: 1, when: {right: {family: qsTea}, feature: ss03}}    # the ss03-gated reach
+    - {entry: baseline, by: 1, when: {left: {family: [qsPea, qsTea, qsYe, qsHe, qsIt]}}}
+      # a record that grants or extends an entry at height H already binds the seam to H — the left scope
+      # never restates it as `joined_at: H`.
       # qsIt's flagship self: condition (replaces extend_exit_when_entered):
-      #   {stance: hapax, exit: baseline, by: 1, when: {self: {entry: live}}}
-      # target (stance, side, height) is mandatory; same-side records never sum; most specific wins (§6.2)
+      #   {exit: baseline, by: 1, when: {self: {entry: live}}}
+      # side + height are mandatory; `stance:` only when more than one stance offers them (none of the three
+      # above needs it); same-side records never sum; most specific wins (§6.2)
   contract:
-    - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee, joined_at: x-height}}, why: ·Fee's long reach-over absorbs the baseline stub; the redraw spans rows, so it is a bound shape, not arithmetic.}
-      # `bind:` = hand-drawn sibling in place of same-row arithmetic; `trim: N` is the receiver-side blanking option
+    - {stance: loop, entry: x-height, bind: pulled-back-stubless, when: {left: {family: qsFee}}, why: ·Fee's long reach-over absorbs the baseline stub; the redraw spans rows, so it is a bound shape, not arithmetic.}
+      # `bind:` = hand-drawn sibling in place of same-row arithmetic; `trim: N` is the receiver-side blanking
+      # option. `stance: loop` earns its place here: both ·May stances offer an x-height entry.
   resolve: []                      # expected empty in M1; any E-INCOMPARABLE/E-AMBIGUOUS lands here with migrated: provenance
   groups: {}                       # rune-local sets: {union: [...], minus: [...]} over family literals, traits, classes
 ```
@@ -360,7 +365,7 @@ The three groups are disjoint by file and by import direction: Group 1 owns `spe
 
 The explicit check the task asks for: **qsPea adds no prefer records** — its ten stances carry only row scopes, refusals, extends, and cascade machinery that is DEAD under settlement (`reverse_upgrade_from`). So the M1 subset, like the prototype’s, contains **zero competing prefers, zero prefers at all, zero resolves**, and no organic `E-INCOMPARABLE`/`E-AMBIGUOUS` is expected.
 
-Exercised by real records in M1 (beyond the prototype’s list): allowlist polarity with **left resolved-state scopes** (qsPea’s x-height entry `from: [{family: qsMay, joined_at: x-height}, {family: qsUtter, …}]`); a refusal whose `when:` uses a **predicate class plus except carve-out** (qsPea’s en-y6 baseline-exit refusal toward can-enter-at-x-height except five families); **explicit `cells:` composition** (qsPea’s both-dipped half; qsMay’s pulled-back entry-live/exit-withdrawn cell); **per-cell anchor override** (qsMay `joined_x: 2`); **stub-vs-withdrawal polarity both ways** (qsPea’s dips are joined-state ink; qsMay’s connector is withdrawal-removed); the **flagged oddities** `ink_y` (qsPea.half) and `selectable: false` (qsTea en-y8); the **y6 height** (·Pea·Pea, so all four curs lookups); the **`self:` condition** (qsIt’s entered-exit extension); **ss-gated extends** (qsMay toward qsTea under ss03); **four-set unlock coverage with narrowing `when:`** (ss02/ss03/ss04/ss05) and **multi-set union composition with composite markers** (ss02+ss03, ss02+ss03+ss05 on qsTea — new past the prototype); `pairings: only:` (qsIt) and `never:` (qsTea, qsMay); predecessor withdrawal before the entryless ligature; the ss10 isolated overlay.
+Exercised by real records in M1 (beyond the prototype’s list): **allowlist polarity** (qsPea’s x-height entry `from: [{family: qsMay}, {family: qsUtter}, {family: qsDay_qsUtter}]` — the row’s own height is implicit, so the scope names families only); a **left resolved-state condition** in policy (qsPea’s en-y6 baseline-exit refusal, `when: {left: {joined_at: y6}, …}`); a refusal whose `when:` uses a **predicate class plus except carve-out** (that same refusal, toward can-enter-at-x-height minus a hand-listed carve-out); an **explicit `cells:` row with a per-cell anchor override** (qsOy’s opened loop, `{entry: x-height, exit: baseline, bitmap: open-on-the-left, exit_x: 5}`); **side-binding anchor override** (qsMay `joined_x: 2`); **stub polarity both ways** (qsPea’s dips are joined-state ink; qsMay’s grounded loop carries base-drawing ink that retracts on the join); the **flagged oddities** `ink_y` (qsPea.half) and `selectable: false` (qsTea en-y8); the **y6 height** (·Pea·Pea, so all four curs lookups); the **`self:` condition** (qsIt’s entered-exit extension); **ss-gated extends** (qsMay toward qsTea under ss03); **four-set unlock coverage** (ss02/ss03/ss04/ss05), three of them narrowed by a `when:` and ss04 deliberately context-free, and **multi-set union composition with composite markers** (ss02+ss03, ss02+ss03+ss05 on qsTea — new past the prototype); `pairings: only:` (qsIt) and `never:` (qsTea, qsMay); predecessor withdrawal before the entryless ligature; the ss10 isolated overlay.
 
 Unexercised by real records, recorded honestly: **prefers in both modes and both grains, `resolve` and the arbitration errors, positive `word:` records, `require`, `split:`, `trim:`**, `bind:` **at settlement level** (qsMay’s after-·Fee bound contract was retired outright at the ·Fee migration — the shipped x-height entry row already binds `pulled-back-stubless` for every enterer, so activating ·Fee took only a `from:` widening and the modeled contract could never demonstrably fire; `rebuild/pipeline/fixtures.py` keeps the record on purpose as the synthetic exemplar, so its divergence from today’s `contract: []` in `qsMay.yaml` is intended rather than a Phase 5 finding, and geometry unit-tests `bind:` from it), `is: namer-dot` conditions, `stroke:` conditions in policy, case-group promotion and the subsumption linter, late formation. **§6.2 extensional specificity is implemented in full with its dedicated regression-test class, but its two named design cases (the decline-discriminator window, the qsJay contract-vs-extend overlap) need qsThey/qsJay and run on synthetic fixture specs, not M1 rune files.** This section is the durable home of that out-of-scope list — the milestone gets no separate report.
 
@@ -452,7 +457,7 @@ Phase 3 (author the six rune files + `rebuild/script.yaml` + the two schemas, du
 - **`model.py` was frozen by a sibling group before Group A started; two narrowings were adopted rather than corrected.** (a) `Policy.groups` resolves rune-local groups to family-grain `frozenset[str]`, so trait-qualified atoms (`{family: qsDay, trait: half}` in qsIt’s `utter-pass-through-vetoes`) are widened to the bare family with a `SpecWarning`; Group 2’s matching sees families only, which is conservative for the ss04 veto carve-out and must be revisited when qsDay/qsZoo halves migrate. (b) `Condition` has no trait axis, so a trait-qualified `except:` atom is a load error (“not representable”), not silent widening. No M1 rune file hits (b).
 - **`resolve:` records are rejected at load** with an explicit error: the frozen `PolicyRecord` cannot carry `against`/`at`/`pick`/`migrated`, and M1 expects zero resolves. Extending the model is a cross-group coordination event for the milestone that first needs one.
 - **Unlock-added rows synthesize their anchor by convention** (entry x = min ink, exit x = max ink + 1, from the stance’s base bitmap), since the documented unlock shape carries no `x:` (authoring caveat on qsTea full’s ss02/ss03 x-height entry). A base bitmap with no ink at the unlocked height is a load error.
-- **Vacuous pairings are warnings, not errors** (qsMay loop’s design-prescribed `never: {entry: baseline, exit: baseline}` names an exit the stance never declares), per the authoring caveat that `spec_load` should tolerate or drop the row. Pairings filter two-sided cells only, per §3.2’s “one-sided and isolated cells always exist”; qsIt’s `only:` rows naming `none` sides are redundant but harmless.
+- **Vacuous pairings are warnings, not errors** (a `never:` row naming a side the stance never declares), per the authoring caveat that `spec_load` should tolerate or drop the row. Pairings filter two-sided cells only, per §3.2’s “one-sided and isolated cells always exist”; qsIt’s `only:` rows naming `none` sides are redundant but harmless.
 
 ### Group C (geometry + defects + emit + compile + conform)
 
