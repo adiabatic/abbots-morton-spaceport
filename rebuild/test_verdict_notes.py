@@ -69,9 +69,23 @@ def test_recognizes_parked_markers():
     assert cap_markers(note) == f"{parked} {CARRIED_A} keep me"
 
 
+def test_recognizes_standing_markers():
+    standing = "[standing: tea-oy-ligature-break]"
+    note = f"{standing} {CARRIED_A} {CARRIED_B} keep me"
+    assert cap_markers(note) == f"{standing} {CARRIED_A} keep me"
+
+
+def test_a_standing_marker_ages_out_behind_newer_carries():
+    standing = "[standing: tea-oy-ligature-break]"
+    note = f"{CARRIED_A} {CARRIED_B} {standing} keep me"
+    assert cap_markers(note) == f"{CARRIED_A} {CARRIED_B} keep me"
+
+
 def test_strip_markers_leaves_only_the_prose():
     parked = "[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z]"
+    standing = "[standing: tea-oy-ligature-break]"
     assert strip_markers(f"{parked} {CARRIED_A} the seam overshoots") == "the seam overshoots"
+    assert strip_markers(f"{standing} {CARRIED_A} the seam overshoots") == "the seam overshoots"
     assert strip_markers(f"{CARRIED_A} {CARRIED_B}") == ""
     assert strip_markers("I prefer M1.") == "I prefer M1."
 

@@ -380,6 +380,30 @@ test('recentNotes strips a leading parked marker ahead of the note', () => {
   assert.deepEqual(recentNotes(store), ['fix the prefer first']);
 });
 
+test('recentNotes strips a leading standing marker ahead of the note', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'approve', {
+    note: '[standing: tea-oy-ligature-break] never going to have a different opinion unless ·X is ·Out',
+    at: '2026-06-10T09:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), [
+    'never going to have a different opinion unless ·X is ·Out',
+  ]);
+});
+
+test('recentNotes merges a standing-filled note with its hand-typed twin', () => {
+  const store = createStore();
+  recordVerdict(store, 'u-0001', 'approve', {
+    note: '[standing: tea-oy-ligature-break] the ligature break is fine here',
+    at: '2026-06-10T09:00:00Z',
+  });
+  recordVerdict(store, 'u-0002', 'approve', {
+    note: 'the ligature break is fine here',
+    at: '2026-06-10T10:00:00Z',
+  });
+  assert.deepEqual(recentNotes(store), ['the ligature break is fine here']);
+});
+
 test('recentNotes drops a note that is nothing but echo-fill provenance', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', {
