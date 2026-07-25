@@ -44,9 +44,7 @@ policy:
     entry: baseline
     by: 1
     when:
-      left:
-        family: qsSee
-        joined_at: baseline
+      left: {family: qsSee}
   - stance: hapax
     exit: x-height
     by: 1

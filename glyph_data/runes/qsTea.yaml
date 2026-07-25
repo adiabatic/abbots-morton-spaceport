@@ -75,7 +75,6 @@ stances:
             - qsAh
             - qsUtter
             - qsOut
-            joined_at: x-height
         why: When ss03 is on, I’d rather have `·Ah ~x~ ·Tea.!half` than `·Ah | ·Tea` or `·Ah ~x~ ·Tea.half` — and same thing for other letters (not just ·Ah) that stick out with a flat rightward stroke
       require: []
   half:
@@ -129,7 +128,6 @@ stances:
             - qsAh
             - qsUtter
             - qsOut
-            joined_at: x-height
       require: []
 policy:
   order:
@@ -194,7 +192,6 @@ policy:
         - qsKey
         - qsJay
         - qsEight
-        joined_at: baseline
   - stance: full
     exit: baseline
     by: 1

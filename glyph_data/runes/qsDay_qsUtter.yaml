@@ -87,7 +87,6 @@ policy:
         family:
         - qsTea
         - qsYe
-        joined_at: baseline
   - stance: half
     exit: x-height
     by: 1
