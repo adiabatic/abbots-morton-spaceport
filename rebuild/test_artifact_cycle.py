@@ -2252,6 +2252,58 @@ def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
     assert report.gate_conform == "green"
 
 
+def test_resolve_snapshot_dir_takes_the_first_free_name(tmp_path):
+    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234"
+    (tmp_path / "review-pre-abc1234").mkdir()
+    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234-2"
+    (tmp_path / "review-pre-abc1234-2").mkdir()
+    assert ac.resolve_snapshot_dir(tmp_path, "abc1234") == tmp_path / "review-pre-abc1234-3"
+    assert ac.resolve_snapshot_dir(tmp_path, "def5678") == tmp_path / "review-pre-def5678"
+
+
+def test_build_plan_gives_a_second_pass_at_one_head_its_own_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr(ac, "ROOT", tmp_path)
+    monkeypatch.setattr(ac, "JSTEST_DIR", tmp_path / "jstests")
+    (tmp_path / "tmp").mkdir()
+    first = _plan(snapshot_dir=None).snapshot_dir
+    assert first == tmp_path / "tmp" / "review-pre-testid"
+    first.mkdir()
+    assert _plan(snapshot_dir=None).snapshot_dir == tmp_path / "tmp" / "review-pre-testid-2"
+
+
+def test_prune_snapshots_collects_the_suffixed_names(tmp_path):
+    for name in ("review-pre-abc1234", "review-pre-abc1234-2", "review-pre-abc1234-3"):
+        (tmp_path / name).mkdir()
+    keep = tmp_path / "review-pre-abc1234-3"
+    removed = ac.prune_snapshots(tmp_path, keep)
+    assert {path.name for path in removed} == {"review-pre-abc1234", "review-pre-abc1234-2"}
+    assert keep.exists()
+
+
+def test_unfinished_cycle_snapshot_is_only_claimed_from_a_red_summary(tmp_path):
+    snapshot = tmp_path / "review-pre-abc1234"
+    snapshot.mkdir()
+    summary = tmp_path / "cycle_summary.json"
+    assert ac.unfinished_cycle_snapshot(summary) is None
+    for exit_kind in ("interrupted", "failed"):
+        summary.write_text(json.dumps({"exit": exit_kind, "snapshot_dir": str(snapshot)}))
+        assert ac.unfinished_cycle_snapshot(summary) == snapshot
+    summary.write_text(json.dumps({"exit": "ok", "snapshot_dir": str(snapshot)}))
+    assert ac.unfinished_cycle_snapshot(summary) is None
+    summary.write_text(json.dumps({"exit": "failed", "snapshot_dir": str(tmp_path / "gone")}))
+    assert ac.unfinished_cycle_snapshot(summary) is None
+
+
+def test_retention_spares_the_snapshot_of_a_cycle_that_never_finished(tmp_path):
+    for name in ("review-pre-abc1234", "review-pre-abc1234-2", "review-pre-old"):
+        (tmp_path / name).mkdir()
+    keep = tmp_path / "review-pre-abc1234-2"
+    preserve = tmp_path / "review-pre-abc1234"
+    removed = ac.prune_snapshots(tmp_path, keep, preserve)
+    assert {path.name for path in removed} == {"review-pre-old"}
+    assert keep.exists() and preserve.exists()
+
+
 def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
     files = {name: tmp_path / f"{name}.json" for name in ac.M1_SUMMARY_FILES}
     monkeypatch.setattr(ac, "M1_SUMMARY_FILES", files)
