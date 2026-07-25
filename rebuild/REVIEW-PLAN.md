@@ -130,7 +130,7 @@ The four main verdict keys run left to right along the left home row — `a` ski
 
 View state lives in `location.hash` as `URLSearchParams`, tables.html-style (`parseHash` / `writeHash` / single `applyHashState` renderer with rendered-state memos, `hashchange`-driven): `#class=…&batch=N&unit=u-NNNN&group=qsTea:qsOy&config=ss03&family=qsMay&status=unverdicted`. Filters: class, family (either side of the pair), config, verdict status. Every view is bookmarkable; reloading mid-batch returns to the exact cursor.
 
-**Verdicts are not in the URL and not in localStorage.** They are held in an in-memory `Map` keyed by unit id, with an explicit export channel: a “Download verdicts.json” button (and a copy-to-clipboard twin) emitting the §4.1 format, and a re-import control (file picker + paste textarea) that merges by unit id and warns when the file’s `manifest_generated_at` doesn’t match the loaded manifest. The page warns via `beforeunload` when unexported verdicts exist. Periodic “you have N unexported verdicts” nudges in the progress strip replace silent persistence.
+**Verdicts are not in the URL and not in localStorage.** They are held in an in-memory `Map` keyed by unit id, with an explicit export channel: a “Download verdicts.json” button emitting the §4.1 format, and a re-import control (file picker) that merges by unit id and warns when the file’s `manifest_generated_at` doesn’t match the loaded manifest. The page warns via `beforeunload` when unexported verdicts exist. Periodic “you have N unexported verdicts” nudges in the progress strip replace silent persistence.
 
 ## 4. Verdict exports — closing the opinions-become-pins loop
 

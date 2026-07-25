@@ -1216,23 +1216,10 @@ dialog {
     color: var(--muted);
   }
 
-  .file-label,
-  .paste-label {
+  .file-label {
     display: block;
     font-size: 13px;
     margin: 0.6rem 0;
-  }
-
-  textarea {
-    display: block;
-    width: 100%;
-    font-family: var(--code-font);
-    font-size: 12px;
-    margin-top: 0.3rem;
-    background: light-dark(#fafafa, #1f1f1f);
-    color: inherit;
-    border: 1px solid var(--hairline);
-    border-radius: 4px;
   }
 
   .dialog-actions {
