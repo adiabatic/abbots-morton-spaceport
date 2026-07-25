@@ -64,15 +64,16 @@ review-build:
 review-serve:
 	uv run python -m rebuild.review.serve
 
-# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, merge into the autosave, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. Every heavy stage auto-skips when a green record proves its inputs unchanged since its last green run — run_m1, the surface rebuild, the census, gate:conform, gate:rebuild, and gate:make-test — so a verdict-only cycle costs seconds; ARGS='--fresh' runs everything anyway (ARGS='--force-make-test' forces just that gate).
+# Drive the commit-time artifact cycle (snapshot, run_m1, surface rebuild, carry, merge into the autosave, census pins, gates). Bare `make artifact-cycle` auto-resolves which verdicts master to carry; pass flags via ARGS, e.g. make artifact-cycle ARGS='--verdicts verdicts-X.json'. Every heavy stage auto-skips when a green record proves its inputs unchanged since its last green run — run_m1, the surface rebuild, the census, gate:conform, gate:rebuild, and gate:make-test — so a verdict-only cycle costs seconds; ARGS='--fresh' runs everything anyway (ARGS='--force-make-test' forces just that gate). This target verifies in one pass; `make review-cycle` is the deferring, converging form for the look-edit-look loop.
 artifact-cycle:
 	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
 
 # The whole loop in one command: stop the review server if it's running, run the artifact cycle (whose merge step lands the carried verdicts in the autosave — no browser import), then serve the fresh surface. A failed cycle stops before serving.
+# --defer-gates makes repeated runs converge instead of re-verifying every time: a pass that rebuilds M1 or the surface leaves the heavy gates pending so the letters are on screen sooner, the next pass has no artifact work left and runs them, and the pass after that costs seconds. A deferred gate is unproven, so `make verdict-ready` stays NOT READY until a pass clears it. ARGS='--no-defer-gates' verifies in the one pass, as `make artifact-cycle` does.
 review-cycle:
 	-@pkill -f 'rebuild\.review\.serve' 2>/dev/null || true
 	@while lsof -ti tcp:7294 -sTCP:LISTEN >/dev/null 2>&1; do sleep 0.2; done
-	uv run python rebuild/tools/artifact_cycle.py $(ARGS)
+	uv run python rebuild/tools/artifact_cycle.py --defer-gates $(ARGS)
 	uv run python -m rebuild.review.serve
 
 # Answer "am I ready to verdict?": surface freshness, gate greenness, verdict-store alignment, server, blanks. Exit 0 when ready.
