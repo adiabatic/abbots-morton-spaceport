@@ -156,9 +156,7 @@ policy:
     entry: baseline
     by: 1
     when:
-      left:
-        family: qsKey
-        joined_at: baseline
+      left: {family: qsKey}
   - stance: hapax
     exit: baseline
     by: 1

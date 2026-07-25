@@ -172,7 +172,6 @@ policy:
         family:
         - qsTea
         - qsYe
-        joined_at: baseline
   contract: []
   resolve: []
   groups: {}
