@@ -1660,6 +1660,31 @@ def test_cycle_summary_payload_skipped_conform_not_green():
     assert payload["plan"]["skip_conform"] is True
 
 
+def test_cycle_summary_payload_marks_a_forced_conform_skip_unproved():
+    report = _green_report()
+    report.gate_conform = "skipped (--skip-conform)"
+    payload = ac.cycle_summary_payload(report, [], _plan(skip_conform=True), "ok")
+    assert payload["gates"]["conform"]["skip"] == "forced"
+
+
+def test_cycle_summary_payload_marks_auto_skips_proved():
+    report = _green_report()
+    report.gate_conform = "skipped (inputs unchanged)"
+    report.gate_rebuild = "skipped (closure unchanged)"
+    report.gate_make_test = "skipped (closure unchanged)"
+    plan = _plan(
+        skip_conform=True,
+        conform_proven=True,
+        skip_rebuild_gate=True,
+        skip_make_test=True,
+    )
+    payload = ac.cycle_summary_payload(report, [], plan, "ok")
+    assert payload["gates"]["conform"]["skip"] == "proved"
+    assert payload["gates"]["rebuild"]["skip"] == "proved"
+    assert payload["gates"]["make_test"]["skip"] == "proved"
+    assert payload["gates"]["js"]["skip"] is None
+
+
 def test_cycle_summary_payload_failures_exit_failed():
     payload = ac.cycle_summary_payload(_green_report(), ["make test failed"], _plan(), "failed")
     assert payload["exit"] == "failed"

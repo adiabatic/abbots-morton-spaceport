@@ -212,6 +212,7 @@ def _freshness_check(manifest, manifest_fp, repo_root, recompute, artifact_cycle
 
 
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
+    """Three states, not two, keyed on each gate entry's `skip` field rather than its prose. A skip the driver marked "proved" rode a matching green record, which is proof that this exact content already passed, so it satisfies readiness; a "forced" skip and a gate that never ran prove nothing and block a sitting, as does a real failure — only the wording separates those last two. Reading the status string instead is what once let `--skip-conform` report READY, since both skip kinds spell themselves "skipped (...)". Summaries written before the field existed carry no `skip` key at all, and fall back to the old prose rule so a cycle recorded under the previous shape keeps its former verdict instead of turning spuriously red."""
     if summary is None:
         return {
             "level": "fail",
@@ -240,17 +241,41 @@ def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> d
             "detail": f"The last artifact cycle finished green at {summary.get('finished_at')}.",
             "remedy": None,
         }
-    skipped = [name for name in non_green if str((gates[name] or {}).get("status", "")).startswith("skipped")]
-    if set(skipped) == set(non_green):
+    entries = {name: (gates[name] or {}) for name in non_green}
+    if any("skip" not in entry for entry in entries.values()):
+        skipped = [name for name in non_green if str(entries[name].get("status", "")).startswith("skipped")]
+        if set(skipped) == set(non_green):
+            return {
+                "level": "warn",
+                "detail": f"The last artifact cycle passed but skipped: {', '.join(skipped)}. It predates the skip-provenance record, so whether those skips were proved cannot be told from here.",
+                "remedy": None,
+            }
+        failing = [name for name in non_green if name not in set(skipped)]
         return {
-            "level": "warn",
-            "detail": f"The last artifact cycle passed but skipped: {', '.join(skipped)}.",
+            "level": "fail",
+            "detail": f"The last artifact cycle has failing gates: {', '.join(failing)}.",
+            "remedy": artifact_cycle_remedy,
+        }
+    unproved = [name for name in non_green if entries[name].get("skip") != "proved"]
+    if not unproved:
+        return {
+            "level": "ok",
+            "detail": f"The last artifact cycle finished green at {summary.get('finished_at')}; every gate it skipped was already proved on this exact content.",
             "remedy": None,
         }
-    failing = [name for name in non_green if name not in set(skipped)]
+    unverified = [
+        name for name in unproved if str(entries[name].get("status", "")).startswith(("skipped", "not run"))
+    ]
+    failing = [name for name in unproved if name not in set(unverified)]
+    if failing:
+        return {
+            "level": "fail",
+            "detail": f"The last artifact cycle has failing gates: {', '.join(failing)}.",
+            "remedy": artifact_cycle_remedy,
+        }
     return {
         "level": "fail",
-        "detail": f"The last artifact cycle has failing gates: {', '.join(failing)}.",
+        "detail": f"The last artifact cycle left gates unverified: {', '.join(unverified)}.",
         "remedy": artifact_cycle_remedy,
     }
 
