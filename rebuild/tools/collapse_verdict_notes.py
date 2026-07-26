@@ -21,9 +21,13 @@ def collapse(path, keep=2):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Collapse each verdict note to its newest few provenance markers in place.")
+    parser = argparse.ArgumentParser(
+        description="Collapse each verdict note to its newest few provenance markers in place."
+    )
     parser.add_argument("files", nargs="+", type=pathlib.Path)
-    parser.add_argument("--keep", type=int, default=2, help="markers to retain per note (default: %(default)s)")
+    parser.add_argument(
+        "--keep", type=int, default=2, help="markers to retain per note (default: %(default)s)"
+    )
     args = parser.parse_args()
     for path in args.files:
         before = path.stat().st_size

@@ -26,7 +26,7 @@ CHURN_KINDS = ("approve", "either", "identical")
 def _unit_number(unit_id):
     try:
         return int(unit_id.split("-", 1)[1])
-    except (IndexError, ValueError):
+    except IndexError, ValueError:
         return 0
 
 
@@ -145,11 +145,7 @@ def _split_by_freshness(members, threshold):
 
 def finalize_groups(groups, *, threshold, human, records, ruled_ids):
     prov_sets = {unit["id"]: frozenset(unit.get("provenance") or []) for unit in human}
-    blanks = [
-        unit
-        for unit in human
-        if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"
-    ]
+    blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
     finalized = []
     naming = {}
     for group in groups.values():
@@ -214,7 +210,10 @@ def finalize_groups(groups, *, threshold, human, records, ruled_ids):
         key=lambda group: (
             group["kind"] == "unattributed",
             -(len(group["rejects"]["fresh"]) + len(group["neithers"]["fresh"])),
-            -(sum(len(part) for part in group["rejects"].values()) + sum(len(part) for part in group["neithers"].values())),
+            -(
+                sum(len(part) for part in group["rejects"].values())
+                + sum(len(part) for part in group["neithers"].values())
+            ),
             group["id"],
         )
     )
@@ -261,7 +260,9 @@ def main(argv=None):
         help="emit a verdicts-park-*.json of skip verdicts covering this group's park candidates; repeatable",
     )
     parser.add_argument("--park-dir", default=str(ROOT), help="where park files are written")
-    parser.add_argument("--note", default="", help="verbatim reviewer text appended after the marker in every parked record")
+    parser.add_argument(
+        "--note", default="", help="verbatim reviewer text appended after the marker in every parked record"
+    )
     args = parser.parse_args(argv)
 
     surface = pathlib.Path(args.surface)
@@ -285,7 +286,9 @@ def main(argv=None):
         print(f"warning: {unknown} verdict records name units absent from this surface", file=sys.stderr)
     human = [unit for unit in units if unit.get("batch") is not None and not unit.get("no_verdict")]
     human_ids = {unit["id"] for unit in human}
-    ruled_ids = {entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES}
+    ruled_ids = {
+        entry["id"] for entry in manifest.get("classes", []) if entry.get("status") in RULED_STATUSES
+    }
 
     complaints = [
         (units_by_id[unit_id], record)

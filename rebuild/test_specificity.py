@@ -99,7 +99,11 @@ class TestPickMostSpecific:
         # Synthetic analog of the named qsJay case: the single-family contract outranks the broad list-authored extend by membership — today's documented idiom as a theorem (design section 6.2).
         broad_extend = extend(by=1, left=Condition(family=("qsPea", "qsTea", "qsMay", "qsIt")))
         narrow_contract = PolicyRecord(
-            kind="contract", stance="hapax", exit="baseline", by=1, when=When(left=Condition(family=("qsTea",)))
+            kind="contract",
+            stance="hapax",
+            exit="baseline",
+            by=1,
+            when=When(left=Condition(family=("qsTea",))),
         )
         assert outranks(SPEC, narrow_contract, broad_extend) is Ordering.A_OUTRANKS
 
@@ -144,9 +148,7 @@ class TestDepthThreeChainSpecificity:
         assert record.when.right is not None
         stripped_when = replace(record.when, right=self._strip_chain(record.when.right))
         assert axis_sets(real_spec, record.when, rune) == axis_sets(real_spec, stripped_when, rune)
-        assert (
-            outranks(real_spec, record, replace(record, when=stripped_when), rune, rune) is Ordering.EQUAL
-        )
+        assert outranks(real_spec, record, replace(record, when=stripped_when), rune, rune) is Ordering.EQUAL
 
     def test_then_then_axes_only_on_the_qsday_no_records(self, real_spec):
         for rune in ("qsOy", "qsTea_qsOy"):
@@ -172,6 +174,4 @@ class TestDepthThreeChainSpecificity:
         record = real_spec.runes["qsDay"].policy.prefer[2]
         axes = axis_sets(real_spec, record.when, "qsDay")
         assert axes["right.family"] == frozenset({"qsTea"})
-        assert axes["right.then.family"] == frozenset(
-            {"qsDay", "qsDay_qsUtter", "qsMay", "qsLow", "qsIt"}
-        )
+        assert axes["right.then.family"] == frozenset({"qsDay", "qsDay_qsUtter", "qsMay", "qsLow", "qsIt"})

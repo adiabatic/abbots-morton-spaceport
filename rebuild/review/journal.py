@@ -75,7 +75,9 @@ def record_transition(
     sets = [
         record
         for _, record in sorted(new_records.items())
-        if base or record["unit"] not in old_records or _signature(old_records[record["unit"]]) != _signature(record)
+        if base
+        or record["unit"] not in old_records
+        or _signature(old_records[record["unit"]]) != _signature(record)
     ]
     clears = [] if base else sorted(unit for unit in old_records if unit not in new_records)
 
@@ -90,7 +92,13 @@ def record_transition(
     if base or sets or clears or stashed is not None:
         lines.append(
             _event_line(
-                source=source, at=at, stamp=stamp, base=base, stashed=stashed, sets=len(sets), clears=len(clears)
+                source=source,
+                at=at,
+                stamp=stamp,
+                base=base,
+                stashed=stashed,
+                sets=len(sets),
+                clears=len(clears),
             )
         )
         lines.extend(_set_line(record) for record in sets)

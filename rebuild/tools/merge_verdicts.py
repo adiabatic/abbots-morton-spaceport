@@ -96,7 +96,9 @@ def run_merge(
 ) -> int:
     stamp = _surface_stamp(surface)
     if stamp is None:
-        print(f"ERROR: {surface} has no readable manifest.json; build the surface first (make artifact-cycle).")
+        print(
+            f"ERROR: {surface} has no readable manifest.json; build the surface first (make artifact-cycle)."
+        )
         return 1
 
     inputs = list(files)
@@ -160,7 +162,9 @@ def run_merge(
 
     dropped = sorted(set(base) - set(result))
     if dropped:
-        print(f"ERROR: the merge would drop {len(dropped)} verdicts (first: {dropped[0]}); refusing to write.")
+        print(
+            f"ERROR: the merge would drop {len(dropped)} verdicts (first: {dropped[0]}); refusing to write."
+        )
         return 1
 
     changed = (not aligned and (existing_exists or result)) or result != base
@@ -286,20 +290,41 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Merge stamp-aligned verdicts files into the live autosave (the app's import, headless), or replay the verdict journal."
     )
-    parser.add_argument("files", nargs="*", type=Path, help="ams-review-verdicts/1 files to merge (default: the frontier file)")
-    parser.add_argument("--dry-run", action="store_true", help="report what would change without writing anything")
+    parser.add_argument(
+        "files",
+        nargs="*",
+        type=Path,
+        help="ams-review-verdicts/1 files to merge (default: the frontier file)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="report what would change without writing anything"
+    )
     parser.add_argument("--list", action="store_true", help="list the journal's events and exit")
     parser.add_argument(
         "--restore-as-of",
         metavar="TIME",
         help="reconstruct the store as of this UTC time (ISO prefix, e.g. 2026-07-19T03:00) from the journal",
     )
-    parser.add_argument("--apply", action="store_true", help="with --restore-as-of: replace the live autosave with the reconstruction")
-    parser.add_argument("--yes", action="store_true", help="proceed even while the review server is listening (a plain merge and --restore-as-of --apply both refuse otherwise)")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="with --restore-as-of: replace the live autosave with the reconstruction",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="proceed even while the review server is listening (a plain merge and --restore-as-of --apply both refuse otherwise)",
+    )
     parser.add_argument("--out", type=Path, help="with --restore-as-of: where to write the reconstruction")
-    parser.add_argument("--autosave", type=Path, default=AUTOSAVE, help="the live store (default: %(default)s)")
-    parser.add_argument("--surface", type=Path, default=SURFACE, help="the served surface (default: %(default)s)")
-    parser.add_argument("--journal", type=Path, default=JOURNAL, help="the journal file (default: %(default)s)")
+    parser.add_argument(
+        "--autosave", type=Path, default=AUTOSAVE, help="the live store (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--surface", type=Path, default=SURFACE, help="the served surface (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--journal", type=Path, default=JOURNAL, help="the journal file (default: %(default)s)"
+    )
     args = parser.parse_args(argv)
 
     if args.list:

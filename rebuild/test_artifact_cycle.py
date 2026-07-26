@@ -2005,7 +2005,9 @@ def test_skip_make_test_frees_the_build_stage_budget():
     assert gated.job_budget == 2
     gated_by_name = {step.name: step for step in gated.steps}
     assert gated_by_name["run_m1"].argv[-2:] == ["--jobs", "2"]
-    assert "half the cores, sharing the box with gate:make-test's full-width pytest pool" in ac.render_plan(gated)
+    assert "half the cores, sharing the box with gate:make-test's full-width pytest pool" in ac.render_plan(
+        gated
+    )
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):

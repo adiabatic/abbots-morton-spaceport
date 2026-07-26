@@ -112,7 +112,9 @@ def assigned():
 
 def test_partition_is_total_and_matches_the_measured_census(assigned):
     census = family_census(assigned)
-    assert sum(census.values()) == PINS["families"]["total"], "every UNMATCHED window must land in exactly one family"
+    assert (
+        sum(census.values()) == PINS["families"]["total"]
+    ), "every UNMATCHED window must land in exactly one family"
     assert census == PINS["families"]["census"]
 
 

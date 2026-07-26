@@ -13,7 +13,18 @@ from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
 # secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; echo is an order-derived group id absent from older surfaces, and cluster is a derived ink-signature id that churns with any font change; everything adjudicable any of them describes is already covered by the window plus both fonts' glyphs, cells, and seams.
-PRESENTATION_KEYS = {"id", "batch", "no_verdict", "exemplar", "explain", "drafts", "provenance", "secondary_seams", "echo", "cluster"}
+PRESENTATION_KEYS = {
+    "id",
+    "batch",
+    "no_verdict",
+    "exemplar",
+    "explain",
+    "drafts",
+    "provenance",
+    "secondary_seams",
+    "echo",
+    "cluster",
+}
 
 
 def load_surface(root):
@@ -32,7 +43,9 @@ def content_key(unit):
 
 def surface_comparator(root):
     manifest = json.loads((root / "manifest.json").read_text())
-    return InkComparator(root / manifest["fonts"]["before"]["file"], root / manifest["fonts"]["after"]["file"])
+    return InkComparator(
+        root / manifest["fonts"]["before"]["file"], root / manifest["fonts"]["after"]["file"]
+    )
 
 
 def ink_key(comparator, unit):
@@ -54,7 +67,9 @@ def latest_verdicts(path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Re-resolve prior verdicts against the surfaces they were recorded on and carry them onto the live surface.")
+    parser = argparse.ArgumentParser(
+        description="Re-resolve prior verdicts against the surfaces they were recorded on and carry them onto the live surface."
+    )
     parser.add_argument(
         "--source",
         nargs=2,
@@ -96,7 +111,9 @@ def main():
     keys_seen = collections.Counter(content_key(u) for u in current)
     collisions = {k for k, n in keys_seen.items() if n > 1}
     if collisions:
-        raise SystemExit(f"{len(collisions)} content-key collisions on the current surface; refusing to carry")
+        raise SystemExit(
+            f"{len(collisions)} content-key collisions on the current surface; refusing to carry"
+        )
 
     carried = []
     kinds = collections.Counter()
@@ -147,9 +164,13 @@ def main():
             ink_carried += 1
         print(f"ink fallback: {ink_carried} verdicts carried onto re-keyed (merged) units")
         if conflicts:
-            print(f"{len(conflicts)} merged units had conflicting prior verdicts and were left unverdicted for a fresh look:")
+            print(
+                f"{len(conflicts)} merged units had conflicting prior verdicts and were left unverdicted for a fresh look:"
+            )
             for unit_id, matches in conflicts:
-                sides = "; ".join(f"{record['unit']}@{source}={record['verdict']}" for record, source in matches)
+                sides = "; ".join(
+                    f"{record['unit']}@{source}={record['verdict']}" for record, source in matches
+                )
                 print(f"  {unit_id} <- {sides}")
 
     carried.sort(key=lambda r: r["unit"])
