@@ -1,4 +1,4 @@
-.PHONY: all test test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready complaint-docket prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready complaint-docket prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -29,6 +29,10 @@ prettier:
 # Self-skipping: the wrapper exits 0 in ~a second when nothing the suite reads has changed since its last green run (the input closure excludes rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown; the green record at rebuild/out/make-test-green.json is shared with the artifact cycle's gate:make-test). FORCE=1 runs the suite regardless. The pyright gate runs inside pytest_configure (via AMS_RUN_PYRIGHT) so it overlaps the font build instead of preceding it serially; it still fast-fails before the workers spawn. The `typecheck` target stays for standalone/pre-commit use.
 test:
 	AMS_RUN_PYRIGHT=1 uv run python -m rebuild.tools.make_test_gate $(if $(FORCE),--force)
+
+# The rebuild suite's self-skipping wrapper, sharing the green record at rebuild/out/rebuild-gate-green.json with the artifact cycle's gate:rebuild. The suite's raw exit code is not the gate — it exits nonzero by design on the documented baseline failures — so the wrapper judges the run through the cycle's failure classifier: baseline failures read green, stale census pins read green but leave no record, and only an unexplained failure is red. FORCE=1 runs the suite regardless.
+test-rebuild:
+	uv run python -m rebuild.tools.rebuild_gate $(if $(FORCE),--force)
 
 # Run the test suite on efficiency cores only
 test-slowly:
