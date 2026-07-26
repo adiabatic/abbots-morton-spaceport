@@ -1,6 +1,9 @@
 """Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the subset-identity assertion. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
 
 import gzip
+from collections.abc import Sequence
+from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -58,7 +61,7 @@ class TestNormalization:
         cell = CellId("qsMay", "loop", None, "x-height", ())
 
         class WithCell:
-            pass
+            cell: CellId
 
         item = WithCell()
         item.cell = cell
@@ -160,7 +163,7 @@ class TestAliasAndLedger:
         assert conform._match_ledger(ledger, namer_dot_row) == ["zwnj-word-initial-unification"]
 
     def test_classifier_assigns_each_phenomenon_set_one_class(self):
-        base = dict(
+        base = conform.DivergentRow(
             config="default",
             codepoints="E670:E670",
             kinds=("cell",),
@@ -170,7 +173,7 @@ class TestAliasAndLedger:
             new_cells=("qsIt/hapax/None/None/", "qsIt/hapax/None/None/"),
             new_seams=("break",),
         )
-        cases = [
+        cases: list[tuple[tuple[str, ...], str | None]] = [
             (("exit-dropped",), "dangling-anchor-dropped"),
             (("exit-added", "exit-dropped"), "dangling-anchor-dropped"),
             (("exit-added",), "bare-name-live-join"),
@@ -190,21 +193,22 @@ class TestAliasAndLedger:
             ((), None),
         ]
         for phenomena, expected in cases:
-            row = conform.DivergentRow(**base, phenomena=phenomena)
+            row = replace(base, phenomena=phenomena)
             assert conform.classify_divergence(row) == expected, phenomena
 
     def test_boundary_blanket_takes_every_nonposition_row(self):
         """The ratified boundary-equals-word-boundary rule: a window containing a run-splitting boundary (space or ZWNJ) has its cell/seam-grain divergence absorbed ahead of every other class, whatever its phenomena; position-only rows stay on the kern-attribution channel."""
-        base = dict(
-            config="default",
-            kinds=("cell",),
-            position=1,
-            baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
-            baseline_seams=("break", "break"),
-            new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
-            new_seams=("break", "break"),
-        )
         for codepoints in ["200C:E670:E670", "0020:E670:E670"]:
+            base = conform.DivergentRow(
+                config="default",
+                codepoints=codepoints,
+                kinds=("cell",),
+                position=1,
+                baseline_glyphs=("space", "qsIt.ex-y5", "qsIt"),
+                baseline_seams=("break", "break"),
+                new_cells=("uni200C", "qsIt/hapax/None/None/locked", "qsIt/hapax/None/None/"),
+                new_seams=("break", "break"),
+            )
             for phenomena in [
                 ("+locked", "old-noentry"),
                 ("exit-dropped",),
@@ -213,13 +217,9 @@ class TestAliasAndLedger:
                 ("+en-ext-1",),
                 ("ligation",),
             ]:
-                row = conform.DivergentRow(**base, codepoints=codepoints, phenomena=phenomena)
+                row = replace(base, phenomena=phenomena)
                 assert conform.classify_divergence(row) == "boundary-echo", (codepoints, phenomena)
-            position_row = conform.DivergentRow(
-                **{**base, "kinds": ("position",)},
-                codepoints=codepoints,
-                phenomena=("position-kern-attributable",),
-            )
+            position_row = replace(base, kinds=("position",), phenomena=("position-kern-attributable",))
             assert conform.classify_divergence(position_row) is None
 
 
@@ -255,8 +255,6 @@ class TestKernEvaluator:
         assert evaluator.value_for("qsPea", "qsTea") == -1
 
     def test_real_sidecar_parses(self):
-        from pathlib import Path
-
         evaluator = conform.KernEvaluator(
             Path(__file__).resolve().parents[1] / "glyph_data" / "senior_quikscript_kerning.yaml"
         )
@@ -388,25 +386,35 @@ class TestClassifierRouting:
 
 
 class TestConformanceMerge:
-    def _result(self, config, **overrides):
-        kw = dict(
+    def _result(
+        self,
+        config: str,
+        sequences: int = 100,
+        shaping_runs: int = 100,
+        divergences: Sequence[conform.Divergence] = (),
+        uncovered_rules: int = 0,
+        uncovered_transitions: int = 0,
+        topped_up_rules: int = 0,
+        topped_up_sequences: int = 0,
+        notes: Sequence[str] = (),
+        modes: Sequence[str] = (),
+    ) -> conform.ConformanceConfigResult:
+        return conform.ConformanceConfigResult(
             config=config,
-            sequences=100,
-            shaping_runs=100,
-            divergences=[],
-            uncovered_rules=0,
-            uncovered_transitions=0,
-            topped_up_rules=0,
-            topped_up_sequences=0,
-            notes=[],
-            modes=[],
+            sequences=sequences,
+            shaping_runs=shaping_runs,
+            divergences=list(divergences),
+            uncovered_rules=uncovered_rules,
+            uncovered_transitions=uncovered_transitions,
+            topped_up_rules=topped_up_rules,
+            topped_up_sequences=topped_up_sequences,
+            notes=list(notes),
+            modes=list(modes),
         )
-        kw.update(overrides)
-        return conform.ConformanceConfigResult(**kw)
 
     def test_sequences_come_from_the_first_result_and_counters_sum(self):
         merged = conform.merge_conformance_results(
-            "M1.otf",
+            Path("M1.otf"),
             [
                 self._result("default", shaping_runs=120, topped_up_rules=2, topped_up_sequences=20),
                 self._result("ss02", shaping_runs=110, uncovered_rules=1, uncovered_transitions=3),
@@ -425,7 +433,7 @@ class TestConformanceMerge:
             text="", config="ss02", position=0, expected="qsPea", got="qsPea.alt", kind="oracle"
         )
         merged = conform.merge_conformance_results(
-            "M1.otf",
+            Path("M1.otf"),
             [
                 self._result("default", notes=["default: first"]),
                 self._result("ss02", notes=["ss02: second"], divergences=[divergence]),
@@ -437,7 +445,7 @@ class TestConformanceMerge:
 
     def test_modes_union_sorted_after_the_config_notes(self):
         merged = conform.merge_conformance_results(
-            "M1.otf",
+            Path("M1.otf"),
             [
                 self._result("default", notes=["default: note"], modes=["mode-b"]),
                 self._result("ss02", modes=["mode-a", "mode-b"]),
@@ -447,7 +455,7 @@ class TestConformanceMerge:
         assert merged.passed is True
 
     def test_empty_results_merge_to_an_empty_pass(self):
-        merged = conform.merge_conformance_results("M1.otf", [])
+        merged = conform.merge_conformance_results(Path("M1.otf"), [])
         assert merged.sequences == 0
         assert merged.shaping_runs == 0
         assert merged.passed is True

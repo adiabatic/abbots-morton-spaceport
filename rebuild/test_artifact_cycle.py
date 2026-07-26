@@ -8,6 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -187,9 +188,9 @@ def test_dry_run_plan_default():
         "-rfE",
     ]
     assert by_name["gate:make-test"].argv == ["make", "test"]
-    assert by_name["gate:js"].argv[:2] == ["node", "--test"]
-    assert all(name.endswith(".test.js") for name in by_name["gate:js"].argv[2:])
-    assert by_name["gate:conform"].argv[:6] == [
+    assert _argv(by_name["gate:js"])[:2] == ["node", "--test"]
+    assert all(name.endswith(".test.js") for name in _argv(by_name["gate:js"])[2:])
+    assert _argv(by_name["gate:conform"])[:6] == [
         "uv",
         "run",
         "python",
@@ -202,27 +203,27 @@ def test_dry_run_plan_default():
 def test_dry_run_plan_conform_jobs_cap():
     plan = _plan(ncores=12)
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:conform"].argv[-2:] == ["--jobs", "8"]
+    assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "8"]
     assert plan.conform_jobs == 8
 
     small = _plan(ncores=4)
     small_by_name = {step.name: step for step in small.steps}
-    assert small_by_name["gate:conform"].argv[-2:] == ["--jobs", "4"]
+    assert _argv(small_by_name["gate:conform"])[-2:] == ["--jobs", "4"]
 
     single = _plan(ncores=1)
     single_by_name = {step.name: step for step in single.steps}
-    assert single_by_name["gate:conform"].argv[-1] == "--conform-only"
+    assert _argv(single_by_name["gate:conform"])[-1] == "--conform-only"
 
 
 def test_dry_run_plan_conform_horizon():
     plan = _plan(conform_horizon=4)
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["gate:conform"].argv[-2:] == ["--conform-horizon", "4"]
+    assert _argv(by_name["gate:conform"])[-2:] == ["--conform-horizon", "4"]
     assert plan.conform_horizon == 4
 
     default = _plan()
     default_by_name = {step.name: step for step in default.steps}
-    assert "--conform-horizon" not in default_by_name["gate:conform"].argv
+    assert "--conform-horizon" not in _argv(default_by_name["gate:conform"])
     assert default.conform_horizon == ac.CONFORM_HORIZON_DEFAULT
 
 
@@ -433,7 +434,7 @@ def test_dry_run_plan_no_carry_and_update_pins():
     assert plan.carry_out is None
     by_name = {step.name: step for step in plan.steps}
     assert by_name["carry"].argv is None
-    assert "--update" in by_name["census"].argv
+    assert "--update" in _argv(by_name["census"])
 
 
 def test_dry_run_plan_first_run_skips_snapshot_and_carry():
@@ -495,8 +496,13 @@ def test_parse_surface_build_missing():
     assert ac._parse_surface_build("nothing here\n") is None
 
 
-def _plan(**overrides):
-    kw = dict(
+def _argv(step: ac.Step) -> list[str]:
+    assert step.argv is not None
+    return step.argv
+
+
+def _plan(**overrides: Any) -> ac.Plan:
+    kw: dict[str, Any] = dict(
         verdicts=Path("v.json"),
         no_carry=False,
         carry_out=None,
@@ -1562,8 +1568,8 @@ def test_dry_run_renders_concurrency():
     assert "--jobs budget        : 6" in text
 
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv[-2:] == ["--jobs", "6"]
-    assert by_name["surface-build"].argv[-2:] == ["--jobs", "6"]
+    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "6"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "6"]
 
 
 def test_dry_run_skip_gates_appends_jobs_budget():
@@ -1579,8 +1585,8 @@ def test_dry_run_skip_gates_appends_jobs_budget():
         ncores=12,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv[-2:] == ["--jobs", "12"]
-    assert by_name["surface-build"].argv[-2:] == ["--jobs", "12"]
+    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "12"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "12"]
     assert "--jobs budget: 12" in ac.render_plan(plan)
 
     default_plan = ac.build_plan(
@@ -1595,8 +1601,8 @@ def test_dry_run_skip_gates_appends_jobs_budget():
         ncores=12,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
-    assert default_by_name["run_m1"].argv[-2:] == ["--jobs", "6"]
-    assert default_by_name["surface-build"].argv[-2:] == ["--jobs", "6"]
+    assert _argv(default_by_name["run_m1"])[-2:] == ["--jobs", "6"]
+    assert _argv(default_by_name["surface-build"])[-2:] == ["--jobs", "6"]
 
 
 def test_review_out_rehearsal_plan(monkeypatch):
@@ -1612,9 +1618,9 @@ def test_review_out_rehearsal_plan(monkeypatch):
         review_out=Path("tmp/reh"),
     )
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["surface-build"].argv[-2:] == ["--out", "tmp/reh"]
-    assert by_name["census"].argv[-2:] == ["--surface", "tmp/reh"]
-    assert by_name["carry"].argv[-2:] == ["--current-surface", "tmp/reh"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--out", "tmp/reh"]
+    assert _argv(by_name["census"])[-2:] == ["--surface", "tmp/reh"]
+    assert _argv(by_name["carry"])[-2:] == ["--current-surface", "tmp/reh"]
     assert plan.census_surface == Path("tmp/reh")
     assert plan.review_out == Path("tmp/reh")
     assert str(ac.REVIEW_OUT) in by_name["snapshot"].note
@@ -1995,8 +2001,8 @@ def test_skip_make_test_frees_the_build_stage_budget():
     plan = _plan(skip_make_test=True, make_test_note="closure unchanged since its last green run")
     assert plan.job_budget == 4
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv[-2:] == ["--jobs", "4"]
-    assert by_name["surface-build"].argv[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
     rendered = ac.render_plan(plan)
     assert "--jobs budget        : 4" in rendered
     assert "gate:make-test skipped, so the build stages fan out" in rendered
@@ -2004,7 +2010,7 @@ def test_skip_make_test_frees_the_build_stage_budget():
     gated = _plan(skip_make_test=False)
     assert gated.job_budget == 2
     gated_by_name = {step.name: step for step in gated.steps}
-    assert gated_by_name["run_m1"].argv[-2:] == ["--jobs", "2"]
+    assert _argv(gated_by_name["run_m1"])[-2:] == ["--jobs", "2"]
     assert "half the cores, sharing the box with gate:make-test's full-width pytest pool" in ac.render_plan(
         gated
     )
@@ -2067,6 +2073,7 @@ def test_green_record_roundtrip(tmp_path):
     assert ac.read_green_record(path) is None
     ac.record_green(path, "fp-1")
     record = ac.read_green_record(path)
+    assert record is not None
     assert record["fingerprint"] == "fp-1"
     assert record["format"] == "ams-conform-green/1"
     ac.clear_contradicted_green(path, "fp-other")
@@ -2290,8 +2297,8 @@ def test_deferring_make_test_frees_the_build_stage_budget():
     plan = _plan(deferred=frozenset({"make-test"}))
     assert plan.job_budget == 4
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv[-2:] == ["--jobs", "4"]
-    assert by_name["surface-build"].argv[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["run_m1"])[-2:] == ["--jobs", "4"]
+    assert _argv(by_name["surface-build"])[-2:] == ["--jobs", "4"]
     rendered = ac.render_plan(plan)
     assert "gate:make-test deferred, so the build stages fan out" in rendered
     assert "gate:make-test deferred, so no queueing" in rendered
@@ -2582,7 +2589,9 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
         fingerprint="fp-live",
     )
     assert gate is not None and gate.ok
-    assert ac.read_green_record(green)["fingerprint"] == "fp-live"
+    record = ac.read_green_record(green)
+    assert record is not None
+    assert record["fingerprint"] == "fp-live"
 
     green.unlink()
     gate = ac._do_run_m1(
@@ -2689,8 +2698,12 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
     report.gate_rebuild = "green (4 documented baseline)"
     report.rebuild_recordable = True
     ac._record_gate_greens(report, plan, {"conform": "cfp", "rebuild": "rfp"}, ac._Emitter())
-    assert ac.read_green_record(conform_green)["fingerprint"] == "cfp"
-    assert ac.read_green_record(rebuild_green)["fingerprint"] == "rfp"
+    conform_record = ac.read_green_record(conform_green)
+    rebuild_record = ac.read_green_record(rebuild_green)
+    assert conform_record is not None
+    assert rebuild_record is not None
+    assert conform_record["fingerprint"] == "cfp"
+    assert rebuild_record["fingerprint"] == "rfp"
 
     conform_green.unlink()
     rebuild_green.unlink()
@@ -2736,7 +2749,9 @@ def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path
         record=True,
     )
     assert status == "clean"
-    assert ac.read_green_record(green)["fingerprint"] == "cen-fp"
+    record = ac.read_green_record(green)
+    assert record is not None
+    assert record["fingerprint"] == "cen-fp"
     status = ac._do_census(
         spawn=lambda *a, **k: _step("census", 1),
         emit=ac._Emitter(),

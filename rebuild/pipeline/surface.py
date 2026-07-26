@@ -7,7 +7,16 @@ from __future__ import annotations
 
 import warnings
 
-from rebuild.pipeline.model import Bitmap, CellId, CellPlan, ResolvedSpec, Stance, SurfaceRow, Unlock
+from rebuild.pipeline.model import (
+    Bitmap,
+    CellId,
+    CellPlan,
+    Height,
+    ResolvedSpec,
+    Stance,
+    SurfaceRow,
+    Unlock,
+)
 from rebuild.pipeline.spec_load import SpecError, SpecIssue, SpecWarning
 
 
@@ -17,14 +26,14 @@ def _all_features(spec: ResolvedSpec) -> frozenset[str]:
 
 def effective_rows(
     spec: ResolvedSpec, rune: str, stance: str, features: frozenset[str] | None = None
-) -> tuple[dict[str, SurfaceRow], dict[str, SurfaceRow], dict[tuple[str, str], tuple[Unlock, ...]]]:
-    """Declared rows plus unlock-added rows active under `features` (None = every registered feature). Returns (entries, exits, granted) where granted maps ("entry"|"exit", height) to the unlock records gating that row."""
+) -> tuple[dict[str, SurfaceRow], dict[str, SurfaceRow], dict[tuple[str, Height | None], tuple[Unlock, ...]]]:
+    """Declared rows plus unlock-added rows active under `features` (None = every registered feature). Returns (entries, exits, granted) where granted maps ("entry"|"exit", height) to the unlock records gating that row. The key's height is optional so a caller can ask about a side the cell does not use — a guaranteed miss, which is the right answer: a cell with no entry has no entry unlocks."""
     if features is None:
         features = _all_features(spec)
     stance_obj = spec.runes[rune].stances[stance]
     entries = dict(stance_obj.surface.entries)
     exits = dict(stance_obj.surface.exits)
-    granted: dict[tuple[str, str], list[Unlock]] = {}
+    granted: dict[tuple[str, Height | None], list[Unlock]] = {}
     for unlock in stance_obj.surface.unlocks:
         if unlock.feature not in features:
             continue
@@ -294,11 +303,13 @@ def check_anchor_conventions(spec: ResolvedSpec) -> tuple[SpecIssue, ...]:
             if cell.entry is not None:
                 row = entries[cell.entry]
                 if not row.x_off_convention:
+                    assert plan.entry_x is not None
                     ink = _ink_columns(bitmap.row_for_y(spec.registry.heights[cell.entry]) or "")
                     _convention_issue(issues, row, "entry", plan.entry_x, min(ink) if ink else None, cell)
             if cell.exit is not None:
                 row = exits[cell.exit]
                 if not row.x_off_convention:
+                    assert plan.exit_x is not None
                     ink = _ink_columns(bitmap.row_for_y(spec.registry.heights[cell.exit]) or "")
                     if not ink and plan.exit_ink_y is not None:
                         ink = _ink_columns(bitmap.row_for_y(plan.exit_ink_y) or "")

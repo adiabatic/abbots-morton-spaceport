@@ -89,6 +89,7 @@ def test_regrouped_pairs_removals_with_additions_sharing_input(table_dirs):
     regrouped = [entry for entry in entries if entry.bucket == "regrouped"]
     assert len(regrouped) == 1
     entry = regrouped[0]
+    assert isinstance(entry, tablediff.SettlementDiffEntry)
     assert entry.key.input == "qsPea"
     old_sides = [member for member in entry.paired if member.old is not None]
     new_sides = [member for member in entry.paired if member.new is not None]
@@ -112,7 +113,11 @@ def test_provenance_only_demotion(tmp_path):
     (new_dir / "settlement-default.tsv").write_text(header + base.format(pointer="new"))
     entries = tablediff.diff_dirs(old_dir, new_dir)
     assert [entry.bucket for entry in entries] == ["provenance-only"]
-    assert entries[0].old.outcome == entries[0].new.outcome
+    entry = entries[0]
+    assert isinstance(entry, tablediff.SettlementDiffEntry)
+    assert entry.old is not None
+    assert entry.new is not None
+    assert entry.old.outcome == entry.new.outcome
 
 
 def test_load_settlement_widths_round_trip(tmp_path):

@@ -1,8 +1,8 @@
 """Tests for the verdict-family grouper (rebuild/review/families.py): the seam-gain/seam-loss discriminator over hand-built enriched stubs, and the integration partition over the live UNMATCHED units at the name-grain (pre-merge) dedupe — deterministic, total (every window lands in exactly one family, the census summing to the audit total pinned in rebuild/review-census-pins.json), with the stylistic-set-only windows deferred and the named default families matching that pinned census. The built surface then folds ink-duplicate siblings before families are assigned, which pulls the relabeled-only ss04 halves out of deferred-ss04 into their default families; the built counts are pinned in test_review_build."""
 
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,13 +22,36 @@ BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 PINS = load_pins()
 
 
-def _enriched(before, after, cells, config_classes):
-    """A minimal stand-in carrying exactly the attributes assign_family reads."""
-    unit = SimpleNamespace(config_classes=dict(config_classes), configs=tuple(config_classes))
-    return SimpleNamespace(unit=unit, before_seams=before, after_seams=after, after_cells=cells)
+@dataclass(frozen=True)
+class _StubUnit:
+    config_classes: dict[str, str]
+    configs: tuple[str, ...]
 
 
-def _cells(*families_):
+@dataclass(frozen=True)
+class _StubEnriched:
+    unit: _StubUnit
+    before_seams: tuple[str, ...]
+    after_seams: tuple[str, ...]
+    after_cells: tuple[str, ...]
+
+
+def _enriched(
+    before: tuple[str, ...],
+    after: tuple[str, ...],
+    cells: tuple[str, ...],
+    config_classes: dict[str, str],
+) -> _StubEnriched:
+    """A minimal stand-in carrying exactly the attributes assign_family reads, which is all its FamilyInput protocol asks for — no enrichment, no fonts, no audit rows."""
+    return _StubEnriched(
+        unit=_StubUnit(config_classes=dict(config_classes), configs=tuple(config_classes)),
+        before_seams=before,
+        after_seams=after,
+        after_cells=cells,
+    )
+
+
+def _cells(*families_: str) -> tuple[str, ...]:
     return tuple(f"{family}/stance/None/None/" for family in families_)
 
 

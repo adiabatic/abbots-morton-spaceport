@@ -68,6 +68,7 @@ def _compact_id_ranges(unit_ids: list[str]) -> list[str]:
         if start is None:
             start = previous = number
             continue
+        assert previous is not None
         if number == previous + 1:
             previous = number
             continue

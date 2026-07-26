@@ -1,4 +1,11 @@
+import enum
 from collections.abc import Sequence
+
+class BufferClusterLevel(enum.IntEnum):
+    MONOTONE_GRAPHEMES = 0
+    MONOTONE_CHARACTERS = 1
+    CHARACTERS = 2
+    GRAPHEMES = 3
 
 class GlyphInfo:
     codepoint: int
@@ -22,6 +29,7 @@ class Font:
     def glyph_to_string(self, glyph: int) -> str: ...
 
 class Buffer:
+    cluster_level: BufferClusterLevel
     def __init__(self) -> None: ...
     def add_str(self, text: str) -> None: ...
     def clear_contents(self) -> None: ...

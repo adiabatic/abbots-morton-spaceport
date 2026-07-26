@@ -9,9 +9,36 @@ Two axes decide a family:
 
 from __future__ import annotations
 
-from rebuild.review.enrich import LETTERS, EnrichedUnit
+from typing import Mapping, Protocol
 
 UNMATCHED = "UNMATCHED"
+
+
+class UnitConfigs(Protocol):
+    """The config-gating axis of a unit — the only part of it grouping reads. A real audit Unit satisfies this; so does anything else that can name which configs a window is novel under."""
+
+    @property
+    def config_classes(self) -> Mapping[str, str]: ...
+
+    @property
+    def configs(self) -> tuple[str, ...]: ...
+
+
+class FamilyInput(Protocol):
+    """Exactly what assign_family reads off an enriched unit: the config-gating axis and the three tuples the primary-change scan walks. Structural rather than the concrete EnrichedUnit, so the grouper states its own inputs and a caller can satisfy it without building the twenty-odd fields enrichment produces for the surface."""
+
+    @property
+    def unit(self) -> UnitConfigs: ...
+
+    @property
+    def before_seams(self) -> tuple[str, ...]: ...
+
+    @property
+    def after_seams(self) -> tuple[str, ...]: ...
+
+    @property
+    def after_cells(self) -> tuple[str, ...]: ...
+
 
 FAMILY_ORDER = [
     "no-chain-gains",
@@ -44,14 +71,14 @@ def _config_features(config: str) -> frozenset[str]:
     return frozenset() if config == "default" else frozenset(config.split("+"))
 
 
-def _unmatched_configs(unit) -> list[str]:
+def _unmatched_configs(unit: UnitConfigs) -> list[str]:
     """The configs in which this unit's window is UNMATCHED (novel) — the behavior under adjudication. Falls back to every config when the per-config map is absent (a fully-UNMATCHED triple)."""
     if unit.config_classes:
         return [config for config, cls in unit.config_classes.items() if cls == UNMATCHED]
     return list(unit.configs)
 
 
-def _deferred_family(unit) -> str | None:
+def _deferred_family(unit: UnitConfigs) -> str | None:
     """The deferred stylistic-set bucket for a window whose novel behavior never appears under the default config, or None when it is default-reachable. ss04 takes precedence over ss10 over the ss02/ss03/ss05 tail when a window is gated by more than one set."""
     novel = _unmatched_configs(unit)
     if any(_config_features(config) == frozenset() for config in novel):
@@ -85,7 +112,7 @@ def _seam_rank(token: str) -> int:
     return -1
 
 
-def _primary_change(enriched: EnrichedUnit) -> tuple[str, str, str, str] | None:
+def _primary_change(enriched: FamilyInput) -> tuple[str, str, str, str] | None:
     """The first inter-cell gap whose seam token changed, as (left family, right family, before token, after token). None when the seams are unchanged (or their lengths disagree, e.g. a ligature formed/dissolved — left to the catch-all)."""
     before = enriched.before_seams
     after = enriched.after_seams
@@ -99,7 +126,7 @@ def _primary_change(enriched: EnrichedUnit) -> tuple[str, str, str, str] | None:
     return None
 
 
-def assign_family(enriched: EnrichedUnit) -> str:
+def assign_family(enriched: FamilyInput) -> str:
     """The verdict family id for one UNMATCHED unit. Total: every unit resolves to a family, with unmatched-misc as the catch-all."""
     deferred = _deferred_family(enriched.unit)
     if deferred is not None:

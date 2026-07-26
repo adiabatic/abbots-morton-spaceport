@@ -42,6 +42,7 @@ from rebuild.pipeline.model import (
 )
 from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
+from rebuild.pipeline.table import DecisionTable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
@@ -112,7 +113,9 @@ def build_tables(
     return tables
 
 
-def mint_cell_glyphs(spec: ResolvedSpec, tables: Mapping[str, object]) -> dict[CellId, GlyphRecord]:
+def mint_cell_glyphs(
+    spec: ResolvedSpec, tables: Mapping[str, DecisionTable | tuple[DecisionTable, ...]]
+) -> dict[CellId, GlyphRecord]:
     cells: set[CellId] = set()
     for entry in tables.values():
         decision = entry[0] if isinstance(entry, (tuple, list)) else entry
@@ -232,9 +235,9 @@ def run(
     return summary
 
 
-def serialized_tables(out_dir: Path, inputs: str) -> dict[str, object] | None:
+def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | None:
     """Every acceptance configuration's decision table as the build stage left it under `out_dir`, minus the window enumeration — or None the moment one file is missing, unreadable, or was written from sources other than the ones `inputs` names. Nothing partial: a mixed set would sweep some configurations against tables the runes on disk no longer produce."""
-    tables: dict[str, object] = {}
+    tables: dict[str, DecisionTable] = {}
     for config in conform.ACCEPTANCE_CONFIGS:
         try:
             stamp, decision = table_module.read_windows(
@@ -257,7 +260,7 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
     windows: dict[str, Path] | None = None
     rebuilt: dict[str, tuple] | None = None
     if serialized is not None:
-        decisions: Mapping[str, object] = serialized
+        decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
         windows = {config: table_module.windows_path(out_dir, config) for config in serialized}
         print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
     else:

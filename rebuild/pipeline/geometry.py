@@ -196,18 +196,16 @@ def realize(
     grid = _grid(bitmap)
     y_offset = bitmap.y_offset
 
-    entry_live = cell.entry is not None
-    exit_live = cell.exit is not None
-    if plan.entry_stub is not None and entry_live:
+    if plan.entry_stub is not None and cell.entry is not None:
         present = plan.entry_stub.inks_when == "joined"
         _apply_stub(grid, y_offset, _height_y(cell.entry), plan.entry_stub.cols, present)
-    if plan.exit_stub is not None and exit_live:
+    if plan.exit_stub is not None and cell.exit is not None:
         present = plan.exit_stub.inks_when == "joined"
         _apply_stub(grid, y_offset, _height_y(cell.exit), plan.exit_stub.cols, present)
 
     entry_anchor: tuple[int, int] | None = None
     exit_anchor: tuple[int, int] | None = None
-    if entry_live:
+    if cell.entry is not None:
         entry_y = _height_y(cell.entry)
         entry_x = plan.entry_x
         if entry_x is None:
@@ -220,7 +218,7 @@ def realize(
                 else row.x
             )
         entry_anchor = (entry_x, entry_y)
-    if exit_live:
+    if cell.exit is not None:
         exit_y = _height_y(cell.exit)
         exit_x = plan.exit_x
         if exit_x is None:
@@ -236,10 +234,11 @@ def realize(
         convention_exempt.extend(("entry", "exit"))
 
     for token in effective:
-        op, side, argument = parse_adjustment(token)
-        if op == "locked":
+        parsed = parse_adjustment(token)
+        if parsed[0] == "locked":
             entry_anchor = None
             continue
+        op, side, argument = parsed
         if op == "bind":
             assert isinstance(argument, str)
             try:
@@ -263,7 +262,7 @@ def realize(
         if op == "ext":
             if side == "ex":
                 _extend_right(grid, y_offset, y, argument)
-                exit_anchor = (exit_anchor[0] + argument, y)  # type: ignore[index]
+                exit_anchor = (anchor[0] + argument, y)
             else:
                 _extend_left(grid, y_offset, y, argument)
                 if exit_anchor is not None:
@@ -273,9 +272,9 @@ def realize(
         elif op == "con":
             _blank_edge_ink(grid, y_offset, y, argument, side)
             if side == "ex":
-                exit_anchor = (exit_anchor[0] - argument, y)  # type: ignore[index]
+                exit_anchor = (anchor[0] - argument, y)
             else:
-                entry_anchor = (entry_anchor[0] + argument, y)  # type: ignore[index]
+                entry_anchor = (anchor[0] + argument, y)
         elif op == "trim":
             _blank_edge_ink(grid, y_offset, y, argument, side)
             convention_exempt.append("entry" if side == "en" else "exit")

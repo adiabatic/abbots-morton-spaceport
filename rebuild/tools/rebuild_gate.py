@@ -27,6 +27,7 @@ from rebuild.tools.artifact_cycle import (
 
 def _run_suite() -> tuple[int, str]:
     proc = subprocess.Popen(REBUILD_PYTEST_ARGV, cwd=ROOT, text=True, stdout=subprocess.PIPE, bufsize=1)
+    assert proc.stdout is not None
     lines: list[str] = []
     for line in proc.stdout:
         print(line, end="", flush=True)

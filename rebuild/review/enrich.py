@@ -406,6 +406,7 @@ class Enricher:
                 mark = min(boundaries, key=lambda i: (abs(i - drifted), i)) if boundaries else drifted
                 pair_codepoints = (after_spans[mark][0], after_spans[mark][1] - 1)
         if pair is not None:
+            assert pair_codepoints is not None
             cp_start, cp_end = pair_codepoints
         elif diff_positions:
             cp_start = after_spans[diff_positions[0]][0]

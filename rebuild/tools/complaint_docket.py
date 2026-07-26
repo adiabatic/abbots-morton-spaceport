@@ -238,7 +238,7 @@ def emit_park(group, marker_target, *, stamp, park_dir, note_text):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__.split(":")[0] + ".")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts",
         nargs="?",

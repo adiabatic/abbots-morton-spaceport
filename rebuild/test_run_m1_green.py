@@ -18,7 +18,9 @@ def _keys(values):
 
 def test_records_when_the_key_holds_across_the_run(green_store):
     run_m1._settle_green(green_store, "fp-1", True, _keys(["fp-1"]), "run_m1")
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
 
 
 def test_records_nothing_when_the_inputs_moved_mid_run(green_store, capsys):
@@ -36,7 +38,9 @@ def test_red_deletes_a_contradicted_record(green_store):
 def test_red_leaves_a_record_for_other_content_alone(green_store):
     ac.record_green(green_store, "fp-other")
     run_m1._settle_green(green_store, "fp-1", False, _keys([]), "run_m1")
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-other"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-other"
 
 
 def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, oracle_pass=False):
@@ -60,7 +64,9 @@ def test_unmatched_oracle_rows_still_record_a_green(monkeypatch, tmp_path):
     _stub_full_run(monkeypatch, oracle_pass=False)
     with pytest.raises(SystemExit):
         run_m1.main([])
-    assert ac.read_green_record(store)["fingerprint"] == "fp-live"
+    record = ac.read_green_record(store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-live"
 
 
 def test_a_defect_gate_failure_clears_the_record(monkeypatch, tmp_path):
@@ -100,7 +106,9 @@ def test_conform_only_records_its_own_green(monkeypatch, tmp_path):
         },
     )
     run_m1.main(["--conform-only"])
-    assert ac.read_green_record(store)["fingerprint"] == "fp-conform"
+    record = ac.read_green_record(store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-conform"
 
 
 def test_conform_only_dead_rules_record_no_green(monkeypatch, tmp_path):

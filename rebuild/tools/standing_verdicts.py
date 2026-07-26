@@ -4,6 +4,7 @@ import argparse
 import json
 import pathlib
 import sys
+from typing import NoReturn
 
 import yaml
 
@@ -19,11 +20,11 @@ FORMAT = "ams-standing-approvals/1"
 ALLOWED_VERDICTS = ("approve", "either")
 
 
-def _fail(message):
+def _fail(message) -> NoReturn:
     raise SystemExit(f"rebuild/standing-approvals.yaml: {message}")
 
 
-def load_rules(path):
+def load_rules(path) -> list:
     data = yaml.safe_load(path.read_text())
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         _fail(f"format must be {FORMAT!r}")
@@ -98,7 +99,7 @@ def _matches(match, unit, *, guard=True):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.split(":")[0] + ".")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file that defines blankness (an export or the autosave)"
     )
