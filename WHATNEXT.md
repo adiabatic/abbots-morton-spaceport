@@ -20,12 +20,6 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 ## Deferred and tracked follow-ups
 
-### Doable anytime
-
-Nothing gates these — act on any cycle, whenever it’s worth it.
-
-- **Two ·May shapes a sitting recorded as “neither” and nobody has designed** — ·May joining into the `qsTea_qsOy` ligature, and word-initial locked ·May before ·Tea (recorded after the change of mind, and never superseded). The verdict ids they were filed under are positional and have long since been re-keyed, so these two descriptions are the only way back to the windows. Re-render both and decide, or retire them deliberately.
-
 ### Do when a gate takes too long
 
 Not gated on a named event — these come due when a cycle step gets slow enough that acting pays off.
