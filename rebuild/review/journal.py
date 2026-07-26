@@ -157,7 +157,9 @@ def replay(journal_path, as_of: str | None = None) -> tuple[str | None, dict[str
                     "at": entry.get("at") or "",
                 }
         elif kind == "clear":
-            records.pop(entry.get("unit"), None)
+            unit = entry.get("unit")
+            if isinstance(unit, str):
+                records.pop(unit, None)
     return stamp, records
 
 
