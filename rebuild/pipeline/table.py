@@ -7,10 +7,14 @@ Outcome-partition compression is DFA-style per input and per slot: two fillers l
 Rows carry a fourth window slot, `right3`, enumerated lazily: only an input whose own rune carries a depth-3 prefer record (`depth3_inputs`) gets its windows split by the raw third lookahead, and only where both nearer slots are letters — everywhere else the slot stays `#NA`, mirroring the established convention that no record peeks past a boundary. An enumerated window's settled left state is reachable only alongside right2 equal to that window's right3, so the worklist pins the successor's allowed-right2 set to that singleton — the same exactness plumbing the late-formation guard already rides — and the right3 options replay the right2 filters shifted one slot (formation-impossible adjacent pairs, guard-firing follower sets, `liga_formed_before` with the second slot now pinned). The fifth slot, `right4`, repeats the pattern one deeper and adds a liveness gate: only a depth-4 input (`depth4_inputs`) with letters at all three nearer slots, and only where `fourth_slot_filter` finds some own-rune depth-4 prefer chain still unknown over those three slots, enumerates it — a chain that already resolved definitely cannot be flipped by the fourth token, so those windows keep right4 at `#NA` instead of fanning out per follower. Where it does enumerate, its options replay the same filters shifted once more, and the worklist pins the successor's right3 to the producing window's right4. `_assert_window_arity` ties the Transition/Rule slot count to `model.RIGHT_WINDOW_SLOTS` at import, so the chain cap and the table can only widen together.
 
 Joint rows combine both section 6.1 flags: ranking ties broken by the structural floor between candidates differing in seam realization, and windows whose deliberately optimistic prospect diverges from the follower's actual settled choice. Both TSV artifacts are diff-stable (section 8): sorted rows, provenance pointers, deterministic labels.
+
+`write_windows` / `read_windows` persist a built table so the font-vs-settle sweep never rebuilds what the same sources already produced: the rules, the reachable cells and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. The windows come back as `Window` rows — labels only, which is everything a replay consults — so the file is a fraction of the resident table and the head alone answers "which cells are reachable".
 """
 
 from __future__ import annotations
 
+import gzip
+import json
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
@@ -53,8 +57,10 @@ class PartitionError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
-class Transition:
+@dataclass(frozen=True, slots=True)
+class Window:
+    """The label view of one settlement window: the slots that key it, and what settles there. This is everything a replay consults, so it is all the serialized enumeration keeps and all `read_windows` hands back."""
+
     input_glyph: str
     left: str
     right1: str
@@ -62,11 +68,6 @@ class Transition:
     right3: str
     right4: str
     outcome: str
-    settled: Settled
-    left_settled: Settled | None
-    joint: bool
-    prospect: int
-    provenance: tuple[str, ...]
 
     @property
     def key(self) -> tuple[str, str, str, str, str, str]:
@@ -75,6 +76,17 @@ class Transition:
     @property
     def is_identity(self) -> bool:
         return self.outcome == self.input_glyph
+
+
+@dataclass(frozen=True)
+class Transition(Window):
+    """A window plus what the fixpoint alone reads: the settled cells the treaty table is folded from, the optimistic prospect the joint flag is scored against, and the provenance the dead-policy gate counts as firing evidence."""
+
+    settled: Settled
+    left_settled: Settled | None
+    joint: bool
+    prospect: int
+    provenance: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -118,7 +130,7 @@ class TreatyRow:
 @dataclass
 class DecisionTable:
     config: str
-    transitions: tuple[Transition, ...] = ()
+    transitions: tuple[Window, ...] = ()
     rules: tuple[Rule, ...] = ()
     identity_guard_rules: int = 0
     cited_provenance: frozenset[str] = (
@@ -134,7 +146,7 @@ class DecisionTable:
 
     def assert_outcome_partition(self) -> None:
         """The hard build invariant (prototype follow-up 1): recompute the per-slot signature partitions and verify disjoint cover, then replay every reachable transition against the ordered rules under first-match-wins semantics."""
-        by_input: dict[str, dict[tuple[str, str, str, str, str], Transition]] = {}
+        by_input: dict[str, dict[tuple[str, str, str, str, str], Window]] = {}
         for row in self.transitions:
             by_input.setdefault(row.input_glyph, {})[
                 (row.left, row.right1, row.right2, row.right3, row.right4)
@@ -201,9 +213,13 @@ class DecisionTable:
             raise PartitionError(f"{len(failures)} first-match-wins replay mismatches: {sample}")
 
     def assert_e_stranded(self) -> None:
-        """Every committed exit in the table has at least one transition settling the follower — the fixpoint enqueues every successor and the kernel raises E-STRANDED on a violation, so this re-walk is a belt-and-suspenders assertion."""
+        """Every committed exit in the table has at least one transition settling the follower — the fixpoint enqueues every successor and the kernel raises E-STRANDED on a violation, so this re-walk is a belt-and-suspenders assertion. It reads the seam each row committed, so it belongs to the build: a table read back through `read_windows` carries the label view, and was proved before it was written."""
         keys = {(row.left, row.input_glyph) for row in self.transitions}
         for row in self.transitions:
+            if not isinstance(row, Transition):
+                raise PartitionError(
+                    "the E-STRANDED re-walk needs the enumerated rows, not a serialized window"
+                )
             if row.settled.seam is None or row.right1 in BOUNDARYISH:
                 continue
             successor = (row.outcome, row.right1)
@@ -248,6 +264,89 @@ class TreatyTable:
             lines.append("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
+
+
+WINDOWS_FORMAT = "ams-m1-windows/1"
+WINDOWS_COLUMNS = ("input", "left", "lookahead1", "lookahead2", "lookahead3", "lookahead4", "outcome")
+
+
+def windows_path(out_dir: Path, config: str) -> Path:
+    return Path(out_dir) / f"windows-{config}.tsv.gz"
+
+
+def _cell_key(cell: CellId) -> tuple:
+    return (cell.rune, cell.stance, cell.entry or "", cell.exit or "", cell.adjustments)
+
+
+def _rule_row(rule: Rule) -> list:
+    slots = (rule.backtrack, rule.look1, rule.look2, rule.look3, rule.look4)
+    return [
+        rule.input_glyph,
+        *(list(slot) if slot is not None else None for slot in slots),
+        rule.outcome,
+        list(rule.provenance),
+        rule.joint,
+    ]
+
+
+def _rule_of(row: list) -> Rule:
+    input_glyph, *slots, outcome, provenance, joint = row
+    backtrack, look1, look2, look3, look4 = (tuple(slot) if slot is not None else None for slot in slots)
+    return Rule(input_glyph, backtrack, look1, look2, look3, look4, outcome, tuple(provenance), joint)
+
+
+def write_windows(decision: DecisionTable, path: Path, inputs: str) -> None:
+    """Serialize one configuration's decision table beside the build's other artifacts: a head line carrying the fingerprint of the sources it was built from, the reachable cells and the ordered rules, then one row per enumerated window. The fixpoint costs tens of seconds per configuration and the font-vs-settle sweep needs exactly this much of it, so the sweep loads this instead of rebuilding what the same inputs already produced. Diff-stable like the TSVs beside it: sorted cells, rules in emission order, and a zeroed gzip stamp, so two builds of one table are byte-identical."""
+    head = {
+        "config": decision.config,
+        "inputs": inputs,
+        "identity_guard_rules": decision.identity_guard_rules,
+        "cited_provenance": sorted(decision.cited_provenance),
+        "cells": [
+            [cell.rune, cell.stance, cell.entry, cell.exit, list(cell.adjustments)]
+            for cell in sorted(decision.reachable_cells(), key=_cell_key)
+        ],
+        "rules": [_rule_row(rule) for rule in decision.rules],
+    }
+    body = "".join(
+        "\t".join((r.input_glyph, r.left, r.right1, r.right2, r.right3, r.right4, r.outcome)) + "\n"
+        for r in decision.transitions
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as handle:
+        handle.write(f"# {WINDOWS_FORMAT}\t{json.dumps(head, separators=(',', ':'))}\n".encode())
+        handle.write(("\t".join(WINDOWS_COLUMNS) + "\n").encode())
+        handle.write(body.encode())
+
+
+def read_windows(path: Path, windows: bool = True) -> tuple[str, DecisionTable]:
+    """The `write_windows` inverse: the fingerprint of the sources the table was built from, and the table itself with `Window` rows for transitions. `windows=False` stops after the head, so a caller that wants only the rules and the reachable cells pays for one line — gzip streams, so the enumeration is never decompressed. Raises OSError when the file is absent and ValueError when it is not an enumeration this build understands; a caller deciding whether to trust the artifact compares the returned fingerprint itself."""
+    with gzip.open(path, "rt") as handle:
+        marker, _, payload = handle.readline().rstrip("\n").partition("\t")
+        if marker != f"# {WINDOWS_FORMAT}":
+            raise ValueError(f"{path}: not a {WINDOWS_FORMAT} enumeration")
+        head = json.loads(payload)
+        rows: tuple[Window, ...] = ()
+        if windows:
+            if tuple(handle.readline().rstrip("\n").split("\t")) != WINDOWS_COLUMNS:
+                raise ValueError(f"{path}: window columns are not {WINDOWS_COLUMNS}")
+            intern = {}
+            rows = tuple(
+                Window(*(intern.setdefault(label, label) for label in line.rstrip("\n").split("\t")))
+                for line in handle
+            )
+    decision = DecisionTable(
+        config=head["config"],
+        transitions=rows,
+        rules=tuple(_rule_of(row) for row in head["rules"]),
+        identity_guard_rules=head["identity_guard_rules"],
+        cited_provenance=frozenset(head["cited_provenance"]),
+        _cells=frozenset(
+            CellId(rune, stance, entry, exit_, tuple(adjustments))
+            for rune, stance, entry, exit_, adjustments in head["cells"]
+        ),
+    )
+    return head["inputs"], decision
 
 
 def right_chain_reach(cond) -> int:

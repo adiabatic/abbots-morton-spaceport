@@ -1,8 +1,10 @@
-"""Content fingerprints for the review-surface build inputs, keyed by component so the readiness checker can name the remedy when a component goes stale.
+"""Content fingerprints for the build inputs, keyed by component so the readiness checker can name the remedy when a component goes stale.
 
 The surface manifest's `generated_at` stamp is mtime-based and exists to key unit-id joinability; it cannot answer "does this surface reflect the sources on disk right now". These fingerprints do: pure content hashes (plus stat sizes for the 400MB baseline TSVs, whose content digests already live in digests.tsv), sorted and mtime-free so consecutive builds of the same inputs stay byte-identical.
 
 Chain honesty: run_m1 persists the Stage A components (`data`, `baselines`, `pipeline_code`) into rebuild/out/m1/inputs_fingerprint.json at build time, and the review build copies those recorded values into the manifest instead of recomputing them — so a surface rebuilt over stale out/m1 artifacts carries the stale hashes and the checker flags it.
+
+`tables_value` serves the same honesty for a build artifact rather than a manifest: the serialized decision tables carry it, so the conformance sweep can tell a table its own sources produced from one it must rebuild.
 """
 
 from __future__ import annotations
@@ -70,6 +72,16 @@ def hash_paths(repo_root: Path, paths: list[Path]) -> str:
         f"{_label(repo_root, path)}\t{hashlib.sha256(path.read_bytes()).hexdigest()}"
         for path in paths
         if path.is_file()
+    )
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
+
+
+def tables_value(repo_root: Path) -> str:
+    """The content key over everything the decision-table fixpoint reads: the rune and config data plus the pipeline code. A serialized window enumeration carries this value so it can prove it still describes the sources on disk, and the conformance sweep rebuilds the moment it does not. Deliberately narrower than the Stage A record — the oracle's baselines feed no table, so re-extracting them must not throw the windows away."""
+    root = Path(repo_root)
+    lines = (
+        f"data\t{hash_paths(root, data_paths(root))}",
+        f"pipeline_code\t{hash_paths(root, pipeline_code_paths(root))}",
     )
     return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
