@@ -570,7 +570,7 @@ def _make_ok(spawn, emit, registry):
 
 
 def _rebuild_green(pool_policy, make_fut, spawn, emit, registry, update_pins):
-    return ac._RebuildOutcome("green", [], [])
+    return ac.RebuildOutcome("green", [], [])
 
 
 def _conform_green(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
@@ -994,7 +994,7 @@ def test_gate_rebuild_waits_for_run_m1_pass(monkeypatch):
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_invoked"] = time.monotonic()
-        return ac._RebuildOutcome("green", [], [])
+        return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
@@ -1018,7 +1018,7 @@ def test_gate_rebuild_skipped_when_run_m1_fails(monkeypatch, capsys):
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         called["rebuild"] = True
-        return ac._RebuildOutcome("green", [], [])
+        return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
@@ -1136,7 +1136,7 @@ def test_pool_queue_conform_waits_for_rebuild_gate(monkeypatch, tmp_path):
         rebuild_running.set()
         release_rebuild.wait()
         record["rebuild_finish"] = time.monotonic()
-        return ac._RebuildOutcome("green", [], [])
+        return ac.RebuildOutcome("green", [], [])
 
     summary_path = tmp_path / "conform_summary.json"
 
@@ -1268,7 +1268,7 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         ev_rebuild.wait()
-        return ac._RebuildOutcome("green (1 documented baseline)", [], [])
+        return ac.RebuildOutcome("green (1 documented baseline)", [], [])
 
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_do_surface_build", fake_surface)
@@ -1384,7 +1384,7 @@ def test_classify_rebuild_reads_colored_pytest_output():
         f"\x1b[31mFAILED\x1b[0m {file}::\x1b[1m{name}\x1b[0m - x"
         for file, _, name in (test_id.partition("::") for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
     )
-    outcome = ac._classify_rebuild(_step(rc=1, stdout=colored), update_pins=False)
+    outcome = ac.classify_rebuild_output(colored, 1, update_pins=False)
     assert outcome.hard_ids == []
     assert outcome.status == f"green ({len(ac.BASELINE_REBUILD_FAILURES)} documented baseline)"
 
@@ -2235,7 +2235,7 @@ def test_run_cycle_never_spawns_rebuild_gate_when_skipped(monkeypatch):
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         record["rebuild_calls"] += 1
-        return ac._RebuildOutcome("green", [], [])
+        return ac.RebuildOutcome("green", [], [])
 
     monkeypatch.setattr(ac, "_gate_rebuild_task", fake_rebuild)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -2308,7 +2308,7 @@ def test_run_cycle_never_spawns_a_deferred_gate(monkeypatch):
 
     def fake_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
         calls["rebuild"] += 1
-        return ac._RebuildOutcome("green", [], [])
+        return ac.RebuildOutcome("green", [], [])
 
     def fake_conform(pool_policy, rebuild_fut, make_fut, spawn, emit, registry, argv):
         calls["conform"] += 1
@@ -2708,20 +2708,16 @@ def test_record_gate_greens_records_refuses_and_clears(monkeypatch, tmp_path):
 
 
 def test_classify_rebuild_recordable_only_when_unannotated():
-    clean = ac._classify_rebuild(_step("gate:rebuild", 0, stdout=""), update_pins=False)
+    clean = ac.classify_rebuild_output("", 0, update_pins=False)
     assert clean.recordable
     baseline_ids = "\n".join(f"FAILED {test_id}" for test_id in sorted(ac.BASELINE_REBUILD_FAILURES))
-    documented = ac._classify_rebuild(_step("gate:rebuild", 1, stdout=baseline_ids), update_pins=False)
+    documented = ac.classify_rebuild_output(baseline_ids, 1, update_pins=False)
     assert documented.status.startswith("green")
     assert documented.recordable
-    hinted = ac._classify_rebuild(
-        _step("gate:rebuild", 1, stdout="FAILED rebuild/test_review_audit.py::test_x"), update_pins=False
-    )
+    hinted = ac.classify_rebuild_output("FAILED rebuild/test_review_audit.py::test_x", 1, update_pins=False)
     assert hinted.status.startswith("green")
     assert not hinted.recordable
-    hard = ac._classify_rebuild(
-        _step("gate:rebuild", 1, stdout="FAILED rebuild/test_settle.py::test_x"), update_pins=False
-    )
+    hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, update_pins=False)
     assert not hard.recordable
 
 

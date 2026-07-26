@@ -8,7 +8,7 @@ The two artifact-independent gates (js, make-test) run from t=0 in a small threa
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
-The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-green.json. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
+The same provably-unchanged principle guards every other heavy stage, each keyed by a content fingerprint over that stage's full input closure and a green record written only after that exact content passed live: run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the oracle's subset tables and uv.lock) and re-evaluates its gate from the four summary JSONs already on disk; gate:conform skips on conform-green.json (the run_m1 key plus the M1.otf bytes and the sweep horizon); gate:rebuild skips on rebuild-gate-green.json (the suite's repo closure under rebuild/ and glyph_data/ plus the out/m1 artifacts, site fonts, baselines, conftest.py, pyproject.toml, and uv.lock — also written by rebuild.tools.rebuild_gate, the `make test-rebuild` entry point, so interactive suite greens and cycle greens share one record); surface-build skips when the manifest's recorded inputs fingerprint already equals the one a build would stamp now (a rebuild would be byte-identical, mtime-floored generated_at included, so the autosave stays aligned); and the census check skips on census-green.json. The surface, conform, rebuild, and census skips engage only on cycles where run_m1 itself skipped, so a live M1 rebuild can never invalidate a key mid-cycle; green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
 --defer-gates, which `make review-cycle` passes, turns the cycle from a one-pass verification into a converging loop. On a *refreshing* pass — one where run_m1 or the surface build has real work — the three heavy gates (rebuild, conform, make-test) are recorded pending instead of run, so a rune edit costs only the artifact chain and the letters are on screen in a fraction of the time. Only a gate that would otherwise run live is deferred: one an auto-skip already proved stays proved, so a pass that merely restamps the review UI can never turn a green gate pending. The next pass has no artifact work left, every stage auto-skips, and the pending gates run against settled artifacts; the pass after that skips those too and costs seconds. Deferral is never a waiver — a deferred gate rides `skip: "deferred"` into the cycle summary, which rebuild.review.status counts as unverified, so `make verdict-ready` and the app banner both stay NOT READY until the loop converges. --no-defer-gates runs them in the one pass, which is what `make artifact-cycle` does at commit time, and --fresh and --force-make-test likewise override deferral for the gates they force. Rehearsal mode (--review-out) never defers: it writes its surface somewhere else, so there is no live surface to see sooner, and its surface build is unskippable by construction — every rehearsal pass would look refreshing and the loop would never converge.
 
@@ -90,6 +90,10 @@ CENSUS_HINT_MODULES = frozenset(
         "test_review_ink",
     }
 )
+
+REBUILD_PYTEST_ARGV = [
+    "uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE",
+]
 
 MAKE_TEST_EXEMPT_PREFIXES = ("rebuild/", "glyph_data/runes/", "doc/", "tmp/", ".claude/")
 
@@ -1164,7 +1168,7 @@ def _parse_surface_build(stderr: str) -> tuple[int, int, int] | None:
 
 
 @dataclass
-class _RebuildOutcome:
+class RebuildOutcome:
     status: str
     failures: list[str]
     hard_ids: list[str]
@@ -1174,17 +1178,17 @@ class _RebuildOutcome:
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
-def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict. pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure."""
-    lines = [_ANSI_SGR.sub("", line) for line in result.stdout.splitlines()]
+def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> RebuildOutcome:
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure."""
+    lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
     buckets: dict[str, list[str]] = {"baseline": [], "census-hint": [], "hard": []}
     for test_id in failed_ids:
         buckets[classify_rebuild_failure(test_id, update_pins)].append(test_id)
     buckets["hard"].extend(error_ids)
-    if result.returncode != 0 and not failed_ids and not error_ids:
-        buckets["hard"].append(f"pytest exited {result.returncode} with no parsed FAILED/ERROR lines")
+    if returncode != 0 and not failed_ids and not error_ids:
+        buckets["hard"].append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
     failures: list[str] = []
     if buckets["hard"]:
         status = f"FAILED ({len(buckets['hard'])} unexplained)"
@@ -1197,7 +1201,7 @@ def _classify_rebuild(result: _StepResult, update_pins: bool) -> _RebuildOutcome
             parts.append(f"{len(buckets['census-hint'])} stale census pins? (re-run with --update-pins)")
         status = "green" if not parts else "green (" + ", ".join(parts) + ")"
     recordable = not buckets["hard"] and not buckets["census-hint"]
-    return _RebuildOutcome(
+    return RebuildOutcome(
         status=status, failures=failures, hard_ids=list(buckets["hard"]), recordable=recordable
     )
 
@@ -1506,20 +1510,14 @@ def _gate_rebuild_task(
     emit: _Emitter,
     registry: _ChildRegistry,
     update_pins: bool,
-) -> _RebuildOutcome:
+) -> RebuildOutcome:
     if pool_policy == "queue" and make_fut is not None:
         try:
             make_fut.result()
         except Exception:
             pass
-    result = spawn(
-        "gate:rebuild",
-        ["uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE"],
-        emit=emit,
-        registry=registry,
-        stream=False,
-    )
-    return _classify_rebuild(result, update_pins)
+    result = spawn("gate:rebuild", REBUILD_PYTEST_ARGV, emit=emit, registry=registry, stream=False)
+    return classify_rebuild_output(result.stdout, result.returncode, update_pins)
 
 
 def _gate_result(fut: Future, name: str, failures: list[str]):
