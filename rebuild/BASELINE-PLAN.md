@@ -219,7 +219,7 @@ uv run python -m rebuild.baseline.cli extract --all --out rebuild/out --workers 
 uv run python -m rebuild.baseline.cli summarize --out rebuild/out
 ```
 
-`cli.py` also carries `equivalence` and `replay` subcommands that look for their modules under `baseline/`; the validation suite shipped them under `validation/`, so drive those, the split-buffer check, and the determinism check from the top-level scripts:
+The equivalence and replay checks live under `validation/`, not `baseline/`; drive those, the split-buffer check, and the determinism check from the top-level scripts:
 
 ```sh
 uv run python rebuild/run_equivalence.py --baseline rebuild/out/baseline-default.tsv.gz --workers 10
