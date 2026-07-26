@@ -73,14 +73,7 @@ M1_SUMMARY_FILES = {
 }
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 
-BASELINE_REBUILD_FAILURES = frozenset(
-    {
-        "rebuild/test_surface.py::test_real_cell_bindings_all_match",
-        "rebuild/test_spec_load.py::test_loads_all_six_runes",
-        "rebuild/test_spec_load.py::test_predicate_class_membership",
-        "rebuild/test_spec_load.py::test_group_resolution",
-    }
-)
+BASELINE_REBUILD_FAILURES = frozenset({"rebuild/test_surface.py::test_real_cell_bindings_all_match"})
 
 CENSUS_HINT_MODULES = frozenset(
     {
@@ -452,7 +445,7 @@ def conform_gate_argv(jobs: int, horizon: int = CONFORM_HORIZON_DEFAULT) -> list
 
 
 def classify_rebuild_failure(test_id: str, update_pins: bool) -> str:
-    """Bucket a failing rebuild-suite test id: 'baseline' (the four documented batch-1 spec pins, always expected), 'census-hint' (a census-pinned review test, expected to go stale after a rune change until --update-pins), or 'hard' (anything unexplained — fails the cycle)."""
+    """Bucket a failing rebuild-suite test id: 'baseline' (the documented always-expected failures in BASELINE_REBUILD_FAILURES), 'census-hint' (a census-pinned review test, expected to go stale after a rune change until --update-pins), or 'hard' (anything unexplained — fails the cycle)."""
     if test_id in BASELINE_REBUILD_FAILURES:
         return "baseline"
     module = test_id.split("::", 1)[0]
