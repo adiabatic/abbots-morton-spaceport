@@ -231,13 +231,17 @@ def _mismatches(old: dict, new: dict) -> list[tuple[str, object, object]]:
     _flatten({key: value for key, value in old.items() if key != "_surface"}, "", old_flat)
     _flatten({key: value for key, value in new.items() if key != "_surface"}, "", new_flat)
     keys = sorted(set(old_flat) | set(new_flat))
-    return [(key, old_flat.get(key), new_flat.get(key)) for key in keys if old_flat.get(key) != new_flat.get(key)]
+    return [
+        (key, old_flat.get(key), new_flat.get(key)) for key in keys if old_flat.get(key) != new_flat.get(key)
+    ]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     action = parser.add_mutually_exclusive_group()
-    action.add_argument("--check", action="store_true", help="recompute and compare against the checked-in pins (default)")
+    action.add_argument(
+        "--check", action="store_true", help="recompute and compare against the checked-in pins (default)"
+    )
     action.add_argument("--update", action="store_true", help="recompute and rewrite the pins file")
     parser.add_argument(
         "--surface",

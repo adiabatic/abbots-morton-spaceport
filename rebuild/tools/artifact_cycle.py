@@ -92,7 +92,17 @@ CENSUS_HINT_MODULES = frozenset(
 )
 
 REBUILD_PYTEST_ARGV = [
-    "uv", "run", "pytest", "rebuild/", "-n", "auto", "--dist", "worksteal", "-q", "--tb=no", "-rfE",
+    "uv",
+    "run",
+    "pytest",
+    "rebuild/",
+    "-n",
+    "auto",
+    "--dist",
+    "worksteal",
+    "-q",
+    "--tb=no",
+    "-rfE",
 ]
 
 MAKE_TEST_EXEMPT_PREFIXES = ("rebuild/", "glyph_data/runes/", "doc/", "tmp/", ".claude/")
@@ -151,8 +161,7 @@ def record_green(path: Path, fingerprint: str) -> None:
     stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(
-        json.dumps({"format": f"ams-{path.stem}/1", "fingerprint": fingerprint, "finished_at": stamp})
-        + "\n"
+        json.dumps({"format": f"ams-{path.stem}/1", "fingerprint": fingerprint, "finished_at": stamp}) + "\n"
     )
     os.replace(tmp, path)
 
@@ -767,9 +776,7 @@ def build_plan(
     else:
         plan.steps.append(Step("gate:js", jstest_argv(), lane="t0"))
         if skip_rebuild_gate:
-            plan.steps.append(
-                Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild")
-            )
+            plan.steps.append(Step("gate:rebuild", None, f"SKIPPED ({rebuild_gate_note})", lane="rebuild"))
         elif "rebuild" in deferred:
             plan.steps.append(Step("gate:rebuild", None, f"DEFERRED ({DEFER_NOTE})", lane="rebuild"))
         else:
@@ -917,7 +924,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
                 "                                       CO-RESIDENT with gate:make-test (overlap policy — two 12-way pytest pools)"
             )
         else:
-            lines.append("                                       QUEUED behind gate:make-test  (queue policy)")
+            lines.append(
+                "                                       QUEUED behind gate:make-test  (queue policy)"
+            )
     if plan.skip_conform:
         lines.append("    Lane conform                     : SKIPPED (--skip-conform)")
     elif defer_conform:
@@ -1339,7 +1348,9 @@ def _do_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildReg
     return result.returncode == 0
 
 
-def _do_echo_fill(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+def _do_echo_fill(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> bool:
     argv = ["uv", "run", "python", str(ECHO_TOOL), str(AUTOSAVE)]
     result = spawn("echo-fill", argv, emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
@@ -1351,7 +1362,9 @@ def _do_echo_fill(report: CycleReport, *, spawn, emit: _Emitter, registry: _Chil
     return result.returncode == 0
 
 
-def _do_echo_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+def _do_echo_merge(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> bool:
     argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(ECHO_FILL)]
     result = spawn("echo-merge", argv, emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
@@ -1363,7 +1376,9 @@ def _do_echo_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _Chi
     return result.returncode == 0
 
 
-def _do_standing_fill(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+def _do_standing_fill(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> bool:
     argv = ["uv", "run", "python", str(STANDING_TOOL), str(AUTOSAVE)]
     result = spawn("standing-fill", argv, emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
@@ -1377,7 +1392,9 @@ def _do_standing_fill(report: CycleReport, *, spawn, emit: _Emitter, registry: _
     return result.returncode == 0
 
 
-def _do_standing_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan) -> bool:
+def _do_standing_merge(
+    report: CycleReport, *, spawn, emit: _Emitter, registry: _ChildRegistry, plan: Plan
+) -> bool:
     argv = ["uv", "run", "python", "-m", "rebuild.tools.merge_verdicts", str(STANDING_FILL)]
     result = spawn("standing-merge", argv, emit=emit, registry=registry, stream=False)
     _dump_captured(emit, result)
@@ -1385,7 +1402,9 @@ def _do_standing_merge(report: CycleReport, *, spawn, emit: _Emitter, registry: 
         stripped = line.strip()
         if stripped.startswith(("merged ", "nothing changed", "stashed ")):
             report.standing_merge_lines.append(stripped)
-    report.standing_merge_status = "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    report.standing_merge_status = (
+        "merged" if result.returncode == 0 else f"FAILED (exit {result.returncode})"
+    )
     return result.returncode == 0
 
 
@@ -1582,7 +1601,9 @@ def _record_gate_greens(report: CycleReport, plan: Plan, gate_keys: dict[str, st
             if conform_skip_fingerprint(ROOT, plan.conform_horizon) == key:
                 record_green(CONFORM_GREEN, key)
             else:
-                emit.emit("gate:conform green, but its inputs changed while the cycle ran — green not recorded")
+                emit.emit(
+                    "gate:conform green, but its inputs changed while the cycle ran — green not recorded"
+                )
         elif report.gate_conform.startswith("FAILED"):
             clear_contradicted_green(CONFORM_GREEN, key)
     key = gate_keys.get("rebuild")
@@ -2022,7 +2043,9 @@ def run_retention(plan: Plan) -> None:
 
     removed = prune_snapshots(ROOT / "tmp", plan.snapshot_dir, plan.preserve_snapshot)
     if removed:
-        print(f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}")
+        print(
+            f"  snapshots : removed {len(removed)} ({', '.join(rel(path) for path in removed)}); kept {rel(plan.snapshot_dir)}"
+        )
     else:
         print(f"  snapshots : nothing to remove; kept {rel(plan.snapshot_dir)}")
 
@@ -2034,7 +2057,9 @@ def run_retention(plan: Plan) -> None:
         print("  carried   : left intact (no surface manifest to align against)")
     else:
         removed, unreadable = prune_carried(ROOT, stamp, plan.carry_out)
-        print(f"  carried   : removed {len(removed)} stale verdicts-carried-*.json; kept the stamp-aligned frontier")
+        print(
+            f"  carried   : removed {len(removed)} stale verdicts-carried-*.json; kept the stamp-aligned frontier"
+        )
         for path in unreadable:
             print(f"              kept {rel(path)} (unreadable, not pruning it)")
 
@@ -2043,12 +2068,16 @@ def run_retention(plan: Plan) -> None:
     if removed_stashes is None:
         print("  stashes   : left intact (the journal holds no base event to anchor on)")
     else:
-        print(f"  stashes   : removed {len(removed_stashes)} verdicts-autosave-* stashes older than the journal's last base")
+        print(
+            f"  stashes   : removed {len(removed_stashes)} verdicts-autosave-* stashes older than the journal's last base"
+        )
 
     result = journal.compact(journal_path, cutoff=retention_cutoff())
     if result["compacted"]:
         total = result["dropped_lines"] + result["kept_lines"]
-        print(f"  journal   : compacted {total} -> {result['kept_lines']} lines (restore floor now {result['floor_at']})")
+        print(
+            f"  journal   : compacted {total} -> {result['kept_lines']} lines (restore floor now {result['floor_at']})"
+        )
     else:
         print(f"  journal   : left intact (no base event older than {RETENTION_WINDOW_DAYS} days)")
 
@@ -2178,7 +2207,9 @@ def main(argv: list[str] | None = None) -> int:
     if skip_run_m1:
         if args.review_out is None and not first_run and surface_build_skippable(ROOT):
             skip_surface = True
-            surface_note = "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
+            surface_note = (
+                "the surface already reflects these inputs byte for byte, stamp included; --fresh overrides"
+            )
             print(f"surface-build auto-skipped: {surface_note}")
         if not args.skip_gates and not args.skip_conform:
             green = read_green_record(CONFORM_GREEN)
@@ -2200,7 +2231,9 @@ def main(argv: list[str] | None = None) -> int:
             green = read_green_record(CENSUS_GREEN)
             if census_key is not None and green is not None and green["fingerprint"] == census_key:
                 skip_census = True
-                census_skip_note = "surface, pins, and source inputs unchanged since the last clean check; --fresh overrides"
+                census_skip_note = (
+                    "surface, pins, and source inputs unchanged since the last clean check; --fresh overrides"
+                )
                 print(f"census auto-skipped: {census_skip_note}")
 
     preserve_snapshot = unfinished_cycle_snapshot()

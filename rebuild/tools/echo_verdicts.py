@@ -69,7 +69,9 @@ def main():
             source_unit, source = max(judged, key=lambda pair: pair[1]["at"])
             note = cap_markers(f"[echo-fill from {source_unit['id']}] {source['note']}".strip())
             for unit in blanks:
-                fills.append({"unit": unit["id"], "verdict": source["verdict"], "note": note, "at": source["at"]})
+                fills.append(
+                    {"unit": unit["id"], "verdict": source["verdict"], "note": note, "at": source["at"]}
+                )
 
     fills.sort(key=lambda record: record["unit"])
     payload = {
@@ -83,13 +85,17 @@ def main():
     print(f"wrote {out.name}: {len(fills)} echo-fill verdicts onto manifest {manifest['generated_at']}")
 
     if conflicts:
-        print(f"\n{len(conflicts)} echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:")
+        print(
+            f"\n{len(conflicts)} echo groups hold disagreeing verdicts — the same change judged differently; worth a re-check:"
+        )
         for echo_id, members, judged in conflicts:
             ids = ",".join(unit["id"] for unit in members)
             print(f"  {echo_id}  #units={ids}")
             verdicted_ids = {unit["id"] for unit, _record in judged}
             for unit, record in judged:
-                print(f"    {unit['id']:9s} {unit['notation']:30s} {record['verdict']:9s} {record['note'][:70]}")
+                print(
+                    f"    {unit['id']:9s} {unit['notation']:30s} {record['verdict']:9s} {record['note'][:70]}"
+                )
             for unit in members:
                 if unit["id"] not in verdicted_ids:
                     print(f"    {unit['id']:9s} {unit['notation']:30s} (blank)")

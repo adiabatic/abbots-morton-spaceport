@@ -209,7 +209,11 @@ def test_restore_apply_replaces_and_stashes_the_autosave(repo, monkeypatch):
     assert set(store_records(repo)) == {"u-1"}
     stashes = list(repo["root"].glob("verdicts-autosave-pre-restore-*.json"))
     assert len(stashes) == 1
-    assert set(journal.latest_by_unit(json.loads(stashes[0].read_text())["verdicts"])) == {"u-1", "u-2", "u-3"}
+    assert set(journal.latest_by_unit(json.loads(stashes[0].read_text())["verdicts"])) == {
+        "u-1",
+        "u-2",
+        "u-3",
+    }
     stamp, records = journal.replay(repo["journal"])
     assert set(records) == {"u-1"}
 

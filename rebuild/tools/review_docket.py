@@ -31,7 +31,9 @@ def latest_verdicts(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split(":")[0] + ".")
-    parser.add_argument("verdicts", help="the verdicts file for the current frontier (an export or the autosave)")
+    parser.add_argument(
+        "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
+    )
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--data-out", default=str(DATA_OUT))
     args = parser.parse_args()
@@ -55,11 +57,7 @@ def main():
             f"{len(unclustered)} human units carry no cluster signature — this surface predates the emission; "
             f"rebuild it with uv run python -m rebuild.review.build"
         )
-    blanks = [
-        unit
-        for unit in human
-        if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"
-    ]
+    blanks = [unit for unit in human if unit["id"] not in records or records[unit["id"]]["verdict"] == "skip"]
 
     clusters_by_id = collections.defaultdict(list)
     for unit in blanks:

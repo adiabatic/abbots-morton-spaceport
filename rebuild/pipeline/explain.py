@@ -148,9 +148,7 @@ def _load_spec() -> tuple[ResolvedSpec, str | None]:
             repo / "glyph_data" / "runes", repo / "rebuild" / "script.yaml", repo / "rebuild" / "schema"
         )
         return spec, None
-    except (
-        Exception
-    ) as error:  # noqa: BLE001 — the fixtures fallback is deliberate
+    except Exception as error:  # noqa: BLE001 — the fixtures fallback is deliberate
         from rebuild.pipeline import fixtures
 
         return (
