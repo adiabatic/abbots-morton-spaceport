@@ -6,6 +6,7 @@ import {
   ruledClassIds,
   partitionClusters,
   echoConflicts,
+  verdictsAgree,
   singletonChunks,
   docketTotals,
   queueCounts,
@@ -200,6 +201,15 @@ test('partitionClusters splits unruled multi clusters at the tranche cap, lists 
   }
 });
 
+test('verdictsAgree reads unanimity and the approve/identical mix as one voice, everything else as a split', () => {
+  assert.equal(verdictsAgree(new Set()), true);
+  assert.equal(verdictsAgree(new Set(['approve'])), true);
+  assert.equal(verdictsAgree(new Set(['approve', 'identical'])), true);
+  assert.equal(verdictsAgree(new Set(['identical', 'either'])), false);
+  assert.equal(verdictsAgree(new Set(['approve', 'reject'])), false);
+  assert.equal(verdictsAgree(new Set(['approve', 'identical', 'neither'])), false);
+});
+
 test('echoConflicts flags only echo groups whose judged verdicts disagree, sorted by echo id', () => {
   const unitsById = new Map([
     ['u-0001', { id: 'u-0001', class: 'cls-a' }],
@@ -211,12 +221,18 @@ test('echoConflicts flags only echo groups whose judged verdicts disagree, sorte
     ['u-0006', { id: 'u-0006', class: 'cls-c' }],
     ['u-0007', { id: 'u-0007', class: 'cls-d' }],
     ['u-0008', { id: 'u-0008', class: 'cls-d' }],
+    ['u-0010', { id: 'u-0010', class: 'cls-e' }],
+    ['u-0011', { id: 'u-0011', class: 'cls-e' }],
+    ['u-0012', { id: 'u-0012', class: 'cls-f' }],
+    ['u-0013', { id: 'u-0013', class: 'cls-f' }],
   ]);
   const echoIndex = new Map([
     ['e-0002', ['u-0004', 'u-0003', 'u-0009']],
     ['e-0001', ['u-0001', 'u-0002']],
     ['e-0003', ['u-0005', 'u-0006']],
     ['e-0004', ['u-0007', 'u-0008']],
+    ['e-0005', ['u-0010', 'u-0011']],
+    ['e-0006', ['u-0012', 'u-0013']],
   ]);
   const records = {
     'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
@@ -227,9 +243,13 @@ test('echoConflicts flags only echo groups whose judged verdicts disagree, sorte
     'u-0006': { unit: 'u-0006', verdict: 'approve', note: '', at: '2026-01-06' },
     'u-0007': { unit: 'u-0007', verdict: 'either', note: 'e', at: '2026-01-07' },
     'u-0008': { unit: 'u-0008', verdict: 'neither', note: 'n', at: '2026-01-08' },
+    'u-0010': { unit: 'u-0010', verdict: 'approve', note: '', at: '2026-01-09' },
+    'u-0011': { unit: 'u-0011', verdict: 'identical', note: '', at: '2026-01-10' },
+    'u-0012': { unit: 'u-0012', verdict: 'identical', note: '', at: '2026-01-11' },
+    'u-0013': { unit: 'u-0013', verdict: 'reject', note: 'r', at: '2026-01-12' },
   };
   const conflicts = echoConflicts(echoIndex, unitsById, (id) => records[id]);
-  assert.deepEqual(conflicts.map((conflict) => conflict.echo), ['e-0002', 'e-0004']);
+  assert.deepEqual(conflicts.map((conflict) => conflict.echo), ['e-0002', 'e-0004', 'e-0006']);
   const [split] = conflicts;
   assert.equal(split.echo, 'e-0002');
   assert.equal(split.class, 'cls-b');

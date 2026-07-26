@@ -98,6 +98,14 @@ export function partitionClusters(clusters, ruledIds) {
   };
 }
 
+const ACCEPTING_MIX = ['approve', 'identical'];
+
+// Whether a set of recorded verdicts on one echo group speaks with a single voice. Unanimity qualifies, and so does an approve/identical mix: both accept the new rendering, one reviewer merely having found the highlighted portion visually unchanged. Mirrors verdicts_agree in rebuild/tools/review_docket.py.
+export function verdictsAgree(verdicts) {
+  if (verdicts.size <= 1) return true;
+  return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));
+}
+
 export function echoConflicts(echoIndex, unitsById, recordOf) {
   const conflicts = [];
   for (const echo of [...echoIndex.keys()].sort()) {
@@ -109,7 +117,7 @@ export function echoConflicts(echoIndex, unitsById, recordOf) {
     }
     const verdicts = new Set();
     for (const record of records.values()) verdicts.add(record.verdict);
-    if (verdicts.size > 1) {
+    if (!verdictsAgree(verdicts)) {
       conflicts.push({ echo, class: unitsById.get(unitIds[0])?.class ?? '', unitIds, records });
     }
   }
