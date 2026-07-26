@@ -185,7 +185,7 @@ class TestAliasAndLedger:
             (("-en-ext-1:qsDay_qsUtter",), "day-baseline-entry-extension-dropped"),
             (("-en-ext-1:qsNo",), "no-xheight-entry-extension-dropped"),
             (("-en-ext-1:qsNo", "exit-added"), "no-xheight-entry-extension-dropped"),
-            (("+ex-bind-pulled-back", "exit-dropped"), "may-exit-withdrawal-generalized"),
+            (("+ex-bind-pulled-back", "exit-dropped"), None),
             (("seam-gain:qsIt", "exit-added"), "entered-it-baseline-join-gain"),
             (("seam-gain:qsPea", "entry-dropped"), "pea-chain-regularized"),
             (("seam-gain:qsMay", "seam-loss"), "regrouping-floor-drift"),

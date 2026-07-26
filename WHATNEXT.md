@@ -24,7 +24,6 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 Nothing gates these — act on any cycle, whenever it’s worth it.
 
-- **Was `may-quad-order-deferral` resolved, or just reclassified?** — the M1 plan used to carry it as the one observed cost of window-local ranking, flagged for a yielding prefer at qsMay’s next policy pass. Several policy passes have landed since, and the entry is now absent from `rebuild/m1-divergences.yaml` — the name appears nowhere in the tree — so either the cost was genuinely designed out or its rows were folded under one of the surviving ids. Establish which before treating window-local ranking as cost-free; if the phenomenon is still live, it needs its own ledger entry again.
 - **Two ·May shapes a sitting recorded as “neither” and nobody has designed** — ·May joining into the `qsTea_qsOy` ligature, and word-initial locked ·May before ·Tea (recorded after the change of mind, and never superseded). The verdict ids they were filed under are positional and have long since been re-keyed, so these two descriptions are the only way back to the windows. Re-render both and decide, or retire them deliberately.
 
 ### Do when a gate takes too long

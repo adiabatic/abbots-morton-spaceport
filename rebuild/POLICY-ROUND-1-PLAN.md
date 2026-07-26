@@ -1,6 +1,6 @@
 # Applying a verdict round: the laws round 1 taught
 
-Round 1 is closed. Its edits are in the runes, its per-class verdict rationale in `rebuild/m1-divergences.yaml`’s `why:` fields, its gate inventory in `M1-PLAN.md`’s gates section, and its arithmetic in the git log. What survives here is the design law the round taught: the shapes a reject may legitimately take, the two ways an audit will mislead you, and the rationale two live records lost when their `why:` fields were dropped.
+Round 1 is closed. Its edits are in the runes, its per-class verdict rationale in `rebuild/m1-divergences.yaml`’s `why:` fields, its gate inventory in `M1-PLAN.md`’s gates section, and its arithmetic in the git log. What survives here is the design law the round taught: the shapes a reject may legitimately take, the two ways an audit will mislead you, and the two invariants an apply phase must not break.
 
 ## How a reject becomes a record
 
