@@ -626,7 +626,12 @@ def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
             continue
         rune = spec.runes[token]
         for part in rune.sequence or (token,):
-            chars.append(chr(spec.runes[part].codepoint))
+            codepoint = spec.runes[part].codepoint
+            if codepoint is None:
+                raise ValueError(
+                    f"ligature rune {token} names {part}, which carries no codepoint — this expansion is one level deep only"
+                )
+            chars.append(chr(codepoint))
     return "".join(chars)
 
 
