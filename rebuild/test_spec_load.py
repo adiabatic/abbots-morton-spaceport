@@ -333,8 +333,21 @@ def test_right_chain_two_hops_accepted(tmp_path):
         warnings.simplefilter("ignore", SpecWarning)
         spec = load_tmp_spec(tmp_path, {"qsIt": text})
     prefer = spec.runes["qsIt"].policy.prefer
-    assert prefer[0].when.right.then.then.family == ("qsIt",)
-    assert prefer[1].when.right.except_[0].then.then.family == ("qsIt",)
+    right = prefer[0].when.right
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    assert third.family == ("qsIt",)
+
+    excepting = prefer[1].when.right
+    assert excepting is not None
+    second = excepting.except_[0].then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    assert third.family == ("qsIt",)
 
 
 def test_right_chain_three_hops_accepted(tmp_path):
@@ -349,8 +362,15 @@ def test_right_chain_three_hops_accepted(tmp_path):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", SpecWarning)
         spec = load_tmp_spec(tmp_path, {"qsIt": text})
-    prefer = spec.runes["qsIt"].policy.prefer
-    assert prefer[0].when.right.then.then.then.family == ("qsDay",)
+    right = spec.runes["qsIt"].policy.prefer[0].when.right
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    fourth = third.then
+    assert fourth is not None
+    assert fourth.family == ("qsDay",)
 
 
 def test_right_chain_four_hops_rejected(tmp_path):
@@ -403,7 +423,14 @@ def test_right_chain_hops_carried_by_except_count_toward_the_cap(tmp_path):
         warnings.simplefilter("ignore", SpecWarning)
         spec = load_tmp_spec(tmp_path, {"qsIt": accepted})
     right = spec.runes["qsIt"].policy.prefer[0].when.right
-    assert right.then.except_[0].then.then.family == ("qsDay",)
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.except_[0].then
+    assert third is not None
+    fourth = third.then
+    assert fourth is not None
+    assert fourth.family == ("qsDay",)
 
 
 def _right_then_chain(reach: int) -> dict:

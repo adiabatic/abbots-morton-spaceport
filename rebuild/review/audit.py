@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -217,7 +218,9 @@ def build_units(
     return units
 
 
-def merge_ink_duplicate_units(units: list[Unit], ink_sig, exempt_classes: set[str] = frozenset()) -> dict:
+def merge_ink_duplicate_units(
+    units: list[Unit], ink_sig, exempt_classes: Collection[str] = frozenset()
+) -> dict:
     """Fold sibling units of the same window whose placed ink is identical in both fonts across every config they cover. The (codepoints, baseline, new) dedupe key is name-grain, so a config that merely relabels a glyph — the old font's ss04 lookups rename word-initial ·It without changing its ink — splits one visual question into two units and asks it twice. `ink_sig(text, config)` supplies the rendered-outcome identity (see InkComparator.signature); units are only folded when every config on both sides yields the same signature, so a fold is proof the units present the same picture. The survivor is the sibling with the earliest config; it absorbs the others' rows, configs, kinds, and config_classes, keeps its own (earliest-config) baseline/new name tuples for display, re-resolves its class with the same UNMATCHED-wins rule as build_units, and collapses to a single render group (ink identity is exactly render-group identity). A fold that would put two distinct matched ledger classes on one unit is skipped — different names legitimately hit different ledger predicates — and counted in the returned stats. Mutates `units` in place and renumbers unit ids to stay contiguous; run before enrichment and batch assignment."""
     by_window: dict[str, list[Unit]] = {}
     for unit in units:

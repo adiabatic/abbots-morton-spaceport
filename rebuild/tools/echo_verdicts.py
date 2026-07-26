@@ -32,7 +32,7 @@ def latest_verdicts(path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.split(".")[0] + ".")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("verdicts", help="the verdicts file to seed from (an export or the autosave)")
     parser.add_argument("--surface", default=str(SURFACE))
     parser.add_argument("--out", default=str(OUT))

@@ -48,7 +48,9 @@ def test_force_runs_despite_a_matching_record(green_store, monkeypatch):
     spawned = _pytest_stub(monkeypatch, returncode=0)
     assert mtg.main(["--force"]) == 0
     assert spawned == [mtg.PYTEST_ARGV]
-    assert ac.read_make_test_green(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_make_test_green(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
 
 
 def test_green_run_records_the_fingerprint(green_store, monkeypatch):
@@ -56,7 +58,9 @@ def test_green_run_records_the_fingerprint(green_store, monkeypatch):
     spawned = _pytest_stub(monkeypatch, returncode=0)
     assert mtg.main([]) == 0
     assert spawned == [mtg.PYTEST_ARGV]
-    assert ac.read_make_test_green(green_store)["fingerprint"] == "fp-2"
+    record = ac.read_make_test_green(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-2"
 
 
 def test_red_run_propagates_the_exit_code_and_records_nothing(green_store, monkeypatch):
@@ -79,7 +83,9 @@ def test_red_run_keeps_a_record_for_a_different_closure(green_store, monkeypatch
     _fingerprints(monkeypatch, ["fp-2"])
     _pytest_stub(monkeypatch, returncode=1)
     assert mtg.main([]) == 1
-    assert ac.read_make_test_green(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_make_test_green(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
 
 
 def test_green_run_with_midrun_drift_records_nothing(green_store, monkeypatch, capsys):
@@ -104,4 +110,6 @@ def test_stale_record_format_never_matches(green_store, monkeypatch):
     spawned = _pytest_stub(monkeypatch, returncode=0)
     assert mtg.main([]) == 0
     assert spawned == [mtg.PYTEST_ARGV]
-    assert ac.read_make_test_green(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_make_test_green(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"

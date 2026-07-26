@@ -104,14 +104,14 @@ def run_merge(
     inputs = list(files)
     existing = _read_payload(autosave)
     existing_exists = autosave.exists()
-    aligned = existing is not None and existing["manifest_generated_at"] == stamp
+    aligned = existing if existing is not None and existing["manifest_generated_at"] == stamp else None
     if not inputs:
         hit = status.pick_frontier(ROOT, stamp)
         if hit is not None:
             inputs = [hit[0]]
             print(f"auto-picked the frontier file: {_rel(hit[0])} ({hit[1]} effective verdicts)")
-        elif aligned:
-            base_records = journal.latest_by_unit(existing["verdicts"])
+        elif aligned is not None:
+            base_records = journal.latest_by_unit(aligned["verdicts"])
             print(
                 f"nothing to merge: no stamp-aligned verdicts file, and the autosave already holds "
                 f"{_effective(base_records)} effective verdicts for this surface"
@@ -140,14 +140,14 @@ def run_merge(
             return 1
         payloads.append((path, data))
 
-    if existing is not None and not aligned and existing["manifest_generated_at"] > stamp:
+    if existing is not None and aligned is None and existing["manifest_generated_at"] > stamp:
         print(
             f"ERROR: the autosave is stamped {existing['manifest_generated_at']}, newer than the surface at "
             f"{_rel(surface)} ({stamp}). Refusing to merge onto an outdated surface."
         )
         return 1
 
-    base = journal.latest_by_unit(existing["verdicts"]) if aligned else {}
+    base = journal.latest_by_unit(aligned["verdicts"]) if aligned is not None else {}
     result = dict(base)
     totals = {"added": 0, "replaced": 0, "kept_newer": 0, "invalid": 0}
     for path, data in payloads:
@@ -167,7 +167,7 @@ def run_merge(
         )
         return 1
 
-    changed = (not aligned and (existing_exists or result)) or result != base
+    changed = (aligned is None and (existing_exists or result)) or result != base
     if dry_run:
         print(
             f"dry run: nothing written. Store would hold {len(result)} verdicts ({_effective(result)} "
@@ -190,7 +190,7 @@ def run_merge(
         return 1
 
     stashed = None
-    if existing_exists and not aligned:
+    if existing_exists and aligned is None:
         if existing is None:
             stash = autosave.with_name(f"verdicts-autosave-corrupt-{_sanitize(journal.now_stamp())}.json")
         else:
@@ -205,8 +205,8 @@ def run_merge(
         journal_path,
         source="merge",
         stamp=stamp,
-        old_stamp=existing["manifest_generated_at"] if aligned else None,
-        old_verdicts=existing["verdicts"] if aligned else [],
+        old_stamp=aligned["manifest_generated_at"] if aligned is not None else None,
+        old_verdicts=aligned["verdicts"] if aligned is not None else [],
         new_verdicts=payload["verdicts"],
         stashed=stashed,
     )

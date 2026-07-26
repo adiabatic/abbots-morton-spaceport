@@ -12,7 +12,7 @@ The dead-policy gate partitions unexercised records by scope: a record none of w
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from rebuild.pipeline.model import (
     CellId,
@@ -104,7 +104,9 @@ def _resolve_endpoint(value, glyphs: Mapping[CellId, GlyphRecord], index: dict[s
 
 
 def _reachable_cells(decision) -> frozenset[CellId]:
-    accessor = getattr(decision, "reachable_cells", None)
+    accessor: Callable[[], Iterable[CellId]] | Iterable[CellId] | None = getattr(
+        decision, "reachable_cells", None
+    )
     if callable(accessor):
         return frozenset(accessor())
     return frozenset(accessor or ())
@@ -185,8 +187,10 @@ def _check_treaties(
             if key in seen:
                 continue
             seen.add(key)
-            left_record = glyphs.get(left) if left is not None else None
-            right_record = glyphs.get(right) if right is not None else None
+            if left is None or right is None:
+                continue
+            left_record = glyphs.get(left)
+            right_record = glyphs.get(right)
             if join is not None and left_record is not None and right_record is not None:
                 signature = f"unrealized:{left_record.name}:{right_record.name}:{join}"
                 try:
@@ -221,8 +225,11 @@ def _check_band(report, allow, spec: ResolvedSpec, left: CellId, right: CellId, 
         for record in rune.policy.extend:
             if getattr(record, side_key) != height:
                 continue
-            lo, hi = record.ok if record.ok is not None else (record.by, record.by)
-            bands.append((lo, hi))
+            band = record.ok
+            if band is None:
+                assert record.by is not None
+                band = (record.by, record.by)
+            bands.append(band)
     if not bands:
         _report(
             report,

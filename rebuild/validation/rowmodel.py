@@ -68,8 +68,8 @@ class Row:
             clusters=tuple(int(c) for c in clusters.split(",")),
             seams=tuple(seams.split(",")) if seams else (),
             positions=tuple(
-                tuple(int(v) for v in triple.split(","))  # type: ignore[misc]
-                for triple in positions.split("|")
+                (int(x), int(y), int(advance))
+                for x, y, advance in (triple.split(",") for triple in positions.split("|"))
             ),
         )
 

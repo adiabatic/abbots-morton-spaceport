@@ -89,7 +89,7 @@ class HarfBuzzShaper:
         self._hb = hb
         self._bounds_pen = BoundsPen
         self.tt = TTFont(str(font_path))
-        self.upem = self.tt["head"].unitsPerEm
+        self.upem = self.tt["head"].unitsPerEm  # pyright: ignore[reportAttributeAccessIssue]
         self.hb_font = hb.Font(hb.Face(hb.Blob.from_file_path(str(font_path))))
         self.glyph_set = self.tt.getGlyphSet()
         self._ink_cache: dict[str, bool] = {}

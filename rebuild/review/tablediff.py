@@ -8,6 +8,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, Self
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
@@ -66,16 +67,31 @@ class TreatyValue:
     kern: int
 
 
-@dataclass
-class DiffEntry:
+@dataclass(kw_only=True)
+class _DiffEntryBase:
     bucket: str
-    table: str  # "settlement" | "treaty"
     config: str
-    key: SettlementKey | TreatyKey
-    old: SettlementValue | TreatyValue | None
-    new: SettlementValue | TreatyValue | None
-    paired: tuple["DiffEntry", ...] = ()
+    paired: tuple[Self, ...] = ()
     witness: tuple[int, ...] | None = None
+
+
+@dataclass(kw_only=True)
+class SettlementDiffEntry(_DiffEntryBase):
+    table: Literal["settlement"] = "settlement"
+    key: SettlementKey
+    old: SettlementValue | None
+    new: SettlementValue | None
+
+
+@dataclass(kw_only=True)
+class TreatyDiffEntry(_DiffEntryBase):
+    table: Literal["treaty"] = "treaty"
+    key: TreatyKey
+    old: TreatyValue | None
+    new: TreatyValue | None
+
+
+DiffEntry = SettlementDiffEntry | TreatyDiffEntry
 
 
 def _parse_set(token: str) -> frozenset[str] | None:
@@ -137,19 +153,18 @@ def diff_settlement(
     old: dict[SettlementKey, SettlementValue],
     new: dict[SettlementKey, SettlementValue],
     config: str,
-) -> list[DiffEntry]:
-    entries: list[DiffEntry] = []
-    removed: list[DiffEntry] = []
-    added: list[DiffEntry] = []
+) -> list[SettlementDiffEntry]:
+    entries: list[SettlementDiffEntry] = []
+    removed: list[SettlementDiffEntry] = []
+    added: list[SettlementDiffEntry] = []
     for key in old:
         if key in new:
             if old[key] == new[key]:
                 continue
             behavior_same = (old[key].outcome, old[key].joint) == (new[key].outcome, new[key].joint)
             entries.append(
-                DiffEntry(
+                SettlementDiffEntry(
                     bucket="provenance-only" if behavior_same else "changed",
-                    table="settlement",
                     config=config,
                     key=key,
                     old=old[key],
@@ -158,30 +173,25 @@ def diff_settlement(
             )
         else:
             removed.append(
-                DiffEntry(
-                    bucket="removed", table="settlement", config=config, key=key, old=old[key], new=None
-                )
+                SettlementDiffEntry(bucket="removed", config=config, key=key, old=old[key], new=None)
             )
     for key in new:
         if key not in old:
-            added.append(
-                DiffEntry(bucket="added", table="settlement", config=config, key=key, old=None, new=new[key])
-            )
+            added.append(SettlementDiffEntry(bucket="added", config=config, key=key, old=None, new=new[key]))
 
-    by_input_removed: dict[str, list[DiffEntry]] = {}
+    by_input_removed: dict[str, list[SettlementDiffEntry]] = {}
     for entry in removed:
-        by_input_removed.setdefault(entry.key.input, []).append(entry)  # type: ignore[union-attr]
-    by_input_added: dict[str, list[DiffEntry]] = {}
+        by_input_removed.setdefault(entry.key.input, []).append(entry)
+    by_input_added: dict[str, list[SettlementDiffEntry]] = {}
     for entry in added:
-        by_input_added.setdefault(entry.key.input, []).append(entry)  # type: ignore[union-attr]
+        by_input_added.setdefault(entry.key.input, []).append(entry)
 
     paired_inputs = sorted(set(by_input_removed) & set(by_input_added))
     for input_glyph in paired_inputs:
         members = tuple(by_input_removed[input_glyph] + by_input_added[input_glyph])
         entries.append(
-            DiffEntry(
+            SettlementDiffEntry(
                 bucket="regrouped",
-                table="settlement",
                 config=config,
                 key=members[0].key,
                 old=None,
@@ -200,17 +210,19 @@ def diff_settlement(
 
 def diff_treaty(
     old: dict[TreatyKey, TreatyValue], new: dict[TreatyKey, TreatyValue], config: str
-) -> list[DiffEntry]:
-    entries: list[DiffEntry] = []
+) -> list[TreatyDiffEntry]:
+    entries: list[TreatyDiffEntry] = []
     for key in old:
         if key in new:
             if old[key] != new[key]:
-                entries.append(DiffEntry("changed", "treaty", config, key, old[key], new[key]))
+                entries.append(
+                    TreatyDiffEntry(bucket="changed", config=config, key=key, old=old[key], new=new[key])
+                )
         else:
-            entries.append(DiffEntry("removed", "treaty", config, key, old[key], None))
+            entries.append(TreatyDiffEntry(bucket="removed", config=config, key=key, old=old[key], new=None))
     for key in new:
         if key not in old:
-            entries.append(DiffEntry("added", "treaty", config, key, None, new[key]))
+            entries.append(TreatyDiffEntry(bucket="added", config=config, key=key, old=None, new=new[key]))
     return entries
 
 
@@ -330,11 +342,11 @@ class WitnessIndex:
             if entry.config != self.config or entry.witness is not None:
                 continue
             if entry.table == "treaty":
-                entry.witness = self.witness_treaty(entry.key)  # type: ignore[arg-type]
+                entry.witness = self.witness_treaty(entry.key)
             else:
                 keys = [member.key for member in entry.paired] or [entry.key]
                 for key in keys:
-                    witness = self.witness_settlement(key)  # type: ignore[arg-type]
+                    witness = self.witness_settlement(key)
                     if witness is not None:
                         entry.witness = witness
                         break

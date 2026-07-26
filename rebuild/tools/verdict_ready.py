@@ -40,7 +40,7 @@ def _print_human(result: dict, overall_ready: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.split(".")[0] + ".")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split(".")[0] + ".")
     parser.add_argument("--json", action="store_true", help="dump the full status dict as JSON")
     args = parser.parse_args()
 

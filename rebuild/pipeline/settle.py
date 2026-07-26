@@ -55,6 +55,13 @@ class RightToken:
     kind: str  # "edge" | "space" | "zwnj" | "namer-dot" | "letter" | "unknown"
     rune: str | None = None
 
+    @property
+    def letter(self) -> str:
+        """The rune name, for the `kind == "letter"` reads that have already established there is one."""
+        if self.rune is None:
+            raise ValueError(f"{self.kind} token has no rune")
+        return self.rune
+
 
 EDGE = RightToken("edge")
 SPACE = RightToken("space")
@@ -259,12 +266,12 @@ class Engine:
             elif token.kind != "letter":
                 return False
             else:
-                if cond.family and token.rune not in cond.family:
+                if cond.family and token.letter not in cond.family:
                     return False
                 for klass in cond.klass:
-                    if token.rune not in self._members(klass, owner):
+                    if token.letter not in self._members(klass, owner):
                         return False
-                if cond.stroke is not None and cond.stroke not in self._rune_entry_strokes(token.rune):
+                if cond.stroke is not None and cond.stroke not in self._rune_entry_strokes(token.letter):
                     return False
         for ex in cond.except_:
             sub = self.cond_matches_right(owner, ex, tokens)
@@ -568,12 +575,12 @@ class Engine:
         """Step 2's lookahead closure: some cell of the follower survives its own pairings, require, unlocks, row scopes, and every window-decidable refuse, evaluated with our candidate as the follower's resolved left and the raw right2 as its right. Beyond-window slots are optimistic by construction (UNKNOWN)."""
         if right1.kind != "letter" or right1.rune not in self.spec.runes:
             return False
-        key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.rune, right2)
+        key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2)
         cached = self._closure_cache.get(key)
         if cached is not None:
             return cached
         virtual = self._virtual_left(rune_name, candidate)
-        result = bool(self.candidates(virtual, right1.rune, right2, UNKNOWN))
+        result = bool(self.candidates(virtual, right1.letter, right2, UNKNOWN))
         self._closure_cache[key] = result
         return result
 
@@ -581,12 +588,12 @@ class Engine:
         """The deliberately optimistic third join-count term: the best refusal-aware static prospect of the (i+1, i+2) seam given this candidate — computed over the follower's surviving cells against the raw right2, optimistic with respect to the follower's own prefers and ordering."""
         if right1.kind != "letter" or right2.kind != "letter":
             return 0
-        key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.rune, right2.rune)
+        key = (rune_name, candidate.stance, candidate.entry, candidate.seam, right1.letter, right2.letter)
         cached = self._prospect_cache.get(key)
         if cached is not None:
             return cached
         virtual = self._virtual_left(rune_name, candidate)
-        follower_cells = self.candidates(virtual, right1.rune, right2, UNKNOWN)
+        follower_cells = self.candidates(virtual, right1.letter, right2, UNKNOWN)
         result = 1 if any(cell.seam is not None for cell in follower_cells) else 0
         self._prospect_cache[key] = result
         return result
@@ -831,7 +838,7 @@ class Engine:
     ) -> TransitionTrace:
         if token.kind != "letter":
             return TransitionTrace(boundary_settled(token.kind), False, 0, (), (), "boundary", None, ())
-        rune_name = token.rune
+        rune_name = token.letter
         if rune_name not in self.spec.runes:
             raise SettleError(f"{rune_name} is not a modeled rune")
         rune = self.spec.runes[rune_name]
@@ -849,6 +856,7 @@ class Engine:
                     notes.append(pointer)
         if not survivors:
             if committed is not None:
+                assert left.settled is not None
                 left_label = cell_label(self.spec, left.settled.cell)
                 raise EStrandedError(
                     f"E-STRANDED: {left_label} committed an exit at {committed} but {rune_name} has no acceptor cell (the lookahead closure should have prevented this commitment)"
@@ -1042,6 +1050,7 @@ def _guard_state(spec: ResolvedSpec) -> dict:
 
 def _blocked_under(engine: Engine, liga_name: str, right1: RightToken, right2: RightToken) -> bool:
     rune = engine.spec.runes[liga_name]
+    assert rune.sequence is not None
     lead, trail = rune.sequence[-2], rune.sequence[-1]
     virtual = LeftContext(
         "letter",

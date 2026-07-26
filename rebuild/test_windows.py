@@ -68,6 +68,7 @@ class TestFingerprintGuard:
     def test_a_complete_matching_set_loads(self, tmp_path):
         _write_every_config(tmp_path, "fp-sources")
         tables = run_m1.serialized_tables(tmp_path, "fp-sources")
+        assert tables is not None
         assert sorted(tables) == sorted(conform.ACCEPTANCE_CONFIGS)
 
     def test_one_configuration_written_from_other_sources_rejects_the_set(self, tmp_path):
@@ -113,7 +114,7 @@ class TestBuildStageHandoff:
         decision = build_tables(SPEC, frozenset())[0]
         with pytest.raises(ValueError):
             conform._conformance_config(
-                None,
+                None,  # pyright: ignore[reportArgumentType]
                 SPEC,
                 "default",
                 (),

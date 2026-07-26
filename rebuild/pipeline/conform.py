@@ -15,7 +15,7 @@ import sys
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Mapping
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping
 
 import yaml
 
@@ -31,6 +31,10 @@ from rebuild.pipeline.model import (
     ss10_twin_name,
 )
 from rebuild.validation.rowmodel import CONFIGS, Row, iter_rows
+
+if TYPE_CHECKING:
+    from rebuild.pipeline.emit_gsub import _FoldedRule
+    from rebuild.pipeline.table import Rule, Window
 
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
@@ -405,7 +409,7 @@ def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[
     boundary_names = {"space": "<space>", "zwnj": "<zwnj>", "namer-dot": "<namer-dot>"}
     right_tokens = [boundary_tokens.get(token, settle_module.RightToken("letter", token)) for token in tokens]
     formed = [
-        boundary_names[token.kind] if token.kind != "letter" else token.rune
+        boundary_names[token.kind] if token.kind != "letter" else token.letter
         for token in settle_module.form_ligatures(spec, right_tokens)
     ]
     labels: list[str] = []
@@ -598,11 +602,11 @@ def _matched_windows(spec, text, features, expected, rules_by_input, deep=None, 
         yield index, (label, left, right1, right2, right3, right4), matched
 
 
-def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, object]]]:
+def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, Rule | _FoldedRule]]]:
     from rebuild.pipeline.emit_gsub import _raw_rename_map, _renamed
 
     renames = _raw_rename_map(spec, frozenset(features))
-    rules_by_input: dict[str, list[tuple[int, object]]] = {}
+    rules_by_input: dict[str, list[tuple[int, Rule | _FoldedRule]]] = {}
     for index, rule in enumerate(getattr(decision, "rules", ())):
         renamed = _renamed(rule, renames)
         rules_by_input.setdefault(renamed.input_glyph, []).append((index, renamed))
@@ -651,7 +655,7 @@ def _shortest_window_prefixes(decision):
     for row in decision.transitions:
         rows_by_item.setdefault((row.left, row.input_glyph), []).append(row)
     prefixes: dict[tuple[str, str, str | None], tuple[str, ...]] = {}
-    by_right3: dict[tuple[str, str, str], dict[tuple[str, str], tuple[str, ...]]] = {}
+    by_right3: dict[tuple[str, str, str], dict[tuple[str, str], list[tuple[str, ...]]]] = {}
     queue: deque[tuple[str, str, str | None]] = deque()
     for left, input_label in sorted(rows_by_item):
         if left in boundary_prefixes:
@@ -701,7 +705,7 @@ def _refolds_intact(spec, tokens) -> bool:
         for part in spec.runes[token].sequence or (token,):
             stream.append(settle_module.RightToken("letter", part))
     formed = settle_module.form_ligatures(spec, stream)
-    labels = [label_by_kind[t.kind] if t.kind != "letter" else t.rune for t in formed]
+    labels = [label_by_kind[t.kind] if t.kind != "letter" else t.letter for t in formed]
     return labels == list(tokens)
 
 
@@ -909,7 +913,7 @@ def _assemble_window_witness(spec, prefix, row) -> tuple[str, ...] | None:
 
 def _first_match_rows(decision) -> dict[int, list]:
     """Group the table's transitions by the rule index that first-matches each window, replaying the same first-match-wins semantics assert_outcome_partition proves — the static answer to 'which windows would make rule N fire?'."""
-    rules_by_input: dict[str, list[tuple[int, object]]] = {}
+    rules_by_input: dict[str, list[tuple[int, Rule]]] = {}
     for index, rule in enumerate(decision.rules):
         rules_by_input.setdefault(rule.input_glyph, []).append((index, rule))
     rows_by_rule: dict[int, list] = {}
@@ -1149,7 +1153,7 @@ def _conformance_config(
             f"{config}: settlement rule has no verifiable witness (dead code in the emitted FEA): {rule_signature(decision.rules[index])}"
         )
 
-    def renamed_key(row) -> tuple[str, str, str, str, str, str]:
+    def renamed_key(row: Window) -> tuple[str, str, str, str, str, str]:
         return (
             renames.get(row.input_glyph, row.input_glyph),
             row.left,

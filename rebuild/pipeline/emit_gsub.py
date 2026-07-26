@@ -204,19 +204,22 @@ def _renamed(rule, renames: dict[str, str]):
     if not renames:
         return rule
 
-    def slot(members):
+    def relabel(member: str) -> str:
+        return renames.get(member, member)
+
+    def slot(members: tuple[str, ...] | None) -> tuple[str, ...] | None:
         if members is None:
             return None
-        return tuple(renames.get(member, member) for member in members)
+        return tuple(relabel(member) for member in members)
 
     return _FoldedRule(
-        input_glyph=renames.get(rule.input_glyph, rule.input_glyph),
+        input_glyph=relabel(rule.input_glyph),
         backtrack=slot(rule.backtrack),
         look1=slot(rule.look1),
         look2=slot(rule.look2),
         look3=slot(getattr(rule, "look3", None)),
         look4=slot(getattr(rule, "look4", None)),
-        outcome=renames.get(rule.outcome, rule.outcome),
+        outcome=relabel(rule.outcome),
         provenance=tuple(rule.provenance or ()),
         joint=bool(getattr(rule, "joint", False)),
     )

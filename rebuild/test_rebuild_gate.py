@@ -49,7 +49,9 @@ def test_force_runs_despite_a_matching_record(green_store, monkeypatch):
     spawned = _suite_stub(monkeypatch, returncode=0)
     assert rg.main(["--force"]) == 0
     assert spawned == [rg.REBUILD_PYTEST_ARGV]
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
 
 
 def test_clean_green_run_records_the_fingerprint(green_store, monkeypatch):
@@ -57,14 +59,18 @@ def test_clean_green_run_records_the_fingerprint(green_store, monkeypatch):
     spawned = _suite_stub(monkeypatch, returncode=0)
     assert rg.main([]) == 0
     assert spawned == [rg.REBUILD_PYTEST_ARGV]
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-2"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-2"
 
 
 def test_documented_baseline_failures_still_read_green_and_record(green_store, monkeypatch, capsys):
     _fingerprints(monkeypatch, ["fp-2", "fp-2"])
     _suite_stub(monkeypatch, returncode=1, stdout=BASELINE_STDOUT)
     assert rg.main([]) == 0
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-2"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-2"
     assert "documented baseline" in capsys.readouterr().out
 
 
@@ -97,7 +103,9 @@ def test_hard_failure_keeps_a_record_for_a_different_closure(green_store, monkey
     _fingerprints(monkeypatch, ["fp-2"])
     _suite_stub(monkeypatch, returncode=1, stdout="FAILED rebuild/test_settle.py::test_x")
     assert rg.main([]) == 1
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"
 
 
 def test_nonzero_exit_with_no_parsed_lines_is_red(green_store, monkeypatch):
@@ -129,4 +137,6 @@ def test_stale_record_format_never_matches(green_store, monkeypatch):
     spawned = _suite_stub(monkeypatch, returncode=0)
     assert rg.main([]) == 0
     assert spawned == [rg.REBUILD_PYTEST_ARGV]
-    assert ac.read_green_record(green_store)["fingerprint"] == "fp-1"
+    record = ac.read_green_record(green_store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-1"

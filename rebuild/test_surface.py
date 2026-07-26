@@ -102,6 +102,8 @@ def test_resolve_explicit_cell_bindings(spec):
     plan = surface.resolve_cell(spec, CellId("qsPea", "half", "x-height", "x-height", ()))
     assert plan.bitmap is None
     assert (plan.entry_x, plan.exit_x) == (0, 4)
+    assert plan.entry_stub is not None
+    assert plan.exit_stub is not None
     assert plan.entry_stub.cols == (0,) and plan.exit_stub.cols == (3,)
     assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
         " ## ",
@@ -124,6 +126,7 @@ def test_resolve_side_bindings_and_overrides(spec):
     assert plan.bitmap is None
     assert plan.entry_x == 2
     assert plan.exit_x == 4
+    assert plan.entry_stub is not None
     assert plan.entry_stub.cols == (3,) and plan.entry_stub.inks_when == "withdrawn"
     assert list(surface.resolved_cell_bitmap(spec, plan).rows) == [
         "  # ",

@@ -432,7 +432,7 @@ def _survivable_formation_windows(
     def raw_of(token: RightToken) -> RightToken:
         if token.kind != "letter":
             return token
-        sequence = spec.runes[token.rune].sequence
+        sequence = spec.runes[token.letter].sequence
         return RightToken("letter", sequence[0]) if sequence else token
 
     out: dict[tuple[str, str], dict[str, frozenset[RightToken] | None]] = {}
@@ -442,12 +442,12 @@ def _survivable_formation_windows(
         pair = (rune.sequence[-2], rune.sequence[-1])
         follower_map: dict[str, frozenset[RightToken] | None] = {}
         for follower in right_letters:
-            follower_sequence = spec.runes[follower.rune].sequence
+            follower_sequence = spec.runes[follower.letter].sequence
             if follower_sequence:
                 lead_token = RightToken("letter", follower_sequence[-2])
                 trail_token = RightToken("letter", follower_sequence[-1])
                 if settle_module.formation_blocked(spec, name, lead_token, trail_token):
-                    follower_map[follower.rune] = None
+                    follower_map[follower.letter] = None
                 continue
             allowed = frozenset(
                 option
@@ -455,7 +455,7 @@ def _survivable_formation_windows(
                 if settle_module.formation_blocked(spec, name, follower, raw_of(option))
             )
             if allowed:
-                follower_map[follower.rune] = allowed
+                follower_map[follower.letter] = allowed
         if follower_map:
             out[pair] = follower_map
     return out
@@ -483,7 +483,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
 
     def right_label(token: RightToken) -> str:
         if token.kind == "letter":
-            return token.rune
+            return token.letter
         return BOUNDARY_LEFT_LABELS[token.kind]
 
     survivable = _survivable_formation_windows(spec, right_letters, right_boundaries)
@@ -494,13 +494,13 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
     from rebuild.pipeline import settle as settle_module
 
     liga_sequences = {name: rune.sequence for name, rune in spec.runes.items() if rune.sequence}
-    raw_second_options = right_boundaries + [t for t in right_letters if t.rune not in liga_sequences]
+    raw_second_options = right_boundaries + [t for t in right_letters if t.letter not in liga_sequences]
 
     def liga_formed_before(name: str, next1: RightToken, next2: RightToken | None) -> bool:
         """Whether a formed `name` ligature can immediately precede (next1, next2) in a post-formation stream: its own guard, read over the raw tokens those post-formation neighbors stand for, must not fire. `next2 = None` means the second guard slot lies beyond the window, so the verdict is existential over the raw options."""
         if next1.kind != "letter":
             return True
-        sequence = liga_sequences.get(next1.rune)
+        sequence = liga_sequences.get(next1.letter)
         if sequence:
             first: RightToken = RightToken("letter", sequence[0])
             second: RightToken | None = RightToken("letter", sequence[1])
@@ -508,7 +508,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
             first = next1
             if next2 is None:
                 second = None
-            elif next2.kind == "letter" and (next2_sequence := liga_sequences.get(next2.rune)):
+            elif next2.kind == "letter" and (next2_sequence := liga_sequences.get(next2.letter)):
                 second = RightToken("letter", next2_sequence[0])
             else:
                 second = next2
@@ -536,17 +536,19 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
         seen.add((left_key, rune_name, right1_constraint, right2_allowed, right3_allowed))
         locked = left.kind == "zwnj" and is_entry_bearing(spec, rune_name)
         input_label = locked_glyph_name(rune_name) if locked else rune_name
-        left_label = (
-            BOUNDARY_LEFT_LABELS[left.kind] if left.kind != "letter" else cell_label(spec, left.settled.cell)
-        )
+        if left.kind == "letter":
+            assert left.settled is not None
+            left_label = cell_label(spec, left.settled.cell)
+        else:
+            left_label = BOUNDARY_LEFT_LABELS[left.kind]
         token = RightToken("letter", rune_name)
         right1_options = (
             [right1_constraint] if right1_constraint is not None else right_boundaries + right_letters
         )
         for right1 in right1_options:
             follower_map = None
-            if right1.kind == "letter" and (rune_name, right1.rune) in formation_pairs:
-                follower_map = survivable.get((rune_name, right1.rune))
+            if right1.kind == "letter" and (rune_name, right1.letter) in formation_pairs:
+                follower_map = survivable.get((rune_name, right1.letter))
                 if follower_map is None:
                     continue
             if right1.kind == "letter":
@@ -555,91 +557,95 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                     for r in right_boundaries + right_letters
                     if not (
                         r.kind == "letter"
-                        and (right1.rune, r.rune) in formation_pairs
-                        and (right1.rune, r.rune) not in survivable
+                        and (right1.letter, r.letter) in formation_pairs
+                        and (right1.letter, r.letter) not in survivable
                     )
                 ]
                 if follower_map is not None:
                     right2_options = [
-                        r for r in right2_options if r.kind == "letter" and r.rune in follower_map
+                        r for r in right2_options if r.kind == "letter" and r.letter in follower_map
                     ]
                 if right2_allowed is not None:
                     right2_options = [r for r in right2_options if r in right2_allowed]
                 if rune_name in liga_sequences:
                     right2_options = [r for r in right2_options if liga_formed_before(rune_name, right1, r)]
-                if right1.rune in liga_sequences:
-                    right2_options = [r for r in right2_options if liga_formed_before(right1.rune, r, None)]
+                if right1.letter in liga_sequences:
+                    right2_options = [r for r in right2_options if liga_formed_before(right1.letter, r, None)]
             else:
                 right2_options = [EDGE]
             for right2 in right2_options:
+                right3_slots: list[RightToken | None]
                 if rune_name in deep_inputs and right1.kind == "letter" and right2.kind == "letter":
-                    right3_options: list[RightToken | None] = [
+                    right3_options = [
                         r
                         for r in right_boundaries + right_letters
                         if not (
                             r.kind == "letter"
-                            and (right2.rune, r.rune) in formation_pairs
-                            and (right2.rune, r.rune) not in survivable
+                            and (right2.letter, r.letter) in formation_pairs
+                            and (right2.letter, r.letter) not in survivable
                         )
                     ]
                     if follower_map is not None:
-                        trail_allowed = follower_map.get(right2.rune)
+                        trail_allowed = follower_map.get(right2.letter)
                         if trail_allowed is not None:
                             right3_options = [r for r in right3_options if r in trail_allowed]
-                    if (right1.rune, right2.rune) in formation_pairs:
-                        pair_map = survivable.get((right1.rune, right2.rune)) or {}
+                    if (right1.letter, right2.letter) in formation_pairs:
+                        pair_map = survivable.get((right1.letter, right2.letter)) or {}
                         right3_options = [
-                            r for r in right3_options if r.kind == "letter" and r.rune in pair_map
+                            r for r in right3_options if r.kind == "letter" and r.letter in pair_map
                         ]
-                    if right1.rune in liga_sequences:
+                    if right1.letter in liga_sequences:
                         right3_options = [
-                            r for r in right3_options if liga_formed_before(right1.rune, right2, r)
+                            r for r in right3_options if liga_formed_before(right1.letter, right2, r)
                         ]
-                    if right2.rune in liga_sequences:
+                    if right2.letter in liga_sequences:
                         right3_options = [
-                            r for r in right3_options if liga_formed_before(right2.rune, r, None)
+                            r for r in right3_options if liga_formed_before(right2.letter, r, None)
                         ]
                     if right3_allowed is not None:
                         right3_options = [r for r in right3_options if r in right3_allowed]
+                    right3_slots = list(right3_options)
                 else:
-                    right3_options = [None]
-                for right3 in right3_options:
+                    right3_slots = [None]
+                for right3 in right3_slots:
+                    right4_slots: list[RightToken | None]
                     if (
                         rune_name in deep4_inputs
                         and right3 is not None
                         and right3.kind == "letter"
-                        and fourth_slot_matters(rune_name, right1.rune, right2.rune, right3.rune)
+                        and fourth_slot_matters(rune_name, right1.letter, right2.letter, right3.letter)
                     ):
-                        right4_options: list[RightToken | None] = [
+                        right4_options = [
                             r
                             for r in right_boundaries + right_letters
                             if not (
                                 r.kind == "letter"
-                                and (right3.rune, r.rune) in formation_pairs
-                                and (right3.rune, r.rune) not in survivable
+                                and (right3.letter, r.letter) in formation_pairs
+                                and (right3.letter, r.letter) not in survivable
                             )
                         ]
-                        if (right1.rune, right2.rune) in formation_pairs:
-                            pair_map = survivable.get((right1.rune, right2.rune)) or {}
-                            trail_allowed4 = pair_map.get(right3.rune)
+                        if (right1.letter, right2.letter) in formation_pairs:
+                            pair_map = survivable.get((right1.letter, right2.letter)) or {}
+                            trail_allowed4 = pair_map.get(right3.letter)
                             if trail_allowed4 is not None:
                                 right4_options = [r for r in right4_options if r in trail_allowed4]
-                        if (right2.rune, right3.rune) in formation_pairs:
-                            pair_map2 = survivable.get((right2.rune, right3.rune)) or {}
+                        if (right2.letter, right3.letter) in formation_pairs:
+                            pair_map2 = survivable.get((right2.letter, right3.letter)) or {}
                             right4_options = [
-                                r for r in right4_options if r.kind == "letter" and r.rune in pair_map2
+                                r for r in right4_options if r.kind == "letter" and r.letter in pair_map2
                             ]
-                        if right2.rune in liga_sequences:
+                        if right2.letter in liga_sequences:
                             right4_options = [
-                                r for r in right4_options if liga_formed_before(right2.rune, right3, r)
+                                r for r in right4_options if liga_formed_before(right2.letter, right3, r)
                             ]
-                        if right3.rune in liga_sequences:
+                        if right3.letter in liga_sequences:
                             right4_options = [
-                                r for r in right4_options if liga_formed_before(right3.rune, r, None)
+                                r for r in right4_options if liga_formed_before(right3.letter, r, None)
                             ]
+                        right4_slots = list(right4_options)
                     else:
-                        right4_options = [None]
-                    for right4 in right4_options:
+                        right4_slots = [None]
+                    for right4 in right4_slots:
                         trace = engine.transition_trace(
                             left,
                             token,
@@ -673,7 +679,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                                 successor_allowed = frozenset({right3})
                             else:
                                 successor_allowed = (
-                                    follower_map.get(right2.rune) if follower_map is not None else None
+                                    follower_map.get(right2.letter) if follower_map is not None else None
                                 )
                                 # A right3_allowed pin that this window could not enumerate (the input is not deep) still names the raw token one past its window, which is the successor's right2 — forward it, or a depth-4-decided left leaks unreachable follower windows the conform transition gate then reports as dead.
                                 if right3_allowed is not None:
@@ -686,7 +692,7 @@ def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[Decision
                             worklist.append(
                                 (
                                     LeftContext("letter", trace.settled),
-                                    right1.rune,
+                                    right1.letter,
                                     right2,
                                     successor_allowed,
                                     successor_r3,

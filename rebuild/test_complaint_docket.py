@@ -27,7 +27,7 @@ def policy_draft(keypath="policy.contract[+]", when="{left: {family: [qsTea]}}",
     }
 
 
-def unit(uid, provenance=(), policy=None, batch=1, no_verdict=False, cls="live-class"):
+def unit(uid, provenance=(), policy=None, batch: int | None = 1, no_verdict=False, cls="live-class"):
     number = uid.split("-")[1]
     return {
         "id": uid,

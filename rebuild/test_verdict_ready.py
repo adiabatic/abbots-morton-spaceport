@@ -1,6 +1,8 @@
 """Tests for rebuild.review.status.compute_status and its helpers: the readiness dict the /status handler and the verdict_ready CLI both render. Fixtures build a fake repo tree (surface manifest + tiny shards, cycle summary, autosave, repo-root verdicts files) and stub the fingerprint recompute so no real build inputs are touched."""
 
 import json
+from collections.abc import Mapping
+from pathlib import Path
 
 from rebuild.review.status import (
     compute_status,
@@ -45,8 +47,15 @@ def verdicts_doc(stamp, records):
     }
 
 
-def write_surface(review_dir, *, generated_at=STAMP, repo_head="abc1234", inputs_fp="fresh", shards=True):
-    manifest = {
+def write_surface(
+    review_dir: Path,
+    *,
+    generated_at: str = STAMP,
+    repo_head: str = "abc1234",
+    inputs_fp: str | Mapping[str, str | None] = "fresh",
+    shards: bool = True,
+) -> None:
+    manifest: dict[str, object] = {
         "format": "ams-review-manifest/1",
         "generated_at": generated_at,
         "repo_head": repo_head,
@@ -63,14 +72,14 @@ def write_surface(review_dir, *, generated_at=STAMP, repo_head="abc1234", inputs
 
 
 def write_summary(
-    repo,
+    repo: Path,
     *,
-    generated_at=STAMP,
-    inputs_fp="match",
-    exit_="ok",
-    gates="green",
-    carry_out="rebuild/evidence/carried.json",
-):
+    generated_at: str = STAMP,
+    inputs_fp: str | Mapping[str, str | None] = "match",
+    exit_: str = "ok",
+    gates: str | Mapping[str, Mapping[str, object]] = "green",
+    carry_out: str = "rebuild/evidence/carried.json",
+) -> None:
     fp = dict(FP) if inputs_fp == "match" else inputs_fp
     if gates == "green":
         gate_map = {
@@ -520,6 +529,7 @@ def test_resolve_carry_source_prefers_aligned_max_count(tmp_path):
         verdicts_doc(OTHER_STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
     )
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit is not None
     assert hit["path"].name == "verdicts-export.json"
     assert hit["count"] == 2
     assert hit["aligned"] is True
@@ -529,6 +539,7 @@ def test_resolve_carry_source_autosave_breaks_aligned_tie(tmp_path):
     write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2")])
     _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit is not None
     assert hit["path"].name == "verdicts-autosave.json"
     assert hit["aligned"] is True
 
@@ -540,6 +551,7 @@ def test_resolve_carry_source_falls_back_to_newest_stamp(tmp_path):
         verdicts_doc("2026-07-12T00:00:00Z", [verdict("u-1"), verdict("u-2")]),
     )
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit is not None
     assert hit["aligned"] is False
     assert hit["path"].name == "verdicts-carried-abc1234.json"
     assert hit["stamp"] == "2026-07-12T00:00:00Z"
@@ -550,6 +562,7 @@ def test_resolve_carry_source_empty_aligned_autosave_yields_to_stale_master(tmp_
     write_autosave(tmp_path, records=[])
     _write(tmp_path / "verdicts-master.json", verdicts_doc(OTHER_STAMP, [verdict("u-1")]))
     hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+    assert hit is not None
     assert hit["path"].name == "verdicts-master.json"
     assert hit["aligned"] is False
 

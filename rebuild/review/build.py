@@ -96,7 +96,7 @@ def _inputs_fingerprint(repo_root: Path, m1_dir: Path, before_font: Path, junior
 def _upem(path: Path) -> int:
     from fontTools.ttLib import TTFont
 
-    return TTFont(str(path))["head"].unitsPerEm
+    return TTFont(str(path))["head"].unitsPerEm  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _repo_head(repo_root: Path) -> str:
@@ -738,16 +738,15 @@ def _table_diff_unit_json(
     entry: tablediff.DiffEntry, unit_id: str, batch: int | None, full_configs, ink_identical: bool
 ) -> dict:
     witness = entry.witness
-    members = entry.paired or (entry,)
     if entry.table == "treaty":
         old = entry.old
         new = entry.new
         before = {
-            "glyphs": [entry.key.left, entry.key.right],  # type: ignore[union-attr]
+            "glyphs": [entry.key.left, entry.key.right],
             "seams": [old.junction if old else "absent"],
         }
         after = {
-            "cells": [entry.key.left, entry.key.right],  # type: ignore[union-attr]
+            "cells": [entry.key.left, entry.key.right],
             "seams": [new.junction if new else "absent"],
             "extensions": [new.extension if new else 0],
         }
@@ -760,6 +759,7 @@ def _table_diff_unit_json(
             "old and new values are in the explain panel."
         )
     else:
+        members = entry.paired or (entry,)
         before = {
             "glyphs": [member.old.outcome for member in members if member.old is not None],
             "seams": [],
@@ -819,7 +819,7 @@ def _table_diff_unit_json(
     }
 
 
-def _settlement_explain(entry: tablediff.DiffEntry) -> str:
+def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
     lines = [f"settlement diff ({entry.bucket}), config {entry.config}"]
     for member in entry.paired or (entry,):
         key = member.key
@@ -835,7 +835,7 @@ def _settlement_explain(entry: tablediff.DiffEntry) -> str:
     return "\n".join(lines)
 
 
-def _treaty_explain(entry: tablediff.DiffEntry) -> str:
+def _treaty_explain(entry: tablediff.TreatyDiffEntry) -> str:
     lines = [f"treaty diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
     if entry.old is not None:
         lines.append(
@@ -974,7 +974,7 @@ def build_table_diff(
 def check_manifest(manifest: dict) -> list[str]:
     errors: list[str] = []
 
-    def need(condition: bool, message: str) -> None:
+    def need(condition: object, message: str) -> None:
         if not condition:
             errors.append(f"manifest: {message}")
 
@@ -1097,7 +1097,7 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     errors: list[str] = []
     identifier = unit.get("id", "<missing>")
 
-    def need(condition: bool, message: str) -> None:
+    def need(condition: object, message: str) -> None:
         if not condition:
             errors.append(f"unit {identifier}: {message}")
 

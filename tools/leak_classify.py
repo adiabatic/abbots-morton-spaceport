@@ -79,7 +79,8 @@ def _load_signatures(path: Path) -> set[Signature]:
     for row in rows:
         if len(row) != 4:
             raise ValueError(f"{path.name}: each signature must be 4 glyph names, got {row!r}")
-        out.add(tuple(row))  # type: ignore[arg-type]
+        isolated_left, left_chosen, isolated_right, right_chosen = row
+        out.add((isolated_left, left_chosen, isolated_right, right_chosen))
     return out
 
 

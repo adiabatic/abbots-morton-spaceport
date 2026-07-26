@@ -10,6 +10,7 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
 
 import yaml
 
@@ -290,7 +291,7 @@ class _FileContext:
         return Provenance(file=self.file, path=path)
 
 
-def _as_tuple(value: object) -> tuple[str, ...]:
+def _as_tuple(value: str | Iterable[str] | None) -> tuple[str, ...]:
     if value is None:
         return ()
     if isinstance(value, str):
@@ -611,7 +612,7 @@ class _Linter:
         if not isinstance(ductus, dict):
             ductus = {}
         realized = set(ductus)
-        used: set[str] = set()
+        used: set[str | None] = set()
         for stance_name, stance_raw in self._stances().items():
             motion = stance_raw.get("motion")
             used.add(motion)

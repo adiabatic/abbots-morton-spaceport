@@ -13,13 +13,16 @@ import re
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from rebuild.pipeline.model import GlyphRecord
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT / "tools") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "tools"))
+
+if TYPE_CHECKING:
+    from quikscript_ir import GlyphData, GlyphDef
 
 K2_HEADROOM_FLOOR = 16_384
 
@@ -39,12 +42,12 @@ class BudgetError(Exception):
     pass
 
 
-def _glyph_data(glyphs: Mapping) -> dict:
-    records: dict[str, dict] = {}
+def _glyph_data(glyphs: Mapping) -> GlyphData:
+    records: dict[str, GlyphDef | None] = {}
     for record in glyphs.values():
         assert isinstance(record, GlyphRecord)
         key = f"{record.name}.prop" if record.name.startswith("qs") else record.name
-        definition: dict = {}
+        definition: GlyphDef = {}
         if record.bitmap:
             definition["bitmap"] = list(record.bitmap)
         if record.y_offset:
@@ -87,7 +90,8 @@ def _table_metrics(font_path: Path) -> dict:
 
     font = TTFont(str(font_path))
     try:
-        gsub_bytes = font.reader.tables["GSUB"].length
+        reader = cast(Any, font.reader)
+        gsub_bytes = reader.tables["GSUB"].length
         lookups = font["GSUB"].table.LookupList.Lookup
         extension_lookups: list[int] = []
         format3_subtables = 0
@@ -125,7 +129,7 @@ def _table_metrics(font_path: Path) -> dict:
 
 
 def build_mini_font(glyphs: Mapping, fea: str, out_path: Path) -> Path:
-    from build_font import _report_gsub_budget, build_font  # type: ignore[import-not-found]
+    from build_font import _report_gsub_budget, build_font
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

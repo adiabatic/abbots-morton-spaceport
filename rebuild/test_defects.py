@@ -12,12 +12,14 @@ from rebuild.pipeline.model import CellId, CellPlan, GlyphRecord
 @dataclass(frozen=True)
 class FakeRule:
     input_glyph: str = "qsIt"
-    backtrack: tuple = None
-    look1: tuple = None
-    look2: tuple = None
+    backtrack: tuple[str, ...] | None = None
+    look1: tuple[str, ...] | None = None
+    look2: tuple[str, ...] | None = None
+    look3: tuple[str, ...] | None = None
+    look4: tuple[str, ...] | None = None
     outcome: str = "qsIt"
     joint: bool = False
-    provenance: tuple = ()
+    provenance: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

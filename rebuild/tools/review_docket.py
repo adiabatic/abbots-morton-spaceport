@@ -30,7 +30,7 @@ def latest_verdicts(path):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.split(":")[0] + ".")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split(":")[0] + ".")
     parser.add_argument(
         "verdicts", help="the verdicts file for the current frontier (an export or the autosave)"
     )
