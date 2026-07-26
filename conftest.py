@@ -37,12 +37,10 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    # `make test` / `make test-slowly` set AMS_RUN_PYRIGHT so the pyright gate overlaps the ~18s font build instead of running back-to-back as a serial prelude; both finish before the workers spawn, so a type error still fast-fails the whole run. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree.
+    # `make test` / `make test-slowly` / `make test-rebuild` set AMS_RUN_PYRIGHT so the pyright gate overlaps the ~18s font build instead of running back-to-back as a serial prelude; both finish before the workers spawn, so a type error still fast-fails the whole run. Direct `uv run pytest -n …` invocations leave it unset and skip pyright, so iterating on a subset isn't aborted by an unrelated type error elsewhere in the tree. The argv carries no paths: `[tool.pyright] include` in pyproject.toml is the single authority for what gets checked, which is how rebuild/ gets covered from test-rebuild without a second path list to keep in sync.
     pyright = None
     if os.environ.get("AMS_RUN_PYRIGHT") == "1":
-        pyright = subprocess.Popen(
-            ["uv", "run", "pyright", "tools", "test", "conftest.py"], cwd=ROOT, env=_make_env()
-        )
+        pyright = subprocess.Popen(["uv", "run", "pyright"], cwd=ROOT, env=_make_env())
     subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
     _shaping_cache["_built"] = True
     if pyright is not None and pyright.wait() != 0:

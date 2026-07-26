@@ -54,6 +54,8 @@ IMPORTANT: Never single-thread the test suite. `make test` runs `uv run pytest t
 
 IMPORTANT: After any Python changes, run `make prettier` to format the code.
 
+Pyright covers the whole Python tree, `rebuild/` included, and every invocation is a bare `uv run pyright` — `[tool.pyright] include` in `pyproject.toml` is the single authority for what gets checked, so never pass paths on the command line. `make test` gates the main tree and `make test-rebuild` gates `rebuild/` (a rebuild-only edit cannot move `make test`'s fingerprint, so it can never be the gate for one). Suppress with `# pyright: ignore[reportSpecificRule]`, always naming the rule; never `# type: ignore[...]`, which pyright reads as a blanket whole-line suppression that silently hides neighboring errors.
+
 ## General background information
 
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.

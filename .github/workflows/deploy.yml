@@ -37,7 +37,7 @@ jobs:
           uv pip install brotli  # for woff2 conversion
 
       - name: Type check
-        run: uv run pyright tools/ test/ conftest.py
+        run: uv run pyright
 
       - name: Build fonts
         run: |
