@@ -1,4 +1,4 @@
-"""spec_load unit tests: the real spec loads with the expected batch-1 shapes, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
+"""spec_load unit tests: the real spec loads with class and group memberships that re-derive from the raw sources, every lint fires with a file/path/line error, and the built-in schema evaluator agrees with jsonschema when it is available."""
 
 import textwrap
 import warnings
@@ -81,8 +81,8 @@ def spec():
         return load_default_spec()
 
 
-def test_loads_all_six_runes(spec):
-    assert sorted(spec.runes) == ["qsIt", "qsMay", "qsOy", "qsPea", "qsTea", "qsTea_qsOy"]
+def test_loads_the_rune_files(spec):
+    assert set(spec.runes) == {path.stem for path in spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")}
     assert set(spec.runes["qsMay"].stances) == {"loop", "grounded-loop"}
     assert set(spec.runes["qsTea"].stances) == {"full", "half"}
     assert spec.runes["qsTea"].stances["half"].traits == ("half",)
@@ -112,23 +112,65 @@ def test_registry_contents(spec):
     assert registry.families["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
 
 
+def _resolved_stance_satisfies(expression: dict, rune: model.Rune, stance: model.Stance) -> bool:
+    if "can_enter_at" in expression:
+        row = stance.surface.entries.get(expression["can_enter_at"])
+        return row is not None and row.selectable
+    if "can_exit_at" in expression:
+        return expression["can_exit_at"] in stance.surface.exits
+    if "trait" in expression:
+        return expression["trait"] in stance.traits
+    if "height_class" in expression:
+        if rune.sequence is not None:
+            return False
+        shapes = {"tall": (9, 0), "short": (6, 0), "deep": (9, -3)}
+        return (len(stance.bitmap.rows), stance.bitmap.y_offset) == shapes[expression["height_class"]]
+    if "stroke_at" in expression:
+        for wanted, rows in (
+            (expression["stroke_at"].get("entry"), stance.surface.entries),
+            (expression["stroke_at"].get("exit"), stance.surface.exits),
+        ):
+            if wanted is not None and not any(row.stroke == wanted for row in rows.values()):
+                return False
+        return True
+    if "all" in expression:
+        return all(_resolved_stance_satisfies(sub, rune, stance) for sub in expression["all"])
+    if "union" in expression:
+        return any(_resolved_stance_satisfies(sub, rune, stance) for sub in expression["union"])
+    raise ValueError(f"unsupported predicate-class expression {expression!r}")
+
+
 def test_predicate_class_membership(spec):
-    classes = spec.registry.predicate_classes
-    assert classes["halves-that-exit-at-x-height"] == frozenset({"qsPea", "qsTea"})
-    assert classes["can-enter-at-baseline"] == frozenset({"qsPea", "qsTea", "qsMay", "qsIt"})
-    assert classes["can-enter-at-x-height"] == frozenset({"qsPea", "qsTea", "qsMay", "qsIt", "qsOy"})
-    assert classes["can-exit-at-baseline"] == frozenset(
-        {"qsPea", "qsTea", "qsMay", "qsIt", "qsOy", "qsTea_qsOy"}
-    )
-    assert classes["can-exit-at-x-height"] == frozenset({"qsPea", "qsTea", "qsMay", "qsIt"})
-    assert classes["talls"] == frozenset({"qsPea", "qsTea"})
-    assert classes["shorts"] == frozenset({"qsIt", "qsOy"})
-    assert classes["deeps"] == frozenset({"qsMay"})
+    declared = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())["predicate_classes"]
+    assert set(spec.registry.predicate_classes) == set(declared)
+    for class_name, expression in declared.items():
+        derived = {
+            rune.name
+            for rune in spec.runes.values()
+            if any(_resolved_stance_satisfies(expression, rune, stance) for stance in rune.stances.values())
+        }
+        assert spec.registry.predicate_classes[class_name] == derived, class_name
 
 
 def test_group_resolution(spec):
-    groups = spec.runes["qsIt"].policy.groups
-    assert groups["utter-pass-through-vetoes"] == frozenset({"qsDay", "qsZoo", "qsShe", "qsYe", "qsOwe"})
+    for path in sorted(spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text())
+        raw_groups = ((raw.get("policy") or {}).get("groups")) or {}
+        resolved = spec.runes[raw["rune"]].policy.groups
+        assert set(resolved) == set(raw_groups), raw["rune"]
+        for group_name, group in raw_groups.items():
+            members: set[str] = set()
+            for atom in group.get("union") or ():
+                members.update(spec_load._as_tuple(atom.get("family")))
+                for klass in spec_load._as_tuple(atom.get("class")):
+                    members.update(spec.registry.predicate_classes[klass])
+            for atom in group.get("minus") or ():
+                if atom.get("trait") or atom.get("stance"):
+                    continue
+                members.difference_update(spec_load._as_tuple(atom.get("family")))
+                for klass in spec_load._as_tuple(atom.get("class")):
+                    members.difference_update(spec.registry.predicate_classes[klass])
+            assert resolved[group_name] == members, f"{raw['rune']}.{group_name}"
 
 
 def test_group_qualifier_warning(tmp_path):
