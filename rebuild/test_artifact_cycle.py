@@ -144,6 +144,7 @@ def test_dry_run_plan_default():
         skip_gates=False,
         first_run=False,
         short_id="abc1234",
+        ncores=1,
     )
     assert plan.snapshot_dir == ac.ROOT / "tmp" / "review-pre-abc1234"
     assert plan.carry_out == ac.ROOT / "verdicts-carried-abc1234.json"
@@ -1529,11 +1530,13 @@ def test_run_step_refuses_to_spawn_after_registry_closed(tmp_path):
 
 
 def test_stage_job_budget():
-    assert ac.stage_job_budget(skip_gates=False, ncores=12) == 1
+    assert ac.stage_job_budget(skip_gates=False, ncores=12) == 6
+    assert ac.stage_job_budget(skip_gates=False, ncores=5) == 2
+    assert ac.stage_job_budget(skip_gates=False, ncores=1) == 1
     assert ac.stage_job_budget(skip_gates=True, ncores=12) == 12
     assert ac.stage_job_budget(skip_gates=True, ncores=1) == 1
     assert ac.stage_job_budget(skip_gates=False, skip_make_test=True, ncores=12) == 12
-    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 1
+    assert ac.stage_job_budget(skip_gates=False, skip_make_test=False, ncores=12) == 6
     assert ac.stage_job_budget(skip_gates=True, skip_make_test=True, ncores=12) == 12
 
 
@@ -1556,11 +1559,11 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild" in text
     assert "Lane conform" in text
     assert "QUEUED behind gate:rebuild's pool" in text
-    assert "--jobs budget        : 1" in text
+    assert "--jobs budget        : 6" in text
 
     by_name = {step.name: step for step in plan.steps}
-    assert by_name["run_m1"].argv == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-    assert by_name["surface-build"].argv == ["uv", "run", "python", "-m", "rebuild.review.build"]
+    assert by_name["run_m1"].argv[-2:] == ["--jobs", "6"]
+    assert by_name["surface-build"].argv[-2:] == ["--jobs", "6"]
 
 
 def test_dry_run_skip_gates_appends_jobs_budget():
@@ -1592,8 +1595,8 @@ def test_dry_run_skip_gates_appends_jobs_budget():
         ncores=12,
     )
     default_by_name = {step.name: step for step in default_plan.steps}
-    assert default_by_name["run_m1"].argv == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-    assert default_by_name["surface-build"].argv == ["uv", "run", "python", "-m", "rebuild.review.build"]
+    assert default_by_name["run_m1"].argv[-2:] == ["--jobs", "6"]
+    assert default_by_name["surface-build"].argv[-2:] == ["--jobs", "6"]
 
 
 def test_review_out_rehearsal_plan(monkeypatch):
@@ -1999,10 +2002,10 @@ def test_skip_make_test_frees_the_build_stage_budget():
     assert "gate:make-test skipped, so the build stages fan out" in rendered
 
     gated = _plan(skip_make_test=False)
-    assert gated.job_budget == 1
+    assert gated.job_budget == 2
     gated_by_name = {step.name: step for step in gated.steps}
-    assert gated_by_name["run_m1"].argv == ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1"]
-    assert "a 12-way `make test` owns the cores" in ac.render_plan(gated)
+    assert gated_by_name["run_m1"].argv[-2:] == ["--jobs", "2"]
+    assert "half the cores, sharing the box with gate:make-test's full-width pytest pool" in ac.render_plan(gated)
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):

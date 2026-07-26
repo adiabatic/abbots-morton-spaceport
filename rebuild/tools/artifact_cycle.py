@@ -4,7 +4,7 @@ It mechanizes the commit-time sequence: snapshot the current review surface (the
 
 The exit-code trap this driver exists to defuse: run_m1.main() SystemExits nonzero whenever any oracle rows are UNMATCHED, which is always true mid-migration. Its exit code is therefore not the gate; the four summary JSONs it writes are. The real gates are defect_errors, the boundary and Manual-pin passes, and multi_matched == 0.
 
-The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, parks at the tail of the make-test -> rebuild chain, so only one heavy pool owns the box at a time. Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
+The two artifact-independent gates (js, make-test) run from t=0 in a small thread pool while the build chain runs inline-serial in the main thread; gate:rebuild starts after the run_m1 gate passes, queued behind make-test by default so only one 12-way pytest pool is ever hot. gate:conform (the exhaustive font-vs-settle sweep, run_m1 --conform-only) also starts after the run_m1 gate passes and, by default, parks at the tail of the make-test -> rebuild chain, so only one heavy gate pool is hot at a time — the build chain rides alongside whichever one that is at half width rather than serial (see stage_job_budget). Co-resident, the two heavy pools oversubscribe the cores roughly 2:1, and measured that contention roughly tripled gate:rebuild's wall time — a worse critical path than running the same work in sequence. --rebuild-pool overlap restores full co-residency.
 
 gate:make-test is auto-skipped when its input closure is provably unchanged since the last green run. The closure is every tracked or untracked-unignored file outside rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown — nothing `make test` executes (make all -> build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, pytest test/ site/) reads those trees, so a diff confined to them cannot move the gate's outcome and re-running its ~15 CPU-minutes would verify nothing. The last green fingerprint lives in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate — the `make test` entry point — on every green run, so interactive greens and cycle greens share one record and `make test` itself self-skips on the same test. cycle_summary.json still records the fingerprint the cycle ran (or validly skipped) against, and prior_make_test_fingerprint falls back to it when the shared record is absent. The fingerprint sees file content only — a system-toolchain change (a typst upgrade, say; pyright and pytest are pinned through uv.lock, which is in the closure) is invisible to it. --force-make-test runs the gate regardless (as does `make test FORCE=1` inside the wrapper).
 
@@ -503,9 +503,9 @@ def jstest_argv() -> list[str]:
 
 
 def stage_job_budget(*, skip_gates: bool, skip_make_test: bool = False, ncores: int | None = None) -> int:
-    """The --jobs budget the driver hands run_m1 and surface-build. Under a gated cycle a 12-way `make test` owns the box from t=0, so the build stages stay serial (1) — but make-test is the whole reason for that politeness, so the cores open up whenever it isn't actually going to run: --skip-gates, or the closure-unchanged auto-skip. gate:js still runs from t=0 in that case, but it's a single node process, not a pool."""
+    """The --jobs budget the driver hands run_m1 and surface-build. Under a gated cycle `make test`'s full-width pytest pool runs from t=0, so the build stages take half the box rather than all of it — but not one core: everything downstream (the surface, the carry, and both queued heavy gates) waits on run_m1, so serializing the build chain put it on the critical path of every gated cycle. Half-width bounds the oversubscription at 3:2 against whichever full-width pytest pool is hot — make-test from t=0, then under the queue policy at most one heavy gate pool behind it; the shape the queue policy exists to avoid is the 2:1 of two full-width pools. The cores open up entirely whenever make-test isn't actually going to run: --skip-gates, the closure-unchanged auto-skip, or deferral. gate:js still runs from t=0 in every case, but it's a single node process, not a pool."""
     n = ncores or (os.cpu_count() or 1)
-    return n if skip_gates or skip_make_test else 1
+    return n if skip_gates or skip_make_test else max(1, n // 2)
 
 
 def build_plan(
@@ -939,7 +939,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
     elif defer_make_test:
         budget_reason = "gate:make-test deferred, so the build stages fan out"
     else:
-        budget_reason = "a 12-way `make test` owns the cores"
+        budget_reason = "half the cores, sharing the box with gate:make-test's full-width pytest pool"
     lines.append(f"    build-stage --jobs budget        : {plan.job_budget}  ({budget_reason})")
     if plan.deferred:
         lines.append(
