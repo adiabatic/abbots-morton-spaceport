@@ -1002,14 +1002,25 @@ def run_conformance(
     max_length: int = 5,
     out_dir: Path | None = None,
     tables: Mapping[str, tuple] | None = None,
+    windows: Mapping[str, Path] | None = None,
 ) -> ConformReport:
-    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. `tables` is the caller's already-built `build_tables` mapping (config -> (decision, treaty)); each config found there reuses its decision table instead of rebuilding the fixpoint."""
+    """The serial conformance entry point: one shared Shaper, each config's sweep run in turn through `_conformance_config`, results merged by `merge_conformance_results`. The per-config fan-out lives in run_m1.run_font_conformance, which submits `conformance_config_worker` per config instead. Either source of decision tables spares this run the fixpoint: `windows` maps a config to the enumeration the build stage serialized (`table.write_windows`), read as its config comes up and released with it so no more than one is ever resident, and `tables` is a caller's in-memory `build_tables` mapping (config -> (decision, treaty)). A config in neither rebuilds."""
+    from rebuild.pipeline import table as table_module
+
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
     glyph_names = {cell: record.name for cell, record in (glyphs or {}).items()}
     glyphs_by_name = {record.name: record for record in (glyphs or {}).values()}
     anchors_of = anchors_in_font_units(glyphs_by_name) if glyphs else None
+
+    def decision_for(config: str):
+        if windows is not None and config in windows:
+            return table_module.read_windows(windows[config])[1]
+        if tables is not None and config in tables:
+            return tables[config][0]
+        return None
+
     results = [
         _conformance_config(
             shaper,
@@ -1020,7 +1031,7 @@ def run_conformance(
             glyph_names,
             anchors_of,
             max_length,
-            decision=tables[config][0] if tables is not None and config in tables else None,
+            decision=decision_for(config),
         )
         for config in configs
     ]
@@ -1065,6 +1076,10 @@ def _conformance_config(
     if decision is None:
         built = table_module.build_tables(spec, features)
         decision = built[0] if isinstance(built, (tuple, list)) else built
+    elif not decision.transitions:
+        raise ValueError(
+            f"{config}: the supplied decision table carries no windows — coverage is measured against them, so the sweep would score clean over nothing"
+        )
     renames = _raw_rename_map(spec, frozenset(features))
     rules_by_input = _renamed_rules_by_input(spec, features, decision)
 
@@ -1166,7 +1181,13 @@ def conformance_config_worker(
     max_length: int = 5,
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     decision=None,
+    windows_path: Path | None = None,
 ) -> ConformanceConfigResult:
+    """One config's sweep in its own process. `windows_path` names the enumeration the build stage serialized for this config, loaded here rather than shipped in: the parent vetted its fingerprint, and a million rows per config is a pickle across the pool boundary that neither side needs to hold."""
+    if decision is None and windows_path is not None:
+        from rebuild.pipeline import table as table_module
+
+        decision = table_module.read_windows(windows_path)[1]
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)

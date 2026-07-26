@@ -1,6 +1,6 @@
 """The M1 integration driver (M1-PLAN Phase 5): the full pipeline run over the real rune files, writing every section 8 artifact under rebuild/out/m1/.
 
-Stages: load_default_spec -> per-configuration decision/treaty tables (partition + E-STRANDED asserted, TSVs written) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos -> build_mini_font with the budget gate.
+Stages: load_default_spec -> per-configuration decision/treaty tables (partition + E-STRANDED asserted, TSVs written, and the window enumeration serialized under the fingerprint of the sources it came from, so `--conform-only` replays it rather than rebuilding the fixpoint) -> glyph inventory minting (settled cells named by the table's own cell labels, plus the raw cmap glyphs, marker twins, chokepoint twins, and the namer dot pair) -> defects gates (run_gates merged with surface.check_anchor_conventions) -> emit_gsub/emit_gpos -> build_mini_font with the budget gate.
 
 The glyph-name contract this driver pins: settlement-lookup outcomes are `settle.cell_label` names, so the decision-table rules and the compiled glyph set agree by construction; the raw cmap glyph for each rune is the bare rune name drawn as the isolated cell but carrying no curs anchors; marker, chokepoint, and ss10 twins reuse the bare drawing (under ss10 the pre-empt lookup substitutes every letter's cmap glyph by its anchor-free `.ss10` twin before formation, so no ligature ever forms, nothing settles, each letter keeps its own cluster, and every seam is a break).
 
@@ -59,51 +59,63 @@ def _spawn_pool(jobs: int) -> ProcessPoolExecutor:
     return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
 
 
-def _build_tables_worker(spec: ResolvedSpec, config: str) -> tuple[str, object, object]:
+def _persist_tables(decision, treaty, out_dir: Path | None, inputs: str | None):
+    """Write one configuration's artifacts, in whichever process built them, and hand back the table the parent actually reads. Given the fingerprint that names its sources, the window enumeration goes to disk for the conformance sweep to load and is dropped from the returned table: a million rows per configuration is a pickle across the pool boundary and a resident peak that nothing after the build spends."""
+    if out_dir is None:
+        return decision
+    decision.write_tsv(out_dir / f"settlement-{decision.config}.tsv")
+    treaty.write_tsv(out_dir / f"treaties-{decision.config}.tsv")
+    if inputs is None:
+        return decision
+    table_module.write_windows(decision, table_module.windows_path(out_dir, decision.config), inputs)
+    return replace(decision, transitions=())
+
+
+def _build_tables_worker(
+    spec: ResolvedSpec, config: str, out_dir: Path | None, inputs: str | None
+) -> tuple[str, object, object]:
     features = conform.features_for_config(config)
     decision, treaty = table_module.build_tables(spec, features)
     decision.assert_outcome_partition()
     decision.assert_e_stranded()
-    return config, decision, treaty
+    return config, _persist_tables(decision, treaty, out_dir, inputs), treaty
 
 
-def build_tables(spec: ResolvedSpec, out_dir: Path | None = None, jobs: int = 1) -> dict[str, tuple]:
-    tables: dict[str, tuple] = {}
+def build_tables(
+    spec: ResolvedSpec, out_dir: Path | None = None, jobs: int = 1, inputs: str | None = None
+) -> dict[str, tuple]:
+    """Every acceptance configuration's decision and treaty tables, built here or fanned out over `jobs` workers, with the section 8 TSVs written under `out_dir` by whichever process built them.
+
+    `inputs` is `fingerprint.tables_value` over the sources this spec was loaded from. Supplying it alongside `out_dir` serializes each configuration's window enumeration next to the TSVs — where `run_font_conformance` picks it up instead of rebuilding the fixpoint — and drops those windows from the tables returned here, since only the rules, the reachable cells and the fired provenance are read after the build; `table.read_windows` gets them back. Omit it and the tables come back whole, which is what a caller building a spec of its own must do: the fingerprint names the repo's rune files and cannot vouch for tables they did not produce.
+    """
     if jobs > 1:
         collected: dict[str, tuple] = {}
         with _spawn_pool(jobs) as pool:
             futures = {
-                pool.submit(_build_tables_worker, spec, config): config
+                pool.submit(_build_tables_worker, spec, config, out_dir, inputs): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
             for future in as_completed(futures):
                 config, decision, treaty = future.result()
                 collected[config] = (decision, treaty)
                 print(f"[t] build_tables[{config}] done", flush=True)
-        for config in conform.ACCEPTANCE_CONFIGS:
-            decision, treaty = collected[config]
-            if out_dir is not None:
-                decision.write_tsv(out_dir / f"settlement-{config}.tsv")
-                treaty.write_tsv(out_dir / f"treaties-{config}.tsv")
-            tables[config] = (decision, treaty)
-        return tables
+        return {config: collected[config] for config in conform.ACCEPTANCE_CONFIGS}
+    tables: dict[str, tuple] = {}
     for config in conform.ACCEPTANCE_CONFIGS:
         start = time.perf_counter()
         features = conform.features_for_config(config)
         decision, treaty = table_module.build_tables(spec, features)
         decision.assert_outcome_partition()
         decision.assert_e_stranded()
-        if out_dir is not None:
-            decision.write_tsv(out_dir / f"settlement-{config}.tsv")
-            treaty.write_tsv(out_dir / f"treaties-{config}.tsv")
-        tables[config] = (decision, treaty)
+        tables[config] = (_persist_tables(decision, treaty, out_dir, inputs), treaty)
         print(f"[t] build_tables[{config}] {time.perf_counter() - start:.1f}s", flush=True)
     return tables
 
 
-def mint_cell_glyphs(spec: ResolvedSpec, tables: Mapping[str, tuple]) -> dict[CellId, GlyphRecord]:
+def mint_cell_glyphs(spec: ResolvedSpec, tables: Mapping[str, object]) -> dict[CellId, GlyphRecord]:
     cells: set[CellId] = set()
-    for decision, _treaty in tables.values():
+    for entry in tables.values():
+        decision = entry[0] if isinstance(entry, (tuple, list)) else entry
         cells.update(cell for cell in decision.reachable_cells() if cell.rune in spec.runes)
     glyphs: dict[CellId, GlyphRecord] = {}
     for cell in sorted(cells, key=lambda c: cell_label(spec, c)):
@@ -160,7 +172,10 @@ def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
     return records
 
 
-def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1) -> dict:
+def run(
+    out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1, inputs: str | None = None
+) -> dict:
+    """`inputs` is `fingerprint.tables_value` over the sources `spec` was loaded from, snapshotted before the load so it can only ever name content the tables are at least as new as. Supplying it serializes the window enumeration under `out_dir` for the conformance sweep; a caller running a spec of its own leaves it out."""
     out_dir.mkdir(parents=True, exist_ok=True)
     start = time.perf_counter()
     if spec is None:
@@ -168,7 +183,7 @@ def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1
     print(f"[t] spec_load {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
-    tables = build_tables(spec, out_dir, jobs=jobs)
+    tables = build_tables(spec, out_dir, jobs=jobs, inputs=inputs)
     print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
 
     start = time.perf_counter()
@@ -217,10 +232,39 @@ def run(out_dir: Path = OUT_DIR, spec: ResolvedSpec | None = None, jobs: int = 1
     return summary
 
 
+def serialized_tables(out_dir: Path, inputs: str) -> dict[str, object] | None:
+    """Every acceptance configuration's decision table as the build stage left it under `out_dir`, minus the window enumeration — or None the moment one file is missing, unreadable, or was written from sources other than the ones `inputs` names. Nothing partial: a mixed set would sweep some configurations against tables the runes on disk no longer produce."""
+    tables: dict[str, object] = {}
+    for config in conform.ACCEPTANCE_CONFIGS:
+        try:
+            stamp, decision = table_module.read_windows(
+                table_module.windows_path(out_dir, config), windows=False
+            )
+        except OSError, ValueError:
+            return None
+        if stamp != inputs:
+            return None
+        tables[config] = decision
+    return tables
+
+
 def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int = 1) -> dict:
+    """The exhaustive font-vs-settle sweep. The tables it replays are the ones the build stage already produced from these same sources, read back per configuration; only when that fingerprint fails to match does the fixpoint run again here, which is the standalone case of a sweep against a font whose runes have since moved."""
+    inputs = fingerprint.tables_value(REPO_ROOT)
     spec = load_default_spec()
-    tables = build_tables(spec, jobs=jobs)
-    cell_glyphs = mint_cell_glyphs(spec, tables)
+    start = time.perf_counter()
+    serialized = serialized_tables(out_dir, inputs)
+    windows: dict[str, Path] | None = None
+    rebuilt: dict[str, tuple] | None = None
+    if serialized is not None:
+        decisions: Mapping[str, object] = serialized
+        windows = {config: table_module.windows_path(out_dir, config) for config in serialized}
+        print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
+    else:
+        rebuilt = build_tables(spec, jobs=jobs)
+        decisions = rebuilt
+        print(f"[t] build_tables_total {time.perf_counter() - start:.1f}s", flush=True)
+    cell_glyphs = mint_cell_glyphs(spec, decisions)
     if jobs > 1:
         collected: dict[str, conform.ConformanceConfigResult] = {}
         with _spawn_pool(jobs) as pool:
@@ -232,7 +276,8 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
                     config,
                     max_length,
                     cell_glyphs,
-                    tables[config][0],
+                    decision=None if rebuilt is None else rebuilt[config][0],
+                    windows_path=None if windows is None else windows[config],
                 ): config
                 for config in conform.ACCEPTANCE_CONFIGS
             }
@@ -244,7 +289,13 @@ def run_font_conformance(out_dir: Path = OUT_DIR, max_length: int = 5, jobs: int
         report.write(out_dir / "conform_summary.json")
     else:
         report = conform.run_conformance(
-            out_dir / "M1.otf", spec, glyphs=cell_glyphs, max_length=max_length, out_dir=out_dir, tables=tables
+            out_dir / "M1.otf",
+            spec,
+            glyphs=cell_glyphs,
+            max_length=max_length,
+            out_dir=out_dir,
+            tables=rebuilt,
+            windows=windows,
         )
     summary = {
         "sequences": report.sequences,
@@ -434,11 +485,12 @@ def main(argv: list[str] | None = None) -> None:
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
 
+    inputs = fingerprint.tables_value(REPO_ROOT)
     spec = load_default_spec()
     before = run_m1_key()
     try:
         start = time.perf_counter()
-        summary = run(spec=spec, jobs=jobs)
+        summary = run(spec=spec, jobs=jobs, inputs=inputs)
         print(f"[t] run_total {time.perf_counter() - start:.1f}s", flush=True)
         print(json.dumps(summary, indent=2))
         if summary["defect_errors"]:
