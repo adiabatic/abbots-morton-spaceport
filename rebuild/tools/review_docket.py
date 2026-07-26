@@ -1,4 +1,4 @@
-"""Assemble the machine-readable docket data for the live surface: cluster the blank human units across echo groups by the build-emitted `cluster` signature (the echo key minus the judged pair — see rebuild/review/build.py's `_cluster_id`), collect evidence from judged units sharing a signature, list ledger classes already ruled intended/reviewed-approved/reviewed-rejected that still hold blank units, and list echo groups whose recorded verdicts disagree. The adjudication view itself lives in the review app — `#view=docket` computes this same clustering live against the in-memory verdict store — so this tool writes tmp/docket-data.json rather than rendering a page, as the pinned data feed for bulk-proposal authoring, which needs exact blank membership frozen against a specific verdicts file."""
+"""Assemble the machine-readable docket data for the live surface: cluster the blank human units across echo groups by the build-emitted `cluster` signature (the echo key minus the judged pair — see rebuild/review/build.py's `_cluster_id`), collect evidence from judged units sharing a signature, list ledger classes already ruled intended/reviewed-approved/reviewed-rejected that still hold blank units, and list echo groups whose recorded verdicts disagree (`verdicts_agree` decides that, and reads an approve/identical mix as agreement). The adjudication view itself lives in the review app — `#view=docket` computes this same clustering live against the in-memory verdict store — so this tool writes tmp/docket-data.json rather than rendering a page, as the pinned data feed for bulk-proposal authoring, which needs exact blank membership frozen against a specific verdicts file."""
 
 import argparse
 import collections
@@ -11,6 +11,13 @@ SURFACE = ROOT / "rebuild/out/review"
 DATA_OUT = ROOT / "tmp/docket-data.json"
 RULED_STATUSES = ("intended", "reviewed-approved", "reviewed-rejected")
 TRANCHE_SIZE = 25
+ACCEPTING_MIX = frozenset({"approve", "identical"})
+
+
+def verdicts_agree(verdicts):
+    """Whether a set of recorded verdicts on one echo group speaks with a single voice. Unanimity qualifies, and so does an approve/identical mix: both accept the new rendering, one reviewer merely having found the highlighted portion visually unchanged. Mirrored by verdictsAgree in rebuild/review/static/docket.js."""
+    kinds = set(verdicts)
+    return len(kinds) <= 1 or kinds == ACCEPTING_MIX
 
 
 def load_units(surface):
@@ -133,7 +140,7 @@ def main():
             for unit in members
             if unit["id"] in records and records[unit["id"]]["verdict"] != "skip"
         }
-        if len({record["verdict"] for record in judged.values()}) > 1:
+        if not verdicts_agree(record["verdict"] for record in judged.values()):
             conflicts.append(
                 {
                     "echo": echo,

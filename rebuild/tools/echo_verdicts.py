@@ -1,4 +1,4 @@
-"""Seed and audit echo-group verdicts on the live review surface. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before→after ink change is pixel-identical with the same judged pair, class, configs, and follower shift — one visual question, no matter which unchanged letters surround the change (unchanged flanking ink, including followers that merely slid over by the advance change, is outside the grain; see InkComparator.config_diff). This tool reads a verdicts file, and for every multi-member group: (a) when the recorded verdicts agree and some members are blank, emits fill records for the blanks into an importable verdicts file, and (b) when the recorded verdicts disagree, prints the group for a human re-check. The app fills echo siblings live as new verdicts land; this tool exists for verdicts recorded before the mechanism — including carried verdicts, which never trigger the app's live fill — and as a standing consistency audit; the artifact cycle runs it after its carry+merge so cross-cycle blanks fill without a sitting-prep pass."""
+"""Seed and audit echo-group verdicts on the live review surface. An echo group (the unit JSON's `echo` field) is a set of human units whose localized before→after ink change is pixel-identical with the same judged pair, class, configs, and follower shift — one visual question, no matter which unchanged letters surround the change (unchanged flanking ink, including followers that merely slid over by the advance change, is outside the grain; see InkComparator.config_diff). This tool reads a verdicts file, and for every multi-member group: (a) when the recorded verdicts agree — unanimity, or the approve/identical mix `review_docket.verdicts_agree` also reads as one voice — and some members are blank, emits fill records for the blanks from the most recently recorded member into an importable verdicts file, and (b) when the recorded verdicts disagree, prints the group for a human re-check. The app fills echo siblings live as new verdicts land; this tool exists for verdicts recorded before the mechanism — including carried verdicts, which never trigger the app's live fill — and as a standing consistency audit; the artifact cycle runs it after its carry+merge so cross-cycle blanks fill without a sitting-prep pass."""
 
 import argparse
 import collections
@@ -9,6 +9,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.tools.review_docket import verdicts_agree  # noqa: E402
 from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -62,10 +63,10 @@ def main():
         judged = [(unit, record) for unit, record in judged if record["verdict"] != "skip"]
         blanks = [unit for unit in members if unit["id"] not in records]
         kinds = {record["verdict"] for _unit, record in judged}
-        if len(kinds) > 1:
+        if not verdicts_agree(kinds):
             conflicts.append((echo_id, members, judged))
             continue
-        if len(kinds) == 1 and blanks:
+        if kinds and blanks:
             source_unit, source = max(judged, key=lambda pair: pair[1]["at"])
             note = cap_markers(f"[echo-fill from {source_unit['id']}] {source['note']}".strip())
             for unit in blanks:
