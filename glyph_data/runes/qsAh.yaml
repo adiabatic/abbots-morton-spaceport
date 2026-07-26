@@ -1,8 +1,8 @@
 rune: qsAh
 codepoint: 0xE676
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    Begun at the left along the baseline, the stroke runs briefly rightward, then climbs steadily up and to the right, finishing with a short horizontal tick rightward at the x-height.
+  hapax: |
+    Begun at the left along the baseline, the stroke runs briefly rightward, then climbs up and to the right in a sigmoid curve and finishes rightward at the x-height.
 mono:
   bitmap:
   - "   ##"  #
