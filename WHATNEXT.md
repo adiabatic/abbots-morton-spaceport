@@ -20,6 +20,12 @@ The rebuild is migrating the cursive-join engine rune by rune, validating each b
 
 ## Deferred and tracked follow-ups
 
+### Doable anytime
+
+Nothing gates these — act on any cycle, whenever it’s worth it.
+
+(There’s nothing here at the moment.)
+
 ### Do when a gate takes too long
 
 Not gated on a named event — these come due when a cycle step gets slow enough that acting pays off.
