@@ -1,5 +1,6 @@
 # Reviewed declared-OK signatures for the section 9 off-anchor-contact gate ("hard error, appealable", design doc section 9).
 # Every entry below is a corner today's font already draws on a baseline-proven join; the signature shape is defects.py's `contact:<left glyph>:<right glyph>:y<row>`. Human-reviewed like rebuild/m1-divergences.yaml; the conformance run never writes this file.
+# The `why:` prose here is agent-written, not the user's voice — the rune files' "only the user writes `why:`" rule is scoped to glyph_data/runes/qs*.yaml and stops there. Draft the sentence in the surrounding idiom and land it; the user reviews whether the signature belongs, not who wrote its sentence.
 
 - signature: contact:qsOy.hapax.ex-y0:qsIt.hapax.en-y0:y1
   why: ·Oy·It joins at the baseline today (baseline row E679:E670, seam y0); ·Oy's diagonal tail at y1 sits one column left of ·It's bar — the same corner today's font draws.

@@ -10,8 +10,6 @@ Scratch progress file for the in-flight qsAh migration; delete at batch close, l
 
 ## Parked
 
-- **Ductus DRAFT sign-off** — today's YAML carries no ductus for qsAh, so `qsAh.yaml`'s `hapax` motion is drafted fresh and carries the `# DRAFT — pending author sign-off` marker.
-- **Three new dangle blessings await author review** — `dangle:qsAh.hapax[.en-y0|.locked]:exit:x-height` in `rebuild/m1-contact-allow.yaml`, with drafted `why:` prose in the section's idiom (the top-right y5 nub is unconditional letterform ink in the shipped font, like ·Utter/·No/·May's). Rewrite or bless the prose as yours.
 - **The entry from-list's deferred-partner tail is recon-derived** — the eight unmigrated members (qsGay, qsThey, qsJai, qsYe, qsHe, qsWhy, qsRoe, qsExcite) came from an FEA sweep, not the oracle; re-verify each at its own migration (qsRoe is the solid one: `select.before {family: qsAh, entry_y: 0}` in today's YAML). Caution from this batch: the FEA sweep misses bare-carrier joins (no substitution emitted when the base drawing already holds the live anchor) — that's how qsDay/qsOy/qsTea_qsOy were nearly left out before the oracle exposed the seam-losses.
 
 ## Standing per-migration checks, resolved
