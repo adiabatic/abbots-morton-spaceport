@@ -1,31 +1,31 @@
 {
   "_surface": {
-    "generated_at": "2026-07-23T01:57:31Z",
-    "repo_head": "ffaccf5"
+    "generated_at": "2026-07-26T05:52:32Z",
+    "repo_head": "cb4a963"
   },
   "manifest": {
     "totals": {
-      "units": 44897,
-      "rows": 218660,
+      "units": 44911,
+      "rows": 218702,
       "batches": 25,
       "echo_groups": 803
     },
     "classes_count": 26,
     "machine_approved": {
-      "units": 34709,
+      "units": 34695,
       "by_class": {
-        "boundary-echo": 11576,
-        "dangling-anchor-dropped": 8151,
-        "bare-name-live-join": 6805,
+        "boundary-echo": 11575,
+        "dangling-anchor-dropped": 8147,
+        "bare-name-live-join": 6796,
         "ss10-isolation-completed": 6836,
         "ss10-ligature-suppressed": 860,
         "kern-channel-out-of-scope": 481
       }
     },
     "class_unit_count": {
-      "boundary-echo": 14176,
+      "boundary-echo": 14179,
       "dangling-anchor-dropped": 8237,
-      "bare-name-live-join": 7472
+      "bare-name-live-join": 7483
     },
     "secondary_seams": {
       "units_with_markers": 3773,
@@ -35,7 +35,7 @@
     }
   },
   "built": {
-    "human_units": 7470,
+    "human_units": 7494,
     "config_note_distribution": [
       [
         null,
@@ -55,7 +55,7 @@
       ],
       [
         "only when ss03 is on",
-        3142
+        3156
       ],
       [
         "only when ss04 is off",
@@ -68,19 +68,19 @@
     ]
   },
   "audit": {
-    "row_count": 218660,
-    "units": 46074
+    "row_count": 218702,
+    "units": 46088
   },
   "ink": {
-    "machine_total": 24551,
-    "non_identical": 21523,
+    "machine_total": 24537,
+    "non_identical": 21551,
     "by_class": {
-      "boundary-echo": 9082,
-      "dangling-anchor-dropped": 8664,
-      "bare-name-live-join": 6805
+      "boundary-echo": 9081,
+      "dangling-anchor-dropped": 8660,
+      "bare-name-live-join": 6796
     },
-    "boundary_echo_exempt": 5728,
-    "human_units": 15795,
+    "boundary_echo_exempt": 5732,
+    "human_units": 15819,
     "batches": 53
   },
   "families": {
