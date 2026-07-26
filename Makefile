@@ -24,7 +24,7 @@ typecheck:
 	uv run pyright tools/ test/ conftest.py
 
 prettier:
-	uv run --with black black -q .
+	uv run black -q .
 
 # Self-skipping: the wrapper exits 0 in ~a second when nothing the suite reads has changed since its last green run (the input closure excludes rebuild/, glyph_data/runes/, doc/, tmp/, .claude/, and Markdown; the green record at rebuild/out/make-test-green.json is shared with the artifact cycle's gate:make-test). FORCE=1 runs the suite regardless. The pyright gate runs inside pytest_configure (via AMS_RUN_PYRIGHT) so it overlaps the font build instead of preceding it serially; it still fast-fails before the workers spawn. The `typecheck` target stays for standalone/pre-commit use.
 test:
