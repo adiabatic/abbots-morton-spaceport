@@ -1339,8 +1339,9 @@ def classify_divergence(row: DivergentRow) -> str | None:
         return "no-xheight-entry-extension-dropped"
     if phenomena & {"-en-ext-1:qsDay", "-en-ext-1:qsDay_qsUtter"}:
         return "day-baseline-entry-extension-dropped"
+    # The may-exit-withdrawal-generalized class retired with qsMay's pulled-back exit; a row resurrecting these phenomena carries an ink delta, so it must surface UNMATCHED rather than fall through to the name-grain classes below.
     if any(item.startswith("+ex-bind-") for item in phenomena) or "-ex-ext-1" in phenomena:
-        return "may-exit-withdrawal-generalized"
+        return None
     if "+locked" in phenomena or "old-noentry" in phenomena:
         return "zwnj-word-initial-unification"
     if "entry-dropped" in phenomena or "exit-dropped" in phenomena:
@@ -1384,7 +1385,6 @@ for _class_id in (
     "may-baseline-entry-extension-dropped",
     "no-xheight-entry-extension-dropped",
     "day-baseline-entry-extension-dropped",
-    "may-exit-withdrawal-generalized",
     "zwnj-word-initial-unification",
     "dangling-anchor-dropped",
     "bare-name-live-join",
