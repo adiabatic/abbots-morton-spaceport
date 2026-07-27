@@ -13,3 +13,21 @@ rules:
         ligature: qsTea_qsOy
         seam_into: break
       except_left: [qsOut]
+  - id: tea-i-exit-extension-dropped
+    verdict: approve
+    note: "·I loops more tightly after ·Tea"
+    match:
+      before:
+        pivot: qsTea
+        exit_extension: ex-ext-1
+        seam_out: y0
+        follower: qsI
+      after:
+        pivot_cells:
+          - qsTea/full/None/baseline/
+          - qsTea/full/x-height/baseline/
+        follower_cells:
+          - qsI/smaller-loop/baseline/None/
+          - qsI/smaller-loop/baseline/x-height/
+          - qsI/smaller-loop/baseline/x-height/ex-ext-1
+      except_left: []
