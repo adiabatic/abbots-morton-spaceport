@@ -51,6 +51,7 @@ stances:
           stroke: diagonal
           from:
           - {family: qsPea}
+          - {family: qsMay}
           - {family: qsRoe}
       exits:
         x-height:
@@ -71,6 +72,12 @@ policy:
         family:
         - qsPea
         - qsRoe
+  - stance: smaller-loop
+    when:
+      left:
+        family: qsMay
+        joined_at: baseline
+    why: I want this to use the `smaller-loop` bitmap for ·May·I
   extend:
   - stance: loop
     exit: x-height
