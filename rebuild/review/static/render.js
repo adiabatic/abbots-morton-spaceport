@@ -182,13 +182,18 @@ export function surfaceLine(manifest) {
 }
 
 export function machineLine(manifest) {
-  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  const { units, juniorEquivalent } = machineChannels(manifest);
   if (units === 0) return null;
   if (juniorEquivalent === 0) return `${formatCount(units)} ink-identical machine-approved`;
-  return (
-    `${formatCount(units)} machine-approved ` +
-    `(${formatCount(inkIdentical)} ink-identical + ${formatCount(juniorEquivalent)} junior-equivalent)`
-  );
+  return `${formatCount(units)} machine-approved`;
+}
+
+export function machineTitle(manifest) {
+  const { units, inkIdentical, juniorEquivalent } = machineChannels(manifest);
+  const method = manifest.machine_approved?.method ?? '';
+  if (units === 0 || juniorEquivalent === 0) return method;
+  const split = `${formatCount(inkIdentical)} ink-identical + ${formatCount(juniorEquivalent)} junior-equivalent.`;
+  return method ? `${split} ${method}` : split;
 }
 
 export function noVerdictLine(manifest) {

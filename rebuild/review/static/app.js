@@ -37,6 +37,7 @@ import {
   formatCount,
   surfaceLine,
   machineLine,
+  machineTitle,
   noVerdictLine,
   classCountsLine,
   nextUnverdictedIndex,
@@ -2351,7 +2352,7 @@ function renderChrome() {
   if (machineText) {
     const line = document.getElementById('machine-approved-line');
     line.textContent = machineText;
-    line.title = machine.method ?? '';
+    line.title = machineTitle(manifest);
     line.hidden = false;
   }
   const exemptText = noVerdictLine(manifest);

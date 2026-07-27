@@ -23,6 +23,7 @@ import {
   machineChannels,
   surfaceLine,
   machineLine,
+  machineTitle,
   noVerdictLine,
   classCountsLine,
   nextUnverdictedIndex,
@@ -319,17 +320,33 @@ test('the header strip lines run big to small: surface total, machine channels, 
     totals: { units: 15960 },
     machine_approved: {
       units: 11926,
+      method: 'Shaped in both fonts and compared.',
       channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
     },
     classes: [{ id: 'boundary-echo', no_verdict: true, unit_count: 6256, machine_approved_count: 4940 }],
   };
   assert.equal(surfaceLine(channelled), 'Surface: 15,960 units');
-  assert.equal(
-    machineLine(channelled),
-    '11,926 machine-approved (8,350 ink-identical + 3,576 junior-equivalent)',
-  );
+  assert.equal(machineLine(channelled), '11,926 machine-approved');
   assert.equal(noVerdictLine(channelled), '1,316 in no-verdict classes');
   assert.equal(machineLine({ machine_approved: { units: 0 } }), null);
+});
+
+test('the machine-approved tooltip leads with the channel split, then the verification method', () => {
+  const channelled = {
+    machine_approved: {
+      units: 11926,
+      method: 'Shaped in both fonts and compared.',
+      channels: { ink_identical: { units: 8350 }, junior_equivalent: { units: 3576 } },
+    },
+  };
+  assert.equal(
+    machineTitle(channelled),
+    '8,350 ink-identical + 3,576 junior-equivalent. Shaped in both fonts and compared.',
+  );
+  const methodless = { machine_approved: { units: 11926, channels: channelled.machine_approved.channels } };
+  assert.equal(machineTitle(methodless), '8,350 ink-identical + 3,576 junior-equivalent.');
+  assert.equal(machineTitle(manifest), manifest.machine_approved.method);
+  assert.equal(machineTitle({}), '');
 });
 
 test('classCountsLine orders each sidebar entry big to small: units, machine, human progress, rows', () => {
