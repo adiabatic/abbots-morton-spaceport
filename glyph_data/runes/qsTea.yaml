@@ -184,14 +184,6 @@ policy:
         - qsKey
         - qsJay
         - qsEight
-  - exit: baseline
-    by: 1
-    when:
-      right: {family: qsI}
-  - exit: x-height
-    by: 1
-    when:
-      right: {family: qsI}
   contract:
   - exit: x-height
     by: 1
