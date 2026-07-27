@@ -51,8 +51,10 @@ stances:
           stroke: diagonal
           from:
           - {family: qsPea}
+          - {family: qsTea}
           - {family: qsMay}
           - {family: qsRoe}
+          - {family: qsIt}
       exits:
         x-height:
           x: 5
@@ -75,9 +77,12 @@ policy:
   - stance: smaller-loop
     when:
       left:
-        family: qsMay
+        family:
+        - qsTea
+        - qsMay
+        - qsIt
         joined_at: baseline
-    why: The `smaller-loop` bitmap doesn’t rub against ·May like the normal one does.
+    why: The `smaller-loop` bitmap doesn’t rub against these letters like the normal one does.
   extend:
   - stance: loop
     exit: x-height
