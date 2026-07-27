@@ -238,6 +238,15 @@
 - signature: dangle:qsUtter.mono.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Utter's mono x-height terminal; identical drawing.
 
+- signature: dangle:qsI.loop:exit:x-height
+  why: ·I's loop x-height terminal (top-right flick at y5, reached diagonally from the loop's right side), drawn unconditionally in the shipped font — no withdrawn form of ·I exists in the baseline; the declined exit keeps it.
+- signature: dangle:qsI.loop.en-y0:exit:x-height
+  why: ·I entered at the baseline keeps the same loop x-height terminal on a declined exit.
+- signature: dangle:qsI.loop.locked:exit:x-height
+  why: The ZWNJ-locked twin of ·I's loop x-height terminal; identical drawing.
+- signature: dangle:qsI.smaller-loop.en-y0:exit:x-height
+  why: The tighter loop ·I wears after ·Pea and ·Roe carries the same x-height terminal; pulling the loop in by a column does not move the flick.
+
 - signature: dangle:qsNo.loop:exit:x-height
   why: ·No's loop x-height terminal (top-right nub at y5), drawn unconditionally in the shipped font; the declined exit keeps it.
 - signature: dangle:qsNo.loop.en-y5:exit:x-height

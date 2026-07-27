@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsLow E667, qsIt E670, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsIt E670, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -108,3 +108,23 @@ E676 E679                 # Ah Oy (unextended x-height join into the opened loop
 E665 E676 E665            # May Ah May (joined on both sides: baseline in, extended x-height out)
 200C E676                 # ZWNJ Ah (locked twin)
 E676 200C E665            # Ah ZWNJ May (exit severed)
+#
+# qsI windows: baseline in, x-height out, and the tighter loop after Pea.
+E675                      # I in isolation
+E650 E675                 # Pea I (the smaller loop, after the full Pea's baseline exit)
+E652 E675                 # Tea I (baseline join)
+E653 E675                 # Day I (baseline join)
+E670 E675                 # It I (It's extended baseline exit into I)
+E666 E675                 # No I (the flipped No's baseline exit into I)
+E67A E675                 # Utter I (the alternate Utter's baseline exit into I)
+E679 E675                 # Oy I (baseline join)
+E658 E675                 # Fee I (break: Fee exits only at the x-height)
+E676 E675                 # Ah I (break: Ah exits only at the x-height)
+E675 E665                 # I May (extended x-height exit into the pulled-back May)
+E675 E653                 # I Day (extended x-height exit)
+E675 E652                 # I Tea (unjoined by default; x-height entry under ss02, extended under ss03)
+E675 E670                 # I It (extended x-height exit)
+E650 E675 E665            # Pea I May (the smaller loop keeping its shape under an extended exit)
+E652 E679 E675            # Tea+Oy ligature into I (baseline join off the ligature)
+200C E675                 # ZWNJ I (locked twin)
+E675 200C E665            # I ZWNJ May (exit severed)

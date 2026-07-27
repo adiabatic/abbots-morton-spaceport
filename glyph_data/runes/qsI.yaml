@@ -1,0 +1,131 @@
+rune: qsI
+codepoint: 0xE675
+ductus:
+  hapax: |
+    Begun at the baseline on the left, the stroke climbs up and to the right, almost to the x-height. There, it turns back on itself and draws a small loop clockwise — leftward along the top, down the left side, rightwards at the bottom, and then back to diagonally upwards and to the right — crossing the diagonal it arrived on. It leaves the loop at the upper right and finishes rightward at the x-height.
+mono:
+  bitmap:
+  - " ## #"  #
+  - "#  # "
+  - " ### "
+  - "  #  "
+  - " #   "
+  - "#    "  #
+stances:
+  loop:
+    motion: hapax
+    traits: []
+    bitmap:
+    - " ## #"  #
+    - "#  # "
+    - " ### "
+    - "  #  "
+    - " #   "
+    - "#    "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+      exits:
+        x-height:
+          x: 5
+          stroke: diagonal
+      cells: []
+      unlocks: []
+      require: []
+  smaller-loop:
+    motion: hapax
+    traits: []
+    bitmap:
+    - "  # #"  #
+    - " # # "
+    - "  ## "
+    - "  #  "
+    - " #   "
+    - "#    "  #
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+          from:
+          - {family: qsPea}
+          - {family: qsRoe}
+      exits:
+        x-height:
+          x: 5
+          stroke: diagonal
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - loop
+  - smaller-loop
+  refuse: []
+  prefer:
+  - stance: smaller-loop
+    when:
+      left:
+        family:
+        - qsPea
+        - qsRoe
+  extend:
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsDay
+        - qsFee
+        - qsMay
+        - qsNo
+        - qsRoe
+        - qsLlan
+        - qsIt
+        - qsEt
+        - qsEight
+        - qsFoot
+  - stance: smaller-loop
+    exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsDay
+        - qsFee
+        - qsMay
+        - qsNo
+        - qsRoe
+        - qsLlan
+        - qsIt
+        - qsEt
+        - qsEight
+        - qsFoot
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  - stance: smaller-loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsTea}
+      feature: ss03
+  contract:
+  - stance: loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsJai}
+  - stance: smaller-loop
+    exit: x-height
+    by: 1
+    when:
+      right: {family: qsJai}
+  resolve: []
+  groups: {}
