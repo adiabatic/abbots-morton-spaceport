@@ -77,7 +77,7 @@ policy:
       left:
         family: qsMay
         joined_at: baseline
-    why: I want this to use the `smaller-loop` bitmap for ·May·I
+    why: The `smaller-loop` bitmap doesn’t rub against ·May like the normal one does.
   extend:
   - stance: loop
     exit: x-height
