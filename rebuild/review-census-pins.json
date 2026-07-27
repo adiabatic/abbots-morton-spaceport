@@ -1,100 +1,122 @@
 {
   "_surface": {
-    "generated_at": "2026-07-26T05:52:32Z",
-    "repo_head": "cb4a963"
+    "generated_at": "2026-07-26T23:03:53Z",
+    "repo_head": "01716f4"
   },
   "manifest": {
     "totals": {
-      "units": 44911,
-      "rows": 218702,
-      "batches": 25,
-      "echo_groups": 803
+      "units": 62148,
+      "rows": 292098,
+      "batches": 36,
+      "echo_groups": 1104
     },
-    "classes_count": 26,
+    "classes_count": 27,
     "machine_approved": {
-      "units": 34695,
+      "units": 48164,
       "by_class": {
-        "boundary-echo": 11575,
-        "dangling-anchor-dropped": 8147,
-        "bare-name-live-join": 6796,
-        "ss10-isolation-completed": 6836,
-        "ss10-ligature-suppressed": 860,
-        "kern-channel-out-of-scope": 481
+        "boundary-echo": 15132,
+        "dangling-anchor-dropped": 11290,
+        "bare-name-live-join": 9937,
+        "ss10-isolation-completed": 9149,
+        "ss10-ligature-suppressed": 983,
+        "kern-channel-out-of-scope": 644,
+        "deferred-ss10": 1029
       }
     },
     "class_unit_count": {
-      "boundary-echo": 14179,
-      "dangling-anchor-dropped": 8237,
-      "bare-name-live-join": 7483
+      "boundary-echo": 18368,
+      "dangling-anchor-dropped": 11485,
+      "bare-name-live-join": 11028
     },
     "secondary_seams": {
-      "units_with_markers": 3773,
-      "seams_homed": 1708,
-      "seams_homeless": 2404,
+      "units_with_markers": 5302,
+      "seams_homed": 2557,
+      "seams_homeless": 3212,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 7494,
+    "human_units": 10622,
     "config_note_distribution": [
       [
         null,
-        25793
+        34312
       ],
       [
         "only under ss10",
-        11167
+        15822
       ],
       [
         "only under: default, ss02, ss05",
-        55
+        57
+      ],
+      [
+        "only under: default, ss04, ss05",
+        497
+      ],
+      [
+        "only under: default, ss05",
+        5
+      ],
+      [
+        "only under: ss02",
+        737
+      ],
+      [
+        "only under: ss02+ss03, ss02+ss03+ss05",
+        736
+      ],
+      [
+        "only under: ss03",
+        737
       ],
       [
         "only when ss03 is off",
-        2112
+        2462
       ],
       [
         "only when ss03 is on",
-        3156
+        3599
       ],
       [
         "only when ss04 is off",
-        1255
+        1529
       ],
       [
         "only when ss04 is on",
-        1373
+        1655
       ]
     ]
   },
   "audit": {
-    "row_count": 218702,
-    "units": 46088
+    "row_count": 292098,
+    "units": 63442
   },
   "ink": {
-    "machine_total": 24537,
-    "non_identical": 21551,
+    "machine_total": 33433,
+    "non_identical": 30009,
     "by_class": {
-      "boundary-echo": 9081,
-      "dangling-anchor-dropped": 8660,
-      "bare-name-live-join": 6796
+      "boundary-echo": 11644,
+      "dangling-anchor-dropped": 11852,
+      "bare-name-live-join": 9937
     },
-    "boundary_echo_exempt": 5732,
-    "human_units": 15819,
-    "batches": 53
+    "boundary_echo_exempt": 7400,
+    "human_units": 22609,
+    "batches": 76
   },
   "families": {
     "census": {
-      "no-chain-gains": 252,
-      "tea-it-xheight": 44,
-      "oy-it-baseline": 19,
-      "may-utter-gains": 156,
-      "seam-loss-withdrawal": 826,
-      "extension-non-summing": 885,
-      "unmatched-misc": 591,
-      "deferred-ss04": 714,
-      "deferred-ss03": 677
+      "no-chain-gains": 296,
+      "tea-it-xheight": 72,
+      "oy-it-baseline": 20,
+      "may-utter-gains": 208,
+      "seam-loss-withdrawal": 1012,
+      "extension-non-summing": 1502,
+      "unmatched-misc": 707,
+      "deferred-ss04": 905,
+      "deferred-ss10": 1029,
+      "deferred-ss03": 958
     },
-    "total": 4164
+    "total": 6709
   }
 }
