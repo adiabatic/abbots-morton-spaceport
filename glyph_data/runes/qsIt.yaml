@@ -161,12 +161,8 @@ policy:
         - {family: qsDay_qsUtter}
         - {family: qsMay}
         - {family: qsLow}
+        - {family: qsI}
         - {family: qsUtter}
-  - exit: baseline
-    by: 1
-    when:
-      self: {entry: none}
-      right: {family: qsI}
   - exit: baseline
     by: 1
     when:
