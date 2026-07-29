@@ -5,6 +5,7 @@ import {
   featureSettingsValue,
   configGateChips,
   configFilterOptions,
+  pinStylisticSetScope,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -145,6 +146,63 @@ test('every configFilterOptions value is a config token the unit filter understa
     }
   }
   assert.ok(matched > 0, 'the fixtures must have units the config filter selects');
+});
+
+test('pinStylisticSetScope names the sets in the ssNN idiom and echoes the attribute the pin will be written as', () => {
+  const scope = pinStylisticSetScope('03', manifest.feature_descriptions);
+  assert.deepEqual(scope.sets, ['ss03']);
+  assert.equal(scope.label, 'ss03');
+  assert.equal(scope.attribute, 'data-stylistic-set="03"');
+  assert.ok(scope.title.includes(`ss03 — ${manifest.feature_descriptions.ss03}`));
+});
+
+test('pinStylisticSetScope keeps a multi-set value in the attribute order the corpus cell needs', () => {
+  const scope = pinStylisticSetScope('02 10', manifest.feature_descriptions);
+  assert.deepEqual(scope.sets, ['ss02', 'ss10']);
+  assert.equal(scope.label, 'ss02+ss10');
+  assert.equal(scope.attribute, 'data-stylistic-set="02 10"');
+  assert.deepEqual(scope.title.split('\n').slice(1), [
+    `ss02 — ${manifest.feature_descriptions.ss02}`,
+    `ss10 — ${manifest.feature_descriptions.ss10}`,
+  ]);
+});
+
+test('pinStylisticSetScope yields nothing for an unscoped pin, so its draft line is untouched', () => {
+  assert.equal(pinStylisticSetScope(null, manifest.feature_descriptions), null);
+  assert.equal(pinStylisticSetScope(undefined, manifest.feature_descriptions), null);
+  assert.equal(pinStylisticSetScope('', manifest.feature_descriptions), null);
+  assert.equal(pinStylisticSetScope('   ', manifest.feature_descriptions), null);
+});
+
+test('pinStylisticSetScope zero-pads a bare set number and falls back to the bare name with no gloss', () => {
+  const scope = pinStylisticSetScope('2 99', { ss02: 'a gloss' });
+  assert.deepEqual(scope.sets, ['ss02', 'ss99']);
+  assert.equal(scope.attribute, 'data-stylistic-set="02 99"');
+  assert.deepEqual(scope.title.split('\n').slice(1), ['ss02 — a gloss', 'ss99']);
+});
+
+test('every fixture pin resolves its scope to sets the unit actually diverges under', () => {
+  let scoped = 0;
+  let unscoped = 0;
+  for (const unit of [...shardA, ...shardB]) {
+    const pin = unit.drafts?.pin;
+    if (!pin) continue;
+    const scope = pinStylisticSetScope(pin.stylistic_set, manifest.feature_descriptions);
+    if (!scope) {
+      assert.ok(unit.configs.includes('default'), `${unit.id} pins nothing but does not hold by default`);
+      unscoped += 1;
+      continue;
+    }
+    assert.equal(scope.attribute, `data-stylistic-set="${pin.stylistic_set}"`);
+    const named = new Set(unit.configs.flatMap((config) => config.split('+')));
+    for (const set of scope.sets) {
+      assert.ok(named.has(set), `${unit.id} pins ${set}, which no config of the unit turns on`);
+      assert.ok(manifest.feature_descriptions[set], `${unit.id} pins ${set} with no description`);
+    }
+    scoped += 1;
+  }
+  assert.ok(scoped > 0, 'the fixtures must exercise a set-scoped pin');
+  assert.ok(unscoped > 0, 'the fixtures must exercise an unscoped pin');
 });
 
 const twoGroupUnit = {

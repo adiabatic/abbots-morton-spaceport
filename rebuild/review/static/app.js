@@ -18,6 +18,7 @@ import {
 import {
   configGateChips,
   configFilterOptions,
+  pinStylisticSetScope,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -461,6 +462,13 @@ function buildRow(unit) {
     if (unit.drafts.pin) {
       const item = el('li', null, 'pin: ');
       item.append(el('code', null, unit.drafts.pin.expect));
+      const scope = pinStylisticSetScope(unit.drafts.pin.stylistic_set, manifest.feature_descriptions);
+      if (scope) {
+        const marker = el('span', 'pin-scope', ` scoped to ${scope.label}, as `);
+        marker.append(el('code', null, scope.attribute));
+        marker.title = scope.title;
+        item.append(marker);
+      }
       const status = unit.drafts.pin.duplicate_of
         ? ` (duplicate of ${unit.drafts.pin.duplicate_of})`
         : ` (${unit.drafts.pin.attribute}, syntax ${unit.drafts.pin.syntax}, semantics ${unit.drafts.pin.semantics_after_font})`;
