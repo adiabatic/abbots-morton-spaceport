@@ -6,6 +6,7 @@ import {
   configGateChips,
   configFilterOptions,
   pinStylisticSetScope,
+  explainRuns,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -46,6 +47,7 @@ const fixtureDir = new URL('./fixtures/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', fixtureDir), 'utf8'));
 const shardA = JSON.parse(await readFile(new URL('units/marker-staging-ligature-formation.json', fixtureDir), 'utf8'));
 const shardB = JSON.parse(await readFile(new URL('units/dangling-anchor-dropped.json', fixtureDir), 'utf8'));
+const explainSamples = JSON.parse(await readFile(new URL('explain-samples.json', fixtureDir), 'utf8'));
 
 test('featureSettingsValue maps config tokens per the plan', () => {
   assert.equal(featureSettingsValue('default'), 'normal');
@@ -203,6 +205,117 @@ test('every fixture pin resolves its scope to sets the unit actually diverges un
   }
   assert.ok(scoped > 0, 'the fixtures must exercise a set-scoped pin');
   assert.ok(unscoped > 0, 'the fixtures must exercise an unscoped pin');
+});
+
+const plainRuns = (runs) => runs.filter((run) => run.set === null);
+const setRuns = (runs) => runs.filter((run) => run.set !== null);
+
+function assertLosslessRuns(text, label) {
+  const runs = explainRuns(text);
+  assert.equal(runs.map((run) => run.text).join(''), text, `${label} must survive segmentation character for character`);
+  for (const [index, run] of runs.entries()) {
+    assert.notEqual(run.text, '', `${label} run ${index} is empty`);
+    if (run.set !== null) assert.equal(run.set, run.text, `${label} run ${index} labels a set it does not spell`);
+    const previous = runs[index - 1];
+    if (previous) assert.ok(previous.set !== null || run.set !== null, `${label} runs ${index - 1} and ${index} are both plain`);
+  }
+  return runs;
+}
+
+test('explainRuns marks a stylistic set wherever it sits in the line', () => {
+  assert.deepEqual(explainRuns('ss03 unlocked it'), [
+    { text: 'ss03', set: 'ss03' },
+    { text: ' unlocked it', set: null },
+  ]);
+  assert.deepEqual(explainRuns('  note: unlocked by ss03\n  settled: qsTea.full'), [
+    { text: '  note: unlocked by ', set: null },
+    { text: 'ss03', set: 'ss03' },
+    { text: '\n  settled: qsTea.full', set: null },
+  ]);
+  assert.deepEqual(explainRuns('  note: unlocked by ss02'), [
+    { text: '  note: unlocked by ', set: null },
+    { text: 'ss02', set: 'ss02' },
+  ]);
+});
+
+test('explainRuns marks every set of a multi-set block, the header config included', () => {
+  const runs = explainRuns('sequence E650:E652   config ss02+ss03\n  note: unlocked by ss03');
+  assert.deepEqual(setRuns(runs).map((run) => run.set), ['ss02', 'ss03', 'ss03']);
+  assert.deepEqual(plainRuns(runs).map((run) => run.text), [
+    'sequence E650:E652   config ',
+    '+',
+    '\n  note: unlocked by ',
+  ]);
+});
+
+test('explainRuns leaves a mentionless dump as one plain run, so most panels are untouched', () => {
+  const dump = 'position 0: qsPea\n  decided by: only-candidate\n';
+  assert.deepEqual(explainRuns(dump), [{ text: dump, set: null }]);
+  assert.deepEqual(explainRuns(''), []);
+  assert.deepEqual(explainRuns(null), []);
+  assert.deepEqual(explainRuns(undefined), []);
+});
+
+test('explainRuns only marks a bare ssNN token, never a lookalike inside a longer word', () => {
+  for (const text of ['pressed02 rows', 'ss021 is not a set', 'class02 ss3 ssNN', 'glyph_data/runes/qsMay.yaml:policy.press03']) {
+    assert.deepEqual(explainRuns(text), [{ text, set: null }], text);
+  }
+});
+
+test('explainRuns is lossless over synthetic dumps, including back-to-back and boundary mentions', () => {
+  for (const text of [
+    'ss02',
+    'ss02ss03',
+    'ss02 ss03',
+    ' ss10 ',
+    'ss02+ss03+ss05',
+    'no set here at all',
+    '\n\n',
+    'trailing ss04\n',
+  ]) {
+    assertLosslessRuns(text, JSON.stringify(text));
+  }
+});
+
+test('explainRuns is lossless over real build explain strings and finds their every stylistic set', () => {
+  const seen = new Set();
+  let mentionless = 0;
+  for (const sample of explainSamples) {
+    const runs = assertLosslessRuns(sample.explain, `${sample.id} (${sample.shard})`);
+    const sets = setRuns(runs);
+    if (sets.length === 0) mentionless += 1;
+    for (const run of sets) seen.add(run.set);
+    assert.deepEqual(sets.map((run) => run.set), sample.explain.match(/ss\d\d/gu) ?? [], `${sample.id} marked a different set list than it spells`);
+  }
+  assert.ok(mentionless > 0, 'the samples must include a dump with no stylistic set at all');
+  assert.ok(seen.size > 1, 'the samples must exercise more than one stylistic set');
+  for (const set of seen) assert.ok(manifest.feature_descriptions[set], `${set} is marked but has no gloss to hover`);
+});
+
+test('the real samples cover both places the engine names a set: the header config and an unlock note', () => {
+  const headers = explainSamples.filter((sample) => /^sequence .* config ss\d\d/mu.test(sample.explain));
+  const notes = explainSamples.filter((sample) => /^ {2}note: unlocked by ss\d\d$/mu.test(sample.explain));
+  assert.ok(headers.length > 0, 'the samples must exercise a set named on the header line');
+  assert.ok(notes.length > 0, 'the samples must exercise an "unlocked by" note');
+  for (const sample of [...headers, ...notes]) {
+    assert.ok(setRuns(explainRuns(sample.explain)).length > 0, `${sample.id} names a set that went unmarked`);
+  }
+});
+
+test('every stylistic set the explain panel can mark has exactly one color, shared with the config chips', async () => {
+  const css = await readFile(new URL('../static/app.css', import.meta.url), 'utf8');
+  const colored = new Set([...css.matchAll(/\[data-ss="(ss\d{2})"\]/gu)].map((match) => match[1]));
+  assert.deepEqual([...colored].sort(), Object.keys(manifest.feature_descriptions).sort());
+  assert.equal(
+    (css.match(/--ss-color:/gu) ?? []).length,
+    colored.size,
+    'the per-set color map must be declared once and shared, not copied per surface',
+  );
+  for (const sample of explainSamples) {
+    for (const run of setRuns(explainRuns(sample.explain))) {
+      assert.ok(colored.has(run.set), `${sample.id} marks ${run.set}, which the stylesheet gives no color`);
+    }
+  }
 });
 
 const twoGroupUnit = {

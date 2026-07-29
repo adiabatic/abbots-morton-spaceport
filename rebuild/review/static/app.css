@@ -1019,6 +1019,15 @@ details.group {
       padding: 0.5rem 0.7rem;
       background: light-dark(#f6f6f6, #1f1f1f);
       border-radius: 4px;
+
+      /* "unlocked by ss03" is the panel's most causally precise line, so its set wears the same color the config chip gives it. The tint is a halo rather than padding because the dump is column-aligned monospace: padding would shift every character after the mention. */
+      .explain-ss {
+        color: var(--ss-color, currentColor);
+        font-weight: 600;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--ss-color, currentColor) 15%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--ss-color, currentColor) 15%, transparent);
+      }
     }
 
     h4 {
@@ -1050,6 +1059,35 @@ details.group {
 
 }
 
+/* The per-set color map keys on data-ss alone rather than on the chip that first needed it, so one table serves every surface that names a stylistic set: the config-gate chip below wears it as the whole chip, and the explain panel's ssNN mentions wear it as emphasis inside the dump. */
+[data-ss="ss02"] {
+  --ss-color: light-dark(#1f6feb, #6cb6ff);
+}
+
+[data-ss="ss03"] {
+  --ss-color: light-dark(#b35900, #ffb86b);
+}
+
+[data-ss="ss04"] {
+  --ss-color: light-dark(#1a7f37, #57d989);
+}
+
+[data-ss="ss05"] {
+  --ss-color: light-dark(#8250df, #c297ff);
+}
+
+[data-ss="ss06"] {
+  --ss-color: light-dark(#bf3989, #ff9bce);
+}
+
+[data-ss="ss07"] {
+  --ss-color: light-dark(#0e7a8a, #5fc8d8);
+}
+
+[data-ss="ss10"] {
+  --ss-color: light-dark(#c43030, #ff7b72);
+}
+
 /* Also top-level, and for the same reason: a config gate draws one chip per constraint, and the docket's cluster headers carry the same chips as the batch grid's meta strip. Each chip wears its own feature's color, so a two-set gate reads as two colors rather than as a config list to decode. */
 .config-note {
   cursor: default;
@@ -1067,34 +1105,6 @@ details.group {
   .config-note-detail {
     font-weight: 400;
     opacity: 0.85;
-  }
-
-  &[data-ss="ss02"] {
-    --ss-color: light-dark(#1f6feb, #6cb6ff);
-  }
-
-  &[data-ss="ss03"] {
-    --ss-color: light-dark(#b35900, #ffb86b);
-  }
-
-  &[data-ss="ss04"] {
-    --ss-color: light-dark(#1a7f37, #57d989);
-  }
-
-  &[data-ss="ss05"] {
-    --ss-color: light-dark(#8250df, #c297ff);
-  }
-
-  &[data-ss="ss06"] {
-    --ss-color: light-dark(#bf3989, #ff9bce);
-  }
-
-  &[data-ss="ss07"] {
-    --ss-color: light-dark(#0e7a8a, #5fc8d8);
-  }
-
-  &[data-ss="ss10"] {
-    --ss-color: light-dark(#c43030, #ff7b72);
   }
 
   &[data-state="on"] {

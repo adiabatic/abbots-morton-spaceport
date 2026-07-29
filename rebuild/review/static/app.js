@@ -19,6 +19,7 @@ import {
   configGateChips,
   configFilterOptions,
   pinStylisticSetScope,
+  explainRuns,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -444,7 +445,19 @@ function buildRow(unit) {
   );
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
-    panel.append(el('pre', null, unit.explain));
+    const dump = el('pre');
+    for (const run of explainRuns(unit.explain)) {
+      if (run.set === null) {
+        dump.append(document.createTextNode(run.text));
+        continue;
+      }
+      const mark = el('span', 'explain-ss', run.text);
+      mark.dataset.ss = run.set;
+      const detail = manifest.feature_descriptions?.[run.set];
+      if (detail) mark.title = `${run.set} — ${detail}`;
+      dump.append(mark);
+    }
+    panel.append(dump);
   }
   if ((unit.provenance ?? []).length > 0) {
     panel.append(el('h4', null, 'Provenance'));

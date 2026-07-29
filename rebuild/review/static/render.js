@@ -62,6 +62,22 @@ export function pinStylisticSetScope(stylisticSet, featureDescriptions) {
   };
 }
 
+const STYLISTIC_SET_MENTION = /\bss\d{2}\b/gu;
+
+export function explainRuns(text) {
+  // The dump is the engine's own output, so the emphasis partitions it instead of rewriting it: concatenating every run's text gives back the input character for character.
+  if (typeof text !== 'string' || text === '') return [];
+  const runs = [];
+  let plainFrom = 0;
+  for (const match of text.matchAll(STYLISTIC_SET_MENTION)) {
+    if (match.index > plainFrom) runs.push({ text: text.slice(plainFrom, match.index), set: null });
+    runs.push({ text: match[0], set: match[0] });
+    plainFrom = match.index + match[0].length;
+  }
+  if (plainFrom < text.length) runs.push({ text: text.slice(plainFrom), set: null });
+  return runs;
+}
+
 export function renderGroupsOf(unit) {
   const raw =
     Array.isArray(unit.render_groups) && unit.render_groups.length > 0
