@@ -17,6 +17,7 @@ import {
 } from './verdicts.js';
 import {
   configGateChips,
+  configFilterOptions,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -1125,11 +1126,25 @@ function populateFilterOptions() {
     option.value = family;
     familySelect.append(option);
   }
+
+  const configSelect = document.getElementById('filter-config');
+  const existingConfigs = new Set();
+  for (const option of configSelect.options) existingConfigs.add(option.value);
+  for (const entry of configFilterOptions(manifest)) {
+    if (existingConfigs.has(entry.value)) continue;
+    const option = el('option', null, entry.label);
+    option.value = entry.value;
+    if (entry.title) option.title = entry.title;
+    configSelect.append(option);
+  }
 }
 
 function syncFilterControls() {
   document.getElementById('filter-family').value = state.family ?? '';
-  document.getElementById('filter-config').value = state.config ?? '';
+  const configSelect = document.getElementById('filter-config');
+  configSelect.value = state.config ?? '';
+  // Safari's native select popup doesn't surface per-option tooltips, so the closed control carries the selected set's gloss too.
+  configSelect.title = configSelect.selectedOptions[0]?.title ?? '';
   document.getElementById('filter-status').value = state.status ?? '';
   document.getElementById('show-machine').checked = state.machine === '1';
 }

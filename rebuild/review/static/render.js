@@ -19,6 +19,28 @@ export function configGateChips(unit, featureDescriptions) {
   }));
 }
 
+const DEFAULT_CONFIG = 'default';
+const DEFAULT_CONFIG_GLOSS = 'no stylistic set on — the shipping default';
+
+export function configFilterOptions(manifest) {
+  const descriptions = manifest?.feature_descriptions ?? {};
+  const configs = Array.isArray(manifest?.configs) ? manifest.configs : [];
+  const options = [];
+  for (const config of configs) {
+    if (config === DEFAULT_CONFIG) {
+      options.push({ value: config, label: config, title: DEFAULT_CONFIG_GLOSS });
+      continue;
+    }
+    const glosses = [];
+    for (const feature of config.split('+')) {
+      const detail = descriptions[feature];
+      glosses.push(detail ? `${feature} — ${detail}` : feature);
+    }
+    options.push({ value: config, label: config, title: glosses.join('\n') });
+  }
+  return options;
+}
+
 export function renderGroupsOf(unit) {
   const raw =
     Array.isArray(unit.render_groups) && unit.render_groups.length > 0

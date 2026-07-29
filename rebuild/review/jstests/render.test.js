@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   featureSettingsValue,
   configGateChips,
+  configFilterOptions,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -99,6 +100,51 @@ test('every fixture gate clause resolves to a feature description', () => {
     }
   }
   assert.ok(clauses > 0, 'the fixtures must exercise at least one attributed gate clause');
+});
+
+test('configFilterOptions offers every acceptance config in the manifest order', () => {
+  const options = configFilterOptions(manifest);
+  assert.deepEqual(options.map((option) => option.value), manifest.configs);
+  assert.deepEqual(options.map((option) => option.label), manifest.configs);
+});
+
+test('configFilterOptions glosses each option with one line per named feature', () => {
+  const byValue = new Map(configFilterOptions(manifest).map((option) => [option.value, option]));
+  assert.equal(byValue.get('default').title, 'no stylistic set on — the shipping default');
+  assert.equal(byValue.get('ss03').title, `ss03 — ${manifest.feature_descriptions.ss03}`);
+  assert.deepEqual(byValue.get('ss02+ss03+ss05').title.split('\n'), [
+    `ss02 — ${manifest.feature_descriptions.ss02}`,
+    `ss03 — ${manifest.feature_descriptions.ss03}`,
+    `ss05 — ${manifest.feature_descriptions.ss05}`,
+  ]);
+  for (const option of byValue.values()) assert.ok(option.title, `${option.value} must be self-explanatory`);
+});
+
+test('configFilterOptions falls back to the bare set name when a feature has no description', () => {
+  const options = configFilterOptions({ configs: ['ss02+ss99'], feature_descriptions: { ss02: 'a gloss' } });
+  assert.deepEqual(options, [{ value: 'ss02+ss99', label: 'ss02+ss99', title: 'ss02 — a gloss\nss99' }]);
+});
+
+test('configFilterOptions yields nothing for a manifest with no config list', () => {
+  assert.deepEqual(configFilterOptions({}), []);
+  assert.deepEqual(configFilterOptions(undefined), []);
+});
+
+test('every configFilterOptions value is a config token the unit filter understands', () => {
+  const options = configFilterOptions(manifest);
+  const offered = new Set(options.map((option) => option.value));
+  for (const unit of [...shardA, ...shardB]) {
+    for (const config of unit.configs) assert.ok(offered.has(config), `${unit.id} carries unofferable config ${config}`);
+  }
+  let matched = 0;
+  for (const option of options) {
+    for (const unit of [...shardA, ...shardB]) {
+      const filters = { class: null, group: null, family: null, config: option.value, status: null };
+      assert.equal(unitMatchesFilters(unit, filters, undefined), unit.configs.includes(option.value), unit.id);
+      if (unit.configs.includes(option.value)) matched += 1;
+    }
+  }
+  assert.ok(matched > 0, 'the fixtures must have units the config filter selects');
 });
 
 const twoGroupUnit = {
