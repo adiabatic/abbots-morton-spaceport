@@ -1362,9 +1362,10 @@ async function jumpToFirstUnverdicted() {
       toast('Everything in this worklist is verdicted');
       return;
     }
-    setStateReplace({ unit: open.id });
+    setStateReplace({ unit: open.id, view: null });
     return;
   }
+  const fromDocket = state.view === 'docket';
   for (const batch of availableBatches(manifest, null)) {
     const units = await unitsForView(batch, null);
     const { human } = partitionUnits(units, { ...state, class: null, batch }, (id) => store.records.get(id));
@@ -1372,10 +1373,10 @@ async function jumpToFirstUnverdicted() {
     if (!open) continue;
     const keepClass = state.class && open.class === state.class ? state.class : null;
     if (state.class && !keepClass) toast(`First unverdicted is in ${open.class} — class filter cleared`);
-    if (batch === state.batch && keepClass === state.class) {
-      setStateReplace({ unit: open.id });
+    if (!fromDocket && batch === state.batch && keepClass === state.class) {
+      setStateReplace({ unit: open.id, view: null });
     } else {
-      setState({ batch, class: keepClass, unit: open.id });
+      setState({ batch, class: keepClass, unit: open.id, view: null });
     }
     return;
   }
