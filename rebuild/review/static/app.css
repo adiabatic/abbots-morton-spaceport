@@ -1036,6 +1036,15 @@ details.group {
       code {
         overflow-wrap: anywhere;
       }
+
+      .pin-scope {
+        color: var(--muted);
+        cursor: default;
+
+        code {
+          color: light-dark(#222, #e0e0e0);
+        }
+      }
     }
   }
 

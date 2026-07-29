@@ -41,6 +41,27 @@ export function configFilterOptions(manifest) {
   return options;
 }
 
+const STYLISTIC_SET_ATTRIBUTE = 'data-stylistic-set';
+
+export function pinStylisticSetScope(stylisticSet, featureDescriptions) {
+  const numbers = typeof stylisticSet === 'string' ? stylisticSet.trim().split(/\s+/u).filter(Boolean) : [];
+  if (numbers.length === 0) return null;
+  const padded = numbers.map((number) => number.padStart(2, '0'));
+  const sets = padded.map((number) => `ss${number}`);
+  const descriptions = featureDescriptions ?? {};
+  const glosses = sets.map((set) => (descriptions[set] ? `${set} — ${descriptions[set]}` : set));
+  const attribute = `${STYLISTIC_SET_ATTRIBUTE}="${padded.join(' ')}"`;
+  return {
+    sets,
+    label: sets.join('+'),
+    attribute,
+    title: [
+      `This divergence only holds under ${sets.join(' + ')}, so the pin belongs on a corpus cell carrying ${attribute}.`,
+      ...glosses,
+    ].join('\n'),
+  };
+}
+
 export function renderGroupsOf(unit) {
   const raw =
     Array.isArray(unit.render_groups) && unit.render_groups.length > 0
