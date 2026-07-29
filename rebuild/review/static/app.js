@@ -16,6 +16,7 @@ import {
   recentNotes,
 } from './verdicts.js';
 import {
+  configGateChips,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -98,11 +99,18 @@ const JUNIOR_TITLE =
 const NO_VERDICT_TITLE =
   "This unit's class is adjudicated wholesale at the ledger level (hover its sidebar entry for the rationale); no unit in it ever needs an individual verdict.";
 
-function configNoteDetail(note) {
-  const descriptions = manifest.feature_descriptions;
-  if (!descriptions) return null;
-  const match = note.match(/^only when (ss\d+) is (?:on|off)$/) ?? note.match(/^only under (ss\d+)$/);
-  return match ? (descriptions[match[1]] ?? null) : null;
+function appendConfigGate(target, unit, { detail = true } = {}) {
+  for (const chip of configGateChips(unit, manifest.feature_descriptions)) {
+    const badge = el('span', 'config-note');
+    if (chip.feature) {
+      badge.dataset.ss = chip.feature;
+      badge.dataset.state = chip.state;
+    }
+    badge.append(el('span', 'config-note-gate', chip.text));
+    if (detail && chip.detail) badge.append(el('span', 'config-note-detail', ` — ${chip.detail}`));
+    badge.title = detail || !chip.detail ? unit.configs.join(', ') : `${chip.detail}\n${unit.configs.join(', ')}`;
+    target.append(badge);
+  }
 }
 
 let state = withDefaults(parseHash(location.hash));
@@ -345,20 +353,7 @@ function buildRow(unit) {
     badge.title = NO_VERDICT_TITLE;
     meta.append(badge);
   }
-  if (unit.config_note) {
-    const badge = el('span', 'config-note');
-    const ssMatch =
-      unit.config_note.match(/^only when (ss\d+) is (on|off)$/) ?? unit.config_note.match(/^only under (ss\d+)$/);
-    if (ssMatch) {
-      badge.dataset.ss = ssMatch[1];
-      badge.dataset.state = ssMatch[2] === 'off' ? 'off' : 'on';
-    }
-    badge.append(el('span', 'config-note-gate', unit.config_note));
-    const detail = configNoteDetail(unit.config_note);
-    if (detail) badge.append(el('span', 'config-note-detail', ` — ${detail}`));
-    badge.title = unit.configs.join(', ');
-    meta.append(badge);
-  }
+  appendConfigGate(meta, unit);
   if (unit.config_class_note) {
     const badge = el('span', 'config-class-note', unit.config_class_note);
     meta.append(badge);
@@ -903,7 +898,7 @@ function buildClusterCard(cluster, position) {
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
   header.append(el('span', null, `in ${cluster.echoGroups.length} echo group${cluster.echoGroups.length === 1 ? '' : 's'}`));
   header.append(el('span', 'chip', cluster.class));
-  header.append(el('span', 'configs', cluster.configs.join(', ')));
+  appendConfigGate(header, cluster.exemplar, { detail: false });
   header.append(el('span', 'configs', cluster.id));
   card.append(header);
   if (cluster.exemplar.summary) card.append(el('p', 'summary', cluster.exemplar.summary));

@@ -22,6 +22,13 @@
    "ss02+ss03+ss05"
   ],
   "config_note": "only when ss03 is on",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "on",
+    "text": "only when ss03 is on"
+   }
+  ],
   "render_groups": [
    {
     "configs": [
@@ -146,7 +153,19 @@
   "configs": [
    "ss03"
   ],
-  "config_note": "only under: ss03",
+  "config_note": "only when ss03 is on and ss02 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "on",
+    "text": "only when ss03 is on"
+   },
+   {
+    "feature": "ss02",
+    "state": "off",
+    "text": "and ss02 is off"
+   }
+  ],
   "render_groups": [
    {
     "configs": [
@@ -265,6 +284,7 @@
    "default"
   ],
   "config_note": "only under: default",
+  "config_gate": null,
   "render_groups": [
    {
     "configs": [
@@ -372,6 +392,7 @@
    "ss10"
   ],
   "config_note": "only under: ss02, ss10",
+  "config_gate": null,
   "render_groups": [
    {
     "configs": [

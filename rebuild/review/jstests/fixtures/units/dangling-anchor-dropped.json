@@ -20,7 +20,24 @@
    "default",
    "ss05"
   ],
-  "config_note": "only under: default, ss05",
+  "config_note": "only when ss02 is off and ss03 is off and ss04 is off",
+  "config_gate": [
+   {
+    "feature": "ss02",
+    "state": "off",
+    "text": "only when ss02 is off"
+   },
+   {
+    "feature": "ss03",
+    "state": "off",
+    "text": "and ss03 is off"
+   },
+   {
+    "feature": "ss04",
+    "state": "off",
+    "text": "and ss04 is off"
+   }
+  ],
   "render_groups": [
    {
     "configs": [
@@ -159,6 +176,13 @@
    "ss04"
   ],
   "config_note": "only when ss04 is on",
+  "config_gate": [
+   {
+    "feature": "ss04",
+    "state": "on",
+    "text": "only when ss04 is on"
+   }
+  ],
   "render_groups": [
    {
     "configs": [

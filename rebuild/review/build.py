@@ -20,6 +20,7 @@ import time
 import traceback
 import warnings
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
@@ -142,20 +143,71 @@ def _config_features(config: str) -> frozenset[str]:
     return frozenset() if config == "default" else frozenset(config.split("+"))
 
 
-def config_note(unit_configs, full_configs) -> str | None:
-    """The optional per-unit badge text describing when a divergence applies, computed from the unit's config set against the manifest's full acceptance-config list. Null when the unit covers every non-ss10 config (the overwhelmingly common case, where the set carries no information); otherwise a feature-gating phrase when the set is exactly the configs with some feature tag on ("only when ss03 is on", or "only under ss10" for the isolation overlay) or exactly the non-ss10 configs with it off ("only when ss03 is off"); otherwise the literal fallback "only under: <set>"."""
+GATE_CONSTRAINT_CAP = 3
+
+
+def _candidate_constraint_sets(tags, size):
+    """Every assignment of on/off to `size` of the `tags`, most-on first so an inclusion gate always outranks an exclusion gate that selects the same configs, then in tag order. The most-on-first sweep is what keeps a lone feature's gate reading "only when ss03 is on" rather than an equivalent phrasing in the negative."""
+    for on_count in range(size, -1, -1):
+        for combination in combinations(tags, size):
+            for on_tags in combinations(combination, on_count):
+                yield {tag: tag in set(on_tags) for tag in combination}
+
+
+def _gate_clauses(constraints) -> list[dict]:
+    """A resolved constraint mapping rendered as the badge's ordered clauses — on first, then off, each group in tag order — with each clause carrying the prose the app prints for it. The on-first order puts the loud chip at the head of the badge. A lone ss10-on gate keeps its own wording, because "only under ss10" names the isolation overlay rather than a joining behavior. The `text` fields are the single home for this prose: config_note is their join, and the app renders them verbatim rather than re-deriving a phrase from the feature and state."""
+    ordered = [
+        (tag, "on" if on else "off")
+        for wanted in (True, False)
+        for tag, on in sorted(constraints.items())
+        if on == wanted
+    ]
+    if ordered == [("ss10", "on")]:
+        return [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
+    return [
+        {
+            "feature": tag,
+            "state": state,
+            "text": f"{'only when' if index == 0 else 'and'} {tag} is {state}",
+        }
+        for index, (tag, state) in enumerate(ordered)
+    ]
+
+
+def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | None]:
+    """The per-unit config badge, as (gate, note). The gate is the minimal conjunction of feature on/off constraints selecting exactly the configs a divergence applies under — one clause per constraint, which the app draws as its own chip in that feature's color, so a set-gated unit is legible at a glance rather than as a config list to decode. The note is the clauses joined, kept as a string for the census histogram and for hover text.
+
+    Both are null when the unit covers every non-ss10 config, the overwhelmingly common case where the set carries no information. When no conjunction of GATE_CONSTRAINT_CAP or fewer constraints pins the set — either because the set is a genuine disjunction, or because it needs more features named than the config list itself has entries — the gate stays null and the note falls back to the literal "only under: <set>".
+
+    ss10 is a constraint like any other, except that a set touching no ss10 config resolves against the non-ss10 configs alone; that is what lets an exclusion gate like ss03-off stand without also spelling out the implied ss10-off.
+    """
     covered = set(unit_configs)
     non_isolated = [config for config in full_configs if "ss10" not in _config_features(config)]
     if covered >= set(non_isolated):
-        return None
-    tags = sorted({tag for config in full_configs for tag in _config_features(config)})
-    for tag in tags:
-        if covered == {config for config in full_configs if tag in _config_features(config)}:
-            return "only under ss10" if tag == "ss10" else f"only when {tag} is on"
-    for tag in tags:
-        if covered == {config for config in non_isolated if tag not in _config_features(config)}:
-            return f"only when {tag} is off"
-    return "only under: " + ", ".join(unit_configs)
+        return None, None
+    universe = (
+        list(full_configs) if any("ss10" in _config_features(config) for config in covered) else non_isolated
+    )
+    tags = sorted({tag for config in universe for tag in _config_features(config)})
+    for size in range(1, min(GATE_CONSTRAINT_CAP, len(tags)) + 1):
+        for constraints in _candidate_constraint_sets(tags, size):
+            selected = {
+                config
+                for config in universe
+                if all((tag in _config_features(config)) == on for tag, on in constraints.items())
+            }
+            if selected == covered:
+                clauses = _gate_clauses(constraints)
+                return clauses, " ".join(clause["text"] for clause in clauses)
+    return None, "only under: " + ", ".join(unit_configs)
+
+
+def config_gate(unit_configs, full_configs) -> list[dict] | None:
+    return config_badge(unit_configs, full_configs)[0]
+
+
+def config_note(unit_configs, full_configs) -> str | None:
+    return config_badge(unit_configs, full_configs)[1]
 
 
 def _config_class_note(unit) -> str | None:
@@ -210,6 +262,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
     pin = drafter.draft_pin(enriched)
     policy = drafter.draft_policy(enriched)
     any_of = drafter.draft_any_of(enriched)
+    gate, note = config_badge(unit.configs, full_configs)
     return {
         "id": unit.unit_id,
         "batch": unit.batch,
@@ -225,7 +278,8 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "notation": enriched.notation,
         "notation_tokens": list(enriched.notation_tokens),
         "configs": list(unit.configs),
-        "config_note": config_note(unit.configs, full_configs),
+        "config_note": note,
+        "config_gate": gate,
         "config_classes": dict(unit.config_classes) or None,
         "config_class_note": _config_class_note(unit),
         "render_groups": [{"configs": list(group)} for group in unit.render_groups],
@@ -738,6 +792,7 @@ def _table_diff_unit_json(
     entry: tablediff.DiffEntry, unit_id: str, batch: int | None, full_configs, ink_identical: bool
 ) -> dict:
     witness = entry.witness
+    gate, note = config_badge((entry.config,), full_configs)
     if entry.table == "treaty":
         old = entry.old
         new = entry.new
@@ -801,7 +856,8 @@ def _table_diff_unit_json(
         "notation": notation(witness) if witness else entry.key.label(),
         "notation_tokens": list(notation_tokens(witness)) if witness else None,
         "configs": [entry.config],
-        "config_note": config_note((entry.config,), full_configs),
+        "config_note": note,
+        "config_gate": gate,
         "render_groups": [{"configs": [entry.config]}],
         "kinds": [entry.table],
         "exemplar": False,
@@ -1144,6 +1200,26 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         note is None or (isinstance(note, str) and note),
         "config_note must be null or a nonempty string",
     )
+    need("config_gate" in unit, "config_gate must be present")
+    clauses = unit.get("config_gate")
+    need(
+        clauses is None or (isinstance(clauses, list) and clauses),
+        "config_gate must be null or a nonempty clause list",
+    )
+    for clause in clauses if isinstance(clauses, list) else ():
+        need(
+            isinstance(clause, dict)
+            and isinstance(clause.get("feature"), str)
+            and clause.get("state") in ("on", "off")
+            and isinstance(clause.get("text"), str)
+            and clause.get("text"),
+            "config_gate clauses must carry a feature, an on/off state, and nonempty text",
+        )
+    if isinstance(clauses, list) and clauses:
+        need(
+            note == " ".join(clause.get("text", "") for clause in clauses),
+            "config_note must be the config_gate clause texts joined",
+        )
     groups = unit.get("render_groups")
     need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
     grouped_configs: list[str] = []

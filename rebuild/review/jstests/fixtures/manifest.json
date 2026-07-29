@@ -33,6 +33,15 @@
   "ss02+ss03+ss05",
   "ss10"
  ],
+ "feature_descriptions": {
+  "ss02": "allow \u00b7I\u00b7Tea to join at the Short height",
+  "ss03": "let x-height exiters join \u00b7Tea: full-size when a baseline-join follows, else the half \u00b7Tea",
+  "ss04": "allow \u00b7It to join at baseline after \u00b7Day and before \u00b7Low",
+  "ss05": "allow \u00b7Et\u00b7Tea\u00b7\u2026 double baseline joins again (older, manual-style behavior)",
+  "ss06": "use gapped \u00b7Owe (doesn\u2019t connect at the top)",
+  "ss07": "allow \u00b7Owe\u00b7Day to join at the x-height again",
+  "ss10": "suppress all joins for the wrapped letter(s)"
+ },
  "batch_size": 4,
  "totals": {
   "units": 6,

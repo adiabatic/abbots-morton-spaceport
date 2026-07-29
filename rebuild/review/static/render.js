@@ -5,6 +5,20 @@ export function featureSettingsValue(configToken) {
   return settings.join(', ');
 }
 
+export function configGateChips(unit, featureDescriptions) {
+  const descriptions = featureDescriptions ?? {};
+  const gate = Array.isArray(unit.config_gate) ? unit.config_gate : [];
+  if (gate.length === 0) {
+    return unit.config_note ? [{ feature: null, state: null, text: unit.config_note, detail: null }] : [];
+  }
+  return gate.map((clause) => ({
+    feature: clause.feature,
+    state: clause.state,
+    text: clause.text,
+    detail: descriptions[clause.feature] ?? null,
+  }));
+}
+
 export function renderGroupsOf(unit) {
   const raw =
     Array.isArray(unit.render_groups) && unit.render_groups.length > 0
