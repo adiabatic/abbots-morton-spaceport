@@ -20,6 +20,7 @@ from rebuild.review.build import (
     check_manifest,
     check_output_dir,
     check_unit,
+    config_gate,
     config_note,
 )
 from rebuild.review.census import load_pins
@@ -243,6 +244,7 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
     assert unit["configs"] == ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"]
     assert unit["render_groups"] == [{"configs": unit["configs"]}]
     assert unit["config_note"] is None
+    assert unit["config_gate"] is None
 
 
 def test_echo_groups_partition_the_human_workload(built):
@@ -318,7 +320,54 @@ def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_case
     assert config_note(("ss03", "ss02+ss03", "ss02+ss03+ss05"), full) == "only when ss03 is on"
     assert config_note(("default", "ss02", "ss04", "ss05"), full) == "only when ss03 is off"
     assert config_note(("ss10",), full) == "only under ss10"
-    assert config_note(("default", "ss03"), full) == "only under: default, ss03"
+    assert config_note(("ss02", "ss10"), full) == "only under: ss02, ss10"
+
+
+def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
+    """A set narrower than "every config with ss03 on" is still entirely about ss03 — ·I·Tea·Tea·Oy diverges under ss03 alone, because turning ss02 on changes the render into a different unit. Such a set resolves to the conjunction that actually pins it, so the badge names ss03 in ss03's color instead of falling back to a config list the reviewer has to decode."""
+    full = ACCEPTANCE_CONFIGS
+    assert config_note(("ss03",), full) == "only when ss03 is on and ss02 is off"
+    assert config_note(("ss02",), full) == "only when ss02 is on and ss03 is off"
+    assert config_note(("ss02+ss03", "ss02+ss03+ss05"), full) == "only when ss02 is on and ss03 is on"
+    assert config_note(("default", "ss04", "ss05"), full) == "only when ss02 is off and ss03 is off"
+    assert config_note(("default", "ss02", "ss05"), full) == "only when ss03 is off and ss04 is off"
+    assert config_note(("default", "ss05"), full) == "only when ss02 is off and ss03 is off and ss04 is off"
+
+
+def test_config_gate_leaves_the_literal_fallback_to_sets_no_conjunction_pins():
+    """The fallback survives for the two shapes a conjunction cannot express: a genuine disjunction (ss02 *or* ss10, which no conjunction selects), and a set needing more constraints than GATE_CONSTRAINT_CAP — past which the gate names more features than the config list has entries and stops being the clearer statement. Three constraints is still under the cap, so a set as scattered as default-plus-ss03 does resolve."""
+    full = ACCEPTANCE_CONFIGS
+    assert config_gate(("ss02", "ss10"), full) is None
+    assert config_gate(("ss03", "ss02+ss03", "ss02+ss03+ss05", "ss10"), full) is None
+    assert config_gate(("default",), full) is None
+    assert config_note(("default",), full) == "only under: default"
+    assert config_note(("default", "ss03"), full) == "only when ss02 is off and ss04 is off and ss05 is off"
+
+
+def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():
+    """The clause `text` fields are the single home for the badge's prose: the app renders them verbatim as one chip each, and config_note is exactly their join, so no second copy of the phrasing exists to drift. On-constraints lead, which puts the lit chip at the head of the badge."""
+    full = ACCEPTANCE_CONFIGS
+    gate = config_gate(("ss03",), full)
+    assert gate is not None
+    assert gate == [
+        {"feature": "ss03", "state": "on", "text": "only when ss03 is on"},
+        {"feature": "ss02", "state": "off", "text": "and ss02 is off"},
+    ]
+    assert config_note(("ss03",), full) == " ".join(clause["text"] for clause in gate)
+    assert config_gate(("ss10",), full) == [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
+
+
+def test_every_built_gate_clause_resolves_to_a_feature_description(built):
+    """Every chip the app draws is glossed with what its stylistic set does. Asserted over config_gate rather than by re-parsing config_note, so the description coverage is checked against the structure the app actually renders."""
+    out_dir, manifest = built
+    descriptions = manifest["feature_descriptions"]
+    seen = set()
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            for clause in unit["config_gate"] or []:
+                assert descriptions[clause["feature"]]
+                seen.add((clause["feature"], clause["state"]))
+    assert seen, "no config gates in the built output"
 
 
 def test_config_note_distribution_over_the_built_output(built):
@@ -342,24 +391,12 @@ def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
     assert set(FEATURE_DESCRIPTIONS) == readme_sets
 
 
-def test_manifest_carries_feature_descriptions_for_every_single_feature_note(built):
-    """The glowing config-note badge appends what each stylistic set is for; the manifest ships the feature→description map (mirrored from README's "Stylistic sets") and every single-feature gating note in the output resolves to a description."""
-    import re
-
-    out_dir, manifest = built
+def test_manifest_carries_feature_descriptions(built):
+    """The glowing config-note badge appends what each stylistic set is for, so the manifest ships the feature→description map (mirrored from README's "Stylistic sets"). That the built gates all resolve against it is test_every_built_gate_clause_resolves_to_a_feature_description's job."""
+    _, manifest = built
     descriptions = manifest["feature_descriptions"]
     assert set(descriptions) == {"ss02", "ss03", "ss04", "ss05", "ss06", "ss07", "ss10"}
     assert all(isinstance(text, str) and text for text in descriptions.values())
-    notes = set()
-    for meta in manifest["classes"]:
-        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
-            if unit["config_note"]:
-                notes.add(unit["config_note"])
-    pattern = re.compile(r"^only when (ss\d+) is (?:on|off)$|^only under (ss\d+)$")
-    for note in notes:
-        match = pattern.match(note)
-        if match:
-            assert descriptions[match.group(1) or match.group(2)]
 
 
 def test_built_classes_keep_ledger_order_then_families(built):

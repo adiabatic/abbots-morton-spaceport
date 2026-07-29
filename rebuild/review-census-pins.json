@@ -1,7 +1,7 @@
 {
   "_surface": {
     "generated_at": "2026-07-29T02:54:18Z",
-    "repo_head": "ce5a055"
+    "repo_head": "f930336"
   },
   "manifest": {
     "totals": {
@@ -47,36 +47,36 @@
         15822
       ],
       [
-        "only under: default, ss02, ss05",
-        57
-      ],
-      [
-        "only under: default, ss04, ss05",
+        "only when ss02 is off and ss03 is off",
         497
       ],
       [
-        "only under: default, ss05",
+        "only when ss02 is off and ss03 is off and ss04 is off",
         5
       ],
       [
-        "only under: ss02",
+        "only when ss02 is on and ss03 is off",
         737
       ],
       [
-        "only under: ss02+ss03, ss02+ss03+ss05",
+        "only when ss02 is on and ss03 is on",
         736
-      ],
-      [
-        "only under: ss03",
-        737
       ],
       [
         "only when ss03 is off",
         2462
       ],
       [
+        "only when ss03 is off and ss04 is off",
+        57
+      ],
+      [
         "only when ss03 is on",
         3599
+      ],
+      [
+        "only when ss03 is on and ss02 is off",
+        737
       ],
       [
         "only when ss04 is off",

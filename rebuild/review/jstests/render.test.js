@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import {
   featureSettingsValue,
+  configGateChips,
   renderGroupsOf,
   highlightRect,
   markOffset,
@@ -58,6 +59,46 @@ test('every fixture config token produces a parseable settings value', () => {
     const value = featureSettingsValue(config);
     assert.ok(value === 'normal' || /^("ss\d{2}" 1)(, "ss\d{2}" 1)*$/.test(value), config);
   }
+});
+
+test('configGateChips draws one glossed chip per gate clause, on-constraints first', () => {
+  const gated = shardA.find((unit) => (unit.config_gate ?? []).length > 1);
+  assert.ok(gated, 'the fixtures must exercise a multi-clause config gate');
+  const chips = configGateChips(gated, manifest.feature_descriptions);
+  assert.equal(chips.length, gated.config_gate.length);
+  assert.equal(chips[0].state, 'on');
+  assert.deepEqual(
+    chips.map((chip) => chip.text),
+    gated.config_gate.map((clause) => clause.text),
+  );
+  assert.equal(chips.map((chip) => chip.text).join(' '), gated.config_note);
+  for (const chip of chips) assert.equal(chip.detail, manifest.feature_descriptions[chip.feature]);
+});
+
+test('configGateChips falls back to one unattributed chip when no conjunction pins the set', () => {
+  const fallback = shardA.find((unit) => unit.config_gate === null && unit.config_note);
+  assert.ok(fallback, 'the fixtures must exercise the literal config-note fallback');
+  assert.deepEqual(configGateChips(fallback, manifest.feature_descriptions), [
+    { feature: null, state: null, text: fallback.config_note, detail: null },
+  ]);
+});
+
+test('configGateChips draws nothing for a unit whose config set carries no information', () => {
+  assert.deepEqual(configGateChips({ config_gate: null, config_note: null, configs: [] }, {}), []);
+  assert.deepEqual(configGateChips({ configs: [] }, undefined), []);
+});
+
+test('every fixture gate clause resolves to a feature description', () => {
+  let clauses = 0;
+  for (const unit of [...shardA, ...shardB]) {
+    for (const chip of configGateChips(unit, manifest.feature_descriptions)) {
+      if (!chip.feature) continue;
+      assert.ok(['on', 'off'].includes(chip.state));
+      assert.ok(chip.detail, `${unit.id} names ${chip.feature} with no description`);
+      clauses += 1;
+    }
+  }
+  assert.ok(clauses > 0, 'the fixtures must exercise at least one attributed gate clause');
 });
 
 const twoGroupUnit = {
@@ -545,6 +586,15 @@ test('fixture units satisfy the contract fields the frontend relies on', () => {
     assert.doesNotMatch(unit.text_entities, /[\u200C\uE650-\uE67E]/);
     assert.ok(Array.isArray(unit.configs) && unit.configs.length >= 1);
     assert.ok(unit.config_note === null || (typeof unit.config_note === 'string' && unit.config_note.length > 0));
+    assert.ok(unit.config_gate === null || (Array.isArray(unit.config_gate) && unit.config_gate.length > 0));
+    for (const clause of unit.config_gate ?? []) {
+      assert.equal(typeof clause.feature, 'string');
+      assert.ok(['on', 'off'].includes(clause.state));
+      assert.ok(typeof clause.text === 'string' && clause.text.length > 0);
+    }
+    if (unit.config_gate) {
+      assert.equal(unit.config_gate.map((clause) => clause.text).join(' '), unit.config_note);
+    }
     assert.ok(Array.isArray(unit.render_groups) && unit.render_groups.length >= 1);
     assert.ok(typeof unit.summary === 'string' && unit.summary.length > 0);
     if (unit.pair !== null) {
