@@ -185,10 +185,7 @@ def test_ordering_is_deterministic(workload):
 
 def test_configs_within_a_unit_are_in_acceptance_order(workload):
     order = {
-        token: index
-        for index, token in enumerate(
-            ("default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10")
-        )
+        token: index for index, token in enumerate(("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10"))
     }
     for unit in workload.units:
         ranks = [order[config] for config in unit.configs]
@@ -203,7 +200,7 @@ def test_ink_duplicate_siblings_fold_to_one_unit():
     """The name-grain dedupe key splits one visual question in two when a config merely relabels a glyph (the old font's ss04 rename of word-initial ·It). With an ink signature reporting every render of the window identical, the siblings fold: the earliest-config unit survives with the union of configs, rows, kinds, and per-config classes, a single render group, and contiguous renumbered ids."""
     rows = [
         AuditRow("default", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
-        AuditRow("ss02", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
+        AuditRow("ss03", "E650:E665", ("cell",), "UNMATCHED", ("qsPea", "qsMay.en-y0"), ("b",)),
         AuditRow("ss04", "E650:E665", ("seam",), "UNMATCHED", ("qsPea.ss04", "qsMay.en-y0"), ("b",)),
         AuditRow("default", "E650:E650", ("cell",), "UNMATCHED", ("qsPea", "qsPea"), ("c",)),
     ]
@@ -214,11 +211,11 @@ def test_ink_duplicate_siblings_fold_to_one_unit():
     assert len(units) == 2
     assert [unit.unit_id for unit in units] == ["u-0000", "u-0001"]
     merged = next(unit for unit in units if unit.codepoints == "E650:E665")
-    assert merged.configs == ("default", "ss02", "ss04")
+    assert merged.configs == ("default", "ss03", "ss04")
     assert merged.baseline == ("qsPea", "qsMay.en-y0")
     assert merged.kinds == ("cell", "seam")
     assert merged.render_groups == (merged.configs,)
-    assert merged.config_classes == {"default": "UNMATCHED", "ss02": "UNMATCHED", "ss04": "UNMATCHED"}
+    assert merged.config_classes == {"default": "UNMATCHED", "ss03": "UNMATCHED", "ss04": "UNMATCHED"}
 
 
 def test_ink_duplicate_fold_respects_matched_classes_and_exemptions():

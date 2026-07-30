@@ -27,6 +27,7 @@ CONFIGS: dict[str, dict[str, bool]] = {
     "ss02+ss03": {"ss02": True, "ss03": True},
     "ss06+ss07": {"ss06": True, "ss07": True},
     "ss02+ss03+ss05": {"ss02": True, "ss03": True, "ss05": True},
+    "ss03+ss05": {"ss03": True, "ss05": True},
 }
 
 SEAM_TOKENS: tuple[str, ...] = ("y0", "y5", "y6", "y8", "lig", "break")

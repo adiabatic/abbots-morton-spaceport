@@ -30,11 +30,12 @@ CONFIGS: dict[str, dict[str, bool]] = {
     "ss02+ss03": {"ss02": True, "ss03": True},
     "ss06+ss07": {"ss06": True, "ss07": True},
     "ss02+ss03+ss05": {"ss02": True, "ss03": True, "ss05": True},
+    "ss03+ss05": {"ss03": True, "ss05": True},
 }
 
 
 def config_token_for_features(features: dict[str, bool] | None) -> str | None:
-    """Return the plan §5 config token for a feature dict, or None when the configuration is outside the covered eleven."""
+    """Return the plan §5 config token for a feature dict, or None when the configuration is outside the covered set."""
     enabled = sorted(name for name, on in (features or {}).items() if on)
     token = "+".join(enabled) if enabled else "default"
     return token if token in CONFIGS else None

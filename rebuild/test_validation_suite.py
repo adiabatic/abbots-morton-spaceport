@@ -159,6 +159,7 @@ def test_config_token_for_features() -> None:
         "ss02+ss03",
         "ss06+ss07",
         "ss02+ss03+ss05",
+        "ss03+ss05",
     }
 
 

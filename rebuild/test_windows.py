@@ -85,7 +85,7 @@ class TestFingerprintGuard:
 
     def test_one_unreadable_configuration_rejects_the_set(self, tmp_path):
         _write_every_config(tmp_path, "fp-sources")
-        table_module.windows_path(tmp_path, "ss02").write_bytes(b"not an enumeration")
+        table_module.windows_path(tmp_path, "ss05").write_bytes(b"not an enumeration")
         assert run_m1.serialized_tables(tmp_path, "fp-sources") is None
 
     def test_an_empty_directory_rejects_rather_than_raises(self, tmp_path):

@@ -9,7 +9,7 @@ from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
 from rebuild.pipeline import settle as settle_module
 
-CONFIGS = ["default", "ss02", "ss03", "ss02+ss03", "ss05", "ss02+ss03+ss05", "ss04", "ss10"]
+CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss10"]
 
 
 def load_subset(cfg):

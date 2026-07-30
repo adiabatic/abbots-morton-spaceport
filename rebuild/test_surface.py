@@ -58,7 +58,7 @@ def test_qstea_cells_per_configuration(spec):
         ("half", None, None),
     }
     assert cells_as_tuples(spec, "qsTea", frozenset({"ss05"})) - default == {("full", "baseline", "baseline")}
-    assert cells_as_tuples(spec, "qsTea", frozenset({"ss02"})) - default == {
+    assert cells_as_tuples(spec, "qsTea", frozenset({"ss03"})) - default == {
         ("full", "x-height", "baseline"),
         ("full", "x-height", None),
     }
@@ -173,14 +173,11 @@ def test_resolve_stubs_and_oddities(spec):
 def test_unlock_only_cells_resolve_with_their_record(spec):
     plan = surface.resolve_cell(spec, CellId("qsTea", "full", "x-height", None, ()))
     assert plan.entry_x == 0
-    assert plan.unlock is not None and plan.unlock.feature == "ss02"
+    assert plan.unlock is not None and plan.unlock.feature == "ss03"
     assert [
         unlock.feature
         for unlock in surface.unlocks_for_cell(spec, CellId("qsTea", "full", "x-height", None, ()))
-    ] == [
-        "ss02",
-        "ss03",
-    ]
+    ] == ["ss03"]
     assert surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "x-height", "baseline", ())) == ()
     assert len(surface.unlocks_for_cell(spec, CellId("qsIt", "hapax", "baseline", "baseline", ()))) == 1
 
@@ -194,9 +191,9 @@ def test_unknown_cell_rejected(spec):
 
 
 def test_effective_rows_synthesize_unlock_anchors(spec):
-    entries, exits, granted = surface.effective_rows(spec, "qsTea", "full", frozenset({"ss02"}))
+    entries, exits, granted = surface.effective_rows(spec, "qsTea", "full", frozenset({"ss03"}))
     assert entries["x-height"].x == 0
-    assert [unlock.feature for unlock in granted[("entry", "x-height")]] == ["ss02"]
+    assert [unlock.feature for unlock in granted[("entry", "x-height")]] == ["ss03"]
     entries, _exits, _granted = surface.effective_rows(spec, "qsTea", "full", frozenset())
     assert "x-height" not in entries
 

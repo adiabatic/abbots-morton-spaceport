@@ -18,6 +18,7 @@ Each is a deliberate departure from the old font, to be adjudicated in the sitti
 - **qsIt's extend-before-·I lost its `self: {entry: none}` scope.** The old font extends ·It's baseline exit before ·I when ·It has no entry _and_ when ·It was entered at the x-height (`qsIt.en-y5.ex-y0.ex-ext-1`, e.g. `E650:E670:E675`), which the narrow scope contradicted; the record only became reachable when ·I entered the alphabet. Widening it also cleared a hard E-CONTACT at y4 between ·It's bar and ·I's loop. Consequence to adjudicate: ·It entered at the baseline now extends and keeps a baseline join into ·I, where the old font took the x-height exit and broke.
 - **Four `dangle:qsI.*` signatures blessed** in `rebuild/m1-contact-allow.yaml`, on the standing qsNo/qsDay/qsUtter precedent: ·I's top-right flick at y5 is reached diagonally from the loop, so `verify_withdrawal_safe`'s vertical-continuation test reads it as connector ink. The baseline has no withdrawn ·I form at all, so withdrawing it would change the letter's isolated shape.
 - **The Manual-pin gate now binds only the mandating corpora.** `MANDATING_CORPORA` in `rebuild/pipeline/manual_pins.py` is `site/index.html` plus `site/the-manual.html`; `site/extra-senior-words.html` is a supplementary word list, not a transcription of Read's manual, so a pin there carries no Manual mandate. See the section below for what that defers.
+- **ss02 is retired rather than adjudicated.** Migrating ·I made the ss02 windows live for the first time, and the user's call was to delete the feature instead of sitting on them: the qsTea ss02 unlock is gone, ·I·Tea keeps its x-height entry under ss03 (whose unlock list already admits ·I, with ss03's 1px ·I exit extension), and the acceptance matrix's multi-set coverage moved to ss03+ss05. The Manual's three `data-stylistic-set="02"` pins stay as shipped-font pins; the M1 gate skips them as `skipped_config`.
 
 ## What the corpus narrowing defers
 
@@ -30,7 +31,6 @@ The underlying question is live and belongs in its own sitting: qsNo sits in `qs
 ## Open questions for the sitting
 
 - The **qsMay 1px attachment drift** WHATNEXT predicted, now measured: `E675:E665` reports `slot 1 (qsMay.en-y5.after-i): origin want (150, 0), got (200, 0)` — 50 units at 50 units/pixel. The question is whether the qsAh precedent (accept it) still holds at ·I.
-- The **ss02 windows**, live for the first time — `qsTea.stances.full.unlocks` keyed on a left ·I is the feature's only record anywhere in the font, so nothing in these configs has ever been adjudicated.
 - The **smaller-loop-survives-extension override** above, on the `E650:E675:E665` rows.
 
 ## Verification recipe

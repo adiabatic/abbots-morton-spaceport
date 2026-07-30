@@ -58,10 +58,6 @@ stances:
         when:
           left: {family: qsEt}
       - entry: x-height
-        feature: ss02
-        when:
-          left: {family: qsI}
-      - entry: x-height
         feature: ss03
         when:
           left:
