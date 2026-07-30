@@ -112,6 +112,7 @@ def test_configs_registry():
         "ss02+ss03",
         "ss06+ss07",
         "ss02+ss03+ss05",
+        "ss03+ss05",
     ]
     assert CONFIGS["default"] == {}
     assert CONFIGS["ss02+ss03+ss05"] == {"ss02": True, "ss03": True, "ss05": True}

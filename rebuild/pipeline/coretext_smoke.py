@@ -28,12 +28,10 @@ POINT_TOLERANCE = 0.01
 
 FEATURE_CONFIGURATIONS = (
     ("default", ()),
-    ("ss02", ("ss02",)),
     ("ss03", ("ss03",)),
     ("ss04", ("ss04",)),
     ("ss05", ("ss05",)),
-    ("ss02+ss03", ("ss02", "ss03")),
-    ("ss02+ss03+ss05", ("ss02", "ss03", "ss05")),
+    ("ss03+ss05", ("ss03", "ss05")),
     ("ss10", ("ss10",)),
 )
 

@@ -107,7 +107,7 @@ def test_registry_contents(spec):
     assert registry.boundary_tokens["zwnj"].codepoint == 0x200C
     assert registry.boundary_tokens["namer-dot"].splits_runs is False
     assert registry.features["ss10"].kind == "taste"
-    assert registry.interactions == (("ss02", "ss03"), ("ss02", "ss03", "ss05"))
+    assert registry.interactions == (("ss03", "ss05"),)
     assert registry.families["qsOoze"].codepoint == 0xE67E
     assert registry.families["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
 

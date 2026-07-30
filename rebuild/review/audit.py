@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-ACCEPTANCE_CONFIGS = ("default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10")
+ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
 BATCH_SIZE = 300
 
 UNMATCHED_CLASS = "UNMATCHED"

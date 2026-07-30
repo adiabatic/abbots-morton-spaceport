@@ -5,12 +5,11 @@ boundary_tokens:
   zwnj: {codepoint: 0x200C, splits_runs: true}
   namer-dot: {codepoint: 0x00B7, splits_runs: false}
 features:
-  ss02: {kind: capability, description: "·Tea x-height entry after ·I"}
   ss03: {kind: capability, description: "x-height exiters reach ·Tea (full-size bar when a baseline-join follows, else the half stub)"}
   ss04: {kind: capability, description: "·It joins at the baseline on both sides at once, any neighbor"}
   ss05: {kind: capability, description: "·Tea both-baseline after ·Et"}
   ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
-  interactions: [[ss02, ss03], [ss02, ss03, ss05]]
+  interactions: [[ss03, ss05]]
 predicate_classes:
   halves-that-exit-at-x-height: {all: [{trait: half}, {can_exit_at: x-height}]}
   can-enter-at-baseline: {can_enter_at: baseline}

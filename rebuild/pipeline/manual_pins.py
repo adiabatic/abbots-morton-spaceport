@@ -6,7 +6,7 @@ The third corpus the legacy suite reads, site/extra-senior-words.html, is delibe
 
 Semantics follow rebuild/validation/pins.py with two M1-specific fidelity fixes. First, `.half` / `.alt` trait assertions resolve through the loaded spec — a shaped cell label is parsed back to rune + stance and the stance's declared traits are consulted — because M1 stance keys (`flipped`, `alternate`) need not spell the trait the way legacy glyph names did. Second, the `.∅` exact-glyph assertion accepts the bare cmap glyph or the settled isolated cell's label, both of which render the rune's no-contextual-variant drawing. Compat-only variant assertions (`en-y0`, `noentry`, `extended`, ...) are skipped and counted, exactly as in the baseline replay: their design content is already pinned by the seam-height assertions, and legacy compat metadata has no faithful M1 translation.
 
-Out-of-scope pins are counted per blocking letter so the summary doubles as batch-prioritization signal: the letters whose migration would unlock the most pins surface first.
+Out-of-scope pins are counted per blocking letter so the summary doubles as batch-prioritization signal: the letters whose migration would unlock the most pins surface first. A pin marked with a stylistic set outside `conform.ACCEPTANCE_CONFIGS` is skipped and counted (`skipped_config`) rather than replayed: the M1 font does not implement that feature, while the legacy replay in `rebuild/validation/pins.py` still enforces the pin against the shipped font, which does.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ BOUNDARY_GLYPH_EQUIVALENTS = {"space": frozenset({"space", "uni200C"})}
 class ManualPinReport:
     pins_eligible: int = 0
     pins_in_scope: int = 0
+    skipped_config: int = 0
     replayed: int = 0
     seam_assertions: int = 0
     identity_assertions: int = 0
@@ -255,6 +256,9 @@ def run_gate(font_path: Path, spec: ResolvedSpec) -> ManualPinReport:
 
     in_scope: list[PinRun] = []
     for pin in pins:
+        if pin.config_token not in conform.ACCEPTANCE_CONFIGS:
+            report.skipped_config += 1
+            continue
         missing = {ord(ch) for ch in pin.text} - alphabet
         if missing:
             report.blocked_by.update(missing)
@@ -285,6 +289,7 @@ def summarize(report: ManualPinReport, blocker_limit: int = 10) -> dict:
     return {
         "pins_eligible": report.pins_eligible,
         "pins_in_scope": report.pins_in_scope,
+        "skipped_config": report.skipped_config,
         "replayed": report.replayed,
         "seam_assertions": report.seam_assertions,
         "identity_assertions": report.identity_assertions,

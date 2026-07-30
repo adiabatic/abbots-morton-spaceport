@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
 BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
-ACCEPTANCE_CONFIGS = ("default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05", "ss10")
+ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
 
 
 @dataclass

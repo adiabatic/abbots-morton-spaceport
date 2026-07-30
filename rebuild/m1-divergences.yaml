@@ -74,8 +74,8 @@
 
 - id: ss03-chain-join-gains
   status: reviewed-approved
-  match: {predicate: ss03_chain_join_gains, configs: [ss03, ss02+ss03, ss02+ss03+ss05]}
-  count: 696
+  match: {predicate: ss03_chain_join_gains, configs: [ss03, ss03+ss05]}
+  count: 2346
   exemplars:
     - {config: ss03, codepoints: "E652:E665:E652", baseline: "qsTea|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsTea.full.ex-y0|qsMay.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}
     - {config: ss03, codepoints: "E670:E665:E652", baseline: "qsIt|qsMay.ex-ext-1|qsTea.half.en-y5.after-xheight-exit (break,y5)", new: "qsIt.hapax.ex-y0|qsMay.loop.en-y0.ex-y5.en-ext-1.ex-ext-1|qsTea.half.en-y5 (y0,y5)"}

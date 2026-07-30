@@ -241,7 +241,7 @@ def test_ink_duplicate_siblings_fold_in_the_built_output(built):
                 matches.append(unit)
     assert len(matches) == 1
     (unit,) = matches
-    assert unit["configs"] == ["default", "ss02", "ss03", "ss04", "ss05", "ss02+ss03", "ss02+ss03+ss05"]
+    assert unit["configs"] == ["default", "ss03", "ss04", "ss05", "ss03+ss05"]
     assert unit["render_groups"] == [{"configs": unit["configs"]}]
     assert unit["config_note"] is None
     assert unit["config_gate"] is None
@@ -317,31 +317,30 @@ def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_case
     non_ss10 = tuple(config for config in full if config != "ss10")
     assert config_note(non_ss10, full) is None
     assert config_note(full, full) is None
-    assert config_note(("ss03", "ss02+ss03", "ss02+ss03+ss05"), full) == "only when ss03 is on"
-    assert config_note(("default", "ss02", "ss04", "ss05"), full) == "only when ss03 is off"
+    assert config_note(("ss03", "ss03+ss05"), full) == "only when ss03 is on"
+    assert config_note(("default", "ss04", "ss05"), full) == "only when ss03 is off"
     assert config_note(("ss10",), full) == "only under ss10"
-    assert config_note(("ss02", "ss10"), full) == "only under: ss02, ss10"
+    assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
 
 
 def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
-    """A set narrower than "every config with ss03 on" is still entirely about ss03 — ·I·Tea·Tea·Oy diverges under ss03 alone, because turning ss02 on changes the render into a different unit. Such a set resolves to the conjunction that actually pins it, so the badge names ss03 in ss03's color instead of falling back to a config list the reviewer has to decode."""
+    """A set narrower than "every config with ss03 on" is still entirely about a feature conjunction — a unit can diverge under ss03 alone because turning ss05 on changes the render into a different unit. Such a set resolves to the conjunction that actually pins it, so the badge names the features in their own colors instead of falling back to a config list the reviewer has to decode."""
     full = ACCEPTANCE_CONFIGS
-    assert config_note(("ss03",), full) == "only when ss03 is on and ss02 is off"
-    assert config_note(("ss02",), full) == "only when ss02 is on and ss03 is off"
-    assert config_note(("ss02+ss03", "ss02+ss03+ss05"), full) == "only when ss02 is on and ss03 is on"
-    assert config_note(("default", "ss04", "ss05"), full) == "only when ss02 is off and ss03 is off"
-    assert config_note(("default", "ss02", "ss05"), full) == "only when ss03 is off and ss04 is off"
-    assert config_note(("default", "ss05"), full) == "only when ss02 is off and ss03 is off and ss04 is off"
+    assert config_note(("ss03",), full) == "only when ss03 is on and ss05 is off"
+    assert config_note(("ss05",), full) == "only when ss05 is on and ss03 is off"
+    assert config_note(("ss03+ss05",), full) == "only when ss03 is on and ss05 is on"
+    assert config_note(("default", "ss04"), full) == "only when ss03 is off and ss05 is off"
+    assert config_note(("default", "ss05"), full) == "only when ss03 is off and ss04 is off"
+    assert config_note(("default",), full) == "only when ss03 is off and ss04 is off and ss05 is off"
 
 
 def test_config_gate_leaves_the_literal_fallback_to_sets_no_conjunction_pins():
-    """The fallback survives for the two shapes a conjunction cannot express: a genuine disjunction (ss02 *or* ss10, which no conjunction selects), and a set needing more constraints than GATE_CONSTRAINT_CAP — past which the gate names more features than the config list has entries and stops being the clearer statement. Three constraints is still under the cap, so a set as scattered as default-plus-ss03 does resolve."""
+    """The fallback survives for a genuine disjunction (ss04 *or* ss10, which no conjunction selects — every all-off conjunction admits default instead). The other fallback shape, a set needing more constraints than GATE_CONSTRAINT_CAP, is unreachable while only three joining features exist (the cap covers them all); it returns when the feature roster grows past the cap."""
     full = ACCEPTANCE_CONFIGS
-    assert config_gate(("ss02", "ss10"), full) is None
-    assert config_gate(("ss03", "ss02+ss03", "ss02+ss03+ss05", "ss10"), full) is None
-    assert config_gate(("default",), full) is None
-    assert config_note(("default",), full) == "only under: default"
-    assert config_note(("default", "ss03"), full) == "only when ss02 is off and ss04 is off and ss05 is off"
+    assert config_gate(("ss04", "ss10"), full) is None
+    assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
+    assert config_gate(("ss03", "ss03+ss05", "ss10"), full) is None
+    assert config_note(("default", "ss03"), full) == "only when ss04 is off and ss05 is off"
 
 
 def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():
@@ -351,7 +350,7 @@ def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():
     assert gate is not None
     assert gate == [
         {"feature": "ss03", "state": "on", "text": "only when ss03 is on"},
-        {"feature": "ss02", "state": "off", "text": "and ss02 is off"},
+        {"feature": "ss05", "state": "off", "text": "and ss05 is off"},
     ]
     assert config_note(("ss03",), full) == " ".join(clause["text"] for clause in gate)
     assert config_gate(("ss10",), full) == [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
