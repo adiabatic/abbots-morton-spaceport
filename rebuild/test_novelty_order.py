@@ -151,6 +151,22 @@ def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
     assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 2
 
 
+def test_main_defaults_to_a_forty_rep_sitting(repo, monkeypatch, capsys):
+    write_surface(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
+    write_verdicts(repo, [])
+    out = run_main(repo, monkeypatch, capsys)
+    assert "emitting the first 40 reps" in out
+    assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 40
+
+
+def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
+    write_surface(repo, [unit(f"u-{number:04d}") for number in range(1, 46)])
+    write_verdicts(repo, [])
+    out = run_main(repo, monkeypatch, capsys, "--limit", "0")
+    assert "echo-fills the rest" in out
+    assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 45
+
+
 def test_main_refuses_a_verdicts_file_for_another_manifest(repo, monkeypatch, capsys):
     write_surface(repo, [unit("u-0001")])
     write_verdicts(repo, [], stamp="2026-07-01T00:00:00Z")

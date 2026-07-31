@@ -94,7 +94,7 @@ verdict-ready:
 complaint-docket:
 	uv run python rebuild/tools/complaint_docket.py $(ARGS)
 
-# Order the blank queue for novelty — one rep per echo group, each next unit maximally unlike the last few across class, families, letters, stances, seams, configs, and provenance — and print the worklist URL to paste into the review app. Reads the live autosave unless ARGS names a verdicts file; ARGS='--limit N' emits a sitting-sized prefix.
+# Order the blank queue for novelty — one rep per echo group, each next unit maximally unlike the last few across class, families, letters, stances, seams, configs, and provenance — and print the worklist URL to paste into the review app. Reads the live autosave unless ARGS names a verdicts file; emits a sitting-sized prefix of 40 by default, and ARGS='--limit 0' emits the whole queue.
 novelty-order:
 	uv run python rebuild/tools/novelty_order.py $(ARGS)
 
