@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready complaint-docket prettier woff2 clean
+.PHONY: all test test-rebuild test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-hardcases review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready complaint-docket novelty-order prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -93,6 +93,10 @@ verdict-ready:
 # Cluster the open complaints (reject/neither verdicts) by the rune records that decided them, with park candidates for the still-blank lookalikes; writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file; ARGS='--park g-XXXXXXXX' emits a verdicts-park-*.json for the app's Import dialog.
 complaint-docket:
 	uv run python rebuild/tools/complaint_docket.py $(ARGS)
+
+# Order the blank queue for novelty — one rep per echo group, each next unit maximally unlike the last few across class, families, letters, stances, seams, configs, and provenance — and print the worklist URL to paste into the review app. Reads the live autosave unless ARGS names a verdicts file; ARGS='--limit N' emits a sitting-sized prefix.
+novelty-order:
+	uv run python rebuild/tools/novelty_order.py $(ARGS)
 
 # Compress the built OTFs in site/ into WOFF2 alongside them.
 woff2: all
