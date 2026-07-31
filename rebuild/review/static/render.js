@@ -183,6 +183,11 @@ export function unitWorklist(value) {
   return value ? value.split(',').map((id) => id.trim()).filter(Boolean) : [];
 }
 
+export function orderWorklist(units, order) {
+  if (order === 'given') return units;
+  return [...units].sort((a, b) => a.group.localeCompare(b.group) || a.id.localeCompare(b.id));
+}
+
 export function unitMatchesFilters(unit, filters, record) {
   if (filters.class && unit.class !== filters.class) return false;
   if (filters.group && unit.group !== filters.group) return false;

@@ -33,6 +33,7 @@ import {
   familiesOfGroup,
   unitMatchesFilters,
   unitWorklist,
+  orderWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -195,8 +196,7 @@ async function unitsForView(batch, classFilter) {
         units.push(unit);
       }
     }
-    units.sort((a, b) => a.group.localeCompare(b.group) || a.id.localeCompare(b.id));
-    return units;
+    return orderWorklist(units, state.order);
   }
   const classes = [];
   for (const cls of manifest.classes) {
@@ -1324,7 +1324,7 @@ async function advanceDocket() {
   const decision = nextDocketDecision([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));
   if (!decision) {
     toast('The docket queue is clear');
-    setState({ units: null, docket: null, unit: null, view: 'docket' });
+    setState({ units: null, order: null, docket: null, unit: null, view: 'docket' });
     return;
   }
   const queue = queueCounts([...unitsById.values()], recordOf, ruledClassIds(manifest.classes));

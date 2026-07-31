@@ -19,6 +19,7 @@ import {
   familiesOfGroup,
   unitMatchesFilters,
   unitWorklist,
+  orderWorklist,
   partitionUnits,
   humanClassCount,
   humanTotal,
@@ -425,6 +426,25 @@ test('unitMatchesFilters covers class, group, family, config, and status', () =>
   assert.equal(unitMatchesFilters(unit, { ...empty, status: 'verdicted' }, { verdict: 'approve' }), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, status: 'approve' }, { verdict: 'approve' }), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, status: 'reject' }, { verdict: 'approve' }), false);
+});
+
+test('orderWorklist sorts by family-pair group then id by default', () => {
+  const units = [
+    { id: 'u-0003', group: 'qsTea:qsOy' },
+    { id: 'u-0002', group: 'qsMay:qsNo' },
+    { id: 'u-0001', group: 'qsTea:qsOy' },
+  ];
+  assert.deepEqual(orderWorklist(units, null).map((u) => u.id), ['u-0002', 'u-0001', 'u-0003']);
+  assert.deepEqual(units.map((u) => u.id), ['u-0003', 'u-0002', 'u-0001'], 'the default sort must not mutate the given list');
+});
+
+test('orderWorklist preserves the given order under order=given', () => {
+  const units = [
+    { id: 'u-0003', group: 'qsTea:qsOy' },
+    { id: 'u-0002', group: 'qsMay:qsNo' },
+    { id: 'u-0001', group: 'qsTea:qsOy' },
+  ];
+  assert.deepEqual(orderWorklist(units, 'given').map((u) => u.id), ['u-0003', 'u-0002', 'u-0001']);
 });
 
 test('unitWorklist splits, trims, and drops empties', () => {

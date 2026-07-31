@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, docket: null, view: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, docket: null, view: null });
 });
 
 test('a units worklist rides the hash and round-trips', () => {
@@ -47,6 +47,17 @@ test('a units worklist rides the hash and round-trips', () => {
   assert.equal(parseHash('#batch=0').units, null);
   const serialized = writeHash({ batch: 0, units: 'u-1163,u-2224' });
   assert.equal(parseHash(`#${serialized}`).units, 'u-1163,u-2224');
+});
+
+test('a worklist order rides the hash beside the units it orders and round-trips', () => {
+  const parsed = parseHash('#units=u-0002,u-0001&order=given');
+  assert.equal(parsed.units, 'u-0002,u-0001');
+  assert.equal(parsed.order, 'given');
+  assert.equal(parseHash('#units=u-0001,u-0002').order, null);
+  const serialized = writeHash({ units: 'u-0002,u-0001', order: 'given' });
+  const reparsed = parseHash(`#${serialized}`);
+  assert.equal(reparsed.units, 'u-0002,u-0001');
+  assert.equal(reparsed.order, 'given');
 });
 
 test('the docket cursor rides the hash beside a units worklist and round-trips', () => {
@@ -62,10 +73,11 @@ test('the docket cursor rides the hash beside a units worklist and round-trips',
 
 test('shedWorklist drops the units worklist, the docket cursor, and the docket view when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'dangling-anchor-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
-    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, docket: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
+    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, docket: null, view: null, [key]: value }, `changing ${key} must shed the worklist, docket cursor, and view`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
+  assert.equal(cleared.order, null, 'clear-filters sheds the worklist order alongside the worklist itself');
   assert.equal(cleared.docket, null, 'clear-filters sheds the docket cursor alongside the other filters');
   assert.equal(cleared.view, null, 'clear-filters leaves the docket view too');
 });
