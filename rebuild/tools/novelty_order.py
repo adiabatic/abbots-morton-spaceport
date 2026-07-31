@@ -119,7 +119,12 @@ def main():
         help="the verdicts file for the current frontier (default: the live autosave)",
     )
     parser.add_argument("--surface", default=str(SURFACE))
-    parser.add_argument("--limit", type=int, default=None, help="emit only the first N worklist entries")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=40,
+        help="emit only the first N worklist entries (0 for the whole queue; default 40)",
+    )
     args = parser.parse_args()
 
     surface = pathlib.Path(args.surface)
@@ -138,7 +143,7 @@ def main():
         print("No blank units — nothing to order.")
         return
     order = novelty_order(reps)
-    if args.limit is not None and args.limit < len(order):
+    if args.limit > 0 and args.limit < len(order):
         emitted = order[: args.limit]
         print(
             f"{blank_count} blank units collapse to {len(order)} echo groups; "
