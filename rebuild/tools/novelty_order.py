@@ -4,6 +4,7 @@ import argparse
 import collections
 import json
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -155,7 +156,11 @@ def main():
             f"{blank_count} blank units collapse to {len(order)} echo groups; "
             f"verdicting the worklist reps echo-fills the rest."
         )
-    print(f"http://localhost:{PORT}/#units={','.join(emitted)}&order=given")
+    url = f"http://localhost:{PORT}/#units={','.join(emitted)}&order=given"
+    print(url)
+    if sys.platform == "darwin":
+        subprocess.run(["pbcopy"], input=url.encode(), check=True)
+        print("(copied to clipboard)")
 
 
 if __name__ == "__main__":
