@@ -4,7 +4,7 @@ Scratch for the ·Roe migration. Delete when the batch closes, lifting any survi
 
 ## Committed
 
-Nothing yet. The whole batch is uncommitted working tree.
+- 56f0e27 — ·I keeps its regular loop after ·Roe (the sitting's first reject; ·Pea/·Tea/·May/·It still get the smaller loop)
 
 ## Parked
 
