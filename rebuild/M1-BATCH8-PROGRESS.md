@@ -48,8 +48,7 @@ Most of the wiring predated this batch: qsTea carries the ss05 both-baseline unl
 
 ```zsh
 uv run pytest rebuild/test_spec_load.py -n auto --dist worksteal   # rune loads
-uv run python -m rebuild.pipeline.baseline_subset                   # after any M1_ALPHABET edit
-uv run python -m rebuild.pipeline.run_m1 --jobs 6                   # build + gates + oracle
+uv run python -m rebuild.pipeline.run_m1 --jobs 6                   # build + gates + oracle (refreshes the baseline subset itself)
 PYTHONPATH=. uv run python rebuild/tools/probe.py E672:E652         # one window, all configs
 make test-rebuild
 make test

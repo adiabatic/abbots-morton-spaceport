@@ -44,6 +44,7 @@ def test_red_leaves_a_record_for_other_content_alone(green_store):
 
 
 def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, oracle_pass=False):
+    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", lambda repo_root: False)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
     monkeypatch.setattr(
         run_m1, "run", lambda spec, jobs, inputs: {"defect_errors": list(defect_errors), "notes": []}
@@ -55,6 +56,41 @@ def _stub_full_run(monkeypatch, *, defect_errors=(), boundary=True, pins=True, o
         "run_oracle",
         lambda spec, jobs: {"pass": oracle_pass, "unmatched": 19837, "multi_matched": 0},
     )
+
+
+def test_main_refreshes_the_baseline_subset_before_anything_reads_it(monkeypatch, tmp_path, capsys):
+    """The five-hand-updates trap, closed: run_m1 ensures the subset tables are current before the pipeline and its oracle run, so an M1_ALPHABET edit can no longer feed the oracle stale tables. The fingerprint stub is order-sensitive — it answers differently before and after the ensure — so the green below records only because the key snapshot happened after the refilter; moving the ensure below the snapshot mismatches the keys and fails this test."""
+    store = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(ac, "RUN_M1_GREEN", store)
+    state = {"ensured": False}
+    monkeypatch.setattr(
+        ac,
+        "run_m1_skip_fingerprint",
+        lambda root=None: "fp-post-refilter" if state["ensured"] else "fp-pre-refilter",
+    )
+    _stub_full_run(monkeypatch, oracle_pass=True)
+    events = []
+
+    def ensure(repo_root):
+        state["ensured"] = True
+        events.append("subset")
+        return True
+
+    monkeypatch.setattr(run_m1.baseline_subset, "ensure_fresh", ensure)
+    monkeypatch.setattr(
+        run_m1, "run", lambda spec, jobs, inputs: events.append("run") or {"defect_errors": [], "notes": []}
+    )
+    monkeypatch.setattr(
+        run_m1,
+        "run_oracle",
+        lambda spec, jobs: events.append("oracle") or {"pass": True, "unmatched": 0, "multi_matched": 0},
+    )
+    run_m1.main([])
+    assert events == ["subset", "run", "oracle"]
+    assert "[t] baseline_subset" in capsys.readouterr().out
+    record = ac.read_green_record(store)
+    assert record is not None
+    assert record["fingerprint"] == "fp-post-refilter"
 
 
 def test_unmatched_oracle_rows_still_record_a_green(monkeypatch, tmp_path):
