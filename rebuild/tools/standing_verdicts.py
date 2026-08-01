@@ -1,4 +1,4 @@
-"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's structural pattern and emit fill records for them into an importable verdicts file. Two delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot~follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. Each shape's own docstring states exactly what it proves, and neither claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
+"""Apply the checked-in standing approvals (rebuild/standing-approvals.yaml) to the live review surface: for every rule, find the blank human units whose before→after delta matches the rule's pattern and emit fill records for them into an importable verdicts file. Three delta shapes are expressible, and a rule declares exactly one of them — which one is keyed by the field its `match.after` carries. The `ligature` shape is a pivot letter whose backward join drops as it ligates with its follower; it holds the seams flanking the delta fixed. The `follower_cells` shape is a pivot letter that gives up a named exit extension: the two sides must line up letter for letter over an identical seam vector, the pivot and the follower must settle into cells the rule names in full — rune, stance, entry, exit and the whole adjustment set — and the unit's own primary judged adjacency must be exactly that pivot~follower seam with no secondary seam anywhere else in the window. That last requirement is the load-bearing one, because an unchanged seam vector is not unchanged ink: a window can hold every seam still and be asking about a different letter's stroke entirely, and only the surface's own judgment fields say which letter the unit is about. The `ink_deltas` shape works from the opposite end and is ink-exact rather than structural: it names the surface's own per-config localized ink-delta digests (rebuild/review/ink.py's `delta_digest`, persisted on every unit), so a unit matches only when the window's entire before→after ink change, under every config it diverges on, is byte-identical to a blessed delta — every structural difference the unit still carries is then name-grain only, and any extra ink anywhere fails the match closed. Each shape's own docstring states exactly what it proves, and none claims to bound the window beyond that. Any rule's `except_left` family, met anywhere in the window, refuses the whole unit rather than the one position, so a guarded context can never ride along beside an unguarded one. This is the zero-touch sibling of echo_verdicts.py: echo fill extends the user's past verdicts to pixel-identical lookalikes, while a standing rule extends a recorded once-and-for-all decision to instances the user has never seen (new left letters minted by later migrations), so those units never queue. The guard list is the point of authoring a guarded rule at all: a rule's except_left families are held for review, so the one context the user does want to see still reaches the docket. Records are stamped with the manifest's generated_at, so any human verdict beats a standing fill on merge, and a parked unit (a skip verdict) is not blank and is never filled. The artifact cycle runs this after the echo fill, with a merge_verdicts pass to land the file."""
 
 import argparse
 import json
@@ -13,6 +13,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from rebuild.review.ink import delta_digest  # noqa: E402
 from rebuild.tools.echo_verdicts import latest_verdicts, load_units  # noqa: E402
 
 SURFACE = ROOT / "rebuild/out/review"
@@ -22,6 +23,8 @@ FORMAT = "ams-standing-approvals/1"
 ALLOWED_VERDICTS = ("approve", "either")
 CELL_FIELDS = 5
 EXIT_EXTENSION = re.compile(r"ex-ext-[1-9][0-9]*")
+DELTA_DIGEST = re.compile(r"d-[0-9a-f]{12}")
+EMPTY_DELTA_DIGEST = delta_digest(((), (), 0))
 
 
 def _fail(message) -> NoReturn:
@@ -132,6 +135,28 @@ def _matches_extension(match, unit, excluded):
     return any(unit.get("pair") == {"left": i, "right": i + 1} for i in hits)
 
 
+def _matches_ink_delta(match, unit, excluded):
+    """A window whose entire before→after ink change is one the user has blessed: the unit's persisted `ink_deltas` — one digest per config with any ink change, computed by the surface build over InkComparator.config_diff — must be a nonempty subset of the rule's named digests. Matching asserts exactly what the digest asserts: once unchanged flanks and rigidly-slid followers are stripped, the pixels that appear and disappear are the blessed ones and nothing else, under every config the unit diverges on — so every other difference the unit carries is name-grain only, and a window showing any unlisted ink change under any config fails closed. No judged-pair localization is needed because the delta is the whole window's ink change by construction. There is no pivot position either, so except_left reads against the whole window: an excluded family joining anywhere in it refuses the unit."""
+    deltas = unit.get("ink_deltas")
+    if not isinstance(deltas, dict) or not deltas:
+        return False
+    if not set(deltas.values()) <= set(match["after"]["ink_deltas"]):
+        return False
+    return not any(_joining_family(name) in excluded for name in unit["before"]["glyphs"])
+
+
+def _validate_ink_delta(rule_id, match) -> None:
+    """The ink-delta shape's own coherence, checked once at load: no digest may repeat, and none may be the empty delta — an ink-identical window is machine-approved already, so a rule blessing it could only ever mask a digest typo."""
+    digests = match["after"]["ink_deltas"]
+    if len(set(digests)) != len(digests):
+        _fail(f"rule {rule_id!r}: match.after.ink_deltas repeats a digest")
+    if EMPTY_DELTA_DIGEST in digests:
+        _fail(
+            f"rule {rule_id!r}: match.after.ink_deltas names the empty delta {EMPTY_DELTA_DIGEST}; "
+            "an ink-identical window is machine-approved and never needs a rule"
+        )
+
+
 def _validate_extension(rule_id, match) -> None:
     """The extension shape's own coherence, checked once at load so a rule can never quietly mean something else: the named extension has to be an exit-side one, since an entry-side token would pin the seam on the far side of the pivot from the `seam_out` the rule names; the cells have to belong to the letters the rule names; and no pivot cell may still carry an exit extension, because this shape speaks for an extension that is gone and never for one traded in for a shorter one."""
     extension = match["before"]["exit_extension"]
@@ -158,7 +183,7 @@ def _validate_extension(rule_id, match) -> None:
 
 
 class Shape(NamedTuple):
-    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly, which of those fields are lists of cell strings rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
+    """One expressible delta shape: the match.after field that declares it, the field names match.before and match.after must carry exactly (an empty tuple means the block itself must be absent), which of those fields are lists of cell strings or of delta digests rather than plain scalars, the matcher that reads a unit for it, and its own coherence check."""
 
     keyed_by: str
     before: tuple[str, ...]
@@ -166,6 +191,7 @@ class Shape(NamedTuple):
     cell_lists: tuple[str, ...]
     matcher: Callable[[dict, dict, set[str]], bool]
     validate: Callable[[str, dict], None] | None = None
+    digest_lists: tuple[str, ...] = ()
 
 
 SHAPES = {
@@ -183,6 +209,15 @@ SHAPES = {
         cell_lists=("pivot_cells", "follower_cells"),
         matcher=_matches_extension,
         validate=_validate_extension,
+    ),
+    "ink-delta": Shape(
+        keyed_by="ink_deltas",
+        before=(),
+        after=("ink_deltas",),
+        cell_lists=(),
+        matcher=_matches_ink_delta,
+        validate=_validate_ink_delta,
+        digest_lists=("ink_deltas",),
     ),
 }
 
@@ -221,6 +256,10 @@ def load_rules(path) -> list:
             )
         shape = SHAPES[declared[0]]
         for block, fields in (("before", shape.before), ("after", shape.after)):
+            if not fields:
+                if block in match:
+                    _fail(f"rule {rule_id!r}: the {declared[0]} shape carries no match.{block} block")
+                continue
             got = match.get(block)
             if not isinstance(got, dict) or set(got) != set(fields):
                 _fail(
@@ -229,14 +268,24 @@ def load_rules(path) -> list:
                 )
             for field in fields:
                 value = got[field]
-                if field not in shape.cell_lists:
-                    if not isinstance(value, str) or not value:
-                        _fail(f"rule {rule_id!r}: match.{block}.{field} must be a nonempty string")
-                elif not isinstance(value, list) or not value or not all(_is_cell(cell) for cell in value):
-                    _fail(
-                        f"rule {rule_id!r}: match.{block}.{field} must be a nonempty list of "
-                        "rune/stance/entry/exit/adjustments cell strings"
-                    )
+                if field in shape.cell_lists:
+                    if not isinstance(value, list) or not value or not all(_is_cell(cell) for cell in value):
+                        _fail(
+                            f"rule {rule_id!r}: match.{block}.{field} must be a nonempty list of "
+                            "rune/stance/entry/exit/adjustments cell strings"
+                        )
+                elif field in shape.digest_lists:
+                    if (
+                        not isinstance(value, list)
+                        or not value
+                        or not all(isinstance(item, str) and DELTA_DIGEST.fullmatch(item) for item in value)
+                    ):
+                        _fail(
+                            f"rule {rule_id!r}: match.{block}.{field} must be a nonempty list of "
+                            "d- ink-delta digests"
+                        )
+                elif not isinstance(value, str) or not value:
+                    _fail(f"rule {rule_id!r}: match.{block}.{field} must be a nonempty string")
         if shape.validate is not None:
             shape.validate(rule_id, match)
         except_left = match.get("except_left", [])
@@ -283,6 +332,12 @@ def main():
         for unit in load_units(surface)
         if not unit.get("no_verdict") and len(unit.get("render_groups") or []) == 1
     ]
+    wants_deltas = any(SHAPES["ink-delta"].keyed_by in rule["match"]["after"] for rule in rules)
+    if wants_deltas and not any("ink_deltas" in unit for unit in units):
+        raise SystemExit(
+            "the surface carries no ink_deltas fields, so it predates the ink-delta shape; an ink-delta "
+            "rule cannot match anything on it — rebuild the surface (make review-cycle) first"
+        )
 
     fills = []
     lines = []

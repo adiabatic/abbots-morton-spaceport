@@ -1,4 +1,4 @@
-"""Tests for the standing-approval fill: both structural pattern matches — the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question) — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
+"""Tests for the standing-approval fill: all three delta shapes — the two structural pattern matches, being the ligature shape (pivot glyph, seams into and out of it, follower family, post-ligature seam, flank-seam identity) and the extension-dropped shape (pivot glyph carrying the named exit extension, the seam it exits into holding its height, the full after-cell identity of pivot and follower, every other seam standing still, nothing ligating anywhere, and the unit's own judgment fields agreeing that this seam is the question), plus the ink-exact ink-delta shape (the unit's persisted per-config digests being a nonempty subset of the ones the rule blesses, so an ink-identical window matches nothing and one unlisted delta under one config fails the whole unit closed, and a surface predating the field refuses the run outright) — the except_left guard, which reads a ligature's trailing left component and refuses the whole unit rather than the one position, blankness against the verdicts file (parked skip verdicts are not blank), the non-winning manifest stamp on every emitted record, and rules-file validation, which admits exactly one shape per rule and checks that shape's own coherence."""
 
 import json
 import sys
@@ -36,6 +36,20 @@ EXT_RULE = {
             "follower_cells": ["qsI/smaller-loop/baseline/None/", "qsI/smaller-loop/baseline/x-height/"],
         },
         "except_left": ["qsMay"],
+    },
+}
+
+DELTA_A = "d-14c0f8d9cc8c"
+DELTA_B = "d-9b8a7c6d5e4f"
+UNLISTED_DELTA = "d-000000000001"
+
+INK_RULE = {
+    "id": "may-entry-stub-dropped",
+    "verdict": "approve",
+    "note": "the ·May has lost its left-side stub pixel and nothing else moved",
+    "match": {
+        "after": {"ink_deltas": [DELTA_A, DELTA_B]},
+        "except_left": [],
     },
 }
 
@@ -419,9 +433,84 @@ def test_a_guarded_instance_refuses_the_whole_unit_even_beside_an_unguarded_one(
     assert not sv._matches(guard_i, repeated)
 
 
+def ink_delta_unit(uid="i-1", glyphs=("qsRoe.ex-y0", "qsMay.en-y0"), deltas=None):
+    made = unit(
+        uid,
+        list(glyphs),
+        ["y0"] * (len(glyphs) - 1),
+        [f"{sv._family(name)}/full/None/None/" for name in glyphs],
+        ["y0"] * (len(glyphs) - 1),
+        pair={"left": 0, "right": 1},
+    )
+    made["ink_deltas"] = {"default": DELTA_A, "ss03": DELTA_A} if deltas is None else deltas
+    return made
+
+
+def guarding(rule, families):
+    match = json.loads(json.dumps(rule["match"]))
+    match["except_left"] = list(families)
+    return match
+
+
+def test_a_window_whose_whole_ink_change_is_blessed_matches():
+    assert sv._matches(INK_RULE["match"], ink_delta_unit())
+
+
+def test_a_unit_may_show_a_strict_subset_of_a_multi_flavor_rule():
+    assert sv._matches(INK_RULE["match"], ink_delta_unit(deltas={"default": DELTA_B}))
+    assert sv._matches(INK_RULE["match"], ink_delta_unit(deltas={"default": DELTA_A, "ss03": DELTA_B}))
+
+
+def test_one_unlisted_delta_under_one_config_defeats_the_match():
+    strayed = ink_delta_unit(deltas={"default": DELTA_A, "ss03": UNLISTED_DELTA})
+    assert not sv._matches(INK_RULE["match"], strayed)
+    assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas={"default": UNLISTED_DELTA}))
+
+
+def test_a_unit_that_predates_the_ink_delta_field_does_not_match():
+    bare = ink_delta_unit()
+    del bare["ink_deltas"]
+    assert not sv._matches(INK_RULE["match"], bare)
+
+
+def test_an_ink_identical_unit_does_not_match():
+    assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas={}))
+
+
+def test_an_ink_deltas_field_that_is_not_a_mapping_does_not_match():
+    assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas=[DELTA_A]))
+    assert not sv._matches(INK_RULE["match"], ink_delta_unit(deltas=DELTA_A))
+
+
+def test_except_left_holds_the_guarded_family_on_the_ink_delta_shape():
+    held = ink_delta_unit(glyphs=("qsOut.ex-y0", "qsMay.en-y0"))
+    assert not sv._matches(guarding(INK_RULE, ["qsOut"]), held)
+    assert sv._matches(guarding(INK_RULE, ["qsOut"]), held, guard=False)
+
+
+def test_a_ligature_trailing_left_component_is_guarded_on_the_ink_delta_shape():
+    held = ink_delta_unit(glyphs=("qsPea", "qsDay_qsMay.alt", "qsIt"))
+    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), held)
+    assert sv._matches(guarding(INK_RULE, ["qsMay"]), held, guard=False)
+    assert sv._matches(guarding(INK_RULE, ["qsDay"]), held)
+
+
+def test_the_ink_delta_guard_reads_the_whole_window_and_not_a_pivots_left():
+    held = ink_delta_unit()
+    assert not sv._matches(guarding(INK_RULE, ["qsMay"]), held)
+    assert sv._matches(guarding(INK_RULE, ["qsMay"]), held, guard=False)
+
+
 def test_neither_shape_reads_the_other_shapes_units():
     assert not sv._matches(RULE["match"], tea_i())
     assert not sv._matches(EXT_RULE["match"], canonical())
+
+
+def test_the_ink_delta_shape_and_the_structural_shapes_do_not_read_each_others_units():
+    assert not sv._matches(INK_RULE["match"], canonical())
+    assert not sv._matches(INK_RULE["match"], tea_i())
+    assert not sv._matches(RULE["match"], ink_delta_unit())
+    assert not sv._matches(EXT_RULE["match"], ink_delta_unit())
 
 
 def test_checked_in_rules_file_loads():
@@ -523,9 +612,81 @@ def test_a_rule_declaring_neither_shape_is_refused(tmp_path):
         sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
 
 
+def test_an_ink_delta_rule_loads(tmp_path):
+    [rule] = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [INK_RULE]))
+    assert rule["verdict"] == "approve"
+    assert rule["note"]
+    assert rule["match"] == {"after": {"ink_deltas": [DELTA_A, DELTA_B]}, "except_left": []}
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda rule: rule.update(verdict="reject"),
+        lambda rule: rule.update(note=""),
+        lambda rule: rule["match"]["after"].pop("ink_deltas"),
+        lambda rule: rule["match"]["after"].update(ink_deltas=DELTA_A),
+        lambda rule: rule["match"]["after"].update(ink_deltas=[]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["x-14c0f8d9cc8c"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["14c0f8d9cc8c"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["d-14c0f8d9cc"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["d-14c0f8d9cc8cab"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["d-14C0F8D9CC8C"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=["d-14c0f8d9cc8g"]),
+        lambda rule: rule["match"]["after"].update(ink_deltas=[DELTA_A, None]),
+        lambda rule: rule["match"].update(except_left="qsMay"),
+    ],
+)
+def test_malformed_ink_delta_rules_are_refused(tmp_path, mutate):
+    rule = json.loads(json.dumps(INK_RULE))
+    mutate(rule)
+    with pytest.raises(SystemExit):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_an_ink_delta_rule_carrying_a_before_block_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["before"] = {"pivot": "qsMay", "seam_into": "y0"}
+    with pytest.raises(SystemExit, match="carries no match.before block"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_an_empty_before_block_is_refused_too(tmp_path):
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["before"] = {}
+    with pytest.raises(SystemExit, match="carries no match.before block"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_repeated_digest_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["after"]["ink_deltas"] = [DELTA_A, DELTA_B, DELTA_A]
+    with pytest.raises(SystemExit, match="repeats a digest"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_the_empty_delta_is_refused_at_load(tmp_path):
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["after"]["ink_deltas"] = [DELTA_A, sv.EMPTY_DELTA_DIGEST]
+    with pytest.raises(SystemExit, match="never needs a rule"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
+def test_a_rule_declaring_the_ink_delta_and_ligature_shapes_at_once_is_refused(tmp_path):
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["after"]["ligature"] = "qsTea_qsOy"
+    with pytest.raises(SystemExit, match="exactly one delta shape"):
+        sv.load_rules(_write_rules(tmp_path / "rules.yaml", [rule]))
+
+
 def test_both_shapes_load_from_one_rules_file(tmp_path):
     rules = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE]))
     assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"]]
+
+
+def test_all_three_shapes_load_from_one_rules_file(tmp_path):
+    rules = sv.load_rules(_write_rules(tmp_path / "rules.yaml", [RULE, EXT_RULE, INK_RULE]))
+    assert [rule["id"] for rule in rules] == [RULE["id"], EXT_RULE["id"], INK_RULE["id"]]
 
 
 def test_duplicate_rule_ids_are_refused(tmp_path):
@@ -603,6 +764,44 @@ def test_main_fills_both_shapes_from_one_rules_file(tmp_path, monkeypatch):
     assert set(by_unit) == {"u-1", "u-2"}
     assert by_unit["u-1"]["note"].startswith("[standing: tea-oy-ligature-break]")
     assert by_unit["u-2"]["note"].startswith("[standing: tea-i-exit-extension-dropped]")
+
+
+def test_main_fills_only_the_blank_matching_ink_delta_units(tmp_path, monkeypatch):
+    units = [
+        ink_delta_unit("i-1"),
+        ink_delta_unit("i-2"),
+        ink_delta_unit("i-3"),
+        ink_delta_unit("i-4", deltas={"default": DELTA_A, "ss03": UNLISTED_DELTA}),
+        ink_delta_unit("i-5", glyphs=("qsOut.ex-y0", "qsMay.en-y0")),
+        ink_delta_unit("i-6"),
+    ]
+    units[5]["no_verdict"] = True
+    verdicts = [
+        {"unit": "i-2", "verdict": "reject", "note": "", "at": "2026-07-11T00:00:00Z"},
+        {"unit": "i-3", "verdict": "skip", "note": "[parked]", "at": "2026-07-11T00:00:00Z"},
+    ]
+    rule = json.loads(json.dumps(INK_RULE))
+    rule["match"]["except_left"] = ["qsOut"]
+    payload = _run_main(tmp_path, monkeypatch, units, verdicts, rules_list=(rule,))
+    assert payload["manifest_generated_at"] == STAMP
+    assert [record["unit"] for record in payload["verdicts"]] == ["i-1"]
+    record = payload["verdicts"][0]
+    assert record["verdict"] == "approve"
+    assert record["at"] == STAMP
+    assert record["note"] == f"[standing: {INK_RULE['id']}] {INK_RULE['note']}"
+
+
+def test_main_fills_all_three_shapes_from_one_rules_file(tmp_path, monkeypatch):
+    units = [canonical("u-1"), tea_i("u-2"), ink_delta_unit("i-1")]
+    payload = _run_main(tmp_path, monkeypatch, units, [], rules_list=(RULE, EXT_RULE, INK_RULE))
+    by_unit = {record["unit"]: record for record in payload["verdicts"]}
+    assert set(by_unit) == {"u-1", "u-2", "i-1"}
+    assert by_unit["i-1"]["note"].startswith(f"[standing: {INK_RULE['id']}]")
+
+
+def test_main_refuses_a_surface_that_predates_the_ink_delta_field(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="predates the ink-delta shape"):
+        _run_main(tmp_path, monkeypatch, [canonical("u-1")], [], rules_list=(RULE, INK_RULE))
 
 
 def test_main_ignores_multi_render_group_units(tmp_path, monkeypatch):

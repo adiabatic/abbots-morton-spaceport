@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from collections import Counter
 from pathlib import Path
@@ -41,6 +42,11 @@ def features_for(config: str | None) -> dict[str, bool]:
 def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
     """The review surface's kern-off shaping features: the config's stylistic-set features plus an unconditional `kern: False`, for both fonts. A no-op on the after font (it carries no kern feature yet), but explicit so the rule survives the later kerning milestone, where kern differences get their own review."""
     return {**(features or {}), "kern": False}
+
+
+def delta_digest(diff: tuple) -> str:
+    """The persisted identity of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr. The surface stores one digest per config whose delta is nonempty (the unit JSON's `ink_deltas`), so a standing-approval rule can bless a localized ink change once and match every window — in any batch, past or future — where exactly that change and nothing else is the whole before→after difference. Like the cluster id's repr recipe, this is a byte-identity contract: changing it orphans every digest recorded in rebuild/standing-approvals.yaml."""
+    return "d-" + hashlib.sha1(repr(diff).encode()).hexdigest()[:12]
 
 
 def translate_outline(value: tuple, dx: int, dy: int) -> tuple:

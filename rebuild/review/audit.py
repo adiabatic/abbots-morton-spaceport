@@ -53,6 +53,7 @@ class Unit:
     render_groups: tuple[tuple[str, ...], ...] = ()
     ink_identical: bool = False
     junior_equivalent: bool = False
+    ink_deltas: dict[str, str] = field(default_factory=dict)
     no_verdict: bool = False
     config_classes: dict[str, str] = field(default_factory=dict)
     family_id: str = ""
