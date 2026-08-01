@@ -1,9 +1,11 @@
-"""Tests for the cross-surface carry's content key: the identity a prior surface's verdict is re-resolved against when the surface is rebuilt. Everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out of the key, so a field's first appearance cannot strand the verdicts recorded before it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
+"""Tests for the cross-surface carry: the content key a prior surface's verdict is re-resolved against when the surface is rebuilt, and the stamp guard that refuses a source pair whose verdicts were recorded against a different surface than the one offered. For the key, everything the rebuild churns — ids, batches, drafts, provenance, the derived group ids, and the per-config ink_deltas map — is presentation and stays out, so a field's first appearance cannot strand the verdicts recorded before it; everything the reviewer actually judged stays in, so a real change to the window loses its old verdict rather than inheriting one. The key tests' units are the shipped review fixtures, which the §7 contract checker also gates in test_review_build."""
 
 import json
 from pathlib import Path
 
-from rebuild.tools.carry_verdicts import PRESENTATION_KEYS, content_key
+import pytest
+
+from rebuild.tools.carry_verdicts import PRESENTATION_KEYS, content_key, main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_UNITS = REPO_ROOT / "rebuild" / "review" / "fixtures" / "units"
@@ -36,6 +38,66 @@ def test_every_presentation_key_is_invisible_to_the_content_key():
         for key in PRESENTATION_KEYS:
             prior = {name: value for name, value in current.items() if name != key}
             assert content_key(prior) == content_key(current), f"{current['id']}: {key}"
+
+
+def _write_surface(root, stamp, units):
+    (root / "units").mkdir(parents=True)
+    (root / "manifest.json").write_text(json.dumps({"generated_at": stamp}))
+    (root / "units" / "units.json").write_text(json.dumps(units))
+
+
+def _write_verdicts(path, stamp, verdicts):
+    path.write_text(
+        json.dumps({"format": "ams-review-verdicts/1", "manifest_generated_at": stamp, "verdicts": verdicts})
+    )
+
+
+def _run_carry(monkeypatch, prior, verdicts, out, current):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "carry_verdicts.py",
+            "--source",
+            str(prior),
+            str(verdicts),
+            "--out",
+            str(out),
+            "--current-surface",
+            str(current),
+        ],
+    )
+    main()
+
+
+def test_a_source_pair_with_disagreeing_stamps_refuses(tmp_path, monkeypatch):
+    """The verdicts' unit ids only resolve correctly on the surface they were recorded against, so a pair whose stamps disagree must refuse instead of carrying onto the wrong windows."""
+    prior = tmp_path / "prior"
+    _write_surface(prior, "2026-07-01T00:00:00Z", [])
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(verdicts, "2026-06-01T00:00:00Z", [])
+    out = tmp_path / "out.json"
+    with pytest.raises(SystemExit, match="different surface"):
+        _run_carry(monkeypatch, prior, verdicts, out, tmp_path / "current")
+    assert not out.exists()
+
+
+def test_a_stamp_matching_pair_carries_onto_the_renumbered_surface(tmp_path, monkeypatch):
+    prior = tmp_path / "prior"
+    unit = {"id": "u-1", "batch": 1, "codepoints": "E650:E652", "configs": ["default"], "window": "w"}
+    _write_surface(prior, "2026-07-01T00:00:00Z", [unit])
+    current = tmp_path / "current"
+    _write_surface(current, "2026-07-02T00:00:00Z", [{**unit, "id": "u-9"}])
+    verdicts = tmp_path / "verdicts.json"
+    _write_verdicts(
+        verdicts,
+        "2026-07-01T00:00:00Z",
+        [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-01T01:00:00Z"}],
+    )
+    out = tmp_path / "out.json"
+    _run_carry(monkeypatch, prior, verdicts, out, current)
+    payload = json.loads(out.read_text())
+    assert payload["manifest_generated_at"] == "2026-07-02T00:00:00Z"
+    assert [record["unit"] for record in payload["verdicts"]] == ["u-9"]
 
 
 def test_a_change_to_the_judged_window_moves_the_content_key():

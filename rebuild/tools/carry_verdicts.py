@@ -58,13 +58,25 @@ def ink_key(comparator, unit):
     return (unit["codepoints"], signatures.pop())
 
 
-def latest_verdicts(path):
+def latest_verdicts(payload):
     best = {}
-    for record in json.loads(path.read_text())["verdicts"]:
+    for record in payload["verdicts"]:
         unit = record["unit"]
         if unit not in best or record["at"] > best[unit]["at"]:
             best[unit] = record
     return best
+
+
+def check_source_stamps(root, verdict_file, payload):
+    """Refuse a source pair whose stamps disagree: the verdicts' unit ids only mean anything on the surface they were recorded against, so resolving them against a different snapshot silently carries them onto the wrong windows (the qsEt cycle carried 589 that way before the mistake surfaced)."""
+    recorded = payload.get("manifest_generated_at")
+    held = json.loads((root / "manifest.json").read_text()).get("generated_at")
+    if recorded != held:
+        raise SystemExit(
+            f"{verdict_file.name} is stamped {recorded}, but {root} holds the surface generated at {held}. "
+            "These verdicts were recorded against a different surface, and resolving their unit ids here would carry them onto the wrong windows. "
+            "Pair the file with the surface it was recorded on — the stamp-matching tmp/review-pre-* snapshot — and rerun."
+        )
 
 
 def main():
@@ -92,10 +104,12 @@ def main():
     prior = {}
     surface_roots = {}
     for root, verdict_file in sources:
+        payload = json.loads(verdict_file.read_text())
+        check_source_stamps(root, verdict_file, payload)
         surface_roots[root.name] = root
         units_by_id = {u["id"]: u for u in load_surface(root)}
         used = 0
-        for unit_id, record in latest_verdicts(verdict_file).items():
+        for unit_id, record in latest_verdicts(payload).items():
             unit = units_by_id.get(unit_id)
             if unit is None:
                 continue
