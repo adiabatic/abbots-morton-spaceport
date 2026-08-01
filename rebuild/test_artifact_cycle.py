@@ -1855,15 +1855,17 @@ def test_dry_run_auto_resolves_the_carry_source(tmp_path, monkeypatch, capsys):
     assert str(tmp_path / "verdicts-autosave.json") in out
 
 
-def test_dry_run_auto_resolution_flags_a_mismatched_stamp(tmp_path, monkeypatch, capsys):
+def test_auto_resolution_refuses_a_mismatched_stamp(tmp_path, monkeypatch, capsys):
+    """When no candidate is stamped for the served surface, the cycle stops before any work rather than pairing the newest-stamped file with a snapshot it wasn't recorded against — the mis-carry the qsEt cycle hit."""
     _seed_auto_repo(tmp_path, monkeypatch)
     (tmp_path / "verdicts-carried-old.json").write_text(
         json.dumps(_verdicts_doc("2026-07-10T00:00:00Z", ["u-1"]))
     )
-    assert ac.main(["--dry-run"]) == 0
+    assert ac.main(["--dry-run"]) == 2
     out = capsys.readouterr().out
-    assert "Auto-resolved carry source: verdicts-carried-old.json" in out
+    assert "ERROR: the best carry source, verdicts-carried-old.json" in out
     assert "not the served surface" in out
+    assert "--no-carry" in out
 
 
 def test_dry_run_degrades_to_no_carry_when_nothing_carryable(tmp_path, monkeypatch, capsys):

@@ -857,14 +857,14 @@ def describe_carry_source(resolved: dict, root: Path) -> str:
     except ValueError:
         shown = resolved["path"]
     if resolved["aligned"]:
-        provenance = "stamped for the served surface"
-    else:
-        provenance = (
-            f"stamped {resolved['stamp']}, not the served surface; carry re-resolves by content and ink keys"
+        return (
+            f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, stamped for the served surface). "
+            "Pass --verdicts to override."
         )
     return (
-        f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {provenance}). "
-        "Pass --verdicts to override."
+        f"ERROR: the best carry source, {shown} ({resolved['count']} effective verdicts), is stamped {resolved['stamp']}, not the served surface. "
+        "Its verdicts were recorded against a surface rebuild/out/review no longer holds — review.build ran outside a cycle, or a cycle died between its surface build and its merge — and pairing them with a snapshot of the live directory would resolve their unit ids onto the wrong windows, which carry_verdicts now refuses outright. "
+        "Recover first: carry the file onto the live surface from its stamp-matching tmp/review-pre-* snapshot (uv run python rebuild/tools/carry_verdicts.py --source <snapshot> <verdicts>, then rebuild.tools.merge_verdicts), or rerun with --no-carry to proceed without these verdicts, or --verdicts to name a different master."
     )
 
 
@@ -2271,8 +2271,10 @@ def main(argv: list[str] | None = None) -> int:
                 "No carryable verdicts found (neither the autosave nor any verdicts-*.json at the repo root or under rebuild/evidence holds an effective verdict); proceeding without carry. Pass --verdicts to name a master explicitly."
             )
         else:
-            args.verdicts = resolved["path"]
             print(describe_carry_source(resolved, ROOT))
+            if not resolved["aligned"]:
+                return 2
+            args.verdicts = resolved["path"]
 
     if args.dry_run:
         plan = build_plan(

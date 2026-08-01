@@ -72,7 +72,7 @@ def pick_frontier(repo_root, manifest_stamp) -> tuple[Path, int] | None:
 
 
 def resolve_carry_source(repo_root, manifest_stamp, autosave_path) -> dict | None:
-    """Choose the verdicts file the artifact cycle carries forward when the caller didn't name one. Candidates are the live autosave plus every verdicts-*.json export at the repo root and under rebuild/evidence; the stamp-aligned candidate with the most effective verdicts wins (the autosave breaks ties, since it is the live store). When nothing aligns — the served surface was restamped outside a recorded cycle — the newest-stamped candidate stands in, which is safe because carry_verdicts re-resolves by content and ink keys rather than trusting the stamp. None means no candidate holds a single effective verdict."""
+    """Choose the verdicts file the artifact cycle carries forward when the caller didn't name one. Candidates are the live autosave plus every verdicts-*.json export at the repo root and under rebuild/evidence; the stamp-aligned candidate with the most effective verdicts wins (the autosave breaks ties, since it is the live store). When nothing aligns — the served surface was restamped outside a recorded cycle — the newest-stamped candidate is still returned with aligned=False so the caller can name it in a refusal: a verdicts file only resolves correctly against the surface it was recorded on, so the cycle stops rather than pairing it with a snapshot of the live directory, and carry_verdicts itself refuses a source pair whose stamps disagree. None means no candidate holds a single effective verdict."""
     entries: list[tuple[Path, str, int, bool]] = []
     autosave_path = Path(autosave_path)
     try:
