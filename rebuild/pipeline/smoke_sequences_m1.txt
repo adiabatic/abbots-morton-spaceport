@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsEt E672, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -153,3 +153,32 @@ E670 E668 E666            # It Roe No (extended baseline entry, x-height exit)
 E668 E67A E667            # Roe Utter Low (the "orally" window: break, then alt-Utter's baseline exit)
 200C E668                 # ZWNJ Roe (locked twin)
 E668 200C E665            # Roe ZWNJ May (exit severed)
+#
+# qsEt windows: the short diagonal, entered high on the left and leaving low on the right.
+E672                      # Et in isolation
+E650 E672                 # Pea Et (the dipping half-Pea's x-height exit into an extended entry)
+E652 E672                 # Tea Et (half-Tea's x-height exit into an extended entry)
+E658 E672                 # Fee Et (extended x-height exit into the entry)
+E665 E672                 # May Et (x-height join)
+E666 E672                 # No Et (x-height join)
+E670 E672                 # It Et (x-height join)
+E675 E672                 # I Et (extended x-height exit)
+E67A E672                 # Utter Et (the mono Utter's x-height exit)
+E668 E672                 # Roe Et (break: Roe's x-height exit does not reach Et)
+E672 E652                 # Et Tea (the baseline join that spends Tea's slot backward)
+E672 E652 E653            # Et Tea Day (Tea joins Et and strands Day; ss05 unlocks the both-baseline Tea)
+E672 E652 E679            # Et Tea+Oy (Et surrenders its exit before the entryless ligature)
+E672 E653                 # Et Day (baseline join into the chaining half)
+E672 E653 E67A            # Et Day+Utter (baseline join into the ligature's half)
+E672 E665                 # Et May (baseline join)
+E672 E666                 # Et No (baseline join into the flipped No)
+E672 E667                 # Et Low (baseline join)
+E672 E668                 # Et Roe (baseline join into the lower tip)
+E672 E670                 # Et It (baseline join)
+E672 E675                 # Et I (baseline join, the regular loop)
+E672 E676                 # Et Ah (baseline join)
+E672 E67A                 # Et Utter (baseline join into the mono Utter)
+E672 E672                 # Et Et (no join)
+E653 E652 E672            # Day Tea Et (the Day-Tea-X family window)
+200C E672                 # ZWNJ Et (locked twin)
+E672 200C E652            # Et ZWNJ Tea (exit severed)

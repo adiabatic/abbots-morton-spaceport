@@ -156,7 +156,12 @@ policy:
         - {family: qsMay}
         - {family: qsNo}
         - {family: qsUtter}
-  prefer: []
+  prefer:
+  - stance: half
+    when:
+      right:
+        family: qsIt
+        then: {family: qsEt}
   extend: []
   contract: []
   resolve: []

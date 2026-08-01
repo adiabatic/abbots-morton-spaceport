@@ -365,3 +365,32 @@
 
 - signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.hapax.en-y0:y5
   why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (baseline row E658:E652:E668 under ss03, seams y5,y0). ·Roe's upper arm starts in the column beside the bar at y5 — the corner the shipped font already draws there. Without ss03 the bar stops at the x-height instead, and qsTea's own refusal keeps the unentered full bar out of ·Roe entirely.
+
+# ·It·Et and ·Low·Et join at the x-height today (baseline rows E670:E672 and E667:E672, seam y5); the exiter's riser at y4 sits one column left of ·Et's descending left edge — the same corner the blessed ·Low·Day/·Low·It block above records, now with ·Et as the follower. One signature per exiter variant (bare, entered, ZWNJ-locked) and ·Et exit variant (the onward baseline exit does not move the entry column); the entry-extended ·Et twins never meet these exiters, because the extension fires only after the halves trio.
+- signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
+- signature: contact:qsIt.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.en-y0.ex-y5:qsEt.hapax.en-y5.ex-y0:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5:y4
+- signature: contact:qsLow.hapax.ex-y5.locked:qsEt.hapax.en-y5.ex-y0:y4
+
+# The ss05 both-baseline ·Tea — entered from ·Et, the only left the unlock admits — joins ·Utter at the baseline exactly like the bare and x-height-entered bars blessed above (ss05 row E672:E652:E67A, seams y0,y0); the same ·Tea-bar-abuts-·Utter's-left-downstroke corner at y1.
+- signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0:y1
+- signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
+- signature: contact:qsTea.full.en-y0.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
+
+# ·Et's declined-exit terminal (E-DANGLE). The shipped font draws ·Et's two-pixel rightward baseline tail unconditionally — isolated, word-final, and before a non-joining follower alike — and carries no withdrawn ·Et anywhere in the baseline. The tail ends horizontally, so it cannot earn the automatic `withdrawal: safe` proof; these blessings record it as intentional letterform ink, not a stranded connector.
+- signature: dangle:qsEt.hapax:exit:baseline
+  why: ·Et's baseline terminal on the isolated drawing; the declined exit keeps it.
+- signature: dangle:qsEt.hapax.en-y5:exit:baseline
+  why: ·Et entered at the x-height keeps the same baseline terminal on a declined exit.
+- signature: dangle:qsEt.hapax.en-y5.en-ext-1:exit:baseline
+  why: The extended-entry variant; the entry extension lengthens the top of the stroke, not the tail.
+- signature: dangle:qsEt.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of ·Et's baseline terminal; identical drawing.
