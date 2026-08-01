@@ -2,7 +2,7 @@
 
 ## Roadmap and open decisions
 
-- @WHATNEXT.md is the forward-looking punch list — what ought to happen next, and the open forks in the road. Read it when you need that context. When work lands, keep it current by editing the live state in place and deleting what it supersedes — WHATNEXT records the live frontier, never a running log of what happened (see its “Keeping this file honest” block, and the note-taking rules below).
+- WHATNEXT.md is the forward-looking punch list — what ought to happen next, and the open forks in the road. Read it when you need that context. When work lands, keep it current by editing the live state in place and deleting what it supersedes — WHATNEXT records the live frontier, never a running log of what happened (see its “Keeping this file honest” block, and the note-taking rules below).
 
 ## Note-taking and the rebuild logs
 
@@ -70,7 +70,7 @@ Pyright covers the whole Python tree, `rebuild/` included, and every invocation 
 
 ## Adding glyphs
 
-- Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in @postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
+- Whenever a glyph is added to any YAML file under `glyph_data/`, ensure it also has an entry in postscript_glyph_names.yaml if it uses a standard PostScript name (not a `uniXXXX` name).
 - Keep all glyphs alphabetized by code point (`uniXXXX`).
 - “Ink” is a filled bitmap pixel — a `#` cell, as opposed to a space. The font’s strokes are made of ink. The cursive-attachment tooling talks about a row’s “leftmost-ink column” (the leftmost `#` in that row), “no ink at y=N” (the row at glyph-space y=N is all spaces), and `exit_ink_y` (the fallback row to scan when the exit anchor’s own Y has no ink).
 - For bitmap data, use double-quoted row strings. Add bare trailing `#` comment markers on the rows whose glyph-space `y` values are 5 and 0; which bitmap rows those are depends on `y_offset`.
@@ -89,7 +89,7 @@ Pyright covers the whole Python tree, `rebuild/` included, and every invocation 
 ## YAML files
 
 - Quikscript stance keys (`alt_reaches_way_back`, `entry_xheight`) are local labels — compiled glyph identity and compatibility metadata come from each stance’s explicit `traits` and `modifiers`. Structured selectors in `select` / `derive` can combine all three, e.g. `{family: qsUtter, traits: [alt], modifiers: [reaches-way-back]}`.
-- Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see @postscript_glyph_names.yaml). For ligatures, sort by the lead family’s code point, with the bare lead before any ligature that starts with it.
+- Within `select` / `derive` lists and `context_sets`, keep `{family: qsX}` entries in code-point order (qsPea, qsBay, qsTea, …, qsOoze — see postscript_glyph_names.yaml). For ligatures, sort by the lead family’s code point, with the bare lead before any ligature that starts with it.
 - When multiple Quikscript stances share the same selector or anchor scaffolding, prefer `inherits` over copying the whole stance, and clear inherited nested keys with `null` when a child stance needs to drop them.
 
 ### Ductus
