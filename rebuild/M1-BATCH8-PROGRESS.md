@@ -4,7 +4,7 @@ Scratch for the ·Et migration. Delete when the batch closes, lifting any surviv
 
 ## Committed
 
-Nothing yet.
+- `Don't join ·It·Et (it looks kind of ugly)` — the qsIt x-height-exit refusal toward qsEt; the ·It·Et windows that matched the old font re-queue as deliberate divergences at the next cycle.
 
 ## Parked
 
@@ -29,7 +29,7 @@ Most of the wiring predated this batch: qsTea carries the ss05 both-baseline unl
 ## Recorded design overrides
 
 - **The entry is unrestricted where qsAh's carries a from-list.** Every migrated x-height exit that reaches ·Et joins it in the old font; the one that doesn't — ·Roe — already excludes qsEt from its own `toward:` list, so the entry needs no allowlist. The qsRoe idiom, chosen over the qsAh one.
-- **qsPea and qsTea each carry a half-stance prefer before ·It·Et.** ·Et's arrival gave an unentered ·It its first x-height acceptor, which turned every `X ~x~ ·It ·Et` window into a two-join tie: serve ·It backward (the old font's uniform answer, `y5,break` for every x-height exiter) or let ·It reach forward into ·Et. For most lefts the floor's realize-left-seam picks the backward join, but ·Pea and ·Tea rank `order: [full, half]`, and the stance order outranks the floor — the non-joining full bar beat the half's grounded join and flipped the seam (this was the Manual-pin gate's one disagreement, the `·Tea ~x~ ·It | ·Et ~b~ ·Roe` pin at `site/the-manual.html:3935`). The record is the schema's stance-grain tie-breaker (`stance: half, when: {right: {family: qsIt, then: {family: qsEt}}}`, default yields-to-joins) on both runes; in `·Et ~b~ ·Tea ·It ·Et` the half has no baseline entry, so the prefer self-neutralizes and ·Tea still spends its slot backward. The same flip will recur at the qsHe migration — `E662:E670:E672` shows the identical old rendering — so qsHe's rune wants the same record.
+- **qsPea and qsTea each carry a half-stance prefer before ·It·Et.** ·Et's arrival gave an unentered ·It its first x-height acceptor, which turned every `X ~x~ ·It ·Et` window into a two-join tie: serve ·It backward (the old font's uniform answer, `y5,break` for every x-height exiter) or let ·It reach forward into ·Et. For most lefts the floor's realize-left-seam picks the backward join, but ·Pea and ·Tea rank `order: [full, half]`, and the stance order outranks the floor — the non-joining full bar beat the half's grounded join and flipped the seam (this was the Manual-pin gate's one disagreement, the `·Tea ~x~ ·It | ·Et ~b~ ·Roe` pin at `site/the-manual.html:3935`). The record is the schema's stance-grain tie-breaker (`stance: half, when: {right: {family: qsIt, then: {family: qsEt}}}`, default yields-to-joins) on both runes; in `·Et ~b~ ·Tea ·It ·Et` the half has no baseline entry, so the prefer self-neutralizes and ·Tea still spends its slot backward. The flip ended mid-sitting: the user's reject on `·Pea·No·It·Et` landed a qsIt refusal of the ·It·Et x-height join, which makes the forward seam unrepresentable — the backward join now falls out of join-count, and qsHe needs no analogous record (WHATNEXT's qsHe bullet records the live state).
 
 ## Open questions for the sitting
 

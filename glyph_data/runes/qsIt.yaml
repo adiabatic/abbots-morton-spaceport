@@ -79,6 +79,10 @@ policy:
         - qsDay_qsUtter
   - exit: x-height
     when:
+      right: {family: qsEt}
+    why: ·It·Et looks weird when joined in this font.
+  - exit: x-height
+    when:
       self: {entry: none}
       right:
         family:
