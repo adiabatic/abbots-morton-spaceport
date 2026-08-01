@@ -28,6 +28,7 @@ M1_ALPHABET = frozenset(
         0xE665,
         0xE666,
         0xE667,
+        0xE668,
         0xE670,
         0xE675,
         0xE676,

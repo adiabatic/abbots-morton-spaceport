@@ -1,6 +1,6 @@
 # Curated sequence set for the M1 CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
-# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsIt E670, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
+# Codepoints: qsPea E650, qsTea E652, qsDay E653, qsFee E658, qsMay E665, qsNo E666, qsLow E667, qsRoe E668, qsIt E670, qsI E675, qsAh E676, qsOy E679, qsUtter E67A, space 0020, namer dot 00B7, ZWNJ 200C.
 # The driver runs every line under all eight acceptance configurations.
 #
 # The prototype probe rows, carried forward.
@@ -128,3 +128,28 @@ E650 E675 E665            # Pea I May (the smaller loop keeping its shape under 
 E652 E679 E675            # Tea+Oy ligature into I (baseline join off the ligature)
 200C E675                 # ZWNJ I (locked twin)
 E675 200C E665            # I ZWNJ May (exit severed)
+#
+# qsRoe windows: the two-tipped short letter, entered at one height and leaving from the other.
+E668                      # Roe in isolation
+E650 E668                 # Pea Roe (the dipping half-Pea's x-height exit into a contracted entry)
+E652 E668                 # Tea Roe (half-Tea's x-height exit into a contracted entry)
+E653 E668                 # Day Roe (baseline join into the lower tip)
+E658 E668                 # Fee Roe (extended x-height exit into the upper tip)
+E665 E668                 # May Roe (both sides reach: May's exit and Roe's x-height entry)
+E670 E668                 # It Roe (It's x-height exit into an extended entry)
+E67A E668                 # Utter Roe (the mono Utter's x-height exit)
+E668 E652                 # Roe Tea (break: Roe reaches neither of Tea's entries)
+E668 E665                 # Roe May (baseline exit, run out under the bowl)
+E668 E666                 # Roe No (x-height exit, run out over the bowl)
+E668 E667                 # Roe Low (extended baseline exit)
+E668 E668                 # Roe Roe (x-height exit into the next Roe's upper tip)
+E668 E675                 # Roe I (extended baseline exit into the tighter loop)
+E668 E676                 # Roe Ah (baseline exit into Ah's entry)
+E668 E679                 # Roe Oy (x-height exit into the opened loop)
+E668 E67A                 # Roe Utter (break: no seam either way)
+E666 E668 E665            # No Roe May (entered at the x-height, so the exit has to go low)
+E666 E668 E666            # No Roe No (entered high, leaving low into the flipped No)
+E670 E668 E666            # It Roe No (extended baseline entry, x-height exit)
+E668 E67A E667            # Roe Utter Low (the "orally" window: break, then alt-Utter's baseline exit)
+200C E668                 # ZWNJ Roe (locked twin)
+E668 200C E665            # Roe ZWNJ May (exit severed)

@@ -74,6 +74,7 @@ policy:
         family:
         - qsPea
         - qsRoe
+        joined_at: baseline
   - stance: smaller-loop
     when:
       left:

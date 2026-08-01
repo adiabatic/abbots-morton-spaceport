@@ -61,6 +61,7 @@ stances:
             - qsIt
             - qsOy
             - qsNo
+            - qsRoe
             - qsUtter
             - qsTea_qsOy
       exits:
