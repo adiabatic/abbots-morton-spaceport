@@ -1963,7 +1963,7 @@ def _preflight(args: argparse.Namespace) -> bool:
     print("(livereload rewrites the shards and the manifest restamp orphans the")
     print("autosave). Before re-running:")
     print("  1. in the review app, export or confirm the autosave of your verdicts")
-    print("  2. stop the review server")
+    print(r"  2. stop the review server:  pkill -f 'rebuild\.review\.serve'")
     print("  3. re-run this command (or pass --yes to override at your own risk)")
     print("  (or pass --review-out <dir> to rehearse without touching the live surface)")
     print("=" * 68)
