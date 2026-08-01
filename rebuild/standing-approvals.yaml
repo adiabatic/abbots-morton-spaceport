@@ -38,3 +38,10 @@ rules:
       after:
         ink_deltas: [d-14c0f8d9cc8c]
       except_left: []
+  - id: i-smaller-loop-after-baseline-entry
+    verdict: approve
+    note: "·I loops more tightly after a baseline entry — the smaller-loop-survives-extension override accepted at the qsI close"
+    match:
+      after:
+        ink_deltas: [d-fb9cc0e103ca]
+      except_left: []
