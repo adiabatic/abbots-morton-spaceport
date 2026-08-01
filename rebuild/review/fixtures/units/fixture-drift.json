@@ -4,6 +4,11 @@
   "batch": 0,
   "ink_identical": false,
   "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-59e0b8b8cf37",
+   "ss04": "d-59e0b8b8cf37",
+   "ss05": "d-59e0b8b8cf37"
+  },
   "no_verdict": false,
   "echo": "e-0000",
   "cluster": "c-0d41f7a0",
@@ -160,6 +165,10 @@
   "batch": 0,
   "ink_identical": false,
   "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-5b399cc0bcf1",
+   "ss10": "d-5281ac12b1b3"
+  },
   "no_verdict": false,
   "echo": "e-0000",
   "cluster": "c-0d41f7a0",

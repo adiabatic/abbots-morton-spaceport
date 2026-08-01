@@ -12,7 +12,7 @@ from rebuild.tools.verdict_notes import cap_markers  # noqa: E402
 
 OUT = ROOT / "verdicts-carried-forward.json"
 CURRENT_SURFACE = ROOT / "rebuild/out/review"
-# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; echo is an order-derived group id absent from older surfaces, and cluster is a derived ink-signature id that churns with any font change; everything adjudicable any of them describes is already covered by the window plus both fonts' glyphs, cells, and seams.
+# secondary_seams is derived data whose `home` field embeds another unit's id, so it churns whenever the surface renumbers; echo is an order-derived group id absent from older surfaces, cluster is a derived ink-signature id that churns with any font change, and ink_deltas is the same delta identity persisted per config, likewise absent from older surfaces; everything adjudicable any of them describes is already covered by the window plus both fonts' glyphs, cells, and seams.
 PRESENTATION_KEYS = {
     "id",
     "batch",
@@ -24,6 +24,7 @@ PRESENTATION_KEYS = {
     "secondary_seams",
     "echo",
     "cluster",
+    "ink_deltas",
 }
 
 

@@ -1,5 +1,6 @@
-"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from the `built_review_surface` session cache in rebuild/conftest.py — built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep the cache's byte-identity premise honest."""
+"""Tests for the review-app build CLI: a full M1 build validated by the §7 contract checker (the same checker run over rebuild/review/fixtures/, so fixtures and real output can never drift), the per-config ink_deltas map both at the checker and over every shipped unit, font sha256s, the HTML sanity check, node --check over every shipped script, the export round-trip, byte-identical determinism, and the table-diff build. The built surface comes from the `built_review_surface` session cache in rebuild/conftest.py — built at most once per input state across workers and runs — and every test here treats it as read-only; test_builds_are_byte_identical is the one that still builds fresh, precisely to keep the cache's byte-identity premise honest."""
 
+import copy
 import hashlib
 import json
 import shutil
@@ -25,7 +26,7 @@ from rebuild.review.build import (
 )
 from rebuild.review.census import load_pins
 from rebuild.review.export import build_triage, load_units, load_verdicts
-from rebuild.review.ink import InkComparator
+from rebuild.review.ink import InkComparator, delta_digest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
@@ -78,6 +79,75 @@ def test_fixture_units_exercise_the_contract_branches():
     assert any(
         len(echoes) > 1 for echoes in echoes_by_cluster.values()
     ), "a fixture cluster must span echo groups"
+    assert any(unit["ink_deltas"] for unit in units)
+    assert any(unit["ink_deltas"] == {} for unit in units)
+    assert any(
+        unit["ink_deltas"] and set(unit["ink_deltas"]) < set(unit["configs"]) for unit in units
+    ), "a fixture unit must exercise the ink_deltas branch where only some configs diverge"
+
+
+def _fixture_unit(*, ink_identical: bool) -> dict:
+    """A deep copy of a fixture unit that passes the contract checker as shipped, so a test can break one field, watch the checker complain, and put it back."""
+    return copy.deepcopy(
+        next(unit for unit in _load_fixture_units() if unit["ink_identical"] is ink_identical)
+    )
+
+
+def test_check_unit_requires_a_well_formed_ink_deltas_map():
+    """The persisted per-config delta identity is contract-checked like every other shipped field: present, a mapping, keys drawn from the unit's own configs, values `d-` plus twelve lowercase hex digits. Every break is repaired before the next one, and the repaired unit passes, so no complaint here can be an artifact of a unit that was already failing."""
+    unit = _fixture_unit(ink_identical=False)
+    assert check_unit(unit, "m1-audit") == []
+    good = unit["ink_deltas"]
+    config = next(iter(good))
+
+    missing = {key: value for key, value in unit.items() if key != "ink_deltas"}
+    assert any("ink_deltas" in error for error in check_unit(missing, "m1-audit"))
+
+    for not_a_map in ([[config, good[config]]], good[config], None, 7):
+        unit["ink_deltas"] = not_a_map
+        assert any(
+            "ink_deltas must be a mapping" in error for error in check_unit(unit, "m1-audit")
+        ), not_a_map
+
+    for malformed in ("d-nothex000000", "d-ABCDEF012345", "d-abc", good[config][2:], "", None):
+        unit["ink_deltas"] = {config: malformed}
+        assert any("d- delta digests" in error for error in check_unit(unit, "m1-audit")), malformed
+
+    unit["ink_deltas"] = {"": good[config]}
+    assert any("d- delta digests" in error for error in check_unit(unit, "m1-audit"))
+
+    unit["ink_deltas"] = {**good, "ss99": good[config]}
+    assert any("subset of configs" in error for error in check_unit(unit, "m1-audit"))
+
+    unit["ink_deltas"] = good
+    assert check_unit(unit, "m1-audit") == []
+
+
+def test_check_unit_ties_ink_deltas_emptiness_to_ink_identical():
+    """The map and the flag are two views of one fact, so the checker refuses to ship them disagreeing: a machine-approved ink-identical unit records no delta at all, and a unit whose ink moved records at least one."""
+    identical = _fixture_unit(ink_identical=True)
+    assert check_unit(identical, "m1-audit") == []
+    assert identical["ink_deltas"] == {}
+    identical["ink_deltas"] = {identical["configs"][0]: "d-0123456789ab"}
+    assert any("ink-identical units" in error for error in check_unit(identical, "m1-audit"))
+    identical["ink_deltas"] = {}
+    assert check_unit(identical, "m1-audit") == []
+
+    changed = _fixture_unit(ink_identical=False)
+    assert check_unit(changed, "m1-audit") == []
+    good = changed["ink_deltas"]
+    changed["ink_deltas"] = {}
+    assert any("nonempty ink_deltas" in error for error in check_unit(changed, "m1-audit"))
+    changed["ink_deltas"] = good
+    assert check_unit(changed, "m1-audit") == []
+
+
+def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
+    """The table-diff surface diffs TSV rows rather than rendered ink, so its units carry no per-config deltas; the field is m1-audit's contract alone and its absence must draw no complaint. test_table_diff_build runs the whole checker over a real table-diff build, where every unit lacks it."""
+    unit = _fixture_unit(ink_identical=False)
+    without = {key: value for key, value in unit.items() if key != "ink_deltas"}
+    assert not any("ink_deltas" in error for error in check_unit(without, "table-diff"))
+    assert check_unit(without, "table-diff") == check_unit(unit, "table-diff")
 
 
 def test_full_build_passes_the_contract_checker(built):
@@ -229,6 +299,55 @@ def test_every_built_unit_has_one_render_group_and_a_summary(built):
             assert unit["render_groups"][0]["configs"] == unit["configs"], unit["id"]
             assert unit["summary"].startswith("New: "), unit["id"]
             assert "decided by" in unit["summary"] or "no policy record" in unit["summary"], unit["id"]
+
+
+def test_every_built_unit_carries_its_per_config_ink_deltas(built):
+    """The persisted delta identity over the whole shipped surface: every unit carries the map, every key names one of that unit's own configs, every value is a well-formed digest, and the map is empty on exactly the ink-identical units. This is what a standing-approval rule matches on, so a missing or malformed entry would quietly put a window out of the rules' reach."""
+    out_dir, manifest = built
+    identical = 0
+    changed = 0
+    for meta in manifest["classes"]:
+        for unit in json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8")):
+            deltas = unit["ink_deltas"]
+            assert isinstance(deltas, dict), unit["id"]
+            assert set(deltas) <= set(unit["configs"]), unit["id"]
+            for digest in deltas.values():
+                assert isinstance(digest, str) and len(digest) == 14, unit["id"]
+                assert digest.startswith("d-"), unit["id"]
+                assert all(character in "0123456789abcdef" for character in digest[2:]), unit["id"]
+            if unit["ink_identical"]:
+                assert deltas == {}, unit["id"]
+                identical += 1
+            else:
+                assert deltas, unit["id"]
+                changed += 1
+    assert identical + changed == manifest["totals"]["units"]
+    assert identical > 0 and changed > 0
+
+
+def test_built_ink_deltas_match_the_comparator_recipe(built):
+    """Locks the shipped digests to delta_digest over the same config_diff the cluster signature is built from, so a persisted value really is the delta's identity and a digest blessed once in rebuild/standing-approvals.yaml keeps matching after a rebuild. Sampled like test_cluster_id_recipe_matches_the_docket_tool, since re-shaping every window here would duplicate the build."""
+    out_dir, manifest = built
+    comparator = InkComparator(
+        out_dir / manifest["fonts"]["before"]["file"], out_dir / manifest["fonts"]["after"]["file"]
+    )
+    sampled = 0
+    for meta in manifest["classes"]:
+        units = json.loads((out_dir / meta["shard"]).read_text(encoding="utf-8"))
+        unit = next((entry for entry in units if entry["ink_deltas"]), None)
+        if unit is None:
+            continue
+        text = "".join(chr(int(part, 16)) for part in unit["codepoints"].split(":"))
+        expected = {}
+        for config in unit["configs"]:
+            diff = comparator.config_diff(text, config)
+            if diff != ((), (), 0):
+                expected[config] = delta_digest(diff)
+        assert unit["ink_deltas"] == expected, unit["id"]
+        sampled += 1
+        if sampled == 3:
+            break
+    assert sampled == 3
 
 
 def test_ink_duplicate_siblings_fold_in_the_built_output(built):
@@ -757,6 +876,8 @@ def test_table_diff_build(tmp_path):
     shard = json.loads((out_dir / "units" / "changed.json").read_text(encoding="utf-8"))
     assert len(shard) == 1
     assert shard[0]["class"] == "changed"
+    assert "ink_deltas" not in shard[0]
+    assert check_unit(shard[0], "table-diff") == []
     assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
         shard[0]["provenance"]
     )

@@ -4,6 +4,11 @@
   "batch": 0,
   "ink_identical": false,
   "junior_equivalent": false,
+  "ink_deltas": {
+   "ss03": "d-389ebea7ccc7",
+   "ss02+ss03": "d-389ebea7ccc7",
+   "ss02+ss03+ss05": "d-389ebea7ccc7"
+  },
   "no_verdict": false,
   "echo": "e-0001",
   "cluster": "c-f1a70001",
@@ -133,6 +138,15 @@
   "batch": 0,
   "ink_identical": false,
   "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e77325b1df50",
+   "ss02": "d-e77325b1df50",
+   "ss03": "d-e77325b1df50",
+   "ss04": "d-e77325b1df50",
+   "ss05": "d-e77325b1df50",
+   "ss02+ss03": "d-e77325b1df50",
+   "ss02+ss03+ss05": "d-e77325b1df50"
+  },
   "no_verdict": false,
   "echo": "e-0002",
   "cluster": "c-f1a70012",
@@ -255,6 +269,15 @@
   "batch": 0,
   "ink_identical": false,
   "junior_equivalent": false,
+  "ink_deltas": {
+   "default": "d-e77325b1df50",
+   "ss02": "d-e77325b1df50",
+   "ss03": "d-e77325b1df50",
+   "ss04": "d-e77325b1df50",
+   "ss05": "d-e77325b1df50",
+   "ss02+ss03": "d-e77325b1df50",
+   "ss02+ss03+ss05": "d-e77325b1df50"
+  },
   "no_verdict": false,
   "echo": "e-0003",
   "cluster": "c-f1a70012",
@@ -380,6 +403,7 @@
   "batch": null,
   "ink_identical": true,
   "junior_equivalent": false,
+  "ink_deltas": {},
   "no_verdict": false,
   "echo": null,
   "cluster": null,

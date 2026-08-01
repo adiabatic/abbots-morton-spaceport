@@ -37,7 +37,13 @@ from rebuild.review.audit import (
 )
 from rebuild.review.drafts import Drafter
 from rebuild.review.families import assign_family
-from rebuild.review.ink import JUNIOR_VERIFICATION_METHOD, VERIFICATION_METHOD, InkComparator, JuniorOracle
+from rebuild.review.ink import (
+    JUNIOR_VERIFICATION_METHOD,
+    VERIFICATION_METHOD,
+    InkComparator,
+    JuniorOracle,
+    delta_digest,
+)
 from rebuild.review.enrich import (
     LETTERS,
     EnrichedUnit,
@@ -268,6 +274,7 @@ def unit_to_json(enriched: EnrichedUnit, drafter: Drafter, full_configs=ACCEPTAN
         "batch": unit.batch,
         "ink_identical": unit.ink_identical,
         "junior_equivalent": unit.junior_equivalent,
+        "ink_deltas": dict(unit.ink_deltas),
         "no_verdict": unit.no_verdict,
         "echo": unit.echo,
         "cluster": unit.cluster,
@@ -420,6 +427,11 @@ def _surface_worker(conn, init: dict) -> None:
                     diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
                     unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
                     unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
+                    unit.ink_deltas = {
+                        config: delta_digest(diff)
+                        for config, diff in zip(unit.configs, diffs)
+                        if diff != ((), (), 0)
+                    }
                     enriched = enricher.enrich(unit)
                     retained[unit.unit_id] = enriched
                     family = assign_family(enriched) if unit.class_id == UNMATCHED_CLASS else ""
@@ -705,6 +717,9 @@ def build_m1(
             diffs = tuple(comparator.config_diff(text, config) for config in unit.configs)
             unit.ink_identical = all(diff == ((), (), 0) for diff in diffs)
             unit.junior_equivalent = not unit.ink_identical and oracle.approves(unit.configs, text)
+            unit.ink_deltas = {
+                config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != ((), (), 0)
+            }
             config_diffs[unit.unit_id] = diffs
         total_batches = assign_batches(workload.units, batch_size)
         with warnings.catch_warnings():
@@ -1149,6 +1164,15 @@ def _is_seam(token) -> bool:
     )
 
 
+def _is_delta_digest(token) -> bool:
+    return (
+        isinstance(token, str)
+        and len(token) == 14
+        and token.startswith("d-")
+        and all(ch in "0123456789abcdef" for ch in token[2:])
+    )
+
+
 def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     errors: list[str] = []
     identifier = unit.get("id", "<missing>")
@@ -1160,6 +1184,21 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
     need(isinstance(unit.get("id"), str) and unit.get("id", "").startswith("u-"), "id must look like u-NNNN")
     need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
     need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
+    if mode == "m1-audit":
+        deltas = unit.get("ink_deltas")
+        need(isinstance(deltas, dict), "ink_deltas must be a mapping")
+        if isinstance(deltas, dict):
+            need(
+                all(isinstance(config, str) and config for config in deltas)
+                and all(_is_delta_digest(value) for value in deltas.values()),
+                "ink_deltas must map configs to d- delta digests",
+            )
+            if isinstance(unit.get("configs"), list):
+                need(set(deltas) <= set(unit["configs"]), "ink_deltas keys must be a subset of configs")
+            if unit.get("ink_identical") is True:
+                need(not deltas, "ink-identical units must carry empty ink_deltas")
+            elif unit.get("ink_identical") is False:
+                need(bool(deltas), "units with ink changes must carry a nonempty ink_deltas")
     need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
     if (
         unit.get("ink_identical") is True
