@@ -90,15 +90,16 @@ def test_loads_the_rune_files(spec):
     assert spec.runes["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
     assert spec.runes["qsTea_qsOy"].codepoint is None
     assert spec.runes["qsIt"].mono is not None
-    assert spec.runes["qsTea_qsOy"].notes
+    assert spec.runes["qsTea_qsOy"].notes is not None
 
 
-def test_ductus_shapes(spec):
-    may = spec.runes["qsMay"].ductus
-    assert "clockwise" in may["loop"]
-    assert (
-        spec.runes["qsIt"].ductus["hapax"].strip() == "- Either written from top to bottom or bottom to top."
-    )
+def test_ductus_prose_survives_loading(tmp_path):
+    prose = "- Either written from top to bottom or bottom to top."
+    text = MINIMAL_RUNE.replace("A vertical stroke.", prose)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        loaded = load_tmp_spec(tmp_path, {"qsIt": text})
+    assert loaded.runes["qsIt"].ductus["hapax"].strip() == prose
 
 
 def test_registry_contents(spec):

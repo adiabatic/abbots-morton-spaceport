@@ -2151,6 +2151,18 @@ def test_rebuild_gate_closure_none_outside_git(tmp_path):
     assert ac.rebuild_gate_closure_files(tmp_path) is None
 
 
+def test_rebuild_gate_fingerprint_is_prose_blind_for_runes(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
+    rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
+    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A stroke.\n")
+    before = ac.rebuild_gate_skip_fingerprint(tmp_path)
+    rune.write_text("rune: qsX\nductus:\n  hapax: |\n    A different stroke.\n")
+    assert ac.rebuild_gate_skip_fingerprint(tmp_path) == before
+    rune.write_text("rune: qsY\nductus:\n  hapax: |\n    A different stroke.\n")
+    assert ac.rebuild_gate_skip_fingerprint(tmp_path) != before
+
+
 def test_surface_build_skippable_matches_manifest(tmp_path):
     from rebuild.pipeline import fingerprint
 

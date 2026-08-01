@@ -1,6 +1,7 @@
-"""Tests for the build-input fingerprint module: content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, and the serve.py exclusion."""
+"""Tests for the build-input fingerprint module: content sensitivity, order independence, missing-file tolerance, the stat-based baselines component, the Stage A record round trip, the serve.py exclusion, and the prose-blind rune digest."""
 
 import json
+import textwrap
 
 from rebuild.pipeline import fingerprint
 
@@ -107,3 +108,86 @@ def test_compute_all_covers_every_component_and_isolates_edits(tmp_path):
     assert {key: after[key] for key in fingerprint.COMPONENTS if key != "data"} == {
         key: before[key] for key in fingerprint.COMPONENTS if key != "data"
     }
+
+
+PROSE_RUNE = textwrap.dedent("""\
+    rune: qsPea
+    codepoint: 0xE650
+    ductus:
+      hapax: |
+        A deep stroke, drawn downward.
+    notes: |
+      Cannot join at the x-height twice.
+    stances:
+      hapax:
+        motion: hapax
+        bitmap: ["#", "#"]
+        surface:
+          unlocks:
+          - {feature: ss03, why: original unlock rationale}
+    policy:
+      refuse:
+      - {exit: baseline, why: two verticals render thick}
+      prefer:
+      - {stance: hapax, why: nicer to write}
+    """)
+
+
+def _data_after(root, text):
+    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(text)
+    return fingerprint.data_value(root)
+
+
+def test_data_value_ignores_comments_and_formatting(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, PROSE_RUNE)
+    assert _data_after(root, PROSE_RUNE.replace("ductus:", "ductus: # DRAFT")) == before
+    assert _data_after(root, PROSE_RUNE.replace('bitmap: ["#", "#"]', 'bitmap: [ "#",   "#" ]')) == before
+
+
+def test_data_value_ignores_ductus_prose_but_not_motion_names(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, PROSE_RUNE)
+    assert _data_after(root, PROSE_RUNE.replace("drawn downward", "drawn upward")) == before
+    assert _data_after(root, PROSE_RUNE.replace("ductus:\n  hapax:", "ductus:\n  pole:")) != before
+
+
+def test_data_value_ignores_notes_prose_but_not_notes_presence(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, PROSE_RUNE)
+    assert _data_after(root, PROSE_RUNE.replace("Cannot join", "Must not join")) == before
+    without_notes = PROSE_RUNE.replace("notes: |\n  Cannot join at the x-height twice.\n", "")
+    assert _data_after(root, without_notes) != before
+
+
+def test_data_value_ignores_unquoted_whys_but_not_refuse_why(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, PROSE_RUNE)
+    assert _data_after(root, PROSE_RUNE.replace("nicer to write", "easier to write")) == before
+    assert _data_after(root, PROSE_RUNE.replace("original unlock rationale", "reworded rationale")) == before
+    assert _data_after(root, PROSE_RUNE.replace(", why: nicer to write}", "}")) != before
+    assert _data_after(root, PROSE_RUNE.replace("render thick", "render thin")) != before
+
+
+def test_data_value_tracks_semantic_edits(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, PROSE_RUNE)
+    assert _data_after(root, PROSE_RUNE.replace('bitmap: ["#", "#"]', 'bitmap: ["#", "##"]')) != before
+
+
+def test_data_value_falls_back_to_bytes_on_unparseable_rune(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = _data_after(root, "rune: qsPea\n\t: [broken")
+    assert _data_after(root, "rune: qsPea\n\t: [broken again") != before
+
+
+def test_data_value_tracks_non_rune_data_bytes(tmp_path):
+    root = _fake_repo(tmp_path)
+    before = fingerprint.data_value(root)
+    (root / "rebuild" / "m1-aliases.yaml").write_text("[] # commented\n")
+    assert fingerprint.data_value(root) != before
+
+
+def test_stage_a_data_component_is_the_prose_blind_value(tmp_path):
+    root = _fake_repo(tmp_path)
+    assert fingerprint.stage_a(root)["data"] == fingerprint.data_value(root)
