@@ -174,7 +174,12 @@ policy:
         - qsYe
         - qsOwe
         - qsFoot
-  prefer: []
+  prefer:
+  - stance: half
+    when:
+      right:
+        family: qsIt
+        then: {family: qsEt}
   extend:
   - entry: baseline
     by: 1
