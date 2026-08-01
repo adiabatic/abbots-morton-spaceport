@@ -184,6 +184,11 @@ policy:
         - qsKey
         - qsJay
         - qsEight
+  - exit: baseline
+    by: 1
+    when:
+      right: {family: qsRoe}
+    why: The new way is generally better but I want one pixel of extension between ·Tea and ·Roe
   contract:
   - exit: x-height
     by: 1
