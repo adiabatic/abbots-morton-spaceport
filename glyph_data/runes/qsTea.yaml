@@ -188,7 +188,7 @@ policy:
     by: 1
     when:
       right: {family: qsRoe}
-    why: The new way is generally better but I want one pixel of extension between ·Tea and ·Roe
+    why: For ·Tea.!half ~b~ ·Roe, I want one pixel of extension so only the bottom part of ·Roe connects to ·Tea — not both sides
   contract:
   - exit: x-height
     by: 1
