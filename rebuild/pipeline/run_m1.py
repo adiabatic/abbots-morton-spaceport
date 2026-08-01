@@ -21,6 +21,7 @@ from typing import Callable, Mapping
 import yaml
 
 from rebuild.pipeline import (
+    baseline_subset,
     compile_font,
     conform,
     defects,
@@ -488,6 +489,12 @@ def main(argv: list[str] | None = None) -> None:
     def run_m1_key() -> str:
         return run_m1_skip_fingerprint(REPO_ROOT)
 
+    start = time.perf_counter()
+    refiltered = baseline_subset.ensure_fresh(REPO_ROOT)
+    print(
+        f"[t] baseline_subset {time.perf_counter() - start:.1f}s ({'refiltered' if refiltered else 'fresh'})",
+        flush=True,
+    )
     inputs = fingerprint.tables_value(REPO_ROOT)
     spec = load_default_spec()
     before = run_m1_key()
