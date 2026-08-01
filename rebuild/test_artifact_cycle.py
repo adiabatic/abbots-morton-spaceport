@@ -135,6 +135,58 @@ def test_classify_hard_for_unknown():
     assert ac.classify_rebuild_failure("rebuild/test_review_autosave.py::test_y", update_pins=False) == "hard"
 
 
+def test_classify_update_pins_remembers_census_failures_as_forgivable():
+    """Under --update-pins the census-pinned FAILED ids are hard at classification time (the gate may have read the final pins), but they are remembered so the join can forgive them once the census step is known to have moved the pins mid-run. A collection ERROR in a census module is never forgivable — it wouldn't be a hint on a --check run either."""
+    stdout = "\n".join(
+        [
+            "FAILED rebuild/test_review_build.py::test_totals_pinned",
+            "FAILED rebuild/test_settle.py::test_x",
+            "ERROR rebuild/test_review_ink.py::test_y",
+        ]
+    )
+    outcome = ac.classify_rebuild_output(stdout, 1, update_pins=True)
+    assert outcome.status == "FAILED (3 unexplained)"
+    assert outcome.forgivable_ids == ["rebuild/test_review_build.py::test_totals_pinned"]
+    forgiven = ac.forgive_census_race(outcome)
+    assert forgiven.status == "FAILED (2 unexplained)"
+    assert forgiven.hard_ids == ["rebuild/test_settle.py::test_x", "rebuild/test_review_ink.py::test_y"]
+
+
+def test_forgive_census_race_turns_a_pure_race_green_but_unrecordable():
+    baseline_id = sorted(ac.BASELINE_REBUILD_FAILURES)[0]
+    stdout = "\n".join([f"FAILED {baseline_id}", "FAILED rebuild/test_review_build.py::test_totals_pinned"])
+    forgiven = ac.forgive_census_race(ac.classify_rebuild_output(stdout, 1, update_pins=True))
+    assert forgiven.status.startswith("green")
+    assert "documented baseline" in forgiven.status
+    assert "raced the pin refresh" in forgiven.status
+    assert forgiven.failures == []
+    assert forgiven.hard_ids == []
+    assert not forgiven.recordable
+
+
+def test_classify_a_failed_and_errored_census_id_is_never_forgivable():
+    """A census-pinned test that FAILs and then ERRORs in teardown appears under both markers with one id; forgiving the FAILED copy would mask the teardown crash, so the id is excluded from forgivable_ids and both copies stay hard."""
+    stdout = "\n".join(
+        [
+            "FAILED rebuild/test_review_build.py::test_totals_pinned",
+            "ERROR rebuild/test_review_build.py::test_totals_pinned",
+        ]
+    )
+    outcome = ac.classify_rebuild_output(stdout, 1, update_pins=True)
+    assert outcome.forgivable_ids == []
+    assert outcome.status == "FAILED (2 unexplained)"
+    assert ac.forgive_census_race(outcome) is outcome
+
+
+def test_forgive_census_race_is_a_no_op_without_forgivable_ids():
+    hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, update_pins=True)
+    assert ac.forgive_census_race(hard) is hard
+    checked = ac.classify_rebuild_output(
+        "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=False
+    )
+    assert ac.forgive_census_race(checked) is checked
+
+
 def test_dry_run_plan_default():
     plan = ac.build_plan(
         verdicts=Path("verdicts-X.json"),
@@ -2748,6 +2800,95 @@ def test_classify_rebuild_recordable_only_when_unannotated():
     assert not hinted.recordable
     hard = ac.classify_rebuild_output("FAILED rebuild/test_settle.py::test_x", 1, update_pins=False)
     assert not hard.recordable
+
+
+def _raced_rebuild(pool_policy, make_fut, spawn, emit, registry, update_pins):
+    return ac.classify_rebuild_output(
+        "FAILED rebuild/test_review_build.py::test_totals_pinned", 1, update_pins=update_pins
+    )
+
+
+def test_update_pins_cycle_forgives_census_failures_when_pins_moved(monkeypatch, tmp_path, capsys):
+    """The race the ss02-removal cycle hit: gate:rebuild's pytest pool read the pre-update pins, the census step then re-baselined them, and the cycle failed on phantom hard failures that passed on re-run. With the pins provably moved mid-run, those failures are hints — reported, unrecordable, not red."""
+    pins = tmp_path / "review-census-pins.json"
+    pins.write_text('{"old": 1}')
+    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+
+    def census_update(*, spawn, emit, registry, update_pins, surface, **_):
+        pins.write_text('{"new": 2}')
+        return "updated (diff shown above — review every moved number)"
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_update)
+
+    plan = _plan(update_pins=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 0
+    assert report.gate_rebuild.startswith("green")
+    assert "raced the pin refresh" in report.gate_rebuild
+    assert report.rebuild_recordable is False
+    assert "census-pinned failure forgiven" in capsys.readouterr().out
+
+
+def test_update_pins_cycle_never_forgives_when_the_census_update_failed(monkeypatch, tmp_path, capsys):
+    """A census update that dies mid-write moves the pins digest without earning any amnesty: the pins on disk may be truncated and the gate's census failures are unproven either way, so the cycle must stay red rather than exit 0 over a corrupt tracked pins file."""
+    pins = tmp_path / "review-census-pins.json"
+    pins.write_text('{"old": 1}')
+    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+
+    def census_dies_mid_write(*, spawn, emit, registry, update_pins, surface, **_):
+        pins.write_text('{"trunc')
+        return "update FAILED"
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_dies_mid_write)
+
+    plan = _plan(update_pins=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    assert report.gate_rebuild == "FAILED (1 unexplained)"
+    assert "census-pinned failure forgiven" not in capsys.readouterr().out
+
+
+def test_update_pins_cycle_keeps_census_failures_hard_when_pins_unmoved(monkeypatch, tmp_path, capsys):
+    """The amnesty's complement: when --update-pins rewrote identical pin content, the gate read the pins that are still on disk, so a census-module failure is genuine and fails the cycle."""
+    pins = tmp_path / "review-census-pins.json"
+    pins.write_text('{"same": 1}')
+    monkeypatch.setattr(ac, "CENSUS_PINS", pins)
+
+    def census_rewrite_identical(*, spawn, emit, registry, update_pins, surface, **_):
+        pins.write_text('{"same": 1}')
+        return "updated (no change)"
+
+    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
+    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_rebuild_task", _raced_rebuild)
+    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
+    _patch_build_chain(monkeypatch)
+    monkeypatch.setattr(ac, "_do_census", census_rewrite_identical)
+
+    plan = _plan(update_pins=True)
+    report = ac.CycleReport()
+    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
+
+    assert rc == 1
+    assert report.gate_rebuild == "FAILED (1 unexplained)"
+    assert "rebuild suite: 1 unexplained failure(s)" in capsys.readouterr().out
 
 
 def test_do_census_records_clean_green_and_clears_on_stale(monkeypatch, tmp_path):

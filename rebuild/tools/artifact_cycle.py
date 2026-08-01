@@ -1187,13 +1187,44 @@ class RebuildOutcome:
     failures: list[str]
     hard_ids: list[str]
     recordable: bool = False
+    baseline_ids: list[str] = field(default_factory=list)
+    forgivable_ids: list[str] = field(default_factory=list)
 
 
 _ANSI_SGR = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
+_STALE_PINS_NOTE = "stale census pins? (re-run with --update-pins)"
+_RACED_PINS_NOTE = (
+    "census-pinned failure(s) raced the pin refresh (the gate read the pre-update pins; re-run to verify)"
+)
+
+
+def _rebuild_verdict(
+    baseline: list[str], census: list[str], hard: list[str], census_note: str, forgivable: list[str]
+) -> RebuildOutcome:
+    failures: list[str] = []
+    if hard:
+        status = f"FAILED ({len(hard)} unexplained)"
+        failures.append(f"rebuild suite: {len(hard)} unexplained failure(s)")
+    else:
+        parts = []
+        if baseline:
+            parts.append(f"{len(baseline)} documented baseline")
+        if census:
+            parts.append(f"{len(census)} {census_note}")
+        status = "green" if not parts else "green (" + ", ".join(parts) + ")"
+    return RebuildOutcome(
+        status=status,
+        failures=failures,
+        hard_ids=list(hard),
+        recordable=not hard and not census,
+        baseline_ids=list(baseline),
+        forgivable_ids=list(forgivable),
+    )
+
 
 def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> RebuildOutcome:
-    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure."""
+    """Bucket the rebuild suite's FAILED/ERROR summary lines into baseline / census-hint / hard and turn them into a gate verdict — the one judgment of the suite's output, shared by the cycle's gate:rebuild and the interactive wrapper (rebuild.tools.rebuild_gate). pytest emits ANSI color whenever FORCE_COLOR is set (as it is under the agent harness), wrapping each summary line in escape codes, so strip those first — otherwise no line begins with a literal "FAILED "/"ERROR ", the documented baseline can't be subtracted, and every colored run reads as an unexplained hard failure. On an --update-pins run the census-pinned FAILED ids land in hard but are also remembered as forgivable_ids: the gate races the census refresh, so the cycle re-judges them through forgive_census_race once it knows whether the pins actually moved mid-run."""
     lines = [_ANSI_SGR.sub("", line) for line in stdout.splitlines()]
     failed_ids = [line.split(None, 2)[1] for line in lines if line.startswith("FAILED ")]
     error_ids = [line.split(None, 2)[1] for line in lines if line.startswith("ERROR ")]
@@ -1203,21 +1234,29 @@ def classify_rebuild_output(stdout: str, returncode: int, update_pins: bool) -> 
     buckets["hard"].extend(error_ids)
     if returncode != 0 and not failed_ids and not error_ids:
         buckets["hard"].append(f"pytest exited {returncode} with no parsed FAILED/ERROR lines")
-    failures: list[str] = []
-    if buckets["hard"]:
-        status = f"FAILED ({len(buckets['hard'])} unexplained)"
-        failures.append(f"rebuild suite: {len(buckets['hard'])} unexplained failure(s)")
-    else:
-        parts = []
-        if buckets["baseline"]:
-            parts.append(f"{len(buckets['baseline'])} documented baseline")
-        if buckets["census-hint"]:
-            parts.append(f"{len(buckets['census-hint'])} stale census pins? (re-run with --update-pins)")
-        status = "green" if not parts else "green (" + ", ".join(parts) + ")"
-    recordable = not buckets["hard"] and not buckets["census-hint"]
-    return RebuildOutcome(
-        status=status, failures=failures, hard_ids=list(buckets["hard"]), recordable=recordable
+    errored = set(error_ids)
+    forgivable = (
+        [
+            tid
+            for tid in failed_ids
+            if tid not in errored and classify_rebuild_failure(tid, update_pins=False) == "census-hint"
+        ]
+        if update_pins
+        else []
     )
+    return _rebuild_verdict(
+        buckets["baseline"], buckets["census-hint"], buckets["hard"], _STALE_PINS_NOTE, forgivable
+    )
+
+
+def forgive_census_race(outcome: RebuildOutcome) -> RebuildOutcome:
+    """The --update-pins race amnesty, applied at gate join once the census step is known to have moved the pins while the gates ran: gate:rebuild's pytest pool starts as soon as the run_m1 gate passes, so it can read the pre-update pins, and a census-pinned module's failure then proves nothing about the pins now on disk. Those failures get the same census-hint treatment they get without --update-pins — reported as hints, never recorded green — while every other hard failure stays hard. Only the FAILED ids the no-update-pins classifier would itself forgive are eligible (forgivable_ids), so a collection ERROR in a census module stays hard here exactly as it would on a --check run, and an id that both FAILED and ERRORed in one run (a teardown crash) is never forgivable — both copies stay hard rather than letting the FAILED copy's amnesty mask the crash."""
+    forgivable = set(outcome.forgivable_ids)
+    forgiven = [tid for tid in outcome.hard_ids if tid in forgivable]
+    if not forgiven:
+        return outcome
+    hard = [tid for tid in outcome.hard_ids if tid not in forgivable]
+    return _rebuild_verdict(outcome.baseline_ids, forgiven, hard, _RACED_PINS_NOTE, [])
 
 
 def _do_run_m1(
@@ -1413,6 +1452,14 @@ def _do_standing_merge(
     return result.returncode == 0
 
 
+def _pins_digest() -> str | None:
+    """The census pins' content identity, None when the file is absent or unreadable. The cycle captures it just before submitting gate:rebuild and again after the census step; a change between the two means --update-pins actually moved the pins while the gates ran, which is what arms forgive_census_race. A git diff cannot stand in for this — pins left dirty by an earlier run would read as moved even when this cycle's update rewrote identical content, forgiving a genuine failure."""
+    try:
+        return hashlib.sha256(CENSUS_PINS.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
 def _do_census(
     *,
     spawn,
@@ -1422,7 +1469,7 @@ def _do_census(
     surface: Path,
     record: bool = False,
 ) -> str:
-    """Check (or re-baseline) the census pins, and keep census-green.json honest: a clean check records the key it checked, --update records the key over the pins it just wrote (they are current by construction), and a stale check whose key matches the record deletes the falsified green. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes)."""
+    """Check (or re-baseline) the census pins, and keep census-green.json honest: a clean check records the key it checked, --update records the key over the pins it just wrote (they are current by construction), and a stale check whose key matches the record deletes the falsified green. The key is computed before a --check spawn (the check mutates nothing) but after an --update (which rewrites the pins the key hashes). The "updated" prefix on the two success statuses is load-bearing: the cycle arms forgive_census_race only when it sees it alongside a moved pins digest, so a census update that died mid-write — digest moved, pins possibly truncated — never forgives the gate's census failures."""
     if update_pins:
         census = spawn(
             "census",
@@ -1561,6 +1608,8 @@ def _join_gates(
     make_fut: Future | None,
     update_pins: bool,
     emit: _Emitter,
+    *,
+    pins_moved: bool = False,
 ) -> None:
     if js_fut is not None:
         js = _gate_result(js_fut, "gate:js", failures)
@@ -1575,6 +1624,12 @@ def _join_gates(
         if outcome is None:
             report.gate_rebuild = "FAILED (exception)"
         else:
+            if update_pins and pins_moved:
+                reclassified = forgive_census_race(outcome)
+                for test_id in outcome.hard_ids:
+                    if test_id not in reclassified.hard_ids:
+                        emit.emit(f"  census-pinned failure forgiven (raced the pin refresh): {test_id}")
+                outcome = reclassified
             report.gate_rebuild = outcome.status
             report.rebuild_recordable = outcome.recordable
             for test_id in outcome.hard_ids:
@@ -1680,6 +1735,7 @@ def _run_cycle(
                 gate_keys["conform"] = conform_skip_fingerprint(ROOT, plan.conform_horizon)
             if not plan.skip_rebuild_gate and not defer_rebuild:
                 gate_keys["rebuild"] = rebuild_gate_skip_fingerprint(ROOT) or ""
+        pins_before = _pins_digest() if plan.update_pins else None
         if not plan.skip_gates:
             if not plan.skip_rebuild_gate and not defer_rebuild:
                 rebuild_fut = pool.submit(
@@ -1759,7 +1815,20 @@ def _run_cycle(
         else:
             report.complaints_status = _do_complaints(spawn=spawn, emit=emit, registry=registry)
 
-        _join_gates(report, failures, js_fut, rebuild_fut, conform_fut, make_fut, plan.update_pins, emit)
+        pins_moved = (
+            plan.update_pins and report.census_status.startswith("updated") and _pins_digest() != pins_before
+        )
+        _join_gates(
+            report,
+            failures,
+            js_fut,
+            rebuild_fut,
+            conform_fut,
+            make_fut,
+            plan.update_pins,
+            emit,
+            pins_moved=pins_moved,
+        )
         _record_gate_greens(report, plan, gate_keys, emit)
         return _finish(report, failures, plan)
     except KeyboardInterrupt:
