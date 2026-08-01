@@ -1,9 +1,9 @@
 rune: qsRoe
 codepoint: 0xE668
 ductus:
-  hapax: | # DRAFT — pending author sign-off
-    - Begun at the left along the x-height, the stroke runs rightward, bends down around a shallow bowl on the right, and comes back leftward along the baseline.
-    - Or the same letter drawn the other way round: begun at the left along the baseline, bending up around the bowl and finishing leftward along the x-height.
+  hapax: |
+    - Begun at the left at the x-height, the stroke runs rightward, bends down around a shallow bowl on the right, and comes back leftward along the baseline.
+    - Or the same letter drawn the other way round: begun at the left at the baseline, bending up around the bowl, and finishing leftward along the x-height.
     - Either way, when the next letter is to be joined the closing arm turns back out to the right instead of stopping short — running under the bowl when the stroke ends at the baseline, and over it when the stroke ends at the x-height.
 notes: |
   ·Roe is one stroke between two tips on the left, so whichever tip receives the join, the other is the one that carries on: entering and leaving at the same height is not a shape ·Roe has.
