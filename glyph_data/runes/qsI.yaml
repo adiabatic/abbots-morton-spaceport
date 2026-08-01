@@ -53,7 +53,6 @@ stances:
           - {family: qsPea}
           - {family: qsTea}
           - {family: qsMay}
-          - {family: qsRoe}
           - {family: qsIt}
       exits:
         x-height:
@@ -68,12 +67,12 @@ policy:
   - smaller-loop
   refuse: []
   prefer:
+  # qsRoe left this record by reject verdict: "actually, the smaller-loop ·I is unnecessary here (after ·Roe)"
   - stance: smaller-loop
     when:
       left:
         family:
         - qsPea
-        - qsRoe
         joined_at: baseline
   - stance: smaller-loop
     when:
