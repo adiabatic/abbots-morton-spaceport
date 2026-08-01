@@ -5,6 +5,7 @@ Scratch for the ·Roe migration. Delete when the batch closes, lifting any survi
 ## Committed
 
 - 56f0e27 — ·I keeps its regular loop after ·Roe (the sitting's first reject; ·Pea/·Tea/·May/·It still get the smaller loop)
+- 71afaa3 — the full-height ·Tea·Roe baseline join carries a pixel of extension (the sitting's ·X·Fee·Tea·Roe rejects; pair-level, so ·I·Tea·Roe and the stale July approvals re-queue)
 
 ## Parked
 
