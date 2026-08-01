@@ -119,6 +119,10 @@ def run_main(repo, monkeypatch, capsys, *extra):
     return capsys.readouterr().out
 
 
+def worklist_url(out):
+    return next(line for line in out.splitlines() if line.startswith("http://localhost:"))
+
+
 def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
     write_surface(
         repo,
@@ -130,7 +134,7 @@ def test_main_prints_the_order_given_worklist_url(repo, monkeypatch, capsys):
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)
     assert "2 blank units collapse to 2 echo groups" in out
-    url = out.strip().splitlines()[-1]
+    url = worklist_url(out)
     assert url.startswith("http://localhost:")
     assert url.endswith("&order=given")
     assert {"u-0001", "u-0002"} == set(url.split("#units=")[1].split("&")[0].split(","))
@@ -148,7 +152,7 @@ def test_main_limit_emits_a_prefix(repo, monkeypatch, capsys):
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys, "--limit", "2")
     assert "emitting the first 2 reps" in out
-    assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 2
+    assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 2
 
 
 def test_main_defaults_to_a_forty_rep_sitting(repo, monkeypatch, capsys):
@@ -156,7 +160,7 @@ def test_main_defaults_to_a_forty_rep_sitting(repo, monkeypatch, capsys):
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys)
     assert "emitting the first 40 reps" in out
-    assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 40
+    assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 40
 
 
 def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
@@ -164,7 +168,7 @@ def test_main_limit_zero_emits_the_whole_queue(repo, monkeypatch, capsys):
     write_verdicts(repo, [])
     out = run_main(repo, monkeypatch, capsys, "--limit", "0")
     assert "echo-fills the rest" in out
-    assert len(out.strip().splitlines()[-1].split("#units=")[1].split("&")[0].split(",")) == 45
+    assert len(worklist_url(out).split("#units=")[1].split("&")[0].split(",")) == 45
 
 
 def test_main_refuses_a_verdicts_file_for_another_manifest(repo, monkeypatch, capsys):
