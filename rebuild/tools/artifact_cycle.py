@@ -201,6 +201,18 @@ def _sha256_path(path: Path) -> str:
         return "absent"
 
 
+def _closure_digest(root: Path, rel: str) -> str:
+    """Rune YAMLs hash by their prose-blind digest (fingerprint.rune_file_digest) so a documentation edit does not re-run the gate; the two spec_load tests that read the live rune files assert only field presence, never prose, which is what keeps the exclusion sound."""
+    from rebuild.pipeline import fingerprint
+
+    if rel.startswith("glyph_data/runes/") and rel.endswith(".yaml"):
+        try:
+            return fingerprint.rune_file_digest(root / rel)
+        except OSError:
+            return "absent"
+    return _sha256_path(root / rel)
+
+
 def _digest_lines(lines: list[str]) -> str:
     digest = hashlib.sha256()
     for line in lines:
@@ -281,7 +293,7 @@ def rebuild_gate_skip_fingerprint(root: Path = ROOT) -> str | None:
     if files is None:
         return None
     m1 = root / "rebuild" / "out" / "m1"
-    lines = [f"{rel}\t{_sha256_path(root / rel)}" for rel in files]
+    lines = [f"{rel}\t{_closure_digest(root, rel)}" for rel in files]
     lines += [f"m1/{name}\t{_sha256_path(m1 / name)}" for name in M1_ARTIFACT_NAMES]
     lines += [f"m1/{path.name}\t{_sha256_path(path)}" for path in _subset_tables(root)]
     lines.append(f"fonts\t{fingerprint.hash_paths(root, fingerprint.font_paths(root))}")
