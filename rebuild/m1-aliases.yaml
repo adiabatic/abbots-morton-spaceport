@@ -72,6 +72,20 @@ qsLow: {rune: qsLow, stance: hapax}
 qsLow.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [ex-ext-1]}
 qsLow.noentry: {rune: qsLow, stance: hapax, adjustments: [locked]}
 qsLow.noentry.ex-ext-1: {rune: qsLow, stance: hapax, exit: x-height, adjustments: [locked, ex-ext-1]}
+qsRoe: {rune: qsRoe, stance: hapax}
+qsRoe.en-ext-1-at-0: {rune: qsRoe, stance: hapax, entry: baseline, adjustments: [en-ext-1]}
+qsRoe.en-ext-1-at-5: {rune: qsRoe, stance: hapax, entry: x-height, adjustments: [en-ext-1]}
+qsRoe.en-y0.ex-y5: {rune: qsRoe, stance: hapax, entry: baseline, exit: x-height}
+qsRoe.en-y0.ex-y5.en-ext-1-at-0: {rune: qsRoe, stance: hapax, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
+qsRoe.en-y0.ex-y5.noentry: {rune: qsRoe, stance: hapax, exit: x-height, adjustments: [locked]}
+qsRoe.en-y5: {rune: qsRoe, stance: hapax, entry: x-height}
+qsRoe.en-y5.en-con-1: {rune: qsRoe, stance: hapax, entry: x-height, adjustments: [en-con-1]}
+qsRoe.ex-y0: {rune: qsRoe, stance: hapax, exit: baseline}
+qsRoe.ex-y0.en-ext-1-at-5: {rune: qsRoe, stance: hapax, entry: x-height, exit: baseline, adjustments: [en-ext-1]}
+qsRoe.ex-y0.ex-ext-1: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: [ex-ext-1]}
+qsRoe.ex-y0.noentry: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: [locked]}
+qsRoe.ex-y0.noentry.ex-ext-1: {rune: qsRoe, stance: hapax, exit: baseline, adjustments: [locked, ex-ext-1]}
+qsRoe.noentry: {rune: qsRoe, stance: hapax, adjustments: [locked]}
 qsIt: {rune: qsIt, stance: hapax}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: hapax, entry: baseline, exit: x-height}
 qsIt.en-y5.ex-y0: {rune: qsIt, stance: hapax, entry: x-height, exit: baseline}

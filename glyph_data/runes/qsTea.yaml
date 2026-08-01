@@ -152,6 +152,10 @@ policy:
         - qsExam
         - qsIt
     why: ·Tea and ·It are both vertical, and two adjacent verticals joined at the baseline render as one extra-thick stroke.
+  - exit: baseline
+    when:
+      self: {entry: none}
+      right: {family: qsRoe}
   - stance: half
     entry: x-height
     when:

@@ -305,3 +305,63 @@
   why: ·Ah entered at the baseline keeps the same x-height terminal on a declined exit.
 - signature: dangle:qsAh.hapax.locked:exit:x-height
   why: The ZWNJ-locked twin of ·Ah's x-height terminal; identical drawing.
+
+- signature: dangle:qsRoe.hapax:exit:baseline
+  why: ·Roe is one stroke between two arm tips on the left, and each tip ends three columns short of the exit anchor on its own row — the arms are the letter, not a reach, and the shipped font draws no withdrawn ·Roe at all. `verify_withdrawal_safe`'s vertical-continuation test cannot tell, because the bowl leaves each arm one row in and one column out, so a horizontal tip never continues into the row above or below. Every `dangle:qsRoe.*` signature here is that same pair of tips seen on a different cell.
+- signature: dangle:qsRoe.hapax:exit:x-height
+  why: The upper arm's tip on the isolated drawing.
+- signature: dangle:qsRoe.hapax.en-y0:exit:baseline
+  why: ·Roe entered at the baseline keeps both arm tips on a declined exit.
+- signature: dangle:qsRoe.hapax.en-y0:exit:x-height
+  why: The upper arm's tip on the baseline-entered cell.
+- signature: dangle:qsRoe.hapax.en-y0.en-ext-1:exit:baseline
+  why: The extended baseline entry lengthens the lower arm at its root, not at its tip.
+- signature: dangle:qsRoe.hapax.en-y0.en-ext-1:exit:x-height
+  why: The upper arm's tip on the entry-extended baseline cell.
+- signature: dangle:qsRoe.hapax.en-y0.ex-y5:exit:baseline
+  why: With the upper arm run out over the bowl, the lower arm's tip is the one left dangling.
+- signature: dangle:qsRoe.hapax.en-y0.ex-y5.en-ext-1:exit:baseline
+  why: The same lower-arm tip with the baseline entry extended.
+- signature: dangle:qsRoe.hapax.en-y5:exit:baseline
+  why: ·Roe entered at the x-height keeps both arm tips on a declined exit.
+- signature: dangle:qsRoe.hapax.en-y5:exit:x-height
+  why: The upper arm's tip on the x-height-entered cell; the predecessor lands on that tip, it does not reach past it.
+- signature: dangle:qsRoe.hapax.en-y5.en-con-1:exit:baseline
+  why: The contracted x-height entry pulls the upper arm back a column; the lower arm's tip is untouched.
+- signature: dangle:qsRoe.hapax.en-y5.en-con-1:exit:x-height
+  why: The pulled-back upper arm still ends horizontally, so the safety test reads it exactly as it reads the unpulled one.
+- signature: dangle:qsRoe.hapax.en-y5.en-ext-1:exit:baseline
+  why: The extended x-height entry lengthens the upper arm at its root; the lower arm's tip is unchanged.
+- signature: dangle:qsRoe.hapax.en-y5.en-ext-1:exit:x-height
+  why: The upper arm's tip on the entry-extended x-height cell.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0:exit:x-height
+  why: With the lower arm run out under the bowl, the upper arm's tip is the one left dangling.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0.en-con-1:exit:x-height
+  why: The same upper-arm tip, pulled back a column by the contracted entry.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0.en-con-1.ex-ext-1:exit:x-height
+  why: The pulled-back upper-arm tip with the baseline exit reaching a further column toward ·Low or ·I.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0.en-ext-1:exit:x-height
+  why: The same upper-arm tip with the x-height entry extended.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0.en-ext-1.ex-ext-1:exit:x-height
+  why: Both sides adjusted at once; neither touches the upper arm's tip.
+- signature: dangle:qsRoe.hapax.en-y5.ex-y0.ex-ext-1:exit:x-height
+  why: The upper arm's tip while the baseline exit reaches the extra column.
+- signature: dangle:qsRoe.hapax.ex-y0:exit:x-height
+  why: Word-initial ·Roe running its lower arm out under the bowl; the upper arm's tip is the dangling one.
+- signature: dangle:qsRoe.hapax.ex-y0.ex-ext-1:exit:x-height
+  why: The same, with the baseline exit reaching the extra column.
+- signature: dangle:qsRoe.hapax.ex-y0.locked:exit:x-height
+  why: The ZWNJ-locked twin of the word-initial baseline-exiting cell; identical drawing.
+- signature: dangle:qsRoe.hapax.ex-y0.locked.ex-ext-1:exit:x-height
+  why: The locked twin with the extended baseline exit.
+- signature: dangle:qsRoe.hapax.ex-y5:exit:baseline
+  why: Word-initial ·Roe running its upper arm out over the bowl; the lower arm's tip is the dangling one.
+- signature: dangle:qsRoe.hapax.ex-y5.locked:exit:baseline
+  why: The ZWNJ-locked twin of the word-initial x-height-exiting cell; identical drawing.
+- signature: dangle:qsRoe.hapax.locked:exit:baseline
+  why: The ZWNJ-locked twin of the isolated drawing; both tips as drawn.
+- signature: dangle:qsRoe.hapax.locked:exit:x-height
+  why: The upper arm's tip on the locked twin.
+
+- signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.hapax.en-y0:y5
+  why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (baseline row E658:E652:E668 under ss03, seams y5,y0). ·Roe's upper arm starts in the column beside the bar at y5 — the corner the shipped font already draws there. Without ss03 the bar stops at the x-height instead, and qsTea's own refusal keeps the unentered full bar out of ·Roe entirely.
