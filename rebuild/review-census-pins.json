@@ -1,102 +1,130 @@
 {
   "_surface": {
-    "generated_at": "2026-07-31T23:38:44Z",
-    "repo_head": "27a0c14"
+    "generated_at": "2026-08-01T09:56:10Z",
+    "repo_head": "02774ad"
   },
   "manifest": {
     "totals": {
-      "units": 82449,
-      "rows": 284163,
-      "batches": 50,
-      "echo_groups": 1652
+      "units": 110609,
+      "rows": 373851,
+      "batches": 62,
+      "echo_groups": 1960
     },
-    "classes_count": 27,
+    "classes_count": 28,
     "machine_approved": {
-      "units": 63127,
+      "units": 87214,
       "by_class": {
-        "boundary-echo": 18979,
-        "dangling-anchor-dropped": 12333,
-        "bare-name-live-join": 13397,
-        "ss10-isolation-completed": 12798,
-        "ss10-ligature-suppressed": 1143,
-        "kern-channel-out-of-scope": 949,
-        "deferred-ss10": 3528
+        "boundary-echo": 24762,
+        "dangling-anchor-dropped": 16046,
+        "bare-name-live-join": 19605,
+        "ss10-isolation-completed": 17641,
+        "ss10-ligature-suppressed": 1315,
+        "kern-channel-out-of-scope": 1283,
+        "deferred-ss10": 6562
       }
     },
     "class_unit_count": {
-      "boundary-echo": 23185,
-      "dangling-anchor-dropped": 12794,
-      "bare-name-live-join": 15202
+      "boundary-echo": 29668,
+      "dangling-anchor-dropped": 16858,
+      "bare-name-live-join": 21755
     },
     "secondary_seams": {
-      "units_with_markers": 7592,
-      "seams_homed": 4058,
-      "seams_homeless": 4164,
+      "units_with_markers": 11569,
+      "seams_homed": 7057,
+      "seams_homeless": 5538,
       "seams_suppressed_invisible": 0
     }
   },
   "built": {
-    "human_units": 14981,
+    "human_units": 18319,
     "config_note_distribution": [
       [
         null,
-        46200
+        60405
       ],
       [
         "only under ss10",
-        24290
+        34979
       ],
       [
         "only when ss03 is off",
-        3342
+        3761
       ],
       [
         "only when ss03 is off and ss04 is off",
-        66
+        73
+      ],
+      [
+        "only when ss03 is off and ss05 is off",
+        12
       ],
       [
         "only when ss03 is on",
-        4914
+        5518
+      ],
+      [
+        "only when ss03 is on and ss05 is off",
+        10
+      ],
+      [
+        "only when ss03 is on and ss05 is on",
+        10
       ],
       [
         "only when ss04 is off",
-        1750
+        2160
+      ],
+      [
+        "only when ss04 is off and ss05 is off",
+        5
       ],
       [
         "only when ss04 is on",
-        1887
+        2310
+      ],
+      [
+        "only when ss05 is off",
+        658
+      ],
+      [
+        "only when ss05 is on",
+        696
+      ],
+      [
+        "only when ss05 is on and ss03 is off",
+        12
       ]
     ]
   },
   "audit": {
-    "row_count": 284163,
-    "units": 83900
+    "row_count": 373851,
+    "units": 112421
   },
   "ink": {
-    "machine_total": 40048,
-    "non_identical": 43852,
+    "machine_total": 53775,
+    "non_identical": 58646,
     "by_class": {
-      "boundary-echo": 13689,
-      "dangling-anchor-dropped": 12962,
-      "bare-name-live-join": 13397
+      "boundary-echo": 17364,
+      "dangling-anchor-dropped": 16806,
+      "bare-name-live-join": 19605
     },
-    "boundary_echo_exempt": 10228,
-    "human_units": 33624,
-    "batches": 113
+    "boundary_echo_exempt": 13261,
+    "human_units": 45385,
+    "batches": 152
   },
   "families": {
     "census": {
-      "no-chain-gains": 338,
-      "tea-it-xheight": 78,
-      "oy-it-baseline": 22,
-      "may-utter-gains": 227,
-      "seam-loss-withdrawal": 1232,
-      "extension-non-summing": 3055,
-      "unmatched-misc": 774,
-      "deferred-ss04": 980,
-      "deferred-ss10": 3528,
-      "deferred-ss03": 988
+      "no-chain-gains": 377,
+      "tea-it-xheight": 81,
+      "oy-it-baseline": 24,
+      "may-utter-gains": 242,
+      "seam-loss-withdrawal": 1357,
+      "extension-non-summing": 3373,
+      "unmatched-misc": 1261,
+      "deferred-ss04": 1165,
+      "deferred-ss10": 6562,
+      "deferred-ss03": 1254
     },
-    "total": 11222
+    "total": 15696
   }
 }
