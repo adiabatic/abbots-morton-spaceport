@@ -34,6 +34,7 @@ from rebuild.validation.rowmodel import CONFIGS, Row, iter_rows
 
 if TYPE_CHECKING:
     from rebuild.pipeline.emit_gsub import _FoldedRule
+    from rebuild.pipeline.settle import Engine, RightToken
     from rebuild.pipeline.table import Rule, Window
 
 ZWNJ = "\u200c"
@@ -384,56 +385,50 @@ def isolated_overlay_names(spec: ResolvedSpec, settled: Iterable) -> list[str]:
     return names
 
 
+_BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
+
+
 def raw_labels(spec: ResolvedSpec, text: str, features: frozenset[str]) -> list[str]:
     """The raw GSUB pipeline replay: formation (delegated to settle.form_ligatures, so the section 5.7 late-formation guard applies here exactly as in the kernel and the emitted lookup), marker fold, ZWNJ chokepoint — the labels the settlement lookup sees."""
+    from rebuild.pipeline import settle as settle_module
+
     by_codepoint = {
         info.codepoint: name for name, info in spec.registry.families.items() if info.codepoint is not None
     }
     boundary_by_codepoint = {token.codepoint: name for name, token in spec.registry.boundary_tokens.items()}
-    tokens: list[str] = []
+    tokens: list[RightToken] = []
     for ch in text:
         cp = ord(ch)
         if cp in boundary_by_codepoint:
-            tokens.append(f"<{boundary_by_codepoint[cp]}>")
+            tokens.append(settle_module.RightToken(boundary_by_codepoint[cp]))
         elif cp in by_codepoint:
-            tokens.append(by_codepoint[cp])
+            tokens.append(settle_module.RightToken("letter", by_codepoint[cp]))
         else:
             raise ValueError(f"U+{cp:04X} outside the spec alphabet")
-    from rebuild.pipeline import settle as settle_module
+    return _formed_labels(spec, settle_module.form_ligatures(spec, tokens), features)
 
-    boundary_tokens = {
-        "<space>": settle_module.SPACE,
-        "<zwnj>": settle_module.ZWNJ,
-        "<namer-dot>": settle_module.NAMER_DOT,
-    }
-    boundary_names = {"space": "<space>", "zwnj": "<zwnj>", "namer-dot": "<namer-dot>"}
-    right_tokens = [boundary_tokens.get(token, settle_module.RightToken("letter", token)) for token in tokens]
-    formed = [
-        boundary_names[token.kind] if token.kind != "letter" else token.letter
-        for token in settle_module.form_ligatures(spec, right_tokens)
-    ]
+
+def _formed_labels(spec: ResolvedSpec, formed: list[RightToken], features: frozenset[str]) -> list[str]:
+    """The post-formation stream's labels in the config's renamed space: marker fold, then the ZWNJ chokepoint's `.noentry` suffix on entry-bearing letters. Interned, so the window keys built from millions of texts share one string object per label instead of holding a fresh fold per text alive."""
     labels: list[str] = []
     for position, token in enumerate(formed):
-        if token == "<space>":
-            labels.append("space")
-        elif token == "<zwnj>":
-            labels.append("uni200C")
-        elif token == "<namer-dot>":
-            labels.append("periodcentered")
-        else:
-            rune = spec.runes.get(token)
-            label = token
-            if rune is not None:
-                relevant = frozenset(relevant_marker_features(rune)) & features
-                label = marker_glyph_name(token, relevant)
-            if (
-                position > 0
-                and formed[position - 1] == "<zwnj>"
-                and rune is not None
-                and any(stance.surface.entries for stance in rune.stances.values())
-            ):
-                label = f"{label}.noentry"
-            labels.append(label)
+        if token.kind != "letter":
+            labels.append(_BOUNDARY_KIND_LABELS[token.kind])
+            continue
+        name = token.letter
+        rune = spec.runes.get(name)
+        label = name
+        if rune is not None:
+            relevant = frozenset(relevant_marker_features(rune)) & features
+            label = marker_glyph_name(name, relevant)
+        if (
+            position > 0
+            and formed[position - 1].kind == "zwnj"
+            and rune is not None
+            and any(stance.surface.entries for stance in rune.stances.values())
+        ):
+            label = f"{label}.noentry"
+        labels.append(sys.intern(label))
     return labels
 
 
@@ -533,6 +528,75 @@ def merge_boundary_results(font_path: Path, results: Iterable[BoundaryConfigResu
     return report
 
 
+_WINDOW_BOUNDARIES = frozenset({"space", "uni200C", "periodcentered"})
+_EDGE_LABEL = "#EDGE"
+_NA_LABEL = "#NA"
+
+
+def _window_rights(
+    labels: list[str],
+    index: int,
+    deep: frozenset[str],
+    deep3_live: Callable[[str, str, str], bool],
+    deep4: frozenset[str],
+    deep4_live: Callable[[str, str, str, str], bool],
+) -> tuple[str, str, str, str]:
+    """The normalized lookahead slots of the settlement window at `index`: right2 is #NA past a boundary or the edge, and the deep slots open only where the table enumerates them — a depth-3-/depth-4-bearing input whose own-rune chain is still live over the nearer slots (`deep3_live` / `deep4_live`, the table's `third_slot_filter` / `fourth_slot_filter`). Shared by `_matched_windows` and `_SettledWindowWalk` so the replay, the memo key, and the table agree on which slots a window carries."""
+    label = labels[index]
+    right1 = labels[index + 1] if index + 1 < len(labels) else _EDGE_LABEL
+    right2 = (
+        _NA_LABEL
+        if right1 in _WINDOW_BOUNDARIES or right1 == _EDGE_LABEL
+        else (labels[index + 2] if index + 2 < len(labels) else _EDGE_LABEL)
+    )
+    right3 = (
+        _NA_LABEL
+        if right2 in _WINDOW_BOUNDARIES
+        or right2 in (_EDGE_LABEL, _NA_LABEL)
+        or _label_family(label) not in deep
+        or not deep3_live(_label_family(label), _label_family(right1), _label_family(right2))
+        else (labels[index + 3] if index + 3 < len(labels) else _EDGE_LABEL)
+    )
+    right4 = (
+        _NA_LABEL
+        if right3 in _WINDOW_BOUNDARIES
+        or right3 in (_EDGE_LABEL, _NA_LABEL)
+        or _label_family(label) not in deep4
+        or not deep4_live(
+            _label_family(label), _label_family(right1), _label_family(right2), _label_family(right3)
+        )
+        else (labels[index + 4] if index + 4 < len(labels) else _EDGE_LABEL)
+    )
+    return right1, right2, right3, right4
+
+
+def _first_matching_rule(
+    rules_by_input: Mapping[str, list[tuple[int, Rule | _FoldedRule]]],
+    label: str,
+    left: str,
+    right1: str,
+    right2: str,
+    right3: str,
+    right4: str,
+) -> int | None:
+    """First-match-wins over the config's renamed rules for one window — the exact semantics the emitted FEA compiles to."""
+    for rule_index, rule in rules_by_input.get(label, ()):
+        if rule.backtrack is not None and left not in rule.backtrack:
+            continue
+        if rule.look1 is not None and right1 not in rule.look1:
+            continue
+        if rule.look2 is not None and right2 not in rule.look2:
+            continue
+        look3 = getattr(rule, "look3", None)
+        if look3 is not None and right3 not in look3:
+            continue
+        look4 = getattr(rule, "look4", None)
+        if look4 is not None and right4 not in look4:
+            continue
+        return rule_index
+    return None
+
+
 def _matched_windows(
     spec, text, features, expected, rules_by_input, deep=None, deep3_live=None, deep4=None, deep4_live=None
 ):
@@ -554,58 +618,17 @@ def _matched_windows(
     settled = normalize_expected(list(expected))
     if len(labels) != len(settled):
         return
-    boundaries = {"space", "uni200C", "periodcentered"}
-    edge = "#EDGE"
-    na = "#NA"
     for index, label in enumerate(labels):
-        if label in boundaries:
+        if label in _WINDOW_BOUNDARIES:
             continue
         if index == 0:
-            left = edge
-        elif labels[index - 1] in boundaries:
+            left = _EDGE_LABEL
+        elif labels[index - 1] in _WINDOW_BOUNDARIES:
             left = labels[index - 1]
         else:
             left = settled[index - 1]
-        right1 = labels[index + 1] if index + 1 < len(labels) else edge
-        right2 = (
-            na
-            if right1 in boundaries or right1 == edge
-            else (labels[index + 2] if index + 2 < len(labels) else edge)
-        )
-        right3 = (
-            na
-            if right2 in boundaries
-            or right2 in (edge, na)
-            or _label_family(label) not in deep
-            or not deep3_live(_label_family(label), _label_family(right1), _label_family(right2))
-            else (labels[index + 3] if index + 3 < len(labels) else edge)
-        )
-        right4 = (
-            na
-            if right3 in boundaries
-            or right3 in (edge, na)
-            or _label_family(label) not in deep4
-            or not deep4_live(
-                _label_family(label), _label_family(right1), _label_family(right2), _label_family(right3)
-            )
-            else (labels[index + 4] if index + 4 < len(labels) else edge)
-        )
-        matched = None
-        for rule_index, rule in rules_by_input.get(label, ()):
-            if rule.backtrack is not None and left not in rule.backtrack:
-                continue
-            if rule.look1 is not None and right1 not in rule.look1:
-                continue
-            if rule.look2 is not None and right2 not in rule.look2:
-                continue
-            look3 = getattr(rule, "look3", None)
-            if look3 is not None and right3 not in look3:
-                continue
-            look4 = getattr(rule, "look4", None)
-            if look4 is not None and right4 not in look4:
-                continue
-            matched = rule_index
-            break
+        right1, right2, right3, right4 = _window_rights(labels, index, deep, deep3_live, deep4, deep4_live)
+        matched = _first_matching_rule(rules_by_input, label, left, right1, right2, right3, right4)
         yield index, (label, left, right1, right2, right3, right4), matched
 
 
@@ -622,6 +645,89 @@ def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[in
 
 def _label_family(label: str) -> str:
     return label.split(".")[0]
+
+
+class _SettledWindowWalk:
+    """The memoized settle-and-replay walk one conformance config runs over every swept text: a single left-to-right pass computes each letter slot's normalized window key — exactly `_matched_windows`' slots, with the left read from the just-settled stream — and resolves it through `windows`, a window -> (Settled, glyph name, first-matching rule index) memo, calling `engine.transition_trace` only on a miss; the memoized Settled feeds the next slot's left exactly as `settle_traces` does. Sound because every memoized outcome is a pure function of the normalized window: the left label is the settled cell's glyph name (injective over every CellId field, whether minted by `cell_label` or `geometry.display_name`), and the deep slots blank only where the table's own relevance filters prove no own-rune chain can read them — the same rules the build's partition gates assert. The memo thereby inherits the table's enumeration assumption: a record shape that read a token through a normalized-away slot (none exists today — no `then` hop follows an `is:` boundary condition) would settle wrongly only via each window's first-reached representative rather than diverging on every text, so the walk-equivalence sweeps in rebuild/test_conform.py are the alarm that must move first. A hit skips `transition_trace` and so stops re-recording into `engine.fired`, which the conform run never reads. `windows` doubles as the sweep's realized-window record — its keys are precisely the distinct windows the walk has settled — so it is deliberately unbounded: coverage bookkeeping needs every key anyway, and the interned labels plus deduplicated outcome tuples keep the residual cost to the key tuples themselves."""
+
+    def __init__(
+        self,
+        spec: ResolvedSpec,
+        engine: Engine,
+        features: frozenset[str],
+        rules_by_input: Mapping[str, list[tuple[int, Rule | _FoldedRule]]],
+        deep: frozenset[str],
+        deep3_live: Callable[[str, str, str], bool],
+        deep4: frozenset[str],
+        deep4_live: Callable[[str, str, str, str], bool],
+        glyph_names: Mapping[CellId, str],
+    ):
+        self.spec = spec
+        self.engine = engine
+        self.features = features
+        self.rules_by_input = rules_by_input
+        self.deep = deep
+        self.deep3_live = deep3_live
+        self.deep4 = deep4
+        self.deep4_live = deep4_live
+        self.glyph_names = glyph_names
+        self.windows: dict[tuple[str, str, str, str, str, str], tuple[Settled, str, int | None]] = {}
+        self._outcomes: dict[tuple[Settled, str, int | None], tuple[Settled, str, int | None]] = {}
+
+    def walk(self, text: str) -> tuple[list[Settled], list[str], list[int | None]]:
+        """Settle one text through the memo. Returns (settled items, their glyph names, the first-matching rule index per slot — None on boundary slots and unmatched windows)."""
+        from rebuild.pipeline import settle as settle_module
+
+        spec = self.spec
+        tokens = settle_module.form_ligatures(
+            spec, settle_module.tokens_from_codepoints(spec, [ord(ch) for ch in text])
+        )
+        labels = _formed_labels(spec, tokens, self.features)
+        settled: list[Settled] = []
+        names: list[str] = []
+        matched_rules: list[int | None] = []
+        left_context = settle_module.LeftContext("edge")
+        for index, token in enumerate(tokens):
+            if token.kind != "letter":
+                settled.append(settle_module.boundary_settled(token.kind))
+                names.append(_BOUNDARY_KIND_LABELS[token.kind])
+                matched_rules.append(None)
+                left_context = settle_module.LeftContext(token.kind)
+                continue
+            label = labels[index]
+            if index == 0:
+                left = _EDGE_LABEL
+            elif labels[index - 1] in _WINDOW_BOUNDARIES:
+                left = labels[index - 1]
+            else:
+                left = names[index - 1]
+            right1, right2, right3, right4 = _window_rights(
+                labels, index, self.deep, self.deep3_live, self.deep4, self.deep4_live
+            )
+            window = (label, left, right1, right2, right3, right4)
+            outcome = self.windows.get(window)
+            if outcome is None:
+                item = self.engine.transition_trace(
+                    left_context,
+                    token,
+                    tokens[index + 1] if index + 1 < len(tokens) else settle_module.EDGE,
+                    tokens[index + 2] if index + 2 < len(tokens) else settle_module.EDGE,
+                    tokens[index + 3] if index + 3 < len(tokens) else settle_module.EDGE,
+                    tokens[index + 4] if index + 4 < len(tokens) else settle_module.EDGE,
+                ).settled
+                name = self.glyph_names.get(item.cell) or geometry.display_name(spec, item.cell)
+                matched = _first_matching_rule(
+                    self.rules_by_input, label, left, right1, right2, right3, right4
+                )
+                fresh = (item, name, matched)
+                outcome = self._outcomes.setdefault(fresh, fresh)
+                self.windows[window] = outcome
+            item, name, matched = outcome
+            settled.append(item)
+            names.append(name)
+            matched_rules.append(matched)
+            left_context = settle_module.LeftContext("letter", item)
+        return settled, names, matched_rules
 
 
 def _token_text(spec: ResolvedSpec, tokens: Iterable[str]) -> str:
@@ -1083,7 +1189,7 @@ def _conformance_config(
     max_length: int,
     decision=None,
 ) -> ConformanceConfigResult:
-    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Callers that already hold this config's decision table pass it as `decision`; the fixpoint rebuild here is only the standalone fallback."""
+    """One config's whole conformance run: the exhaustive length-1..max_length sweep, then the witness top-ups for rules and decision-table transitions the sweep never fired. Configs share nothing, so this is the unit both the serial wrapper and the process-pool worker call. Settlement and the rule replay ride `_SettledWindowWalk`'s per-config memo, so the sweep's redundant windows cost dict probes rather than transitions, and the realized-window record is the memo itself. Callers that already hold this config's decision table pass it as `decision`; the fixpoint rebuild here is only the standalone fallback."""
     from rebuild.pipeline import settle as settle_module
     from rebuild.pipeline import table as table_module
     from rebuild.pipeline.emit_gsub import _raw_rename_map
@@ -1107,7 +1213,11 @@ def _conformance_config(
     deep4_live = table_module.fourth_slot_filter(spec, features, engine)
     modes: set[str] = set()
     rules_hit: set[int] = set()
-    realized: set[tuple[str, str, str, str, str, str]] = set()
+    overlay = isolated_overlay_active(spec, features)
+    walker = _SettledWindowWalk(
+        spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, glyph_names
+    )
+    realized = walker.windows
 
     def sweep_text(text: str) -> None:
         shaped = shaper.shape(text, features)
@@ -1115,21 +1225,12 @@ def _conformance_config(
         check_zwnj_structure(text, config, shaper, shaped, result.divergences)
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, result.divergences, splitters)
-        settled = settle_module.settle_with_engine(engine, [ord(ch) for ch in text])
-        expected_cells = settled_names(spec, settled, glyph_names)
-        if isolated_overlay_active(spec, features):
-            expected = isolated_overlay_names(spec, settled)
-        else:
-            expected = expected_cells
+        settled, expected_cells, matched_rules = walker.walk(text)
+        expected = isolated_overlay_names(spec, settled) if overlay else expected_cells
         check_oracle(text, config, shaped, expected, result.divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, result.divergences)
-        for _position, window, matched in _matched_windows(
-            spec, text, features, expected_cells, rules_by_input, deep, deep3_live, deep4, deep4_live
-        ):
-            realized.add(window)
-            if matched is not None:
-                rules_hit.add(matched)
+        rules_hit.update(index for index in matched_rules if index is not None)
 
     for length in range(1, max_length + 1):
         for combo in itertools.product(alphabet, repeat=length):

@@ -1,4 +1,4 @@
-"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, and the subset-identity assertion. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
+"""Conformance-module helper tests: normalization, the raw-pipeline replay, alias/ledger plumbing, kern evaluation, the subset-identity assertion, and the memoized settled-window walk's equivalence to the unmemoized pair it replaced. The font-facing sweep itself runs in run_m1 (it needs settle/table and the compiled mini-font)."""
 
 import gzip
 from collections.abc import Sequence
@@ -482,3 +482,67 @@ class TestRawLabelsLateFormation:
             "qsLow",
         ]
         assert conform.raw_labels(real_spec, day + utter, frozenset()) == ["qsDay_qsUtter"]
+
+
+class TestSettledWindowWalk:
+    """The memoized walk must be observationally identical to the pair it replaced — settle_with_engine for the stream, _matched_windows for the windows and first-matching rules. Over-normalizing the memo key is the one real bug class (a key that blanks a slot the kernel can still read replays a wrong hit somewhere), so both sweeps run exhaustively, the walk reusing its memo from the second text on while the reference path recomputes every text fresh."""
+
+    def _assert_walk_matches(self, spec, features, rules_by_input, alphabet, max_length):
+        import itertools
+
+        from rebuild.pipeline import settle as settle_module
+        from rebuild.pipeline import table as table_module
+
+        engine = settle_module.Engine(spec, features)
+        deep = table_module.depth3_inputs(spec)
+        deep3_live = table_module.third_slot_filter(spec, features, engine)
+        deep4 = table_module.depth4_inputs(spec)
+        deep4_live = table_module.fourth_slot_filter(spec, features, engine)
+        walker = conform._SettledWindowWalk(
+            spec, engine, features, rules_by_input, deep, deep3_live, deep4, deep4_live, {}
+        )
+        reference = settle_module.Engine(spec, features)
+        for length in range(1, max_length + 1):
+            for combo in itertools.product(alphabet, repeat=length):
+                text = "".join(combo)
+                settled, names, matched_rules = walker.walk(text)
+                expected = settle_module.settle_with_engine(reference, [ord(ch) for ch in text])
+                assert settled == expected, text
+                assert names == conform.settled_names(spec, expected, None), text
+                replayed = {
+                    index: (window, matched)
+                    for index, window, matched in conform._matched_windows(
+                        spec, text, features, names, rules_by_input, deep, deep3_live, deep4, deep4_live
+                    )
+                }
+                for index in range(len(settled)):
+                    if index in replayed:
+                        window, matched = replayed[index]
+                        assert matched_rules[index] == matched, (text, index)
+                        assert window in walker.windows, (text, index)
+                    else:
+                        assert matched_rules[index] is None, (text, index)
+
+    @pytest.mark.parametrize(
+        "features",
+        [frozenset(), frozenset({"ss03"}), frozenset({"ss02", "ss03"})],
+        ids=["default", "ss03", "ss02+ss03"],
+    )
+    def test_the_walk_matches_the_unmemoized_pair_over_the_mini_alphabet(self, spec, features):
+        from rebuild.pipeline.table import build_tables
+
+        decision = build_tables(spec, features)[0]
+        rules_by_input = conform._renamed_rules_by_input(spec, features, decision)
+        self._assert_walk_matches(spec, features, rules_by_input, conform.spec_alphabet(spec), 4)
+
+    def test_deep_slot_keys_replay_the_real_chains(self):
+        """The mini spec carries no depth-3 or depth-4 prefers, so the deep-slot arm of the key normalization runs against the real spec: the deep inputs' chain letters plus a boundary, swept to length 5 so right3 and right4 both open. Rules are omitted — the real fixpoint is far too heavy for a unit test — so `matched` is vacuously None on both paths and the assertion weight rides the settled stream and the window keys."""
+        import warnings
+
+        from rebuild.pipeline.spec_load import load_default_spec
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            real_spec = load_default_spec()
+        alphabet = tuple(chr(cp) for cp in (0x0020, 0xE652, 0xE653, 0xE665, 0xE666, 0xE679, 0xE67A))
+        self._assert_walk_matches(real_spec, frozenset(), {}, alphabet, 5)
