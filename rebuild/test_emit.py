@@ -296,7 +296,24 @@ class TestLateFormationGuardLines:
         definition = next(
             line for line in registry.definitions if line.startswith("@m1_form_guard_qsDay_qsUtter ")
         )
-        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow qsSee];"
+        assert definition == "@m1_form_guard_qsDay_qsUtter = [qsAh qsI qsLow];"
+        see_released = [
+            "    ignore sub qsDay' qsUtter' qsSee uni200C;",
+            "    sub qsDay' qsUtter' qsSee qsLow by qsDay_qsUtter;",
+            "    sub qsDay' qsUtter' qsSee qsUtter by qsDay_qsUtter;",
+        ]
+        for line in see_released:
+            assert line in guarded
+        assert guarded.index(see_released[0]) < guarded.index(see_released[1])
+        assert guarded.index(see_released[2]) < guarded.index(
+            "    ignore sub qsDay' qsUtter' @m1_form_guard_qsDay_qsUtter;"
+        )
+        blanket = "    ignore sub qsDay' qsUtter' qsSee;"
+        assert blanket in guarded
+        assert guarded.index(blanket) > guarded.index(see_released[2])
+        assert guarded.index(blanket) < guarded.index("    sub qsDay' qsUtter' by qsDay_qsUtter;")
+        assert "ignore sub qsDay' qsUtter' qsSee;" in ignores
+        assert "ignore sub qsDay' qsUtter' qsSee uni200C;" in ignores
 
     def test_partial_second_slot_guard_gets_a_two_slot_ignore(self, real_spec):
         registry = emit_gsub._ClassRegistry()
